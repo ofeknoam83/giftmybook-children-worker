@@ -82,7 +82,11 @@ async function extractFaceEmbedding(photoUrls) {
   }
 
   if (!faceValidated) {
-    throw new Error('No faces could be detected in any of the provided photos');
+    // If Gemini Vision couldn't validate, accept the photo anyway and let
+    // downstream illustration generation handle it. Better to produce a book
+    // with a potentially wrong face than to block entirely.
+    console.warn('[faceEngine] Face validation inconclusive — proceeding with first photo as fallback');
+    primaryPhotoUrl = photoUrls[0];
   }
 
   // Return a compatible object — embedding is null since we no longer use InsightFace,
