@@ -1,0 +1,80 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: gen-lang-client-0521120270
+  REGION: europe-west1
+  SERVICE: giftmybook-children-worker
+  REPOSITORY: giftmybook-children-worker
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --source . \
+            --project ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --no-invoker-iam-check \
+            --quiet
+
+      - name: Route all traffic to latest
+        run: |
+          gcloud run services update-traffic ${{ env.SERVICE }} \
+            --to-latest \
+            --project ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }}
+
+      - name: Clean up old revisions
+        run: |
+          # Keep only the active revision, delete all others
+          OLD_REVISIONS=$(gcloud run revisions list \
+            --service ${{ env.SERVICE }} \
+            --project ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --format="value(name)" | tail -n +2)
+          
+          if [ -n "$OLD_REVISIONS" ]; then
+            echo "Deleting old revisions..."
+            echo "$OLD_REVISIONS" | while read -r rev; do
+              echo "  Deleting $rev"
+              gcloud run revisions delete "$rev" \
+                --project ${{ env.PROJECT_ID }} \
+                --region ${{ env.REGION }} \
+                --quiet || true
+            done
+          else
+            echo "No old revisions to clean up"
+          fi
+
+      - name: Verify deployment
+        run: |
+          ACTIVE=$(gcloud run revisions list \
+            --service ${{ env.SERVICE }} \
+            --project ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --filter="status.conditions.type=Active AND status.conditions.status=True" \
+            --format="value(name)" \
+            --limit=1)
+          echo "✅ Active revision: $ACTIVE"
