@@ -63,7 +63,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     ],
     response_format: { type: 'json_object' },
     temperature: 0.8,
-    max_completion_tokens: 4000,
+    max_completion_tokens: 8000,
   });
   } catch (apiErr) {
     console.error('[storyPlanner] OpenAI API call failed:', apiErr.message, apiErr.status || '', apiErr.code || '');
@@ -76,18 +76,17 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   const choice = response.choices[0];
   const content = choice?.message?.content;
+  const finishReason = choice?.finish_reason || 'unknown';
   if (!content) {
-    const finishReason = choice?.finish_reason || 'unknown';
     const refusal = choice?.message?.refusal || null;
     console.error('[storyPlanner] Empty response details:', JSON.stringify({
-      finishReason,
-      refusal,
-      messageRole: choice?.message?.role,
-      hasContent: !!content,
-      usage: response.usage,
-      model: response.model,
+      finishReason, refusal, usage: response.usage, model: response.model,
     }));
     throw new Error(`Empty response from story planner (finish_reason: ${finishReason}, refusal: ${refusal || 'none'})`);
+  }
+  // If truncated by length, try to salvage partial JSON
+  if (finishReason === 'length') {
+    console.warn(`[storyPlanner] Response truncated (finish_reason: length, ${content.length} chars). Attempting to salvage...`);
   }
   console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${choice.finish_reason}`);
 
@@ -160,7 +159,7 @@ Return a JSON object with a "spreads" array. Each item must have "spreadNumber" 
     ],
     response_format: { type: 'json_object' },
     temperature: 0.7,
-    max_completion_tokens: 3000,
+    max_completion_tokens: 6000,
   });
 
   if (costTracker) {
