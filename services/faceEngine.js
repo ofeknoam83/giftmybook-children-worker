@@ -128,7 +128,7 @@ Professional character design sheet, turnaround sheet style.`;
 
   // Use Flux with IP-Adapter to maintain face likeness
   const output = await runModel(
-    'lucataco/flux-dev-multi-lora:2389224e115448d9a77c07d7d45672b3f0aa45acacf1c5b89f15c1a02db04c4e',
+    'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352',
     {
       prompt,
       negative_prompt: 'photorealistic photo, dark, scary, multiple characters, text, words',

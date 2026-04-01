@@ -65,7 +65,7 @@ async function generateWithFace(prompt, faceImageUrl, opts = {}) {
   // IP-Adapter FaceID model on Replicate
   // This model takes a face reference and generates images maintaining that face identity
   const output = await runModel(
-    'lucataco/ip-adapter-faceid:default',
+    'lucataco/ip-adapter-faceid:fb81ef963e74776af72e6f380949013533d46dd5c6228a9e586c57db6303d7cd',
     {
       prompt,
       face_image: faceImageUrl,

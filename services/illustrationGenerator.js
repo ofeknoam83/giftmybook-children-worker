@@ -65,7 +65,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       // Use Flux.1 with IP-Adapter FaceID for face-consistent generation
-      const modelId = 'lucataco/flux-dev-multi-lora:2389224e115448d9a77c07d7d45672b3f0aa45acacf1c5b89f15c1a02db04c4e';
+      const modelId = 'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352';
 
       const input = {
         prompt: fullPrompt,
