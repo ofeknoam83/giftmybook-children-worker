@@ -4,6 +4,7 @@
 
 const THROTTLE_MS = 10_000; // 10 seconds between progress updates
 const lastReportTimes = new Map();
+const API_KEY = process.env.API_KEY || '';
 
 /**
  * Report generation progress to the standalone app (throttled).
@@ -23,7 +24,7 @@ async function reportProgress(callbackUrl, data) {
   try {
     await fetch(callbackUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify(data),
     });
   } catch (err) {
@@ -42,7 +43,7 @@ async function reportProgressForce(callbackUrl, data) {
   try {
     await fetch(callbackUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify(data),
     });
   } catch (err) {
@@ -61,7 +62,7 @@ async function reportComplete(callbackUrl, data) {
   try {
     await fetch(callbackUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify({ ...data, success: true }),
     });
     console.log(`[ProgressReporter] Reported completion for ${data.bookId}`);
@@ -81,7 +82,7 @@ async function reportError(callbackUrl, data) {
   try {
     await fetch(callbackUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify({ ...data, success: false }),
     });
     console.log(`[ProgressReporter] Reported error for ${data.bookId}`);
