@@ -90,7 +90,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         continue;
       }
 
-      const imageUrl = Array.isArray(output) ? output[0] : output;
+      let imageUrl = Array.isArray(output) ? output[0] : output;
+      if (typeof imageUrl === "object" && imageUrl.url) imageUrl = imageUrl.url();
+      if (typeof imageUrl !== "string") imageUrl = String(imageUrl);
 
       if (costTracker) {
         costTracker.addImageGeneration('flux-dev', 1);

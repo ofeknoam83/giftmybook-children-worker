@@ -80,7 +80,8 @@ async function generateWithFace(prompt, faceImageUrl, opts = {}) {
     { timeout: opts.timeout },
   );
 
-  return Array.isArray(output) ? output : [output];
+  const results = Array.isArray(output) ? output : [output];
+  return results.map(r => (typeof r === 'object' && r.url) ? r.url() : (typeof r !== 'string' ? String(r) : r));
 }
 
 /**
@@ -105,7 +106,8 @@ async function generateImage(prompt, opts = {}) {
     { timeout: opts.timeout },
   );
 
-  return Array.isArray(output) ? output : [output];
+  const results = Array.isArray(output) ? output : [output];
+  return results.map(r => (typeof r === 'object' && r.url) ? r.url() : (typeof r !== 'string' ? String(r) : r));
 }
 
 /**

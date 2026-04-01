@@ -143,12 +143,15 @@ Professional character design sheet, turnaround sheet style.`;
     { timeout: 120000 }
   );
 
-  const refUrl = Array.isArray(output) ? output[0] : output;
+  let refUrl = Array.isArray(output) ? output[0] : output;
   if (!refUrl) {
     throw new Error('Character reference generation returned empty result');
   }
+  // Replicate SDK v1.x returns FileOutput objects — convert to string URL
+  if (typeof refUrl === 'object' && refUrl.url) refUrl = refUrl.url();
+  if (typeof refUrl !== 'string') refUrl = String(refUrl);
 
-  console.log(`[faceEngine] Character reference sheet generated`);
+  console.log(`[faceEngine] Character reference sheet generated: ${refUrl.slice(0, 100)}...`);
   return refUrl;
 }
 
