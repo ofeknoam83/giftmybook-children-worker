@@ -85,7 +85,7 @@ Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words.
       { role: 'user', content: userPrompt },
     ],
     temperature: 0.7,
-    max_tokens: 500,
+    max_completion_tokens: 500,
   });
 
   if (costTracker) {

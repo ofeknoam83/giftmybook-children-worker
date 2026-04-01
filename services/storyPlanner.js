@@ -60,7 +60,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     ],
     response_format: { type: 'json_object' },
     temperature: 0.8,
-    max_tokens: 4000,
+    max_completion_tokens: 4000,
   });
 
   if (costTracker) {
@@ -141,7 +141,7 @@ Return a JSON object with a "spreads" array. Each item must have "spreadNumber" 
     ],
     response_format: { type: 'json_object' },
     temperature: 0.7,
-    max_tokens: 3000,
+    max_completion_tokens: 3000,
   });
 
   if (costTracker) {
