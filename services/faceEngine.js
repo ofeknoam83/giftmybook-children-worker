@@ -23,64 +23,73 @@ async function extractFaceEmbedding(photoUrls) {
     throw new Error('At least one photo URL is required for face extraction');
   }
 
-  console.log(`[faceEngine] Extracting face embedding from ${photoUrls.length} photo(s)`);
+  console.log(`[faceEngine] Validating face in ${photoUrls.length} photo(s) via Gemini Vision`);
 
-  const embeddings = [];
   let primaryPhotoUrl = photoUrls[0];
+  let faceValidated = false;
+
+  // Use Gemini Vision to validate a face exists in the photos
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('[faceEngine] No GEMINI_API_KEY — skipping face validation, using first photo');
+    return { embedding: null, faceCount: 1, primaryPhotoUrl };
+  }
 
   for (const photoUrl of photoUrls) {
     try {
-      // Use InsightFace face analysis model on Replicate
-      const output = await runModel(
-        'daanelson/insightface:f6b8b0a5ad07053f0d4c9e400525fa85fba1c3a2ea1a78c4f1b97139b6576d6e',
-        {
-          image: photoUrl,
-          return_embeddings: true,
-        },
-        { timeout: 60000 }
-      );
+      // Download the image and send to Gemini Vision
+      const imgResp = await fetch(photoUrl);
+      if (!imgResp.ok) {
+        console.warn(`[faceEngine] Failed to download photo: ${imgResp.status}`);
+        continue;
+      }
+      const imgBuffer = Buffer.from(await imgResp.arrayBuffer());
+      const base64 = imgBuffer.toString('base64');
+      const mimeType = imgResp.headers.get('content-type') || 'image/jpeg';
 
-      if (output && output.faces && output.faces.length > 0) {
-        // Take the largest face (most likely the child, not background people)
-        const sortedFaces = output.faces.sort((a, b) => {
-          const areaA = (a.bbox[2] - a.bbox[0]) * (a.bbox[3] - a.bbox[1]);
-          const areaB = (b.bbox[2] - b.bbox[0]) * (b.bbox[3] - b.bbox[1]);
-          return areaB - areaA;
-        });
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: 'Is there a clear human face visible in this photo? Reply with only "YES" or "NO".' },
+              { inline_data: { mime_type: mimeType, data: base64 } },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 10, temperature: 0 },
+        }),
+      });
 
-        const primaryFace = sortedFaces[0];
-        if (primaryFace.embedding) {
-          embeddings.push(primaryFace.embedding);
+      if (resp.ok) {
+        const result = await resp.json();
+        const answer = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase() || '';
+        if (answer.includes('YES')) {
+          faceValidated = true;
+          primaryPhotoUrl = photoUrl;
+          console.log(`[faceEngine] Face validated in photo via Gemini Vision`);
+          break;
+        } else {
+          console.warn(`[faceEngine] No face detected in photo by Gemini Vision: ${answer}`);
         }
-
-        console.log(`[faceEngine] Found ${output.faces.length} face(s) in photo, using largest`);
       } else {
-        console.warn(`[faceEngine] No faces detected in photo: ${photoUrl}`);
+        console.warn(`[faceEngine] Gemini Vision API error: ${resp.status}`);
       }
     } catch (err) {
-      console.warn(`[faceEngine] Failed to process photo ${photoUrl}: ${err.message}`);
+      console.warn(`[faceEngine] Failed to validate photo ${photoUrl}: ${err.message}`);
     }
   }
 
-  if (embeddings.length === 0) {
+  if (!faceValidated) {
     throw new Error('No faces could be detected in any of the provided photos');
   }
 
-  // Average the embeddings from multiple photos for better representation
-  const avgEmbedding = embeddings[0].map((_, i) => {
-    const sum = embeddings.reduce((acc, emb) => acc + emb[i], 0);
-    return sum / embeddings.length;
-  });
-
-  // Normalize the averaged embedding
-  const magnitude = Math.sqrt(avgEmbedding.reduce((sum, val) => sum + val * val, 0));
-  const normalizedEmbedding = avgEmbedding.map(val => val / magnitude);
-
-  console.log(`[faceEngine] Face embedding extracted from ${embeddings.length} photo(s), dimension: ${normalizedEmbedding.length}`);
-
+  // Return a compatible object — embedding is null since we no longer use InsightFace,
+  // but primaryPhotoUrl is set for character reference generation
   return {
-    embedding: normalizedEmbedding,
-    faceCount: embeddings.length,
+    embedding: null,
+    faceCount: 1,
     primaryPhotoUrl,
   };
 }
@@ -150,48 +159,11 @@ Professional character design sheet, turnaround sheet style.`;
  * @returns {Promise<number>} Similarity score from 0 to 1
  */
 async function verifyFaceConsistency(generatedImageUrl, referenceEmbedding) {
-  if (!referenceEmbedding || !referenceEmbedding.embedding) {
-    throw new Error('Reference embedding is required for face consistency check');
-  }
-
-  try {
-    // Extract face from generated image
-    const output = await runModel(
-      'daanelson/insightface:f6b8b0a5ad07053f0d4c9e400525fa85fba1c3a2ea1a78c4f1b97139b6576d6e',
-      {
-        image: generatedImageUrl,
-        return_embeddings: true,
-      },
-      { timeout: 60000 }
-    );
-
-    if (!output || !output.faces || output.faces.length === 0) {
-      console.warn(`[faceEngine] No face detected in generated image`);
-      return 0.0;
-    }
-
-    // Find the largest face in the generated image
-    const sortedFaces = output.faces.sort((a, b) => {
-      const areaA = (a.bbox[2] - a.bbox[0]) * (a.bbox[3] - a.bbox[1]);
-      const areaB = (b.bbox[2] - b.bbox[0]) * (b.bbox[3] - b.bbox[1]);
-      return areaB - areaA;
-    });
-
-    const generatedEmbedding = sortedFaces[0].embedding;
-    if (!generatedEmbedding) {
-      console.warn(`[faceEngine] No embedding returned for generated face`);
-      return 0.0;
-    }
-
-    // Cosine similarity between reference and generated embeddings
-    const similarity = cosineSimilarity(referenceEmbedding.embedding, generatedEmbedding);
-
-    console.log(`[faceEngine] Face consistency score: ${similarity.toFixed(4)}`);
-    return Math.max(0, Math.min(1, similarity));
-  } catch (err) {
-    console.warn(`[faceEngine] Face verification error: ${err.message}`);
-    return 0.0;
-  }
+  // Face consistency verification is currently disabled since InsightFace
+  // is no longer available on Replicate. We rely on the character reference
+  // sheet and IP-Adapter to maintain face consistency.
+  console.log('[faceEngine] Face consistency check skipped (no embedding model)');
+  return 0.5; // Return neutral score
 }
 
 /**
