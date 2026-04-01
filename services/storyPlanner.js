@@ -51,8 +51,11 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     : erUserPrompt(childDetails, theme, customDetails);
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
+  console.log(`[storyPlanner] Using model: gpt-5.4, system prompt: ${systemPrompt.length} chars, user prompt: ${userPrompt.length} chars`);
 
-  const response = await client.chat.completions.create({
+  let response;
+  try {
+    response = await client.chat.completions.create({
     model: 'gpt-5.4',
     messages: [
       { role: 'system', content: systemPrompt },
@@ -62,15 +65,31 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     temperature: 0.8,
     max_completion_tokens: 4000,
   });
+  } catch (apiErr) {
+    console.error('[storyPlanner] OpenAI API call failed:', apiErr.message, apiErr.status || '', apiErr.code || '');
+    throw new Error(`Story planner API call failed: ${apiErr.message}`);
+  }
 
   if (costTracker) {
     costTracker.addTextUsage('gpt-5.4', response.usage?.prompt_tokens || 0, response.usage?.completion_tokens || 0);
   }
 
-  const content = response.choices[0]?.message?.content;
+  const choice = response.choices[0];
+  const content = choice?.message?.content;
   if (!content) {
-    throw new Error('Empty response from story planner');
+    const finishReason = choice?.finish_reason || 'unknown';
+    const refusal = choice?.message?.refusal || null;
+    console.error('[storyPlanner] Empty response details:', JSON.stringify({
+      finishReason,
+      refusal,
+      messageRole: choice?.message?.role,
+      hasContent: !!content,
+      usage: response.usage,
+      model: response.model,
+    }));
+    throw new Error(`Empty response from story planner (finish_reason: ${finishReason}, refusal: ${refusal || 'none'})`);
   }
+  console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${choice.finish_reason}`);
 
   let plan;
   try {
