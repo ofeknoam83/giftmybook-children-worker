@@ -21,7 +21,17 @@ function getBucket() {
 async function uploadBuffer(buffer, destination, contentType = 'application/octet-stream') {
   const file = getBucket().file(destination);
   await file.save(buffer, { contentType, resumable: false });
-  return `gs://${bucketName}/${destination}`;
+  // Return a signed URL (valid 30 days) instead of gs:// URI
+  try {
+    const [signedUrl] = await file.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    return signedUrl;
+  } catch (err) {
+    console.warn(`[gcsStorage] Signed URL failed for ${destination}, using public URL:`, err.message);
+    return `https://storage.googleapis.com/${bucketName}/${destination}`;
+  }
 }
 
 /**
