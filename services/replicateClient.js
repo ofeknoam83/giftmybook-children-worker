@@ -59,66 +59,6 @@ async function runModel(modelId, input, opts = {}) {
 }
 
 /**
- * Generate a face-consistent illustration using Flux + IP-Adapter FaceID.
- * @param {string} prompt - Scene description
- * @param {string} faceImageUrl - Reference face image URL
- * @param {object} opts - { width, height, numOutputs, guidanceScale, ipAdapterScale }
- * @returns {Promise<string[]>} Generated image URL(s)
- */
-async function generateWithFace(prompt, faceImageUrl, opts = {}) {
-  const width = opts.width || 1024;
-  const height = opts.height || 1024;
-  const numOutputs = opts.numOutputs || 1;
-
-  // IP-Adapter FaceID model on Replicate
-  // This model takes a face reference and generates images maintaining that face identity
-  const output = await runModel(
-    'lucataco/ip-adapter-faceid:fb81ef963e74776af72e6f380949013533d46dd5c6228a9e586c57db6303d7cd',
-    {
-      prompt,
-      face_image: faceImageUrl,
-      width,
-      height,
-      num_outputs: numOutputs,
-      guidance_scale: opts.guidanceScale || 7.5,
-      ip_adapter_scale: opts.ipAdapterScale || 0.7,
-      num_inference_steps: opts.steps || 30,
-      negative_prompt: 'blurry, low quality, deformed, ugly, bad anatomy, bad hands, text, watermark',
-    },
-    { timeout: opts.timeout },
-  );
-
-  const results = Array.isArray(output) ? output : [output];
-  return results.map(r => (typeof r === 'object' && r.url) ? r.url() : (typeof r !== 'string' ? String(r) : r));
-}
-
-/**
- * Generate a standard illustration without face reference.
- * @param {string} prompt
- * @param {object} opts
- * @returns {Promise<string[]>}
- */
-async function generateImage(prompt, opts = {}) {
-  const width = opts.width || 1024;
-  const height = opts.height || 1024;
-
-  const output = await runModel(
-    'black-forest-labs/flux-1.1-pro',
-    {
-      prompt,
-      width,
-      height,
-      num_inference_steps: opts.steps || 25,
-      guidance_scale: opts.guidanceScale || 3.5,
-    },
-    { timeout: opts.timeout },
-  );
-
-  const results = Array.isArray(output) ? output : [output];
-  return results.map(r => (typeof r === 'object' && r.url) ? r.url() : (typeof r !== 'string' ? String(r) : r));
-}
-
-/**
  * Set the API token (used per-request when token comes from standalone app).
  */
 function setApiToken(token) {
@@ -127,4 +67,4 @@ function setApiToken(token) {
   }
 }
 
-module.exports = { runModel, generateWithFace, generateImage, setApiToken };
+module.exports = { runModel, setApiToken };

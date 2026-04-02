@@ -285,47 +285,6 @@ White background, clean layout, wholesome, family-friendly, child-safe.`;
 }
 
 /**
- * Verify face consistency between a generated illustration and the reference embedding.
- *
- * Compares the face in a generated image to the reference face embedding
- * using cosine similarity.
- *
- * @param {string} generatedImageUrl - URL of the generated illustration
- * @param {object} referenceEmbedding - { embedding, ... } from extractFaceEmbedding
- * @returns {Promise<number>} Similarity score from 0 to 1
- */
-async function verifyFaceConsistency(generatedImageUrl, referenceEmbedding) {
-  // Face consistency verification is currently disabled since InsightFace
-  // is no longer available on Replicate. We rely on the character reference
-  // sheet and IP-Adapter to maintain face consistency.
-  console.log('[faceEngine] Face consistency check skipped (no embedding model)');
-  return 0.5; // Return neutral score
-}
-
-/**
- * Compute cosine similarity between two vectors.
- * @param {number[]} a
- * @param {number[]} b
- * @returns {number} Similarity from -1 to 1
- */
-function cosineSimilarity(a, b) {
-  if (a.length !== b.length) {
-    throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`);
-  }
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-  if (denominator === 0) return 0;
-  return dotProduct / denominator;
-}
-
-/**
  * Describe a child's physical appearance using Gemini Vision.
  *
  * Generates a structured 3-5 sentence description covering hair, eyes, face shape,
@@ -451,7 +410,6 @@ function buildFallbackDescription(childDetails) {
 module.exports = {
   extractFaceEmbedding,
   generateCharacterReference,
-  verifyFaceConsistency,
   describeChildAppearance,
   computeAppearanceCacheKey,
 };

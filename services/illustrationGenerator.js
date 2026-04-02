@@ -7,14 +7,11 @@
  */
 
 const { runModel } = require('./replicateClient');
-const { verifyFaceConsistency } = require('./faceEngine');
 const { uploadFromUrl } = require('./gcsStorage');
+const { withRetry } = require('./retry');
 
 /** Maximum retry attempts per illustration */
 const MAX_RETRIES = 3;
-
-/** Minimum face similarity score (0-1) before accepting an illustration */
-const MIN_FACE_SIMILARITY = 0.65;
 
 /** Fixed seed for cross-page character consistency */
 const ILLUSTRATION_SEED = 12345;
@@ -133,9 +130,6 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle), guidanceScale: 4.5 },
   ];
 
-  // Skip face verification when embedding is null — accept first successful result
-  const hasFaceEmbedding = faceEmbedding && faceEmbedding.embedding;
-
   let promptVariantIndex = 0;
   let useCharacterRef = !!characterRefUrl; // May be disabled on NSFW from the reference image
 
@@ -179,23 +173,16 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         costTracker.addImageGeneration('flux-dev', 1);
       }
 
-      // Accept first successful result — face verification is skipped when no embedding
-      if (hasFaceEmbedding) {
-        try {
-          const similarity = await verifyFaceConsistency(imageUrl, faceEmbedding);
-          console.log(`[illustrationGenerator] Face similarity ${similarity.toFixed(3)} on attempt ${attempt} (${variant.label})`);
-        } catch (verifyErr) {
-          console.warn(`[illustrationGenerator] Face verification failed (accepting image): ${verifyErr.message}`);
-        }
-      }
-
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);
 
       // Upload to GCS for persistence
       if (bookId) {
         const uploadStart = Date.now();
         const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
-        const gcsUrl = await uploadFromUrl(imageUrl, gcsPath);
+        const gcsUrl = await withRetry(
+          () => uploadFromUrl(imageUrl, gcsPath),
+          { maxRetries: 3, baseDelayMs: 1000, label: `upload-illustration-${bookId}` }
+        );
         console.log(`[illustrationGenerator] Illustration uploaded to GCS (${Date.now() - uploadStart}ms)`);
         console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
         return gcsUrl;

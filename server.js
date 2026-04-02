@@ -12,11 +12,10 @@ const { v4: uuidv4 } = require('uuid');
 const { planStory } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
-const { extractFaceEmbedding, generateCharacterReference, verifyFaceConsistency, describeChildAppearance } = require('./services/faceEngine');
+const { extractFaceEmbedding, generateCharacterReference, describeChildAppearance } = require('./services/faceEngine');
 const { assemblePdf } = require('./services/layoutEngine');
 const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
-const { enqueueSpreadJob, enqueueFinalizeJob } = require('./services/taskQueue');
 const { reportProgress, reportComplete, reportError } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
@@ -145,6 +144,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     bookId, childName, childAge, childGender, childAppearance,
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
+    approvedCoverUrl,
   } = sanitized;
   const apiKeys = req.body.apiKeys;
 
@@ -237,32 +237,36 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...' });
       }
 
-      // Stage 4: Generate text for each spread
+      // Stage 4: Generate text for each spread (batched parallel, groups of 4)
       const stage4Start = Date.now();
       const spreadsWithText = [];
-      for (let i = 0; i < storyPlan.spreads.length; i++) {
-        const spreadPlan = storyPlan.spreads[i];
-        const storyContext = {
-          title: storyPlan.title,
-          previousSpreads: spreadsWithText.map(s => s.text),
-          totalSpreads: storyPlan.spreads.length,
-        };
+      const BATCH_SIZE = 4;
+      for (let batchStart = 0; batchStart < storyPlan.spreads.length; batchStart += BATCH_SIZE) {
+        const batch = storyPlan.spreads.slice(batchStart, batchStart + BATCH_SIZE);
+        const batchResults = await Promise.all(batch.map(spreadPlan => {
+          const storyContext = {
+            title: storyPlan.title,
+            previousSpreads: spreadsWithText.map(s => s.text),
+            totalSpreads: storyPlan.spreads.length,
+          };
+          return generateSpreadText(spreadPlan, childDetails, format, storyContext, {
+            apiKeys,
+            costTracker,
+          });
+        }));
 
-        const text = await generateSpreadText(spreadPlan, childDetails, format, storyContext, {
-          apiKeys,
-          costTracker,
+        batch.forEach((spreadPlan, i) => {
+          spreadsWithText.push({ ...spreadPlan, text: batchResults[i] });
         });
         bookContext.touchActivity();
 
-        spreadsWithText.push({ ...spreadPlan, text });
-
         if (progressCallbackUrl) {
-          const progress = 0.20 + (0.20 * (i + 1) / storyPlan.spreads.length);
+          const progress = 0.20 + (0.20 * Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length) / storyPlan.spreads.length);
           reportProgress(progressCallbackUrl, {
             bookId,
             stage: 'text_generation',
             progress,
-            message: `Writing spread ${i + 1} of ${storyPlan.spreads.length}...`,
+            message: `Writing spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)} of ${storyPlan.spreads.length}...`,
           });
         }
       }
@@ -332,10 +336,24 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.80, message: 'Creating cover...' });
       }
 
+      let preGeneratedCoverBuffer = null;
+      if (approvedCoverUrl) {
+        try {
+          preGeneratedCoverBuffer = await withRetry(
+            () => downloadBuffer(approvedCoverUrl),
+            { maxRetries: 3, baseDelayMs: 1000, label: `download-approved-cover-${bookId}` }
+          );
+          console.log(`[server] Downloaded approved cover for book ${bookId} (${preGeneratedCoverBuffer.length} bytes)`);
+        } catch (dlErr) {
+          console.warn(`[server] Failed to download approved cover for book ${bookId}: ${dlErr.message} — generating new cover`);
+        }
+      }
+
       const coverData = await generateCover(storyPlan.title, childDetails, characterRef, format, {
         apiKeys,
         costTracker,
         bookId,
+        preGeneratedCoverBuffer,
       });
       bookContext.touchActivity();
 
@@ -347,22 +365,23 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...' });
       }
 
-      // Download illustration URLs into buffers for PDF embedding
-      const spreadsWithBuffers = [];
-      for (const spread of spreadsWithImages) {
-        let illustrationBuffer = null;
-        if (spread.imageUrl) {
-          try {
-            illustrationBuffer = await withRetry(
-              () => downloadBuffer(spread.imageUrl),
-              { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${spread.spreadNumber}` }
-            );
-          } catch (err) {
-            console.error(`[server] Failed to download illustration for spread ${spread.spreadNumber} (book ${bookId}):`, err.message);
+      // Download illustration URLs into buffers for PDF embedding (parallel)
+      const spreadsWithBuffers = await Promise.all(
+        spreadsWithImages.map(async (spread) => {
+          let illustrationBuffer = null;
+          if (spread.imageUrl) {
+            try {
+              illustrationBuffer = await withRetry(
+                () => downloadBuffer(spread.imageUrl),
+                { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${spread.spreadNumber}` }
+              );
+            } catch (err) {
+              console.error(`[server] Failed to download illustration for spread ${spread.spreadNumber} (book ${bookId}):`, err.message);
+            }
           }
-        }
-        spreadsWithBuffers.push({ ...spread, illustrationBuffer });
-      }
+          return { ...spread, illustrationBuffer };
+        })
+      );
 
       const interiorPdf = await assemblePdf(spreadsWithBuffers, format, coverData, {
         title: storyPlan.title,
@@ -381,9 +400,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
         await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
       }
 
-      const interiorPdfUrl = await getSignedUrl(interiorPath, 7 * 24 * 60 * 60 * 1000);
+      const interiorPdfUrl = await getSignedUrl(interiorPath, 30 * 24 * 60 * 60 * 1000);
       const coverPdfUrl = coverData.coverPdfBuffer
-        ? await getSignedUrl(coverPath, 7 * 24 * 60 * 60 * 1000)
+        ? await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000)
         : null;
 
       const previewImageUrls = spreadsWithImages
@@ -391,26 +410,30 @@ app.post('/generate-book', authenticate, async (req, res) => {
         .slice(0, 5)
         .map(s => s.imageUrl);
 
-      // Report completion
+      // Report completion (with retry)
       if (callbackUrl) {
-        try {
-          await fetch(callbackUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-            body: JSON.stringify({
-              success: true,
-              bookId,
-              interiorPdfUrl,
-              coverPdfUrl,
-              previewImageUrls,
-              title: storyPlan.title,
-              spreadCount: spreadsWithImages.length,
-              costs: costTracker.getSummary(),
-              warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
-            }),
-          });
-        } catch (cbErr) {
-          console.error(`[server] Completion callback failed:`, cbErr.message);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await fetch(callbackUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+              body: JSON.stringify({
+                success: true,
+                bookId,
+                interiorPdfUrl,
+                coverPdfUrl,
+                previewImageUrls,
+                title: storyPlan.title,
+                spreadCount: spreadsWithImages.length,
+                costs: costTracker.getSummary(),
+                warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
+              }),
+            });
+            break;
+          } catch (cbErr) {
+            console.error(`[server] Completion callback attempt ${attempt + 1}/3 failed:`, cbErr.message);
+            if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+          }
         }
       }
 
@@ -423,18 +446,22 @@ app.post('/generate-book', authenticate, async (req, res) => {
       console.error(`[server] Book ${bookId} failed:`, err);
 
       if (callbackUrl) {
-        try {
-          const errorAbort = new AbortController();
-          const errorTimeout = setTimeout(() => errorAbort.abort(), 10000);
-          await fetch(callbackUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-            body: JSON.stringify({ success: false, bookId, error: err.message }),
-            signal: errorAbort.signal,
-          });
-          clearTimeout(errorTimeout);
-        } catch (cbErr) {
-          console.error(`[server] Error callback failed:`, cbErr.message);
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const errorAbort = new AbortController();
+            const errorTimeout = setTimeout(() => errorAbort.abort(), 10000);
+            await fetch(callbackUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+              body: JSON.stringify({ success: false, bookId, error: err.message }),
+              signal: errorAbort.signal,
+            });
+            clearTimeout(errorTimeout);
+            break;
+          } catch (cbErr) {
+            console.error(`[server] Error callback attempt ${attempt + 1}/3 failed:`, cbErr.message);
+            if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+          }
         }
       }
 
@@ -488,7 +515,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
     const spreadPath = `children-jobs/${bookId}/spreads/spread-${spreadPlan.spreadNumber}.png`;
     const imageBuffer = await downloadBuffer(imageUrl);
     await uploadBuffer(imageBuffer, spreadPath, 'image/png');
-    const spreadImageUrl = await getSignedUrl(spreadPath, 7 * 24 * 60 * 60 * 1000);
+    const spreadImageUrl = await getSignedUrl(spreadPath, 30 * 24 * 60 * 60 * 1000);
 
     res.json({
       success: true,
@@ -538,7 +565,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     // Upload to GCS
     const pdfPath = `children-jobs/${bookId}/interior.pdf`;
     await uploadBuffer(pdfBuffer, pdfPath, 'application/pdf');
-    const pdfUrl = await getSignedUrl(pdfPath, 7 * 24 * 60 * 60 * 1000);
+    const pdfUrl = await getSignedUrl(pdfPath, 30 * 24 * 60 * 60 * 1000);
 
     removeBookContext(bookId);
     res.json({ success: true, bookId, interiorPdfUrl: pdfUrl });

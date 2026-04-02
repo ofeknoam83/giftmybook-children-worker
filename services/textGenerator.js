@@ -79,7 +79,7 @@ ${previousContext ? `Recent story context:\n${previousContext}\n` : ''}
 Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words. ${rules.style}`;
 
   const response = await client.chat.completions.create({
-    model: 'gpt-5.4',
+    model: 'gpt-5.4-mini',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -89,7 +89,7 @@ Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words.
   });
 
   if (costTracker) {
-    costTracker.addTextUsage('gpt-5.4', response.usage?.prompt_tokens || 0, response.usage?.completion_tokens || 0);
+    costTracker.addTextUsage('gpt-5.4-mini', response.usage?.prompt_tokens || 0, response.usage?.completion_tokens || 0);
   }
 
   let text = (response.choices[0]?.message?.content || '').trim();

@@ -31,30 +31,40 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const totalWidth = (trimWidth + bleed) * 2 + spineWidth;
   const totalHeight = trimHeight + bleed * 2;
 
-  // Generate front cover illustration
-  const coverScene = `A beautiful ${artStyle} children's book cover illustration. `
-    + `The main character is a ${childDetails.childAge || 5}-year-old child named ${childDetails.childName}. `
-    + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
-    + `The child should be centered, looking happy and confident. `
-    + `Background should be thematic and whimsical.`;
-
   let frontCoverImageUrl = null;
   let frontCoverBuffer = null;
 
-  try {
-    const imageUrl = await generateIllustration(
-      coverScene,
-      characterRefUrl,
-      artStyle,
-      opts.faceRef || null,
-      { width: trimWidth, height: trimHeight },
-    );
-    frontCoverImageUrl = imageUrl;
-    if (imageUrl) {
-      frontCoverBuffer = await downloadBuffer(imageUrl);
+  if (opts.preGeneratedCoverBuffer) {
+    console.log('[CoverGenerator] Using pre-generated cover buffer — skipping illustration generation');
+    frontCoverBuffer = opts.preGeneratedCoverBuffer;
+  } else {
+    // Generate front cover illustration
+    const coverScene = `A beautiful ${artStyle} children's book cover illustration. `
+      + `The main character is a ${childDetails.childAge || 5}-year-old child named ${childDetails.childName}. `
+      + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
+      + `The child should be centered, looking happy and confident. `
+      + `Background should be thematic and whimsical.`;
+
+    try {
+      const imageUrl = await generateIllustration(
+        coverScene,
+        characterRefUrl,
+        artStyle,
+        opts.faceRef || null,
+        {
+          costTracker: opts.costTracker,
+          bookId: opts.bookId,
+          childAppearance: childDetails.appearance || childDetails.childAppearance,
+          childName: childDetails.name || childDetails.childName,
+        },
+      );
+      frontCoverImageUrl = imageUrl;
+      if (imageUrl) {
+        frontCoverBuffer = await downloadBuffer(imageUrl);
+      }
+    } catch (err) {
+      console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
     }
-  } catch (err) {
-    console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
   }
 
   // Build cover PDF
