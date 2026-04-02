@@ -77,23 +77,31 @@ function buildGenericSafePrompt(artStyle) {
 function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
-  // Scene description goes FIRST so Gemini prioritizes it.
+  // For Gemini with photo reference: CHARACTER IDENTITY must be the dominant instruction.
+  // The reference photo is sent as inlineData — Gemini needs strong anchoring to use it consistently.
   const parts = [
-    styleConfig.prefix,
-    sceneDescription,
+    `CRITICAL: The attached photo shows the EXACT child who is the main character of this children's book.`,
+    `Transform this child into a ${styleConfig.prefix} illustration while preserving their EXACT appearance:`,
+    `- Keep the same face shape, features, expression style, skin tone`,
+    `- Keep the same hair (color, style, length) — do NOT change the hair`,
+    `- Keep the same age and body proportions`,
+    `- The illustrated character must be instantly recognizable as the child in the photo`,
+    ``,
+    `The character's name is ${childName || 'the child'}.`,
   ];
 
-  if (childName && childAppearance) {
-    parts.push(`The main character is ${childName}: ${childAppearance.split('.').slice(0, 2).join('.')}.`);
-  } else if (childName) {
-    parts.push(`The main character is a child named ${childName}.`);
+  if (childAppearance) {
+    parts.push(`Character details: ${childAppearance}`);
   }
 
-  parts.push(styleConfig.suffix);
-  parts.push('children\'s book illustration, non-realistic, fully clothed, wholesome, family-friendly, child-safe');
-  parts.push('Generate a single illustration of this scene. The child in the reference photo is the main character — use their face and features for the illustrated character.');
+  parts.push('');
+  parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
+  parts.push('');
+  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push('Children\'s book illustration, non-realistic but recognizable, fully clothed, wholesome, family-friendly.');
+  parts.push('Draw ONLY the child from the reference photo as the main character. Do NOT add other children or change who the character is between illustrations.');
 
-  return parts.join(' ');
+  return parts.join('\n');
 }
 
 /**
