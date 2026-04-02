@@ -13,7 +13,7 @@ const { GoogleAuth } = require('google-auth-library');
 // Vertex AI endpoint (internal Google network from Cloud Run — much faster than public API)
 const GCP_PROJECT = process.env.GCP_PROJECT_ID || 'gen-lang-client-0521120270';
 const GCP_REGION = process.env.GCP_REGION || 'europe-west1';
-const VERTEX_MODEL = 'gemini-2.0-flash-exp'; // Vertex AI model name for image generation
+const VERTEX_MODEL = 'gemini-3.1-flash-image-preview'; // Nano Banana 2 on Vertex AI
 const VERTEX_ENDPOINT = `https://${GCP_REGION}-aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/${GCP_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
 
 let authClient = null;
