@@ -54,7 +54,7 @@ async function extractFaceEmbedding(photoUrls) {
         body: JSON.stringify({
           contents: [{
             parts: [
-              { text: 'Is there a clear human face visible in this photo? Reply with only "YES" or "NO".' },
+              { text: 'This is a photo of a child provided by their parent for a personalized children\'s storybook. Is there a clear human face visible? Reply with only YES or NO.' },
               { inline_data: { mime_type: mimeType, data: base64 } },
             ],
           }],
@@ -120,7 +120,7 @@ async function generateCharacterReference(faceEmbedding, childAppearance, artSty
 
   const styleDesc = styleDescriptions[artStyle] || styleDescriptions.watercolor;
 
-  const prompt = `Character reference sheet for a children's book character. ${styleDesc}.
+  const prompt = `Child-safe illustration for a personalized children's storybook, commissioned by the child's parent. Character reference sheet for a children's book character. ${styleDesc}.
 Show the character in four poses: front view, three-quarter view, side profile, and a happy expression close-up.
 The character is a child: ${childAppearance || 'a friendly young child'}.
 White background, clean layout, consistent character design across all poses.
@@ -128,7 +128,7 @@ Professional character design sheet, turnaround sheet style.`;
 
   const baseInput = {
     prompt,
-    negative_prompt: 'photorealistic photo, dark, scary, multiple characters, text, words',
+    negative_prompt: 'photorealistic photo, dark, scary, multiple characters, text, words, nsfw, adult content, inappropriate',
     num_outputs: 1,
     aspect_ratio: '16:9',
     output_format: 'png',
@@ -230,8 +230,76 @@ function cosineSimilarity(a, b) {
   return dotProduct / denominator;
 }
 
+/**
+ * Describe a child's physical appearance using Gemini Vision.
+ *
+ * Used as a text-based fallback for visual consistency when the character
+ * reference sheet is unavailable.
+ *
+ * @param {string[]} photoUrls - Child photo URLs
+ * @param {{ name?: string, age?: number, gender?: string }} [childDetails] - Fallback details
+ * @returns {Promise<string>} Appearance description for illustration prompts
+ */
+async function describeChildAppearance(photoUrls, childDetails) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || !photoUrls || photoUrls.length === 0) {
+    return buildFallbackDescription(childDetails);
+  }
+
+  for (const photoUrl of photoUrls) {
+    try {
+      const imgResp = await fetch(photoUrl);
+      if (!imgResp.ok) continue;
+      const imgBuffer = Buffer.from(await imgResp.arrayBuffer());
+      const base64 = imgBuffer.toString('base64');
+      const mimeType = imgResp.headers.get('content-type') || 'image/jpeg';
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: 'This is a photo of a child provided by their parent for a personalized children\'s storybook. Describe the child\'s physical appearance in detail for an illustrator: hair color, hair style, eye color, skin tone, approximate age, any distinctive features. Be specific and visual. Respond in 2-3 sentences.' },
+              { inline_data: { mime_type: mimeType, data: base64 } },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 200, temperature: 0.2 },
+        }),
+      });
+
+      if (resp.ok) {
+        const result = await resp.json();
+        const description = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (description) {
+          console.log(`[faceEngine] Child appearance described: ${description.slice(0, 80)}...`);
+          return description;
+        }
+      }
+    } catch (err) {
+      console.warn(`[faceEngine] describeChildAppearance failed for ${photoUrl}: ${err.message}`);
+    }
+  }
+
+  console.warn('[faceEngine] All photos failed for appearance description — using fallback');
+  return buildFallbackDescription(childDetails);
+}
+
+function buildFallbackDescription(childDetails) {
+  if (!childDetails) return 'a friendly young child';
+  const parts = [];
+  if (childDetails.age) parts.push(`a ${childDetails.age}-year-old`);
+  if (childDetails.gender && childDetails.gender !== 'neutral') parts.push(childDetails.gender === 'male' ? 'boy' : 'girl');
+  else if (!childDetails.age) parts.push('a young child');
+  else parts.push('child');
+  if (childDetails.name) parts.push(`named ${childDetails.name}`);
+  return parts.join(' ');
+}
+
 module.exports = {
   extractFaceEmbedding,
   generateCharacterReference,
   verifyFaceConsistency,
+  describeChildAppearance,
 };

@@ -10,7 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const { planStory } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
-const { extractFaceEmbedding, generateCharacterReference, verifyFaceConsistency } = require('./services/faceEngine');
+const { extractFaceEmbedding, generateCharacterReference, verifyFaceConsistency, describeChildAppearance } = require('./services/faceEngine');
 const { assemblePdf } = require('./services/layoutEngine');
 const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -157,6 +157,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const faceEmbedding = await extractFaceEmbedding(childDetails.photoUrls);
       bookContext.touchActivity();
 
+      // Describe child's appearance from photo for text-based consistency
+      let childAppearanceDesc = '';
+      try {
+        childAppearanceDesc = await describeChildAppearance(childDetails.photoUrls, childDetails);
+        bookContext.touchActivity();
+      } catch (descErr) {
+        console.warn(`[server] describeChildAppearance failed for book ${bookId}: ${descErr.message}`);
+      }
+
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'character_reference', progress: 0.10, message: 'Creating character reference...' });
       }
@@ -215,12 +224,45 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
       }
 
-      // Stage 5: Generate illustrations for each spread
-      const spreadsWithImages = [];
+      // Stage 5: Generate illustrations in parallel (3 at a time)
+      const spreadsWithImages = new Array(spreadsWithText.length);
       let illustrationFailures = 0;
-      for (let i = 0; i < spreadsWithText.length; i++) {
-        const spread = spreadsWithText[i];
-        if (spread.layoutType === 'NO_TEXT' || spread.illustrationDescription) {
+      let completedCount = 0;
+
+      // Simple semaphore for concurrency limiting
+      const CONCURRENCY = 3;
+      let running = 0;
+      const queue = [];
+
+      function releaseSemaphore() {
+        running--;
+        if (queue.length > 0) {
+          const next = queue.shift();
+          running++;
+          next();
+        }
+      }
+
+      function acquireSemaphore() {
+        return new Promise((resolve) => {
+          if (running < CONCURRENCY) {
+            running++;
+            resolve();
+          } else {
+            queue.push(resolve);
+          }
+        });
+      }
+
+      const illustrationPromises = spreadsWithText.map((spread, i) => {
+        return (async () => {
+          if (spread.layoutType !== 'NO_TEXT' && !spread.illustrationDescription) {
+            spreadsWithImages[i] = { ...spread, imageUrl: null };
+            completedCount++;
+            return;
+          }
+
+          await acquireSemaphore();
           let imageUrl = null;
           try {
             const sceneDesc = spread.illustrationDescription || spread.text;
@@ -228,29 +270,33 @@ app.post('/generate-book', authenticate, async (req, res) => {
               apiKeys,
               costTracker,
               bookId,
+              childAppearance: childAppearanceDesc,
             });
             bookContext.touchActivity();
           } catch (illustrationErr) {
             illustrationFailures++;
             console.error(`[server] Illustration ${i + 1}/${spreadsWithText.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
+          } finally {
+            releaseSemaphore();
           }
 
-          spreadsWithImages.push({ ...spread, imageUrl });
-        } else {
-          spreadsWithImages.push({ ...spread, imageUrl: null });
-        }
+          spreadsWithImages[i] = { ...spread, imageUrl };
+          completedCount++;
 
-        if (progressCallbackUrl) {
-          const progress = 0.40 + (0.35 * (i + 1) / spreadsWithText.length);
-          reportProgress(progressCallbackUrl, {
-            bookId,
-            stage: 'illustration',
-            progress,
-            message: `Generating illustration ${i + 1} of ${spreadsWithText.length}...`,
-            previewUrls: spreadsWithImages.filter(s => s.imageUrl).map(s => s.imageUrl).slice(-3),
-          });
-        }
-      }
+          if (progressCallbackUrl) {
+            const progress = 0.40 + (0.35 * completedCount / spreadsWithText.length);
+            reportProgress(progressCallbackUrl, {
+              bookId,
+              stage: 'illustration',
+              progress,
+              message: `Generating illustration ${completedCount} of ${spreadsWithText.length}...`,
+              previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl).slice(-3),
+            });
+          }
+        })();
+      });
+
+      await Promise.all(illustrationPromises);
 
       if (illustrationFailures > 0) {
         console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${spreadsWithText.length} illustrations failed, continuing with text-only spreads`);

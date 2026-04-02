@@ -69,15 +69,20 @@ function buildGenericSafePrompt(artStyle) {
  * @param {string} characterRefUrl - URL to the character reference sheet
  * @param {string} artStyle - 'watercolor', 'digital_painting', or 'storybook'
  * @param {object} faceEmbedding - Face embedding data from faceEngine
- * @param {object} [opts] - { apiKeys, costTracker, bookId }
+ * @param {object} [opts] - { apiKeys, costTracker, bookId, childAppearance }
  * @returns {Promise<string>} URL of the generated illustration
  */
 async function generateIllustration(sceneDescription, characterRefUrl, artStyle, faceEmbedding, opts = {}) {
-  const { costTracker, bookId } = opts;
+  const { costTracker, bookId, childAppearance } = opts;
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   const prompt = ILLUSTRATION_PROMPT_BUILDER(sceneDescription, artStyle, '');
-  const fullPrompt = `${styleConfig.prefix} ${prompt} ${styleConfig.suffix}`;
+  let fullPrompt = `${styleConfig.prefix} ${prompt} ${styleConfig.suffix}`;
+
+  // When no character reference image, embed the child appearance text directly
+  if (!characterRefUrl && childAppearance) {
+    fullPrompt = `${styleConfig.prefix} ${childAppearance}, ${prompt} ${styleConfig.suffix}`;
+  }
 
   console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
 
@@ -88,15 +93,15 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle), guidanceScale: 9.0 },
   ];
 
-  let bestResult = null;
-  let bestSimilarity = 0;
+  // Skip face verification when embedding is null — accept first successful result
+  const hasFaceEmbedding = faceEmbedding && faceEmbedding.embedding;
+
   let promptVariantIndex = 0;
   let useCharacterRef = !!characterRefUrl; // May be disabled on NSFW from the reference image
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const variant = promptVariants[promptVariantIndex];
     try {
-      // Use Flux.1 with IP-Adapter FaceID for face-consistent generation
       const modelId = 'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352';
 
       const input = {
@@ -130,47 +135,31 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         costTracker.addImageGeneration('flux-dev', 1);
       }
 
-      // Verify face consistency if we have a reference embedding
-      if (faceEmbedding && faceEmbedding.embedding) {
+      // Accept first successful result — face verification is skipped when no embedding
+      if (hasFaceEmbedding) {
         try {
           const similarity = await verifyFaceConsistency(imageUrl, faceEmbedding);
-
-          if (similarity > bestSimilarity) {
-            bestSimilarity = similarity;
-            bestResult = imageUrl;
-          }
-
-          if (similarity >= MIN_FACE_SIMILARITY) {
-            console.log(`[illustrationGenerator] Face similarity ${similarity.toFixed(3)} >= ${MIN_FACE_SIMILARITY} - accepted on attempt ${attempt} (${variant.label})`);
-
-            // Upload to GCS for persistence
-            if (bookId) {
-              const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
-              const gcsUrl = await uploadFromUrl(imageUrl, gcsPath);
-              return gcsUrl;
-            }
-            return imageUrl;
-          }
-
-          console.warn(`[illustrationGenerator] Face similarity ${similarity.toFixed(3)} < ${MIN_FACE_SIMILARITY} - retrying (attempt ${attempt}/${MAX_RETRIES})`);
+          console.log(`[illustrationGenerator] Face similarity ${similarity.toFixed(3)} on attempt ${attempt} (${variant.label})`);
         } catch (verifyErr) {
           console.warn(`[illustrationGenerator] Face verification failed (accepting image): ${verifyErr.message}`);
-          bestResult = imageUrl;
-          bestSimilarity = 1.0; // Accept if verification fails
         }
-      } else {
-        // No face reference - accept first result
-        bestResult = imageUrl;
-        bestSimilarity = 1.0;
-        break;
       }
+
+      console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);
+
+      // Upload to GCS for persistence
+      if (bookId) {
+        const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
+        const gcsUrl = await uploadFromUrl(imageUrl, gcsPath);
+        return gcsUrl;
+      }
+      return imageUrl;
     } catch (genErr) {
       // NSFW error: first try dropping face reference, then advance prompt variants
       if (genErr.isNsfw) {
         console.warn(`[illustrationGenerator] NSFW detected on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}: ${genErr.message}`);
 
         // If we were using the character reference image, try without it first
-        // (the reference image itself may be triggering the NSFW filter)
         if (useCharacterRef) {
           console.warn(`[illustrationGenerator] Dropping character reference image for book ${bookId || 'unknown'} and retrying`);
           useCharacterRef = false;
@@ -180,11 +169,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         promptVariantIndex++;
 
         if (promptVariantIndex >= promptVariants.length) {
-          // All prompt variants exhausted — skip this illustration
           console.error(`[illustrationGenerator] All ${promptVariants.length} prompt variants triggered NSFW for book ${bookId || 'unknown'}. Skipping illustration.`);
           return null;
         }
-        // Continue to next attempt with the next prompt variant
         continue;
       }
 
@@ -195,23 +182,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     }
   }
 
-  if (!bestResult) {
-    throw new Error('No illustration generated after all attempts');
-  }
-
-  // Use the best result we got (even if below similarity threshold)
-  if (bestSimilarity < MIN_FACE_SIMILARITY) {
-    console.warn(`[illustrationGenerator] Using best result with similarity ${bestSimilarity.toFixed(3)} (below threshold ${MIN_FACE_SIMILARITY})`);
-  }
-
-  // Upload to GCS
-  if (bookId) {
-    const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
-    const gcsUrl = await uploadFromUrl(bestResult, gcsPath);
-    return gcsUrl;
-  }
-
-  return bestResult;
+  throw new Error('No illustration generated after all attempts');
 }
 
 module.exports = { generateIllustration };

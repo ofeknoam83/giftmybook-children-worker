@@ -120,6 +120,17 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     plan = await applyRhymePass(client, plan, childDetails, costTracker);
   }
 
+  // Enforce spread cap to prevent runaway generation costs
+  if (plan.spreads.length > 16) {
+    console.warn(`[storyPlanner] Plan has ${plan.spreads.length} spreads — truncating to 16 (keeping first 3 + last 3, cutting middle)`);
+    const first = plan.spreads.slice(0, 3);
+    const last = plan.spreads.slice(-3);
+    const middle = plan.spreads.slice(3, -3).slice(0, 10);
+    plan.spreads = [...first, ...middle, ...last];
+    // Re-number spreads sequentially
+    plan.spreads.forEach((s, i) => { s.spreadNumber = i + 1; });
+  }
+
   const spreadRange = isPictureBook ? [12, 16] : [24, 32];
   if (plan.spreads.length < spreadRange[0]) {
     console.warn(`[storyPlanner] Plan has only ${plan.spreads.length} spreads (expected ${spreadRange[0]}-${spreadRange[1]})`);
