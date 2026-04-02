@@ -4,6 +4,7 @@
 
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const { generateIllustration } = require('./illustrationGenerator');
+const { downloadBuffer } = require('./gcsStorage');
 const sharp = require('sharp');
 
 const SPINE_WIDTH_PER_PAGE = 0.0025 * 72; // ~0.18pt per page (Lulu standard)
@@ -41,15 +42,17 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   let frontCoverBuffer = null;
 
   try {
-    const result = await generateIllustration(
+    const imageUrl = await generateIllustration(
       coverScene,
       characterRefUrl,
       artStyle,
       opts.faceRef || null,
       { width: trimWidth, height: trimHeight },
     );
-    frontCoverImageUrl = result.imageUrl;
-    frontCoverBuffer = result.imageBuffer;
+    frontCoverImageUrl = imageUrl;
+    if (imageUrl) {
+      frontCoverBuffer = await downloadBuffer(imageUrl);
+    }
   } catch (err) {
     console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
   }

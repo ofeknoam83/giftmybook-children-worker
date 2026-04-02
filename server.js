@@ -342,7 +342,21 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...' });
       }
 
-      const interiorPdf = await assemblePdf(spreadsWithImages, format, coverData, {
+      // Download illustration URLs into buffers for PDF embedding
+      const spreadsWithBuffers = [];
+      for (const spread of spreadsWithImages) {
+        let illustrationBuffer = null;
+        if (spread.imageUrl) {
+          try {
+            illustrationBuffer = await downloadBuffer(spread.imageUrl);
+          } catch (err) {
+            console.error(`[server] Failed to download illustration for spread ${spread.spreadNumber} (book ${bookId}):`, err.message);
+          }
+        }
+        spreadsWithBuffers.push({ ...spread, illustrationBuffer });
+      }
+
+      const interiorPdf = await assemblePdf(spreadsWithBuffers, format, coverData, {
         title: storyPlan.title,
         childName: childDetails.name,
       });
@@ -504,7 +518,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
       if (spread.imageUrl) {
         imageBuffer = await downloadBuffer(spread.imageUrl);
       }
-      spreadsWithBuffers.push({ ...spread, imageBuffer });
+      spreadsWithBuffers.push({ ...spread, illustrationBuffer: imageBuffer });
       bookContext.touchActivity();
     }
 
