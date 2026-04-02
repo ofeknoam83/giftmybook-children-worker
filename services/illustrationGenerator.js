@@ -74,26 +74,22 @@ function buildGenericSafePrompt(artStyle) {
 function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
+  // IMPORTANT: Scene description goes FIRST so FLUX prioritizes it.
+  // Character description is secondary — it anchors the look but shouldn't overpower the scene.
   const parts = [
-    'children\'s book illustration, non-realistic, fully clothed',
     styleConfig.prefix,
+    sceneDescription,  // Scene FIRST — this is what makes each illustration unique
   ];
 
-  if (childName) {
-    parts.push(`A children's book illustration of a character named ${childName}.`);
+  // Brief character anchor (keep short so scene dominates)
+  if (childName && childAppearance) {
+    parts.push(`The main character is ${childName}: ${childAppearance.split('.').slice(0, 2).join('.')}.`);
+  } else if (childName) {
+    parts.push(`The main character is a child named ${childName}.`);
   }
 
-  if (childAppearance) {
-    parts.push(`Character description: ${childAppearance}`);
-  }
-
-  if (childName) {
-    parts.push(`The same character ${childName} with identical appearance, hairstyle, and facial features.`);
-  }
-
-  parts.push(sceneDescription);
   parts.push(styleConfig.suffix);
-  parts.push('wholesome, family-friendly, child-safe, age-appropriate');
+  parts.push('children\'s book illustration, non-realistic, fully clothed, wholesome, family-friendly, child-safe');
 
   return parts.join(' ');
 }
@@ -154,7 +150,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       // Add GENERATED character reference image (NOT the kid's real photo)
       if (useCharacterRef && characterRefUrl) {
         input.image = characterRefUrl;
-        input.ip_adapter_scale = 0.6;
+        input.ip_adapter_scale = 0.35; // Low value so scene description dominates over character reference
       }
 
       const fluxStart = Date.now();

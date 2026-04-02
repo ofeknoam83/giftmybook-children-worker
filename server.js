@@ -293,7 +293,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
           let imageUrl = null;
           try {
             const sceneDesc = spread.illustrationDescription || spread.text;
-            imageUrl = await generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
+            // Per-illustration timeout (3 min) to prevent one hung illustration from blocking the rest
+            const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
               apiKeys,
               costTracker,
               bookId,
@@ -301,6 +302,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
               childName: childDetails.name,
               spreadIndex: i,
             });
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 3 minutes`)), 180000)
+            );
+            imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
             bookContext.touchActivity();
           } catch (illustrationErr) {
             illustrationFailures++;
