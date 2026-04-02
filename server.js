@@ -193,7 +193,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
   const spreadsWithImages = new Array(storyPlan.spreads.length);
   let completedCount = 0;
 
-  const illustrationLimit = pLimit(3); // Keep low to avoid Gemini image API rate limiting
+  const illustrationLimit = pLimit(2); // Gemini image API throttles at higher concurrency
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {

@@ -9,6 +9,21 @@
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
 
+/** Fetch with a 2-minute AbortController timeout */
+async function fetchWithTimeout(url, opts, timeoutMs = 120000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...opts, signal: controller.signal });
+    return resp;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`Gemini image API timed out after ${Math.round(timeoutMs / 1000)}s`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Maximum retry attempts per illustration */
 const MAX_RETRIES = 3;
 
@@ -85,7 +100,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, child
  * Download a photo from URL and return { base64, mimeType }.
  */
 async function downloadPhotoAsBase64(url) {
-  const resp = await fetch(url);
+  const resp = await fetchWithTimeout(url);
   if (!resp.ok) throw new Error(`Failed to download photo: ${resp.status} ${resp.statusText}`);
   const contentType = resp.headers.get('content-type') || 'image/jpeg';
   const buffer = Buffer.from(await resp.arrayBuffer());
@@ -115,7 +130,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
     },
   };
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
     {
       method: 'POST',
@@ -166,7 +181,7 @@ async function callGeminiImageApiNoPhoto(prompt) {
     },
   };
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
     {
       method: 'POST',
