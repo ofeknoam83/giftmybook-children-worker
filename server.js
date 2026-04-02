@@ -279,7 +279,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       let illustrationFailures = 0;
       let completedCount = 0;
 
-      const illustrationLimit = pLimit(3);
+      const illustrationLimit = pLimit(5);
 
       const illustrationPromises = spreadsWithText.map((spread, i) =>
         illustrationLimit(async () => {
