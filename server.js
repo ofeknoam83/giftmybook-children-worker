@@ -283,7 +283,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       const illustrationPromises = spreadsWithText.map((spread, i) =>
         illustrationLimit(async () => {
-          if (spread.layoutType !== 'NO_TEXT' && !spread.illustrationDescription) {
+          // Only skip illustration for explicitly text-only spreads
+          if (spread.layoutType === 'NO_TEXT') {
             spreadsWithImages[i] = { ...spread, imageUrl: null };
             completedCount++;
             return;
@@ -425,6 +426,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 previewImageUrls,
                 title: storyPlan.title,
                 spreadCount: spreadsWithImages.length,
+                storyContent: { title: storyPlan.title, spreads: spreadsWithImages.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
                 costs: costTracker.getSummary(),
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
               }),
