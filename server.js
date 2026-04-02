@@ -211,16 +211,23 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       // Stage 5: Generate illustrations for each spread
       const spreadsWithImages = [];
+      let illustrationFailures = 0;
       for (let i = 0; i < spreadsWithText.length; i++) {
         const spread = spreadsWithText[i];
         if (spread.layoutType === 'NO_TEXT' || spread.illustrationDescription) {
-          const sceneDesc = spread.illustrationDescription || spread.text;
-          const imageUrl = await generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
-            apiKeys,
-            costTracker,
-            bookId,
-          });
-          bookContext.touchActivity();
+          let imageUrl = null;
+          try {
+            const sceneDesc = spread.illustrationDescription || spread.text;
+            imageUrl = await generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
+              apiKeys,
+              costTracker,
+              bookId,
+            });
+            bookContext.touchActivity();
+          } catch (illustrationErr) {
+            illustrationFailures++;
+            console.error(`[server] Illustration ${i + 1}/${spreadsWithText.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
+          }
 
           spreadsWithImages.push({ ...spread, imageUrl });
         } else {
@@ -237,6 +244,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
             previewUrls: spreadsWithImages.filter(s => s.imageUrl).map(s => s.imageUrl).slice(-3),
           });
         }
+      }
+
+      if (illustrationFailures > 0) {
+        console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${spreadsWithText.length} illustrations failed, continuing with text-only spreads`);
       }
 
       // Stage 6: Generate cover
@@ -308,17 +319,20 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       console.log(`[server] Book ${bookId} complete: ${spreadsWithImages.length} spreads, cost: $${costTracker.getSummary().totalCost.toFixed(4)}`);
-      removeBookContext(bookId);
     } catch (err) {
       console.error(`[server] Book ${bookId} failed:`, err);
 
       if (callbackUrl) {
         try {
+          const errorAbort = new AbortController();
+          const errorTimeout = setTimeout(() => errorAbort.abort(), 10000);
           await fetch(callbackUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
             body: JSON.stringify({ success: false, bookId, error: err.message }),
+            signal: errorAbort.signal,
           });
+          clearTimeout(errorTimeout);
         } catch (cbErr) {
           console.error(`[server] Error callback failed:`, cbErr.message);
         }
@@ -327,7 +341,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       if (progressCallbackUrl) {
         reportError(progressCallbackUrl, { bookId, error: err.message });
       }
-
+    } finally {
       removeBookContext(bookId);
     }
   })();

@@ -37,6 +37,28 @@ const ART_STYLE_CONFIG = {
   },
 };
 
+/** Words that may trigger NSFW filters in children's book contexts */
+const NSFW_TRIGGER_WORDS = /\b(naked|nude|bare|undress|strip|bath(?:ing|e)?|blood|kill|dead|death|gun|knife|weapon|fight|violent|scary|horror|monster|demon|devil|drunk|alcohol|drug|kiss|love|romantic|sexy|seductive|provocative|sensual|intimate|bedroom|lingerie)\b/gi;
+
+/**
+ * Sanitize a prompt to reduce NSFW filter triggers.
+ * Removes potentially problematic words and adds safe-content modifiers.
+ */
+function sanitizePrompt(prompt) {
+  let cleaned = prompt.replace(NSFW_TRIGGER_WORDS, '');
+  // Collapse multiple spaces
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  return `${cleaned}, wholesome, family-friendly, child-safe, innocent`;
+}
+
+/**
+ * Build a very generic safe fallback prompt for when sanitization isn't enough.
+ */
+function buildGenericSafePrompt(artStyle) {
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
+  return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere ${styleConfig.suffix}`;
+}
+
 /**
  * Generate a single illustration for a book spread.
  *
@@ -59,21 +81,30 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
   console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
 
+  // Build prompt variants for NSFW fallback
+  const promptVariants = [
+    { label: 'original', prompt: fullPrompt, guidanceScale: 7.5 },
+    { label: 'sanitized', prompt: sanitizePrompt(fullPrompt), guidanceScale: 8.5 },
+    { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle), guidanceScale: 9.0 },
+  ];
+
   let bestResult = null;
   let bestSimilarity = 0;
+  let promptVariantIndex = 0;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const variant = promptVariants[promptVariantIndex];
     try {
       // Use Flux.1 with IP-Adapter FaceID for face-consistent generation
       const modelId = 'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352';
 
       const input = {
-        prompt: fullPrompt,
+        prompt: variant.prompt,
         negative_prompt: styleConfig.negativePrompt,
         num_outputs: 1,
         aspect_ratio: '1:1',
         output_format: 'png',
-        guidance_scale: 7.5,
+        guidance_scale: variant.guidanceScale,
         num_inference_steps: 30,
       };
 
@@ -109,7 +140,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
           }
 
           if (similarity >= MIN_FACE_SIMILARITY) {
-            console.log(`[illustrationGenerator] Face similarity ${similarity.toFixed(3)} >= ${MIN_FACE_SIMILARITY} - accepted on attempt ${attempt}`);
+            console.log(`[illustrationGenerator] Face similarity ${similarity.toFixed(3)} >= ${MIN_FACE_SIMILARITY} - accepted on attempt ${attempt} (${variant.label})`);
 
             // Upload to GCS for persistence
             if (bookId) {
@@ -133,6 +164,20 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         break;
       }
     } catch (genErr) {
+      // NSFW error: advance to next prompt variant and retry
+      if (genErr.isNsfw) {
+        console.warn(`[illustrationGenerator] NSFW detected on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}: ${genErr.message}`);
+        promptVariantIndex++;
+
+        if (promptVariantIndex >= promptVariants.length) {
+          // All prompt variants exhausted — skip this illustration
+          console.error(`[illustrationGenerator] All ${promptVariants.length} prompt variants triggered NSFW for book ${bookId || 'unknown'}. Skipping illustration.`);
+          return null;
+        }
+        // Continue to next attempt with the next prompt variant
+        continue;
+      }
+
       console.error(`[illustrationGenerator] Attempt ${attempt} failed: ${genErr.message}`);
       if (attempt === MAX_RETRIES) {
         throw new Error(`Illustration generation failed after ${MAX_RETRIES} attempts: ${genErr.message}`);

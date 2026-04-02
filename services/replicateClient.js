@@ -42,6 +42,14 @@ async function runModel(modelId, input, opts = {}) {
     } catch (err) {
       lastError = err;
       console.warn(`[Replicate] Attempt ${attempt + 1}/${MAX_RETRIES} failed for ${modelId}:`, err.message);
+
+      // NSFW errors are deterministic for the same input — retrying won't help
+      if (err.message && /nsfw/i.test(err.message)) {
+        const nsfwErr = new Error(`NSFW content detected: ${err.message}`);
+        nsfwErr.isNsfw = true;
+        throw nsfwErr;
+      }
+
       if (attempt < MAX_RETRIES - 1) {
         await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
       }
