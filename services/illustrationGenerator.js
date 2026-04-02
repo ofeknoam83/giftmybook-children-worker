@@ -1,20 +1,23 @@
 /**
  * Illustration generator service.
  *
- * Generates children's book illustrations using Replicate API with Flux.1 + IP-Adapter FaceID
- * for face-consistent character rendering. Includes face similarity verification and retry logic.
+ * Generates children's book illustrations using Replicate API with Flux.1 multi-lora.
+ * Uses a generated character reference image (NOT the child's real photo) for
+ * face-consistent character rendering. Includes NSFW fallback and retry logic.
  */
 
 const { runModel } = require('./replicateClient');
 const { verifyFaceConsistency } = require('./faceEngine');
 const { uploadFromUrl } = require('./gcsStorage');
-const { ILLUSTRATION_PROMPT_BUILDER } = require('../prompts/pictureBook');
 
 /** Maximum retry attempts per illustration */
 const MAX_RETRIES = 3;
 
 /** Minimum face similarity score (0-1) before accepting an illustration */
 const MIN_FACE_SIMILARITY = 0.65;
+
+/** Fixed seed for cross-page character consistency */
+const ILLUSTRATION_SEED = 12345;
 
 /**
  * Art style configurations for illustration prompts.
@@ -23,17 +26,17 @@ const ART_STYLE_CONFIG = {
   watercolor: {
     prefix: 'children\'s book watercolor illustration,',
     suffix: 'soft watercolor textures, gentle colors, hand-painted look, paper texture visible, warm natural lighting',
-    negativePrompt: 'photorealistic, 3d render, dark, scary, violent, text, words, letters',
+    negativePrompt: 'photorealistic, photo, realistic, 3d render, dark, scary, violent, text, words, letters, naked, nude',
   },
   digital_painting: {
     prefix: 'children\'s book digital painting illustration,',
     suffix: 'vibrant colors, clean lines, professional digital art, warm lighting, friendly atmosphere',
-    negativePrompt: 'photorealistic, dark, scary, violent, text, words, letters, blurry',
+    negativePrompt: 'photorealistic, photo, realistic, dark, scary, violent, text, words, letters, blurry, naked, nude',
   },
   storybook: {
     prefix: 'classic children\'s storybook illustration,',
     suffix: 'whimsical style, soft pastel colors, detailed backgrounds, cozy atmosphere, fairytale quality',
-    negativePrompt: 'photorealistic, 3d render, dark, scary, violent, text, words, letters, anime',
+    negativePrompt: 'photorealistic, photo, realistic, 3d render, dark, scary, violent, text, words, letters, anime, naked, nude',
   },
 };
 
@@ -56,41 +59,78 @@ function sanitizePrompt(prompt) {
  */
 function buildGenericSafePrompt(artStyle) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
-  return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere ${styleConfig.suffix}`;
+  return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}`;
+}
+
+/**
+ * Build a structured illustration prompt with character identity anchoring.
+ *
+ * Always includes safety anchors ("children's book illustration", "non-realistic",
+ * "fully clothed") and character consistency markers.
+ *
+ * @param {string} sceneDescription - Scene to illustrate
+ * @param {string} artStyle - Art style key
+ * @param {string} [childAppearance] - Appearance description text
+ * @param {string} [childName] - Child's name for character anchoring
+ * @returns {string} Complete prompt
+ */
+function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName) {
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
+
+  const parts = [
+    'children\'s book illustration, non-realistic, fully clothed',
+    styleConfig.prefix,
+  ];
+
+  if (childName) {
+    parts.push(`A children's book illustration of a character named ${childName}.`);
+  }
+
+  if (childAppearance) {
+    parts.push(`Character description: ${childAppearance}`);
+  }
+
+  if (childName) {
+    parts.push(`The same character ${childName} with identical appearance, hairstyle, and facial features.`);
+  }
+
+  parts.push(sceneDescription);
+  parts.push(styleConfig.suffix);
+  parts.push('wholesome, family-friendly, child-safe, age-appropriate');
+
+  return parts.join(' ');
 }
 
 /**
  * Generate a single illustration for a book spread.
  *
- * Uses Flux.1 with IP-Adapter FaceID on Replicate for face-consistent generation.
- * Verifies face similarity and retries if the generated face doesn't match the reference.
+ * Uses Flux.1 multi-lora on Replicate. The `characterRefUrl` should be the
+ * GENERATED reference image (from faceEngine.generateCharacterReference), NOT
+ * the child's real photo.
  *
  * @param {string} sceneDescription - What the illustration should depict
- * @param {string} characterRefUrl - URL to the character reference sheet
+ * @param {string} characterRefUrl - URL to the generated character reference sheet (NOT kid photo)
  * @param {string} artStyle - 'watercolor', 'digital_painting', or 'storybook'
  * @param {object} faceEmbedding - Face embedding data from faceEngine
- * @param {object} [opts] - { apiKeys, costTracker, bookId, childAppearance }
+ * @param {object} [opts] - { apiKeys, costTracker, bookId, childAppearance, childName }
  * @returns {Promise<string>} URL of the generated illustration
  */
 async function generateIllustration(sceneDescription, characterRefUrl, artStyle, faceEmbedding, opts = {}) {
-  const { costTracker, bookId, childAppearance } = opts;
+  const totalStart = Date.now();
+  const { costTracker, bookId, childAppearance, childName } = opts;
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
-  const prompt = ILLUSTRATION_PROMPT_BUILDER(sceneDescription, artStyle, '');
-  let fullPrompt = `${styleConfig.prefix} ${prompt} ${styleConfig.suffix}`;
-
-  // When no character reference image, embed the child appearance text directly
-  if (!characterRefUrl && childAppearance) {
-    fullPrompt = `${styleConfig.prefix} ${childAppearance}, ${prompt} ${styleConfig.suffix}`;
-  }
+  // Build structured prompt with character identity anchoring
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName);
 
   console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
+  console.log(`[illustrationGenerator] Prompt built (${fullPrompt.length} chars): ${fullPrompt.slice(0, 150)}...`);
 
   // Build prompt variants for NSFW fallback
   const promptVariants = [
-    { label: 'original', prompt: fullPrompt, guidanceScale: 7.5 },
-    { label: 'sanitized', prompt: sanitizePrompt(fullPrompt), guidanceScale: 8.5 },
-    { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle), guidanceScale: 9.0 },
+    { label: 'original', prompt: fullPrompt, guidanceScale: 3.5 },
+    { label: 'sanitized', prompt: sanitizePrompt(fullPrompt), guidanceScale: 4.0 },
+    { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle), guidanceScale: 4.5 },
   ];
 
   // Skip face verification when embedding is null — accept first successful result
@@ -112,24 +152,28 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         output_format: 'png',
         guidance_scale: variant.guidanceScale,
         num_inference_steps: 30,
+        seed: ILLUSTRATION_SEED,
       };
 
-      // Add face reference if available and not disabled due to NSFW
+      // Add GENERATED character reference image (NOT the kid's real photo)
       if (useCharacterRef && characterRefUrl) {
         input.image = characterRefUrl;
         input.ip_adapter_scale = 0.6;
       }
 
+      const fluxStart = Date.now();
       const output = await runModel(modelId, input, { timeout: 120000 });
 
       if (!output || (Array.isArray(output) && output.length === 0)) {
-        console.warn(`[illustrationGenerator] Attempt ${attempt}: empty output`);
+        console.warn(`[illustrationGenerator] Attempt ${attempt}: empty output (${Date.now() - fluxStart}ms)`);
         continue;
       }
 
       let imageUrl = Array.isArray(output) ? output[0] : output;
       if (typeof imageUrl === "object" && imageUrl.url) imageUrl = imageUrl.url();
       if (typeof imageUrl !== "string") imageUrl = String(imageUrl);
+
+      console.log(`[illustrationGenerator] FLUX model called (attempt ${attempt}, seed ${ILLUSTRATION_SEED}, ${variant.label}, ${Date.now() - fluxStart}ms)`);
 
       if (costTracker) {
         costTracker.addImageGeneration('flux-dev', 1);
@@ -149,10 +193,14 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       // Upload to GCS for persistence
       if (bookId) {
+        const uploadStart = Date.now();
         const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
         const gcsUrl = await uploadFromUrl(imageUrl, gcsPath);
+        console.log(`[illustrationGenerator] Illustration uploaded to GCS (${Date.now() - uploadStart}ms)`);
+        console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
         return gcsUrl;
       }
+      console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
       return imageUrl;
     } catch (genErr) {
       // NSFW error: first try dropping face reference, then advance prompt variants
@@ -169,13 +217,13 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         promptVariantIndex++;
 
         if (promptVariantIndex >= promptVariants.length) {
-          console.error(`[illustrationGenerator] All ${promptVariants.length} prompt variants triggered NSFW for book ${bookId || 'unknown'}. Skipping illustration.`);
+          console.error(`[illustrationGenerator] All ${promptVariants.length} prompt variants triggered NSFW for book ${bookId || 'unknown'}. Skipping illustration. (${Date.now() - totalStart}ms)`);
           return null;
         }
         continue;
       }
 
-      console.error(`[illustrationGenerator] Attempt ${attempt} failed: ${genErr.message}`);
+      console.error(`[illustrationGenerator] Attempt ${attempt} failed: ${genErr.message} (${Date.now() - totalStart}ms)`);
       if (attempt === MAX_RETRIES) {
         throw new Error(`Illustration generation failed after ${MAX_RETRIES} attempts: ${genErr.message}`);
       }
@@ -185,4 +233,4 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   throw new Error('No illustration generated after all attempts');
 }
 
-module.exports = { generateIllustration };
+module.exports = { generateIllustration, buildCharacterPrompt };

@@ -85,9 +85,12 @@ function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {
   };
 
   const style = stylePrompts[artStyle] || stylePrompts.watercolor;
-  const appearance = childAppearance
-    ? `The main character is a child with ${childAppearance.hairColor || ''} hair, ${childAppearance.skinTone || ''} skin, wearing ${childAppearance.clothing || 'casual clothes'}.`
-    : '';
+  let appearance = '';
+  if (typeof childAppearance === 'string' && childAppearance) {
+    appearance = `The main character is a young child: ${childAppearance}`;
+  } else if (childAppearance && typeof childAppearance === 'object') {
+    appearance = `The main character is a child with ${childAppearance.hairColor || ''} hair, ${childAppearance.skinTone || ''} skin, wearing ${childAppearance.clothing || 'casual clothes'}.`;
+  }
 
   return `${style} ${scene} ${appearance} Child-friendly, age-appropriate, engaging and detailed, professional quality book illustration.`;
 }
