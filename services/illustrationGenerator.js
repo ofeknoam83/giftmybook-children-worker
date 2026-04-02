@@ -1,20 +1,16 @@
 /**
  * Illustration generator service.
  *
- * Generates children's book illustrations using Replicate API with Flux.1 multi-lora.
- * Uses a generated character reference image (NOT the child's real photo) for
- * face-consistent character rendering. Includes NSFW fallback and retry logic.
+ * Generates children's book illustrations using Gemini image API.
+ * Uses the child's actual photo as reference for face-consistent
+ * character rendering via Gemini's image-to-image capabilities.
  */
 
-const { runModel } = require('./replicateClient');
-const { uploadFromUrl } = require('./gcsStorage');
+const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
 
 /** Maximum retry attempts per illustration */
 const MAX_RETRIES = 3;
-
-/** Base seed — each spread gets a unique seed derived from this + spread index */
-const BASE_SEED = 12345;
 
 /**
  * Art style configurations for illustration prompts.
@@ -23,17 +19,14 @@ const ART_STYLE_CONFIG = {
   watercolor: {
     prefix: 'children\'s book watercolor illustration,',
     suffix: 'soft watercolor textures, gentle colors, hand-painted look, paper texture visible, warm natural lighting',
-    negativePrompt: 'photorealistic, photo, realistic, 3d render, dark, scary, violent, text, words, letters, naked, nude',
   },
   digital_painting: {
     prefix: 'children\'s book digital painting illustration,',
     suffix: 'vibrant colors, clean lines, professional digital art, warm lighting, friendly atmosphere',
-    negativePrompt: 'photorealistic, photo, realistic, dark, scary, violent, text, words, letters, blurry, naked, nude',
   },
   storybook: {
     prefix: 'classic children\'s storybook illustration,',
     suffix: 'whimsical style, soft pastel colors, detailed backgrounds, cozy atmosphere, fairytale quality',
-    negativePrompt: 'photorealistic, photo, realistic, 3d render, dark, scary, violent, text, words, letters, anime, naked, nude',
   },
 };
 
@@ -42,11 +35,9 @@ const NSFW_TRIGGER_WORDS = /\b(naked|nude|bare|undress|strip|bath(?:ing|e)?|bloo
 
 /**
  * Sanitize a prompt to reduce NSFW filter triggers.
- * Removes potentially problematic words and adds safe-content modifiers.
  */
 function sanitizePrompt(prompt) {
   let cleaned = prompt.replace(NSFW_TRIGGER_WORDS, '');
-  // Collapse multiple spaces
   cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
   return `${cleaned}, wholesome, family-friendly, child-safe, innocent`;
 }
@@ -62,9 +53,6 @@ function buildGenericSafePrompt(artStyle) {
 /**
  * Build a structured illustration prompt with character identity anchoring.
  *
- * Always includes safety anchors ("children's book illustration", "non-realistic",
- * "fully clothed") and character consistency markers.
- *
  * @param {string} sceneDescription - Scene to illustrate
  * @param {string} artStyle - Art style key
  * @param {string} [childAppearance] - Appearance description text
@@ -74,14 +62,12 @@ function buildGenericSafePrompt(artStyle) {
 function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
-  // IMPORTANT: Scene description goes FIRST so FLUX prioritizes it.
-  // Character description is secondary — it anchors the look but shouldn't overpower the scene.
+  // Scene description goes FIRST so Gemini prioritizes it.
   const parts = [
     styleConfig.prefix,
-    sceneDescription,  // Scene FIRST — this is what makes each illustration unique
+    sceneDescription,
   ];
 
-  // Brief character anchor (keep short so scene dominates)
   if (childName && childAppearance) {
     parts.push(`The main character is ${childName}: ${childAppearance.split('.').slice(0, 2).join('.')}.`);
   } else if (childName) {
@@ -90,42 +76,170 @@ function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, child
 
   parts.push(styleConfig.suffix);
   parts.push('children\'s book illustration, non-realistic, fully clothed, wholesome, family-friendly, child-safe');
+  parts.push('Generate a single illustration of this scene. The child in the reference photo is the main character — use their face and features for the illustrated character.');
 
   return parts.join(' ');
 }
 
 /**
+ * Download a photo from URL and return { base64, mimeType }.
+ */
+async function downloadPhotoAsBase64(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to download photo: ${resp.status} ${resp.statusText}`);
+  const contentType = resp.headers.get('content-type') || 'image/jpeg';
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  return { base64: buffer.toString('base64'), mimeType: contentType };
+}
+
+/**
+ * Call Gemini image generation API.
+ *
+ * @param {string} prompt - Scene prompt
+ * @param {string} photoBase64 - Base64-encoded child photo
+ * @param {string} photoMime - MIME type of the photo
+ * @returns {Promise<Buffer>} Generated image buffer
+ */
+async function callGeminiImageApi(prompt, photoBase64, photoMime) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+  const body = {
+    contents: [{ parts: [
+      { text: prompt },
+      { inlineData: { mimeType: photoMime, data: photoBase64 } },
+    ] }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: { aspectRatio: '1:1', imageSize: '1K' },
+    },
+  };
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    const isNsfw = resp.status === 400 && (errText.includes('SAFETY') || errText.includes('blocked'));
+    const err = new Error(`Gemini image API error ${resp.status}: ${errText.slice(0, 200)}`);
+    err.isNsfw = isNsfw;
+    throw err;
+  }
+
+  const result = await resp.json();
+  const imagePart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+  if (!imagePart) {
+    // Check for safety block
+    const blockReason = result.candidates?.[0]?.finishReason;
+    if (blockReason === 'SAFETY') {
+      const err = new Error('Gemini blocked image generation for safety reasons');
+      err.isNsfw = true;
+      throw err;
+    }
+    throw new Error('Gemini image API returned no image data');
+  }
+
+  return Buffer.from(imagePart.inlineData.data, 'base64');
+}
+
+/**
+ * Call Gemini image generation API without a reference photo.
+ *
+ * @param {string} prompt - Scene prompt
+ * @returns {Promise<Buffer>} Generated image buffer
+ */
+async function callGeminiImageApiNoPhoto(prompt) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+  const body = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: { aspectRatio: '1:1', imageSize: '1K' },
+    },
+  };
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    const isNsfw = resp.status === 400 && (errText.includes('SAFETY') || errText.includes('blocked'));
+    const err = new Error(`Gemini image API error ${resp.status}: ${errText.slice(0, 200)}`);
+    err.isNsfw = isNsfw;
+    throw err;
+  }
+
+  const result = await resp.json();
+  const imagePart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+  if (!imagePart) {
+    const blockReason = result.candidates?.[0]?.finishReason;
+    if (blockReason === 'SAFETY') {
+      const err = new Error('Gemini blocked image generation for safety reasons');
+      err.isNsfw = true;
+      throw err;
+    }
+    throw new Error('Gemini image API returned no image data');
+  }
+
+  return Buffer.from(imagePart.inlineData.data, 'base64');
+}
+
+/**
  * Generate a single illustration for a book spread.
  *
- * Uses Flux.1 multi-lora on Replicate. The `characterRefUrl` should be the
- * GENERATED reference image (from faceEngine.generateCharacterReference), NOT
- * the child's real photo.
+ * Uses Gemini image API with the child's photo as reference for
+ * face-consistent illustrations.
  *
  * @param {string} sceneDescription - What the illustration should depict
- * @param {string} characterRefUrl - URL to the generated character reference sheet (NOT kid photo)
+ * @param {string} characterRefUrl - (ignored, kept for API compat)
  * @param {string} artStyle - 'watercolor', 'digital_painting', or 'storybook'
- * @param {object} faceEmbedding - Face embedding data from faceEngine
- * @param {object} [opts] - { apiKeys, costTracker, bookId, childAppearance, childName }
- * @returns {Promise<string>} URL of the generated illustration
+ * @param {object} faceEmbedding - (ignored, kept for API compat)
+ * @param {object} [opts] - { apiKeys, costTracker, bookId, childAppearance, childName, childPhotoUrl, _cachedPhotoBase64, _cachedPhotoMime, spreadIndex }
+ * @returns {Promise<string|null>} URL of the generated illustration, or null if skipped
  */
 async function generateIllustration(sceneDescription, characterRefUrl, artStyle, faceEmbedding, opts = {}) {
   const totalStart = Date.now();
-  const { costTracker, bookId, childAppearance, childName, spreadIndex } = opts;
-  // Unique seed per spread so each illustration is visually different
-  const seed = BASE_SEED + (spreadIndex || Math.floor(Math.random() * 10000));
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
+  const { costTracker, bookId, childAppearance, childName, childPhotoUrl, spreadIndex } = opts;
 
-  // Build structured prompt with character identity anchoring
   const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName);
 
   console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
   console.log(`[illustrationGenerator] Prompt built (${fullPrompt.length} chars): ${fullPrompt.slice(0, 150)}...`);
 
+  // Resolve photo base64 (use cached if available)
+  let photoBase64 = opts._cachedPhotoBase64 || null;
+  let photoMime = opts._cachedPhotoMime || 'image/jpeg';
+  const hasPhoto = !!(photoBase64 || childPhotoUrl);
+
+  if (!photoBase64 && childPhotoUrl) {
+    try {
+      const photo = await downloadPhotoAsBase64(childPhotoUrl);
+      photoBase64 = photo.base64;
+      photoMime = photo.mimeType;
+    } catch (dlErr) {
+      console.warn(`[illustrationGenerator] Failed to download child photo for book ${bookId}: ${dlErr.message} — generating without photo reference`);
+    }
+  }
+
   // Build prompt variants for NSFW fallback
   const promptVariants = [
-    { label: 'original', prompt: fullPrompt, guidanceScale: 3.5 },
-    { label: 'sanitized', prompt: sanitizePrompt(fullPrompt), guidanceScale: 4.0 },
-    { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle), guidanceScale: 4.5 },
+    { label: 'original', prompt: fullPrompt },
+    { label: 'sanitized', prompt: sanitizePrompt(fullPrompt) },
+    { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle) },
   ];
 
   let promptVariantIndex = 0;
@@ -133,65 +247,43 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const variant = promptVariants[promptVariantIndex];
     try {
-      const modelId = 'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352';
+      const geminiStart = Date.now();
 
-      const input = {
-        prompt: variant.prompt,
-        negative_prompt: styleConfig.negativePrompt,
-        num_outputs: 1,
-        aspect_ratio: '1:1',
-        output_format: 'png',
-        guidance_scale: variant.guidanceScale,
-        num_inference_steps: 30,
-        seed,
-      };
-
-      // NOTE: Character reference image + IP-Adapter is DISABLED.
-      // The reference sheet (4-pose turnaround) causes FLUX to reproduce the sheet layout
-      // instead of the actual scene. We rely on the text appearance description instead.
-      // Character consistency comes from the childAppearance text embedded in the prompt.
-
-      const fluxStart = Date.now();
-      const output = await runModel(modelId, input, { timeout: 120000 });
-
-      if (!output || (Array.isArray(output) && output.length === 0)) {
-        console.warn(`[illustrationGenerator] Attempt ${attempt}: empty output (${Date.now() - fluxStart}ms)`);
-        continue;
+      let imageBuffer;
+      if (photoBase64) {
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime);
+      } else {
+        imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt);
       }
 
-      let imageUrl = Array.isArray(output) ? output[0] : output;
-      if (typeof imageUrl === "object" && imageUrl.url) imageUrl = imageUrl.url();
-      if (typeof imageUrl !== "string") imageUrl = String(imageUrl);
-
-      console.log(`[illustrationGenerator] FLUX model called (attempt ${attempt}, seed ${seed}, ${variant.label}, ${Date.now() - fluxStart}ms)`);
+      console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${Date.now() - geminiStart}ms)`);
 
       if (costTracker) {
-        costTracker.addImageGeneration('flux-dev', 1);
+        costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
       }
 
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);
 
-      // Upload to GCS for persistence
+      // Upload to GCS
       if (bookId) {
         const uploadStart = Date.now();
         const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
         const gcsUrl = await withRetry(
-          () => uploadFromUrl(imageUrl, gcsPath),
+          () => uploadBuffer(imageBuffer, gcsPath, 'image/png'),
           { maxRetries: 3, baseDelayMs: 1000, label: `upload-illustration-${bookId}` }
         );
         console.log(`[illustrationGenerator] Illustration uploaded to GCS (${Date.now() - uploadStart}ms)`);
         console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
         return gcsUrl;
       }
+
+      // No bookId — can't upload, but this shouldn't happen in production
       console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
-      return imageUrl;
+      return null;
     } catch (genErr) {
-      // NSFW error: first try dropping face reference, then advance prompt variants
       if (genErr.isNsfw) {
         console.warn(`[illustrationGenerator] NSFW detected on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}: ${genErr.message}`);
-
         promptVariantIndex++;
-
         if (promptVariantIndex >= promptVariants.length) {
           console.error(`[illustrationGenerator] All ${promptVariants.length} prompt variants triggered NSFW for book ${bookId || 'unknown'}. Skipping illustration. (${Date.now() - totalStart}ms)`);
           return null;

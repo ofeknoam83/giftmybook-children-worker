@@ -5,26 +5,12 @@
  * Enforces age-appropriate vocabulary and style constraints.
  */
 
-const OpenAI = require('openai');
 const { TEXT_GENERATOR_SYSTEM: PB_TEXT_SYSTEM, VOCABULARY_CHECK_PROMPT } = require('../prompts/pictureBook');
 const { TEXT_GENERATOR_SYSTEM: ER_TEXT_SYSTEM } = require('../prompts/earlyReader');
 const gemini = require('./gemini');
 
-/** @type {OpenAI | null} */
-let openaiClient = null;
-
-/**
- * @param {object} [apiKeys]
- * @returns {OpenAI}
- */
-function getOpenAI(apiKeys) {
-  const key = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY is not configured');
-  if (apiKeys?.OPENAI_API_KEY || !openaiClient) {
-    openaiClient = new OpenAI({ apiKey: key });
-  }
-  return openaiClient;
-}
+const GEMINI_MODEL = 'gemini-3.1-flash';
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
  * Age group word limits and style rules.
@@ -45,6 +31,42 @@ const FORMAT_RULES = {
 };
 
 /**
+ * Call Gemini 3.1 Flash text generation API.
+ */
+async function callGeminiText(systemPrompt, userPrompt, genConfig) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    generationConfig: genConfig,
+  };
+
+  const resp = await fetch(
+    `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Gemini text API error ${resp.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const result = await resp.json();
+  const candidate = result.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || '';
+  const inputTokens = result.usageMetadata?.promptTokenCount || 0;
+  const outputTokens = result.usageMetadata?.candidatesTokenCount || 0;
+
+  return { text, inputTokens, outputTokens };
+}
+
+/**
  * Generate text for a single spread/page.
  *
  * @param {object} spreadPlan - { spreadNumber, text, illustrationDescription, layoutType, mood }
@@ -55,8 +77,7 @@ const FORMAT_RULES = {
  * @returns {Promise<string>} The generated text for this spread
  */
 async function generateSpreadText(spreadPlan, childDetails, bookFormat, storyContext, opts = {}) {
-  const { apiKeys, costTracker } = opts;
-  const client = getOpenAI(apiKeys);
+  const { costTracker } = opts;
   const rules = FORMAT_RULES[bookFormat] || FORMAT_RULES.picture_book;
 
   const isPictureBook = bookFormat === 'picture_book';
@@ -78,21 +99,16 @@ Scene outline: ${spreadPlan.text || spreadPlan.illustrationDescription || 'Conti
 ${previousContext ? `Recent story context:\n${previousContext}\n` : ''}
 Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words. ${rules.style}`;
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-5.4-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
+  const response = await callGeminiText(systemPrompt, userPrompt, {
+    maxOutputTokens: 500,
     temperature: 0.7,
-    max_completion_tokens: 500,
   });
 
   if (costTracker) {
-    costTracker.addTextUsage('gpt-5.4-mini', response.usage?.prompt_tokens || 0, response.usage?.completion_tokens || 0);
+    costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
   }
 
-  let text = (response.choices[0]?.message?.content || '').trim();
+  let text = (response.text || '').trim();
   if (!text) {
     throw new Error(`Empty text response for spread ${spreadPlan.spreadNumber}`);
   }
@@ -102,7 +118,7 @@ Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words.
 
   // Vocabulary check via Gemini (fast + cheap)
   try {
-    const vocabResult = await checkVocabulary(text, rules.ageGroup, apiKeys, costTracker);
+    const vocabResult = await checkVocabulary(text, rules.ageGroup, opts.apiKeys, costTracker);
     if (vocabResult && vocabResult !== text) {
       text = vocabResult;
     }
@@ -136,7 +152,6 @@ async function checkVocabulary(text, ageGroup, apiKeys, costTracker) {
     maxTokens: 500,
   });
 
-  // gemini.generateContent returns { text, inputTokens, outputTokens }
   const resultText = typeof result === 'string' ? result : result.text;
   const inputTokens = typeof result === 'object' ? result.inputTokens : 0;
   const outputTokens = typeof result === 'object' ? result.outputTokens : 0;
@@ -147,29 +162,24 @@ async function checkVocabulary(text, ageGroup, apiKeys, costTracker) {
 
   const response = (resultText || '').trim();
 
-  // The prompt asks for JSON: { approved, issues, suggestion }
-  // Parse it and use the suggestion if not approved
   try {
-    // Strip markdown code fences if present
     const cleaned = response.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     const parsed = JSON.parse(cleaned);
     if (parsed.approved === true || parsed.approved === 'true') {
-      return null; // Text is fine, no changes
+      return null;
     }
     if (parsed.suggestion && typeof parsed.suggestion === 'string' && parsed.suggestion.length > 10) {
       return parsed.suggestion;
     }
-    return null; // Not approved but no suggestion — keep original
+    return null;
   } catch {
     // Not JSON — use the old heuristic
   }
 
-  // Fallback: if Gemini returned plain text
   if (response.toLowerCase().includes('no changes') || response.toLowerCase().includes('text is appropriate') || response.toLowerCase().includes('approved')) {
     return null;
   }
 
-  // If it returned what looks like corrected story text (not JSON), use it
   if (response.length > 10 && response.length < text.length * 2 && !response.startsWith('{')) {
     return response;
   }

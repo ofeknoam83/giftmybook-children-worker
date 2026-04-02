@@ -273,7 +273,27 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
 
-      // Stage 5: Generate illustrations in parallel (3 at a time)
+      // Stage 5: Generate illustrations in parallel (5 at a time)
+      // Pre-cache child photo for Gemini image API (download once, reuse for all illustrations)
+      const childPhotoUrl = faceEmbedding?.primaryPhotoUrl || childDetails.photoUrls?.[0];
+      let cachedPhotoBase64 = null;
+      let cachedPhotoMime = 'image/jpeg';
+      if (childPhotoUrl) {
+        try {
+          const photoResp = await fetch(childPhotoUrl);
+          if (photoResp.ok) {
+            const photoBuf = Buffer.from(await photoResp.arrayBuffer());
+            cachedPhotoBase64 = photoBuf.toString('base64');
+            cachedPhotoMime = photoResp.headers.get('content-type') || 'image/jpeg';
+            console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${cachedPhotoMime})`);
+          } else {
+            console.warn(`[server] Failed to download child photo for caching: ${photoResp.status}`);
+          }
+        } catch (photoErr) {
+          console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
+        }
+      }
+
       const stage5Start = Date.now();
       const spreadsWithImages = new Array(spreadsWithText.length);
       let illustrationFailures = 0;
@@ -300,6 +320,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
               bookId,
               childAppearance: childAppearanceDesc,
               childName: childDetails.name,
+              childPhotoUrl,
+              _cachedPhotoBase64: cachedPhotoBase64,
+              _cachedPhotoMime: cachedPhotoMime,
               spreadIndex: i,
             });
             const timeoutPromise = new Promise((_, reject) =>
@@ -585,7 +608,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 });
 
 // ── Startup Validation ──
-const REQUIRED_ENV = ['API_KEY', 'OPENAI_API_KEY', 'REPLICATE_API_TOKEN', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
+const REQUIRED_ENV = ['API_KEY', 'REPLICATE_API_TOKEN', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
   console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}`);

@@ -2,32 +2,59 @@
  * Story planner service.
  *
  * Takes child details, theme, and book format, then generates a
- * spread-by-spread story outline using GPT-5.4.
+ * spread-by-spread story outline using Gemini 3.1 Flash.
  *
  * Picture books: 12-16 spreads, ~30-60 words per spread
  * Early readers: 24-32 pages, ~60-150 words per page
  */
 
-const OpenAI = require('openai');
 const { STORY_PLANNER_SYSTEM: PB_SYSTEM, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 
-/** @type {OpenAI | null} */
-let openaiClient = null;
+const GEMINI_MODEL = 'gemini-3.1-flash';
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
- * Get or create the OpenAI client.
- * @param {object} [apiKeys] - Optional API keys from request
- * @returns {OpenAI}
+ * Call Gemini 3.1 Flash text generation API.
+ *
+ * @param {string} systemPrompt
+ * @param {string} userPrompt
+ * @param {object} genConfig - { maxOutputTokens, temperature, responseMimeType? }
+ * @returns {Promise<{ text: string, inputTokens: number, outputTokens: number, finishReason: string }>}
  */
-function getOpenAI(apiKeys) {
-  const key = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY is not configured');
-  // Always create fresh client if per-request key is provided
-  if (apiKeys?.OPENAI_API_KEY || !openaiClient) {
-    openaiClient = new OpenAI({ apiKey: key });
+async function callGeminiText(systemPrompt, userPrompt, genConfig) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    generationConfig: genConfig,
+  };
+
+  const resp = await fetch(
+    `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error(`[storyPlanner] Gemini API call failed: ${resp.status} ${errText.slice(0, 300)}`);
+    throw new Error(`Story planner API call failed: ${resp.status} ${errText.slice(0, 200)}`);
   }
-  return openaiClient;
+
+  const result = await resp.json();
+  const candidate = result.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || '';
+  const finishReason = candidate?.finishReason || 'unknown';
+  const inputTokens = result.usageMetadata?.promptTokenCount || 0;
+  const outputTokens = result.usageMetadata?.candidatesTokenCount || 0;
+
+  return { text, inputTokens, outputTokens, finishReason };
 }
 
 /**
@@ -41,8 +68,7 @@ function getOpenAI(apiKeys) {
  * @returns {Promise<{ title: string, spreads: Array<{ spreadNumber: number, text: string, illustrationDescription: string, layoutType: string, mood: string }> }>}
  */
 async function planStory(childDetails, theme, bookFormat, customDetails, opts = {}) {
-  const { apiKeys, costTracker } = opts;
-  const client = getOpenAI(apiKeys);
+  const { costTracker } = opts;
 
   const isPictureBook = bookFormat === 'picture_book';
   const systemPrompt = isPictureBook ? PB_SYSTEM : ER_SYSTEM;
@@ -51,51 +77,36 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     : erUserPrompt(childDetails, theme, customDetails);
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
-  console.log(`[storyPlanner] Using model: gpt-5.4, system prompt: ${systemPrompt.length} chars, user prompt: ${userPrompt.length} chars`);
+  console.log(`[storyPlanner] Using model: ${GEMINI_MODEL}, system prompt: ${systemPrompt.length} chars, user prompt: ${userPrompt.length} chars`);
 
-  let response;
-  try {
-    response = await client.chat.completions.create({
-    model: 'gpt-5.4',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    response_format: { type: 'json_object' },
+  const response = await callGeminiText(systemPrompt, userPrompt, {
+    maxOutputTokens: 8000,
     temperature: 0.8,
-    max_completion_tokens: 8000,
+    responseMimeType: 'application/json',
   });
-  } catch (apiErr) {
-    console.error('[storyPlanner] OpenAI API call failed:', apiErr.message, apiErr.status || '', apiErr.code || '');
-    throw new Error(`Story planner API call failed: ${apiErr.message}`);
-  }
 
   if (costTracker) {
-    costTracker.addTextUsage('gpt-5.4', response.usage?.prompt_tokens || 0, response.usage?.completion_tokens || 0);
+    costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
   }
 
-  const choice = response.choices[0];
-  const content = choice?.message?.content;
-  const finishReason = choice?.finish_reason || 'unknown';
+  const content = response.text;
+  const finishReason = response.finishReason;
+
   if (!content) {
-    const refusal = choice?.message?.refusal || null;
-    console.error('[storyPlanner] Empty response details:', JSON.stringify({
-      finishReason, refusal, usage: response.usage, model: response.model,
-    }));
-    throw new Error(`Empty response from story planner (finish_reason: ${finishReason}, refusal: ${refusal || 'none'})`);
+    console.error('[storyPlanner] Empty response from Gemini');
+    throw new Error(`Empty response from story planner (finish_reason: ${finishReason})`);
   }
-  // If truncated by length, try to salvage partial JSON
-  if (finishReason === 'length') {
-    console.warn(`[storyPlanner] Response truncated (finish_reason: length, ${content.length} chars). Attempting to salvage...`);
+
+  if (finishReason === 'MAX_TOKENS') {
+    console.warn(`[storyPlanner] Response truncated (finish_reason: MAX_TOKENS, ${content.length} chars). Attempting to salvage...`);
   }
-  console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${choice.finish_reason}`);
+  console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${finishReason}`);
 
   let plan;
   try {
     plan = JSON.parse(content);
   } catch (parseErr) {
-    // Attempt to repair truncated JSON by closing open brackets
-    if (finishReason === 'length') {
+    if (finishReason === 'MAX_TOKENS') {
       const repaired = repairTruncatedJson(content);
       if (repaired) {
         console.warn(`[storyPlanner] Salvaged truncated JSON after repair`);
@@ -119,7 +130,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
       throw new Error('Each spread must have a spreadNumber');
     }
     if (!validLayouts.includes(spread.layoutType)) {
-      spread.layoutType = 'TEXT_BOTTOM'; // default fallback
+      spread.layoutType = 'TEXT_BOTTOM';
     }
     spread.illustrationDescription = spread.illustrationDescription || '';
     spread.mood = spread.mood || 'cheerful';
@@ -128,17 +139,16 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   // For picture books, do a rhyme/rhythm pass
   if (isPictureBook && plan.spreads.length > 0) {
-    plan = await applyRhymePass(client, plan, childDetails, costTracker);
+    plan = await applyRhymePass(plan, childDetails, costTracker);
   }
 
-  // Enforce spread cap to prevent runaway generation costs
+  // Enforce spread cap
   if (plan.spreads.length > 16) {
     console.warn(`[storyPlanner] Plan has ${plan.spreads.length} spreads — truncating to 16 (keeping first 3 + last 3, cutting middle)`);
     const first = plan.spreads.slice(0, 3);
     const last = plan.spreads.slice(-3);
     const middle = plan.spreads.slice(3, -3).slice(0, 10);
     plan.spreads = [...first, ...middle, ...last];
-    // Re-number spreads sequentially
     plan.spreads.forEach((s, i) => { s.spreadNumber = i + 1; });
   }
 
@@ -154,42 +164,34 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 /**
  * Apply a rhyme/rhythm refinement pass for picture books.
  *
- * @param {OpenAI} client
  * @param {object} plan
  * @param {object} childDetails
  * @param {object} [costTracker]
  * @returns {Promise<object>}
  */
-async function applyRhymePass(client, plan, childDetails, costTracker) {
+async function applyRhymePass(plan, childDetails, costTracker) {
   console.log(`[storyPlanner] Applying rhyme/rhythm pass...`);
 
   const spreadTexts = plan.spreads.map(s => `Spread ${s.spreadNumber}: ${s.text}`).join('\n');
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-5.4',
-    messages: [
-      {
-        role: 'system',
-        content: `You are a children's picture book poet. Your job is to refine story text so it has a consistent rhythm and rhyming pattern (AABB or ABAB). Keep each spread's text to 30-60 words. Maintain the same story beats and character names. The child character is named ${childDetails.name}.
+  const systemPrompt = `You are a children's picture book poet. Your job is to refine story text so it has a consistent rhythm and rhyming pattern (AABB or ABAB). Keep each spread's text to 30-60 words. Maintain the same story beats and character names. The child character is named ${childDetails.name}.
 
-Return a JSON object with a "spreads" array. Each item must have "spreadNumber" (integer) and "text" (refined rhyming text).`,
-      },
-      {
-        role: 'user',
-        content: `Refine these spread texts to have a consistent rhyme scheme and rhythm:\n\n${spreadTexts}`,
-      },
-    ],
-    response_format: { type: 'json_object' },
+Return a JSON object with a "spreads" array. Each item must have "spreadNumber" (integer) and "text" (refined rhyming text).`;
+
+  const userPrompt = `Refine these spread texts to have a consistent rhyme scheme and rhythm:\n\n${spreadTexts}`;
+
+  const response = await callGeminiText(systemPrompt, userPrompt, {
+    maxOutputTokens: 6000,
     temperature: 0.7,
-    max_completion_tokens: 6000,
+    responseMimeType: 'application/json',
   });
 
   if (costTracker) {
-    costTracker.addTextUsage('gpt-5.4', response.usage?.prompt_tokens || 0, response.usage?.completion_tokens || 0);
+    costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
   }
 
   try {
-    const refined = JSON.parse(response.choices[0]?.message?.content || '{}');
+    const refined = JSON.parse(response.text || '{}');
     if (Array.isArray(refined.spreads)) {
       for (const refinedSpread of refined.spreads) {
         const original = plan.spreads.find(s => s.spreadNumber === refinedSpread.spreadNumber);
@@ -211,14 +213,11 @@ Return a JSON object with a "spreads" array. Each item must have "spreadNumber" 
  * @returns {object|null} Parsed object or null if repair fails
  */
 function repairTruncatedJson(str) {
-  // Find the last complete array element by looking for the last '}' that could close a spread
   const lastBrace = str.lastIndexOf('}');
   if (lastBrace === -1) return null;
 
-  // Try progressively shorter substrings ending at closing braces
   let candidate = str.slice(0, lastBrace + 1);
 
-  // Count unclosed brackets and braces
   let openBraces = 0;
   let openBrackets = 0;
   let inString = false;
@@ -234,7 +233,6 @@ function repairTruncatedJson(str) {
     if (ch === ']') openBrackets--;
   }
 
-  // Close any unclosed brackets/braces
   const suffix = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
   try {
     return JSON.parse(candidate + suffix);
