@@ -68,13 +68,18 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
  * @returns {Promise<{ title: string, spreads: Array<{ spreadNumber: number, text: string, illustrationDescription: string, layoutType: string, mood: string }> }>}
  */
 async function planStory(childDetails, theme, bookFormat, customDetails, opts = {}) {
-  const { costTracker } = opts;
+  const { costTracker, approvedTitle } = opts;
 
   const isPictureBook = bookFormat === 'picture_book';
   const systemPrompt = isPictureBook ? PB_SYSTEM : ER_SYSTEM;
-  const userPrompt = isPictureBook
+  let userPrompt = isPictureBook
     ? pbUserPrompt(childDetails, theme, customDetails)
     : erUserPrompt(childDetails, theme, customDetails);
+
+  // If there's an approved title from the cover selection, inject it into the prompt
+  if (approvedTitle) {
+    userPrompt += `\n\nIMPORTANT: The book title has already been chosen by the customer: "${approvedTitle}". You MUST use this exact title. Build the story around this title. Do not invent a different title.`;
+  }
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
   console.log(`[storyPlanner] Using model: ${GEMINI_MODEL}, system prompt: ${systemPrompt.length} chars, user prompt: ${userPrompt.length} chars`);
@@ -159,6 +164,11 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   const spreadRange = isPictureBook ? [12, 16] : [24, 32];
   if (plan.spreads.length < spreadRange[0]) {
     console.warn(`[storyPlanner] Plan has only ${plan.spreads.length} spreads (expected ${spreadRange[0]}-${spreadRange[1]})`);
+  }
+
+  // Override with the approved title if provided
+  if (approvedTitle) {
+    plan.title = approvedTitle;
   }
 
   console.log(`[storyPlanner] Plan complete: "${plan.title}" with ${plan.spreads.length} spreads`);

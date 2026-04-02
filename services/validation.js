@@ -131,6 +131,7 @@ function validateGenerateBookRequest(body) {
     callbackUrl: isValidHttpsUrl(body.callbackUrl) ? body.callbackUrl : null,
     progressCallbackUrl: isValidHttpsUrl(body.progressCallbackUrl) ? body.progressCallbackUrl : null,
     childId: body.childId ? String(body.childId).slice(0, 100) : undefined,
+    approvedTitle: typeof body.approvedTitle === 'string' ? body.approvedTitle.slice(0, 200) : undefined,
     approvedCoverUrl: isValidHttpsUrl(body.approvedCoverUrl) ? body.approvedCoverUrl : undefined,
   };
 

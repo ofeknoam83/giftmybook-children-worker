@@ -281,7 +281,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     bookId, childName, childAge, childGender, childAppearance,
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
-    approvedCoverUrl,
+    approvedTitle, approvedCoverUrl,
   } = sanitized;
   const apiKeys = req.body.apiKeys;
 
@@ -395,6 +395,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const storyPlan = await planStory(childDetails, theme || 'adventure', format, customDetails || '', {
         apiKeys,
         costTracker,
+        approvedTitle,
       });
       bookContext.touchActivity();
       const stage3Ms = Date.now() - stage3Start;
