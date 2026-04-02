@@ -9,6 +9,7 @@
 const crypto = require('crypto');
 const { runModel } = require('./replicateClient');
 const { uploadBuffer, uploadFromUrl, downloadBuffer, getSignedUrl, saveJson, loadJson } = require('./gcsStorage');
+const { withRetry } = require('./retry');
 
 /** Current prompt version — bump to invalidate cached descriptions */
 const APPEARANCE_PROMPT_VERSION = 'v2';
@@ -115,11 +116,14 @@ async function extractFaceEmbedding(photoUrls) {
     try {
       // Download the image and send to Gemini Vision
       const dlStart = Date.now();
-      const imgResp = await fetch(photoUrl);
-      if (!imgResp.ok) {
-        console.warn(`[faceEngine] Failed to download photo: ${imgResp.status}`);
-        continue;
-      }
+      const imgResp = await withRetry(
+        async () => {
+          const resp = await fetch(photoUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp;
+        },
+        { maxRetries: 3, baseDelayMs: 1000, label: 'face-photo-download' }
+      );
       const imgBuffer = Buffer.from(await imgResp.arrayBuffer());
       console.log(`[faceEngine] Photo downloaded: ${photoUrl.slice(0, 80)}... (${imgBuffer.length} bytes, ${Date.now() - dlStart}ms)`);
       const base64 = imgBuffer.toString('base64');
@@ -356,8 +360,14 @@ async function describeChildAppearance(photoUrls, childDetails, opts = {}) {
   for (const photoUrl of photoUrls) {
     try {
       const dlStart = Date.now();
-      const imgResp = await fetch(photoUrl);
-      if (!imgResp.ok) continue;
+      const imgResp = await withRetry(
+        async () => {
+          const resp = await fetch(photoUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp;
+        },
+        { maxRetries: 3, baseDelayMs: 1000, label: 'appearance-photo-download' }
+      );
       const imgBuffer = Buffer.from(await imgResp.arrayBuffer());
       console.log(`[faceEngine] Photo downloaded for description: ${photoUrl.slice(0, 80)}... (${imgBuffer.length} bytes, ${Date.now() - dlStart}ms)`);
       const base64 = imgBuffer.toString('base64');

@@ -2,6 +2,8 @@
  * Prompt templates for early reader generation (ages 6-9)
  */
 
+const { sanitizeForPrompt } = require('../services/validation');
+
 const STORY_PLANNER_SYSTEM = `You are a children's book author writing early readers for ages 6-9.
 
 RULES:
@@ -26,13 +28,17 @@ LAYOUT TYPES for each page:
 Respond with ONLY valid JSON.`;
 
 function STORY_PLANNER_USER(childDetails, theme, customDetails) {
-  return `Create an early reader story for a child named ${childDetails.childName}.
+  const name = sanitizeForPrompt(childDetails.childName || '', 50);
+  const interests = (childDetails.childInterests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
+  const details = customDetails ? sanitizeForPrompt(customDetails, 500) : '';
+
+  return `Create an early reader story for a child named ${name}.
 
 Child details:
 - Age: ${childDetails.childAge || 7}
 - Gender: ${childDetails.childGender || 'not specified'}
-- Interests: ${(childDetails.childInterests || []).join(', ') || 'general'}
-${customDetails ? `- Special requests: ${customDetails}` : ''}
+- Interests: ${interests}
+${details ? `- Special requests: ${details}` : ''}
 
 Theme: ${theme}
 

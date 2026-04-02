@@ -2,6 +2,8 @@
  * Prompt templates for picture book generation (ages 3-6)
  */
 
+const { sanitizeForPrompt } = require('../services/validation');
+
 const STORY_PLANNER_SYSTEM = `You are a children's picture book author creating stories for ages 3-6.
 
 RULES:
@@ -23,13 +25,17 @@ LAYOUT TYPES for each spread:
 Respond with ONLY valid JSON.`;
 
 function STORY_PLANNER_USER(childDetails, theme, customDetails) {
-  return `Create a picture book story for a child named ${childDetails.childName}.
+  const name = sanitizeForPrompt(childDetails.childName || '', 50);
+  const interests = (childDetails.childInterests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
+  const details = customDetails ? sanitizeForPrompt(customDetails, 500) : '';
+
+  return `Create a picture book story for a child named ${name}.
 
 Child details:
 - Age: ${childDetails.childAge || 5}
 - Gender: ${childDetails.childGender || 'not specified'}
-- Interests: ${(childDetails.childInterests || []).join(', ') || 'general'}
-${customDetails ? `- Special requests: ${customDetails}` : ''}
+- Interests: ${interests}
+${details ? `- Special requests: ${details}` : ''}
 
 Theme: ${theme}
 

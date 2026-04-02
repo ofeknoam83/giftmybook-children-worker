@@ -94,7 +94,18 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   try {
     plan = JSON.parse(content);
   } catch (parseErr) {
-    throw new Error(`Failed to parse story plan JSON: ${parseErr.message}`);
+    // Attempt to repair truncated JSON by closing open brackets
+    if (finishReason === 'length') {
+      const repaired = repairTruncatedJson(content);
+      if (repaired) {
+        console.warn(`[storyPlanner] Salvaged truncated JSON after repair`);
+        plan = repaired;
+      } else {
+        throw new Error(`Failed to parse or repair truncated story plan JSON: ${parseErr.message}`);
+      }
+    } else {
+      throw new Error(`Failed to parse story plan JSON: ${parseErr.message}`);
+    }
   }
 
   // Validate plan structure
@@ -192,6 +203,44 @@ Return a JSON object with a "spreads" array. Each item must have "spreadNumber" 
   }
 
   return plan;
+}
+
+/**
+ * Attempt to repair truncated JSON by closing unclosed brackets/braces.
+ * @param {string} str - Truncated JSON string
+ * @returns {object|null} Parsed object or null if repair fails
+ */
+function repairTruncatedJson(str) {
+  // Find the last complete array element by looking for the last '}' that could close a spread
+  const lastBrace = str.lastIndexOf('}');
+  if (lastBrace === -1) return null;
+
+  // Try progressively shorter substrings ending at closing braces
+  let candidate = str.slice(0, lastBrace + 1);
+
+  // Count unclosed brackets and braces
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inString = false;
+  let escape = false;
+  for (const ch of candidate) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') openBraces++;
+    if (ch === '}') openBraces--;
+    if (ch === '[') openBrackets++;
+    if (ch === ']') openBrackets--;
+  }
+
+  // Close any unclosed brackets/braces
+  const suffix = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
+  try {
+    return JSON.parse(candidate + suffix);
+  } catch {
+    return null;
+  }
 }
 
 module.exports = { planStory };
