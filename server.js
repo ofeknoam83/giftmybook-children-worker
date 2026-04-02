@@ -193,7 +193,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
   const spreadsWithImages = new Array(storyPlan.spreads.length);
   let completedCount = 0;
 
-  const illustrationLimit = pLimit(8);
+  const illustrationLimit = pLimit(3); // Keep low to avoid Gemini image API rate limiting
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -222,7 +222,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           spreadIndex: i,
         });
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 3 minutes`)), 180000)
+          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
         );
         imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
         bookContext.touchActivity();

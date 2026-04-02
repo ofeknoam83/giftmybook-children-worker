@@ -9,7 +9,7 @@ const { TEXT_GENERATOR_SYSTEM: PB_TEXT_SYSTEM, VOCABULARY_CHECK_PROMPT } = requi
 const { TEXT_GENERATOR_SYSTEM: ER_TEXT_SYSTEM } = require('../prompts/earlyReader');
 const gemini = require('./gemini');
 
-const GEMINI_MODEL = 'gemini-3-flash-preview';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
