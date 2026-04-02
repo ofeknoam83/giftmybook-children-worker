@@ -99,10 +99,12 @@ Scene outline: ${spreadPlan.text || spreadPlan.illustrationDescription || 'Conti
 ${previousContext ? `Recent story context:\n${previousContext}\n` : ''}
 Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words. ${rules.style}`;
 
+  const textGenStart = Date.now();
   const response = await callGeminiText(systemPrompt, userPrompt, {
     maxOutputTokens: 500,
     temperature: 0.7,
   });
+  const textGenMs = Date.now() - textGenStart;
 
   if (costTracker) {
     costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
@@ -131,6 +133,8 @@ Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words.
   if (wordCount > rules.maxWords * 1.5) {
     console.warn(`[textGenerator] Spread ${spreadPlan.spreadNumber} has ${wordCount} words (max ${rules.maxWords}) - may need trimming`);
   }
+
+  console.log(`[textGenerator] Spread ${spreadPlan.spreadNumber} generated in ${textGenMs}ms (${wordCount} words, ${response.inputTokens}+${response.outputTokens} tokens)`);
 
   return text;
 }

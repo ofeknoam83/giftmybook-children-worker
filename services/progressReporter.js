@@ -2,7 +2,7 @@
  * Progress Reporter — sends progress updates + completion callbacks to standalone app
  */
 
-const THROTTLE_MS = 10_000; // 10 seconds between progress updates
+const THROTTLE_MS = 3_000; // 3 seconds between progress updates
 const lastReportTimes = new Map();
 const API_KEY = process.env.API_KEY || '';
 

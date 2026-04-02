@@ -256,7 +256,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt);
       }
 
-      console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${Date.now() - geminiStart}ms)`);
+      const geminiMs = Date.now() - geminiStart;
+      console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
 
       if (costTracker) {
         costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);

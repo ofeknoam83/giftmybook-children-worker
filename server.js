@@ -76,6 +76,12 @@ function createBookContext(bookId) {
     abortController,
     lastActivity: Date.now(),
     reject: null,
+    logs: [],
+    log(level, msg, data) {
+      const entry = { ts: new Date().toISOString(), level, msg, data };
+      context.logs.push(entry);
+      console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log'](`[book:${bookId.slice(0, 8)}] ${msg}`, data ? JSON.stringify(data).slice(0, 200) : '');
+    },
     touchActivity() {
       context.lastActivity = Date.now();
       global.__lastGlobalActivity = Date.now();
@@ -170,15 +176,19 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   (async () => {
     const bookWarnings = [];
+    const bookStartTime = Date.now();
+    bookContext.log('info', 'Book generation started', { childName, format, style, theme });
     const absoluteTimer = setTimeout(() => {
+      bookContext.log('error', 'Absolute timeout reached — aborting', { timeoutMin: ABSOLUTE_TIMEOUT_MS / 60000 });
       console.error(`[server] Book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000}min) — aborting`);
       bookContext.abortController.abort();
     }, ABSOLUTE_TIMEOUT_MS);
 
     try {
       // Stage 1: Extract face embedding + describe appearance (in parallel for speed)
+      bookContext.log('info', 'Starting face extraction + appearance description');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'face_extraction', progress: 0.05, message: 'Analyzing photos...' });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'face_extraction', progress: 0.05, message: 'Analyzing photos...', logs: bookContext.logs });
       }
       bookContext.touchActivity();
 
@@ -188,6 +198,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const [faceEmbedding, appearanceResult] = await Promise.all([
         extractFaceEmbedding(childDetails.photoUrls),
         describeChildAppearance(childDetails.photoUrls, childDetails, { childId }).catch(descErr => {
+          bookContext.log('warn', 'Appearance description failed — using fallback', { error: descErr.message });
           console.warn(`[server] describeChildAppearance failed for book ${bookId}: ${descErr.message}`);
           bookWarnings.push('Appearance description unavailable — using fallback');
           return '';
@@ -196,15 +207,19 @@ app.post('/generate-book', authenticate, async (req, res) => {
       childAppearanceDesc = appearanceResult;
       bookContext.touchActivity();
 
+      const stage1Ms = Date.now() - stage1Start;
+      bookContext.log('info', 'Face extraction + appearance complete', { ms: stage1Ms, hasEmbedding: !!faceEmbedding, hasAppearance: !!childAppearanceDesc });
+
       // Store Gemini-generated description on childDetails for downstream use
       if (childAppearanceDesc) {
         childDetails.appearance = childAppearanceDesc;
       }
 
-      console.log(`[server] Stage timing: face+description=${Date.now() - stage1Start}ms (book ${bookId})`);
+      console.log(`[server] Stage timing: face+description=${stage1Ms}ms (book ${bookId})`);
 
+      bookContext.log('info', 'Starting character reference generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'character_reference', progress: 0.10, message: 'Creating character reference...' });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'character_reference', progress: 0.10, message: 'Creating character reference...', logs: bookContext.logs });
       }
 
       // Stage 2: Generate character reference sheet (text-only, NO kid photo to FLUX)
@@ -213,15 +228,18 @@ app.post('/generate-book', authenticate, async (req, res) => {
       try {
         characterRef = await generateCharacterReference(faceEmbedding, childAppearanceDesc || childDetails.appearance, style);
         bookContext.touchActivity();
+        bookContext.log('info', 'Character reference complete', { ms: Date.now() - stage2Start });
       } catch (charRefErr) {
+        bookContext.log('warn', 'Character reference failed — continuing without', { error: charRefErr.message, ms: Date.now() - stage2Start });
         console.warn(`[server] Character reference failed for book ${bookId} (continuing without face consistency): ${charRefErr.message}`);
         bookWarnings.push('Character reference unavailable — illustrations may have less face consistency');
         characterRef = null;
       }
       console.log(`[server] Stage timing: charRef=${Date.now() - stage2Start}ms (book ${bookId})`);
 
+      bookContext.log('info', 'Starting story planning', { theme: theme || 'adventure' });
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...' });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...', logs: bookContext.logs });
       }
 
       // Stage 3: Plan story spreads
@@ -231,10 +249,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
         costTracker,
       });
       bookContext.touchActivity();
-      console.log(`[server] Stage timing: story=${Date.now() - stage3Start}ms (book ${bookId})`);
+      const stage3Ms = Date.now() - stage3Start;
+      bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms });
+      console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
 
+      bookContext.log('info', 'Starting text generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...' });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
       }
 
       // Stage 4: Generate text for each spread (batched parallel, groups of 4)
@@ -242,6 +263,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const spreadsWithText = [];
       const BATCH_SIZE = 4;
       for (let batchStart = 0; batchStart < storyPlan.spreads.length; batchStart += BATCH_SIZE) {
+        const batchStartTime = Date.now();
         const batch = storyPlan.spreads.slice(batchStart, batchStart + BATCH_SIZE);
         const batchResults = await Promise.all(batch.map(spreadPlan => {
           const storyContext = {
@@ -256,9 +278,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }));
 
         batch.forEach((spreadPlan, i) => {
+          const wordCount = batchResults[i].split(/\s+/).filter(Boolean).length;
+          bookContext.log('info', `Text for spread ${spreadPlan.spreadNumber} generated`, { words: wordCount });
           spreadsWithText.push({ ...spreadPlan, text: batchResults[i] });
         });
         bookContext.touchActivity();
+        bookContext.log('info', `Text batch complete (spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)})`, { ms: Date.now() - batchStartTime });
 
         if (progressCallbackUrl) {
           const progress = 0.20 + (0.20 * Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length) / storyPlan.spreads.length);
@@ -267,14 +292,17 @@ app.post('/generate-book', authenticate, async (req, res) => {
             stage: 'text_generation',
             progress,
             message: `Writing spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)} of ${storyPlan.spreads.length}...`,
+            logs: bookContext.logs,
           });
         }
       }
 
+      bookContext.log('info', 'All text generation complete', { totalSpreads: spreadsWithText.length, ms: Date.now() - stage4Start });
       console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
 
       // Stage 5: Generate illustrations in parallel (5 at a time)
       // Pre-cache child photo for Gemini image API (download once, reuse for all illustrations)
+      bookContext.log('info', 'Starting illustration generation', { totalIllustrations: spreadsWithText.length });
       const childPhotoUrl = faceEmbedding?.primaryPhotoUrl || childDetails.photoUrls?.[0];
       let cachedPhotoBase64 = null;
       let cachedPhotoMime = 'image/jpeg';
@@ -285,11 +313,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
             const photoBuf = Buffer.from(await photoResp.arrayBuffer());
             cachedPhotoBase64 = photoBuf.toString('base64');
             cachedPhotoMime = photoResp.headers.get('content-type') || 'image/jpeg';
+            bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
             console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${cachedPhotoMime})`);
           } else {
+            bookContext.log('warn', 'Failed to download child photo for caching', { status: photoResp.status });
             console.warn(`[server] Failed to download child photo for caching: ${photoResp.status}`);
           }
         } catch (photoErr) {
+          bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
           console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
         }
       }
@@ -311,8 +342,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
           }
 
           let imageUrl = null;
+          const illStart = Date.now();
           try {
             const sceneDesc = spread.illustrationDescription || spread.text;
+            bookContext.log('info', `Illustration ${i + 1}/${spreadsWithText.length} starting`);
             // Per-illustration timeout (3 min) to prevent one hung illustration from blocking the rest
             const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
               apiKeys,
@@ -330,8 +363,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
             );
             imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
             bookContext.touchActivity();
+            bookContext.log('info', `Illustration ${i + 1}/${spreadsWithText.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl });
           } catch (illustrationErr) {
             illustrationFailures++;
+            bookContext.log('error', `Illustration ${i + 1}/${spreadsWithText.length} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
             console.error(`[server] Illustration ${i + 1}/${spreadsWithText.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
           }
 
@@ -346,6 +381,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
               progress,
               message: `Generating illustration ${completedCount} of ${spreadsWithText.length}...`,
               previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl).slice(-3),
+              logs: bookContext.logs,
             });
           }
         })
@@ -353,17 +389,20 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       await Promise.all(illustrationPromises);
 
+      bookContext.log('info', 'All illustrations complete', { totalMs: Date.now() - stage5Start, failures: illustrationFailures });
       console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
 
       if (illustrationFailures > 0) {
+        bookContext.log('warn', `${illustrationFailures}/${spreadsWithText.length} illustrations failed — using text-only spreads`);
         console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${spreadsWithText.length} illustrations failed, continuing with text-only spreads`);
         bookWarnings.push(`${illustrationFailures} of ${spreadsWithText.length} illustrations failed`);
       }
 
       // Stage 6: Generate cover
       const stage6Start = Date.now();
+      bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.80, message: 'Creating cover...' });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.80, message: 'Creating cover...', logs: bookContext.logs });
       }
 
       let preGeneratedCoverBuffer = null;
@@ -373,8 +412,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
             () => downloadBuffer(approvedCoverUrl),
             { maxRetries: 3, baseDelayMs: 1000, label: `download-approved-cover-${bookId}` }
           );
+          bookContext.log('info', 'Approved cover downloaded', { bytes: preGeneratedCoverBuffer.length });
           console.log(`[server] Downloaded approved cover for book ${bookId} (${preGeneratedCoverBuffer.length} bytes)`);
         } catch (dlErr) {
+          bookContext.log('warn', 'Failed to download approved cover — generating new', { error: dlErr.message });
           console.warn(`[server] Failed to download approved cover for book ${bookId}: ${dlErr.message} — generating new cover`);
         }
       }
@@ -386,13 +427,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
         preGeneratedCoverBuffer,
       });
       bookContext.touchActivity();
+      bookContext.log('info', 'Cover complete', { ms: Date.now() - stage6Start });
 
       console.log(`[server] Stage timing: cover=${Date.now() - stage6Start}ms (book ${bookId})`);
 
       // Stage 7: Assemble PDF
       const stage7Start = Date.now();
+      bookContext.log('info', 'Starting PDF assembly');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...' });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...', logs: bookContext.logs });
       }
 
       // Download illustration URLs into buffers for PDF embedding (parallel)
@@ -406,6 +449,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${spread.spreadNumber}` }
               );
             } catch (err) {
+              bookContext.log('error', `Failed to download illustration for spread ${spread.spreadNumber}`, { error: err.message });
               console.error(`[server] Failed to download illustration for spread ${spread.spreadNumber} (book ${bookId}):`, err.message);
             }
           }
@@ -418,10 +462,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
         childName: childDetails.name,
       });
       bookContext.touchActivity();
+      const pdfPages = spreadsWithBuffers.length;
+      bookContext.log('info', 'Interior PDF assembled', { pages: pdfPages, ms: Date.now() - stage7Start });
 
       console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
 
       // Stage 8: Upload to GCS
+      bookContext.log('info', 'Uploading PDFs to storage');
       const interiorPath = `children-jobs/${bookId}/interior.pdf`;
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
 
@@ -440,6 +487,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
         .slice(0, 5)
         .map(s => s.imageUrl);
 
+      const totalMs = Date.now() - bookStartTime;
+      const costSummary = costTracker.getSummary();
+      bookContext.log('info', 'Book complete', { totalMs, spreads: spreadsWithImages.length, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
+
       // Report completion (with retry)
       if (callbackUrl) {
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -456,8 +507,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 title: storyPlan.title,
                 spreadCount: spreadsWithImages.length,
                 storyContent: { title: storyPlan.title, spreads: spreadsWithImages.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
-                costs: costTracker.getSummary(),
+                costs: costSummary,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
+                logs: bookContext.logs,
               }),
             });
             break;
@@ -469,11 +521,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       if (progressCallbackUrl) {
-        reportComplete(progressCallbackUrl, { bookId, interiorPdfUrl, coverPdfUrl, previewImageUrls });
+        reportComplete(progressCallbackUrl, { bookId, interiorPdfUrl, coverPdfUrl, previewImageUrls, logs: bookContext.logs });
       }
 
-      console.log(`[server] Book ${bookId} complete: ${spreadsWithImages.length} spreads, cost: $${costTracker.getSummary().totalCost.toFixed(4)}`);
+      console.log(`[server] Book ${bookId} complete: ${spreadsWithImages.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
     } catch (err) {
+      bookContext.log('error', 'Book generation failed', { error: err.message, totalMs: Date.now() - bookStartTime });
       console.error(`[server] Book ${bookId} failed:`, err);
 
       if (callbackUrl) {
@@ -484,7 +537,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
             await fetch(callbackUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify({ success: false, bookId, error: err.message }),
+              body: JSON.stringify({ success: false, bookId, error: err.message, logs: bookContext.logs }),
               signal: errorAbort.signal,
             });
             clearTimeout(errorTimeout);
@@ -497,7 +550,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       if (progressCallbackUrl) {
-        reportError(progressCallbackUrl, { bookId, error: err.message });
+        reportError(progressCallbackUrl, { bookId, error: err.message, logs: bookContext.logs });
       }
     } finally {
       clearTimeout(absoluteTimer);

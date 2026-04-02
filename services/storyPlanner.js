@@ -79,11 +79,15 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
   console.log(`[storyPlanner] Using model: ${GEMINI_MODEL}, system prompt: ${systemPrompt.length} chars, user prompt: ${userPrompt.length} chars`);
 
+  const geminiStart = Date.now();
   const response = await callGeminiText(systemPrompt, userPrompt, {
     maxOutputTokens: 8000,
     temperature: 0.8,
     responseMimeType: 'application/json',
   });
+  const geminiMs = Date.now() - geminiStart;
+
+  console.log(`[storyPlanner] Gemini API call completed in ${geminiMs}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
 
   if (costTracker) {
     costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
@@ -180,11 +184,13 @@ Return a JSON object with a "spreads" array. Each item must have "spreadNumber" 
 
   const userPrompt = `Refine these spread texts to have a consistent rhyme scheme and rhythm:\n\n${spreadTexts}`;
 
+  const rhymeStart = Date.now();
   const response = await callGeminiText(systemPrompt, userPrompt, {
     maxOutputTokens: 6000,
     temperature: 0.7,
     responseMimeType: 'application/json',
   });
+  console.log(`[storyPlanner] Rhyme pass Gemini call completed in ${Date.now() - rhymeStart}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
 
   if (costTracker) {
     costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
