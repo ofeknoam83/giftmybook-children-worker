@@ -116,7 +116,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const {
     bookId, childName, childAge, childGender, childAppearance,
     childInterests, childPhotoUrls, bookFormat, theme, customDetails,
-    artStyle, callbackUrl, progressCallbackUrl, apiKeys,
+    artStyle, callbackUrl, progressCallbackUrl, apiKeys, childId,
   } = req.body;
 
   if (!bookId || !childName || !childPhotoUrls || childPhotoUrls.length === 0) {
@@ -148,54 +148,67 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   (async () => {
     try {
-      // Stage 1: Extract face embedding from child photos
+      // Stage 1: Extract face embedding + describe appearance (in parallel for speed)
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'face_extraction', progress: 0.05, message: 'Analyzing photos...' });
       }
       bookContext.touchActivity();
 
-      const faceEmbedding = await extractFaceEmbedding(childDetails.photoUrls);
+      const stage1Start = Date.now();
+      let childAppearanceDesc = '';
+
+      const [faceEmbedding, appearanceResult] = await Promise.all([
+        extractFaceEmbedding(childDetails.photoUrls),
+        describeChildAppearance(childDetails.photoUrls, childDetails, { childId }).catch(descErr => {
+          console.warn(`[server] describeChildAppearance failed for book ${bookId}: ${descErr.message}`);
+          return '';
+        }),
+      ]);
+      childAppearanceDesc = appearanceResult;
       bookContext.touchActivity();
 
-      // Describe child's appearance from photo for text-based consistency
-      let childAppearanceDesc = '';
-      try {
-        childAppearanceDesc = await describeChildAppearance(childDetails.photoUrls, childDetails);
-        bookContext.touchActivity();
-      } catch (descErr) {
-        console.warn(`[server] describeChildAppearance failed for book ${bookId}: ${descErr.message}`);
+      // Store Gemini-generated description on childDetails for downstream use
+      if (childAppearanceDesc) {
+        childDetails.appearance = childAppearanceDesc;
       }
+
+      console.log(`[server] Stage timing: face+description=${Date.now() - stage1Start}ms (book ${bookId})`);
 
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'character_reference', progress: 0.10, message: 'Creating character reference...' });
       }
 
-      // Stage 2: Generate character reference sheet
+      // Stage 2: Generate character reference sheet (text-only, NO kid photo to FLUX)
+      const stage2Start = Date.now();
       let characterRef = null;
       try {
-        characterRef = await generateCharacterReference(faceEmbedding, childDetails.appearance, style);
+        characterRef = await generateCharacterReference(faceEmbedding, childAppearanceDesc || childDetails.appearance, style);
         bookContext.touchActivity();
       } catch (charRefErr) {
         console.warn(`[server] Character reference failed for book ${bookId} (continuing without face consistency): ${charRefErr.message}`);
         characterRef = null;
       }
+      console.log(`[server] Stage timing: charRef=${Date.now() - stage2Start}ms (book ${bookId})`);
 
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...' });
       }
 
       // Stage 3: Plan story spreads
+      const stage3Start = Date.now();
       const storyPlan = await planStory(childDetails, theme || 'adventure', format, customDetails || '', {
         apiKeys,
         costTracker,
       });
       bookContext.touchActivity();
+      console.log(`[server] Stage timing: story=${Date.now() - stage3Start}ms (book ${bookId})`);
 
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...' });
       }
 
       // Stage 4: Generate text for each spread
+      const stage4Start = Date.now();
       const spreadsWithText = [];
       for (let i = 0; i < storyPlan.spreads.length; i++) {
         const spreadPlan = storyPlan.spreads[i];
@@ -224,7 +237,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
       }
 
+      console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
+
       // Stage 5: Generate illustrations in parallel (3 at a time)
+      const stage5Start = Date.now();
       const spreadsWithImages = new Array(spreadsWithText.length);
       let illustrationFailures = 0;
       let completedCount = 0;
@@ -271,6 +287,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
               costTracker,
               bookId,
               childAppearance: childAppearanceDesc,
+              childName: childDetails.name,
             });
             bookContext.touchActivity();
           } catch (illustrationErr) {
@@ -298,11 +315,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       await Promise.all(illustrationPromises);
 
+      console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
+
       if (illustrationFailures > 0) {
         console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${spreadsWithText.length} illustrations failed, continuing with text-only spreads`);
       }
 
       // Stage 6: Generate cover
+      const stage6Start = Date.now();
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.80, message: 'Creating cover...' });
       }
@@ -314,7 +334,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
       });
       bookContext.touchActivity();
 
+      console.log(`[server] Stage timing: cover=${Date.now() - stage6Start}ms (book ${bookId})`);
+
       // Stage 7: Assemble PDF
+      const stage7Start = Date.now();
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...' });
       }
@@ -324,6 +347,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
         childName: childDetails.name,
       });
       bookContext.touchActivity();
+
+      console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
 
       // Stage 8: Upload to GCS
       const interiorPath = `children-jobs/${bookId}/interior.pdf`;
