@@ -129,7 +129,6 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   ];
 
   let promptVariantIndex = 0;
-  let useCharacterRef = !!characterRefUrl; // May be disabled on NSFW from the reference image
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const variant = promptVariants[promptVariantIndex];
@@ -147,11 +146,10 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         seed,
       };
 
-      // Add GENERATED character reference image (NOT the kid's real photo)
-      if (useCharacterRef && characterRefUrl) {
-        input.image = characterRefUrl;
-        input.ip_adapter_scale = 0.35; // Low value so scene description dominates over character reference
-      }
+      // NOTE: Character reference image + IP-Adapter is DISABLED.
+      // The reference sheet (4-pose turnaround) causes FLUX to reproduce the sheet layout
+      // instead of the actual scene. We rely on the text appearance description instead.
+      // Character consistency comes from the childAppearance text embedded in the prompt.
 
       const fluxStart = Date.now();
       const output = await runModel(modelId, input, { timeout: 120000 });
@@ -191,13 +189,6 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       // NSFW error: first try dropping face reference, then advance prompt variants
       if (genErr.isNsfw) {
         console.warn(`[illustrationGenerator] NSFW detected on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}: ${genErr.message}`);
-
-        // If we were using the character reference image, try without it first
-        if (useCharacterRef) {
-          console.warn(`[illustrationGenerator] Dropping character reference image for book ${bookId || 'unknown'} and retrying`);
-          useCharacterRef = false;
-          continue;
-        }
 
         promptVariantIndex++;
 
