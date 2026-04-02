@@ -299,6 +299,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
               bookId,
               childAppearance: childAppearanceDesc,
               childName: childDetails.name,
+              spreadIndex: i,
             });
             bookContext.touchActivity();
           } catch (illustrationErr) {

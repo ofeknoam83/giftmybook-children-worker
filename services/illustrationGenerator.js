@@ -13,8 +13,8 @@ const { withRetry } = require('./retry');
 /** Maximum retry attempts per illustration */
 const MAX_RETRIES = 3;
 
-/** Fixed seed for cross-page character consistency */
-const ILLUSTRATION_SEED = 12345;
+/** Base seed — each spread gets a unique seed derived from this + spread index */
+const BASE_SEED = 12345;
 
 /**
  * Art style configurations for illustration prompts.
@@ -114,7 +114,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, child
  */
 async function generateIllustration(sceneDescription, characterRefUrl, artStyle, faceEmbedding, opts = {}) {
   const totalStart = Date.now();
-  const { costTracker, bookId, childAppearance, childName } = opts;
+  const { costTracker, bookId, childAppearance, childName, spreadIndex } = opts;
+  // Unique seed per spread so each illustration is visually different
+  const seed = BASE_SEED + (spreadIndex || Math.floor(Math.random() * 10000));
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   // Build structured prompt with character identity anchoring
@@ -146,7 +148,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         output_format: 'png',
         guidance_scale: variant.guidanceScale,
         num_inference_steps: 30,
-        seed: ILLUSTRATION_SEED,
+        seed,
       };
 
       // Add GENERATED character reference image (NOT the kid's real photo)
@@ -167,7 +169,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       if (typeof imageUrl === "object" && imageUrl.url) imageUrl = imageUrl.url();
       if (typeof imageUrl !== "string") imageUrl = String(imageUrl);
 
-      console.log(`[illustrationGenerator] FLUX model called (attempt ${attempt}, seed ${ILLUSTRATION_SEED}, ${variant.label}, ${Date.now() - fluxStart}ms)`);
+      console.log(`[illustrationGenerator] FLUX model called (attempt ${attempt}, seed ${seed}, ${variant.label}, ${Date.now() - fluxStart}ms)`);
 
       if (costTracker) {
         costTracker.addImageGeneration('flux-dev', 1);
