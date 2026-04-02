@@ -12,7 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 const { planStory } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
-const { extractFaceEmbedding, generateCharacterReference, describeChildAppearance } = require('./services/faceEngine');
+const { extractFaceEmbedding, describeChildAppearance } = require('./services/faceEngine');
 const { assemblePdf } = require('./services/layoutEngine');
 const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -125,6 +125,137 @@ function authenticate(req, res, next) {
   next();
 }
 
+// ── Parallel Pipeline Functions ──
+
+/**
+ * Generate text for all spreads (batched, groups of 4).
+ * Returns array of { ...spread, text } in order.
+ */
+async function generateAllText(storyPlan, childDetails, format, opts) {
+  const { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl } = opts;
+  const stage4Start = Date.now();
+  const spreadsWithText = [];
+  const BATCH_SIZE = 4;
+
+  for (let batchStart = 0; batchStart < storyPlan.spreads.length; batchStart += BATCH_SIZE) {
+    const batchStartTime = Date.now();
+    const batch = storyPlan.spreads.slice(batchStart, batchStart + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(spreadPlan => {
+      const storyContext = {
+        title: storyPlan.title,
+        previousSpreads: spreadsWithText.map(s => s.text),
+        totalSpreads: storyPlan.spreads.length,
+      };
+      return generateSpreadText(spreadPlan, childDetails, format, storyContext, {
+        apiKeys,
+        costTracker,
+      });
+    }));
+
+    batch.forEach((spreadPlan, i) => {
+      const wordCount = batchResults[i].split(/\s+/).filter(Boolean).length;
+      bookContext.log('info', `Text for spread ${spreadPlan.spreadNumber} generated`, { words: wordCount });
+      spreadsWithText.push({ ...spreadPlan, text: batchResults[i] });
+    });
+    bookContext.touchActivity();
+    bookContext.log('info', `Text batch complete (spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)})`, { ms: Date.now() - batchStartTime });
+
+    if (progressCallbackUrl) {
+      const progress = 0.20 + (0.20 * Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length) / storyPlan.spreads.length);
+      reportProgress(progressCallbackUrl, {
+        bookId,
+        stage: 'text_generation',
+        progress,
+        message: `Writing spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)} of ${storyPlan.spreads.length}...`,
+        logs: bookContext.logs,
+      });
+    }
+  }
+
+  bookContext.log('info', 'All text generation complete', { totalSpreads: spreadsWithText.length, ms: Date.now() - stage4Start });
+  console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
+  return spreadsWithText;
+}
+
+/**
+ * Generate illustrations for all spreads (8 concurrent).
+ * Returns array of { ...spread, imageUrl } in order.
+ */
+async function generateAllIllustrations(storyPlan, childDetails, characterRef, style, faceEmbedding, childAppearanceDesc, opts) {
+  const {
+    apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
+    resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
+  } = opts;
+
+  bookContext.log('info', 'Starting illustration generation', { totalIllustrations: storyPlan.spreads.length });
+
+  const stage5Start = Date.now();
+  const spreadsWithImages = new Array(storyPlan.spreads.length);
+  let completedCount = 0;
+
+  const illustrationLimit = pLimit(8);
+
+  const illustrationPromises = storyPlan.spreads.map((spread, i) =>
+    illustrationLimit(async () => {
+      // Only skip illustration for explicitly text-only spreads
+      if (spread.layoutType === 'NO_TEXT') {
+        spreadsWithImages[i] = { ...spread, imageUrl: null };
+        completedCount++;
+        return;
+      }
+
+      let imageUrl = null;
+      const illStart = Date.now();
+      try {
+        const sceneDesc = spread.illustrationDescription || spread.text;
+        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`);
+        // Per-illustration timeout (3 min) to prevent one hung illustration from blocking the rest
+        const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
+          apiKeys,
+          costTracker,
+          bookId,
+          childAppearance: childAppearanceDesc,
+          childName: childDetails.name,
+          childPhotoUrl: resolvedChildPhotoUrl,
+          _cachedPhotoBase64: cachedPhotoBase64,
+          _cachedPhotoMime: cachedPhotoMime,
+          spreadIndex: i,
+        });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 3 minutes`)), 180000)
+        );
+        imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
+        bookContext.touchActivity();
+        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl });
+      } catch (illustrationErr) {
+        bookContext.log('error', `Illustration ${i + 1}/${storyPlan.spreads.length} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
+        console.error(`[server] Illustration ${i + 1}/${storyPlan.spreads.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
+      }
+
+      spreadsWithImages[i] = { ...spread, imageUrl };
+      completedCount++;
+
+      if (progressCallbackUrl) {
+        const progress = 0.40 + (0.35 * completedCount / storyPlan.spreads.length);
+        reportProgress(progressCallbackUrl, {
+          bookId,
+          stage: 'illustration',
+          progress,
+          message: `Generating illustration ${completedCount} of ${storyPlan.spreads.length}...`,
+          previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl).slice(-3),
+          logs: bookContext.logs,
+        });
+      }
+    })
+  );
+
+  await Promise.all(illustrationPromises);
+
+  bookContext.log('info', 'All illustrations complete', { totalMs: Date.now() - stage5Start });
+  console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
+  return spreadsWithImages;
+}
+
 // ── Health Check ──
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -195,7 +326,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const stage1Start = Date.now();
       let childAppearanceDesc = '';
 
-      const [faceEmbedding, appearanceResult] = await Promise.all([
+      // Pre-download child photo in parallel with face extraction + appearance description
+      const childPhotoUrl = childDetails.photoUrls?.[0];
+      let cachedPhotoBase64 = null;
+      let cachedPhotoMime = 'image/jpeg';
+
+      const [faceEmbedding, appearanceResult, photoResult] = await Promise.all([
         extractFaceEmbedding(childDetails.photoUrls),
         describeChildAppearance(childDetails.photoUrls, childDetails, { childId }).catch(descErr => {
           bookContext.log('warn', 'Appearance description failed — using fallback', { error: descErr.message });
@@ -203,12 +339,41 @@ app.post('/generate-book', authenticate, async (req, res) => {
           bookWarnings.push('Appearance description unavailable — using fallback');
           return '';
         }),
+        // Download + base64-encode child photo for Gemini illustration API
+        (async () => {
+          if (!childPhotoUrl) return null;
+          try {
+            const photoResp = await fetch(childPhotoUrl);
+            if (photoResp.ok) {
+              const photoBuf = Buffer.from(await photoResp.arrayBuffer());
+              const mime = photoResp.headers.get('content-type') || 'image/jpeg';
+              bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
+              console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${mime})`);
+              return { base64: photoBuf.toString('base64'), mime };
+            } else {
+              bookContext.log('warn', 'Failed to download child photo for caching', { status: photoResp.status });
+              console.warn(`[server] Failed to download child photo for caching: ${photoResp.status}`);
+              return null;
+            }
+          } catch (photoErr) {
+            bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
+            console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
+            return null;
+          }
+        })(),
       ]);
       childAppearanceDesc = appearanceResult;
+      if (photoResult) {
+        cachedPhotoBase64 = photoResult.base64;
+        cachedPhotoMime = photoResult.mime;
+      }
       bookContext.touchActivity();
 
+      // Update childPhotoUrl with primaryPhotoUrl from face extraction if available
+      const resolvedChildPhotoUrl = faceEmbedding?.primaryPhotoUrl || childPhotoUrl;
+
       const stage1Ms = Date.now() - stage1Start;
-      bookContext.log('info', 'Face extraction + appearance complete', { ms: stage1Ms, hasEmbedding: !!faceEmbedding, hasAppearance: !!childAppearanceDesc });
+      bookContext.log('info', 'Face extraction + appearance + photo cache complete', { ms: stage1Ms, hasEmbedding: !!faceEmbedding, hasAppearance: !!childAppearanceDesc, hasPhotoCache: !!cachedPhotoBase64 });
 
       // Store Gemini-generated description on childDetails for downstream use
       if (childAppearanceDesc) {
@@ -217,25 +382,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       console.log(`[server] Stage timing: face+description=${stage1Ms}ms (book ${bookId})`);
 
-      bookContext.log('info', 'Starting character reference generation');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'character_reference', progress: 0.10, message: 'Creating character reference...', logs: bookContext.logs });
-      }
-
-      // Stage 2: Generate character reference sheet (text-only, NO kid photo to FLUX)
-      const stage2Start = Date.now();
-      let characterRef = null;
-      try {
-        characterRef = await generateCharacterReference(faceEmbedding, childAppearanceDesc || childDetails.appearance, style);
-        bookContext.touchActivity();
-        bookContext.log('info', 'Character reference complete', { ms: Date.now() - stage2Start });
-      } catch (charRefErr) {
-        bookContext.log('warn', 'Character reference failed — continuing without', { error: charRefErr.message, ms: Date.now() - stage2Start });
-        console.warn(`[server] Character reference failed for book ${bookId} (continuing without face consistency): ${charRefErr.message}`);
-        bookWarnings.push('Character reference unavailable — illustrations may have less face consistency');
-        characterRef = null;
-      }
-      console.log(`[server] Stage timing: charRef=${Date.now() - stage2Start}ms (book ${bookId})`);
+      // Character reference generation skipped — Gemini illustrations use child photo directly
+      const characterRef = null;
 
       bookContext.log('info', 'Starting story planning', { theme: theme || 'adventure' });
       if (progressCallbackUrl) {
@@ -253,149 +401,41 @@ app.post('/generate-book', authenticate, async (req, res) => {
       bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms });
       console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
 
-      bookContext.log('info', 'Starting text generation');
+      // Stage 4+5: Text generation and illustrations IN PARALLEL
+      // These are independent — text needs spread descriptions, illustrations need illustration descriptions + child photo
+      bookContext.log('info', 'Starting text generation + illustrations in parallel');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text + generating illustrations...', logs: bookContext.logs });
       }
 
-      // Stage 4: Generate text for each spread (batched parallel, groups of 4)
-      const stage4Start = Date.now();
-      const spreadsWithText = [];
-      const BATCH_SIZE = 4;
-      for (let batchStart = 0; batchStart < storyPlan.spreads.length; batchStart += BATCH_SIZE) {
-        const batchStartTime = Date.now();
-        const batch = storyPlan.spreads.slice(batchStart, batchStart + BATCH_SIZE);
-        const batchResults = await Promise.all(batch.map(spreadPlan => {
-          const storyContext = {
-            title: storyPlan.title,
-            previousSpreads: spreadsWithText.map(s => s.text),
-            totalSpreads: storyPlan.spreads.length,
-          };
-          return generateSpreadText(spreadPlan, childDetails, format, storyContext, {
-            apiKeys,
-            costTracker,
-          });
-        }));
+      const parallelStart = Date.now();
 
-        batch.forEach((spreadPlan, i) => {
-          const wordCount = batchResults[i].split(/\s+/).filter(Boolean).length;
-          bookContext.log('info', `Text for spread ${spreadPlan.spreadNumber} generated`, { words: wordCount });
-          spreadsWithText.push({ ...spreadPlan, text: batchResults[i] });
-        });
-        bookContext.touchActivity();
-        bookContext.log('info', `Text batch complete (spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)})`, { ms: Date.now() - batchStartTime });
+      const [textResults, illustrationResults] = await Promise.all([
+        // Generate all text (batched, groups of 4)
+        generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl }),
+        // Generate all illustrations (8 concurrent)
+        generateAllIllustrations(storyPlan, childDetails, characterRef, style, faceEmbedding, childAppearanceDesc, {
+          apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
+          resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
+        }),
+      ]);
 
-        if (progressCallbackUrl) {
-          const progress = 0.20 + (0.20 * Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length) / storyPlan.spreads.length);
-          reportProgress(progressCallbackUrl, {
-            bookId,
-            stage: 'text_generation',
-            progress,
-            message: `Writing spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)} of ${storyPlan.spreads.length}...`,
-            logs: bookContext.logs,
-          });
-        }
-      }
+      // Merge: each spread gets both .text and .imageUrl
+      const mergedSpreads = storyPlan.spreads.map((spread, i) => ({
+        ...spread,
+        text: textResults[i]?.text || spread.text || '',
+        imageUrl: illustrationResults[i]?.imageUrl || null,
+      }));
 
-      bookContext.log('info', 'All text generation complete', { totalSpreads: spreadsWithText.length, ms: Date.now() - stage4Start });
-      console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
+      const parallelMs = Date.now() - parallelStart;
+      bookContext.log('info', 'Text + illustrations parallel stage complete', { ms: parallelMs, spreads: mergedSpreads.length });
+      console.log(`[server] Stage timing: text+illustrations(parallel)=${parallelMs}ms (book ${bookId})`);
 
-      // Stage 5: Generate illustrations in parallel (5 at a time)
-      // Pre-cache child photo for Gemini image API (download once, reuse for all illustrations)
-      bookContext.log('info', 'Starting illustration generation', { totalIllustrations: spreadsWithText.length });
-      const childPhotoUrl = faceEmbedding?.primaryPhotoUrl || childDetails.photoUrls?.[0];
-      let cachedPhotoBase64 = null;
-      let cachedPhotoMime = 'image/jpeg';
-      if (childPhotoUrl) {
-        try {
-          const photoResp = await fetch(childPhotoUrl);
-          if (photoResp.ok) {
-            const photoBuf = Buffer.from(await photoResp.arrayBuffer());
-            cachedPhotoBase64 = photoBuf.toString('base64');
-            cachedPhotoMime = photoResp.headers.get('content-type') || 'image/jpeg';
-            bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
-            console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${cachedPhotoMime})`);
-          } else {
-            bookContext.log('warn', 'Failed to download child photo for caching', { status: photoResp.status });
-            console.warn(`[server] Failed to download child photo for caching: ${photoResp.status}`);
-          }
-        } catch (photoErr) {
-          bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
-          console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
-        }
-      }
-
-      const stage5Start = Date.now();
-      const spreadsWithImages = new Array(spreadsWithText.length);
-      let illustrationFailures = 0;
-      let completedCount = 0;
-
-      const illustrationLimit = pLimit(5);
-
-      const illustrationPromises = spreadsWithText.map((spread, i) =>
-        illustrationLimit(async () => {
-          // Only skip illustration for explicitly text-only spreads
-          if (spread.layoutType === 'NO_TEXT') {
-            spreadsWithImages[i] = { ...spread, imageUrl: null };
-            completedCount++;
-            return;
-          }
-
-          let imageUrl = null;
-          const illStart = Date.now();
-          try {
-            const sceneDesc = spread.illustrationDescription || spread.text;
-            bookContext.log('info', `Illustration ${i + 1}/${spreadsWithText.length} starting`);
-            // Per-illustration timeout (3 min) to prevent one hung illustration from blocking the rest
-            const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
-              apiKeys,
-              costTracker,
-              bookId,
-              childAppearance: childAppearanceDesc,
-              childName: childDetails.name,
-              childPhotoUrl,
-              _cachedPhotoBase64: cachedPhotoBase64,
-              _cachedPhotoMime: cachedPhotoMime,
-              spreadIndex: i,
-            });
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 3 minutes`)), 180000)
-            );
-            imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
-            bookContext.touchActivity();
-            bookContext.log('info', `Illustration ${i + 1}/${spreadsWithText.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl });
-          } catch (illustrationErr) {
-            illustrationFailures++;
-            bookContext.log('error', `Illustration ${i + 1}/${spreadsWithText.length} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
-            console.error(`[server] Illustration ${i + 1}/${spreadsWithText.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
-          }
-
-          spreadsWithImages[i] = { ...spread, imageUrl };
-          completedCount++;
-
-          if (progressCallbackUrl) {
-            const progress = 0.40 + (0.35 * completedCount / spreadsWithText.length);
-            reportProgress(progressCallbackUrl, {
-              bookId,
-              stage: 'illustration',
-              progress,
-              message: `Generating illustration ${completedCount} of ${spreadsWithText.length}...`,
-              previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl).slice(-3),
-              logs: bookContext.logs,
-            });
-          }
-        })
-      );
-
-      await Promise.all(illustrationPromises);
-
-      bookContext.log('info', 'All illustrations complete', { totalMs: Date.now() - stage5Start, failures: illustrationFailures });
-      console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
-
+      const illustrationFailures = illustrationResults.filter((r, i) => !r?.imageUrl && storyPlan.spreads[i]?.layoutType !== 'NO_TEXT').length;
       if (illustrationFailures > 0) {
-        bookContext.log('warn', `${illustrationFailures}/${spreadsWithText.length} illustrations failed — using text-only spreads`);
-        console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${spreadsWithText.length} illustrations failed, continuing with text-only spreads`);
-        bookWarnings.push(`${illustrationFailures} of ${spreadsWithText.length} illustrations failed`);
+        bookContext.log('warn', `${illustrationFailures}/${storyPlan.spreads.length} illustrations failed — using text-only spreads`);
+        console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${storyPlan.spreads.length} illustrations failed, continuing with text-only spreads`);
+        bookWarnings.push(`${illustrationFailures} of ${storyPlan.spreads.length} illustrations failed`);
       }
 
       // Stage 6: Generate cover
@@ -440,7 +480,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       // Download illustration URLs into buffers for PDF embedding (parallel)
       const spreadsWithBuffers = await Promise.all(
-        spreadsWithImages.map(async (spread) => {
+        mergedSpreads.map(async (spread) => {
           let illustrationBuffer = null;
           if (spread.imageUrl) {
             try {
@@ -482,14 +522,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
         ? await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000)
         : null;
 
-      const previewImageUrls = spreadsWithImages
+      const previewImageUrls = mergedSpreads
         .filter(s => s.imageUrl)
         .slice(0, 5)
         .map(s => s.imageUrl);
 
       const totalMs = Date.now() - bookStartTime;
       const costSummary = costTracker.getSummary();
-      bookContext.log('info', 'Book complete', { totalMs, spreads: spreadsWithImages.length, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
+      bookContext.log('info', 'Book complete', { totalMs, spreads: mergedSpreads.length, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
 
       // Report completion (with retry)
       if (callbackUrl) {
@@ -505,8 +545,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 coverPdfUrl,
                 previewImageUrls,
                 title: storyPlan.title,
-                spreadCount: spreadsWithImages.length,
-                storyContent: { title: storyPlan.title, spreads: spreadsWithImages.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
+                spreadCount: mergedSpreads.length,
+                storyContent: { title: storyPlan.title, spreads: mergedSpreads.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
                 costs: costSummary,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
@@ -524,7 +564,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportComplete(progressCallbackUrl, { bookId, interiorPdfUrl, coverPdfUrl, previewImageUrls, logs: bookContext.logs });
       }
 
-      console.log(`[server] Book ${bookId} complete: ${spreadsWithImages.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
+      console.log(`[server] Book ${bookId} complete: ${mergedSpreads.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
     } catch (err) {
       bookContext.log('error', 'Book generation failed', { error: err.message, totalMs: Date.now() - bookStartTime });
       console.error(`[server] Book ${bookId} failed:`, err);
@@ -661,7 +701,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 });
 
 // ── Startup Validation ──
-const REQUIRED_ENV = ['API_KEY', 'REPLICATE_API_TOKEN', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
+const REQUIRED_ENV = ['API_KEY', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
   console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}`);
