@@ -91,6 +91,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   let bestResult = null;
   let bestSimilarity = 0;
   let promptVariantIndex = 0;
+  let useCharacterRef = !!characterRefUrl; // May be disabled on NSFW from the reference image
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const variant = promptVariants[promptVariantIndex];
@@ -108,8 +109,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         num_inference_steps: 30,
       };
 
-      // Add face reference if available
-      if (characterRefUrl) {
+      // Add face reference if available and not disabled due to NSFW
+      if (useCharacterRef && characterRefUrl) {
         input.image = characterRefUrl;
         input.ip_adapter_scale = 0.6;
       }
@@ -164,9 +165,18 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         break;
       }
     } catch (genErr) {
-      // NSFW error: advance to next prompt variant and retry
+      // NSFW error: first try dropping face reference, then advance prompt variants
       if (genErr.isNsfw) {
         console.warn(`[illustrationGenerator] NSFW detected on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}: ${genErr.message}`);
+
+        // If we were using the character reference image, try without it first
+        // (the reference image itself may be triggering the NSFW filter)
+        if (useCharacterRef) {
+          console.warn(`[illustrationGenerator] Dropping character reference image for book ${bookId || 'unknown'} and retrying`);
+          useCharacterRef = false;
+          continue;
+        }
+
         promptVariantIndex++;
 
         if (promptVariantIndex >= promptVariants.length) {

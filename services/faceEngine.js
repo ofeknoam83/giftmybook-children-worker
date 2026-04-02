@@ -126,33 +126,67 @@ The character is a child: ${childAppearance || 'a friendly young child'}.
 White background, clean layout, consistent character design across all poses.
 Professional character design sheet, turnaround sheet style.`;
 
-  // Use Flux with IP-Adapter to maintain face likeness
-  const output = await runModel(
-    'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352',
-    {
-      prompt,
-      negative_prompt: 'photorealistic photo, dark, scary, multiple characters, text, words',
-      image: faceEmbedding.primaryPhotoUrl,
-      ip_adapter_scale: 0.7,
-      num_outputs: 1,
-      aspect_ratio: '16:9',
-      output_format: 'png',
-      guidance_scale: 7.5,
-      num_inference_steps: 30,
-    },
-    { timeout: 120000 }
-  );
+  const baseInput = {
+    prompt,
+    negative_prompt: 'photorealistic photo, dark, scary, multiple characters, text, words',
+    num_outputs: 1,
+    aspect_ratio: '16:9',
+    output_format: 'png',
+    guidance_scale: 7.5,
+    num_inference_steps: 30,
+  };
 
-  let refUrl = Array.isArray(output) ? output[0] : output;
-  if (!refUrl) {
-    throw new Error('Character reference generation returned empty result');
+  // Attempt 1: Use Flux with IP-Adapter to maintain face likeness
+  try {
+    const output = await runModel(
+      'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352',
+      {
+        ...baseInput,
+        image: faceEmbedding.primaryPhotoUrl,
+        ip_adapter_scale: 0.7,
+      },
+      { timeout: 120000 }
+    );
+
+    let refUrl = Array.isArray(output) ? output[0] : output;
+    if (!refUrl) {
+      throw new Error('Character reference generation returned empty result');
+    }
+    if (typeof refUrl === 'object' && refUrl.url) refUrl = refUrl.url();
+    if (typeof refUrl !== 'string') refUrl = String(refUrl);
+
+    console.log(`[faceEngine] Character reference sheet generated: ${refUrl.slice(0, 100)}...`);
+    return refUrl;
+  } catch (err) {
+    if (!err.isNsfw) throw err;
+
+    console.warn(`[faceEngine] NSFW filter triggered on child photo — retrying character reference WITHOUT photo`);
   }
-  // Replicate SDK v1.x returns FileOutput objects — convert to string URL
-  if (typeof refUrl === 'object' && refUrl.url) refUrl = refUrl.url();
-  if (typeof refUrl !== 'string') refUrl = String(refUrl);
 
-  console.log(`[faceEngine] Character reference sheet generated: ${refUrl.slice(0, 100)}...`);
-  return refUrl;
+  // Attempt 2: Retry without the photo (text-only prompt, no IP-Adapter)
+  try {
+    const output = await runModel(
+      'lucataco/flux-dev-multi-lora:ad0314563856e714367fdc7244b19b160d25926d305fec270c9e00f64665d352',
+      baseInput,
+      { timeout: 120000 }
+    );
+
+    let refUrl = Array.isArray(output) ? output[0] : output;
+    if (!refUrl) {
+      throw new Error('Character reference generation returned empty result');
+    }
+    if (typeof refUrl === 'object' && refUrl.url) refUrl = refUrl.url();
+    if (typeof refUrl !== 'string') refUrl = String(refUrl);
+
+    console.log(`[faceEngine] Character reference sheet generated (without photo): ${refUrl.slice(0, 100)}...`);
+    return refUrl;
+  } catch (err) {
+    if (err.isNsfw) {
+      console.warn(`[faceEngine] NSFW filter triggered even without photo — skipping character reference entirely`);
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**

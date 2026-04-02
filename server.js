@@ -162,8 +162,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       // Stage 2: Generate character reference sheet
-      const characterRef = await generateCharacterReference(faceEmbedding, childDetails.appearance, style);
-      bookContext.touchActivity();
+      let characterRef = null;
+      try {
+        characterRef = await generateCharacterReference(faceEmbedding, childDetails.appearance, style);
+        bookContext.touchActivity();
+      } catch (charRefErr) {
+        console.warn(`[server] Character reference failed for book ${bookId} (continuing without face consistency): ${charRefErr.message}`);
+        characterRef = null;
+      }
 
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...' });
