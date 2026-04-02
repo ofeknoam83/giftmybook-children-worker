@@ -5,6 +5,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
+const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
 const { planStory } = require('./services/storyPlanner');
@@ -17,6 +19,8 @@ const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./
 const { enqueueSpreadJob, enqueueFinalizeJob } = require('./services/taskQueue');
 const { reportProgress, reportComplete, reportError } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
+const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
+const { withRetry } = require('./services/retry');
 
 const app = express();
 
@@ -26,8 +30,23 @@ app.use(compression());
 app.use(morgan('short'));
 app.use(express.json({ limit: '50mb' }));
 
+// Rate limiting on generation endpoints (disabled in test)
+if (process.env.NODE_ENV !== 'test') {
+  const generationLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: 'Too many requests, please try again later' },
+  });
+  app.use('/generate-book', generationLimiter);
+  app.use('/generate-spread', generationLimiter);
+  app.use('/finalize-book', generationLimiter);
+}
+
 const PORT = process.env.PORT || 8080;
 const API_KEY = process.env.API_KEY;
+const ABSOLUTE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour max per book
 
 // ── Per-Book Activity Tracking ──
 const activeBooks = new Map();
@@ -91,7 +110,11 @@ setInterval(() => {
 
 // ── Auth Middleware ──
 function authenticate(req, res, next) {
-  if (API_KEY && req.headers['x-api-key'] !== API_KEY) {
+  if (!API_KEY) {
+    console.error('[auth] API_KEY not configured — rejecting request');
+    return res.status(500).json({ success: false, error: 'Server misconfigured' });
+  }
+  if (req.headers['x-api-key'] !== API_KEY) {
     return res.status(403).json({ success: false, error: 'Forbidden: invalid API key' });
   }
   next();
@@ -113,29 +136,28 @@ app.post('/health', (req, res) => {
 // ── POST /generate-book ──
 // Full pipeline: story planning -> face embedding -> illustrations -> PDF assembly
 app.post('/generate-book', authenticate, async (req, res) => {
-  const {
-    bookId, childName, childAge, childGender, childAppearance,
-    childInterests, childPhotoUrls, bookFormat, theme, customDetails,
-    artStyle, callbackUrl, progressCallbackUrl, apiKeys, childId,
-  } = req.body;
-
-  if (!bookId || !childName || !childPhotoUrls || childPhotoUrls.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields: bookId, childName, childPhotoUrls',
-    });
+  const { valid, errors, sanitized } = validateGenerateBookRequest(req.body);
+  if (!valid) {
+    return res.status(400).json({ success: false, errors });
   }
 
-  const format = bookFormat || 'picture_book';
-  const style = artStyle || 'watercolor';
+  const {
+    bookId, childName, childAge, childGender, childAppearance,
+    childInterests, childPhotoUrls, bookFormat, artStyle, theme,
+    customDetails, callbackUrl, progressCallbackUrl, childId,
+  } = sanitized;
+  const apiKeys = req.body.apiKeys;
+
+  const format = bookFormat;
+  const style = artStyle;
   const costTracker = new CostTracker();
 
   const childDetails = {
     name: childName,
-    age: childAge || 5,
-    gender: childGender || 'neutral',
-    appearance: childAppearance || '',
-    interests: childInterests || [],
+    age: childAge,
+    gender: childGender,
+    appearance: childAppearance,
+    interests: childInterests,
     photoUrls: childPhotoUrls,
   };
 
@@ -147,6 +169,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
   res.status(202).json({ success: true, status: 'processing', bookId });
 
   (async () => {
+    const bookWarnings = [];
+    const absoluteTimer = setTimeout(() => {
+      console.error(`[server] Book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000}min) — aborting`);
+      bookContext.abortController.abort();
+    }, ABSOLUTE_TIMEOUT_MS);
+
     try {
       // Stage 1: Extract face embedding + describe appearance (in parallel for speed)
       if (progressCallbackUrl) {
@@ -161,6 +189,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         extractFaceEmbedding(childDetails.photoUrls),
         describeChildAppearance(childDetails.photoUrls, childDetails, { childId }).catch(descErr => {
           console.warn(`[server] describeChildAppearance failed for book ${bookId}: ${descErr.message}`);
+          bookWarnings.push('Appearance description unavailable — using fallback');
           return '';
         }),
       ]);
@@ -186,6 +215,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookContext.touchActivity();
       } catch (charRefErr) {
         console.warn(`[server] Character reference failed for book ${bookId} (continuing without face consistency): ${charRefErr.message}`);
+        bookWarnings.push('Character reference unavailable — illustrations may have less face consistency');
         characterRef = null;
       }
       console.log(`[server] Stage timing: charRef=${Date.now() - stage2Start}ms (book ${bookId})`);
@@ -245,40 +275,16 @@ app.post('/generate-book', authenticate, async (req, res) => {
       let illustrationFailures = 0;
       let completedCount = 0;
 
-      // Simple semaphore for concurrency limiting
-      const CONCURRENCY = 3;
-      let running = 0;
-      const queue = [];
+      const illustrationLimit = pLimit(3);
 
-      function releaseSemaphore() {
-        running--;
-        if (queue.length > 0) {
-          const next = queue.shift();
-          running++;
-          next();
-        }
-      }
-
-      function acquireSemaphore() {
-        return new Promise((resolve) => {
-          if (running < CONCURRENCY) {
-            running++;
-            resolve();
-          } else {
-            queue.push(resolve);
-          }
-        });
-      }
-
-      const illustrationPromises = spreadsWithText.map((spread, i) => {
-        return (async () => {
+      const illustrationPromises = spreadsWithText.map((spread, i) =>
+        illustrationLimit(async () => {
           if (spread.layoutType !== 'NO_TEXT' && !spread.illustrationDescription) {
             spreadsWithImages[i] = { ...spread, imageUrl: null };
             completedCount++;
             return;
           }
 
-          await acquireSemaphore();
           let imageUrl = null;
           try {
             const sceneDesc = spread.illustrationDescription || spread.text;
@@ -293,8 +299,6 @@ app.post('/generate-book', authenticate, async (req, res) => {
           } catch (illustrationErr) {
             illustrationFailures++;
             console.error(`[server] Illustration ${i + 1}/${spreadsWithText.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
-          } finally {
-            releaseSemaphore();
           }
 
           spreadsWithImages[i] = { ...spread, imageUrl };
@@ -310,8 +314,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
               previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl).slice(-3),
             });
           }
-        })();
-      });
+        })
+      );
 
       await Promise.all(illustrationPromises);
 
@@ -319,6 +323,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       if (illustrationFailures > 0) {
         console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${spreadsWithText.length} illustrations failed, continuing with text-only spreads`);
+        bookWarnings.push(`${illustrationFailures} of ${spreadsWithText.length} illustrations failed`);
       }
 
       // Stage 6: Generate cover
@@ -348,7 +353,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
         let illustrationBuffer = null;
         if (spread.imageUrl) {
           try {
-            illustrationBuffer = await downloadBuffer(spread.imageUrl);
+            illustrationBuffer = await withRetry(
+              () => downloadBuffer(spread.imageUrl),
+              { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${spread.spreadNumber}` }
+            );
           } catch (err) {
             console.error(`[server] Failed to download illustration for spread ${spread.spreadNumber} (book ${bookId}):`, err.message);
           }
@@ -398,6 +406,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
               title: storyPlan.title,
               spreadCount: spreadsWithImages.length,
               costs: costTracker.getSummary(),
+              warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
             }),
           });
         } catch (cbErr) {
@@ -433,6 +442,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportError(progressCallbackUrl, { bookId, error: err.message });
       }
     } finally {
+      clearTimeout(absoluteTimer);
       removeBookContext(bookId);
     }
   })();
@@ -441,17 +451,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
 // ── POST /generate-spread ──
 // Generate a single spread (for Cloud Tasks parallelism)
 app.post('/generate-spread', authenticate, async (req, res) => {
+  const { valid, errors } = validateGenerateSpreadRequest(req.body);
+  if (!valid) {
+    return res.status(400).json({ success: false, errors });
+  }
+
   const {
     bookId, spreadPlan, characterRef, faceEmbedding,
     childDetails, bookFormat, storyContext, artStyle, apiKeys,
   } = req.body;
-
-  if (!bookId || !spreadPlan || !characterRef) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields: bookId, spreadPlan, characterRef',
-    });
-  }
 
   console.log(`[server] /generate-spread: bookId=${bookId}, spread=${spreadPlan.spreadNumber}`);
   global.touchActivity(bookId);
@@ -498,14 +506,12 @@ app.post('/generate-spread', authenticate, async (req, res) => {
 // ── POST /finalize-book ──
 // Assemble all spreads into final PDF
 app.post('/finalize-book', authenticate, async (req, res) => {
-  const { bookId, title, spreads, coverData, bookFormat, childName, apiKeys } = req.body;
-
-  if (!bookId || !spreads || spreads.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields: bookId, spreads',
-    });
+  const { valid, errors } = validateFinalizeBookRequest(req.body);
+  if (!valid) {
+    return res.status(400).json({ success: false, errors });
   }
+
+  const { bookId, title, spreads, coverData, bookFormat, childName, apiKeys } = req.body;
 
   console.log(`[server] /finalize-book: bookId=${bookId}, spreads=${spreads.length}`);
   const bookContext = createBookContext(bookId);
@@ -543,6 +549,18 @@ app.post('/finalize-book', authenticate, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`giftmybook-children-worker listening on port ${PORT}`);
-});
+// ── Startup Validation ──
+const REQUIRED_ENV = ['API_KEY', 'OPENAI_API_KEY', 'REPLICATE_API_TOKEN', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
+const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
+  console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}`);
+  process.exit(1);
+}
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`giftmybook-children-worker listening on port ${PORT}`);
+  });
+}
+
+module.exports = app;

@@ -136,11 +136,16 @@ async function checkVocabulary(text, ageGroup, apiKeys, costTracker) {
     maxTokens: 500,
   });
 
+  // gemini.generateContent returns { text, inputTokens, outputTokens }
+  const resultText = typeof result === 'string' ? result : result.text;
+  const inputTokens = typeof result === 'object' ? result.inputTokens : 0;
+  const outputTokens = typeof result === 'object' ? result.outputTokens : 0;
+
   if (costTracker) {
-    costTracker.addTextUsage('gemini-2.5-flash', result.inputTokens || 0, result.outputTokens || 0);
+    costTracker.addTextUsage('gemini-2.5-flash', inputTokens, outputTokens);
   }
 
-  const response = (result.text || '').trim();
+  const response = (resultText || '').trim();
 
   // If Gemini says it's fine, return null (no changes needed)
   if (response.toLowerCase().includes('no changes') || response.toLowerCase().includes('text is appropriate')) {

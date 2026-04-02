@@ -47,7 +47,12 @@ async function generateContent(prompt, opts = {}) {
       });
       const text = result.response.text();
       if (!text) throw new Error('Empty response from Gemini');
-      return text;
+      const usage = result.response.usageMetadata || {};
+      return {
+        text,
+        inputTokens: usage.promptTokenCount || 0,
+        outputTokens: usage.candidatesTokenCount || 0,
+      };
     } catch (err) {
       lastError = err;
       if (err.status === 429 || (err.message && err.message.includes('429'))) {
