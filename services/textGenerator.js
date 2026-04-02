@@ -147,13 +147,30 @@ async function checkVocabulary(text, ageGroup, apiKeys, costTracker) {
 
   const response = (resultText || '').trim();
 
-  // If Gemini says it's fine, return null (no changes needed)
-  if (response.toLowerCase().includes('no changes') || response.toLowerCase().includes('text is appropriate')) {
+  // The prompt asks for JSON: { approved, issues, suggestion }
+  // Parse it and use the suggestion if not approved
+  try {
+    // Strip markdown code fences if present
+    const cleaned = response.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (parsed.approved === true || parsed.approved === 'true') {
+      return null; // Text is fine, no changes
+    }
+    if (parsed.suggestion && typeof parsed.suggestion === 'string' && parsed.suggestion.length > 10) {
+      return parsed.suggestion;
+    }
+    return null; // Not approved but no suggestion — keep original
+  } catch {
+    // Not JSON — use the old heuristic
+  }
+
+  // Fallback: if Gemini returned plain text
+  if (response.toLowerCase().includes('no changes') || response.toLowerCase().includes('text is appropriate') || response.toLowerCase().includes('approved')) {
     return null;
   }
 
-  // If it returned corrected text, use it
-  if (response.length > 10 && response.length < text.length * 2) {
+  // If it returned what looks like corrected story text (not JSON), use it
+  if (response.length > 10 && response.length < text.length * 2 && !response.startsWith('{')) {
     return response;
   }
 

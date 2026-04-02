@@ -54,6 +54,13 @@ async function uploadFromUrl(url, destination) {
  * @returns {Promise<Buffer>}
  */
 async function downloadBuffer(source) {
+  // Handle signed URLs and public URLs via fetch
+  if (source.startsWith('https://') || source.startsWith('http://')) {
+    const response = await fetch(source);
+    if (!response.ok) throw new Error(`Failed to download ${source.slice(0, 80)}: ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
+  }
+  // Handle gs:// URIs and plain GCS paths via SDK
   const path = source.startsWith('gs://') ? source.replace(`gs://${bucketName}/`, '') : source;
   const [buffer] = await getBucket().file(path).download();
   return buffer;
