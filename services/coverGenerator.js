@@ -40,7 +40,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   } else {
     // Generate front cover illustration
     const coverScene = `A beautiful ${artStyle} children's book cover illustration. `
-      + `The main character is a ${childDetails.childAge || 5}-year-old child named ${childDetails.childName}. `
+      + `The main character is a ${childDetails.childAge || childDetails.age || 5}-year-old child named ${childDetails.childName || childDetails.name}. `
       + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
       + `The child should be centered, looking happy and confident. `
       + `Background should be thematic and whimsical.`;
@@ -143,7 +143,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
   // Back cover (left side)
   const backCenterX = (trimWidth + bleed) / 2;
-  const backText = `A personalized story for ${childDetails.childName}`;
+  const backText = `A personalized story for ${childDetails.childName || childDetails.name || 'your child'}`;
   const backTextWidth = lightFont.widthOfTextAtSize(backText, 14);
   page.drawText(backText, {
     x: backCenterX - backTextWidth / 2,
