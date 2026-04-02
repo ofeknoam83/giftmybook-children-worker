@@ -54,7 +54,24 @@ async function uploadFromUrl(url, destination) {
  * @returns {Promise<Buffer>}
  */
 async function downloadBuffer(source) {
-  // Handle signed URLs and public URLs via fetch
+  // Try to extract GCS path from signed URLs and use SDK (faster + more reliable from Cloud Run)
+  if (source.startsWith('https://storage.googleapis.com/')) {
+    try {
+      const url = new URL(source);
+      // Path format: /bucket-name/path/to/file
+      const pathParts = url.pathname.split('/');
+      const bucket = pathParts[1];
+      const filePath = pathParts.slice(2).join('/');
+      if (bucket === bucketName && filePath) {
+        console.log(`[gcsStorage] Downloading via SDK: ${filePath.slice(0, 60)}`);
+        const [buffer] = await getBucket().file(decodeURIComponent(filePath)).download();
+        return buffer;
+      }
+    } catch (sdkErr) {
+      console.warn(`[gcsStorage] SDK download failed, falling back to fetch: ${sdkErr.message}`);
+    }
+  }
+  // Fallback: public URLs or other origins via fetch
   if (source.startsWith('https://') || source.startsWith('http://')) {
     const response = await fetch(source);
     if (!response.ok) throw new Error(`Failed to download ${source.slice(0, 80)}: ${response.status}`);

@@ -339,22 +339,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
           bookWarnings.push('Appearance description unavailable — using fallback');
           return '';
         }),
-        // Download + base64-encode child photo for Gemini illustration API
+        // Download + base64-encode child photo for Gemini illustration API (via GCS SDK for reliability)
         (async () => {
           if (!childPhotoUrl) return null;
           try {
-            const photoResp = await fetch(childPhotoUrl);
-            if (photoResp.ok) {
-              const photoBuf = Buffer.from(await photoResp.arrayBuffer());
-              const mime = photoResp.headers.get('content-type') || 'image/jpeg';
-              bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
-              console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${mime})`);
-              return { base64: photoBuf.toString('base64'), mime };
-            } else {
-              bookContext.log('warn', 'Failed to download child photo for caching', { status: photoResp.status });
-              console.warn(`[server] Failed to download child photo for caching: ${photoResp.status}`);
-              return null;
-            }
+            const photoBuf = await downloadBuffer(childPhotoUrl);
+            const mime = childPhotoUrl.includes('.png') ? 'image/png' : 'image/jpeg';
+            bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
+            console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${mime})`);
+            return { base64: photoBuf.toString('base64'), mime };
           } catch (photoErr) {
             bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
             console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
