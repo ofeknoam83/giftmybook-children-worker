@@ -11,7 +11,7 @@
 const { STORY_PLANNER_SYSTEM: PB_SYSTEM, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
