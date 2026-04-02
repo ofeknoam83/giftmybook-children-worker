@@ -8,22 +8,12 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-const { GoogleAuth } = require('google-auth-library');
-
-// Vertex AI endpoint (internal Google network from Cloud Run — much faster than public API)
-const GCP_PROJECT = process.env.GCP_PROJECT_ID || 'gen-lang-client-0521120270';
-const GCP_REGION = process.env.GCP_REGION || 'us-central1'; // us-central1 has all preview models
-const VERTEX_MODEL = 'gemini-2.5-flash-image'; // Nano Banana (GA, available on Vertex AI)
-const VERTEX_ENDPOINT = `https://${GCP_REGION}-aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/${GCP_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
-
-let authClient = null;
-async function getVertexAccessToken() {
-  if (!authClient) {
-    authClient = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-  }
-  const client = await authClient.getClient();
-  const token = await client.getAccessToken();
-  return token.token || token;
+// Gemini public API with Nano Banana 2 (gemini-3.1-flash-image-preview)
+// Vertex AI doesn't have the preview model yet, so we use the public API
+const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+function geminiImageUrl() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${apiKey}`;
 }
 
 /** Fetch with a 2-minute AbortController timeout */
@@ -142,7 +132,6 @@ async function downloadPhotoAsBase64(url) {
  */
 async function callGeminiImageApi(prompt, photoBase64, photoMime) {
   // Use Vertex AI (internal Google network) for speed + reliability from Cloud Run
-  const accessToken = await getVertexAccessToken();
 
   const body = {
     contents: [{ parts: [
@@ -155,10 +144,10 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
   };
 
   const resp = await fetchWithTimeout(
-    VERTEX_ENDPOINT,
+    geminiImageUrl(),
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }
   );
@@ -195,7 +184,6 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
  */
 async function callGeminiImageApiNoPhoto(prompt) {
   // Use Vertex AI (internal Google network) for speed + reliability from Cloud Run
-  const accessToken = await getVertexAccessToken();
 
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -205,10 +193,10 @@ async function callGeminiImageApiNoPhoto(prompt) {
   };
 
   const resp = await fetchWithTimeout(
-    VERTEX_ENDPOINT,
+    geminiImageUrl(),
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }
   );
