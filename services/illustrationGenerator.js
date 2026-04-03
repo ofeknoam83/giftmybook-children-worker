@@ -23,7 +23,7 @@ const PUBLIC_MODEL = 'gemini-3.1-flash-image-preview';
 const PUBLIC_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${PUBLIC_MODEL}:generateContent?key=${PUBLIC_API_KEY}`;
 
 /** Fetch with a 2-minute AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 180000) {
+async function fetchWithTimeout(url, opts, timeoutMs = 300000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -318,11 +318,10 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       const geminiStart = Date.now();
 
       let imageBuffer;
-      if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime);
-      } else {
-        imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt);
-      }
+      // Always use text-only generation (no reference photo)
+      // Reference photo makes calls 10x slower (3+ min vs ~20s)
+      // Character consistency maintained via detailed description in prompt
+      imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt);
 
       const geminiMs = Date.now() - geminiStart;
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
