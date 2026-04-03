@@ -101,26 +101,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     }
   }
 
-  // Title on front cover
-  const titleSize = 28;
-  const titleWidth = font.widthOfTextAtSize(title, titleSize);
-  const titleX = frontX + (trimWidth - titleWidth) / 2;
-  // Title background
-  page.drawRectangle({
-    x: titleX - 10,
-    y: totalHeight - bleed - 80,
-    width: titleWidth + 20,
-    height: 50,
-    color: rgb(1, 1, 1),
-    opacity: 0.8,
-  });
-  page.drawText(title, {
-    x: titleX,
-    y: totalHeight - bleed - 60,
-    size: titleSize,
-    font,
-    color: rgb(0.15, 0.15, 0.15),
-  });
+  // Title overlay removed — the generated cover illustration already includes a title
 
   // Spine
   const spineX = trimWidth + bleed;

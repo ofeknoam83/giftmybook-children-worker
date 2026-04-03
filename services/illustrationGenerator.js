@@ -12,7 +12,10 @@ const { withRetry } = require('./retry');
 const GCP_PROJECT = process.env.GCP_PROJECT_ID || 'gen-lang-client-0521120270';
 const VERTEX_MODEL = 'gemini-3.1-flash-image-preview'; // Nano Banana 2
 const VERTEX_ENDPOINT = `https://aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/global/publishers/google/models/${VERTEX_MODEL}:generateContent`;
-const VERTEX_AI_KEY = process.env.VERTEX_AI_KEY || '';
+const VERTEX_AI_KEY = process.env.VERTEX_AI_KEY || process.env.GOOGLE_AI_STUDIO_KEY || '';
+if (!VERTEX_AI_KEY) {
+  console.warn('[IllustrationGenerator] WARNING: No VERTEX_AI_KEY or GOOGLE_AI_STUDIO_KEY set — illustrations will fail with 401');
+}
 
 /** Fetch with a 2-minute AbortController timeout */
 async function fetchWithTimeout(url, opts, timeoutMs = 120000) {
