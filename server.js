@@ -220,6 +220,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           _cachedPhotoBase64: cachedPhotoBase64,
           _cachedPhotoMime: cachedPhotoMime,
           spreadIndex: i,
+          pageText: spread.text,
         });
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
@@ -395,35 +396,40 @@ app.post('/generate-book', authenticate, async (req, res) => {
       bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms });
       console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
 
-      // Stage 4+5: Text generation and illustrations IN PARALLEL
-      // These are independent — text needs spread descriptions, illustrations need illustration descriptions + child photo
-      bookContext.log('info', 'Starting text generation + illustrations in parallel');
+      // Stage 4: Generate text first (illustrations need the text to embed it)
+      bookContext.log('info', 'Starting text generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text + generating illustrations...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
       }
 
-      const parallelStart = Date.now();
+      const textResults = await generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl });
 
-      const [textResults, illustrationResults] = await Promise.all([
-        // Generate all text (batched, groups of 4)
-        generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl }),
-        // Generate all illustrations (8 concurrent)
-        generateAllIllustrations(storyPlan, childDetails, characterRef, style, faceEmbedding, childAppearanceDesc, {
-          apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
-          resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
-        }),
-      ]);
-
-      // Merge: each spread gets both .text and .imageUrl
-      const mergedSpreads = storyPlan.spreads.map((spread, i) => ({
+      // Attach generated text to each spread for illustration prompts
+      const spreadsWithText = storyPlan.spreads.map((spread, i) => ({
         ...spread,
         text: textResults[i]?.text || spread.text || '',
+      }));
+
+      // Stage 5: Generate illustrations WITH text embedded in the images
+      bookContext.log('info', 'Starting illustration generation with embedded text');
+      if (progressCallbackUrl) {
+        reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations with text...', logs: bookContext.logs });
+      }
+
+      const storyPlanWithText = { ...storyPlan, spreads: spreadsWithText };
+      const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, faceEmbedding, childAppearanceDesc, {
+        apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
+        resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
+      });
+
+      // Merge: each spread gets both .text and .imageUrl
+      const mergedSpreads = spreadsWithText.map((spread, i) => ({
+        ...spread,
         imageUrl: illustrationResults[i]?.imageUrl || null,
       }));
 
-      const parallelMs = Date.now() - parallelStart;
-      bookContext.log('info', 'Text + illustrations parallel stage complete', { ms: parallelMs, spreads: mergedSpreads.length });
-      console.log(`[server] Stage timing: text+illustrations(parallel)=${parallelMs}ms (book ${bookId})`);
+      bookContext.log('info', 'Text + illustrations complete', { spreads: mergedSpreads.length });
+      console.log(`[server] Stage timing: text+illustrations(sequential) (book ${bookId})`);
 
       const illustrationFailures = illustrationResults.filter((r, i) => !r?.imageUrl && storyPlan.spreads[i]?.layoutType !== 'NO_TEXT').length;
       if (illustrationFailures > 0) {

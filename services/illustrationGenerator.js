@@ -82,7 +82,7 @@ function buildGenericSafePrompt(artStyle) {
  * @param {string} [childName] - Child's name for character anchoring
  * @returns {string} Complete prompt
  */
-function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName) {
+function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName, pageText) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   // For Gemini with photo reference: CHARACTER IDENTITY must be the dominant instruction.
@@ -108,6 +108,21 @@ function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, child
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('Children\'s book illustration, non-realistic but recognizable, fully clothed, wholesome, family-friendly.');
   parts.push('Draw ONLY the child from the reference photo as the main character. Do NOT add other children or change who the character is between illustrations.');
+
+  if (pageText) {
+    parts.push('');
+    parts.push('TEXT IN IMAGE:');
+    parts.push('Include the following story text as part of this illustration page:');
+    parts.push(`"${pageText}"`);
+    parts.push('');
+    parts.push('TEXT RULES:');
+    parts.push('- Render the text in a large, clear, friendly children\'s book font');
+    parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
+    parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
+    parts.push('- Text must be perfectly legible, correctly spelled, and easy to read');
+    parts.push('- Integrate the text naturally into the composition — it should feel like part of the book page');
+    parts.push('- Do NOT place text over the character\'s face or the main action');
+  }
 
   return parts.join('\n');
 }
@@ -242,7 +257,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childAppearance, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName);
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName, opts.pageText);
 
   console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
   console.log(`[illustrationGenerator] Prompt built (${fullPrompt.length} chars): ${fullPrompt.slice(0, 150)}...`);

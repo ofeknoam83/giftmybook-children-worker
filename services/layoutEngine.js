@@ -60,15 +60,14 @@ async function assemblePdf(spreads, bookFormat, opts = {}) {
     });
   }
 
-  // Content spreads
+  // Content spreads — text is now embedded in the illustrations, so always full-bleed
   for (const spread of spreads) {
     const page = pdfDoc.addPage([format.width, format.height]);
-    const layoutType = spread.layoutType || LAYOUT_TYPES.TEXT_BOTTOM;
 
-    // Embed illustration if available
+    // Embed illustration as full-bleed image (text is already in the image)
     if (spread.illustrationBuffer) {
       try {
-        const imgBuffer = await prepareImage(spread.illustrationBuffer, format, layoutType);
+        const imgBuffer = await prepareImage(spread.illustrationBuffer, format, LAYOUT_TYPES.FULL_BLEED);
         let img;
         // Try PNG first, fall back to JPEG
         try {
@@ -77,17 +76,11 @@ async function assemblePdf(spreads, bookFormat, opts = {}) {
           img = await pdfDoc.embedJpg(imgBuffer);
         }
 
-        const imgDims = getImageDimensions(format, layoutType);
+        const imgDims = getImageDimensions(format, LAYOUT_TYPES.FULL_BLEED);
         page.drawImage(img, imgDims);
       } catch (err) {
         console.error(`[LayoutEngine] Failed to embed illustration for spread ${spread.spreadNumber}:`, err.message);
       }
-    }
-
-    // Draw text
-    if (spread.text && layoutType !== LAYOUT_TYPES.NO_TEXT) {
-      const textArea = getTextArea(format, layoutType);
-      drawWrappedText(page, font, spread.text, textArea);
     }
 
     // Page number
