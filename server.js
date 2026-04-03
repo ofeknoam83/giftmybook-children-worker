@@ -180,39 +180,106 @@ function authenticate(req, res, next) {
 async function generateAllText(storyPlan, childDetails, format, opts) {
   const { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl } = opts;
   const stage4Start = Date.now();
-  const spreadsWithText = [];
-  const BATCH_SIZE = 4;
 
-  // Generate text one spread at a time for continuity — each spread sees all previous text
-  for (let i = 0; i < storyPlan.spreads.length; i++) {
-    const batchStartTime = Date.now();
-    const spreadPlan = storyPlan.spreads[i];
-    const storyContext = {
-      title: storyPlan.title,
-      previousSpreads: spreadsWithText.map(s => s.text),
-      totalSpreads: storyPlan.spreads.length,
-    };
-    const text = await generateSpreadText(spreadPlan, childDetails, format, storyContext, {
-      apiKeys,
-      costTracker,
-    });
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    bookContext.log('info', `Text for spread ${spreadPlan.spreadNumber} generated`, { words: wordCount });
-    spreadsWithText.push({ ...spreadPlan, text });
-    bookContext.touchActivity();
-    bookContext.log('info', `Text for spread ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - batchStartTime });
+  if (progressCallbackUrl) {
+    reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.25, message: 'Writing story text...', logs: bookContext.logs });
+  }
 
-    if (progressCallbackUrl) {
-      const progress = 0.20 + (0.20 * (i + 1) / storyPlan.spreads.length);
-      reportProgress(progressCallbackUrl, {
-        bookId,
-        stage: 'text_generation',
-        progress,
-        message: `Writing spread ${i + 1} of ${storyPlan.spreads.length}...`,
-        logs: bookContext.logs,
-      });
+  // Single API call to generate ALL spread texts at once
+  const apiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY;
+  const spreadsDescription = storyPlan.spreads.map((s, i) =>
+    `Spread ${i + 1}: ${s.illustrationPrompt || s.illustrationDescription || s.text || 'Scene ' + (i + 1)}`
+  ).join('\n');
+
+  const formatRules = format === 'early_reader'
+    ? '3-5 sentences per spread, 40-80 words each, ages 5-8 vocabulary'
+    : '1-2 SHORT sentences per spread, 8-20 words each, ages 3-6 vocabulary';
+
+  const prompt = `Write the complete story text for a ${storyPlan.spreads.length}-page children's picture book.
+
+Title: ${storyPlan.title}
+Child's name: ${childDetails.childName || childDetails.name}
+Child's age: ${childDetails.childAge || childDetails.age || 5}
+
+RULES:
+- ${formatRules}
+- Each page's text MUST be a COMPLETE thought or sentence. NEVER end mid-sentence.
+- Rhyming is encouraged but not required
+- Include the child's name naturally
+- Keep it fun, warm, and age-appropriate
+- The story must flow naturally from page to page
+- Written in present tense
+
+Spreads to write text for:
+${spreadsDescription}
+
+Respond with ONLY a JSON array of strings, one per spread:
+["Page 1 text here", "Page 2 text here", ...]
+
+Return exactly ${storyPlan.spreads.length} strings.`;
+
+  let resp;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.8,
+              maxOutputTokens: 2000,
+              responseMimeType: 'application/json',
+            },
+          }),
+        }
+      );
+      break;
+    } catch (fetchErr) {
+      console.warn(`[generateAllText] Fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
+      if (attempt === 3) throw fetchErr;
+      await new Promise(r => setTimeout(r, 2000 * attempt));
     }
   }
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Text generation API error ${resp.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+  let texts;
+  try {
+    texts = JSON.parse(rawText);
+  } catch (e) {
+    // Try to extract array from the response
+    const match = rawText.match(/\[\s*"[\s\S]*"\s*\]/);
+    if (match) texts = JSON.parse(match[0]);
+    else throw new Error('Failed to parse text generation response as JSON array');
+  }
+
+  if (!Array.isArray(texts) || texts.length === 0) {
+    throw new Error('Text generation returned empty or invalid array');
+  }
+
+  // Map texts to spreads (handle length mismatch gracefully)
+  const spreadsWithText = storyPlan.spreads.map((spread, i) => {
+    const text = texts[i] || `${childDetails.childName || 'The child'} continues the adventure!`;
+    return { ...spread, text };
+  });
+
+  const totalWords = spreadsWithText.reduce((sum, s) => sum + s.text.split(/\s+/).filter(Boolean).length, 0);
+  bookContext.log('info', `All text generated in single call`, { totalWords, spreads: spreadsWithText.length, ms: Date.now() - stage4Start });
+  bookContext.touchActivity();
+
+  spreadsWithText.forEach((s, i) => {
+    const words = s.text.split(/\s+/).filter(Boolean).length;
+    bookContext.log('info', `Spread ${i + 1}: "${s.text.slice(0, 60)}${s.text.length > 60 ? '...' : ''}"`, { words });
+  });
 
   bookContext.log('info', 'All text generation complete', { totalSpreads: spreadsWithText.length, ms: Date.now() - stage4Start });
   console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
