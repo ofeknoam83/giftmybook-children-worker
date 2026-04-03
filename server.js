@@ -878,3 +878,32 @@ if (require.main === module) {
 }
 
 module.exports = app;
+
+// Diagnostic: test Gemini image generation latency
+app.get('/test-gemini-image', async (req, res) => {
+  const start = Date.now();
+  const apiKey = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Watercolor illustration of a happy child playing in a park. Include text: "Hello World!" in large friendly font.' }] }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+      }
+    );
+    const ms = Date.now() - start;
+    if (!resp.ok) {
+      const err = await resp.text();
+      return res.json({ ok: false, ms, status: resp.status, error: err.slice(0, 200) });
+    }
+    const data = await resp.json();
+    const hasImage = data.candidates?.[0]?.content?.parts?.some(p => p.inlineData);
+    res.json({ ok: true, ms, hasImage, endpoint: 'public' });
+  } catch (e) {
+    res.json({ ok: false, ms: Date.now() - start, error: e.message });
+  }
+});
