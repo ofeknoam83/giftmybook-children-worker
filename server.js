@@ -314,7 +314,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(3); // 3 concurrent with 4GB memory
+  const illustrationLimit = pLimit(1); // Sequential — concurrent calls cause Gemini rate limit timeouts
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -350,7 +350,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           pageText: spread.text,
         });
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 4 minutes`)), 240000)
+          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 90 seconds`)), 90000)
         );
         imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
         bookContext.touchActivity();
@@ -364,9 +364,9 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
 
-      // 2s delay between illustration launches
+      // 1s delay between illustration calls
       if (completedCount < storyPlan.spreads.length) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       // Save partial checkpoint after each illustration completes
