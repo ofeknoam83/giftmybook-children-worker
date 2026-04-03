@@ -17,8 +17,13 @@ if (!VERTEX_AI_KEY) {
   console.warn('[IllustrationGenerator] WARNING: No VERTEX_AI_KEY or GOOGLE_AI_STUDIO_KEY set — illustrations will fail with 401');
 }
 
+// Public Gemini API — primary endpoint (faster)
+const PUBLIC_API_KEY = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY || '';
+const PUBLIC_MODEL = 'gemini-3.1-flash-image-preview';
+const PUBLIC_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${PUBLIC_MODEL}:generateContent?key=${PUBLIC_API_KEY}`;
+
 /** Fetch with a 2-minute AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 120000) {
+async function fetchWithTimeout(url, opts, timeoutMs = 180000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -147,49 +152,52 @@ async function downloadPhotoAsBase64(url) {
  * @returns {Promise<Buffer>} Generated image buffer
  */
 async function callGeminiImageApi(prompt, photoBase64, photoMime) {
-  
-
   const body = {
     contents: [{ role: 'user', parts: [
       { text: prompt },
-      { inlineData: { mimeType: photoMime, data: photoBase64 } },
-    ] }],
-    generationConfig: {
-      responseModalities: ['TEXT', 'IMAGE'],
-    },
+      { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
+    ]}],
+    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  const resp = await fetchWithTimeout(
-    VERTEX_ENDPOINT,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY },
-      body: JSON.stringify(body),
+  // Try public API first (faster), then Vertex AI fallback
+  const endpoints = [
+    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
+    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const resp = await fetchWithTimeout(ep.url, {
+        method: 'POST',
+        headers: ep.headers,
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+        if (isNsfw) {
+          const err = new Error(`Gemini image API (${ep.label}) NSFW block: ${errBody.slice(0, 200)}`);
+          err.isNsfw = true;
+          throw err;
+        }
+        throw new Error(`Gemini image API (${ep.label}) error ${resp.status}: ${errBody.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+      if (!imagePart) throw new Error(`No image in Gemini response (${ep.label})`);
+
+      console.log(`[illustrationGenerator] Image generated via ${ep.label} endpoint`);
+      return Buffer.from(imagePart.inlineData.data, 'base64');
+    } catch (err) {
+      console.warn(`[illustrationGenerator] ${ep.label} endpoint failed: ${err.message}`);
+      if (err.isNsfw) throw err; // Don't retry NSFW on different endpoint
+      if (ep === endpoints[endpoints.length - 1]) throw err; // Last endpoint, rethrow
+      // Continue to next endpoint
     }
-  );
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    const isNsfw = resp.status === 400 && (errText.includes('SAFETY') || errText.includes('blocked'));
-    const err = new Error(`Gemini image API error ${resp.status}: ${errText.slice(0, 200)}`);
-    err.isNsfw = isNsfw;
-    throw err;
   }
-
-  const result = await resp.json();
-  const imagePart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imagePart) {
-    // Check for safety block
-    const blockReason = result.candidates?.[0]?.finishReason;
-    if (blockReason === 'SAFETY') {
-      const err = new Error('Gemini blocked image generation for safety reasons');
-      err.isNsfw = true;
-      throw err;
-    }
-    throw new Error('Gemini image API returned no image data');
-  }
-
-  return Buffer.from(imagePart.inlineData.data, 'base64');
 }
 
 /**
@@ -199,45 +207,49 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
  * @returns {Promise<Buffer>} Generated image buffer
  */
 async function callGeminiImageApiNoPhoto(prompt) {
-  
-
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      responseModalities: ['TEXT', 'IMAGE'],
-    },
+    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  const resp = await fetchWithTimeout(
-    VERTEX_ENDPOINT,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY },
-      body: JSON.stringify(body),
+  // Try public API first (faster), then Vertex AI fallback
+  const endpoints = [
+    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
+    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const resp = await fetchWithTimeout(ep.url, {
+        method: 'POST',
+        headers: ep.headers,
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+        if (isNsfw) {
+          const err = new Error(`Gemini image API (${ep.label}) NSFW block: ${errBody.slice(0, 200)}`);
+          err.isNsfw = true;
+          throw err;
+        }
+        throw new Error(`Gemini image API (${ep.label}) error ${resp.status}: ${errBody.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+      if (!imagePart) throw new Error(`No image in Gemini response (${ep.label})`);
+
+      console.log(`[illustrationGenerator] Image generated via ${ep.label} endpoint`);
+      return Buffer.from(imagePart.inlineData.data, 'base64');
+    } catch (err) {
+      console.warn(`[illustrationGenerator] ${ep.label} endpoint failed: ${err.message}`);
+      if (err.isNsfw) throw err; // Don't retry NSFW on different endpoint
+      if (ep === endpoints[endpoints.length - 1]) throw err; // Last endpoint, rethrow
+      // Continue to next endpoint
     }
-  );
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    const isNsfw = resp.status === 400 && (errText.includes('SAFETY') || errText.includes('blocked'));
-    const err = new Error(`Gemini image API error ${resp.status}: ${errText.slice(0, 200)}`);
-    err.isNsfw = isNsfw;
-    throw err;
   }
-
-  const result = await resp.json();
-  const imagePart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imagePart) {
-    const blockReason = result.candidates?.[0]?.finishReason;
-    if (blockReason === 'SAFETY') {
-      const err = new Error('Gemini blocked image generation for safety reasons');
-      err.isNsfw = true;
-      throw err;
-    }
-    throw new Error('Gemini image API returned no image data');
-  }
-
-  return Buffer.from(imagePart.inlineData.data, 'base64');
 }
 
 /**
