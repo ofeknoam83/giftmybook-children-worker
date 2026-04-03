@@ -227,7 +227,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(1); // Sequential — one at a time with delay to avoid rate limits
+  const illustrationLimit = pLimit(3); // 3 concurrent — photo is small (19KB), text is short
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -274,9 +274,9 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
 
-      // Delay between illustrations to avoid rate limiting
+      // Short delay between illustration launches
       if (completedCount < storyPlan.spreads.length) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       // Save partial checkpoint after each illustration completes
