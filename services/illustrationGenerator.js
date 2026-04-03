@@ -167,10 +167,10 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try public API first (faster), then Vertex AI fallback
+  // Try Vertex AI first (same GCP network as Cloud Run), then public API fallback
   const endpoints = [
-    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
     { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
+    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
   ];
 
   for (const ep of endpoints) {
@@ -221,10 +221,10 @@ async function callGeminiImageApiNoPhoto(prompt) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try public API first (faster), then Vertex AI fallback
+  // Try Vertex AI first (same GCP network as Cloud Run), then public API fallback
   const endpoints = [
-    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
     { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
+    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
   ];
 
   for (const ep of endpoints) {
