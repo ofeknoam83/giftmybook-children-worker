@@ -22,6 +22,33 @@ const { withRetry } = require('./services/retry');
 
 const app = express();
 
+// ── Checkpoint Helpers ──
+async function saveCheckpoint(bookId, data) {
+  const path = `children-jobs/${bookId}/checkpoint.json`;
+  const buf = Buffer.from(JSON.stringify(data));
+  await uploadBuffer(buf, path, 'application/json');
+  console.log(`[checkpoint] Saved checkpoint for ${bookId} at stage: ${data.completedStage}`);
+}
+
+async function loadCheckpoint(bookId) {
+  try {
+    const path = `children-jobs/${bookId}/checkpoint.json`;
+    const buf = await downloadBuffer(path);
+    const data = JSON.parse(buf.toString());
+    console.log(`[checkpoint] Loaded checkpoint for ${bookId} at stage: ${data.completedStage}`);
+    return data;
+  } catch (err) {
+    // No checkpoint found — start fresh
+    return null;
+  }
+}
+
+async function clearCheckpoint(bookId) {
+  try {
+    await deletePrefix(`children-jobs/${bookId}/checkpoint.json`);
+  } catch (e) { /* ignore */ }
+}
+
 app.use(helmet());
 app.use(cors());
 app.use(compression());
@@ -184,18 +211,35 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
   const {
     apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
+    existingIllustrations, checkpointData,
   } = opts;
 
-  bookContext.log('info', 'Starting illustration generation', { totalIllustrations: storyPlan.spreads.length });
+  bookContext.log('info', 'Starting illustration generation', { totalIllustrations: storyPlan.spreads.length, resumed: (existingIllustrations || []).filter(Boolean).length });
 
   const stage5Start = Date.now();
   const spreadsWithImages = new Array(storyPlan.spreads.length);
   let completedCount = 0;
 
+  // Pre-fill from checkpoint
+  if (existingIllustrations) {
+    for (let i = 0; i < existingIllustrations.length; i++) {
+      if (existingIllustrations[i]?.imageUrl) {
+        spreadsWithImages[i] = existingIllustrations[i];
+        completedCount++;
+        bookContext.log('info', `Illustration ${i + 1} resumed from checkpoint`);
+      }
+    }
+  }
+
   const illustrationLimit = pLimit(2); // Gemini image API throttles at higher concurrency
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
+      // Skip if already resumed from checkpoint
+      if (spreadsWithImages[i]?.imageUrl) {
+        return;
+      }
+
       // Only skip illustration for explicitly text-only spreads
       if (spread.layoutType === 'NO_TEXT') {
         spreadsWithImages[i] = { ...spread, imageUrl: null };
@@ -233,6 +277,16 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
 
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
+
+      // Save partial checkpoint after each illustration completes
+      if (checkpointData) {
+        await saveCheckpoint(bookId, {
+          ...checkpointData,
+          completedStage: 'illustrations_partial',
+          illustrationResults: spreadsWithImages.filter(Boolean),
+          timestamp: new Date().toISOString(),
+        }).catch(e => console.warn('[checkpoint] Save failed:', e.message));
+      }
 
       if (progressCallbackUrl) {
         const progress = 0.40 + (0.35 * completedCount / storyPlan.spreads.length);
@@ -315,7 +369,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
     }, ABSOLUTE_TIMEOUT_MS);
 
     try {
-      // Stage 1: Download + cache child photo for illustration calls
+      // Load checkpoint for resume support
+      const checkpoint = await loadCheckpoint(bookId);
+      if (checkpoint) {
+        bookContext.log('info', 'Checkpoint found — resuming from stage: ' + checkpoint.completedStage);
+      }
+
+      // Stage 1: Download + cache child photo for illustration calls (always runs — photo not saved in checkpoint)
       bookContext.log('info', 'Starting photo download');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'photo_cache', progress: 0.05, message: 'Preparing photos...', logs: bookContext.logs });
@@ -352,36 +412,52 @@ app.post('/generate-book', authenticate, async (req, res) => {
       // Character reference generation skipped — Gemini illustrations use child photo directly
       const characterRef = null;
 
-      bookContext.log('info', 'Starting story planning', { theme: theme || 'adventure' });
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...', logs: bookContext.logs });
-      }
-
       // Stage 3: Plan story spreads
-      const stage3Start = Date.now();
-      const storyPlan = await planStory(childDetails, theme || 'adventure', format, customDetails || '', {
-        apiKeys,
-        costTracker,
-        approvedTitle,
-      });
-      bookContext.touchActivity();
-      const stage3Ms = Date.now() - stage3Start;
-      bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms });
-      console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
+      let storyPlan;
+      if (checkpoint?.storyPlan) {
+        storyPlan = checkpoint.storyPlan;
+        bookContext.log('info', 'Resumed story plan from checkpoint', { spreads: storyPlan.spreads.length, title: storyPlan.title });
+      } else {
+        bookContext.log('info', 'Starting story planning', { theme: theme || 'adventure' });
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...', logs: bookContext.logs });
+        }
+
+        const stage3Start = Date.now();
+        storyPlan = await planStory(childDetails, theme || 'adventure', format, customDetails || '', {
+          apiKeys,
+          costTracker,
+          approvedTitle,
+        });
+        bookContext.touchActivity();
+        const stage3Ms = Date.now() - stage3Start;
+        bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms });
+        console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
+
+        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
+      }
 
       // Stage 4: Generate text first (illustrations need the text to embed it)
-      bookContext.log('info', 'Starting text generation');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
+      let spreadsWithText;
+      if (checkpoint?.spreadsWithText) {
+        spreadsWithText = checkpoint.spreadsWithText;
+        bookContext.log('info', 'Resumed text from checkpoint', { spreads: spreadsWithText.length });
+      } else {
+        bookContext.log('info', 'Starting text generation');
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
+        }
+
+        const textResults = await generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl });
+
+        // Attach generated text to each spread for illustration prompts
+        spreadsWithText = storyPlan.spreads.map((spread, i) => ({
+          ...spread,
+          text: textResults[i]?.text || spread.text || '',
+        }));
+
+        await saveCheckpoint(bookId, { bookId, completedStage: 'text_generation', storyPlan, spreadsWithText, timestamp: new Date().toISOString() });
       }
-
-      const textResults = await generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl });
-
-      // Attach generated text to each spread for illustration prompts
-      const spreadsWithText = storyPlan.spreads.map((spread, i) => ({
-        ...spread,
-        text: textResults[i]?.text || spread.text || '',
-      }));
 
       // Stage 5: Generate illustrations WITH text embedded in the images
       bookContext.log('info', 'Starting illustration generation with embedded text');
@@ -393,6 +469,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, {
         apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
         resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
+        existingIllustrations: checkpoint?.illustrationResults || [],
+        checkpointData: { bookId, storyPlan, spreadsWithText },
       });
 
       // Merge: each spread gets both .text and .imageUrl
@@ -536,6 +614,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
       if (progressCallbackUrl) {
         reportComplete(progressCallbackUrl, { bookId, interiorPdfUrl, coverPdfUrl, previewImageUrls, logs: bookContext.logs });
       }
+
+      // Clear checkpoint on successful completion
+      await clearCheckpoint(bookId);
 
       console.log(`[server] Book ${bookId} complete: ${mergedSpreads.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
     } catch (err) {
