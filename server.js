@@ -227,7 +227,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(1); // Sequential — one at a time for stability
+  const illustrationLimit = pLimit(2); // 2 concurrent for reasonable speed
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -276,10 +276,9 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
 
-      // 30s delay between illustrations to avoid rate limits
+      // 5s delay between illustration launches
       if (completedCount < storyPlan.spreads.length) {
-        bookContext.log('info', `Waiting 30s before next illustration...`);
-        await new Promise(r => setTimeout(r, 30000));
+        await new Promise(r => setTimeout(r, 5000));
       }
 
       // Save partial checkpoint after each illustration completes
@@ -468,58 +467,54 @@ app.post('/generate-book', authenticate, async (req, res) => {
         await saveCheckpoint(bookId, { bookId, completedStage: 'text_generation', storyPlan, spreadsWithText, timestamp: new Date().toISOString() });
       }
 
-      // Stage 6 (moved before illustrations): Generate cover
+      // Stage 6 (moved before illustrations): Prepare cover + character reference
       const stage6Start = Date.now();
       bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.40, message: 'Creating cover...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.40, message: 'Preparing cover...', logs: bookContext.logs });
       }
-
-      let preGeneratedCoverBuffer = null;
-      if (approvedCoverUrl) {
-        try {
-          preGeneratedCoverBuffer = await withRetry(
-            () => downloadBuffer(approvedCoverUrl),
-            { maxRetries: 3, baseDelayMs: 1000, label: `download-approved-cover-${bookId}` }
-          );
-          bookContext.log('info', 'Approved cover downloaded', { bytes: preGeneratedCoverBuffer.length });
-          console.log(`[server] Downloaded approved cover for book ${bookId} (${preGeneratedCoverBuffer.length} bytes)`);
-        } catch (dlErr) {
-          bookContext.log('warn', 'Failed to download approved cover — generating new', { error: dlErr.message });
-          console.warn(`[server] Failed to download approved cover for book ${bookId}: ${dlErr.message} — generating new cover`);
-        }
-      }
-
-      const coverData = await generateCover(storyPlan.title, childDetails, characterRef, format, {
-        apiKeys,
-        costTracker,
-        bookId,
-        preGeneratedCoverBuffer,
-      });
-      bookContext.touchActivity();
-      bookContext.log('info', 'Cover complete', { ms: Date.now() - stage6Start });
-
-      console.log(`[server] Stage timing: cover=${Date.now() - stage6Start}ms (book ${bookId})`);
 
       // Prepare cover-based character reference for illustrations
       let characterRefBase64 = cachedPhotoBase64; // fallback to original photo
       let characterRefMime = cachedPhotoMime;
+      let preGeneratedCoverBuffer = null;
 
-      const coverBuffer = preGeneratedCoverBuffer || coverData.coverBuffer;
-      if (coverBuffer) {
+      if (approvedCoverUrl) {
+        // Fast path: download cover image, resize to 512px for character reference
         try {
           const sharp = require('sharp');
-          const resizedCover = await sharp(coverBuffer)
+          let coverUrl = approvedCoverUrl;
+          try { coverUrl = await ensureAccessibleUrl(approvedCoverUrl); } catch (e) { /* use original */ }
+          const coverBuf = await withRetry(
+            () => downloadBuffer(coverUrl),
+            { maxRetries: 3, baseDelayMs: 1000, label: `download-cover-ref-${bookId}` }
+          );
+          preGeneratedCoverBuffer = coverBuf;
+          const resizedCover = await sharp(coverBuf)
             .resize(512, 512, { fit: 'cover' })
             .jpeg({ quality: 85 })
             .toBuffer();
           characterRefBase64 = resizedCover.toString('base64');
           characterRefMime = 'image/jpeg';
-          bookContext.log('info', 'Using cover image as character reference for illustrations', { bytes: resizedCover.length });
-        } catch (err) {
-          bookContext.log('warn', 'Failed to prepare cover reference, using original photo', { error: err.message });
+          bookContext.log('info', 'Cover downloaded and resized for character reference', { originalBytes: coverBuf.length, refBytes: resizedCover.length, ms: Date.now() - stage6Start });
+        } catch (dlErr) {
+          bookContext.log('warn', 'Failed to download approved cover for reference, using original photo', { error: dlErr.message });
         }
       }
+
+      // Build cover PDF in background (don't block illustrations)
+      const coverPdfPromise = generateCover(storyPlan.title, childDetails, characterRef, format, {
+        apiKeys, costTracker, bookId, preGeneratedCoverBuffer,
+      }).then(cd => {
+        bookContext.touchActivity();
+        bookContext.log('info', 'Cover PDF complete', { ms: Date.now() - stage6Start });
+        return cd;
+      }).catch(err => {
+        bookContext.log('error', 'Cover PDF generation failed', { error: err.message });
+        return null;
+      });
+
+      bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
       // Stage 5 (moved after cover): Generate illustrations WITH text embedded in the images
       bookContext.log('info', 'Starting illustration generation with embedded text');
@@ -590,17 +585,20 @@ app.post('/generate-book', authenticate, async (req, res) => {
       console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
 
       // Stage 8: Upload to GCS
+      // Await cover PDF (was running in background during illustrations)
+      const coverData = await coverPdfPromise;
+
       bookContext.log('info', 'Uploading PDFs to storage');
       const interiorPath = `children-jobs/${bookId}/interior.pdf`;
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
 
       await uploadBuffer(interiorPdf, interiorPath, 'application/pdf');
-      if (coverData.coverPdfBuffer) {
+      if (coverData?.coverPdfBuffer) {
         await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
       }
 
       const interiorPdfUrl = await getSignedUrl(interiorPath, 30 * 24 * 60 * 60 * 1000);
-      const coverPdfUrl = coverData.coverPdfBuffer
+      const coverPdfUrl = coverData?.coverPdfBuffer
         ? await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000)
         : null;
 
