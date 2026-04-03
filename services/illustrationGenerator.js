@@ -23,7 +23,7 @@ const PUBLIC_MODEL = 'gemini-3.1-flash-image-preview';
 const PUBLIC_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${PUBLIC_MODEL}:generateContent?key=${PUBLIC_API_KEY}`;
 
 /** Fetch with a 2-minute AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 300000) {
+async function fetchWithTimeout(url, opts, timeoutMs = 60000) { // 60s per endpoint — fail fast, try fallback
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -167,10 +167,10 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try Vertex AI first (same GCP network as Cloud Run), then public API fallback
+  // Try public API first (14s from Cloud Run), Vertex AI as fallback
   const endpoints = [
-    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
     { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
+    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
   ];
 
   for (const ep of endpoints) {
@@ -221,10 +221,10 @@ async function callGeminiImageApiNoPhoto(prompt) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try Vertex AI first (same GCP network as Cloud Run), then public API fallback
+  // Try public API first (14s from Cloud Run), Vertex AI as fallback
   const endpoints = [
-    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
     { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
+    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
   ];
 
   for (const ep of endpoints) {
