@@ -12,7 +12,6 @@ const { v4: uuidv4 } = require('uuid');
 const { planStory } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
-const { extractFaceEmbedding, describeChildAppearance } = require('./services/faceEngine');
 const { assemblePdf } = require('./services/layoutEngine');
 const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -181,7 +180,7 @@ async function generateAllText(storyPlan, childDetails, format, opts) {
  * Generate illustrations for all spreads (8 concurrent).
  * Returns array of { ...spread, imageUrl } in order.
  */
-async function generateAllIllustrations(storyPlan, childDetails, characterRef, style, faceEmbedding, childAppearanceDesc, opts) {
+async function generateAllIllustrations(storyPlan, childDetails, characterRef, style, opts) {
   const {
     apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
@@ -210,11 +209,10 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
         const sceneDesc = spread.illustrationDescription || spread.text;
         bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`);
         // Per-illustration timeout (3 min) to prevent one hung illustration from blocking the rest
-        const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
+        const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, {
           apiKeys,
           costTracker,
           bookId,
-          childAppearance: childAppearanceDesc,
           childName: childDetails.name,
           childPhotoUrl: resolvedChildPhotoUrl,
           _cachedPhotoBase64: cachedPhotoBase64,
@@ -271,7 +269,7 @@ app.post('/health', (req, res) => {
 });
 
 // ── POST /generate-book ──
-// Full pipeline: story planning -> face embedding -> illustrations -> PDF assembly
+// Full pipeline: photo cache -> story planning -> text -> illustrations -> PDF assembly
 app.post('/generate-book', authenticate, async (req, res) => {
   const { valid, errors, sanitized } = validateGenerateBookRequest(req.body);
   if (!valid) {
@@ -317,64 +315,39 @@ app.post('/generate-book', authenticate, async (req, res) => {
     }, ABSOLUTE_TIMEOUT_MS);
 
     try {
-      // Stage 1: Extract face embedding + describe appearance (in parallel for speed)
-      bookContext.log('info', 'Starting face extraction + appearance description');
+      // Stage 1: Download + cache child photo for illustration calls
+      bookContext.log('info', 'Starting photo download');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'face_extraction', progress: 0.05, message: 'Analyzing photos...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'photo_cache', progress: 0.05, message: 'Preparing photos...', logs: bookContext.logs });
       }
       bookContext.touchActivity();
 
       const stage1Start = Date.now();
-      let childAppearanceDesc = '';
-
-      // Pre-download child photo in parallel with face extraction + appearance description
       const childPhotoUrl = childDetails.photoUrls?.[0];
       let cachedPhotoBase64 = null;
       let cachedPhotoMime = 'image/jpeg';
 
-      const [faceEmbedding, appearanceResult, photoResult] = await Promise.all([
-        extractFaceEmbedding(childDetails.photoUrls),
-        describeChildAppearance(childDetails.photoUrls, childDetails, { childId }).catch(descErr => {
-          bookContext.log('warn', 'Appearance description failed — using fallback', { error: descErr.message });
-          console.warn(`[server] describeChildAppearance failed for book ${bookId}: ${descErr.message}`);
-          bookWarnings.push('Appearance description unavailable — using fallback');
-          return '';
-        }),
-        // Download + base64-encode child photo for Gemini illustration API (via GCS SDK for reliability)
-        (async () => {
-          if (!childPhotoUrl) return null;
-          try {
-            const photoBuf = await downloadBuffer(childPhotoUrl);
-            const mime = childPhotoUrl.includes('.png') ? 'image/png' : 'image/jpeg';
-            bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
-            console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${mime})`);
-            return { base64: photoBuf.toString('base64'), mime };
-          } catch (photoErr) {
-            bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
-            console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
-            return null;
-          }
-        })(),
-      ]);
-      childAppearanceDesc = appearanceResult;
-      if (photoResult) {
-        cachedPhotoBase64 = photoResult.base64;
-        cachedPhotoMime = photoResult.mime;
+      if (childPhotoUrl) {
+        try {
+          const photoBuf = await downloadBuffer(childPhotoUrl);
+          const mime = childPhotoUrl.includes('.png') ? 'image/png' : 'image/jpeg';
+          cachedPhotoBase64 = photoBuf.toString('base64');
+          cachedPhotoMime = mime;
+          bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
+          console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${mime})`);
+        } catch (photoErr) {
+          bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
+          console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
+        }
       }
       bookContext.touchActivity();
 
-      // Update childPhotoUrl with primaryPhotoUrl from face extraction if available
-      const resolvedChildPhotoUrl = faceEmbedding?.primaryPhotoUrl || childPhotoUrl;
+      const resolvedChildPhotoUrl = childPhotoUrl;
 
       const stage1Ms = Date.now() - stage1Start;
-      bookContext.log('info', 'Face extraction + appearance + photo cache complete', { ms: stage1Ms, hasEmbedding: !!faceEmbedding, hasAppearance: !!childAppearanceDesc, hasPhotoCache: !!cachedPhotoBase64 });
+      bookContext.log('info', 'Photo cache complete', { ms: stage1Ms, hasPhotoCache: !!cachedPhotoBase64 });
 
-      // Store Gemini-generated description on childDetails for downstream use
-      if (childAppearanceDesc) {
-        childDetails.appearance = childAppearanceDesc;
-      }
-
-      console.log(`[server] Stage timing: face+description=${stage1Ms}ms (book ${bookId})`);
+      console.log(`[server] Stage timing: photo_cache=${stage1Ms}ms (book ${bookId})`);
 
       // Character reference generation skipped — Gemini illustrations use child photo directly
       const characterRef = null;
@@ -417,7 +390,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       const storyPlanWithText = { ...storyPlan, spreads: spreadsWithText };
-      const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, faceEmbedding, childAppearanceDesc, {
+      const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, {
         apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
         resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
       });
@@ -608,7 +581,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
   }
 
   const {
-    bookId, spreadPlan, characterRef, faceEmbedding,
+    bookId, spreadPlan, characterRef,
     childDetails, bookFormat, storyContext, artStyle, apiKeys,
   } = req.body;
 
@@ -628,7 +601,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
     // Generate illustration
     const style = artStyle || 'watercolor';
     const sceneDesc = spreadPlan.illustrationDescription || text;
-    const imageUrl = await generateIllustration(sceneDesc, characterRef, style, faceEmbedding, {
+    const imageUrl = await generateIllustration(sceneDesc, characterRef, style, {
       apiKeys,
       costTracker,
       bookId,

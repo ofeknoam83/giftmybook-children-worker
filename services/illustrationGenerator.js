@@ -83,11 +83,10 @@ function buildGenericSafePrompt(artStyle) {
  *
  * @param {string} sceneDescription - Scene to illustrate
  * @param {string} artStyle - Art style key
- * @param {string} [childAppearance] - Appearance description text
  * @param {string} [childName] - Child's name for character anchoring
  * @returns {string} Complete prompt
  */
-function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName, pageText) {
+function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   // For Gemini with photo reference: CHARACTER IDENTITY must be the dominant instruction.
@@ -102,10 +101,6 @@ function buildCharacterPrompt(sceneDescription, artStyle, childAppearance, child
     ``,
     `The character's name is ${childName || 'the child'}.`,
   ];
-
-  if (childAppearance) {
-    parts.push(`Character details: ${childAppearance}`);
-  }
 
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
@@ -261,15 +256,14 @@ async function callGeminiImageApiNoPhoto(prompt) {
  * @param {string} sceneDescription - What the illustration should depict
  * @param {string} characterRefUrl - (ignored, kept for API compat)
  * @param {string} artStyle - 'watercolor', 'digital_painting', or 'storybook'
- * @param {object} faceEmbedding - (ignored, kept for API compat)
- * @param {object} [opts] - { apiKeys, costTracker, bookId, childAppearance, childName, childPhotoUrl, _cachedPhotoBase64, _cachedPhotoMime, spreadIndex }
+ * @param {object} [opts] - { apiKeys, costTracker, bookId, childName, childPhotoUrl, _cachedPhotoBase64, _cachedPhotoMime, spreadIndex }
  * @returns {Promise<string|null>} URL of the generated illustration, or null if skipped
  */
-async function generateIllustration(sceneDescription, characterRefUrl, artStyle, faceEmbedding, opts = {}) {
+async function generateIllustration(sceneDescription, characterRefUrl, artStyle, opts = {}) {
   const totalStart = Date.now();
-  const { costTracker, bookId, childAppearance, childName, childPhotoUrl, spreadIndex } = opts;
+  const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childAppearance, childName, opts.pageText);
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText);
 
   console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
   console.log(`[illustrationGenerator] Prompt built (${fullPrompt.length} chars): ${fullPrompt.slice(0, 150)}...`);
