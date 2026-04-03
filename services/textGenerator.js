@@ -43,14 +43,25 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
     generationConfig: genConfig,
   };
 
-  const resp = await fetch(
-    `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+  // Retry up to 3 times on transient network errors
+  let resp;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      resp = await fetch(
+        `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+      break; // success
+    } catch (fetchErr) {
+      console.warn(`[textGenerator] Fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
+      if (attempt === 3) throw fetchErr;
+      await new Promise(r => setTimeout(r, 2000 * attempt)); // 2s, 4s backoff
     }
-  );
+  }
 
   if (!resp.ok) {
     const errText = await resp.text();
