@@ -231,7 +231,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(2); // Gemini image API throttles at higher concurrency
+  const illustrationLimit = pLimit(1); // Sequential — one at a time with delay to avoid rate limits
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -265,7 +265,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           pageText: spread.text,
         });
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
+          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 4 minutes`)), 240000)
         );
         imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
         bookContext.touchActivity();
@@ -277,6 +277,11 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
 
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
+
+      // Delay between illustrations to avoid rate limiting
+      if (completedCount < storyPlan.spreads.length) {
+        await new Promise(r => setTimeout(r, 3000));
+      }
 
       // Save partial checkpoint after each illustration completes
       if (checkpointData) {
@@ -389,12 +394,17 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       if (childPhotoUrl) {
         try {
+          const sharp = require('sharp');
           const photoBuf = await downloadBuffer(childPhotoUrl);
-          const mime = childPhotoUrl.includes('.png') ? 'image/png' : 'image/jpeg';
-          cachedPhotoBase64 = photoBuf.toString('base64');
-          cachedPhotoMime = mime;
-          bookContext.log('info', 'Child photo cached for illustrations', { bytes: photoBuf.length });
-          console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} bytes, ${mime})`);
+          // Resize photo to reduce payload size — 512px is enough for face reference
+          const resizedBuf = await sharp(photoBuf)
+            .resize(512, 512, { fit: 'cover' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          cachedPhotoBase64 = resizedBuf.toString('base64');
+          cachedPhotoMime = 'image/jpeg';
+          bookContext.log('info', 'Child photo cached (resized to 512px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
+          console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} -> ${resizedBuf.length} bytes)`);
         } catch (photoErr) {
           bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
           console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
