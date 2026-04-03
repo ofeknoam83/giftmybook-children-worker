@@ -163,36 +163,32 @@ async function generateAllText(storyPlan, childDetails, format, opts) {
   const spreadsWithText = [];
   const BATCH_SIZE = 4;
 
-  for (let batchStart = 0; batchStart < storyPlan.spreads.length; batchStart += BATCH_SIZE) {
+  // Generate text one spread at a time for continuity — each spread sees all previous text
+  for (let i = 0; i < storyPlan.spreads.length; i++) {
     const batchStartTime = Date.now();
-    const batch = storyPlan.spreads.slice(batchStart, batchStart + BATCH_SIZE);
-    const batchResults = await Promise.all(batch.map(spreadPlan => {
-      const storyContext = {
-        title: storyPlan.title,
-        previousSpreads: spreadsWithText.map(s => s.text),
-        totalSpreads: storyPlan.spreads.length,
-      };
-      return generateSpreadText(spreadPlan, childDetails, format, storyContext, {
-        apiKeys,
-        costTracker,
-      });
-    }));
-
-    batch.forEach((spreadPlan, i) => {
-      const wordCount = batchResults[i].split(/\s+/).filter(Boolean).length;
-      bookContext.log('info', `Text for spread ${spreadPlan.spreadNumber} generated`, { words: wordCount });
-      spreadsWithText.push({ ...spreadPlan, text: batchResults[i] });
+    const spreadPlan = storyPlan.spreads[i];
+    const storyContext = {
+      title: storyPlan.title,
+      previousSpreads: spreadsWithText.map(s => s.text),
+      totalSpreads: storyPlan.spreads.length,
+    };
+    const text = await generateSpreadText(spreadPlan, childDetails, format, storyContext, {
+      apiKeys,
+      costTracker,
     });
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    bookContext.log('info', `Text for spread ${spreadPlan.spreadNumber} generated`, { words: wordCount });
+    spreadsWithText.push({ ...spreadPlan, text });
     bookContext.touchActivity();
-    bookContext.log('info', `Text batch complete (spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)})`, { ms: Date.now() - batchStartTime });
+    bookContext.log('info', `Text for spread ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - batchStartTime });
 
     if (progressCallbackUrl) {
-      const progress = 0.20 + (0.20 * Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length) / storyPlan.spreads.length);
+      const progress = 0.20 + (0.20 * (i + 1) / storyPlan.spreads.length);
       reportProgress(progressCallbackUrl, {
         bookId,
         stage: 'text_generation',
         progress,
-        message: `Writing spreads ${batchStart + 1}-${Math.min(batchStart + BATCH_SIZE, storyPlan.spreads.length)} of ${storyPlan.spreads.length}...`,
+        message: `Writing spread ${i + 1} of ${storyPlan.spreads.length}...`,
         logs: bookContext.logs,
       });
     }
@@ -300,7 +296,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           stage: 'illustration',
           progress,
           message: `Generating illustration ${completedCount} of ${storyPlan.spreads.length}...`,
-          previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl).slice(-3),
+          previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl),
           logs: bookContext.logs,
         });
       }
@@ -607,7 +603,6 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       const previewImageUrls = mergedSpreads
         .filter(s => s.imageUrl)
-        .slice(0, 5)
         .map(s => s.imageUrl);
 
       const totalMs = Date.now() - bookStartTime;
