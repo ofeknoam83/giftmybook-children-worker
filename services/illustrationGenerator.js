@@ -119,11 +119,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText) {
     parts.push(`"${pageText}"`);
     parts.push('');
     parts.push('TEXT RULES:');
-    parts.push('- Render the text in a large, clear, friendly children\'s book font');
+    parts.push('- Render ALL of the text above — do NOT truncate, cut off, or omit any words');
+    parts.push('- The COMPLETE text must be visible and readable in the image');
+    parts.push('- Use a large, clear, friendly children\'s book font');
     parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
     parts.push('- Text must be perfectly legible, correctly spelled, and easy to read');
-    parts.push('- Integrate the text naturally into the composition — it should feel like part of the book page');
+    parts.push('- Integrate the text naturally into the composition');
     parts.push('- Do NOT place text over the character\'s face or the main action');
   }
 

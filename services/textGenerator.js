@@ -17,10 +17,10 @@ const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models
  */
 const FORMAT_RULES = {
   picture_book: {
-    minWords: 20,
-    maxWords: 60,
+    minWords: 8,
+    maxWords: 20,
     ageGroup: '3-6',
-    style: 'Simple, rhythmic sentences. Short words. Repetition and rhyme welcome. No complex vocabulary.',
+    style: 'One or two SHORT complete sentences. Each page\'s text must stand alone — never split a sentence across pages. Simple words, rhyming welcome.',
   },
   early_reader: {
     minWords: 40,
