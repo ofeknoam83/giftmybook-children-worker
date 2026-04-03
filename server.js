@@ -469,41 +469,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
         await saveCheckpoint(bookId, { bookId, completedStage: 'text_generation', storyPlan, spreadsWithText, timestamp: new Date().toISOString() });
       }
 
-      // Stage 5: Generate illustrations WITH text embedded in the images
-      bookContext.log('info', 'Starting illustration generation with embedded text');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations with text...', logs: bookContext.logs });
-      }
-
-      const storyPlanWithText = { ...storyPlan, spreads: spreadsWithText };
-      const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, {
-        apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
-        resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
-        existingIllustrations: checkpoint?.illustrationResults || [],
-        checkpointData: { bookId, storyPlan, spreadsWithText },
-      });
-
-      // Merge: each spread gets both .text and .imageUrl
-      const mergedSpreads = spreadsWithText.map((spread, i) => ({
-        ...spread,
-        imageUrl: illustrationResults[i]?.imageUrl || null,
-      }));
-
-      bookContext.log('info', 'Text + illustrations complete', { spreads: mergedSpreads.length });
-      console.log(`[server] Stage timing: text+illustrations(sequential) (book ${bookId})`);
-
-      const illustrationFailures = illustrationResults.filter((r, i) => !r?.imageUrl && storyPlan.spreads[i]?.layoutType !== 'NO_TEXT').length;
-      if (illustrationFailures > 0) {
-        bookContext.log('warn', `${illustrationFailures}/${storyPlan.spreads.length} illustrations failed — using text-only spreads`);
-        console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${storyPlan.spreads.length} illustrations failed, continuing with text-only spreads`);
-        bookWarnings.push(`${illustrationFailures} of ${storyPlan.spreads.length} illustrations failed`);
-      }
-
-      // Stage 6: Generate cover
+      // Stage 6 (moved before illustrations): Generate cover
       const stage6Start = Date.now();
       bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.80, message: 'Creating cover...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.40, message: 'Creating cover...', logs: bookContext.logs });
       }
 
       let preGeneratedCoverBuffer = null;
@@ -531,6 +501,58 @@ app.post('/generate-book', authenticate, async (req, res) => {
       bookContext.log('info', 'Cover complete', { ms: Date.now() - stage6Start });
 
       console.log(`[server] Stage timing: cover=${Date.now() - stage6Start}ms (book ${bookId})`);
+
+      // Prepare cover-based character reference for illustrations
+      let characterRefBase64 = cachedPhotoBase64; // fallback to original photo
+      let characterRefMime = cachedPhotoMime;
+
+      const coverBuffer = preGeneratedCoverBuffer || coverData.coverBuffer;
+      if (coverBuffer) {
+        try {
+          const sharp = require('sharp');
+          const resizedCover = await sharp(coverBuffer)
+            .resize(512, 512, { fit: 'cover' })
+            .jpeg({ quality: 85 })
+            .toBuffer();
+          characterRefBase64 = resizedCover.toString('base64');
+          characterRefMime = 'image/jpeg';
+          bookContext.log('info', 'Using cover image as character reference for illustrations', { bytes: resizedCover.length });
+        } catch (err) {
+          bookContext.log('warn', 'Failed to prepare cover reference, using original photo', { error: err.message });
+        }
+      }
+
+      // Stage 5 (moved after cover): Generate illustrations WITH text embedded in the images
+      bookContext.log('info', 'Starting illustration generation with embedded text');
+      if (progressCallbackUrl) {
+        reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.50, message: 'Generating illustrations with text...', logs: bookContext.logs });
+      }
+
+      const storyPlanWithText = { ...storyPlan, spreads: spreadsWithText };
+      const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, {
+        apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
+        resolvedChildPhotoUrl,
+        cachedPhotoBase64: characterRefBase64,  // Cover image, not raw photo
+        cachedPhotoMime: characterRefMime,
+        existingIllustrations: checkpoint?.illustrationResults || [],
+        checkpointData: { bookId, storyPlan, spreadsWithText },
+      });
+
+      // Merge: each spread gets both .text and .imageUrl
+      const mergedSpreads = spreadsWithText.map((spread, i) => ({
+        ...spread,
+        imageUrl: illustrationResults[i]?.imageUrl || null,
+      }));
+
+      bookContext.log('info', 'Text + illustrations complete', { spreads: mergedSpreads.length });
+      console.log(`[server] Stage timing: text+illustrations(sequential) (book ${bookId})`);
+
+      const illustrationFailures = illustrationResults.filter((r, i) => !r?.imageUrl && storyPlan.spreads[i]?.layoutType !== 'NO_TEXT').length;
+      if (illustrationFailures > 0) {
+        bookContext.log('warn', `${illustrationFailures}/${storyPlan.spreads.length} illustrations failed — using text-only spreads`);
+        console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${storyPlan.spreads.length} illustrations failed, continuing with text-only spreads`);
+        bookWarnings.push(`${illustrationFailures} of ${storyPlan.spreads.length} illustrations failed`);
+      }
 
       // Stage 7: Assemble PDF
       const stage7Start = Date.now();

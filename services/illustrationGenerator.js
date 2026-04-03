@@ -89,15 +89,18 @@ function buildGenericSafePrompt(artStyle) {
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
-  // For Gemini with photo reference: CHARACTER IDENTITY must be the dominant instruction.
-  // The reference photo is sent as inlineData — Gemini needs strong anchoring to use it consistently.
+  // For Gemini with cover reference: CHARACTER IDENTITY must be the dominant instruction.
+  // The cover image is sent as inlineData — Gemini needs strong anchoring to match the character consistently.
   const parts = [
-    `CRITICAL: The attached photo shows the EXACT child who is the main character of this children's book.`,
-    `Transform this child into a ${styleConfig.prefix} illustration while preserving their EXACT appearance:`,
+    `CRITICAL: The attached image is the COVER of this children's book. It shows the main character exactly as they should appear throughout every page.`,
+    `You MUST draw the SAME character on this page — same face, same style, same proportions, same clothing style.`,
+    `Match the illustrated character from the cover image EXACTLY:`,
     `- Keep the same face shape, features, expression style, skin tone`,
     `- Keep the same hair (color, style, length) — do NOT change the hair`,
     `- Keep the same age and body proportions`,
-    `- The illustrated character must be instantly recognizable as the child in the photo`,
+    `- The illustrated character must be instantly recognizable as the character on the cover`,
+    ``,
+    `CONSISTENCY RULE: This character must look IDENTICAL to the cover image on every single page. Same age, same proportions, same art style. Do NOT age up or age down the character. Do NOT change their appearance between pages.`,
     ``,
     `The character's name is ${childName || 'the child'}.`,
   ];
@@ -107,7 +110,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText) {
   parts.push('');
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('Children\'s book illustration, non-realistic but recognizable, fully clothed, wholesome, family-friendly.');
-  parts.push('Draw ONLY the child from the reference photo as the main character. Do NOT add other children or change who the character is between illustrations.');
+  parts.push('Draw ONLY the child from the cover image as the main character. Do NOT add other children or change who the character is between illustrations.');
 
   if (pageText) {
     parts.push('');
