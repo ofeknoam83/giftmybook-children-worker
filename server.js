@@ -1,5 +1,25 @@
 require('dotenv').config();
 
+// Process-level crash handlers
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL] Uncaught exception: ${err.message}`);
+  console.error(err.stack);
+  const mem = process.memoryUsage();
+  console.error(`[FATAL] Memory at crash: heap=${Math.round(mem.heapUsed/1024/1024)}MB, rss=${Math.round(mem.rss/1024/1024)}MB`);
+  // Don't exit — Cloud Run will restart
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL] Unhandled rejection: ${reason?.message || reason}`);
+  if (reason?.stack) console.error(reason.stack);
+});
+
+process.on('SIGTERM', () => {
+  console.warn('[PROCESS] Received SIGTERM — Cloud Run is shutting down this instance');
+  // Allow 10s for cleanup
+  setTimeout(() => process.exit(0), 10000);
+});
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -267,7 +287,8 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
         );
         imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
         bookContext.touchActivity();
-        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl });
+        const memUsage = process.memoryUsage();
+        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024), rssMB: Math.round(memUsage.rss / 1024 / 1024) });
       } catch (illustrationErr) {
         bookContext.log('error', `Illustration ${i + 1}/${storyPlan.spreads.length} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
         console.error(`[server] Illustration ${i + 1}/${storyPlan.spreads.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);

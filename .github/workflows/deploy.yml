@@ -37,6 +37,12 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
             --no-invoker-iam-check \
+            --memory=2Gi \
+            --cpu=2 \
+            --timeout=3600 \
+            --concurrency=4 \
+            --min-instances=0 \
+            --max-instances=5 \
             --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }}" \
             --quiet
 
