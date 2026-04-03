@@ -43,16 +43,27 @@ Theme: ${theme}
 Generate a JSON response with this exact structure:
 {
   "title": "The Book Title",
+  "characterOutfit": "Describe the child's outfit in detail — this EXACT outfit will be worn on EVERY page (e.g., 'blue soccer jersey with number 6, blue shorts, blue socks, black cleats')",
   "spreads": [
     {
       "spreadNumber": 1,
-      "text": "The actual text for this spread (30-60 words, rhyming preferred)",
-      "illustrationDescription": "Detailed visual description of what to illustrate",
+      "text": "Short complete sentence for this page (8-20 words, rhyming preferred)",
+      "illustrationPrompt": "DETAILED illustration prompt: describe the exact scene composition, character pose, facial expression, environment details, background elements, lighting, camera angle. Be very specific — this prompt will be sent directly to an AI image generator.",
       "layoutType": "TEXT_BOTTOM",
       "mood": "warm"
     }
   ]
 }
+
+ILLUSTRATION PROMPT RULES:
+- Each illustrationPrompt must describe the FULL scene in one paragraph
+- Include: character pose, facial expression, what they're doing with their hands/body
+- Include: environment (indoor/outdoor, time of day, weather, key objects)
+- Include: camera angle (close-up, medium shot, wide shot)
+- Include: lighting and color mood (warm sunset, bright morning, soft moonlight)
+- Include: any secondary characters or animals in the scene
+- The character ALWAYS wears the outfit defined in characterOutfit
+- Make each scene visually distinct from the others
 
 MOODS: warm, playful, exciting, mysterious, peaceful, triumphant, funny`;
 }

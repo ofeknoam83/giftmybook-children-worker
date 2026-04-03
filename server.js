@@ -227,7 +227,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(3); // 3 concurrent — photo is small (19KB), text is short
+  const illustrationLimit = pLimit(1); // Sequential — one at a time for stability
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -246,14 +246,16 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       let imageUrl = null;
       const illStart = Date.now();
       try {
-        const sceneDesc = spread.illustrationDescription || spread.text;
-        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`);
-        // Per-illustration timeout (3 min) to prevent one hung illustration from blocking the rest
+        const sceneDesc = spread.illustrationPrompt || spread.illustrationDescription || spread.text;
+        const outfit = storyPlan.characterOutfit || '';
+        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`, { promptLength: sceneDesc.length, hasText: !!spread.text, outfit: outfit ? outfit.slice(0, 50) : 'none' });
+        // Per-illustration timeout (4 min)
         const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, {
           apiKeys,
           costTracker,
           bookId,
           childName: childDetails.name,
+          characterOutfit: outfit,
           childPhotoUrl: resolvedChildPhotoUrl,
           _cachedPhotoBase64: cachedPhotoBase64,
           _cachedPhotoMime: cachedPhotoMime,
@@ -274,9 +276,10 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
 
-      // Short delay between illustration launches
+      // 30s delay between illustrations to avoid rate limits
       if (completedCount < storyPlan.spreads.length) {
-        await new Promise(r => setTimeout(r, 1000));
+        bookContext.log('info', `Waiting 30s before next illustration...`);
+        await new Promise(r => setTimeout(r, 30000));
       }
 
       // Save partial checkpoint after each illustration completes
@@ -708,7 +711,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
 
     // Generate illustration
     const style = artStyle || 'watercolor';
-    const sceneDesc = spreadPlan.illustrationDescription || text;
+    const sceneDesc = spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || text;
     const imageUrl = await generateIllustration(sceneDesc, characterRef, style, {
       apiKeys,
       costTracker,

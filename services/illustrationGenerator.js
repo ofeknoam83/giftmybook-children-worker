@@ -86,7 +86,7 @@ function buildGenericSafePrompt(artStyle) {
  * @param {string} [childName] - Child's name for character anchoring
  * @returns {string} Complete prompt
  */
-function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText) {
+function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   // For Gemini with cover reference: CHARACTER IDENTITY must be the dominant instruction.
@@ -104,6 +104,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText) {
     ``,
     `The character's name is ${childName || 'the child'}.`,
   ];
+
+  if (characterOutfit) {
+    parts.push('');
+    parts.push(`CHARACTER OUTFIT (must be EXACTLY the same on every page):`);
+    parts.push(characterOutfit);
+    parts.push('Do NOT change or vary the outfit between pages.');
+  }
 
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
@@ -167,6 +174,8 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
   ];
 
   for (const ep of endpoints) {
+    const epStart = Date.now();
+    console.log(`[illustrationGenerator] Trying ${ep.label} endpoint...`);
     try {
       const resp = await fetchWithTimeout(ep.url, {
         method: 'POST',
@@ -189,13 +198,13 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
       const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (!imagePart) throw new Error(`No image in Gemini response (${ep.label})`);
 
-      console.log(`[illustrationGenerator] Image generated via ${ep.label} endpoint`);
-      return Buffer.from(imagePart.inlineData.data, 'base64');
+      const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
+      console.log(`[illustrationGenerator] \u2705 ${ep.label} succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
+      return imgBuf;
     } catch (err) {
-      console.warn(`[illustrationGenerator] ${ep.label} endpoint failed: ${err.message}`);
-      if (err.isNsfw) throw err; // Don't retry NSFW on different endpoint
-      if (ep === endpoints[endpoints.length - 1]) throw err; // Last endpoint, rethrow
-      // Continue to next endpoint
+      console.warn(`[illustrationGenerator] \u274c ${ep.label} failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
+      if (err.isNsfw) throw err;
+      if (ep === endpoints[endpoints.length - 1]) throw err;
     }
   }
 }
@@ -219,6 +228,8 @@ async function callGeminiImageApiNoPhoto(prompt) {
   ];
 
   for (const ep of endpoints) {
+    const epStart = Date.now();
+    console.log(`[illustrationGenerator] Trying ${ep.label} endpoint...`);
     try {
       const resp = await fetchWithTimeout(ep.url, {
         method: 'POST',
@@ -241,13 +252,13 @@ async function callGeminiImageApiNoPhoto(prompt) {
       const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (!imagePart) throw new Error(`No image in Gemini response (${ep.label})`);
 
-      console.log(`[illustrationGenerator] Image generated via ${ep.label} endpoint`);
-      return Buffer.from(imagePart.inlineData.data, 'base64');
+      const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
+      console.log(`[illustrationGenerator] \u2705 ${ep.label} succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
+      return imgBuf;
     } catch (err) {
-      console.warn(`[illustrationGenerator] ${ep.label} endpoint failed: ${err.message}`);
-      if (err.isNsfw) throw err; // Don't retry NSFW on different endpoint
-      if (ep === endpoints[endpoints.length - 1]) throw err; // Last endpoint, rethrow
-      // Continue to next endpoint
+      console.warn(`[illustrationGenerator] \u274c ${ep.label} failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
+      if (err.isNsfw) throw err;
+      if (ep === endpoints[endpoints.length - 1]) throw err;
     }
   }
 }
@@ -268,10 +279,14 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText);
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit);
 
-  console.log(`[illustrationGenerator] Generating illustration for book ${bookId || 'unknown'}`);
-  console.log(`[illustrationGenerator] Prompt built (${fullPrompt.length} chars): ${fullPrompt.slice(0, 150)}...`);
+  console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
+  console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);
+  console.log(`[illustrationGenerator] Scene: ${sceneDescription.slice(0, 200)}${sceneDescription.length > 200 ? '...' : ''}`);
+  console.log(`[illustrationGenerator] Page text: ${opts.pageText || '(none)'}`);
+  console.log(`[illustrationGenerator] Outfit: ${opts.characterOutfit || '(none)'}`);
+  console.log(`[illustrationGenerator] Has cover ref: ${!!opts._cachedPhotoBase64}, Style: ${artStyle}`);
 
   // Resolve photo base64 (use cached if available)
   let photoBase64 = opts._cachedPhotoBase64 || null;
