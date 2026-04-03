@@ -69,7 +69,6 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
   // Build cover PDF
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const lightFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const page = pdfDoc.addPage([totalWidth, totalHeight]);
 
@@ -101,7 +100,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     }
   }
 
-  // Title overlay removed — the generated cover illustration already includes a title
+  // Title on front cover — skipped; the cover illustration already includes the title
 
   // Spine
   const spineX = trimWidth + bleed;
