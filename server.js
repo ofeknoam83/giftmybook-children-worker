@@ -343,6 +343,8 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           bookId,
           childName: childDetails.name,
           characterOutfit: outfit,
+          characterDescription: storyPlan.characterDescription || '',
+          recurringElement: storyPlan.recurringElement || '',
           childPhotoUrl: resolvedChildPhotoUrl,
           _cachedPhotoBase64: cachedPhotoBase64,
           _cachedPhotoMime: cachedPhotoMime,

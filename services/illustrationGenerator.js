@@ -86,38 +86,41 @@ function buildGenericSafePrompt(artStyle) {
  * @param {string} [childName] - Child's name for character anchoring
  * @returns {string} Complete prompt
  */
-function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit) {
+function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
-  // For Gemini with cover reference: CHARACTER IDENTITY must be the dominant instruction.
-  // The cover image is sent as inlineData — Gemini needs strong anchoring to match the character consistently.
   const parts = [
-    `CRITICAL: The attached image is the COVER of this children's book. It shows the main character exactly as they should appear throughout every page.`,
-    `You MUST draw the SAME character on this page — same face, same style, same proportions, same clothing style.`,
-    `Match the illustrated character from the cover image EXACTLY:`,
-    `- Keep the same face shape, features, expression style, skin tone`,
-    `- Keep the same hair (color, style, length) — do NOT change the hair`,
-    `- Keep the same age and body proportions`,
-    `- The illustrated character must be instantly recognizable as the character on the cover`,
+    `Create a single children's book illustration page.`,
     ``,
-    `CONSISTENCY RULE: This character must look IDENTICAL to the cover image on every single page. Same age, same proportions, same art style. Do NOT age up or age down the character. Do NOT change their appearance between pages.`,
-    ``,
-    `The character's name is ${childName || 'the child'}.`,
+    `MAIN CHARACTER — ${childName || 'the child'}:`,
   ];
 
+  if (characterDescription) {
+    parts.push(characterDescription);
+  }
+
   if (characterOutfit) {
+    parts.push(`OUTFIT (EXACTLY the same on every page): ${characterOutfit}`);
+  }
+
+  parts.push('');
+  parts.push('CHARACTER RULES:');
+  parts.push('- The main character appears ONLY ONCE in this illustration — do NOT duplicate them');
+  parts.push('- NEVER change the character\'s hair style, hair color, or skin tone between pages');
+  parts.push('- Keep the same age, face shape, and body proportions on every page');
+  parts.push('- The character must be instantly recognizable across all illustrations');
+
+  if (recurringElement) {
     parts.push('');
-    parts.push(`CHARACTER OUTFIT (must be EXACTLY the same on every page):`);
-    parts.push(characterOutfit);
-    parts.push('Do NOT change or vary the outfit between pages.');
+    parts.push(`RECURRING ELEMENT (appears in every scene): ${recurringElement}`);
+    parts.push('This element must look identical across all pages (same color, shape, size — can be shown from different angles).');
   }
 
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
   parts.push('');
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
-  parts.push('Children\'s book illustration, non-realistic but recognizable, fully clothed, wholesome, family-friendly.');
-  parts.push('Draw ONLY the child from the cover image as the main character. Do NOT add other children or change who the character is between illustrations.');
+  parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
   if (pageText) {
     parts.push('');
@@ -279,7 +282,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit);
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement);
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);
