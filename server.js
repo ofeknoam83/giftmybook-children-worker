@@ -247,7 +247,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(2); // 2 concurrent for reasonable speed
+  const illustrationLimit = pLimit(3); // 3 concurrent with 4GB memory
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
@@ -297,9 +297,9 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
 
-      // 5s delay between illustration launches
+      // 2s delay between illustration launches
       if (completedCount < storyPlan.spreads.length) {
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       // Save partial checkpoint after each illustration completes
@@ -523,18 +523,6 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
       }
 
-      // Build cover PDF in background (don't block illustrations)
-      const coverPdfPromise = generateCover(storyPlan.title, childDetails, characterRef, format, {
-        apiKeys, costTracker, bookId, preGeneratedCoverBuffer,
-      }).then(cd => {
-        bookContext.touchActivity();
-        bookContext.log('info', 'Cover PDF complete', { ms: Date.now() - stage6Start });
-        return cd;
-      }).catch(err => {
-        bookContext.log('error', 'Cover PDF generation failed', { error: err.message });
-        return null;
-      });
-
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
       // Stage 5 (moved after cover): Generate illustrations WITH text embedded in the images
@@ -595,7 +583,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         })
       );
 
-      const interiorPdf = await assemblePdf(spreadsWithBuffers, format, coverData, {
+      const interiorPdf = await assemblePdf(spreadsWithBuffers, format, null, {
         title: storyPlan.title,
         childName: childDetails.name,
       });
@@ -605,23 +593,28 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
 
-      // Stage 8: Upload to GCS
-      // Await cover PDF (was running in background during illustrations)
-      const coverData = await coverPdfPromise;
-
-      bookContext.log('info', 'Uploading PDFs to storage');
+      // Stage 8: Upload interior PDF to GCS
+      bookContext.log('info', 'Uploading interior PDF to storage');
       const interiorPath = `children-jobs/${bookId}/interior.pdf`;
-      const coverPath = `children-jobs/${bookId}/cover.pdf`;
-
       await uploadBuffer(interiorPdf, interiorPath, 'application/pdf');
-      if (coverData?.coverPdfBuffer) {
-        await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
-      }
-
       const interiorPdfUrl = await getSignedUrl(interiorPath, 30 * 24 * 60 * 60 * 1000);
-      const coverPdfUrl = coverData?.coverPdfBuffer
-        ? await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000)
-        : null;
+
+      // Stage 9: Build cover PDF separately (after interior is done)
+      let coverPdfUrl = null;
+      const coverPath = `children-jobs/${bookId}/cover.pdf`;
+      try {
+        bookContext.log('info', 'Building cover PDF...');
+        const coverData = await generateCover(storyPlan.title, childDetails, characterRef, format, {
+          apiKeys, costTracker, bookId, preGeneratedCoverBuffer,
+        });
+        if (coverData?.coverPdfBuffer) {
+          await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
+          coverPdfUrl = await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000);
+          bookContext.log('info', 'Cover PDF uploaded');
+        }
+      } catch (coverErr) {
+        bookContext.log('error', 'Cover PDF failed (non-blocking)', { error: coverErr.message });
+      }
 
       const previewImageUrls = mergedSpreads
         .filter(s => s.imageUrl)
