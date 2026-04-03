@@ -135,7 +135,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
   
 
   const body = {
-    contents: [{ parts: [
+    contents: [{ role: 'user', parts: [
       { text: prompt },
       { inlineData: { mimeType: photoMime, data: photoBase64 } },
     ] }],
@@ -187,7 +187,7 @@ async function callGeminiImageApiNoPhoto(prompt) {
   
 
   const body = {
-    contents: [{ parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
     },
