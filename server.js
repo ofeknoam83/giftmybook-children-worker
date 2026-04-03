@@ -350,7 +350,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           pageText: spread.text,
         });
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 90 seconds`)), 90000)
+          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 3 minutes`)), 180000)
         );
         imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
         bookContext.touchActivity();
