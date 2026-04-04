@@ -250,6 +250,7 @@ Return exactly ${storyPlan.spreads.length} strings.`;
               max_tokens: 2000,
               response_format: { type: 'json_object' },
             }),
+            signal: bookContext.abortController.signal,
           });
           break;
         } catch (fetchErr) {
@@ -294,6 +295,7 @@ Return exactly ${storyPlan.spreads.length} strings.`;
                 responseMimeType: 'application/json',
               },
             }),
+            signal: bookContext.abortController.signal,
           }
         );
         break;
@@ -457,6 +459,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
             spreadIndex: i,
             pageText: spread.text,
             deadlineMs: 280000,
+            abortSignal: bookContext.abortController.signal,
           });
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
@@ -564,7 +567,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // Respond 202 immediately, process in background
   res.status(202).json({ success: true, status: 'processing', bookId });
 
-  (async () => {
+  const generationWork = (async () => {
     const bookWarnings = [];
     const bookStartTime = Date.now();
     bookContext.log('info', 'Book generation started', { childName, format, style, theme });
@@ -573,6 +576,17 @@ app.post('/generate-book', authenticate, async (req, res) => {
       console.error(`[server] Book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000}min) — aborting`);
       bookContext.abortController.abort();
     }, ABSOLUTE_TIMEOUT_MS);
+
+    // Send heartbeat every 30s so standalone knows we're alive
+    const heartbeatInterval = setInterval(() => {
+      if (progressCallbackUrl) {
+        reportProgress(progressCallbackUrl, {
+          bookId,
+          heartbeat: true,
+          logs: bookContext.logs,
+        }).catch(() => {}); // fire-and-forget, don't crash on failure
+      }
+    }, 30000);
 
     try {
       // Load checkpoint for resume support
@@ -716,6 +730,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
                   ]}],
                   generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
                 }),
+                signal: bookContext.abortController.signal,
               }
             );
             if (visionResp.ok) {
@@ -902,10 +917,37 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportError(progressCallbackUrl, { bookId, error: err.message, logs: bookContext.logs });
       }
     } finally {
+      clearInterval(heartbeatInterval);
       clearTimeout(absoluteTimer);
       removeBookContext(bookId);
     }
   })();
+
+  // Hard wall: kill generation after 45 minutes no matter what
+  const hardTimeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Generation exceeded 45 minute hard limit')), 45 * 60 * 1000)
+  );
+
+  Promise.race([generationWork, hardTimeout]).catch(async (err) => {
+    console.error(`[server] Book ${bookId} hit hard timeout: ${err.message}`);
+    // Make sure we report the failure
+    if (callbackUrl) {
+      try {
+        await fetch(callbackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+          body: JSON.stringify({ success: false, bookId, error: err.message }),
+        });
+      } catch (cbErr) {
+        console.error(`[server] Failed to report hard timeout: ${cbErr.message}`);
+      }
+    }
+    // Force abort all pending operations
+    bookContext.abortController.abort();
+    clearInterval(heartbeatInterval);
+    clearTimeout(absoluteTimer);
+    removeBookContext(bookId);
+  });
 });
 
 // ── POST /generate-spread ──

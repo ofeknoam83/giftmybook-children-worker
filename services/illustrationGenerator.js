@@ -48,9 +48,15 @@ const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
 const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
 
 /** Fetch with an AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 120000) { // 120s default — image+photo generation can take 2-3 min
+async function fetchWithTimeout(url, opts, timeoutMs = 120000, parentSignal) { // 120s default — image+photo generation can take 2-3 min
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // If parent aborts (book-level timeout), abort this fetch too
+  const onParentAbort = () => controller.abort();
+  if (parentSignal) {
+    if (parentSignal.aborted) { clearTimeout(timer); throw new Error('Parent already aborted'); }
+    parentSignal.addEventListener('abort', onParentAbort, { once: true });
+  }
   try {
     const resp = await fetch(url, { ...opts, signal: controller.signal });
     return resp;
@@ -59,6 +65,7 @@ async function fetchWithTimeout(url, opts, timeoutMs = 120000) { // 120s default
     throw e;
   } finally {
     clearTimeout(timer);
+    if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort);
   }
 }
 
@@ -256,7 +263,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
  * @param {number} [deadlineMs] - Milliseconds remaining before outer deadline
  * @returns {Promise<Buffer>} Generated image buffer
  */
-async function callGeminiImageApiNoPhoto(prompt, deadlineMs) {
+async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal) {
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
@@ -295,13 +302,13 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs) {
           method: 'POST',
           headers: ep.headers,
           body: JSON.stringify(proxyBody),
-        }, endpointTimeout);
+        }, endpointTimeout, abortSignal);
       } else {
         resp = await fetchWithTimeout(ep.url, {
           method: 'POST',
           headers: ep.headers,
           body: JSON.stringify(body),
-        }, endpointTimeout);
+        }, endpointTimeout, abortSignal);
       }
 
       if (!resp.ok) {
@@ -402,7 +409,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       // Character consistency maintained via detailed description in prompt
       const elapsed = Date.now() - totalStart;
       const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
-      imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining);
+      imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal);
 
       const geminiMs = Date.now() - geminiStart;
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
