@@ -90,9 +90,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   const parts = [
+    `⚠️ ABSOLUTE RULE: The main character (${childName || 'the child'}) must appear EXACTLY ONCE in this illustration. There is only ONE child in this scene. Do NOT draw the character twice. Do NOT show the same child from multiple angles. ONE child, ONE time.`,
+    ``,
     `Create a single children's book illustration page.`,
     ``,
-    `MAIN CHARACTER — ${childName || 'the child'}:`,
+    `MAIN CHARACTER — ${childName || 'the child'} (appears ONCE and only once):`,
   ];
 
   if (characterDescription) {
@@ -100,14 +102,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
 
   if (characterOutfit) {
-    parts.push(`OUTFIT (EXACTLY the same on every page): ${characterOutfit}`);
+    parts.push(`OUTFIT: ${characterOutfit}`);
   }
 
   parts.push('');
-  parts.push('CHARACTER RULES:');
-  parts.push('- The main character appears ONLY ONCE in this illustration — do NOT duplicate them');
-  parts.push('- NEVER change the character\'s hair style, hair color, or skin tone between pages');
-  parts.push('- Keep the same age, face shape, and body proportions on every page');
+  parts.push('STRICT CHARACTER RULES:');
+  parts.push('- There is exactly ONE instance of the main character in this image. NOT TWO. NOT THREE. ONE.');
+  parts.push('- Do NOT show the character at different moments or from different angles in the same image');
+  parts.push('- Do NOT create a sequence or comic strip layout — this is a SINGLE moment in time');
+  parts.push('- NEVER change the character\'s hair style, hair color, or skin tone');
+  parts.push('- Keep the same age, face shape, and body proportions');
   parts.push('- The character must be instantly recognizable across all illustrations');
 
   if (recurringElement) {
