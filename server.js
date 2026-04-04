@@ -720,7 +720,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       );
 
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
-      const interiorPdf = await assemblePdf(spreadsWithBuffers, format, null, {
+      const interiorPdf = await assemblePdf(spreadsWithBuffers, format, {
         title: bookTitle,
         childName: childDetails.name,
       });
