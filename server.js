@@ -224,6 +224,8 @@ Respond with ONLY a JSON array of strings, one per spread:
 
 Return exactly ${storyPlan.spreads.length} strings.`;
 
+  bookContext.log('info', 'Text generation prompt', { prompt: prompt.slice(0, 2000), model: (apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY) ? 'gpt-5.4' : 'gemini-2.5-flash' });
+
   // Try GPT 5.4 first, fall back to Gemini
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
   const geminiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY;
@@ -434,7 +436,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       for (let attempt = 1; attempt <= MAX_ILL_RETRIES; attempt++) {
         try {
           if (attempt === 1) {
-            bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`, { promptLength: sceneDesc.length, hasText: !!spread.text, outfit: outfit ? outfit.slice(0, 50) : 'none' });
+            bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`, { promptLength: sceneDesc.length, hasText: !!spread.text, outfit: outfit ? outfit.slice(0, 50) : 'none', prompt: sceneDesc, pageText: spread.text || '' });
           } else {
             bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} retry ${attempt}/${MAX_ILL_RETRIES}`);
           }
@@ -641,7 +643,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         });
         bookContext.touchActivity();
         const stage3Ms = Date.now() - stage3Start;
-        bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms });
+        bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms, plan: JSON.stringify(storyPlan).slice(0, 3000) });
         console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
