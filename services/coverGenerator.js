@@ -19,7 +19,7 @@ const SPINE_WIDTH_PER_PAGE = 0.0025 * 72; // ~0.18pt per page (Lulu standard)
  * @returns {Promise<{coverPdfBuffer: Buffer, frontCoverImageUrl: string}>}
  */
 async function generateCover(title, childDetails, characterRefUrl, bookFormat, opts = {}) {
-  const isPictureBook = bookFormat === 'PICTURE_BOOK';
+  const isPictureBook = (bookFormat || '').toLowerCase() === 'picture_book';
   const trimWidth = isPictureBook ? 612 : 432;
   const trimHeight = isPictureBook ? 612 : 648;
   const bleed = 18; // 0.25" bleed on all sides

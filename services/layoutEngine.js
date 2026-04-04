@@ -32,7 +32,7 @@ const TEXT_LINE_HEIGHT = 20;
  * @returns {Promise<Buffer>} PDF buffer
  */
 async function assemblePdf(spreads, bookFormat, opts = {}) {
-  const format = FORMATS[bookFormat] || FORMATS.PICTURE_BOOK;
+  const format = FORMATS[bookFormat] || FORMATS[(bookFormat || '').toUpperCase()] || FORMATS.PICTURE_BOOK;
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
