@@ -427,37 +427,52 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
 
       let imageUrl = null;
       const illStart = Date.now();
-      try {
-        const sceneDesc = spread.illustrationPrompt || spread.illustrationDescription || spread.text;
-        const outfit = storyPlan.characterOutfit || '';
-        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`, { promptLength: sceneDesc.length, hasText: !!spread.text, outfit: outfit ? outfit.slice(0, 50) : 'none' });
-        // Per-illustration timeout (4 min)
-        const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, {
-          apiKeys,
-          costTracker,
-          bookId,
-          childName: childDetails.name,
-          characterOutfit: outfit,
-          characterDescription: storyPlan.characterDescription || '',
-          recurringElement: storyPlan.recurringElement || '',
-          keyObjects: storyPlan.keyObjects || '',
-          childPhotoUrl: resolvedChildPhotoUrl,
-          _cachedPhotoBase64: cachedPhotoBase64,
-          _cachedPhotoMime: cachedPhotoMime,
-          spreadIndex: i,
-          pageText: spread.text,
-          deadlineMs: 280000,
-        });
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
-        );
-        imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
-        bookContext.touchActivity();
-        const memUsage = process.memoryUsage();
-        bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024), rssMB: Math.round(memUsage.rss / 1024 / 1024) });
-      } catch (illustrationErr) {
-        bookContext.log('error', `Illustration ${i + 1}/${storyPlan.spreads.length} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
-        console.error(`[server] Illustration ${i + 1}/${storyPlan.spreads.length} failed for book ${bookId} (continuing): ${illustrationErr.message}`);
+      const sceneDesc = spread.illustrationPrompt || spread.illustrationDescription || spread.text;
+      const outfit = storyPlan.characterOutfit || '';
+      const MAX_ILL_RETRIES = 3;
+
+      for (let attempt = 1; attempt <= MAX_ILL_RETRIES; attempt++) {
+        try {
+          if (attempt === 1) {
+            bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`, { promptLength: sceneDesc.length, hasText: !!spread.text, outfit: outfit ? outfit.slice(0, 50) : 'none' });
+          } else {
+            bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} retry ${attempt}/${MAX_ILL_RETRIES}`);
+          }
+          const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, {
+            apiKeys,
+            costTracker,
+            bookId,
+            childName: childDetails.name,
+            characterOutfit: outfit,
+            characterDescription: storyPlan.characterDescription || '',
+            recurringElement: storyPlan.recurringElement || '',
+            keyObjects: storyPlan.keyObjects || '',
+            childPhotoUrl: resolvedChildPhotoUrl,
+            _cachedPhotoBase64: cachedPhotoBase64,
+            _cachedPhotoMime: cachedPhotoMime,
+            spreadIndex: i,
+            pageText: spread.text,
+            deadlineMs: 280000,
+          });
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
+          );
+          imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
+          bookContext.touchActivity();
+          const memUsage = process.memoryUsage();
+          bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024), rssMB: Math.round(memUsage.rss / 1024 / 1024) });
+          break; // success — exit retry loop
+        } catch (illustrationErr) {
+          bookContext.log('error', `Illustration ${i + 1}/${storyPlan.spreads.length} attempt ${attempt} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
+          console.error(`[server] Illustration ${i + 1} attempt ${attempt}/${MAX_ILL_RETRIES} failed for book ${bookId}: ${illustrationErr.message}`);
+          if (attempt < MAX_ILL_RETRIES) {
+            const backoff = attempt * 3000; // 3s, 6s
+            bookContext.log('info', `Waiting ${backoff / 1000}s before retry...`);
+            await new Promise(r => setTimeout(r, backoff));
+          } else {
+            bookContext.log('warn', `Illustration ${i + 1}/${storyPlan.spreads.length} failed after ${MAX_ILL_RETRIES} attempts — using text-only spread`);
+          }
+        }
       }
 
       spreadsWithImages[i] = { ...spread, imageUrl };
