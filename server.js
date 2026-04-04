@@ -625,12 +625,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
           const photoBuf = await downloadBuffer(childPhotoUrl);
           // Resize photo to reduce payload size — 512px is enough for face reference
           const resizedBuf = await sharp(photoBuf)
-            .resize(128, 128, { fit: 'cover' })
-            .jpeg({ quality: 70 })
+            .resize(64, 64, { fit: 'cover' })
+            .jpeg({ quality: 60 })
             .toBuffer();
           cachedPhotoBase64 = resizedBuf.toString('base64');
           cachedPhotoMime = 'image/jpeg';
-          bookContext.log('info', 'Child photo cached (resized to 128px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
+          bookContext.log('info', 'Child photo cached (resized to 64px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
           console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} -> ${resizedBuf.length} bytes)`);
         } catch (photoErr) {
           bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
@@ -720,8 +720,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
           );
           preGeneratedCoverBuffer = coverBuf;
           const resizedCover = await sharp(coverBuf)
-            .resize(128, 128, { fit: 'cover' })
-            .jpeg({ quality: 70 })
+            .resize(64, 64, { fit: 'cover' })
+            .jpeg({ quality: 60 })
             .toBuffer();
           characterRefBase64 = resizedCover.toString('base64');
           characterRefMime = 'image/jpeg';

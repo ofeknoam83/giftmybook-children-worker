@@ -18,8 +18,8 @@ STORY STRUCTURE:
 6. Last spread: inevitable. The reader exhales.
 
 RULES:
-- Plan exactly 12-16 page spreads (each spread = one scene)
-- Total word count: 150-300 words across ALL spreads (8-20 words per spread)
+- Plan exactly 8 page spreads (each spread = one scene)
+- Total word count: 80-160 words across ALL spreads (8-20 words per spread)
 - Each spread's text MUST be a complete thought — NEVER split a sentence across spreads
 - Each spread must have a clear visual scene that can be illustrated
 - The child character is ALWAYS the active agent — choosing, doing, causing
