@@ -623,6 +623,35 @@ app.post('/generate-book', authenticate, async (req, res) => {
           characterRefBase64 = resizedCover.toString('base64');
           characterRefMime = 'image/jpeg';
           bookContext.log('info', 'Cover downloaded and resized for character reference', { originalBytes: coverBuf.length, refBytes: resizedCover.length, ms: Date.now() - stage6Start });
+
+          // Extract detailed character appearance from the cover using Gemini vision
+          try {
+            const apiKey = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+            const visionResp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ role: 'user', parts: [
+                    { text: `Describe the child character on this book cover in precise visual detail for an illustrator. Include:\n- Hair: color, style, length (e.g., "short curly brown hair")\n- Eyes: color, shape (e.g., "big round green eyes")\n- Skin tone (e.g., "light olive skin with rosy cheeks")\n- Age appearance (e.g., "looks about 5 years old")\n- Face shape and distinguishing features\n- Exact outfit and accessories\n\nBe very specific so another illustrator can draw the EXACT same character. Respond with ONLY the description, no introduction.` },
+                    { inline_data: { mime_type: 'image/jpeg', data: characterRefBase64 } },
+                  ]}],
+                  generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
+                }),
+              }
+            );
+            if (visionResp.ok) {
+              const visionData = await visionResp.json();
+              const extractedDesc = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+              if (extractedDesc && extractedDesc.length > 20) {
+                storyPlan.characterDescription = extractedDesc;
+                bookContext.log('info', 'Character appearance extracted from cover', { description: extractedDesc.slice(0, 100) });
+              }
+            }
+          } catch (visionErr) {
+            bookContext.log('warn', 'Failed to extract character appearance from cover', { error: visionErr.message });
+          }
         } catch (dlErr) {
           bookContext.log('warn', 'Failed to download approved cover for reference, using original photo', { error: dlErr.message });
         }
