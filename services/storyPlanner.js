@@ -211,16 +211,30 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   try {
     plan = JSON.parse(content);
   } catch (parseErr) {
-    if (finishReason === 'MAX_TOKENS') {
+    // Try to extract JSON object from response (GPT sometimes adds text after the JSON)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        plan = JSON.parse(jsonMatch[0]);
+        console.warn(`[storyPlanner] Extracted JSON from response with trailing text (${content.length} chars, JSON: ${jsonMatch[0].length} chars)`);
+      } catch (_) { /* fall through */ }
+    }
+    if (!plan && finishReason === 'MAX_TOKENS') {
       const repaired = repairTruncatedJson(content);
       if (repaired) {
         console.warn(`[storyPlanner] Salvaged truncated JSON after repair`);
         plan = repaired;
-      } else {
-        throw new Error(`Failed to parse or repair truncated story plan JSON: ${parseErr.message}`);
       }
-    } else {
-      throw new Error(`Failed to parse story plan JSON: ${parseErr.message}`);
+    }
+    if (!plan) {
+      // Try stripping markdown code fences
+      const stripped = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      try {
+        plan = JSON.parse(stripped);
+        console.warn(`[storyPlanner] Parsed after stripping markdown fences`);
+      } catch (_) {
+        throw new Error(`Failed to parse story plan JSON: ${parseErr.message}`);
+      }
     }
   }
 

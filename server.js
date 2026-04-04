@@ -598,7 +598,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
           await deletePrefix(`children-jobs/${bookId}/`);
           bookContext.log('info', 'GCS data cleared for fresh start');
         } catch (e) {
-          bookContext.log('warn', 'Failed to clear GCS data', { error: e.message });
+          bookContext.log('warn', 'Failed to clear GCS data — continuing anyway', { error: e?.message || String(e), code: e?.code });
+          // Non-fatal: continue with generation even if old data persists
         }
       } else {
         // Load checkpoint for resume support
