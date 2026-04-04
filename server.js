@@ -845,7 +845,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       try {
         bookContext.log('info', 'Building cover PDF...');
-        const pageCount = spreadsWithBuffers.length * 2; // each spread = 2 pages
+        // Calculate actual interior page count for spine width
+        const frontMatterPages = 6; // blank, blank, title, blank, dedication, blank
+        const storyPages = spreadsWithBuffers.length;
+        const rawTotal = frontMatterPages + storyPages;
+        const actualPageCount = Math.max(32, rawTotal % 2 === 0 ? rawTotal : rawTotal + 1);
+        const pageCount = actualPageCount;
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount,
         });

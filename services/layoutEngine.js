@@ -3,10 +3,14 @@
  *
  * Picture book: 8.5" x 8.5" (612 x 612 points)
  * Early reader: 6" x 9" (432 x 648 points)
+ *
+ * Interior pages include 0.125" (9pt) bleed on all sides per Lulu spec.
  */
 
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const sharp = require('sharp');
+
+const BLEED = 9; // 0.125" in pts — Lulu standard
 
 const FORMATS = {
   PICTURE_BOOK: { width: 612, height: 612, label: '8.5x8.5' },
@@ -20,9 +24,7 @@ const LAYOUT_TYPES = {
   NO_TEXT: 'NO_TEXT',
 };
 
-const MARGIN = 36; // 0.5 inch
-const TEXT_FONT_SIZE = 14;
-const TEXT_LINE_HEIGHT = 20;
+const LULU_MIN_PAGES = 32;
 
 /**
  * Assemble all spreads into a single interior PDF.
@@ -33,178 +35,101 @@ const TEXT_LINE_HEIGHT = 20;
  */
 async function assemblePdf(spreads, bookFormat, opts = {}) {
   const format = FORMATS[bookFormat] || FORMATS[(bookFormat || '').toUpperCase()] || FORMATS.PICTURE_BOOK;
+  const pageWidth = format.width + BLEED * 2;
+  const pageHeight = format.height + BLEED * 2;
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  // Title page
-  const titlePage = pdfDoc.addPage([format.width, format.height]);
   const title = opts.title || 'My Story';
-  const titleWidth = font.widthOfTextAtSize(title, 24);
+  const childName = opts.childName || '';
+  const dedication = opts.dedication || (childName ? `For ${childName}` : '');
+
+  // Page 1: Blank (half-title page — just white)
+  pdfDoc.addPage([pageWidth, pageHeight]);
+
+  // Page 2: Blank (verso)
+  pdfDoc.addPage([pageWidth, pageHeight]);
+
+  // Page 3: Title page (recto)
+  const titlePage = pdfDoc.addPage([pageWidth, pageHeight]);
+  const titleFontSize = 28;
+  const titleWidth = boldFont.widthOfTextAtSize(title, titleFontSize);
   titlePage.drawText(title, {
-    x: (format.width - titleWidth) / 2,
-    y: format.height / 2 + 20,
-    size: 24,
-    font,
+    x: (pageWidth - titleWidth) / 2,
+    y: pageHeight / 2 + 30,
+    size: titleFontSize,
+    font: boldFont,
     color: rgb(0.15, 0.15, 0.15),
   });
-
-  if (opts.childName) {
-    const subtitle = `A story about ${opts.childName}`;
-    const subWidth = font.widthOfTextAtSize(subtitle, 14);
+  if (childName) {
+    const subtitle = `A story about ${childName}`;
+    const subFontSize = 16;
+    const subWidth = font.widthOfTextAtSize(subtitle, subFontSize);
     titlePage.drawText(subtitle, {
-      x: (format.width - subWidth) / 2,
-      y: format.height / 2 - 20,
-      size: 14,
+      x: (pageWidth - subWidth) / 2,
+      y: pageHeight / 2 - 15,
+      size: subFontSize,
       font,
       color: rgb(0.4, 0.4, 0.4),
     });
   }
 
-  // Content spreads — text is now embedded in the illustrations, so always full-bleed
-  for (const spread of spreads) {
-    const page = pdfDoc.addPage([format.width, format.height]);
+  // Page 4: Blank (verso)
+  pdfDoc.addPage([pageWidth, pageHeight]);
 
-    // Embed illustration as full-bleed image (text is already in the image)
+  // Page 5: Dedication page (recto)
+  if (dedication) {
+    const dedPage = pdfDoc.addPage([pageWidth, pageHeight]);
+    const dedFontSize = 18;
+    const dedWidth = font.widthOfTextAtSize(dedication, dedFontSize);
+    dedPage.drawText(dedication, {
+      x: (pageWidth - dedWidth) / 2,
+      y: pageHeight / 2,
+      size: dedFontSize,
+      font,
+      color: rgb(0.3, 0.3, 0.3),
+    });
+  }
+
+  // Page 6: Blank (verso before story starts)
+  pdfDoc.addPage([pageWidth, pageHeight]);
+
+  // Story spreads — full-bleed illustrations
+  for (const spread of spreads) {
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
     if (spread.illustrationBuffer) {
       try {
-        const imgBuffer = await prepareImage(spread.illustrationBuffer, format, LAYOUT_TYPES.FULL_BLEED);
+        // Resize to full page WITH bleed
+        const imgBuffer = await sharp(spread.illustrationBuffer)
+          .resize(Math.round(pageWidth), Math.round(pageHeight), {
+            fit: 'cover',
+          })
+          .png()
+          .toBuffer();
         let img;
-        // Try PNG first, fall back to JPEG
-        try {
-          img = await pdfDoc.embedPng(imgBuffer);
-        } catch {
-          img = await pdfDoc.embedJpg(imgBuffer);
-        }
-
-        const imgDims = getImageDimensions(format, LAYOUT_TYPES.FULL_BLEED);
-        page.drawImage(img, imgDims);
+        try { img = await pdfDoc.embedPng(imgBuffer); }
+        catch { img = await pdfDoc.embedJpg(imgBuffer); }
+        page.drawImage(img, { x: 0, y: 0, width: pageWidth, height: pageHeight });
       } catch (err) {
         console.error(`[LayoutEngine] Failed to embed illustration for spread ${spread.spreadNumber}:`, err.message);
       }
     }
+  }
 
-    // Page number
-    const pageNum = String(spread.spreadNumber || '');
-    if (pageNum) {
-      const numWidth = font.widthOfTextAtSize(pageNum, 10);
-      page.drawText(pageNum, {
-        x: (format.width - numWidth) / 2,
-        y: 20,
-        size: 10,
-        font,
-        color: rgb(0.6, 0.6, 0.6),
-      });
-    }
+  // Pad to Lulu minimum of 32 pages for paperback
+  while (pdfDoc.getPageCount() < LULU_MIN_PAGES) {
+    pdfDoc.addPage([pageWidth, pageHeight]);
+  }
+  // Ensure even page count
+  if (pdfDoc.getPageCount() % 2 !== 0) {
+    pdfDoc.addPage([pageWidth, pageHeight]);
   }
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
 }
 
-/**
- * Prepare image buffer for embedding in the PDF.
- */
-async function prepareImage(buffer, format, layoutType) {
-  const dims = getImageDimensions(format, layoutType);
-  return sharp(buffer)
-    .resize(Math.round(dims.width), Math.round(dims.height), {
-      fit: 'contain',
-      background: { r: 255, g: 255, b: 255, alpha: 1 }
-    })
-    .png()
-    .toBuffer();
-}
-
-/**
- * Get image dimensions based on format and layout type.
- */
-function getImageDimensions(format, layoutType) {
-  switch (layoutType) {
-    case LAYOUT_TYPES.FULL_BLEED:
-      return { x: 0, y: 0, width: format.width, height: format.height };
-    case LAYOUT_TYPES.TEXT_BOTTOM:
-      return { x: 0, y: format.height * 0.35, width: format.width, height: format.height * 0.65 };
-    case LAYOUT_TYPES.TEXT_LEFT:
-      return { x: format.width * 0.45, y: 0, width: format.width * 0.55, height: format.height };
-    case LAYOUT_TYPES.NO_TEXT:
-      return { x: 0, y: 0, width: format.width, height: format.height };
-    default:
-      return { x: 0, y: format.height * 0.35, width: format.width, height: format.height * 0.65 };
-  }
-}
-
-/**
- * Get text area bounds based on format and layout type.
- */
-function getTextArea(format, layoutType) {
-  switch (layoutType) {
-    case LAYOUT_TYPES.FULL_BLEED:
-      return {
-        x: MARGIN + 10,
-        y: MARGIN + 10,
-        width: format.width - 2 * (MARGIN + 10),
-        maxY: format.height * 0.25,
-      };
-    case LAYOUT_TYPES.TEXT_BOTTOM:
-      return {
-        x: MARGIN,
-        y: MARGIN,
-        width: format.width - 2 * MARGIN,
-        maxY: format.height * 0.30,
-      };
-    case LAYOUT_TYPES.TEXT_LEFT:
-      return {
-        x: MARGIN,
-        y: MARGIN,
-        width: format.width * 0.40,
-        maxY: format.height - 2 * MARGIN,
-      };
-    default:
-      return {
-        x: MARGIN,
-        y: MARGIN,
-        width: format.width - 2 * MARGIN,
-        maxY: format.height * 0.30,
-      };
-  }
-}
-
-/**
- * Draw word-wrapped text in a given area.
- */
-function drawWrappedText(page, font, text, area) {
-  const words = text.split(/\s+/);
-  const lines = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    const testLine = currentLine ? currentLine + ' ' + word : word;
-    const testWidth = font.widthOfTextAtSize(testLine, TEXT_FONT_SIZE);
-    if (testWidth > area.width && currentLine) {
-      lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
-    }
-  }
-  if (currentLine) lines.push(currentLine);
-
-  // Draw from top of text area downward (PDF coordinates: y increases upward)
-  let y = area.y + area.maxY - TEXT_LINE_HEIGHT;
-  for (const line of lines) {
-    if (y < area.y) break;
-    // Center text horizontally within the text area
-    const lineWidth = font.widthOfTextAtSize(line, TEXT_FONT_SIZE);
-    const x = area.x + (area.width - lineWidth) / 2;
-    page.drawText(line, {
-      x,
-      y,
-      size: TEXT_FONT_SIZE,
-      font,
-      color: rgb(0.1, 0.1, 0.1),
-    });
-    y -= TEXT_LINE_HEIGHT;
-  }
-}
 
 module.exports = { assemblePdf, FORMATS, LAYOUT_TYPES };
