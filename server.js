@@ -37,6 +37,7 @@ const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportComplete, reportError } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
+const { WRITER_BRIEF, buildChildContext } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
 
@@ -195,20 +196,26 @@ async function generateAllText(storyPlan, childDetails, format, opts) {
     ? '3-5 sentences per spread, 40-80 words each, ages 5-8 vocabulary'
     : '1-2 SHORT sentences per spread, 8-20 words each, ages 3-6 vocabulary';
 
-  const prompt = `Write the complete story text for a ${storyPlan.spreads.length}-page children's picture book.
+  const childContext = buildChildContext(childDetails, opts.customDetails);
+
+  const prompt = `${WRITER_BRIEF}
+
+${childContext}
+
+Write the complete story text for a ${storyPlan.spreads.length}-page children's bedtime picture book.
 
 Title: ${storyPlan.title}
-Child's name: ${childDetails.childName || childDetails.name}
-Child's age: ${childDetails.childAge || childDetails.age || 5}
 
-RULES:
+FORMAT RULES:
 - ${formatRules}
 - Each page's text MUST be a COMPLETE thought or sentence. NEVER end mid-sentence.
-- Rhyming is encouraged but not required
 - Include the child's name naturally
-- Keep it fun, warm, and age-appropriate
-- The story must flow naturally from page to page
 - Written in present tense
+- The child acts — every spread answers: what does the child choose, touch, say, or do?
+- Name things specifically. Not "a treat" — what kind? Not "the sky" — what color?
+- No exclamation marks after spread 4. Sentences get shorter as sleep approaches.
+- The last spread: the reader exhales. Not surprised — settled.
+- Zero filler phrases. Cut: "What a fun...!", "How magical!", "So much...", "full of magic"
 
 Spreads to write text for:
 ${spreadsDescription}

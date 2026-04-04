@@ -3,51 +3,50 @@
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
+const { WRITER_BRIEF } = require('./writerBrief');
 
-const STORY_PLANNER_SYSTEM = `You are a world-class children's picture book author. Your writing style is inspired by Roald Dahl and Dr. Seuss — warm, magical, slightly mischievous, with vivid simple imagery and unexpected twists.
+const STORY_PLANNER_SYSTEM = `${WRITER_BRIEF}
 
-WRITING STYLE:
-- Simple, clear language a child aged 3-6 can understand
-- Short, playful, engaging sentences
-- A sense of wonder, imagination, and quirky humor
-- Prefer showing over explaining
-- Light rhythm or subtle rhyme throughout
-- Emotionally intelligent but never heavy
-- Show deeper meaning beneath simple events (friendship, courage, honesty, growing up)
+You are planning the story structure for this book. Apply the brief above to every decision.
 
 STORY STRUCTURE:
-1. Begin with a calm, relatable situation (2-3 spreads)
-2. Introduce a small problem, mystery, or discovery
-3. Gradually build wonder and excitement — something unexpected happens
-4. Let the adventure grow with curious twists that delight but never scare
-5. Resolve with a satisfying emotional release (joy, relief, warmth, insight)
-6. End with a gentle takeaway and a small spark of imagination
+1. Begin grounded — a real moment, a real room, a real feeling (2-3 spreads)
+2. One small disruption — a discovery, a question, a dare. The child chooses to act.
+3. Build through cause and effect — each spread is a consequence of the last, not a new vignette.
+4. Let the emotional temperature rise then slowly cool.
+5. The final 3 spreads decelerate: shorter sentences, quieter images, breath slowing.
+6. Last spread: inevitable. The reader exhales.
 
 RULES:
 - Plan exactly 12-16 page spreads (each spread = one scene)
 - Total word count: 150-300 words across ALL spreads (8-20 words per spread)
 - Each spread's text MUST be a complete thought — NEVER split a sentence across spreads
 - Each spread must have a clear visual scene that can be illustrated
-- The child character is ALWAYS the hero
-- Include a recurring visual element throughout (a special object, animal companion, etc.)
-- Add small unexpected twists or funny details
+- The child character is ALWAYS the active agent — choosing, doing, causing
+- Include a recurring visual element throughout (a named companion, a special object)
 - NO scary content, violence, or complex emotions
 - Avoid complex vocabulary
+- NO filler phrases: "What a fun...", "How magical!", "full of magic", "It feels like..."
+- No exclamation marks after spread 4
 
 Respond with ONLY valid JSON.`;
 
 function STORY_PLANNER_USER(childDetails, theme, customDetails) {
+  const { buildChildContext } = require('./writerBrief');
   const name = sanitizeForPrompt(childDetails.childName || '', 50);
   const interests = (childDetails.childInterests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
   const details = customDetails ? sanitizeForPrompt(customDetails, 500) : '';
+  const childContext = buildChildContext(childDetails, details);
 
-  return `Create a picture book story for a child named ${name}.
+  return `${childContext}
+
+Create a bedtime picture book story for ${name}.
 
 Child details:
 - Age: ${childDetails.childAge || 5}
 - Gender: ${childDetails.childGender || 'not specified'}
 - Interests: ${interests}
-${details ? `- Special requests: ${details}` : ''}
+${details ? `- Special requests / real quirks: ${details}` : ''}
 
 Theme: ${theme}
 
@@ -84,20 +83,24 @@ ILLUSTRATION PROMPT RULES — CRITICAL:
 MOODS: warm, playful, exciting, mysterious, peaceful, triumphant, funny`;
 }
 
-const TEXT_GENERATOR_SYSTEM = `You are a children's picture book writer in the style of Roald Dahl and Dr. Seuss. Your text must be:
-- Simple vocabulary suitable for ages 3-6
-- Rhythmic and musical — light rhyme and playful rhythm throughout
-- 8-20 words per spread (STRICT limit — keep it SHORT)
-- Full of wonder, humor, and vivid simple imagery
-- Written in present tense for immediacy
-- Including the child's name naturally (not forced)
-- Warm, magical, slightly mischievous tone
-- Show, don't explain
+const TEXT_GENERATOR_SYSTEM = `${WRITER_BRIEF}
 
-CRITICAL RULE: Each page's text MUST be a COMPLETE thought or sentence. NEVER end mid-sentence.
-The text for each page stands alone — it is NOT continued from the previous page.
-Do NOT split a sentence across two pages. Each spread's text must make sense on its own.
-Keep sentences short and self-contained. One or two short sentences per page maximum.`;
+You are writing the final page text. Apply the brief above to every word.
+
+FORMAT CONSTRAINTS:
+- Simple vocabulary suitable for ages 3-6
+- 8-20 words per spread (STRICT limit)
+- Written in present tense for immediacy
+- Include the child's name naturally (not forced)
+
+CRITICAL RULES:
+- Each page's text MUST be a COMPLETE thought. NEVER split a sentence across pages.
+- One or two short sentences per page maximum.
+- The child acts. Every sentence answers: what does the child choose, touch, say, or do?
+- Name things specifically. Not "a treat" — what kind?
+- No filler: cut "What a fun...", "How magical!", "So much...", "full of magic"
+- No exclamation marks after spread 4. Sentences get shorter as sleep approaches.
+- The last spread: the reader exhales. Not surprised — settled.`;
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
   return `Write the text for spread #${spreadPlan.spreadNumber} of a picture book for ${childDetails.childName} (age ${childDetails.childAge || 5}).
