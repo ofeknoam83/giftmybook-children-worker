@@ -6,18 +6,89 @@
  * not generic "magical adventure!" filler.
  */
 
-const WRITER_BRIEF = `CHILDREN'S BOOK WRITER BRIEF
-You are writing a personalized children's bedtime picture book. Study how the masters of the genre work — then apply their techniques:
+/**
+ * Age-calibrated writing rules.
+ * Vocabulary, sentence structure, and emotional complexity scale with the child's age.
+ */
+const AGE_PROFILES = {
+  // Ages 1-2: Board book level
+  toddler: {
+    range: '1-2',
+    wordsPerSpread: '4-10',
+    totalWords: '32-80',
+    vocabulary: 'Only words a 2-year-old hears daily. One-syllable preferred. No abstract concepts.',
+    sentenceStyle: 'One short sentence per spread. Maximum 10 words. Rhythm and repetition are everything. Rhyme strongly encouraged.',
+    emotionalRange: 'Comfort, surprise, silliness. No conflict. No fear. Pure sensory delight.',
+    readAloudNote: 'A parent reads this aloud to a child who may not understand every word. The SOUND matters more than meaning. Plosives, repetition, onomatopoeia.',
+    example: '"Ziv found the red ball. Bounce, bounce, bounce."',
+  },
+  // Ages 3-4: Classic picture book
+  preschool: {
+    range: '3-4',
+    wordsPerSpread: '8-18',
+    totalWords: '64-144',
+    vocabulary: 'Simple concrete words. One or two new/fancy words per book (the child asks "what does that mean?" and the parent explains — this is a feature, not a bug). No idioms.',
+    sentenceStyle: 'One to two sentences. Present tense. Short declarative sentences with occasional compound sentences joined by "and" or "but." Light rhyme or rhythm throughout.',
+    emotionalRange: 'Wonder, bravery, silliness, comfort, belonging. Small problems with clear resolutions. The child always wins.',
+    readAloudNote: 'Read aloud at bedtime. Sentences must feel good in the mouth. Test every line: would a tired parent enjoy reading this for the 40th time?',
+    example: '"Ziv climbed onto the rocking horse. It rocked once, twice — then lifted off the rug."',
+  },
+  // Ages 5-6: Confident reader listener
+  earlyKid: {
+    range: '5-6',
+    wordsPerSpread: '12-25',
+    totalWords: '96-200',
+    vocabulary: 'Richer vocabulary. Can handle words like "enormous," "whispered," "glistening." One vivid adjective per scene. Similes welcome ("quiet as a stone").',
+    sentenceStyle: 'Two to three sentences. Mix short punchy sentences with one longer flowing sentence. Dialogue encouraged — the child can SPEAK in the story.',
+    emotionalRange: 'Courage, curiosity, determination, tenderness, wonder. The child can face a real (small) challenge and overcome it through cleverness or kindness.',
+    readAloudNote: 'The child may follow along with the text. Sentences should reward attention — a funny word, an unexpected turn, a satisfying sound.',
+    example: '"Ziv whispered the secret word. The door didn\'t move. Ziv said it louder. The hinges groaned, and moonlight poured in like spilled milk."',
+  },
+  // Ages 7-8: Transitional reader
+  olderKid: {
+    range: '7-8',
+    wordsPerSpread: '20-40',
+    totalWords: '160-320',
+    vocabulary: 'Full vocabulary for the age. Metaphor, humor, wordplay. The child can appreciate irony and understatement.',
+    sentenceStyle: 'Three to four sentences with varied structure. Complex sentences welcome. Interior monologue (what the child thinks/feels) adds depth.',
+    emotionalRange: 'Full range — determination, doubt, humor, quiet sadness, triumph, belonging. The story can have genuine tension that resolves satisfyingly.',
+    readAloudNote: 'May be read independently or aloud. Text carries more narrative weight since the reader processes it, not just absorbs the rhythm.',
+    example: '"Ziv had been walking for what felt like an hour but was probably four minutes. The forest didn\'t care about time. Neither did the fox, who sat on a stump and watched Ziv trip over the same root twice."',
+  },
+};
+
+function getAgeProfile(age) {
+  const a = Number(age) || 5;
+  if (a <= 2) return AGE_PROFILES.toddler;
+  if (a <= 4) return AGE_PROFILES.preschool;
+  if (a <= 6) return AGE_PROFILES.earlyKid;
+  return AGE_PROFILES.olderKid;
+}
+
+function buildWriterBrief(age) {
+  const profile = getAgeProfile(age);
+
+  return `CHILDREN'S BOOK WRITER BRIEF
+You are writing a personalized children's bedtime picture book for a child aged ${age}. Study how the masters of the genre work — then apply their techniques:
 
 Maurice Sendak (Where the Wild Things Are) — The child is the active agent. They don't passively experience magic; they cause it. Max doesn't watch the wild things — he tames them. Every spread should show the child doing, not witnessing. Interiority matters: what does the child feel, want, fear? Ground the fantasy in a real emotional need.
 
 Margaret Wise Brown (Goodnight Moon) — Repetition is a lullaby. Rhythm slows the page. Sentences get shorter as sleep approaches. The world shrinks — from outside, to room, to bed, to breath. Never explain the magic. State it plainly and trust the child.
 
-Mo Willems (Knuffy Bunny, Pigeon series) — Comedy comes from stakes. Something must matter terribly. The child's logic must be internally consistent even when absurd. Dialogue is physical — you should hear it, feel its rhythm, see the face behind it.
+Mo Willems (Knuffle Bunny, Pigeon series) — Comedy comes from stakes. Something must matter terribly. The child's logic must be internally consistent even when absurd. Dialogue is physical — you should hear it, feel its rhythm, see the face behind it.
 
 Judith Viorst (Alexander and the Terrible, Horrible, No Good, Very Bad Day) — Specificity over universality. Not "felt sad" — "nose tickled and nothing was funny." Real children name their animals, remember the exact flavor of the cookie, know exactly which blanket is the right one.
 
 Jon Klassen (I Want My Hat Back) — Trust silence. A spread can carry enormous weight with almost no words. Understatement is funnier and sadder than overstatement. Never use an exclamation mark where a period would be more honest.
+
+AGE-CALIBRATED RULES (this child is ${age} years old, age group ${profile.range}):
+- VOCABULARY: ${profile.vocabulary}
+- SENTENCE STYLE: ${profile.sentenceStyle}
+- EMOTIONAL RANGE: ${profile.emotionalRange}
+- READ-ALOUD NOTE: ${profile.readAloudNote}
+- WORDS PER SPREAD: ${profile.wordsPerSpread}
+- TOTAL WORDS (all spreads combined): ${profile.totalWords}
+- EXAMPLE of the right level: ${profile.example}
 
 RULES FOR THIS BOOK:
 - The child acts — they are not a passenger. Every spread: what does the child choose, touch, say, or do?
@@ -32,14 +103,14 @@ BAD vs. GOOD EXAMPLES:
 ❌ "What a fun, starry dance party on the clouds!"
 ✅ "The child taught the unicorn to stomp three times. The clouds lit up. They kept doing it until their legs hurt."
 The second version has stakes, a child in charge, cause and effect, and physical humor. Same spread. Completely different book.`;
+}
+
+// Keep the static WRITER_BRIEF for backward compat (defaults to age 5)
+const WRITER_BRIEF = buildWriterBrief(5);
 
 /**
  * Build the child-specific context paragraph that anchors the brief
  * in concrete, personal details the model can use for specificity.
- *
- * @param {object} childDetails
- * @param {string} customDetails - free-text parent input
- * @returns {string}
  */
 function buildChildContext(childDetails, customDetails) {
   const name = childDetails.childName || childDetails.name || 'the child';
@@ -57,4 +128,4 @@ function buildChildContext(childDetails, customDetails) {
   return `CHILD DETAILS (use these for the specificity rules): ${parts.join('. ')}.`;
 }
 
-module.exports = { WRITER_BRIEF, buildChildContext };
+module.exports = { WRITER_BRIEF, buildWriterBrief, buildChildContext, getAgeProfile, AGE_PROFILES };

@@ -37,7 +37,7 @@ const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportComplete, reportError } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
-const { WRITER_BRIEF, buildChildContext } = require('./prompts/writerBrief');
+const { buildWriterBrief, buildChildContext, getAgeProfile } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
 
@@ -191,13 +191,15 @@ async function generateAllText(storyPlan, childDetails, format, opts) {
     `Spread ${i + 1}: ${s.illustrationPrompt || s.illustrationDescription || s.text || 'Scene ' + (i + 1)}`
   ).join('\n');
 
+  const childAge = childDetails.age || childDetails.childAge || 5;
+  const ageProfile = getAgeProfile(childAge);
   const formatRules = format === 'early_reader'
     ? '3-5 sentences per spread, 40-80 words each, ages 5-8 vocabulary'
-    : '1-2 SHORT sentences per spread, 8-20 words each, ages 3-6 vocabulary';
+    : `${ageProfile.sentenceStyle} ${ageProfile.wordsPerSpread} words per spread. ${ageProfile.vocabulary}`;
 
   const childContext = buildChildContext(childDetails, opts.customDetails);
 
-  const prompt = `${WRITER_BRIEF}
+  const prompt = `${buildWriterBrief(childAge)}
 
 ${childContext}
 

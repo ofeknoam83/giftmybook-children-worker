@@ -3,33 +3,41 @@
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
-const { WRITER_BRIEF } = require('./writerBrief');
+const { buildWriterBrief, getAgeProfile } = require('./writerBrief');
 
-const STORY_PLANNER_SYSTEM = `${WRITER_BRIEF}
+// Dynamic — built per request with the child's actual age
+function buildStoryPlannerSystem(age) {
+  const profile = getAgeProfile(age);
+  return `${buildWriterBrief(age)}
 
 You are planning the story structure for this book. Apply the brief above to every decision.
 
 STORY STRUCTURE:
-1. Begin grounded — a real moment, a real room, a real feeling (2-3 spreads)
+1. Begin grounded — a real moment, a real room, a real feeling (1-2 spreads)
 2. One small disruption — a discovery, a question, a dare. The child chooses to act.
 3. Build through cause and effect — each spread is a consequence of the last, not a new vignette.
 4. Let the emotional temperature rise then slowly cool.
-5. The final 3 spreads decelerate: shorter sentences, quieter images, breath slowing.
+5. The final 2 spreads decelerate: shorter sentences, quieter images, breath slowing.
 6. Last spread: inevitable. The reader exhales.
 
 RULES:
 - Plan exactly 8 page spreads (each spread = one scene)
-- Total word count: 80-160 words across ALL spreads (8-20 words per spread)
+- Words per spread: ${profile.wordsPerSpread}
+- Total word count: ${profile.totalWords} across ALL spreads
 - Each spread's text MUST be a complete thought — NEVER split a sentence across spreads
 - Each spread must have a clear visual scene that can be illustrated
 - The child character is ALWAYS the active agent — choosing, doing, causing
 - Include a recurring visual element throughout (a named companion, a special object)
 - NO scary content, violence, or complex emotions
-- Avoid complex vocabulary
+- Vocabulary appropriate for age ${age}: ${profile.vocabulary}
 - NO filler phrases: "What a fun...", "How magical!", "full of magic", "It feels like..."
 - No exclamation marks after spread 4
 
 Respond with ONLY valid JSON.`;
+}
+
+// Static fallback for backward compat
+const STORY_PLANNER_SYSTEM = buildStoryPlannerSystem(5);
 
 function STORY_PLANNER_USER(childDetails, theme, customDetails) {
   const { buildChildContext } = require('./writerBrief');
@@ -83,24 +91,30 @@ ILLUSTRATION PROMPT RULES — CRITICAL:
 MOODS: warm, playful, exciting, mysterious, peaceful, triumphant, funny`;
 }
 
-const TEXT_GENERATOR_SYSTEM = `${WRITER_BRIEF}
+// Dynamic text generator system prompt — adapts to child's age
+function buildTextGeneratorSystem(age) {
+  const profile = getAgeProfile(age);
+  return `${buildWriterBrief(age)}
 
 You are writing the final page text. Apply the brief above to every word.
 
 FORMAT CONSTRAINTS:
-- Simple vocabulary suitable for ages 3-6
-- 8-20 words per spread (STRICT limit)
+- ${profile.wordsPerSpread} words per spread (STRICT limit)
+- ${profile.sentenceStyle}
 - Written in present tense for immediacy
 - Include the child's name naturally (not forced)
+- ${profile.readAloudNote}
 
 CRITICAL RULES:
 - Each page's text MUST be a COMPLETE thought. NEVER split a sentence across pages.
-- One or two short sentences per page maximum.
 - The child acts. Every sentence answers: what does the child choose, touch, say, or do?
 - Name things specifically. Not "a treat" — what kind?
 - No filler: cut "What a fun...", "How magical!", "So much...", "full of magic"
 - No exclamation marks after spread 4. Sentences get shorter as sleep approaches.
 - The last spread: the reader exhales. Not surprised — settled.`;
+}
+
+const TEXT_GENERATOR_SYSTEM = buildTextGeneratorSystem(5);
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
   return `Write the text for spread #${spreadPlan.spreadNumber} of a picture book for ${childDetails.childName} (age ${childDetails.childAge || 5}).
@@ -154,8 +168,10 @@ Respond with JSON:
 
 module.exports = {
   STORY_PLANNER_SYSTEM,
+  buildStoryPlannerSystem,
   STORY_PLANNER_USER,
   TEXT_GENERATOR_SYSTEM,
+  buildTextGeneratorSystem,
   TEXT_GENERATOR_USER,
   ILLUSTRATION_PROMPT_BUILDER,
   VOCABULARY_CHECK_PROMPT,

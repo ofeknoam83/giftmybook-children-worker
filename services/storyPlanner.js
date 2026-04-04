@@ -8,7 +8,7 @@
  * Early readers: 24-32 pages, ~60-150 words per page
  */
 
-const { STORY_PLANNER_SYSTEM: PB_SYSTEM, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
+const { STORY_PLANNER_SYSTEM: PB_SYSTEM, buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 
 const GEMINI_MODEL = 'gemini-3-flash-preview';
@@ -168,7 +168,8 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   const { costTracker, approvedTitle, apiKeys } = opts;
 
   const isPictureBook = bookFormat === 'picture_book';
-  const systemPrompt = isPictureBook ? PB_SYSTEM : ER_SYSTEM;
+  const childAge = childDetails.age || childDetails.childAge || 5;
+  const systemPrompt = isPictureBook ? buildStoryPlannerSystem(childAge) : ER_SYSTEM;
   let userPrompt = isPictureBook
     ? pbUserPrompt(childDetails, theme, customDetails)
     : erUserPrompt(childDetails, theme, customDetails);
