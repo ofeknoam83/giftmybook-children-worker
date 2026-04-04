@@ -212,13 +212,29 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   try {
     plan = JSON.parse(content);
   } catch (parseErr) {
-    // Try to extract JSON object from response (GPT sometimes adds text after the JSON)
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        plan = JSON.parse(jsonMatch[0]);
-        console.warn(`[storyPlanner] Extracted JSON from response with trailing text (${content.length} chars, JSON: ${jsonMatch[0].length} chars)`);
-      } catch (_) { /* fall through */ }
+    // Try to extract balanced JSON object (GPT sometimes adds text before/after)
+    const firstBrace = content.indexOf('{');
+    if (firstBrace !== -1) {
+      // Find matching closing brace by counting depth
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      let endIdx = -1;
+      for (let ci = firstBrace; ci < content.length; ci++) {
+        const ch = content[ci];
+        if (escape) { escape = false; continue; }
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === '{') depth++;
+        if (ch === '}') { depth--; if (depth === 0) { endIdx = ci; break; } }
+      }
+      if (endIdx !== -1) {
+        try {
+          plan = JSON.parse(content.slice(firstBrace, endIdx + 1));
+          console.warn(`[storyPlanner] Extracted balanced JSON from response (${content.length} chars, JSON: ${endIdx - firstBrace + 1} chars)`);
+        } catch (_) { /* fall through */ }
+      }
     }
     if (!plan && finishReason === 'MAX_TOKENS') {
       const repaired = repairTruncatedJson(content);
