@@ -247,8 +247,7 @@ Return exactly ${storyPlan.spreads.length} strings.`;
               model: 'gpt-5.4',
               messages: [{ role: 'user', content: prompt }],
               temperature: 0.8,
-              max_tokens: 2000,
-              response_format: { type: 'json_object' },
+              max_tokens: 4000,
             }),
             signal: bookContext.abortController.signal,
           });
@@ -291,7 +290,7 @@ Return exactly ${storyPlan.spreads.length} strings.`;
               contents: [{ role: 'user', parts: [{ text: prompt }] }],
               generationConfig: {
                 temperature: 0.8,
-                maxOutputTokens: 2000,
+                maxOutputTokens: 4000,
                 responseMimeType: 'application/json',
               },
             }),
