@@ -411,10 +411,12 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(1); // Sequential — concurrent calls cause Gemini rate limit timeouts
+  const illustrationLimit = pLimit(14); // All 14 in parallel — spread across 4 API keys via round-robin
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
+      // Stagger starts by 2s to avoid burst-queuing on Gemini backend
+      if (i > 0) await new Promise(r => setTimeout(r, i * 2000));
       // Skip if already resumed from checkpoint
       if (spreadsWithImages[i]?.imageUrl) {
         return;
@@ -480,10 +482,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
       spreadsWithImages[i] = { ...spread, imageUrl };
       completedCount++;
 
-      // 1s delay between illustration calls
-      if (completedCount < storyPlan.spreads.length) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      // No delay needed — staggered starts + round-robin keys handle pacing
 
       // Save partial checkpoint after each illustration completes
       if (checkpointData) {

@@ -8,21 +8,42 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-// Vertex AI global endpoint — Nano Banana 2 with API key auth
-const GCP_PROJECT = process.env.GCP_PROJECT_ID || 'gen-lang-client-0521120270';
-const VERTEX_MODEL = 'gemini-3.1-flash-image-preview'; // Nano Banana 2
-const VERTEX_ENDPOINT = `https://aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/global/publishers/google/models/${VERTEX_MODEL}:generateContent`;
-const VERTEX_AI_KEY = process.env.VERTEX_AI_KEY || process.env.GOOGLE_AI_STUDIO_KEY || '';
-if (!VERTEX_AI_KEY) {
-  console.warn('[IllustrationGenerator] WARNING: No VERTEX_AI_KEY or GOOGLE_AI_STUDIO_KEY set — illustrations will fail with 401');
+
+// ── Multi-key round-robin pool for parallel illustration generation ──
+// Keys are spread across multiple GCP projects to avoid per-project backend queuing.
+const GEMINI_MODEL = 'gemini-3.1-flash-image-preview'; // Nano Banana 2
+
+function buildKeyPool() {
+  const keys = [];
+  // Numbered keys: GEMINI_API_KEY_1, GEMINI_API_KEY_2, ...
+  for (let i = 1; i <= 10; i++) {
+    const k = process.env[`GEMINI_API_KEY_${i}`];
+    if (k) keys.push(k);
+  }
+  // Fallback to single key env vars
+  if (keys.length === 0) {
+    const single = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY || '';
+    if (single) keys.push(single);
+  }
+  return keys;
 }
 
-// Public Gemini API — primary endpoint (faster)
-const PUBLIC_API_KEY = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY || '';
-const PUBLIC_MODEL = 'gemini-3.1-flash-image-preview';
-const PUBLIC_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${PUBLIC_MODEL}:generateContent?key=${PUBLIC_API_KEY}`;
+const API_KEY_POOL = buildKeyPool();
+let keyIndex = 0;
 
-// Gemini proxy endpoint (optional 3rd fallback)
+function getNextApiKey() {
+  if (API_KEY_POOL.length === 0) return '';
+  const key = API_KEY_POOL[keyIndex % API_KEY_POOL.length];
+  keyIndex++;
+  return key;
+}
+
+console.log(`[IllustrationGenerator] API key pool: ${API_KEY_POOL.length} keys across ${API_KEY_POOL.length} projects`);
+if (API_KEY_POOL.length === 0) {
+  console.warn('[IllustrationGenerator] WARNING: No API keys configured — illustrations will fail');
+}
+
+// Gemini proxy endpoint (optional fallback)
 const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
 const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
 
@@ -241,10 +262,13 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try public API first, Vertex AI as fallback, proxy as 3rd
+  // Round-robin across API key pool (each key = different GCP project)
+  const apiKey = getNextApiKey();
+  const publicUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+  // Build endpoint list: primary (round-robin key) + proxy fallback
   const endpoints = [
-    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
-    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
+    { url: publicUrl, headers: { 'Content-Type': 'application/json' }, label: `public-${(keyIndex - 1) % API_KEY_POOL.length}` },
     ...(PROXY_URL ? [{
       url: `${PROXY_URL}/generate-image`,
       headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
