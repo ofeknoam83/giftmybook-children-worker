@@ -142,9 +142,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('- There is exactly ONE instance of the main character in this image. NOT TWO. NOT THREE. ONE.');
   parts.push('- Do NOT show the character at different moments or from different angles in the same image');
   parts.push('- Do NOT create a sequence or comic strip layout \u2014 this is a SINGLE moment in time');
-  parts.push('- NEVER change the character\'s hair style, hair color, or skin tone');
-  parts.push('- Keep the same age, face shape, and body proportions');
-  parts.push('- The character must be instantly recognizable across all illustrations');
+  parts.push('- CRITICAL: The child in the illustration MUST closely resemble the reference photo provided. Match the face shape, skin tone, hair color, hair style, and eye color exactly from the photo.');
+  parts.push('- The illustrated character should be immediately recognizable as the same child from the photo, drawn in the art style of the book');
+  parts.push('- NEVER change the character\'s hair style, hair color, eye color, or skin tone from what is shown in the reference photo');
+  parts.push('- Keep the same age, face shape, and body proportions as the real child in the photo');
 
   if (recurringElement) {
     parts.push('');
@@ -206,6 +207,10 @@ async function downloadPhotoAsBase64(url) {
  * @returns {Promise<Buffer>} Generated image buffer
  */
 async function callGeminiImageApi(prompt, photoBase64, photoMime) {
+  const apiKey = getNextApiKey();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const keyIdx = (keyIndex - 1) % API_KEY_POOL.length;
+
   const body = {
     contents: [{ role: 'user', parts: [
       { text: prompt },
@@ -214,45 +219,36 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try public API first (14s from Cloud Run), Vertex AI as fallback
-  const endpoints = [
-    { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
-    { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
-  ];
+  const epStart = Date.now();
+  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference...`);
+  try {
+    const resp = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-  for (const ep of endpoints) {
-    const epStart = Date.now();
-    console.log(`[illustrationGenerator] Trying ${ep.label} endpoint...`);
-    try {
-      const resp = await fetchWithTimeout(ep.url, {
-        method: 'POST',
-        headers: ep.headers,
-        body: JSON.stringify(body),
-      });
-
-      if (!resp.ok) {
-        const errBody = await resp.text().catch(() => '');
-        const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
-        if (isNsfw) {
-          const err = new Error(`Gemini image API (${ep.label}) NSFW block: ${errBody.slice(0, 200)}`);
-          err.isNsfw = true;
-          throw err;
-        }
-        throw new Error(`Gemini image API (${ep.label}) error ${resp.status}: ${errBody.slice(0, 200)}`);
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '');
+      const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+      if (isNsfw) {
+        const err = new Error(`Gemini image API (public-${keyIdx}) NSFW block: ${errBody.slice(0, 200)}`);
+        err.isNsfw = true;
+        throw err;
       }
-
-      const data = await resp.json();
-      const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-      if (!imagePart) throw new Error(`No image in Gemini response (${ep.label})`);
-
-      const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
-      console.log(`[illustrationGenerator] \u2705 ${ep.label} succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
-      return imgBuf;
-    } catch (err) {
-      console.warn(`[illustrationGenerator] \u274c ${ep.label} failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
-      if (err.isNsfw) throw err;
-      if (ep === endpoints[endpoints.length - 1]) throw err;
+      throw new Error(`Gemini image API (public-${keyIdx}) error ${resp.status}: ${errBody.slice(0, 200)}`);
     }
+
+    const data = await resp.json();
+    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (!imagePart) throw new Error(`No image in Gemini response (public-${keyIdx})`);
+
+    const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
+    console.log(`[illustrationGenerator] \u2705 public-${keyIdx} with photo succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
+    return imgBuf;
+  } catch (err) {
+    console.warn(`[illustrationGenerator] \u274c public-${keyIdx} with photo failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
+    throw err;
   }
 }
 
@@ -404,12 +400,14 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       const geminiStart = Date.now();
 
       let imageBuffer;
-      // Always use text-only generation (no reference photo)
-      // Reference photo makes calls 10x slower (3+ min vs ~20s)
-      // Character consistency maintained via detailed description in prompt
+      // Use photo reference for character likeness (128px cached photo keeps it fast)
       const elapsed = Date.now() - totalStart;
       const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
-      imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal);
+      if (photoBase64) {
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime);
+      } else {
+        imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal);
+      }
 
       const geminiMs = Date.now() - geminiStart;
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
