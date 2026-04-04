@@ -251,16 +251,52 @@ Return exactly ${storyPlan.spreads.length} strings.`;
 
   const data = await resp.json();
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  console.log(`[generateAllText] Raw response (${rawText.length} chars): ${rawText.slice(0, 300)}`);
 
   let texts;
   try {
-    texts = JSON.parse(rawText);
+    // Try direct parse first
+    const parsed = JSON.parse(rawText);
+    // Handle both array and object-with-array responses
+    if (Array.isArray(parsed)) {
+      texts = parsed;
+    } else if (parsed.spreads && Array.isArray(parsed.spreads)) {
+      texts = parsed.spreads.map(s => typeof s === 'string' ? s : s.text || s.content || JSON.stringify(s));
+    } else if (parsed.texts && Array.isArray(parsed.texts)) {
+      texts = parsed.texts;
+    } else if (parsed.pages && Array.isArray(parsed.pages)) {
+      texts = parsed.pages.map(p => typeof p === 'string' ? p : p.text || p.content || JSON.stringify(p));
+    } else {
+      // Try to find any array in the object
+      const firstArray = Object.values(parsed).find(v => Array.isArray(v));
+      if (firstArray) texts = firstArray.map(item => typeof item === 'string' ? item : item.text || JSON.stringify(item));
+      else throw new Error('Parsed JSON but no array found');
+    }
   } catch (e) {
-    // Try to extract array from the response
-    const match = rawText.match(/\[\s*"[\s\S]*"\s*\]/);
-    if (match) texts = JSON.parse(match[0]);
-    else throw new Error('Failed to parse text generation response as JSON array');
+    // Try to extract array from markdown/text wrapper
+    const arrayMatch = rawText.match(/\[\s*[\s\S]*?\]/);
+    if (arrayMatch) {
+      try {
+        texts = JSON.parse(arrayMatch[0]);
+      } catch (e2) {
+        console.error(`[generateAllText] Failed to parse extracted array: ${arrayMatch[0].slice(0, 200)}`);
+      }
+    }
+    // Last resort: split by newlines and clean up
+    if (!texts) {
+      const lines = rawText.split('\n').map(l => l.replace(/^\d+[\.\)]\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(l => l.length > 5 && l.length < 200);
+      if (lines.length >= storyPlan.spreads.length / 2) {
+        texts = lines;
+        console.warn(`[generateAllText] Fallback: extracted ${lines.length} lines from raw text`);
+      } else {
+        console.error(`[generateAllText] Cannot parse response: ${rawText.slice(0, 500)}`);
+        throw new Error(`Failed to parse text generation response. Raw: ${rawText.slice(0, 200)}`);
+      }
+    }
   }
+
+  // Ensure all items are strings
+  texts = texts.map(t => typeof t === 'string' ? t : (t?.text || t?.content || String(t)));
 
   if (!Array.isArray(texts) || texts.length === 0) {
     throw new Error('Text generation returned empty or invalid array');
