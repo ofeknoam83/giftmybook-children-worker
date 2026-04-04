@@ -210,13 +210,18 @@ Title: ${storyPlan.title}
 FORMAT RULES:
 - ${formatRules}
 - Each page's text MUST be a COMPLETE thought or sentence. NEVER end mid-sentence.
-- Include the child's name naturally
 - Written in present tense
-- The child acts — every spread answers: what does the child choose, touch, say, or do?
-- Name things specifically. Not "a treat" — what kind? Not "the sky" — what color?
+
+WRITING CRAFT RULES:
+- DO NOT start every spread with the child's name. Vary sentence openings: start with setting, sound, sensation, dialogue, an object, or an action. Use the child's name only 3-4 times across all 8 spreads — the rest of the time use "they" or start the sentence differently.
+- Go DEEPER than action. Don't just describe what happens — show what the child FEELS, NOTICES, WANTS. Use sensory details: what does the air smell like? What does the saddle feel like under their fingers? What sound does the forest make?
+- Every spread should have ONE specific, surprising detail that a generic AI would never write. Not "the forest was beautiful" — "the bark felt like cold toast."
+- Dialogue welcome. Let the child speak, whisper, or murmur. Let a companion answer. Dialogue breaks monotony and reveals character.
+- Name things specifically. Not "a treat" — what kind? Not "the sky" — what color compared to what?
+- Build emotional arc: spreads 1-2 feel grounded and curious. Spreads 3-5 feel adventurous and alive. Spreads 6-7 slow down — warmth, tiredness, gratitude. Spread 8: stillness, breath, sleep.
 - No exclamation marks after spread 4. Sentences get shorter as sleep approaches.
-- The last spread: the reader exhales. Not surprised — settled.
-- Zero filler phrases. Cut: "What a fun...!", "How magical!", "So much...", "full of magic"
+- The last spread should feel like an exhale. Not a summary. An image.
+- Zero filler phrases. Cut: "What a fun...!", "How magical!", "So much...", "full of magic", "special adventure"
 
 Spreads to write text for:
 ${spreadsDescription}

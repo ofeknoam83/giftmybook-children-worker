@@ -91,18 +91,21 @@ AGE-CALIBRATED RULES (this child is ${age} years old, age group ${profile.range}
 - EXAMPLE of the right level: ${profile.example}
 
 RULES FOR THIS BOOK:
-- The child acts — they are not a passenger. Every spread: what does the child choose, touch, say, or do?
-- Name everything. Not "a unicorn" — give it a name by spread 3. Not "a cookie" — what kind? Not "the sky" — what specific color, compared to what?
+- The child acts — they are not a passenger. But don't start every sentence with the child's name. Vary openings: setting, sound, sensation, dialogue, an object. Use the name only 3-4 times across all spreads.
+- Go deeper than action. Show what the child FEELS, NOTICES, WANTS. Sensory details: temperature, texture, smell, sound. "The saddle leather was cold against bare knees" is better than "Ziv sat on the saddle."
+- Name everything. Not "a unicorn" — give it a name by spread 2. Not "a cookie" — what kind? Not "the sky" — what specific color, compared to what?
 - One emotional arc, not a tour. The book is about one feeling: safety, wonder, silliness, belonging. Every spread must serve that feeling.
-- Sentences earn their length. Short sentences land harder at the end of a spread. Long sentences wind down toward sleep. Match sentence rhythm to the emotional temperature of the spread.
-- No exclamation marks after spread 4. The story is slowing toward sleep. Excitement punctuation fights that.
-- The last spread should feel inevitable. The reader should exhale. Not surprised — settled.
-- Zero filler phrases. Cut: "What a fun...!", "It feels like...", "How magical!", "So much...", "full of magic". Replace with a specific image.
+- Include at least one moment of dialogue — the child speaks, whispers, or asks a question. A companion can answer.
+- Every spread needs ONE specific, surprising detail. Not "the trees were tall" — "the bark felt like cold toast under their fingers."
+- Sentences earn their length. Short sentences land harder at the end of a spread. Long sentences wind down toward sleep.
+- No exclamation marks after spread 4. The story is slowing toward sleep.
+- The last spread should feel inevitable. The reader should exhale. Not surprised — settled. Not a summary — a single quiet image.
+- Zero filler phrases. Cut: "What a fun...!", "It feels like...", "How magical!", "So much...", "full of magic", "special adventure".
 
 BAD vs. GOOD EXAMPLES:
-❌ "What a fun, starry dance party on the clouds!"
-✅ "The child taught the unicorn to stomp three times. The clouds lit up. They kept doing it until their legs hurt."
-The second version has stakes, a child in charge, cause and effect, and physical humor. Same spread. Completely different book.`;
+❌ "Ziv rode the horse. Ziv felt happy. Ziv saw the stars."
+✅ "The saddle creaked. Cold air tasted like pine needles. 'Are we close?' Ziv whispered. Spark flicked one ear back — which meant yes."
+The second version has sensory detail, dialogue, character, and varied sentence openings. Same scene. Completely different quality.`;
 }
 
 // Keep the static WRITER_BRIEF for backward compat (defaults to age 5)
