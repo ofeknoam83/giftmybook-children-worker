@@ -371,10 +371,15 @@ Return exactly ${storyPlan.spreads.length} strings.`;
     throw new Error('Text generation returned empty or invalid array');
   }
 
-  // Map texts to spreads (handle length mismatch gracefully)
+  // Validate: must have text for every spread. If not, throw to trigger retry.
+  if (texts.length < storyPlan.spreads.length) {
+    const missing = storyPlan.spreads.length - texts.length;
+    console.error(`[generateAllText] Only ${texts.length}/${storyPlan.spreads.length} texts generated — ${missing} missing`);
+    throw new Error(`Text generation incomplete: got ${texts.length} texts but need ${storyPlan.spreads.length}. Model stopped early.`);
+  }
+
   const spreadsWithText = storyPlan.spreads.map((spread, i) => {
-    const text = texts[i] || `${childDetails.childName || 'The child'} continues the adventure!`;
-    return { ...spread, text };
+    return { ...spread, text: texts[i] };
   });
 
   const totalWords = spreadsWithText.reduce((sum, s) => sum + s.text.split(/\s+/).filter(Boolean).length, 0);
@@ -692,7 +697,17 @@ app.post('/generate-book', authenticate, async (req, res) => {
           reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
         }
 
-        const textResults = await generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl });
+        let textResults;
+        for (let textAttempt = 1; textAttempt <= 3; textAttempt++) {
+          try {
+            textResults = await generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl });
+            break;
+          } catch (textErr) {
+            bookContext.log('warn', `Text generation attempt ${textAttempt}/3 failed: ${textErr.message}`);
+            if (textAttempt === 3) throw textErr;
+            await new Promise(r => setTimeout(r, 3000));
+          }
+        }
 
         // Attach generated text to each spread for illustration prompts
         spreadsWithText = storyPlan.spreads.map((spread, i) => ({
