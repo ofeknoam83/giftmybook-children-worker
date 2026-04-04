@@ -589,8 +589,21 @@ app.post('/generate-book', authenticate, async (req, res) => {
     }, 30000);
 
     try {
-      // Load checkpoint for resume support
-      const checkpoint = await loadCheckpoint(bookId);
+      // If forceNew, wipe all GCS data and checkpoints for a truly fresh start
+      const forceNew = req.body.forceNew === true;
+      let checkpoint = null;
+      if (forceNew) {
+        bookContext.log('info', 'Full regeneration requested — clearing all checkpoints and GCS data');
+        try {
+          await deletePrefix(`children-jobs/${bookId}/`);
+          bookContext.log('info', 'GCS data cleared for fresh start');
+        } catch (e) {
+          bookContext.log('warn', 'Failed to clear GCS data', { error: e.message });
+        }
+      } else {
+        // Load checkpoint for resume support
+        checkpoint = await loadCheckpoint(bookId);
+      }
       if (checkpoint) {
         bookContext.log('info', 'Checkpoint found — resuming from stage: ' + checkpoint.completedStage);
       }
