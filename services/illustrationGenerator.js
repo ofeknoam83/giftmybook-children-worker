@@ -27,7 +27,7 @@ const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
 const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
 
 /** Fetch with an AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 45000) { // 45s per endpoint — fail fast, try fallback
+async function fetchWithTimeout(url, opts, timeoutMs = 120000) { // 120s default — image+photo generation can take 2-3 min
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -42,7 +42,7 @@ async function fetchWithTimeout(url, opts, timeoutMs = 45000) { // 45s per endpo
 }
 
 /** Maximum retry attempts per illustration */
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 2;
 
 /**
  * Art style configurations for illustration prompts.
@@ -258,7 +258,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs) {
       console.warn(`[illustrationGenerator] Skipping ${ep.label} \u2014 only ${Math.round(deadlineMs / 1000)}s remaining before deadline`);
       break;
     }
-    const endpointTimeout = deadlineMs !== undefined ? Math.min(45000, deadlineMs - 5000) : 45000;
+    const endpointTimeout = deadlineMs !== undefined ? Math.max(10000, deadlineMs - 5000) : 120000;
 
     const epStart = Date.now();
     console.log(`[illustrationGenerator] Trying ${ep.label} endpoint (timeout ${Math.round(endpointTimeout / 1000)}s)...`);
