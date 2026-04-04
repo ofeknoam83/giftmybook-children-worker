@@ -48,7 +48,7 @@ const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
 const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
 
 /** Fetch with an AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 120000, parentSignal) { // 120s default — image+photo generation can take 2-3 min
+async function fetchWithTimeout(url, opts, timeoutMs = 420000, parentSignal) { // 7 min default — Gemini image gen can take 4-5 min under load
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   // If parent aborts (book-level timeout), abort this fetch too

@@ -457,11 +457,11 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
             _cachedPhotoMime: cachedPhotoMime,
             spreadIndex: i,
             pageText: spread.text,
-            deadlineMs: 280000,
+            deadlineMs: 450000, // 7.5 min deadline, 8 min outer timeout
             abortSignal: bookContext.abortController.signal,
           });
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)
+            setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 8 minutes`)), 480000)
           );
           imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
           bookContext.touchActivity();
