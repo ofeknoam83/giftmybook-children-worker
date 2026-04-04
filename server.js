@@ -387,6 +387,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           _cachedPhotoMime: cachedPhotoMime,
           spreadIndex: i,
           pageText: spread.text,
+          deadlineMs: 270000,
         });
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 5 minutes`)), 300000)

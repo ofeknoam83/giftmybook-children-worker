@@ -22,8 +22,12 @@ const PUBLIC_API_KEY = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_AP
 const PUBLIC_MODEL = 'gemini-3.1-flash-image-preview';
 const PUBLIC_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${PUBLIC_MODEL}:generateContent?key=${PUBLIC_API_KEY}`;
 
-/** Fetch with a 2-minute AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 60000) { // 60s per endpoint — fail fast, try fallback
+// Gemini proxy endpoint (optional 3rd fallback)
+const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
+const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
+
+/** Fetch with an AbortController timeout */
+async function fetchWithTimeout(url, opts, timeoutMs = 45000) { // 45s per endpoint — fail fast, try fallback
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -90,11 +94,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   const parts = [
-    `⚠️ ABSOLUTE RULE: The main character (${childName || 'the child'}) must appear EXACTLY ONCE in this illustration. There is only ONE child in this scene. Do NOT draw the character twice. Do NOT show the same child from multiple angles. ONE child, ONE time.`,
+    `\u26a0\ufe0f ABSOLUTE RULE: The main character (${childName || 'the child'}) must appear EXACTLY ONCE in this illustration. There is only ONE child in this scene. Do NOT draw the character twice. Do NOT show the same child from multiple angles. ONE child, ONE time.`,
     ``,
     `Create a single children's book illustration page.`,
     ``,
-    `MAIN CHARACTER — ${childName || 'the child'} (appears ONCE and only once):`,
+    `MAIN CHARACTER \u2014 ${childName || 'the child'} (appears ONCE and only once):`,
   ];
 
   if (characterDescription) {
@@ -109,7 +113,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('STRICT CHARACTER RULES:');
   parts.push('- There is exactly ONE instance of the main character in this image. NOT TWO. NOT THREE. ONE.');
   parts.push('- Do NOT show the character at different moments or from different angles in the same image');
-  parts.push('- Do NOT create a sequence or comic strip layout — this is a SINGLE moment in time');
+  parts.push('- Do NOT create a sequence or comic strip layout \u2014 this is a SINGLE moment in time');
   parts.push('- NEVER change the character\'s hair style, hair color, or skin tone');
   parts.push('- Keep the same age, face shape, and body proportions');
   parts.push('- The character must be instantly recognizable across all illustrations');
@@ -122,7 +126,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   if (keyObjects) {
     parts.push('');
-    parts.push('KEY OBJECTS (must look EXACTLY the same on every page — same colors, same details):');
+    parts.push('KEY OBJECTS (must look EXACTLY the same on every page \u2014 same colors, same details):');
     parts.push(keyObjects);
     parts.push('Do NOT change the color or appearance of any object between pages.');
   }
@@ -140,7 +144,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`"${pageText}"`);
     parts.push('');
     parts.push('TEXT RULES:');
-    parts.push('- Render ALL of the text above — do NOT truncate, cut off, or omit any words');
+    parts.push('- Render ALL of the text above \u2014 do NOT truncate, cut off, or omit any words');
     parts.push('- The COMPLETE text must be visible and readable in the image');
     parts.push('- Use a large, clear, friendly children\'s book font');
     parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
@@ -227,29 +231,53 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
  * Call Gemini image generation API without a reference photo.
  *
  * @param {string} prompt - Scene prompt
+ * @param {number} [deadlineMs] - Milliseconds remaining before outer deadline
  * @returns {Promise<Buffer>} Generated image buffer
  */
-async function callGeminiImageApiNoPhoto(prompt) {
+async function callGeminiImageApiNoPhoto(prompt, deadlineMs) {
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
   };
 
-  // Try public API first (14s from Cloud Run), Vertex AI as fallback
+  // Try public API first, Vertex AI as fallback, proxy as 3rd
   const endpoints = [
     { url: PUBLIC_ENDPOINT, headers: { 'Content-Type': 'application/json' }, label: 'public' },
     { url: VERTEX_ENDPOINT, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': VERTEX_AI_KEY }, label: 'vertex' },
+    ...(PROXY_URL ? [{
+      url: `${PROXY_URL}/generate-image`,
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
+      label: 'gemini-proxy',
+      bodyTransform: (b) => ({ prompt: b.contents[0].parts[0].text, model: 'gemini-3.1-flash-image-preview' })
+    }] : []),
   ];
 
   for (const ep of endpoints) {
+    // Deadline check: skip if less than 10s remaining
+    if (deadlineMs !== undefined && deadlineMs < 10000) {
+      console.warn(`[illustrationGenerator] Skipping ${ep.label} \u2014 only ${Math.round(deadlineMs / 1000)}s remaining before deadline`);
+      break;
+    }
+    const endpointTimeout = deadlineMs !== undefined ? Math.min(45000, deadlineMs - 5000) : 45000;
+
     const epStart = Date.now();
-    console.log(`[illustrationGenerator] Trying ${ep.label} endpoint...`);
+    console.log(`[illustrationGenerator] Trying ${ep.label} endpoint (timeout ${Math.round(endpointTimeout / 1000)}s)...`);
     try {
-      const resp = await fetchWithTimeout(ep.url, {
-        method: 'POST',
-        headers: ep.headers,
-        body: JSON.stringify(body),
-      });
+      let resp;
+      if (ep.label === 'gemini-proxy') {
+        const proxyBody = { prompt: body.contents[0].parts[0].text, model: 'gemini-3.1-flash-image-preview' };
+        resp = await fetchWithTimeout(ep.url, {
+          method: 'POST',
+          headers: ep.headers,
+          body: JSON.stringify(proxyBody),
+        }, endpointTimeout);
+      } else {
+        resp = await fetchWithTimeout(ep.url, {
+          method: 'POST',
+          headers: ep.headers,
+          body: JSON.stringify(body),
+        }, endpointTimeout);
+      }
 
       if (!resp.ok) {
         const errBody = await resp.text().catch(() => '');
@@ -260,6 +288,14 @@ async function callGeminiImageApiNoPhoto(prompt) {
           throw err;
         }
         throw new Error(`Gemini image API (${ep.label}) error ${resp.status}: ${errBody.slice(0, 200)}`);
+      }
+
+      if (ep.label === 'gemini-proxy') {
+        const data = await resp.json();
+        if (!data.imageBase64) throw new Error('No image from gemini-proxy');
+        const imgBuf = Buffer.from(data.imageBase64, 'base64');
+        console.log(`[illustrationGenerator] \u2705 ${ep.label} succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
+        return imgBuf;
       }
 
       const data = await resp.json();
@@ -273,6 +309,10 @@ async function callGeminiImageApiNoPhoto(prompt) {
       console.warn(`[illustrationGenerator] \u274c ${ep.label} failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
       if (err.isNsfw) throw err;
       if (ep === endpoints[endpoints.length - 1]) throw err;
+      // Update remaining deadline for next endpoint
+      if (deadlineMs !== undefined) {
+        deadlineMs -= (Date.now() - epStart);
+      }
     }
   }
 }
@@ -286,7 +326,7 @@ async function callGeminiImageApiNoPhoto(prompt) {
  * @param {string} sceneDescription - What the illustration should depict
  * @param {string} characterRefUrl - (ignored, kept for API compat)
  * @param {string} artStyle - 'watercolor', 'digital_painting', or 'storybook'
- * @param {object} [opts] - { apiKeys, costTracker, bookId, childName, childPhotoUrl, _cachedPhotoBase64, _cachedPhotoMime, spreadIndex }
+ * @param {object} [opts] - { apiKeys, costTracker, bookId, childName, childPhotoUrl, _cachedPhotoBase64, _cachedPhotoMime, spreadIndex, deadlineMs }
  * @returns {Promise<string|null>} URL of the generated illustration, or null if skipped
  */
 async function generateIllustration(sceneDescription, characterRefUrl, artStyle, opts = {}) {
@@ -313,7 +353,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       photoBase64 = photo.base64;
       photoMime = photo.mimeType;
     } catch (dlErr) {
-      console.warn(`[illustrationGenerator] Failed to download child photo for book ${bookId}: ${dlErr.message} — generating without photo reference`);
+      console.warn(`[illustrationGenerator] Failed to download child photo for book ${bookId}: ${dlErr.message} \u2014 generating without photo reference`);
     }
   }
 
@@ -335,7 +375,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       // Always use text-only generation (no reference photo)
       // Reference photo makes calls 10x slower (3+ min vs ~20s)
       // Character consistency maintained via detailed description in prompt
-      imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt);
+      const elapsed = Date.now() - totalStart;
+      const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
+      imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining);
 
       const geminiMs = Date.now() - geminiStart;
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
@@ -359,7 +401,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         return gcsUrl;
       }
 
-      // No bookId — can't upload, but this shouldn't happen in production
+      // No bookId \u2014 can't upload, but this shouldn't happen in production
       console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
       return null;
     } catch (genErr) {
