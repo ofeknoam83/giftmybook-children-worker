@@ -400,18 +400,12 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       const geminiStart = Date.now();
 
       let imageBuffer;
-      // Try with photo reference first (3 min timeout), fall back to text-only if it hangs
-      const elapsed = Date.now() - totalStart;
-      const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
+      // Always use cover image as reference for character likeness
       if (photoBase64) {
-        try {
-          const photoTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Photo-ref call timed out after 3 min')), 180000));
-          imageBuffer = await Promise.race([callGeminiImageApi(variant.prompt, photoBase64, photoMime), photoTimeout]);
-        } catch (photoErr) {
-          console.warn(`[illustrationGenerator] Photo-ref failed (${photoErr.message}), retrying without photo...`);
-          imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal);
-        }
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime);
       } else {
+        const elapsed = Date.now() - totalStart;
+        const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
         imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal);
       }
 

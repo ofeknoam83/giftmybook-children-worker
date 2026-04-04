@@ -412,12 +412,11 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
     }
   }
 
-  const illustrationLimit = pLimit(4); // 4 concurrent — matches 4 API keys, one call per project at a time
+  const illustrationLimit = pLimit(1); // Sequential — one at a time with cover image reference
 
   const illustrationPromises = storyPlan.spreads.map((spread, i) =>
     illustrationLimit(async () => {
-      // Small stagger to avoid burst on same endpoint
-      if (i > 0) await new Promise(r => setTimeout(r, 1000));
+
       // Skip if already resumed from checkpoint
       if (spreadsWithImages[i]?.imageUrl) {
         return;
