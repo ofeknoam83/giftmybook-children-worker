@@ -717,8 +717,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
         })
       );
 
+      const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
       const interiorPdf = await assemblePdf(spreadsWithBuffers, format, null, {
-        title: storyPlan.title,
+        title: bookTitle,
         childName: childDetails.name,
       });
       bookContext.touchActivity();
@@ -738,7 +739,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       try {
         bookContext.log('info', 'Building cover PDF...');
-        const coverData = await generateCover(storyPlan.title, childDetails, characterRef, format, {
+        const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer,
         });
         if (coverData?.coverPdfBuffer) {
@@ -771,9 +772,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 interiorPdfUrl,
                 coverPdfUrl,
                 previewImageUrls,
-                title: storyPlan.title,
+                title: bookTitle,
                 spreadCount: mergedSpreads.length,
-                storyContent: { title: storyPlan.title, spreads: mergedSpreads.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
+                storyContent: { title: bookTitle, spreads: mergedSpreads.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
                 costs: costSummary,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
