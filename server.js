@@ -37,7 +37,7 @@ const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportComplete, reportError } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
-const { buildWriterBrief, buildChildContext, getAgeProfile } = require('./prompts/writerBrief');
+const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
 
@@ -173,288 +173,96 @@ function authenticate(req, res, next) {
 }
 
 // ── Parallel Pipeline Functions ──
+// NOTE: generateAllText removed in V2 — text comes from the story plan directly.
 
 /**
- * Generate text for all spreads (batched, groups of 4).
- * Returns array of { ...spread, text } in order.
+ * V2: Generate illustrations for all story entries that need them.
+ *
+ * Processes entries in order. For each entry with an image_prompt or
+ * spread_image_prompt, generates an illustration and attaches the URL.
+ *
+ * @param {Array<object>} entries - V2 entries array
+ * @param {object} storyPlan - Full plan (for characterDescription, etc.)
+ * @param {object} childDetails
+ * @param {string} characterRef
+ * @param {string} style
+ * @param {object} opts
+ * @returns {Promise<Array<object>>} entries with illustration URLs attached
  */
-async function generateAllText(storyPlan, childDetails, format, opts) {
-  const { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl } = opts;
-  const stage4Start = Date.now();
-
-  if (progressCallbackUrl) {
-    reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.25, message: 'Writing story text...', logs: bookContext.logs });
-  }
-
-  // Single API call to generate ALL spread texts at once
-  const spreadsDescription = storyPlan.spreads.map((s, i) =>
-    `Spread ${i + 1}: ${s.illustrationPrompt || s.illustrationDescription || s.text || 'Scene ' + (i + 1)}`
-  ).join('\n');
-
-  const childAge = childDetails.age || childDetails.childAge || 5;
-  const ageProfile = getAgeProfile(childAge);
-  const formatRules = format === 'early_reader'
-    ? '3-5 sentences per spread, 40-80 words each, ages 5-8 vocabulary'
-    : `${ageProfile.sentenceStyle} ${ageProfile.wordsPerSpread} words per spread. ${ageProfile.vocabulary}`;
-
-  const childContext = buildChildContext(childDetails, opts.customDetails);
-
-  const prompt = `${buildWriterBrief(childAge)}
-
-${childContext}
-
-Write the complete story text for a ${storyPlan.spreads.length}-page children's bedtime picture book.
-
-Title: ${storyPlan.title}
-
-FORMAT RULES:
-- ${formatRules}
-- Each page's text MUST be a COMPLETE thought or sentence. NEVER end mid-sentence.
-- Written in present tense
-
-WRITING CRAFT RULES:
-- DO NOT start every spread with the child's name. Vary sentence openings: start with setting, sound, sensation, dialogue, an object, or an action. Use the child's name only 3-4 times across all 8 spreads — the rest of the time use "they" or start the sentence differently.
-- Go DEEPER than action. Don't just describe what happens — show what the child FEELS, NOTICES, WANTS. Use sensory details: what does the air smell like? What does the saddle feel like under their fingers? What sound does the forest make?
-- Every spread should have ONE specific, surprising detail that a generic AI would never write. Not "the forest was beautiful" — "the bark felt like cold toast."
-- Dialogue welcome. Let the child speak, whisper, or murmur. Let a companion answer. Dialogue breaks monotony and reveals character.
-- Name things specifically. Not "a treat" — what kind? Not "the sky" — what color compared to what?
-- Build emotional arc: spreads 1-2 feel grounded and curious. Spreads 3-5 feel adventurous and alive. Spreads 6-7 slow down — warmth, tiredness, gratitude. Spread 8: stillness, breath, sleep.
-- No exclamation marks after spread 4. Sentences get shorter as sleep approaches.
-- The last spread should feel like an exhale. Not a summary. An image.
-- Zero filler phrases. Cut: "What a fun...!", "How magical!", "So much...", "full of magic", "special adventure"
-
-Spreads to write text for:
-${spreadsDescription}
-
-Respond with ONLY a JSON array of strings, one per spread:
-["Page 1 text here", "Page 2 text here", ...]
-
-Return exactly ${storyPlan.spreads.length} strings.`;
-
-  bookContext.log('info', 'Text generation prompt', { prompt: prompt.slice(0, 2000), model: (apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY) ? 'gpt-5.4' : 'gemini-2.5-flash' });
-
-  // Try GPT 5.4 first, fall back to Gemini
-  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  const geminiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY;
-  let rawText;
-
-  if (openaiKey) {
-    try {
-      console.log('[generateAllText] Calling GPT 5.4...');
-      let resp;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          resp = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${openaiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'gpt-5.4',
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.8,
-              max_tokens: 4000,
-            }),
-            signal: bookContext.abortController.signal,
-          });
-          break;
-        } catch (fetchErr) {
-          console.warn(`[generateAllText] OpenAI fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
-          if (attempt === 3) throw fetchErr;
-          await new Promise(r => setTimeout(r, 2000 * attempt));
-        }
-      }
-      if (!resp.ok) {
-        const errText = await resp.text();
-        throw new Error(`OpenAI API error ${resp.status}: ${errText.slice(0, 200)}`);
-      }
-      const data = await resp.json();
-      rawText = data.choices?.[0]?.message?.content || '';
-      if (costTracker) {
-        costTracker.addTextUsage('gpt-5.4', data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0);
-      }
-      console.log(`[generateAllText] GPT 5.4 response (${rawText.length} chars)`);
-    } catch (openaiErr) {
-      console.warn(`[generateAllText] GPT 5.4 failed, falling back to Gemini: ${openaiErr.message}`);
-      rawText = null;
-    }
-  }
-
-  // Gemini fallback
-  if (!rawText) {
-    if (!geminiKey) throw new Error('No API key available for text generation (neither OpenAI nor Gemini)');
-    console.log('[generateAllText] Calling Gemini...');
-    let resp;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.8,
-                maxOutputTokens: 4000,
-                responseMimeType: 'application/json',
-              },
-            }),
-            signal: bookContext.abortController.signal,
-          }
-        );
-        break;
-      } catch (fetchErr) {
-        console.warn(`[generateAllText] Gemini fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
-        if (attempt === 3) throw fetchErr;
-        await new Promise(r => setTimeout(r, 2000 * attempt));
-      }
-    }
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`Text generation API error ${resp.status}: ${errText.slice(0, 200)}`);
-    }
-
-    const data = await resp.json();
-    rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  }
-  console.log(`[generateAllText] Raw response (${rawText.length} chars): ${rawText.slice(0, 300)}`);
-
-  let texts;
-  try {
-    // Try direct parse first
-    const parsed = JSON.parse(rawText);
-    // Handle both array and object-with-array responses
-    if (Array.isArray(parsed)) {
-      texts = parsed;
-    } else if (parsed.spreads && Array.isArray(parsed.spreads)) {
-      texts = parsed.spreads.map(s => typeof s === 'string' ? s : s.text || s.content || JSON.stringify(s));
-    } else if (parsed.texts && Array.isArray(parsed.texts)) {
-      texts = parsed.texts;
-    } else if (parsed.pages && Array.isArray(parsed.pages)) {
-      texts = parsed.pages.map(p => typeof p === 'string' ? p : p.text || p.content || JSON.stringify(p));
-    } else {
-      // Try to find any array in the object
-      const firstArray = Object.values(parsed).find(v => Array.isArray(v));
-      if (firstArray) texts = firstArray.map(item => typeof item === 'string' ? item : item.text || JSON.stringify(item));
-      else throw new Error('Parsed JSON but no array found');
-    }
-  } catch (e) {
-    // Try to extract array from markdown/text wrapper
-    const arrayMatch = rawText.match(/\[\s*[\s\S]*?\]/);
-    if (arrayMatch) {
-      try {
-        texts = JSON.parse(arrayMatch[0]);
-      } catch (e2) {
-        console.error(`[generateAllText] Failed to parse extracted array: ${arrayMatch[0].slice(0, 200)}`);
-      }
-    }
-    // Last resort: split by newlines and clean up
-    if (!texts) {
-      const lines = rawText.split('\n').map(l => l.replace(/^\d+[\.\)]\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(l => l.length > 5 && l.length < 200);
-      if (lines.length >= storyPlan.spreads.length / 2) {
-        texts = lines;
-        console.warn(`[generateAllText] Fallback: extracted ${lines.length} lines from raw text`);
-      } else {
-        console.error(`[generateAllText] Cannot parse response: ${rawText.slice(0, 500)}`);
-        throw new Error(`Failed to parse text generation response. Raw: ${rawText.slice(0, 200)}`);
-      }
-    }
-  }
-
-  // Ensure all items are strings
-  texts = texts.map(t => typeof t === 'string' ? t : (t?.text || t?.content || String(t)));
-
-  if (!Array.isArray(texts) || texts.length === 0) {
-    throw new Error('Text generation returned empty or invalid array');
-  }
-
-  // Validate: must have text for every spread. If not, throw to trigger retry.
-  if (texts.length < storyPlan.spreads.length) {
-    const missing = storyPlan.spreads.length - texts.length;
-    console.error(`[generateAllText] Only ${texts.length}/${storyPlan.spreads.length} texts generated — ${missing} missing`);
-    throw new Error(`Text generation incomplete: got ${texts.length} texts but need ${storyPlan.spreads.length}. Model stopped early.`);
-  }
-
-  const spreadsWithText = storyPlan.spreads.map((spread, i) => {
-    return { ...spread, text: texts[i] };
-  });
-
-  const totalWords = spreadsWithText.reduce((sum, s) => sum + s.text.split(/\s+/).filter(Boolean).length, 0);
-  bookContext.log('info', `All text generated in single call`, { totalWords, spreads: spreadsWithText.length, ms: Date.now() - stage4Start });
-  bookContext.touchActivity();
-
-  spreadsWithText.forEach((s, i) => {
-    const words = s.text.split(/\s+/).filter(Boolean).length;
-    bookContext.log('info', `Spread ${i + 1}: "${s.text.slice(0, 60)}${s.text.length > 60 ? '...' : ''}"`, { words });
-  });
-
-  bookContext.log('info', 'All text generation complete', { totalSpreads: spreadsWithText.length, ms: Date.now() - stage4Start });
-  console.log(`[server] Stage timing: text=${Date.now() - stage4Start}ms (book ${bookId})`);
-  return spreadsWithText;
-}
-
-/**
- * Generate illustrations for all spreads (8 concurrent).
- * Returns array of { ...spread, imageUrl } in order.
- */
-async function generateAllIllustrations(storyPlan, childDetails, characterRef, style, opts) {
+async function generateAllIllustrations(entries, storyPlan, childDetails, characterRef, style, opts) {
   const {
     apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
     existingIllustrations, checkpointData,
   } = opts;
 
-  bookContext.log('info', 'Starting illustration generation', { totalIllustrations: storyPlan.spreads.length, resumed: (existingIllustrations || []).filter(Boolean).length });
+  // Count how many illustrations we need
+  const illustratableEntries = entries.map((entry, idx) => {
+    if (entry.type === 'blank') return null;
+    if (entry.type === 'title_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl' };
+    if (entry.type === 'dedication_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl' };
+    if (entry.type === 'spread') {
+      // Primary: spread_image_prompt (one illustration for both pages)
+      if (entry.spread_image_prompt) return { idx, prompt: entry.spread_image_prompt, field: 'spreadIllustrationUrl' };
+      // Fallback: separate left/right image prompts
+      const jobs = [];
+      if (entry.left?.image_prompt) jobs.push({ idx, prompt: entry.left.image_prompt, field: 'leftIllustrationUrl' });
+      if (entry.right?.image_prompt) jobs.push({ idx, prompt: entry.right.image_prompt, field: 'rightIllustrationUrl' });
+      if (jobs.length) return jobs;
+      return null;
+    }
+    return null;
+  }).flat().filter(Boolean);
+
+  bookContext.log('info', 'Starting V2 illustration generation', {
+    totalIllustrations: illustratableEntries.length,
+    resumed: (existingIllustrations || []).filter(Boolean).length,
+  });
 
   const stage5Start = Date.now();
-  const spreadsWithImages = new Array(storyPlan.spreads.length);
-  let completedCount = 0;
+  const results = new Array(entries.length);
+  // Pre-fill entries
+  for (let i = 0; i < entries.length; i++) {
+    results[i] = { ...entries[i] };
+  }
 
   // Pre-fill from checkpoint
+  let completedCount = 0;
   if (existingIllustrations) {
-    for (let i = 0; i < existingIllustrations.length; i++) {
-      if (existingIllustrations[i]?.imageUrl) {
-        spreadsWithImages[i] = existingIllustrations[i];
+    for (let i = 0; i < existingIllustrations.length && i < results.length; i++) {
+      if (existingIllustrations[i]?.spreadIllustrationUrl || existingIllustrations[i]?.illustrationUrl) {
+        results[i] = existingIllustrations[i];
         completedCount++;
-        bookContext.log('info', `Illustration ${i + 1} resumed from checkpoint`);
+        bookContext.log('info', `Entry ${i} illustration resumed from checkpoint`);
       }
     }
   }
 
-  const illustrationLimit = pLimit(1); // Sequential — one at a time with cover image reference
+  const illustrationLimit = pLimit(1); // Sequential
 
-  const illustrationPromises = storyPlan.spreads.map((spread, i) =>
+  const illustrationPromises = illustratableEntries.map((job) =>
     illustrationLimit(async () => {
+      const { idx, prompt, field } = job;
 
       // Skip if already resumed from checkpoint
-      if (spreadsWithImages[i]?.imageUrl) {
-        return;
-      }
-
-      // Only skip illustration for explicitly text-only spreads
-      if (spread.layoutType === 'NO_TEXT') {
-        spreadsWithImages[i] = { ...spread, imageUrl: null };
-        completedCount++;
+      if (results[idx]?.[field]) {
         return;
       }
 
       let imageUrl = null;
       const illStart = Date.now();
-      const sceneDesc = spread.illustrationPrompt || spread.illustrationDescription || spread.text;
       const outfit = storyPlan.characterOutfit || '';
       const MAX_ILL_RETRIES = 3;
+      const entryLabel = `entry ${idx + 1} (${results[idx].type})`;
 
       for (let attempt = 1; attempt <= MAX_ILL_RETRIES; attempt++) {
         try {
           if (attempt === 1) {
-            bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} starting`, { promptLength: sceneDesc.length, hasText: !!spread.text, outfit: outfit ? outfit.slice(0, 50) : 'none', prompt: sceneDesc, pageText: spread.text || '' });
+            bookContext.log('info', `Illustration ${entryLabel} starting`, { promptLength: prompt.length, field });
           } else {
-            bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} retry ${attempt}/${MAX_ILL_RETRIES}`);
+            bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
           }
-          const illustrationPromise = generateIllustration(sceneDesc, characterRef, style, {
+          const illustrationPromise = generateIllustration(prompt, characterRef, style, {
             apiKeys,
             costTracker,
             bookId,
@@ -466,55 +274,51 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
             childPhotoUrl: resolvedChildPhotoUrl,
             _cachedPhotoBase64: cachedPhotoBase64,
             _cachedPhotoMime: cachedPhotoMime,
-            spreadIndex: i,
-            pageText: spread.text,
-            deadlineMs: 450000, // 7.5 min deadline, 8 min outer timeout
+            spreadIndex: idx,
+            skipTextEmbed: true, // V2: text overlaid by layout engine
+            deadlineMs: 450000,
             abortSignal: bookContext.abortController.signal,
           });
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Illustration ${i + 1} timed out after 8 minutes`)), 480000)
+            setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 8 minutes`)), 480000)
           );
           imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
           bookContext.touchActivity();
           const memUsage = process.memoryUsage();
-          bookContext.log('info', `Illustration ${i + 1}/${storyPlan.spreads.length} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024), rssMB: Math.round(memUsage.rss / 1024 / 1024) });
-          break; // success — exit retry loop
+          bookContext.log('info', `Illustration ${entryLabel} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
+          break;
         } catch (illustrationErr) {
-          bookContext.log('error', `Illustration ${i + 1}/${storyPlan.spreads.length} attempt ${attempt} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
-          console.error(`[server] Illustration ${i + 1} attempt ${attempt}/${MAX_ILL_RETRIES} failed for book ${bookId}: ${illustrationErr.message}`);
+          bookContext.log('error', `Illustration ${entryLabel} attempt ${attempt} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
           if (attempt < MAX_ILL_RETRIES) {
-            const backoff = attempt * 3000; // 3s, 6s
-            bookContext.log('info', `Waiting ${backoff / 1000}s before retry...`);
+            const backoff = attempt * 3000;
             await new Promise(r => setTimeout(r, backoff));
           } else {
-            bookContext.log('warn', `Illustration ${i + 1}/${storyPlan.spreads.length} failed after ${MAX_ILL_RETRIES} attempts — using text-only spread`);
+            bookContext.log('warn', `Illustration ${entryLabel} failed after ${MAX_ILL_RETRIES} attempts — skipping`);
           }
         }
       }
 
-      spreadsWithImages[i] = { ...spread, imageUrl };
+      results[idx][field] = imageUrl;
       completedCount++;
 
-      // No delay needed — staggered starts + round-robin keys handle pacing
-
-      // Save partial checkpoint after each illustration completes
+      // Save partial checkpoint
       if (checkpointData) {
         await saveCheckpoint(bookId, {
           ...checkpointData,
           completedStage: 'illustrations_partial',
-          illustrationResults: spreadsWithImages.filter(Boolean),
+          illustrationResults: results,
           timestamp: new Date().toISOString(),
         }).catch(e => console.warn('[checkpoint] Save failed:', e.message));
       }
 
       if (progressCallbackUrl) {
-        const progress = 0.40 + (0.35 * completedCount / storyPlan.spreads.length);
+        const progress = 0.40 + (0.35 * completedCount / illustratableEntries.length);
         reportProgress(progressCallbackUrl, {
           bookId,
           stage: 'illustration',
           progress,
-          message: `Generating illustration ${completedCount} of ${storyPlan.spreads.length}...`,
-          previewUrls: spreadsWithImages.filter(s => s && s.imageUrl).map(s => s.imageUrl),
+          message: `Generating illustration ${completedCount} of ${illustratableEntries.length}...`,
+          previewUrls: results.filter(r => r.spreadIllustrationUrl || r.illustrationUrl || r.leftIllustrationUrl).map(r => r.spreadIllustrationUrl || r.illustrationUrl || r.leftIllustrationUrl),
           logs: bookContext.logs,
         });
       }
@@ -525,7 +329,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
 
   bookContext.log('info', 'All illustrations complete', { totalMs: Date.now() - stage5Start });
   console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
-  return spreadsWithImages;
+  return results;
 }
 
 // ── Health Check ──
@@ -661,13 +465,25 @@ app.post('/generate-book', authenticate, async (req, res) => {
       // Character reference generation skipped — Gemini illustrations use child photo directly
       const characterRef = null;
 
-      // Stage 3: Plan story spreads
+      // ── V2 Variables ──
+      const favorite_object = (childDetails.interests && childDetails.interests[0]) ? `a ${childDetails.interests[0]}` : 'a stuffed bear';
+      const fear = 'the dark'; // default for bedtime books
+      const setting = theme === 'adventure' ? 'an enchanted forest' :
+                      theme === 'bedtime' ? 'a cozy bedroom' :
+                      theme === 'birthday' ? 'a birthday party world' : 'a magical place';
+      const dedication = `For ${childDetails.name || 'the child'}`;
+      const v2Vars = { name: childDetails.name, age: childDetails.age || 5, favorite_object, fear, setting, dedication };
+
+      // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
       let storyPlan;
-      if (checkpoint?.storyPlan) {
+      if (checkpoint?.storyPlan && Array.isArray(checkpoint.storyPlan.entries)) {
+        // V2 checkpoint — resume
         storyPlan = checkpoint.storyPlan;
-        bookContext.log('info', 'Resumed story plan from checkpoint', { spreads: storyPlan.spreads.length, title: storyPlan.title });
+        const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+        bookContext.log('info', 'Resumed V2 story plan from checkpoint', { spreads: spreads.length, title: storyPlan.title });
       } else {
-        bookContext.log('info', 'Starting story planning', { theme: theme || 'adventure' });
+        // Always start fresh for V2 (incompatible with old checkpoint format)
+        bookContext.log('info', 'Starting V2 story planning', { theme: theme || 'adventure' });
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...', logs: bookContext.logs });
         }
@@ -677,61 +493,31 @@ app.post('/generate-book', authenticate, async (req, res) => {
           apiKeys,
           costTracker,
           approvedTitle,
+          v2Vars,
         });
         bookContext.touchActivity();
         const stage3Ms = Date.now() - stage3Start;
-        bookContext.log('info', 'Story planned', { spreads: storyPlan.spreads.length, title: storyPlan.title, ms: stage3Ms, plan: JSON.stringify(storyPlan).slice(0, 3000) });
+        const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+        bookContext.log('info', 'V2 story planned', { spreads: spreads.length, entries: storyPlan.entries.length, title: storyPlan.title, ms: stage3Ms });
         console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
       }
 
-      // Stage 4: Generate text first (illustrations need the text to embed it)
-      let spreadsWithText;
-      if (checkpoint?.spreadsWithText) {
-        spreadsWithText = checkpoint.spreadsWithText;
-        bookContext.log('info', 'Resumed text from checkpoint', { spreads: spreadsWithText.length });
-      } else {
-        bookContext.log('info', 'Starting text generation');
-        if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'text_generation', progress: 0.20, message: 'Writing story text...', logs: bookContext.logs });
-        }
+      // V2: Text is already in the story plan — no separate text generation needed.
 
-        let textResults;
-        for (let textAttempt = 1; textAttempt <= 3; textAttempt++) {
-          try {
-            textResults = await generateAllText(storyPlan, childDetails, format, { apiKeys, costTracker, bookId, bookContext, progressCallbackUrl });
-            break;
-          } catch (textErr) {
-            bookContext.log('warn', `Text generation attempt ${textAttempt}/3 failed: ${textErr.message}`);
-            if (textAttempt === 3) throw textErr;
-            await new Promise(r => setTimeout(r, 3000));
-          }
-        }
-
-        // Attach generated text to each spread for illustration prompts
-        spreadsWithText = storyPlan.spreads.map((spread, i) => ({
-          ...spread,
-          text: textResults[i]?.text || spread.text || '',
-        }));
-
-        await saveCheckpoint(bookId, { bookId, completedStage: 'text_generation', storyPlan, spreadsWithText, timestamp: new Date().toISOString() });
-      }
-
-      // Stage 6 (moved before illustrations): Prepare cover + character reference
+      // Stage 3: Prepare cover + character reference
       const stage6Start = Date.now();
-      bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover generation');
+      bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover preparation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.40, message: 'Preparing cover...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.30, message: 'Preparing cover...', logs: bookContext.logs });
       }
 
-      // Prepare cover-based character reference for illustrations
-      let characterRefBase64 = cachedPhotoBase64; // fallback to original photo
+      let characterRefBase64 = cachedPhotoBase64;
       let characterRefMime = cachedPhotoMime;
       let preGeneratedCoverBuffer = null;
 
       if (approvedCoverUrl) {
-        // Fast path: download cover image, resize to 512px for character reference
         try {
           const sharp = require('sharp');
           let coverUrl = approvedCoverUrl;
@@ -785,92 +571,123 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
-      // Stage 5 (moved after cover): Generate illustrations WITH text embedded in the images
-      bookContext.log('info', 'Starting illustration generation with embedded text');
+      // Stage 4: Generate illustrations (V2 — text overlaid by layout engine, not embedded in images)
+      bookContext.log('info', 'Starting V2 illustration generation');
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.50, message: 'Generating illustrations with text...', logs: bookContext.logs });
+        reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
       }
 
-      const storyPlanWithText = { ...storyPlan, spreads: spreadsWithText };
-      const illustrationResults = await generateAllIllustrations(storyPlanWithText, childDetails, characterRef, style, {
+      const entriesWithIllustrations = await generateAllIllustrations(storyPlan.entries, storyPlan, childDetails, characterRef, style, {
         apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
         resolvedChildPhotoUrl,
-        cachedPhotoBase64: characterRefBase64,  // Cover image, not raw photo
+        cachedPhotoBase64: characterRefBase64,
         cachedPhotoMime: characterRefMime,
         existingIllustrations: checkpoint?.illustrationResults || [],
-        checkpointData: { bookId, storyPlan, spreadsWithText },
+        checkpointData: { bookId, storyPlan },
       });
 
-      // Merge: each spread gets both .text and .imageUrl
-      const mergedSpreads = spreadsWithText.map((spread, i) => ({
-        ...spread,
-        imageUrl: illustrationResults[i]?.imageUrl || null,
-      }));
+      bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
 
-      bookContext.log('info', 'Text + illustrations complete', { spreads: mergedSpreads.length });
-      console.log(`[server] Stage timing: text+illustrations(sequential) (book ${bookId})`);
-
-      const illustrationFailures = illustrationResults.filter((r, i) => !r?.imageUrl && storyPlan.spreads[i]?.layoutType !== 'NO_TEXT').length;
+      // Count illustration failures for spreads
+      const spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
+      const illustrationFailures = spreadEntries.filter(e => e.spread_image_prompt && !e.spreadIllustrationUrl && !e.leftIllustrationUrl).length;
       if (illustrationFailures > 0) {
-        bookContext.log('warn', `${illustrationFailures}/${storyPlan.spreads.length} illustrations failed — using text-only spreads`);
-        console.warn(`[server] Book ${bookId}: ${illustrationFailures}/${storyPlan.spreads.length} illustrations failed, continuing with text-only spreads`);
-        bookWarnings.push(`${illustrationFailures} of ${storyPlan.spreads.length} illustrations failed`);
+        bookContext.log('warn', `${illustrationFailures}/${spreadEntries.length} spread illustrations failed`);
+        bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);
       }
 
-      // Stage 7: Assemble PDF
+      // Stage 5: Assemble PDF
       const stage7Start = Date.now();
-      bookContext.log('info', 'Starting PDF assembly');
+      bookContext.log('info', 'Starting V2 PDF assembly');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...', logs: bookContext.logs });
       }
 
       // Download illustration URLs into buffers for PDF embedding (parallel)
-      const spreadsWithBuffers = await Promise.all(
-        mergedSpreads.map(async (spread) => {
-          let illustrationBuffer = null;
-          if (spread.imageUrl) {
+      const entriesWithBuffers = await Promise.all(
+        entriesWithIllustrations.map(async (entry) => {
+          const result = { ...entry };
+
+          // Download spread illustration
+          if (entry.spreadIllustrationUrl) {
             try {
-              illustrationBuffer = await withRetry(
-                () => downloadBuffer(spread.imageUrl),
-                { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${spread.spreadNumber}` }
+              result.spreadIllustrationBuffer = await withRetry(
+                () => downloadBuffer(entry.spreadIllustrationUrl),
+                { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${entry.spread || entry.type}` }
               );
             } catch (err) {
-              bookContext.log('error', `Failed to download illustration for spread ${spread.spreadNumber}`, { error: err.message });
-              console.error(`[server] Failed to download illustration for spread ${spread.spreadNumber} (book ${bookId}):`, err.message);
+              bookContext.log('error', `Failed to download spread illustration`, { error: err.message, spread: entry.spread });
             }
           }
-          return { ...spread, illustrationBuffer };
+
+          // Download left/right illustrations
+          if (entry.leftIllustrationUrl) {
+            try {
+              result.leftIllustrationBuffer = await withRetry(
+                () => downloadBuffer(entry.leftIllustrationUrl),
+                { maxRetries: 3, baseDelayMs: 1000, label: `download-left-${entry.spread}` }
+              );
+            } catch (err) {
+              bookContext.log('error', `Failed to download left illustration`, { error: err.message });
+            }
+          }
+          if (entry.rightIllustrationUrl) {
+            try {
+              result.rightIllustrationBuffer = await withRetry(
+                () => downloadBuffer(entry.rightIllustrationUrl),
+                { maxRetries: 3, baseDelayMs: 1000, label: `download-right-${entry.spread}` }
+              );
+            } catch (err) {
+              bookContext.log('error', `Failed to download right illustration`, { error: err.message });
+            }
+          }
+
+          // Download title/dedication page illustrations
+          if (entry.illustrationUrl) {
+            try {
+              result.illustrationBuffer = await withRetry(
+                () => downloadBuffer(entry.illustrationUrl),
+                { maxRetries: 3, baseDelayMs: 1000, label: `download-${entry.type}` }
+              );
+            } catch (err) {
+              bookContext.log('error', `Failed to download ${entry.type} illustration`, { error: err.message });
+            }
+          }
+
+          return result;
         })
       );
 
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
-      const interiorPdf = await assemblePdf(spreadsWithBuffers, format, {
+      const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
         title: bookTitle,
         childName: childDetails.name,
+        dedication,
       });
       bookContext.touchActivity();
-      const pdfPages = spreadsWithBuffers.length;
-      bookContext.log('info', 'Interior PDF assembled', { pages: pdfPages, ms: Date.now() - stage7Start });
+      bookContext.log('info', 'Interior PDF assembled', { entries: entriesWithBuffers.length, ms: Date.now() - stage7Start });
 
       console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
 
-      // Stage 8: Upload interior PDF to GCS
+      // Stage 6: Upload interior PDF to GCS
       bookContext.log('info', 'Uploading interior PDF to storage');
       const interiorPath = `children-jobs/${bookId}/interior.pdf`;
       await uploadBuffer(interiorPdf, interiorPath, 'application/pdf');
       const interiorPdfUrl = await getSignedUrl(interiorPath, 30 * 24 * 60 * 60 * 1000);
 
-      // Stage 9: Build cover PDF separately (after interior is done)
+      // Stage 7: Build cover PDF separately (after interior is done)
       let coverPdfUrl = null;
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       try {
         bookContext.log('info', 'Building cover PDF...');
         // Calculate actual interior page count for spine width
-        const frontMatterPages = 6; // blank, blank, title, blank, dedication, blank
-        const storyPages = spreadsWithBuffers.length;
-        const rawTotal = frontMatterPages + storyPages;
-        const actualPageCount = Math.max(32, rawTotal % 2 === 0 ? rawTotal : rawTotal + 1);
-        const pageCount = actualPageCount;
+        // V2: count pages from entries (blank=1, title/dedication=1, spread=2)
+        let pageCount = 0;
+        for (const entry of entriesWithBuffers) {
+          if (entry.type === 'spread') pageCount += 2;
+          else pageCount += 1;
+        }
+        pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount,
         });
@@ -883,13 +700,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookContext.log('error', 'Cover PDF failed (non-blocking)', { error: coverErr.message });
       }
 
-      const previewImageUrls = mergedSpreads
-        .filter(s => s.imageUrl)
-        .map(s => s.imageUrl);
+      const previewImageUrls = entriesWithIllustrations
+        .filter(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl)
+        .map(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl);
 
       const totalMs = Date.now() - bookStartTime;
       const costSummary = costTracker.getSummary();
-      bookContext.log('info', 'Book complete', { totalMs, spreads: mergedSpreads.length, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
+      bookContext.log('info', 'Book complete', { totalMs, entries: entriesWithIllustrations.length, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
 
       // Report completion (with retry)
       if (callbackUrl) {
@@ -905,8 +722,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 coverPdfUrl,
                 previewImageUrls,
                 title: bookTitle,
-                spreadCount: mergedSpreads.length,
-                storyContent: { title: bookTitle, spreads: mergedSpreads.map(s => ({ spreadNumber: s.spreadNumber, text: s.text, illustrationDescription: s.illustrationDescription, layoutType: s.layoutType, hasImage: !!s.imageUrl })) },
+                spreadCount: spreadEntries.length,
+                storyContent: { title: bookTitle, entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })) },
                 costs: costSummary,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,

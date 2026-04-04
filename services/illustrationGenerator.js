@@ -118,8 +118,9 @@ function buildGenericSafePrompt(artStyle) {
  * @param {string} [childName] - Child's name for character anchoring
  * @returns {string} Complete prompt
  */
-function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects) {
+function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
+  const skipTextEmbed = opts.skipTextEmbed || false;
 
   const parts = [
     `\u26a0\ufe0f ABSOLUTE RULE: The main character (${childName || 'the child'}) must appear EXACTLY ONCE in this illustration. There is only ONE child in this scene. Do NOT draw the character twice. Do NOT show the same child from multiple angles. ONE child, ONE time.`,
@@ -165,9 +166,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
+  parts.push('Do NOT include any text, letters, words, or writing in the illustration. This is a pure illustration — text will be overlaid separately.');
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
-  if (pageText) {
+  // V2: text is overlaid by the layout engine, not embedded in images.
+  // Legacy path: if pageText is provided and skipTextEmbed is false, embed text in image.
+  if (pageText && !skipTextEmbed) {
     parts.push('');
     parts.push('TEXT IN IMAGE:');
     parts.push('Include the following story text as part of this illustration page:');
@@ -361,7 +365,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects);
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed });
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);

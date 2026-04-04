@@ -1,138 +1,126 @@
 /**
- * Prompt templates for picture book generation (ages 3-6)
+ * Prompt templates for picture book generation.
+ *
+ * V2: The story planner now uses the full V2 brief as the system prompt
+ * and returns front matter + left/right spreads with text and image prompts
+ * in a single LLM call.
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
-const { buildWriterBrief, getAgeProfile } = require('./writerBrief');
+const { buildV2Brief, buildChildContext, getAgeTier } = require('./writerBrief');
 
-// Dynamic — built per request with the child's actual age
-function buildStoryPlannerSystem(age) {
-  const profile = getAgeProfile(age);
-  return `${buildWriterBrief(age)}
-
-You are planning the story structure for this book. Apply the brief above to every decision.
-
-STORY STRUCTURE:
-1. Begin grounded — a real moment, a real room, a real feeling (1-2 spreads)
-2. One small disruption — a discovery, a question, a dare. The child chooses to act.
-3. Build through cause and effect — each spread is a consequence of the last, not a new vignette.
-4. Let the emotional temperature rise then slowly cool.
-5. The final 2 spreads decelerate: shorter sentences, quieter images, breath slowing.
-6. Last spread: inevitable. The reader exhales.
-
-RULES:
-- Plan exactly 8 page spreads (each spread = one scene)
-- Words per spread: ${profile.wordsPerSpread}
-- Total word count: ${profile.totalWords} across ALL spreads
-- Each spread's text MUST be a complete thought — NEVER split a sentence across spreads
-- Each spread must have a clear visual scene that can be illustrated
-- The child character is ALWAYS the active agent — choosing, doing, causing
-- Include a recurring visual element throughout (a named companion, a special object)
-- NO scary content, violence, or complex emotions
-- Vocabulary appropriate for age ${age}: ${profile.vocabulary}
-- NO filler phrases: "What a fun...", "How magical!", "full of magic", "It feels like..."
-- No exclamation marks after spread 4
-
-Respond with ONLY valid JSON.`;
+/**
+ * Build system prompt for V2 story planner.
+ * Uses the full V2 brief with variables substituted.
+ *
+ * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
+ * @returns {string}
+ */
+function buildStoryPlannerSystem(vars) {
+  // Accept either a vars object (V2) or a bare age number (legacy compat)
+  if (typeof vars === 'number' || typeof vars === 'string') {
+    return buildV2Brief({
+      name: '{name}',
+      age: Number(vars) || 5,
+      favorite_object: '{favorite_object}',
+      fear: '{fear}',
+      setting: '{setting}',
+      dedication: '{dedication}',
+    });
+  }
+  return buildV2Brief(vars);
 }
 
 // Static fallback for backward compat
 const STORY_PLANNER_SYSTEM = buildStoryPlannerSystem(5);
 
-function STORY_PLANNER_USER(childDetails, theme, customDetails) {
-  const { buildChildContext } = require('./writerBrief');
-  const name = sanitizeForPrompt(childDetails.childName || '', 50);
-  const interests = (childDetails.childInterests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
+/**
+ * Build V2 user prompt for story planner.
+ *
+ * @param {object} childDetails - { name, age, gender, interests, ... }
+ * @param {string} theme
+ * @param {string} customDetails
+ * @param {object} v2Vars - { favorite_object, fear, setting, dedication }
+ * @returns {string}
+ */
+function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}) {
+  const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
+  const age = childDetails.childAge || childDetails.age || 5;
+  const interests = (childDetails.childInterests || childDetails.interests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
   const details = customDetails ? sanitizeForPrompt(customDetails, 500) : '';
   const childContext = buildChildContext(childDetails, details);
 
+  const { tier } = getAgeTier(age);
+
+  const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
+  const fear = v2Vars.fear || 'the dark';
+  const setting = v2Vars.setting || '';
+  const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
+
   return `${childContext}
 
-Create a bedtime picture book story for ${name}.
+Create a personalized bedtime picture book for ${name} (age ${age}).
 
 Child details:
-- Age: ${childDetails.childAge || 5}
-- Gender: ${childDetails.childGender || 'not specified'}
+- Age: ${age} (Tier ${tier})
+- Gender: ${childDetails.childGender || childDetails.gender || 'not specified'}
 - Interests: ${interests}
+- Favorite object/toy: ${favoriteObject}
+- Fear or challenge: ${fear}
+- Setting: ${setting || 'use theme to determine'}
+- Dedication: ${dedication}
 ${details ? `- Special requests / real quirks: ${details}` : ''}
 
-Theme: ${theme}
+Theme: ${theme || 'bedtime'}
 
-Generate a JSON response with this exact structure:
+Generate the COMPLETE story as a JSON object with this structure:
 {
-  "title": "The Book Title",
-  "characterDescription": "Detailed visual description of the child character as they should appear in EVERY illustration: approximate age appearance, skin tone, hair color/style, facial features. This description must be consistent across all pages.",
-  "characterOutfit": "Describe the child's outfit in detail — this EXACT outfit will be worn on EVERY page (e.g., 'bright red raincoat with yellow buttons, green rubber boots, blue striped scarf')",
-  "recurringElement": "A special recurring companion that appears throughout the story (e.g., 'a small orange cat with a bent ear and a tiny blue collar'). Describe its exact visual appearance.",
-  "keyObjects": "Describe ALL important objects in the story with EXACT colors and details. These must look identical on every page. Example: 'a bright red tricycle with silver handlebars and a white basket, a yellow kite with blue stripes'. Be very specific about colors.",
-  "spreads": [
-    {
-      "spreadNumber": 1,
-      "text": "Short complete sentence for this page (8-20 words, rhyming preferred)",
-      "illustrationPrompt": "DETAILED illustration prompt — see rules below",
-      "mood": "warm"
-    }
+  "entries": [
+    { "type": "title_page", "page": "right", "title": "...", "subtitle": "A bedtime story for ${name}", "image_prompt": "..." },
+    { "type": "blank", "page": "left" },
+    { "type": "dedication_page", "page": "right", "text": "${dedication}", "image_prompt": "..." },
+    { "type": "blank", "page": "left" },
+    { "type": "spread", "spread": 1, "left": { "text": "...", "image_prompt": null }, "right": { "text": "...", "image_prompt": null }, "spread_image_prompt": "..." },
+    ...14-16 spreads total...
   ]
 }
 
-ILLUSTRATION PROMPT RULES — CRITICAL:
-- Each illustrationPrompt must describe the FULL scene in one detailed paragraph
-- Include: character pose, facial expression, what they're doing with their hands/body
-- Include: environment (indoor/outdoor, time of day, weather, key objects)
-- Include: camera angle (close-up, medium shot, wide shot)
-- Include: lighting and color mood (warm sunset, bright morning, soft moonlight)
-- Include: any secondary characters, animals, or the recurring element
-- The main character ALWAYS wears the outfit defined in characterOutfit
-- The main character appears ONLY ONCE per illustration — NEVER show the same character twice in one image
-- The recurring element should appear naturally in each scene (not forced)
-- Objects that appear across multiple pages must look identical (same color, shape, size — can be shown from different angles)
-- Make each scene visually distinct from the others — vary the setting, camera angle, and composition
-
-MOODS: warm, playful, exciting, mysterious, peaceful, triumphant, funny`;
+IMPORTANT:
+- Return ONLY a valid JSON object with an "entries" array.
+- The entries array must contain: title_page, blank, dedication_page, blank, then 14-16 spreads.
+- Each spread must have spread_image_prompt (full two-page scene description).
+- Text goes in left.text and/or right.text (one can be null if the illustration carries the moment).
+- All image prompts must specify: lighting, color palette, perspective, one texture detail.
+- Art style across all prompts: soft watercolor with ink outlines.
+- Follow ALL rules from the system brief (age tier, pacing, dialogue, etc.).
+- No newlines inside string values. Escape apostrophes with \\'.`;
 }
 
-// Dynamic text generator system prompt — adapts to child's age
+// ── Legacy text generator prompts (kept for backward compat) ──
+
 function buildTextGeneratorSystem(age) {
-  const profile = getAgeProfile(age);
-  return `${buildWriterBrief(age)}
-
-You are writing the final page text. Apply the brief above to every word.
-
-FORMAT CONSTRAINTS:
-- ${profile.wordsPerSpread} words per spread (STRICT limit)
-- ${profile.sentenceStyle}
-- Written in present tense for immediacy
-- Include the child's name naturally (not forced)
-- ${profile.readAloudNote}
-
-CRITICAL RULES:
-- Each page's text MUST be a COMPLETE thought. NEVER split a sentence across pages.
-- The child acts. Every sentence answers: what does the child choose, touch, say, or do?
-- Name things specifically. Not "a treat" — what kind?
-- No filler: cut "What a fun...", "How magical!", "So much...", "full of magic"
-- No exclamation marks after spread 4. Sentences get shorter as sleep approaches.
-- The last spread: the reader exhales. Not surprised — settled.`;
+  return buildStoryPlannerSystem(age);
 }
 
 const TEXT_GENERATOR_SYSTEM = buildTextGeneratorSystem(5);
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
-  return `Write the text for spread #${spreadPlan.spreadNumber} of a picture book for ${childDetails.childName} (age ${childDetails.childAge || 5}).
+  return `Write the text for spread #${spreadPlan.spreadNumber} of a picture book for ${childDetails.childName || childDetails.name} (age ${childDetails.childAge || childDetails.age || 5}).
 
 Story context so far:
 ${storyContext || 'This is the beginning of the story.'}
 
 This spread's plan:
-- Scene: ${spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription}
-- Mood: ${spreadPlan.mood}
+- Scene: ${spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || spreadPlan.spread_image_prompt}
+- Mood: ${spreadPlan.mood || 'warm'}
 
-Write 8-20 words of picture book text. Rhyming and rhythm encouraged. Return ONLY the text, nothing else.`;
+Write the text. Return ONLY the text, nothing else.`;
 }
 
 function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {
   const stylePrompts = {
     watercolor: 'Beautiful watercolor children\'s book illustration with soft washes of color, gentle brushstrokes, warm palette, dreamy atmosphere.',
-    digital_painting: 'Vibrant digital painting children\'s book illustration, rich colors, detailed and polished, modern storybook style.',
+    digital_painting: 'Vibrant digital painting children\'s book illustration, rich colors, clean lines, professional digital art, warm lighting, friendly atmosphere.',
     storybook: 'Classic children\'s storybook illustration, warm and cozy, hand-painted feel, reminiscent of golden age picture books.',
   };
 
@@ -154,8 +142,8 @@ function VOCABULARY_CHECK_PROMPT(text, ageGroup) {
 
 Evaluate:
 1. Are all words appropriate for the age group?
-2. Are sentences short enough (under 15 words each)?
-3. Is the content emotionally appropriate (no fear, violence, complex themes)?
+2. Are sentences short enough?
+3. Is the content emotionally appropriate?
 4. Does it flow well when read aloud?
 
 Respond with JSON:
