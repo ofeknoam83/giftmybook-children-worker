@@ -187,7 +187,6 @@ async function generateAllText(storyPlan, childDetails, format, opts) {
   }
 
   // Single API call to generate ALL spread texts at once
-  const apiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY;
   const spreadsDescription = storyPlan.spreads.map((s, i) =>
     `Spread ${i + 1}: ${s.illustrationPrompt || s.illustrationDescription || s.text || 'Scene ' + (i + 1)}`
   ).join('\n');
@@ -225,39 +224,92 @@ Respond with ONLY a JSON array of strings, one per spread:
 
 Return exactly ${storyPlan.spreads.length} strings.`;
 
-  let resp;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  // Try GPT 5.4 first, fall back to Gemini
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  const geminiKey = apiKeys?.geminiApiKey || process.env.GEMINI_API_KEY;
+  let rawText;
+
+  if (openaiKey) {
     try {
-      resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.8,
-              maxOutputTokens: 2000,
-              responseMimeType: 'application/json',
+      console.log('[generateAllText] Calling GPT 5.4...');
+      let resp;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          resp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${openaiKey}`,
             },
-          }),
+            body: JSON.stringify({
+              model: 'gpt-5.4',
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.8,
+              max_tokens: 2000,
+              response_format: { type: 'json_object' },
+            }),
+          });
+          break;
+        } catch (fetchErr) {
+          console.warn(`[generateAllText] OpenAI fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
+          if (attempt === 3) throw fetchErr;
+          await new Promise(r => setTimeout(r, 2000 * attempt));
         }
-      );
-      break;
-    } catch (fetchErr) {
-      console.warn(`[generateAllText] Fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
-      if (attempt === 3) throw fetchErr;
-      await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`OpenAI API error ${resp.status}: ${errText.slice(0, 200)}`);
+      }
+      const data = await resp.json();
+      rawText = data.choices?.[0]?.message?.content || '';
+      if (costTracker) {
+        costTracker.addTextUsage('gpt-5.4', data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0);
+      }
+      console.log(`[generateAllText] GPT 5.4 response (${rawText.length} chars)`);
+    } catch (openaiErr) {
+      console.warn(`[generateAllText] GPT 5.4 failed, falling back to Gemini: ${openaiErr.message}`);
+      rawText = null;
     }
   }
 
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`Text generation API error ${resp.status}: ${errText.slice(0, 200)}`);
-  }
+  // Gemini fallback
+  if (!rawText) {
+    if (!geminiKey) throw new Error('No API key available for text generation (neither OpenAI nor Gemini)');
+    console.log('[generateAllText] Calling Gemini...');
+    let resp;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.8,
+                maxOutputTokens: 2000,
+                responseMimeType: 'application/json',
+              },
+            }),
+          }
+        );
+        break;
+      } catch (fetchErr) {
+        console.warn(`[generateAllText] Gemini fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
+        if (attempt === 3) throw fetchErr;
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+    }
 
-  const data = await resp.json();
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Text generation API error ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
   console.log(`[generateAllText] Raw response (${rawText.length} chars): ${rawText.slice(0, 300)}`);
 
   let texts;
@@ -748,8 +800,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       try {
         bookContext.log('info', 'Building cover PDF...');
+        const pageCount = spreadsWithBuffers.length * 2; // each spread = 2 pages
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
-          apiKeys, costTracker, bookId, preGeneratedCoverBuffer,
+          apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount,
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');

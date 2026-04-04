@@ -2,7 +2,7 @@
  * Story planner service.
  *
  * Takes child details, theme, and book format, then generates a
- * spread-by-spread story outline using Gemini 3.1 Flash.
+ * spread-by-spread story outline using GPT 5.4 (with Gemini fallback).
  *
  * Picture books: 12-16 spreads, ~30-60 words per spread
  * Early readers: 24-32 pages, ~60-150 words per page
@@ -15,7 +15,50 @@ const GEMINI_MODEL = 'gemini-3-flash-preview';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
- * Call Gemini 3.1 Flash text generation API.
+ * Call OpenAI GPT 5.4 chat completions API.
+ *
+ * @param {string} systemPrompt
+ * @param {string} userPrompt
+ * @param {object} opts - { apiKey, temperature, maxTokens, jsonMode }
+ * @returns {Promise<{ text: string, inputTokens: number, outputTokens: number }>}
+ */
+async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
+  const apiKey = opts.apiKey;
+  if (!apiKey) throw new Error('OpenAI API key not available');
+
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-5.4',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: opts.temperature || 0.8,
+      max_tokens: opts.maxTokens || 4000,
+      response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`OpenAI API error ${resp.status}: ${err.slice(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  return {
+    text: data.choices?.[0]?.message?.content || '',
+    inputTokens: data.usage?.prompt_tokens || 0,
+    outputTokens: data.usage?.completion_tokens || 0,
+  };
+}
+
+/**
+ * Call Gemini text generation API (fallback).
  *
  * @param {string} systemPrompt
  * @param {string} userPrompt
@@ -69,6 +112,49 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
 }
 
 /**
+ * Call the best available LLM — GPT 5.4 first, Gemini fallback.
+ *
+ * @param {string} systemPrompt
+ * @param {string} userPrompt
+ * @param {object} opts - { openaiApiKey, maxTokens, temperature, jsonMode, costTracker }
+ * @returns {Promise<{ text: string, inputTokens: number, outputTokens: number, model: string }>}
+ */
+async function callLLM(systemPrompt, userPrompt, opts = {}) {
+  const openaiKey = opts.openaiApiKey;
+
+  // Try GPT 5.4 first
+  if (openaiKey) {
+    try {
+      console.log('[storyPlanner] Calling GPT 5.4...');
+      const result = await callOpenAI(systemPrompt, userPrompt, {
+        apiKey: openaiKey,
+        temperature: opts.temperature || 0.8,
+        maxTokens: opts.maxTokens || 8000,
+        jsonMode: opts.jsonMode,
+      });
+      if (opts.costTracker) {
+        opts.costTracker.addTextUsage('gpt-5.4', result.inputTokens, result.outputTokens);
+      }
+      return { ...result, model: 'gpt-5.4' };
+    } catch (err) {
+      console.warn(`[storyPlanner] GPT 5.4 failed, falling back to Gemini: ${err.message}`);
+    }
+  }
+
+  // Fallback to Gemini
+  console.log(`[storyPlanner] Calling Gemini (${GEMINI_MODEL})...`);
+  const result = await callGeminiText(systemPrompt, userPrompt, {
+    maxOutputTokens: opts.maxTokens || 8000,
+    temperature: opts.temperature || 0.8,
+    responseMimeType: opts.jsonMode ? 'application/json' : undefined,
+  });
+  if (opts.costTracker) {
+    opts.costTracker.addTextUsage(GEMINI_MODEL, result.inputTokens, result.outputTokens);
+  }
+  return { ...result, model: GEMINI_MODEL };
+}
+
+/**
  * Plan a complete story with spread-by-spread outline.
  *
  * @param {object} childDetails - { name, age, gender, appearance, interests }
@@ -79,7 +165,7 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
  * @returns {Promise<{ title: string, spreads: Array<{ spreadNumber: number, text: string, illustrationDescription: string, layoutType: string, mood: string }> }>}
  */
 async function planStory(childDetails, theme, bookFormat, customDetails, opts = {}) {
-  const { costTracker, approvedTitle } = opts;
+  const { costTracker, approvedTitle, apiKeys } = opts;
 
   const isPictureBook = bookFormat === 'picture_book';
   const systemPrompt = isPictureBook ? PB_SYSTEM : ER_SYSTEM;
@@ -92,35 +178,34 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     userPrompt += `\n\nIMPORTANT: The book title has already been chosen by the customer: "${approvedTitle}". You MUST use this exact title. Build the story around this title. Do not invent a different title.`;
   }
 
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
-  console.log(`[storyPlanner] Using model: ${GEMINI_MODEL}, system prompt: ${systemPrompt.length} chars, user prompt: ${userPrompt.length} chars`);
 
-  const geminiStart = Date.now();
-  const response = await callGeminiText(systemPrompt, userPrompt, {
-    maxOutputTokens: 8000,
+  const llmStart = Date.now();
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 8000,
     temperature: 0.8,
-    responseMimeType: 'application/json',
+    jsonMode: true,
+    costTracker,
   });
-  const geminiMs = Date.now() - geminiStart;
+  const llmMs = Date.now() - llmStart;
 
-  console.log(`[storyPlanner] Gemini API call completed in ${geminiMs}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
-
-  if (costTracker) {
-    costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
-  }
+  console.log(`[storyPlanner] ${response.model} call completed in ${llmMs}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
 
   const content = response.text;
   const finishReason = response.finishReason;
 
   if (!content) {
-    console.error('[storyPlanner] Empty response from Gemini');
+    console.error('[storyPlanner] Empty response from LLM');
     throw new Error(`Empty response from story planner (finish_reason: ${finishReason})`);
   }
 
   if (finishReason === 'MAX_TOKENS') {
     console.warn(`[storyPlanner] Response truncated (finish_reason: MAX_TOKENS, ${content.length} chars). Attempting to salvage...`);
   }
-  console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${finishReason}`);
+  console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${finishReason || 'n/a'}`);
 
   let plan;
   try {
@@ -159,7 +244,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   // For picture books, do a rhyme/rhythm pass
   if (isPictureBook && plan.spreads.length > 0) {
-    plan = await applyRhymePass(plan, childDetails, costTracker);
+    plan = await applyRhymePass(plan, childDetails, costTracker, openaiKey);
   }
 
   // Enforce spread cap
@@ -192,9 +277,10 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
  * @param {object} plan
  * @param {object} childDetails
  * @param {object} [costTracker]
+ * @param {string} [openaiKey]
  * @returns {Promise<object>}
  */
-async function applyRhymePass(plan, childDetails, costTracker) {
+async function applyRhymePass(plan, childDetails, costTracker, openaiKey) {
   console.log(`[storyPlanner] Applying rhyme/rhythm pass...`);
 
   const spreadTexts = plan.spreads.map(s => `Spread ${s.spreadNumber}: ${s.text}`).join('\n');
@@ -206,16 +292,14 @@ Return a JSON object with a "spreads" array. Each item must have "spreadNumber" 
   const userPrompt = `Refine these spread texts to have a consistent rhyme scheme and rhythm:\n\n${spreadTexts}`;
 
   const rhymeStart = Date.now();
-  const response = await callGeminiText(systemPrompt, userPrompt, {
-    maxOutputTokens: 6000,
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 6000,
     temperature: 0.7,
-    responseMimeType: 'application/json',
+    jsonMode: true,
+    costTracker,
   });
-  console.log(`[storyPlanner] Rhyme pass Gemini call completed in ${Date.now() - rhymeStart}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
-
-  if (costTracker) {
-    costTracker.addTextUsage(GEMINI_MODEL, response.inputTokens, response.outputTokens);
-  }
+  console.log(`[storyPlanner] Rhyme pass ${response.model} call completed in ${Date.now() - rhymeStart}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
 
   try {
     const refined = JSON.parse(response.text || '{}');
