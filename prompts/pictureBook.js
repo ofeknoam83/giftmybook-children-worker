@@ -56,7 +56,8 @@ Generate a JSON response with this exact structure:
   "title": "The Book Title",
   "characterDescription": "Detailed visual description of the child character as they should appear in EVERY illustration: approximate age appearance, skin tone, hair color/style, facial features. This description must be consistent across all pages.",
   "characterOutfit": "Describe the child's outfit in detail — this EXACT outfit will be worn on EVERY page (e.g., 'bright red raincoat with yellow buttons, green rubber boots, blue striped scarf')",
-  "recurringElement": "A special recurring object or companion that appears throughout the story (e.g., 'a small orange cat with a bent ear', 'a glowing golden compass'). Describe its exact visual appearance so it looks the same in every illustration.",
+  "recurringElement": "A special recurring companion that appears throughout the story (e.g., 'a small orange cat with a bent ear and a tiny blue collar'). Describe its exact visual appearance.",
+  "keyObjects": "Describe ALL important objects in the story with EXACT colors and details. These must look identical on every page. Example: 'a bright red tricycle with silver handlebars and a white basket, a yellow kite with blue stripes'. Be very specific about colors.",
   "spreads": [
     {
       "spreadNumber": 1,

@@ -381,6 +381,7 @@ async function generateAllIllustrations(storyPlan, childDetails, characterRef, s
           characterOutfit: outfit,
           characterDescription: storyPlan.characterDescription || '',
           recurringElement: storyPlan.recurringElement || '',
+          keyObjects: storyPlan.keyObjects || '',
           childPhotoUrl: resolvedChildPhotoUrl,
           _cachedPhotoBase64: cachedPhotoBase64,
           _cachedPhotoMime: cachedPhotoMime,

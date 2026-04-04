@@ -86,7 +86,7 @@ function buildGenericSafePrompt(artStyle) {
  * @param {string} [childName] - Child's name for character anchoring
  * @returns {string} Complete prompt
  */
-function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement) {
+function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
 
   const parts = [
@@ -116,8 +116,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   if (recurringElement) {
     parts.push('');
-    parts.push(`RECURRING ELEMENT (appears in every scene): ${recurringElement}`);
-    parts.push('This element must look identical across all pages (same color, shape, size — can be shown from different angles).');
+    parts.push(`RECURRING COMPANION (appears in every scene): ${recurringElement}`);
+    parts.push('This companion must look identical across all pages.');
+  }
+
+  if (keyObjects) {
+    parts.push('');
+    parts.push('KEY OBJECTS (must look EXACTLY the same on every page — same colors, same details):');
+    parts.push(keyObjects);
+    parts.push('Do NOT change the color or appearance of any object between pages.');
   }
 
   parts.push('');
@@ -286,7 +293,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement);
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects);
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);
