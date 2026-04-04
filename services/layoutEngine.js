@@ -107,7 +107,10 @@ async function assemblePdf(spreads, bookFormat, opts = {}) {
 async function prepareImage(buffer, format, layoutType) {
   const dims = getImageDimensions(format, layoutType);
   return sharp(buffer)
-    .resize(Math.round(dims.width), Math.round(dims.height), { fit: 'cover' })
+    .resize(Math.round(dims.width), Math.round(dims.height), {
+      fit: 'contain',
+      background: { r: 255, g: 255, b: 255, alpha: 1 }
+    })
     .png()
     .toBuffer();
 }

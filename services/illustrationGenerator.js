@@ -135,6 +135,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
   parts.push('');
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
   if (pageText) {
