@@ -85,285 +85,153 @@ function getAgeTier(age) {
   return { tier: 4, config: AGE_TIERS[4] };
 }
 
-// ── V2 Brief Template ──
-// The full brief text from children-writer-v2-prompt.txt with {variable} placeholders.
+// ── V3 Brief Template (Author-Level) ──
 
-const V2_BRIEF_TEMPLATE = `CHILDREN'S BEDTIME BOOK GENERATION BRIEF
-You are writing a personalized bedtime picture book for a child.
-This is a full 32–36 page printed picture book in standard open-book format.
+const V2_BRIEF_TEMPLATE = `CHILDREN'S BEDTIME BOOK GENERATION — V3 (AUTHOR-LEVEL)
+
+You are writing a personalized bedtime picture book that should feel as if it was written by a world-class children's author.
+
+This is NOT generic content.
+This book must feel intentional, specific, emotional, and re-readable.
 
 -------------------------------------
-INPUT VARIABLES
+CORE PRINCIPLE
+-------------------------------------
+The child is the active emotional force of the story.
+The story does not happen to the child — the child changes the story.
+
+-------------------------------------
+INPUTS
 -------------------------------------
 - Child name: {name}
-- Age: {age}  (0–12)
-- Favorite object/toy: {favorite_object}
+- Age: {age} (minimum 3)
+- Favorite object: {favorite_object}
 - Fear or challenge: {fear}
-- Setting preference (optional): {setting}
+- Setting (optional): {setting}
 - Dedication (optional): {dedication}
 
-VARIABLE ROLES (read before writing):
-- {favorite_object} is load-bearing. It must either help solve the problem
-  OR represent the child's courage. Name it specifically every time.
-  Never call it "the toy."
-- {fear} must appear as a concrete story obstacle the child moves THROUGH —
-  not around, not metaphorically. Exception: Tier 1 (ages 0–2).
-- {setting} (if provided) must shape at least 6 spread_image_prompts visually.
-- {dedication} (if provided): use as written on the dedication page.
-  If not provided, write: "For {name}."
-
 -------------------------------------
-AGE TIER CALIBRATION (apply before writing)
+WRITING QUALITY OVERRIDES (MANDATORY)
 -------------------------------------
-Read {age} and lock in the corresponding tier. Do not blend tiers.
+- Never state emotions directly (no: "she was scared", "he felt happy").
+  Always show emotion through action, sensory detail, or environment.
 
-TIER 1 — Ages 0–2 (Board Book)
-- Vocabulary: single-syllable words preferred. Max 50 unique words total.
-- Sentences: 1–2 per spread. Subject-verb only. ("The bunny sleeps.")
-- Structure: no arc required. Repetition IS the structure.
-- Conflict: none. Sensory observation only.
-- Dialogue: none, or single-word utterances ("Oh." / "Warm.")
-- Image prompts: extreme close-up, high contrast, single subject per scene.
-- {fear} input: ignore. Replace with a gentle sensory discomfort (too loud,
-  too bright) that simply fades by the final spread.
-- Pacing: every spread is already calm. No phasing required.
+- Every spread must contain a small tension, question, or imbalance.
 
-TIER 2 — Ages 3–5 (Classic Picture Book)
-- Vocabulary: conversational, concrete. No words above 2 syllables unless a name.
-- Sentences: 2–4 per spread, distributed across left and right pages.
-- Structure: full story arc applies.
-- Conflict: present but never scary. Stakes are emotional, not physical.
-- Dialogue: 2 exchanges required.
-- Image prompts: wide establishing shots mixed with close emotional moments.
-- {fear} input: use as written.
+- The child must actively cause the turning point and resolution.
 
-TIER 3 — Ages 6–8 (Early Reader / Illustrated Story)
-- Vocabulary: up to 3-syllable words. May introduce one new word per story.
-- Sentences: up to 6 per spread. Compound sentences allowed.
-- Structure: arc may include a false resolution before true resolution.
-- Conflict: mild physical stakes allowed (lost, stuck, alone in the dark).
-- Dialogue: 3 exchanges required. May include subtext.
-- Image prompts: layered scenes with background detail permitted.
-- {fear} input: use as written. May be specific and named.
+- Use concrete, sensory language. Avoid vague words like "thing", "stuff", "very", "nice", "pretty", "fun", "special", "magical".
 
-TIER 4 — Ages 9–12 (Illustrated Chapter / Bedtime Story)
-- Vocabulary: no restriction. Metaphor and irony permitted.
-- Sentences: up to 8 per spread. Varied rhythm intentional.
-- Structure: arc may include a secondary character with their own want.
-- Conflict: emotional complexity allowed (embarrassment, grief, longing).
-- Dialogue: 3–4 exchanges. Subtext expected. Characters may be unreliable.
-- Image prompts: cinematic framing, shadow/light contrast, symbolic detail.
-- {fear} input: may be treated as an internal state, not just external obstacle.
-- Pacing: Phase 2 begins at spread 13, not spread 11.
+- Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
 
--------------------------------------
-OUTPUT FORMAT (MANDATORY)
--------------------------------------
-Generate the following structure, in order:
+- At least 2 spreads should rely primarily on visuals (minimal or no text).
 
-FRONT MATTER (3 fixed entries, not spreads):
+- Include one subtle emotional layer that resonates with the parent reading.
 
-1. title_page:
-   {
-     "type": "title_page",
-     "page": "right",
-     "title": "...",
-     "subtitle": "A bedtime story for {name}",
-     "image_prompt": "..."
-   }
+- Every 2 spreads must include at least one short sentence (<=5 words) for rhythm.
 
-2. blank_page:
-   {
-     "type": "blank",
-     "page": "left"
-   }
-
-3. dedication_page:
-   {
-     "type": "dedication_page",
-     "page": "right",
-     "text": "...",
-     "image_prompt": "..."
-   }
-
-4. blank_page:
-   {
-     "type": "blank",
-     "page": "left"
-   }
-
-STORY SPREADS (14–16 spreads):
-
-Each spread:
-{
-  "type": "spread",
-  "spread": [number 1–16],
-  "left": {
-    "text": "...",
-    "image_prompt": "..." or null
-  },
-  "right": {
-    "text": "...",
-    "image_prompt": "..." or null
-  },
-  "spread_image_prompt": "..."
-}
-
-Rules:
-- spread_image_prompt describes the full two-page illustration as one composition.
-  Always specify: lighting, dominant color palette, perspective, and one texture detail.
-  Art style is consistent across all spreads. Do NOT specify the art medium in the image prompt — the art style is handled separately.
-- left.image_prompt and right.image_prompt are optional. Use only when the spread
-  splits into two distinct panels rather than one full bleed illustration.
-- Text may appear on left, right, or both — distribute naturally.
-  A page may have null text if the illustration carries the moment alone.
-- Never describe emotion directly in image prompts.
-  Show it through body language, environment, and light.
-
-JSON hygiene: straight quotes only. Use apostrophes directly inside strings (they don't need escaping in JSON).
-No newlines inside string values. Return the entire output as a single valid JSON array.
-
--------------------------------------
-STORY STRUCTURE (MANDATORY ARC)
--------------------------------------
-Tier 1: no arc. Distribute sensory observations evenly across spreads.
-
-Tiers 2–4 — map arc to spreads as follows:
-
-Spreads 1–2:   Setup (normal world, emotional need introduced)
-Spreads 3–7:   Rising tension (problem escalates, child takes action)
-Spreads 8–12:  Resolution (child moves through the challenge)
-Spreads 13–14: Wind-down (world settles, emotion releases quietly)
-Spreads 15–16: Sleep / closing (child is still, safe, almost asleep)
-
-Tier 3 only: false resolution may occur at spread 7.
-Tier 4 only: secondary character with their own want introduced by spread 3.
-             Phase 2 pacing begins at spread 13.
-
--------------------------------------
-BEDTIME PACING (TWO-PHASE)
--------------------------------------
-Tier 1: every spread is already calm. No phasing required.
-
-Tiers 2–3:
-PHASE 1 — Spreads 1–12: Emotional aliveness.
-- Sentences full and sensory. Tension builds. Child is active, deciding, moving.
-
-PHASE 2 — Spreads 13–16: Deliberate de-escalation.
-- Each spread shorter and quieter than the one before.
-- Prefer slow verbs: drifted, settled, breathed, stayed.
-- Soften consonants. Shorten sentences.
-- Spread 15–16: maximum 2 sentences per page. Present tense preferred.
-  No conflict. No action. The child is already almost asleep.
-
-Tier 4:
-PHASE 1 — Spreads 1–12: Fuller sentences. Richer texture. Emotional complexity.
-PHASE 2 — Spreads 13–16: Same de-escalation rules as Tiers 2–3.
+- At least one line in the story must be memorable enough that a parent would want to repeat it even outside the book.
 
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
+Write with the qualities of master children's authors:
 
-Write as if this book could sit alongside the best children's books ever written.
+- Simple but precise language. Every word earns its place.
+- No cliches. No filler sentences.
+- Respect the child's intelligence — never talk down.
+- Emotion is implied, never explained.
+- Dialogue feels natural, curious, and childlike — not functional.
 
-Do NOT imitate or reference specific authors.
-Instead, apply the shared qualities of master storytellers:
-
-- The child is the emotional center and active force of the story.
-- Language is simple but never empty — every word earns its place.
-- Concrete details replace abstraction (show, don't explain).
-- Emotion is implied through action, rhythm, and imagery — never stated directly.
-- There is a quiet respect for the child's inner world (no talking down).
-- The story carries a second layer that resonates with the parent reading it aloud.
-
-RHYTHM AND MUSICALITY:
-- Sentences should feel good when read aloud.
-- Use variation: short lines for impact, longer lines for flow.
-- Occasional gentle repetition is encouraged for emotional effect.
+RHYTHM:
+- The text must sound beautiful when read aloud.
+- Vary sentence length intentionally.
+- Use gentle repetition for emotional effect.
 
 TONE:
-- Warm, intimate, and slightly poetic — but never ornate.
-- Avoid cliches, moralizing, or generic phrasing.
-- Prefer specificity and originality in every line.
-
-DIALOGUE:
-- Dialogue must reveal character or emotion, not just move the plot.
-- Children speak naturally, with curiosity and feeling — not exposition.
-- Dialogue count by tier: Tier 1: none. Tier 2: 2 exchanges. Tier 3: 3 exchanges. Tier 4: 3-4 exchanges.
-- Dialogue 1 (spreads 3-7): reveals emotional state indirectly.
-- Dialogue 2 (spreads 8-12): marks a turning point or decision.
-
-ENDING:
-- The final lines should feel like a soft landing, not a conclusion.
-- Aim for emotional resonance, not a lesson.
+- Warm, intimate, slightly poetic.
+- Calm but emotionally alive.
+- Avoid moralizing or explicit lessons.
 
 -------------------------------------
-WRITING QUALITY OVERRIDES
+STORY ENGINE
 -------------------------------------
-- The child must actively cause the resolution — not witness it, not have it happen to them.
-- Every spread must contain a small tension or question that pulls the reader to the next page.
-- Use concrete, sensory language. Avoid vague words ("nice," "pretty," "fun," "special," "magical").
-- Include one repeated phrase that appears early, returns in the middle, and evolves by the climax.
-- The final line must feel like a quiet whisper suitable for bedtime.
-- At least 2 spreads should rely primarily on visuals (minimal or no text — let the image carry the moment).
-- Include one subtle emotional layer that resonates with the parent reading aloud (loss, time passing, growing up, letting go).
-- Banned phrases: "very sad," "very happy," "suddenly," "magical," "special adventure," "what a fun," "full of magic."
+- {favorite_object} is essential — it must actively help OR represent courage.
+  Name it specifically every time. Never call it "the toy."
+- {fear} must appear as a real obstacle the child moves THROUGH.
+- {setting} (if provided) must shape the visual world of the story.
+- {dedication} (if provided): use as written. If not provided, write: "For {name}."
 
-ILLUSTRATION CONTINUITY
-- {name}'s appearance (hair, clothing, skin tone if inferable) must be
-  consistent across all spread_image_prompts.
+STRUCTURE:
+
+Spreads 1-2:   Setup (normal world + emotional need)
+Spreads 3-7:   Rising tension (problem grows, uncertainty increases)
+Spreads 8-12:  Turning point + resolution (child takes action)
+Spreads 13-14: Emotional release (world softens)
+Spreads 15-16: Sleep / stillness
+
+-------------------------------------
+TRANSFORMATION RULE (CRITICAL)
+-------------------------------------
+A repeated element (word, phrase, or concept — e.g. "the dark") must:
+
+- Start as something uncertain or threatening
+- Gradually change
+- End as something safe, understood, or gentle
+
+-------------------------------------
+ENDING RULES (CRITICAL)
+-------------------------------------
+- The final lines must feel like a whisper, not a conclusion.
+- The world must feel physically and emotionally safe.
+- The {favorite_object} should be present in the final moment.
+- End with an image or feeling — NOT a lesson.
+
+-------------------------------------
+ILLUSTRATION PROMPTS
+-------------------------------------
+For each spread, include a spread_image_prompt that describes the visual scene.
+- Describe composition, lighting, color palette, perspective, and one texture detail.
+- Do NOT specify art medium or style — that is handled separately.
+- Show emotion through body language, environment, and light — never label it.
+- {name}'s appearance must be consistent across all prompts.
 - {favorite_object} must look identical every time it appears.
-- Time of day and lighting must follow story logic across spreads
-  (e.g. if it begins at dusk, it should be dark by spread 8).
+- Time of day and lighting must follow story logic.
 
 -------------------------------------
-HARD CONSTRAINTS (DO NOT VIOLATE)
+OUTPUT FORMAT (MANDATORY JSON)
 -------------------------------------
-- Spread count: minimum 14, maximum 16
-- Sentence count per spread: see Age Tier Calibration
-- Vocabulary ceiling: see Age Tier Calibration
-- No moral lessons stated explicitly
-- No "and then they learned…" endings
-- No generic fantasy clichés without grounded cause
-- No passive storytelling
-- {favorite_object} named specifically in at least 6 spreads
-- {fear} present as a concrete plot element in at least 2 spreads (Tiers 2–4)
-- {name} appears in at least 10 spreads
-- Illustration continuity maintained across all spreads
+Return a JSON object with this structure:
+{
+  "entries": [
+    { "type": "title_page", "page": "right", "title": "...", "subtitle": "A bedtime story for {name}" },
+    { "type": "blank", "page": "left" },
+    { "type": "dedication_page", "page": "right", "text": "..." },
+    { "type": "blank", "page": "left" },
+    { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
+    ...16 spreads total...
+  ]
+}
+
+Rules:
+- Text may appear on left, right, or both. A page may have null text for visual-only spreads.
+- spread_image_prompt describes the full illustration scene.
+- Do NOT specify art medium in spread_image_prompt.
+- Use apostrophes directly in strings (no escaping needed).
+- No newlines inside string values.
 
 -------------------------------------
-PERSONALIZATION COHERENCE CHECK
+FINAL CHECK BEFORE OUTPUT
 -------------------------------------
-Before returning JSON, verify:
-- Age tier identified and locked — no blending
-- Front matter complete: title page, blank, dedication, blank — in order
-- Spread count is between 14 and 16
-- {name} appears naturally in at least 10 spreads
-- {favorite_object} named specifically in >= 6 spreads
-- {fear} present as a concrete plot element in >= 2 spreads (Tiers 2–4),
-  or replaced with fading sensory discomfort (Tier 1)
-- {setting} shapes at least 6 spread_image_prompts
-- Dialogue count matches tier requirement
-- Dialogue 1 and Dialogue 2 serve their structural roles (Tiers 2–4)
-- Pacing phase boundary matches tier
-- Spreads 15–16 have <= 2 sentences per page, no conflict, no action
-- Illustration continuity consistent across all spread_image_prompts
-- Output is valid JSON — no newlines inside strings, apostrophes escaped
+Before writing, silently verify:
+- Is the child the one who changes the outcome?
+- Is emotion shown, not told?
+- Is there at least one memorable line a parent would repeat outside the book?
+- Does the repeated phrase transform from uncertain to safe?
+- Does the ending feel soft and satisfying?
+- Are there at least 2 visual-only spreads?
 
-If any box fails — revise before returning JSON.
-
--------------------------------------
-GOAL
--------------------------------------
-Create a story that:
-- Matches the cognitive and emotional register of a {age}-year-old exactly —
-  neither talking down nor reaching beyond
-- Feels personal and emotionally true to this specific child
-- Uses the full spread format — text and image working as one composition,
-  not text illustrated, but story told in two languages simultaneously
-- Builds genuine tension before releasing it (Tiers 2–4)
-- Gradually soothes into sleep without announcing that it's doing so
-- Leaves a quiet emotional resonance — not a lesson, not a hug, just a feeling`;
+Only proceed if all answers are YES.`;
 
 /**
  * Build the complete V2 brief with variables substituted.
