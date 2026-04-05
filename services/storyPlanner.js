@@ -138,6 +138,86 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
 }
 
 /**
+ * Brainstorm a unique story seed based on the child's details.
+ * Returns { favorite_object, fear, setting, storySeed } with creative,
+ * non-generic elements tailored to this specific child.
+ *
+ * @param {object} childDetails - { name, age, gender, interests }
+ * @param {string} customDetails - freeform text from the customer
+ * @param {string} approvedTitle - if set, the story must fit this title
+ * @param {object} [opts] - { apiKeys, costTracker }
+ * @returns {Promise<object>} { favorite_object, fear, setting, storySeed }
+ */
+async function brainstormStorySeed(childDetails, customDetails, approvedTitle, opts = {}) {
+  const { costTracker, apiKeys } = opts;
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  const name = childDetails.name || childDetails.childName || 'the child';
+  const age = childDetails.age || childDetails.childAge || 5;
+  const gender = childDetails.gender || childDetails.childGender || '';
+  const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
+
+  const systemPrompt = `You are a creative children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized bedtime picture book.
+
+You will receive details about a child. From these details, invent:
+
+1. favorite_object: A specific companion or object the child carries through the story. NOT a generic teddy bear unless the customer mentioned one. Be creative — it could be a blanket with a name, a toy dinosaur, a music box, a pair of rain boots, a jar of fireflies, etc. If the child has interests, draw from those.
+
+2. fear: A gentle challenge or emotional tension for a bedtime story. NOT always "the dark". Could be: a sound they can't identify, a missing thing they need to find, a place that looks different at night, a friend who isn't answering, being too small to reach something, a storm outside, the feeling of being alone, etc. Make it age-appropriate and specific.
+
+3. setting: A vivid, specific world for the story. NOT "an enchanted forest" every time. Could be: the garden behind their house at twilight, a houseboat on a still lake, a rooftop where pigeons sleep, a grandmother's kitchen that transforms at night, a library after closing time, a train car with curtained windows, etc.
+
+4. storySeed: One sentence describing the unique emotional journey. Example: "A child discovers that the rumbling sound in the walls is just the old house settling, and learns to hear it as a lullaby."
+
+Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
+
+Return JSON: { "favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "..." }`;
+
+  const parts = [`Child: ${name}, age ${age}`];
+  if (gender && gender !== 'neutral' && gender !== 'not specified') {
+    parts.push(gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : gender);
+  }
+  if (interests.length) parts.push(`Interests: ${interests.join(', ')}`);
+  if (customDetails) parts.push(`Customer note: ${customDetails}`);
+  if (approvedTitle) parts.push(`The book title is already chosen: "${approvedTitle}". The story seed must fit this title.`);
+
+  const userPrompt = parts.join('. ');
+
+  console.log(`[storyPlanner] Brainstorming story seed for ${name}...`);
+  const seedStart = Date.now();
+
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 500,
+    temperature: 1.0,
+    jsonMode: true,
+    costTracker,
+  });
+
+  const seedMs = Date.now() - seedStart;
+  console.log(`[storyPlanner] Story seed brainstormed in ${seedMs}ms (${response.model})`);
+
+  let content = response.text;
+  content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+
+  let seed;
+  try {
+    seed = JSON.parse(content);
+  } catch (e) {
+    const stripped = content.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    try {
+      seed = JSON.parse(stripped);
+    } catch (_) {
+      console.warn(`[storyPlanner] Story seed JSON parse failed — using defaults`);
+      return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
+    }
+  }
+
+  console.log(`[storyPlanner] Story seed: object="${seed.favorite_object}", fear="${seed.fear}", setting="${seed.setting}"`);
+  return seed;
+}
+
+/**
  * Plan a complete V2 story.
  *
  * @param {object} childDetails - { name, age, gender, appearance, interests }
@@ -628,4 +708,4 @@ async function polishStory(storyPlan, opts = {}) {
   };
 }
 
-module.exports = { planStory, polishStory };
+module.exports = { planStory, polishStory, brainstormStorySeed };

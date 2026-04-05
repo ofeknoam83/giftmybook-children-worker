@@ -29,7 +29,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
@@ -648,14 +648,41 @@ app.post('/generate-book', authenticate, async (req, res) => {
       // Character reference generation skipped — Gemini illustrations use child photo directly
       const characterRef = null;
 
-      // ── V2 Variables ──
-      const favorite_object = (childDetails.interests && childDetails.interests[0]) ? `a ${childDetails.interests[0]}` : 'a stuffed bear';
-      const fear = 'the dark'; // default for bedtime books
-      const setting = theme === 'adventure' ? 'an enchanted forest' :
-                      theme === 'bedtime' ? 'a cozy bedroom' :
-                      theme === 'birthday' ? 'a birthday party world' : 'a magical place';
+      // ── Brainstorm unique story seed ──
+      bookContext.log('info', 'Brainstorming unique story seed');
+      if (progressCallbackUrl) {
+        reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.10, message: 'Brainstorming story idea...', logs: bookContext.logs });
+      }
+      let storySeed;
+      try {
+        storySeed = await brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker });
+        bookContext.log('info', 'Story seed ready', {
+          favorite_object: storySeed.favorite_object,
+          fear: storySeed.fear,
+          setting: (storySeed.setting || '').slice(0, 80),
+          storySeed: (storySeed.storySeed || '').slice(0, 100),
+        });
+      } catch (seedErr) {
+        bookContext.log('warn', `Story seed brainstorm failed — using defaults: ${seedErr.message}`);
+        storySeed = { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
+      }
+      bookContext.touchActivity();
+
       const dedication = `For ${childDetails.name || 'the child'}`;
-      const v2Vars = { name: childDetails.name, age: childDetails.age || 5, favorite_object, fear, setting, dedication };
+      const v2Vars = {
+        name: childDetails.name,
+        age: childDetails.age || 5,
+        favorite_object: storySeed.favorite_object || 'a stuffed bear',
+        fear: storySeed.fear || 'the dark',
+        setting: storySeed.setting || 'a magical place',
+        dedication,
+      };
+
+      // Append story seed to custom details so the planner has the full creative direction
+      let enrichedCustomDetails = customDetails || '';
+      if (storySeed.storySeed) {
+        enrichedCustomDetails += `\n\nSTORY SEED (use as creative direction): ${storySeed.storySeed}`;
+      }
 
       // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
       let storyPlan;
@@ -672,7 +699,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
 
         const stage3Start = Date.now();
-        storyPlan = await planStory(childDetails, theme || 'adventure', format, customDetails || '', {
+        storyPlan = await planStory(childDetails, theme || 'adventure', format, enrichedCustomDetails, {
           apiKeys,
           costTracker,
           approvedTitle,
