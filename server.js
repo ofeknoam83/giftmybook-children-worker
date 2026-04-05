@@ -684,17 +684,27 @@ app.post('/generate-book', authenticate, async (req, res) => {
             { maxRetries: 3, baseDelayMs: 1000, label: `download-cover-ref-${bookId}` }
           );
           preGeneratedCoverBuffer = coverBuf;
+
+          // Use 256px cover for vision analysis (needs detail for style extraction)
+          const coverForVision = await sharp(coverBuf)
+            .resize(256, 256, { fit: 'cover' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          const coverForVisionBase64 = coverForVision.toString('base64');
+
+          // Use 64px cover as illustration reference (small payload for each Gemini image call)
           const resizedCover = await sharp(coverBuf)
             .resize(64, 64, { fit: 'cover' })
             .jpeg({ quality: 60 })
             .toBuffer();
           characterRefBase64 = resizedCover.toString('base64');
           characterRefMime = 'image/jpeg';
-          bookContext.log('info', 'Cover downloaded and resized for character reference', { originalBytes: coverBuf.length, refBytes: resizedCover.length, ms: Date.now() - stage6Start });
+          bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, visionBytes: coverForVision.length, refBytes: resizedCover.length, ms: Date.now() - stage6Start });
 
-          // Extract detailed character appearance from the cover using Gemini vision
+          // Extract character appearance + art style from cover using Gemini vision (256px)
           try {
-            const apiKey = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+            const { getNextApiKey } = require('./services/illustrationGenerator');
+            const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
             const visionResp = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
               {
@@ -702,8 +712,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Analyze this children's book cover and provide TWO sections:\n\nCHARACTER DESCRIPTION:\nDescribe the child character in precise visual detail for an illustrator. Include:\n- Hair: color, style, length (e.g., "short curly brown hair")\n- Eyes: color, shape (e.g., "big round green eyes")\n- Skin tone (e.g., "light olive skin with rosy cheeks")\n- Age appearance (e.g., "looks about 5 years old")\n- Face shape and distinguishing features\n- Exact outfit and accessories\n\nART STYLE DESCRIPTION:\nDescribe the exact art style of this cover so another illustrator can replicate it precisely. Include:\n- Medium (watercolor, digital, gouache, pencil, etc.)\n- Color palette (warm, cool, muted, vibrant, specific dominant colors)\n- Line quality (soft edges, bold outlines, ink outlines, no outlines)\n- Texture (paper texture, smooth, grainy, etc.)\n- Lighting style (soft, dramatic, flat, warm glow, etc.)\n- Overall mood/atmosphere of the visual style\n- Any distinctive techniques (splatters, gradients, cross-hatching, etc.)\n\nRespond in this exact format:\nCHARACTER: [character description]\nSTYLE: [art style description]` },
-                    { inline_data: { mime_type: 'image/jpeg', data: characterRefBase64 } },
+                    { text: `Analyze this children's book cover image and respond with exactly two labeled sections.\n\nCHARACTER:\nDescribe the child character in precise visual detail: hair (color, style, length), eyes (color, shape), skin tone, age appearance, face shape, outfit and accessories.\n\nSTYLE:\nDescribe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.\n\nYou MUST start the first section with the word CHARACTER: and the second with STYLE:` },
+                    { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
                   ]}],
                   generationConfig: { maxOutputTokens: 1000, temperature: 0.2 },
                 }),
@@ -715,8 +725,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
               const extractedDesc = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
               if (extractedDesc && extractedDesc.length > 20) {
                 // Parse CHARACTER and STYLE sections
-                const charMatch = extractedDesc.match(/CHARACTER:\s*([\s\S]*?)(?=STYLE:|$)/i);
-                const styleMatch = extractedDesc.match(/STYLE:\s*([\s\S]*?)$/i);
+                const charMatch = extractedDesc.match(/CHARACTER[:\s]+([\s\S]*?)(?=\nSTYLE[:\s]|$)/i);
+                const styleMatch = extractedDesc.match(/STYLE[:\s]+([\s\S]*?)$/i);
                 if (charMatch?.[1]?.trim()) {
                   storyPlan.characterDescription = charMatch[1].trim();
                   bookContext.log('info', 'Character appearance extracted from cover', { description: charMatch[1].trim().slice(0, 100) });
@@ -727,6 +737,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 if (styleMatch?.[1]?.trim()) {
                   storyPlan.coverArtStyle = styleMatch[1].trim();
                   bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 150) });
+                } else {
+                  bookContext.log('info', 'Cover art style not extracted — using pixar_premium default');
                 }
               }
             }
