@@ -15,6 +15,10 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const sharp = require('sharp');
 
 const BLEED = 9; // 0.125" in pts — Lulu standard
+const SAFETY_MARGIN = 36; // 0.5" in pts — Lulu minimum safety from trim edge
+const GUTTER_MARGIN = 15; // ~0.21" in pts — Lulu minimum 0.20" on binding edge
+const TARGET_DPI = 300;
+const PTS_PER_INCH = 72;
 
 const FORMATS = {
   PICTURE_BOOK: { width: 612, height: 612, label: '8.5x8.5' },
@@ -26,14 +30,21 @@ const LULU_MIN_PAGES = 32;
 /**
  * Draw text overlay at the bottom of a page with a semi-transparent
  * white background for readability over illustrations.
+ *
+ * @param {string} [bindingSide] - 'left' or 'right' indicating which edge is the binding
  */
-function drawTextOverlay(page, font, text, pageWidth, pageHeight) {
+function drawTextOverlay(page, font, text, pageWidth, pageHeight, bindingSide) {
   if (!text) return;
 
   const fontSize = 14;
   const lineHeight = fontSize * 1.5;
-  const maxTextWidth = pageWidth - 80; // 40pt margin each side
-  const marginBottom = BLEED + 30;
+  const sideMargin = BLEED + SAFETY_MARGIN; // 0.5" from trim on each side
+  const gutterExtra = GUTTER_MARGIN; // additional margin on binding edge
+
+  const marginLeft = bindingSide === 'left' ? sideMargin + gutterExtra : sideMargin;
+  const marginRight = bindingSide === 'right' ? sideMargin + gutterExtra : sideMargin;
+  const maxTextWidth = pageWidth - marginLeft - marginRight;
+  const marginBottom = BLEED + SAFETY_MARGIN;
 
   // Word-wrap the text
   const words = text.split(/\s+/);
@@ -52,25 +63,27 @@ function drawTextOverlay(page, font, text, pageWidth, pageHeight) {
   }
   if (currentLine) lines.push(currentLine);
 
-  const textBlockHeight = lines.length * lineHeight + 20; // 10pt padding top + bottom
+  const textBlockHeight = lines.length * lineHeight + 20;
   const bgY = marginBottom - 10;
   const bgHeight = textBlockHeight;
+  const bgX = marginLeft - 10;
+  const bgWidth = pageWidth - marginLeft - marginRight + 20;
 
   // Semi-transparent white background
   page.drawRectangle({
-    x: 20,
+    x: bgX,
     y: bgY,
-    width: pageWidth - 40,
+    width: bgWidth,
     height: bgHeight,
     color: rgb(1, 1, 1),
     opacity: 0.75,
     borderWidth: 0,
   });
 
-  // Draw each line centered
+  // Draw each line centered within the safe text area
   for (let i = 0; i < lines.length; i++) {
     const lineWidth = font.widthOfTextAtSize(lines[i], fontSize);
-    const x = (pageWidth - lineWidth) / 2;
+    const x = marginLeft + (maxTextWidth - lineWidth) / 2;
     const y = bgY + bgHeight - 10 - (i * lineHeight) - fontSize;
     page.drawText(lines[i], {
       x,
@@ -83,21 +96,18 @@ function drawTextOverlay(page, font, text, pageWidth, pageHeight) {
 }
 
 /**
- * Embed an image buffer full-bleed onto a PDF page.
+ * Embed an image buffer full-bleed onto a PDF page at print-quality DPI.
  */
 async function embedImageFullBleed(pdfDoc, page, imageBuffer, pageWidth, pageHeight) {
+  const targetWidthPx = Math.round(pageWidth / PTS_PER_INCH * TARGET_DPI);
+  const targetHeightPx = Math.round(pageHeight / PTS_PER_INCH * TARGET_DPI);
+
   const resized = await sharp(imageBuffer)
-    .resize(Math.round(pageWidth), Math.round(pageHeight), { fit: 'cover' })
-    .png()
+    .resize(targetWidthPx, targetHeightPx, { fit: 'cover' })
+    .jpeg({ quality: 95 })
     .toBuffer();
 
-  let img;
-  try {
-    img = await pdfDoc.embedPng(resized);
-  } catch {
-    img = await pdfDoc.embedJpg(resized);
-  }
-
+  const img = await pdfDoc.embedJpg(resized);
   page.drawImage(img, { x: 0, y: 0, width: pageWidth, height: pageHeight });
 }
 
@@ -205,12 +215,12 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
           await embedImageFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer, pageWidth, pageHeight);
         }
 
-        // Text overlays
+        // Text overlays (left page binding is on right, right page binding is on left)
         if (entry.left?.text) {
-          drawTextOverlay(leftPage, font, entry.left.text, pageWidth, pageHeight);
+          drawTextOverlay(leftPage, font, entry.left.text, pageWidth, pageHeight, 'right');
         }
         if (entry.right?.text) {
-          drawTextOverlay(rightPage, font, entry.right.text, pageWidth, pageHeight);
+          drawTextOverlay(rightPage, font, entry.right.text, pageWidth, pageHeight, 'left');
         }
         break;
       }

@@ -119,7 +119,7 @@ const ART_STYLE_CONFIG = {
 };
 
 /** Words that may trigger NSFW filters in children's book contexts */
-const NSFW_TRIGGER_WORDS = /\b(naked|nude|bare|undress|strip|bath(?:ing|e)?|blood|kill|dead|death|gun|knife|weapon|fight|violent|scary|horror|monster|demon|devil|drunk|alcohol|drug|kiss|love|romantic|sexy|seductive|provocative|sensual|intimate|bedroom|lingerie)\b/gi;
+const NSFW_TRIGGER_WORDS = /\b(naked|nude|bare|undress|strip|blood|kill|dead|death|gun|knife|weapon|fight|violent|scary|horror|monster|demon|devil|drunk|alcohol|drug|kiss|love|romantic|sexy|seductive|provocative|sensual|intimate|lingerie)\b/gi;
 
 /**
  * Sanitize a prompt to reduce NSFW filter triggers.

@@ -10,12 +10,12 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 ## Key Services
 
-- `storyPlanner.js` — GPT-5.4 plans spread-by-spread story outline
-- `textGenerator.js` — GPT-5.4 generates age-appropriate text per spread
-- `illustrationGenerator.js` — Replicate Flux.1 + IP-Adapter FaceID for face-consistent illustrations
-- `faceEngine.js` — Face embedding extraction and character reference generation
-- `layoutEngine.js` — pdf-lib assembles spreads into print-ready PDF
-- `coverGenerator.js` — Generates front/back/spine cover
+- `storyPlanner.js` — GPT-5.4 (Gemini fallback) plans complete V2 story with text + illustration prompts in one call
+- `textGenerator.js` — Gemini Flash generates age-appropriate text per spread (legacy, used by /generate-spread)
+- `illustrationGenerator.js` — Gemini 3.1 Flash image API with child photo reference for face-consistent illustrations
+- `faceEngine.js` — Gemini Vision face validation and appearance description (cached in GCS)
+- `layoutEngine.js` — pdf-lib assembles V2 entries into Lulu-compliant print-ready PDF
+- `coverGenerator.js` — Generates Lulu wrap-around cover PDF (back + spine + front)
 
 ## Book Formats
 
@@ -26,9 +26,12 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 - `API_KEY` — Auth key for incoming requests
 - `GCS_BUCKET_NAME` — Google Cloud Storage bucket
-- `OPENAI_API_KEY` — For GPT-5.4 text generation
-- `REPLICATE_API_TOKEN` — For Flux illustration generation
-- `GEMINI_API_KEY` — For Gemini Flash vocabulary/quality checks
+- `OPENAI_API_KEY` — For GPT-5.4 text generation (story planning primary)
+- `GEMINI_API_KEY` — For Gemini Flash text and vocabulary checks
+- `GEMINI_API_KEY_1` through `GEMINI_API_KEY_10` — Round-robin pool for parallel illustration generation
+- `GOOGLE_AI_STUDIO_KEY` — Fallback Gemini key
+- `GEMINI_PROXY_URL`, `GEMINI_PROXY_API_KEY` — Optional proxy endpoint for illustration fallback
+- `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 
 ## Conventions

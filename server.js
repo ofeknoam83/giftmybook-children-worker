@@ -35,7 +35,7 @@ const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
 const { generateCover } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
-const { reportProgress, reportComplete, reportError } = require('./services/progressReporter');
+const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
 const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
@@ -141,6 +141,7 @@ function createBookContext(bookId) {
 
 function removeBookContext(bookId) {
   activeBooks.delete(bookId);
+  clearThrottle(bookId);
 }
 
 // Per-book watchdog: abort books idle > 15 minutes
@@ -156,8 +157,8 @@ setInterval(() => {
     }
   }
   if (activeBooks.size === 0 && (now - global.__lastGlobalActivity) > 600000) {
-    console.error('[watchdog] No active books for 10 minutes - exiting');
-    process.exit(1);
+    console.log('[watchdog] No active books for 10 minutes - exiting cleanly for Cloud Run to manage');
+    process.exit(0);
   }
 }, 30000);
 
@@ -385,7 +386,7 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
     if (childPhotoUrl) {
       try {
         const photoBuf = await downloadBuffer(childPhotoUrl);
-        const resized = await require('sharp')(photoBuf).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 60 }).toBuffer();
+        const resized = await require('sharp')(photoBuf).resize(512, 512, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
         cachedPhotoBase64 = resized.toString('base64');
         cachedPhotoMime = 'image/jpeg';
         bookContext.log('info', 'Photo cached for variant');
@@ -400,7 +401,7 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
     if (approvedCoverUrl) {
       try {
         const coverBuf = await downloadBuffer(approvedCoverUrl);
-        const resized = await require('sharp')(coverBuf).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 60 }).toBuffer();
+        const resized = await require('sharp')(coverBuf).resize(512, 512, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
         characterRefBase64 = resized.toString('base64');
         characterRefMime = 'image/jpeg';
       } catch (e) {
@@ -486,21 +487,29 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
 
     // 9. Callback
     bookContext.log('info', `Style variant '${style}' complete`);
+    const variantResult = { success: true, bookId, variantIndex, style, interiorPdfUrl, coverPdfUrl, previewImageUrls, logs: bookContext.logs };
     if (callbackUrl) {
       await fetch(callbackUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-        body: JSON.stringify({ success: true, bookId, variantIndex, style, interiorPdfUrl, coverPdfUrl, previewImageUrls }),
+        body: JSON.stringify(variantResult),
       }).catch(e => console.error(`Variant callback failed: ${e.message}`));
+    }
+    if (progressCallbackUrl) {
+      reportComplete(progressCallbackUrl, variantResult);
     }
   } catch (err) {
     bookContext.log('error', `Style variant failed: ${err.message}`);
+    const variantError = { success: false, bookId, variantIndex, style, error: err.message, logs: bookContext.logs };
     if (callbackUrl) {
       await fetch(callbackUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-        body: JSON.stringify({ success: false, bookId, variantIndex, style, error: err.message }),
+        body: JSON.stringify(variantError),
       }).catch(() => {});
+    }
+    if (progressCallbackUrl) {
+      reportError(progressCallbackUrl, variantError);
     }
   } finally {
     clearInterval(heartbeatInterval);
@@ -544,24 +553,28 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // Respond 202 immediately, process in background
   res.status(202).json({ success: true, status: 'processing', bookId });
 
+  let absoluteTimer = null;
+  let heartbeatInterval = null;
+
   const generationWork = (async () => {
     const bookWarnings = [];
     const bookStartTime = Date.now();
     bookContext.log('info', 'Book generation started', { childName, format, style, theme });
-    const absoluteTimer = setTimeout(() => {
+    absoluteTimer = setTimeout(() => {
       bookContext.log('error', 'Absolute timeout reached — aborting', { timeoutMin: ABSOLUTE_TIMEOUT_MS / 60000 });
       console.error(`[server] Book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000}min) — aborting`);
       bookContext.abortController.abort();
     }, ABSOLUTE_TIMEOUT_MS);
 
     // Send heartbeat every 30s so standalone knows we're alive
-    const heartbeatInterval = setInterval(() => {
+    heartbeatInterval = setInterval(() => {
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, {
           bookId,
+          stage: 'generating',
           heartbeat: true,
           logs: bookContext.logs,
-        }).catch(() => {}); // fire-and-forget, don't crash on failure
+        }).catch(() => {});
       }
     }, 30000);
 
@@ -602,14 +615,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
         try {
           const sharp = require('sharp');
           const photoBuf = await downloadBuffer(childPhotoUrl);
-          // Resize photo to reduce payload size — 512px is enough for face reference
           const resizedBuf = await sharp(photoBuf)
-            .resize(64, 64, { fit: 'cover' })
-            .jpeg({ quality: 60 })
+            .resize(512, 512, { fit: 'cover' })
+            .jpeg({ quality: 80 })
             .toBuffer();
           cachedPhotoBase64 = resizedBuf.toString('base64');
           cachedPhotoMime = 'image/jpeg';
-          bookContext.log('info', 'Child photo cached (resized to 64px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
+          bookContext.log('info', 'Child photo cached (resized to 512px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
           console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} -> ${resizedBuf.length} bytes)`);
         } catch (photoErr) {
           bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
@@ -667,7 +679,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         // Save story content to DB immediately so admin can see the text
         if (progressCallbackUrl) {
           const storyContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
+          reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
@@ -690,7 +702,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           // Save improved content to DB
           if (progressCallbackUrl) {
             const polishedContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
-            reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContentForDb, logs: bookContext.logs }).catch(() => {});
+            reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContentForDb, logs: bookContext.logs }).catch(() => {});
           }
           await saveCheckpoint(bookId, { bookId, completedStage: 'story_polish', storyPlan, timestamp: new Date().toISOString() });
         } catch (polishErr) {
@@ -715,8 +727,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       if (approvedCoverUrl) {
         try {
           const sharp = require('sharp');
-          let coverUrl = approvedCoverUrl;
-          try { coverUrl = await ensureAccessibleUrl(approvedCoverUrl); } catch (e) { /* use original */ }
+          const coverUrl = approvedCoverUrl;
           const coverBuf = await withRetry(
             () => downloadBuffer(coverUrl),
             { maxRetries: 3, baseDelayMs: 1000, label: `download-cover-ref-${bookId}` }
@@ -730,10 +741,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
             .toBuffer();
           const coverForVisionBase64 = coverForVision.toString('base64');
 
-          // Use 64px cover as illustration reference (small payload for each Gemini image call)
           const resizedCover = await sharp(coverBuf)
-            .resize(64, 64, { fit: 'cover' })
-            .jpeg({ quality: 60 })
+            .resize(512, 512, { fit: 'cover' })
+            .jpeg({ quality: 80 })
             .toBuffer();
           characterRefBase64 = resizedCover.toString('base64');
           characterRefMime = 'image/jpeg';
@@ -826,16 +836,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
       // Use pLimit(4) to avoid overwhelming GCS, with 60s timeout per download
       const downloadLimit = pLimit(4);
       async function downloadWithTimeout(url, label) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 60000); // 60s timeout
-        try {
-          const buf = await downloadBuffer(url);
-          clearTimeout(timer);
-          return buf;
-        } catch (err) {
-          clearTimeout(timer);
-          throw err;
-        }
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Download timed out after 60s: ${label}`)), 60000)
+        );
+        return Promise.race([downloadBuffer(url), timeout]);
       }
 
       bookContext.log('info', 'Downloading illustration buffers for PDF');
@@ -903,15 +907,18 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       // Stage 6: Upload interior PDF to GCS
       bookContext.log('info', 'Uploading interior PDF to storage');
+      reportProgressForce(progressCallbackUrl, { bookId, stage: 'upload', progress: 0.92, message: 'Uploading interior PDF...', logs: bookContext.logs }).catch(() => {});
       const interiorPath = `children-jobs/${bookId}/interior.pdf`;
       await uploadBuffer(interiorPdf, interiorPath, 'application/pdf');
       const interiorPdfUrl = await getSignedUrl(interiorPath, 30 * 24 * 60 * 60 * 1000);
+      bookContext.log('info', 'Interior PDF uploaded');
 
       // Stage 7: Build cover PDF separately (after interior is done)
       let coverPdfUrl = null;
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       try {
         bookContext.log('info', 'Building cover PDF...');
+        reportProgressForce(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.95, message: 'Building cover PDF...', logs: bookContext.logs }).catch(() => {});
         // Calculate actual interior page count for spine width
         // V2: count pages from entries (blank=1, title/dedication=1, spread=2)
         let pageCount = 0;
@@ -975,13 +982,24 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       if (progressCallbackUrl) {
-        reportComplete(progressCallbackUrl, { bookId, interiorPdfUrl, coverPdfUrl, previewImageUrls, logs: bookContext.logs });
+        reportComplete(progressCallbackUrl, {
+          bookId,
+          interiorPdfUrl,
+          coverPdfUrl,
+          previewImageUrls,
+          title: bookTitle,
+          spreadCount: spreadEntries.length,
+          storyContent: { title: bookTitle, entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })) },
+          costs: costSummary,
+          warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
+          logs: bookContext.logs,
+        });
       }
 
       // Clear checkpoint on successful completion
       await clearCheckpoint(bookId);
 
-      console.log(`[server] Book ${bookId} complete: ${mergedSpreads.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
+      console.log(`[server] Book ${bookId} complete: ${spreadEntries.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
     } catch (err) {
       bookContext.log('error', 'Book generation failed', { error: err.message, totalMs: Date.now() - bookStartTime });
       console.error(`[server] Book ${bookId} failed:`, err);
@@ -1023,19 +1041,22 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   Promise.race([generationWork, hardTimeout]).catch(async (err) => {
     console.error(`[server] Book ${bookId} hit hard timeout: ${err.message}`);
-    // Make sure we report the failure
+    bookContext.log('error', 'Hard timeout reached', { error: err.message });
+    const timeoutPayload = { success: false, bookId, error: err.message, logs: bookContext.logs };
     if (callbackUrl) {
       try {
         await fetch(callbackUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-          body: JSON.stringify({ success: false, bookId, error: err.message }),
+          body: JSON.stringify(timeoutPayload),
         });
       } catch (cbErr) {
         console.error(`[server] Failed to report hard timeout: ${cbErr.message}`);
       }
     }
-    // Force abort all pending operations
+    if (progressCallbackUrl) {
+      reportError(progressCallbackUrl, timeoutPayload).catch(() => {});
+    }
     bookContext.abortController.abort();
     clearInterval(heartbeatInterval);
     clearTimeout(absoluteTimer);
@@ -1124,7 +1145,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     }
 
     // Assemble final PDF
-    const pdfBuffer = await assemblePdf(spreadsWithBuffers, bookFormat || 'picture_book', coverData || null, {
+    const pdfBuffer = await assemblePdf(spreadsWithBuffers, bookFormat || 'picture_book', {
       title: title || 'My Story',
       childName: childName || '',
     });
@@ -1144,24 +1165,8 @@ app.post('/finalize-book', authenticate, async (req, res) => {
   }
 });
 
-// ── Startup Validation ──
-const REQUIRED_ENV = ['API_KEY', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
-const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
-if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
-  console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}`);
-  process.exit(1);
-}
-
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`giftmybook-children-worker listening on port ${PORT}`);
-  });
-}
-
-module.exports = app;
-
-// Diagnostic: test Gemini image generation latency
-app.get('/test-gemini-image', async (req, res) => {
+// ── Diagnostic: test Gemini image generation latency ──
+app.get('/test-gemini-image', authenticate, async (req, res) => {
   const start = Date.now();
   const apiKey = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   try {
@@ -1188,3 +1193,19 @@ app.get('/test-gemini-image', async (req, res) => {
     res.json({ ok: false, ms: Date.now() - start, error: e.message });
   }
 });
+
+// ── Startup Validation ──
+const REQUIRED_ENV = ['API_KEY', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
+const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
+  console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}`);
+  process.exit(1);
+}
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`giftmybook-children-worker listening on port ${PORT}`);
+  });
+}
+
+module.exports = app;

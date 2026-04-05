@@ -78,8 +78,7 @@ const AGE_TIERS = {
  * @returns {{ tier: number, config: object }}
  */
 function getAgeTier(age) {
-  const a = Math.max(3, Number(age) || 5); // Minimum age 3 for writing quality — Tier 1 (board book) text is too simple for a printed picture book
-  if (a <= 2) return { tier: 1, config: AGE_TIERS[1] };
+  const a = Math.max(3, Number(age) || 5);
   if (a <= 5) return { tier: 2, config: AGE_TIERS[2] };
   if (a <= 8) return { tier: 3, config: AGE_TIERS[3] };
   return { tier: 4, config: AGE_TIERS[4] };

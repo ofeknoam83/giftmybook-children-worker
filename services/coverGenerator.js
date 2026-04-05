@@ -103,10 +103,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
     try {
       const imageUrl = await generateIllustration(
-        coverScene, characterRefUrl, artStyle, opts.faceRef || null,
-        { costTracker: opts.costTracker, bookId: opts.bookId,
+        coverScene, characterRefUrl, artStyle, {
+          costTracker: opts.costTracker,
+          bookId: opts.bookId,
           childAppearance: childDetails.appearance || childDetails.childAppearance,
-          childName: childDetails.name || childDetails.childName },
+          childName: childDetails.name || childDetails.childName,
+          childPhotoUrl: opts.childPhotoUrl,
+          _cachedPhotoBase64: opts._cachedPhotoBase64,
+          _cachedPhotoMime: opts._cachedPhotoMime,
+        },
       );
       frontCoverImageUrl = imageUrl;
       if (imageUrl) {
@@ -278,14 +283,16 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
   });
 
-  // Embed front cover illustration
+  // Embed front cover illustration at 300 DPI
   if (frontCoverBuffer) {
     try {
+      const targetWidthPx = Math.round(frontWidth / 72 * 300);
+      const targetHeightPx = Math.round(totalHeight / 72 * 300);
       const resized = await sharp(frontCoverBuffer)
-        .resize(Math.round(frontWidth), Math.round(totalHeight), { fit: 'cover' })
-        .png()
+        .resize(targetWidthPx, targetHeightPx, { fit: 'cover' })
+        .jpeg({ quality: 95 })
         .toBuffer();
-      const img = await pdfDoc.embedPng(resized);
+      const img = await pdfDoc.embedJpg(resized);
       page.drawImage(img, {
         x: frontX, y: 0,
         width: frontWidth,

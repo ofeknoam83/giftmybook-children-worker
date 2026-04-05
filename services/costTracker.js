@@ -7,10 +7,12 @@ const RATES = {
   'gpt-5.4': { input: 2.50, output: 15.00 },
   'gpt-5.4-mini': { input: 0.15, output: 0.60 },
   'gemini-2.5-flash': { input: 0.30, output: 2.50 },
+  'gemini-3-flash-preview': { input: 0.30, output: 2.50 },
   // Image models (per image)
   'replicate-faceid': { perImage: 0.05 },
   'replicate-flux': { perImage: 0.04 },
   'gemini-image': { perImage: 0.02 },
+  'gemini-3.1-flash-image-preview': { perImage: 0.02 },
 };
 
 class CostTracker {

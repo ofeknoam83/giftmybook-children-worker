@@ -91,4 +91,8 @@ async function reportError(callbackUrl, data) {
   }
 }
 
-module.exports = { reportProgress, reportProgressForce, reportComplete, reportError };
+function clearThrottle(bookId) {
+  if (bookId) lastReportTimes.delete(bookId);
+}
+
+module.exports = { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle };
