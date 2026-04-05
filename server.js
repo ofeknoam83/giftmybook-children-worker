@@ -212,6 +212,12 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       if (entry.left?.image_prompt) jobs.push({ idx, prompt: entry.left.image_prompt, field: 'leftIllustrationUrl', pageText: entry.left.text || '' });
       if (entry.right?.image_prompt) jobs.push({ idx, prompt: entry.right.image_prompt, field: 'rightIllustrationUrl', pageText: entry.right.text || '' });
       if (jobs.length) return jobs;
+      // Last resort: synthesize illustration prompt from spread text
+      if (spreadText) {
+        const synthPrompt = `Children's book illustration for this scene: ${spreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.`;
+        bookContext.log('warn', `Spread ${entry.spread}: no image prompt — synthesizing from text`, { textLength: spreadText.length });
+        return { idx, prompt: synthPrompt, field: 'spreadIllustrationUrl', pageText: spreadText };
+      }
       return null;
     }
     return null;
@@ -777,7 +783,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       // Count illustration failures for spreads
       const spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
-      const illustrationFailures = spreadEntries.filter(e => e.spread_image_prompt && !e.spreadIllustrationUrl && !e.leftIllustrationUrl).length;
+      const illustrationFailures = spreadEntries.filter(e => !e.spreadIllustrationUrl && !e.leftIllustrationUrl).length;
       if (illustrationFailures > 0) {
         bookContext.log('warn', `${illustrationFailures}/${spreadEntries.length} spread illustrations failed`);
         bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);

@@ -91,9 +91,9 @@ IMPORTANT:
 - Each spread must have spread_image_prompt (full two-page scene description).
 - Text goes in left.text and/or right.text (one can be null if the illustration carries the moment).
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.
-- Art style across all prompts: soft watercolor with ink outlines.
+- Do NOT specify art medium or style in image prompts — that is handled separately by the illustration engine.
 - Follow ALL rules from the system brief (age tier, pacing, dialogue, etc.).
-- No newlines inside string values. Escape apostrophes with \\'.`;
+- No newlines inside string values. Use apostrophes directly in strings (no escaping needed).`;
 }
 
 // ── Legacy text generator prompts (kept for backward compat) ──
