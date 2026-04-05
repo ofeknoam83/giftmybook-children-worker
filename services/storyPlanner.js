@@ -35,7 +35,7 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
         { role: 'user', content: userPrompt },
       ],
       temperature: opts.temperature || 0.8,
-      max_tokens: opts.maxTokens || 4000,
+      max_completion_tokens: opts.maxTokens || 4000,
       response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
     }),
   });

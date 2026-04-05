@@ -597,10 +597,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const forceNew = req.body.forceNew === true;
       let checkpoint = null;
       if (forceNew) {
-        bookContext.log('info', 'Full regeneration requested — clearing checkpoint only');
-        // Only delete the checkpoint file — not illustrations.
-        // Old illustrations don't collide (timestamp filenames) and deleting
-        // them can break an in-flight generation that's still referencing them.
+        bookContext.log('info', 'Full regeneration requested — clearing checkpoint');
+        // Clear checkpoint immediately so we don't resume from old state.
+        // Old illustrations are cleaned up AFTER new ones are generated (see post-illustration cleanup).
         try {
           await deletePrefix(`children-jobs/${bookId}/checkpoint.json`);
           bookContext.log('info', 'Checkpoint cleared');
@@ -866,6 +865,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
       if (illustrationFailures > 0) {
         bookContext.log('warn', `${illustrationFailures}/${spreadEntries.length} spread illustrations failed`);
         bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);
+      }
+
+      // Clean up old illustrations now that new ones are generated
+      // (safe because all new illustration URLs are already in memory)
+      if (forceNew) {
+        deletePrefix(`children-jobs/${bookId}/illustrations/`)
+          .then(() => bookContext.log('info', 'Old illustrations cleaned up from GCS'))
+          .catch(e => bookContext.log('warn', 'Old illustration cleanup failed (non-blocking)', { error: (e?.message || String(e)).slice(0, 100) }));
       }
 
       // Stage 5: Assemble PDF
