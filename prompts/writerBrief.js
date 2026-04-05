@@ -261,44 +261,53 @@ PHASE 1 — Spreads 1–12: Fuller sentences. Richer texture. Emotional complexi
 PHASE 2 — Spreads 13–16: Same de-escalation rules as Tiers 2–3.
 
 -------------------------------------
-STYLE RULES (ENFORCED)
+AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-ACTIVE CHILD (Sendak-inspired)
-- The child MUST drive the story.
-- No passive observation — only actions, decisions, attempts.
-- Tier 1 exception: observations are specific and sensory, never generic.
 
-EMOTIONAL GROUNDING
-- Every story element must reflect a real feeling.
-- Show feelings through actions and environment, not explanation.
+Write as if this book could sit alongside the best children's books ever written.
 
-RHYTHM & LANGUAGE (Margaret Wise Brown)
-- Use gentle repetition across spreads where natural.
-- One vivid adjective per spread.
-- Vocabulary ceiling: see Age Tier Calibration.
+Do NOT imitate or reference specific authors.
+Instead, apply the shared qualities of master storytellers:
 
-DIALOGUE — required count by tier:
-- Tier 1: none, or single-word utterances only.
-- Tier 2: 2 exchanges required.
-- Tier 3: 3 exchanges required.
-- Tier 4: 3–4 exchanges required.
+- The child is the emotional center and active force of the story.
+- Language is simple but never empty — every word earns its place.
+- Concrete details replace abstraction (show, don't explain).
+- Emotion is implied through action, rhythm, and imagery — never stated directly.
+- There is a quiet respect for the child's inner world (no talking down).
+- The story carries a second layer that resonates with the parent reading it aloud.
 
-Dialogue rules (Tiers 2–4):
-- Dialogue 1 (spreads 3–7): reveals emotional state indirectly.
-  Example register: "I don't think that's a good idea," said {name}.
-- Dialogue 2 (spreads 8–12): marks a turning point or decision.
-  Example register: "Okay," said {name}. "I'll try."
-- Tier 4 only: dialogue may contain subtext.
-- Dialogue must never explain the theme. It should feel overheard, not written.
+RHYTHM AND MUSICALITY:
+- Sentences should feel good when read aloud.
+- Use variation: short lines for impact, longer lines for flow.
+- Occasional gentle repetition is encouraged for emotional effect.
 
-SPECIFICITY (Judith Viorst)
-- Concrete details: names of objects, textures, small memories.
-- Banned phrases: "very sad," "very happy," "suddenly," "magical."
+TONE:
+- Warm, intimate, and slightly poetic — but never ornate.
+- Avoid cliches, moralizing, or generic phrasing.
+- Prefer specificity and originality in every line.
 
-MINIMALISM (Jon Klassen)
-- No exclamation marks unless a character speaks in surprise.
-- Prefer understatement over exaggeration.
-- Allow emotional weight without naming it.
+DIALOGUE:
+- Dialogue must reveal character or emotion, not just move the plot.
+- Children speak naturally, with curiosity and feeling — not exposition.
+- Dialogue count by tier: Tier 1: none. Tier 2: 2 exchanges. Tier 3: 3 exchanges. Tier 4: 3-4 exchanges.
+- Dialogue 1 (spreads 3-7): reveals emotional state indirectly.
+- Dialogue 2 (spreads 8-12): marks a turning point or decision.
+
+ENDING:
+- The final lines should feel like a soft landing, not a conclusion.
+- Aim for emotional resonance, not a lesson.
+
+-------------------------------------
+WRITING QUALITY OVERRIDES
+-------------------------------------
+- The child must actively cause the resolution — not witness it, not have it happen to them.
+- Every spread must contain a small tension or question that pulls the reader to the next page.
+- Use concrete, sensory language. Avoid vague words ("nice," "pretty," "fun," "special," "magical").
+- Include one repeated phrase that appears early, returns in the middle, and evolves by the climax.
+- The final line must feel like a quiet whisper suitable for bedtime.
+- At least 2 spreads should rely primarily on visuals (minimal or no text — let the image carry the moment).
+- Include one subtle emotional layer that resonates with the parent reading aloud (loss, time passing, growing up, letting go).
+- Banned phrases: "very sad," "very happy," "suddenly," "magical," "special adventure," "what a fun," "full of magic."
 
 ILLUSTRATION CONTINUITY
 - {name}'s appearance (hair, clothing, skin tone if inferable) must be
