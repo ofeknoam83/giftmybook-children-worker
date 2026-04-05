@@ -74,6 +74,22 @@ function isValidHttpsUrl(str) {
   }
 }
 
+const ANECDOTE_FIELDS = ['favorite_activities', 'funny_thing', 'favorite_food', 'other_detail'];
+const MAX_ANECDOTE_LENGTH = 200;
+
+/**
+ * @param {object} raw
+ * @returns {{ favorite_activities: string, funny_thing: string, favorite_food: string, other_detail: string }}
+ */
+function sanitizeAnecdotes(raw) {
+  const out = {};
+  for (const key of ANECDOTE_FIELDS) {
+    const val = raw && typeof raw[key] === 'string' ? raw[key] : '';
+    out[key] = sanitizeForPrompt(val, MAX_ANECDOTE_LENGTH);
+  }
+  return out;
+}
+
 /**
  * Validate and sanitize a /generate-book request body.
  *
@@ -133,6 +149,7 @@ function validateGenerateBookRequest(body) {
     childId: body.childId ? String(body.childId).slice(0, 100) : undefined,
     approvedTitle: typeof body.approvedTitle === 'string' ? body.approvedTitle.slice(0, 200) : undefined,
     approvedCoverUrl: isValidHttpsUrl(body.approvedCoverUrl) ? body.approvedCoverUrl : undefined,
+    childAnecdotes: sanitizeAnecdotes(body.childAnecdotes),
   };
 
   return { valid: true, errors: [], sanitized };

@@ -1,16 +1,17 @@
 /**
- * Story planner service — V2.
+ * Story planner service.
  *
- * Takes child details, theme, and book format, then generates a
- * complete story with front matter + left/right spreads using
- * GPT 5.4 (with Gemini fallback).
+ * Two-phase pipeline for picture books:
+ *   1. Text generation (free-form, no JSON) — focused on literary quality
+ *   2. JSON structuring (JSON mode) — adds illustration prompts + visual metadata
  *
- * V2 output: array of entries (title_page, blank, dedication_page, spread)
- * with text AND illustration prompts in a single LLM call.
+ * Falls back to single-call for early readers or if the two-phase parse fails.
  */
 
 const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
+const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
+const { getAgeTier } = require('../prompts/writerBrief');
 
 const GEMINI_MODEL = 'gemini-3-flash-preview';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -157,7 +158,7 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
   const gender = childDetails.gender || childDetails.childGender || '';
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
 
-  const systemPrompt = `You are a creative children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized bedtime picture book.
+  const systemPrompt = `You are a creative children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized bedtime picture book (12 spreads).
 
 You will receive details about a child. From these details, invent:
 
@@ -169,10 +170,24 @@ You will receive details about a child. From these details, invent:
 
 4. storySeed: One sentence describing the unique emotional journey. Example: "A child discovers that the rumbling sound in the walls is just the old house settling, and learns to hear it as a lullaby."
 
+5. repeated_phrase: A short, soothing phrase (2-6 words) that will repeat through the story and evolve in meaning. NOT generic ("everything will be okay"). Should feel like it belongs in THIS story. Example: "hush now, little seed" or "the house remembers."
+
+6. phrase_arc: Three short descriptions of how the repeated phrase evolves:
+   - early: how it feels the first time (playful, uncertain, questioning)
+   - middle: how it shifts (guiding, braver, searching)
+   - end: how it lands (calm, safe, transformed)
+
+7. beats: An array of exactly 12 one-line descriptions — one per spread — mapping the emotional journey. Follow this structure:
+   - Spreads 1-2: Setup (normal world + emotional need)
+   - Spreads 3-6: Rising tension (problem grows, uncertainty increases)
+   - Spreads 7-9: Turning point + resolution (child takes action)
+   - Spreads 10-11: Emotional release (world softens)
+   - Spread 12: Sleep / stillness
+
 Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
 
-You MUST return ONLY a JSON object with exactly these 4 fields, nothing else:
-{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "..."}`;
+You MUST return ONLY a JSON object with these fields:
+{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 12 beat"]}`;
 
   const parts = [`Child: ${name}, age ${age}`];
   if (gender && gender !== 'neutral' && gender !== 'not specified') {
@@ -189,7 +204,7 @@ You MUST return ONLY a JSON object with exactly these 4 fields, nothing else:
 
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
-    maxTokens: 500,
+    maxTokens: 1500,
     temperature: 0.9,
     jsonMode: true,
     costTracker,
@@ -222,6 +237,9 @@ You MUST return ONLY a JSON object with exactly these 4 fields, nothing else:
         fear: extractField('fear') || 'the dark',
         setting: extractField('setting') || 'a magical place',
         storySeed: extractField('storySeed') || extractField('story_seed') || '',
+        repeated_phrase: extractField('repeated_phrase') || '',
+        phrase_arc: [],
+        beats: [],
       };
     }
   }
@@ -238,33 +256,203 @@ You MUST return ONLY a JSON object with exactly these 4 fields, nothing else:
   // Validate we got usable values
   if (!seed || (!seed.favorite_object && !seed.fear && !seed.setting)) {
     console.warn(`[storyPlanner] Story seed has no usable fields. Parsed: ${JSON.stringify(seed).slice(0, 300)}`);
-    return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
+    return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '', repeated_phrase: '', phrase_arc: [], beats: [] };
   }
 
+  if (!seed.repeated_phrase) seed.repeated_phrase = '';
+  if (!Array.isArray(seed.phrase_arc)) seed.phrase_arc = [];
+  if (!Array.isArray(seed.beats)) seed.beats = [];
+
   console.log(`[storyPlanner] Story seed: object="${seed.favorite_object}", fear="${seed.fear}", setting="${seed.setting}"`);
+  if (seed.repeated_phrase) console.log(`[storyPlanner] Repeated phrase: "${seed.repeated_phrase}"`);
+  if (seed.beats.length) console.log(`[storyPlanner] Beat sheet: ${seed.beats.length} beats`);
   return seed;
 }
 
-/**
- * Plan a complete V2 story.
- *
- * @param {object} childDetails - { name, age, gender, appearance, interests }
- * @param {string} theme
- * @param {string} bookFormat - 'picture_book' or 'early_reader'
- * @param {string} customDetails
- * @param {object} [opts] - { apiKeys, costTracker, approvedTitle, v2Vars }
- * @returns {Promise<{ title: string, entries: Array<object> }>}
- */
-async function planStory(childDetails, theme, bookFormat, customDetails, opts = {}) {
-  const { costTracker, approvedTitle, apiKeys, v2Vars } = opts;
+// ── Two-Phase Pipeline ──
 
+/**
+ * Parse free-form story text output into structured spread data.
+ * Expected format:
+ *   TITLE: ...
+ *   DEDICATION: ...
+ *   SPREAD 1:
+ *   Left: "..." or null
+ *   Right: "..." or null
+ *   ...
+ *
+ * @param {string} text
+ * @returns {{ title: string, dedication: string, spreads: Array<{ left: string|null, right: string|null }> } | null}
+ */
+function parseStoryText(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  const titleMatch = text.match(/^TITLE:\s*(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim().replace(/^["']|["']$/g, '') : null;
+
+  const dedMatch = text.match(/^DEDICATION:\s*(.+)$/m);
+  const dedication = dedMatch ? dedMatch[1].trim().replace(/^["']|["']$/g, '') : null;
+
+  const spreadBlocks = text.split(/^SPREAD\s+\d+\s*:/im).slice(1);
+  if (spreadBlocks.length < 8) return null;
+
+  const spreads = spreadBlocks.map(block => {
+    const leftMatch = block.match(/^Left:\s*(.+)$/m);
+    const rightMatch = block.match(/^Right:\s*(.+)$/m);
+
+    const parsePageText = (match) => {
+      if (!match) return null;
+      const val = match[1].trim();
+      if (/^null$/i.test(val) || /^\[visual\]$/i.test(val) || val === '-') return null;
+      return val.replace(/^["']|["']$/g, '').trim() || null;
+    };
+
+    return {
+      left: parsePageText(leftMatch),
+      right: parsePageText(rightMatch),
+    };
+  });
+
+  if (!title || spreads.length < 8) return null;
+  return { title, dedication, spreads };
+}
+
+/**
+ * Phase 1: Generate story text freely (no JSON mode).
+ * Returns raw text output from the LLM.
+ */
+async function generateStoryText(childDetails, theme, customDetails, opts = {}) {
+  const { costTracker, apiKeys, approvedTitle, v2Vars } = opts;
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  const briefVars = v2Vars || {
+    name: childDetails.name || childDetails.childName || 'the child',
+    age: childDetails.age || childDetails.childAge || 5,
+    favorite_object: 'a stuffed bear',
+    fear: 'the dark',
+    setting: '',
+  };
+
+  const systemPrompt = buildStoryWriterSystem(briefVars);
+  let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
+
+  if (approvedTitle) {
+    userPrompt += `\n\nIMPORTANT: The book title has already been chosen: "${approvedTitle}". You MUST use this exact title.`;
+  }
+
+  console.log(`[storyPlanner] Phase 1: Generating story text (free-form, no JSON)...`);
+  const start = Date.now();
+
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 4000,
+    temperature: 0.85,
+    jsonMode: false,
+    costTracker,
+  });
+
+  const ms = Date.now() - start;
+  console.log(`[storyPlanner] Phase 1 complete in ${ms}ms (${response.model}, ${response.outputTokens} tokens)`);
+
+  return response.text;
+}
+
+/**
+ * Phase 2: Convert story text into structured JSON with illustration prompts.
+ * Uses JSON mode for reliable parsing.
+ */
+async function structureStoryPlan(storyText, childDetails, opts = {}) {
+  const { costTracker, apiKeys, v2Vars } = opts;
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  const briefVars = {
+    name: childDetails.name || childDetails.childName || 'the child',
+    favorite_object: v2Vars?.favorite_object || 'a stuffed bear',
+  };
+
+  const systemPrompt = buildStoryStructurerSystem(briefVars);
+  const userPrompt = STORY_STRUCTURER_USER(storyText, childDetails, v2Vars);
+
+  console.log(`[storyPlanner] Phase 2: Structuring into JSON with illustration prompts...`);
+  const start = Date.now();
+
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 8000,
+    temperature: 0.3,
+    jsonMode: true,
+    costTracker,
+  });
+
+  const ms = Date.now() - start;
+  console.log(`[storyPlanner] Phase 2 complete in ${ms}ms (${response.model}, ${response.outputTokens} tokens)`);
+
+  return response.text;
+}
+
+/**
+ * Validate story text quality programmatically.
+ * Returns { valid, issues } where issues is an array of detected problems.
+ *
+ * @param {object} storyPlan - { entries: [...] }
+ * @param {number} [maxWordsPerSpread]
+ * @returns {{ valid: boolean, issues: Array<{ spread?: number, type: string, message: string }> }}
+ */
+function validateStoryText(storyPlan, maxWordsPerSpread) {
+  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+  const issues = [];
+  const maxWords = maxWordsPerSpread || 30;
+
+  for (const s of spreads) {
+    const leftText = s.left?.text || '';
+    const rightText = s.right?.text || '';
+    const leftWords = leftText.split(/\s+/).filter(Boolean).length;
+    const rightWords = rightText.split(/\s+/).filter(Boolean).length;
+    const total = leftWords + rightWords;
+    if (total > maxWords * 1.5) {
+      issues.push({ spread: s.spread, type: 'word_count', message: `${total} words (limit ${maxWords})` });
+    }
+  }
+
+  const TELLING_PATTERNS = [
+    /\b(?:she|he|they|the child|the boy|the girl)\s+(?:felt|was|seemed|looked|appeared)\s+(?:happy|sad|scared|afraid|brave|excited|angry|worried|nervous|lonely|proud|surprised|relieved|safe|calm|tired)/i,
+    /\b(?:realized|understood|knew) that\b/i,
+    /\bit (?:was(?:n't| not)|wasn't) scary\b/i,
+  ];
+  for (const s of spreads) {
+    const allText = [s.left?.text, s.right?.text].filter(Boolean).join(' ');
+    for (const pattern of TELLING_PATTERNS) {
+      const match = allText.match(pattern);
+      if (match) {
+        issues.push({ spread: s.spread, type: 'emotion_telling', message: `"${match[0]}"` });
+      }
+    }
+  }
+
+  const visualOnly = spreads.filter(s => !s.left?.text || !s.right?.text);
+  if (visualOnly.length < 2) {
+    issues.push({ type: 'visual_spreads', message: `Only ${visualOnly.length} visual-only pages (need >=2)` });
+  }
+
+  if (spreads.length < 10) {
+    issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-12)` });
+  }
+
+  const blocking = issues.filter(i => i.type === 'emotion_telling' || i.type === 'spread_count');
+  return { valid: blocking.length === 0, issues };
+}
+
+/**
+ * Single-call fallback — the original pipeline for when two-phase fails or for early readers.
+ */
+async function planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts = {}) {
+  const { costTracker, approvedTitle, apiKeys, v2Vars } = opts;
   const isPictureBook = bookFormat === 'picture_book';
   const childAge = childDetails.age || childDetails.childAge || 5;
 
   let systemPrompt, userPrompt;
 
   if (isPictureBook) {
-    // V2: build system prompt with full variable substitution
     const briefVars = v2Vars || {
       name: childDetails.name || childDetails.childName || 'the child',
       age: childAge,
@@ -286,8 +474,6 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
-  console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
-
   const llmStart = Date.now();
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
@@ -298,31 +484,29 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   });
   const llmMs = Date.now() - llmStart;
 
-  console.log(`[storyPlanner] ${response.model} call completed in ${llmMs}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
+  console.log(`[storyPlanner] Single-call ${response.model} completed in ${llmMs}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
 
-  let content = response.text;
-  const finishReason = response.finishReason;
+  return parseJsonPlan(response.text, response.finishReason);
+}
 
+/**
+ * Parse a JSON plan response, handling common LLM output issues.
+ * @param {string} content - raw LLM output
+ * @param {string} [finishReason]
+ * @returns {object} parsed JSON
+ */
+function parseJsonPlan(content, finishReason) {
   if (!content) {
     throw new Error(`Empty response from story planner (finish_reason: ${finishReason})`);
   }
 
-  if (finishReason === 'MAX_TOKENS') {
-    console.warn(`[storyPlanner] Response truncated (finish_reason: MAX_TOKENS, ${content.length} chars). Attempting to salvage...`);
-  }
-  console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${finishReason || 'n/a'}`);
-
-  // Sanitize common JSON issues from LLM output
-  // Fix invalid \' escapes (GPT sometimes escapes apostrophes which is not valid JSON)
   content = content.replace(/\\'/g, "'");
-  // Fix smart/curly quotes
   content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
 
   let parsed;
   try {
     parsed = JSON.parse(content);
   } catch (parseErr) {
-    // Try to extract balanced JSON object
     const firstBrace = content.indexOf('{');
     if (firstBrace !== -1) {
       let depth = 0;
@@ -363,18 +547,27 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
   }
 
-  // Normalize: V2 format wraps entries in { "entries": [...] }
-  // But models might also return a raw array or { "spreads": [...] } etc.
+  return parsed;
+}
+
+/**
+ * Normalize a parsed JSON plan into the canonical entry structure.
+ * @param {object} parsed - raw parsed JSON from LLM
+ * @param {object} childDetails
+ * @param {object} opts - { approvedTitle, v2Vars }
+ * @returns {{ title: string, entries: Array<object>, characterOutfit?: string, characterDescription?: string, recurringElement?: string, keyObjects?: string }}
+ */
+function normalizePlan(parsed, childDetails, opts = {}) {
+  const { approvedTitle, v2Vars } = opts;
+
   let entries;
   if (Array.isArray(parsed)) {
     entries = parsed;
   } else if (Array.isArray(parsed.entries)) {
     entries = parsed.entries;
   } else if (Array.isArray(parsed.spreads)) {
-    // Legacy format fallback — convert to V2
     entries = convertLegacyToV2(parsed);
   } else {
-    // Try to find any array that looks like entries
     const firstArray = Object.values(parsed).find(v => Array.isArray(v) && v.length > 0 && v[0]?.type);
     if (firstArray) {
       entries = firstArray;
@@ -383,11 +576,9 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
   }
 
-  // Extract title from parsed output
   const titleEntry = entries.find(e => e.type === 'title_page');
   const title = approvedTitle || titleEntry?.title || parsed.title || 'My Story';
 
-  // Validate spread count
   let spreads = entries.filter(e => e.type === 'spread');
   if (spreads.length < 10) {
     console.warn(`[storyPlanner] Only ${spreads.length} spreads — expected 10-12`);
@@ -397,8 +588,6 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     spreads = spreads.slice(0, 12).map((s, i) => ({ ...s, spread: i + 1 }));
   }
 
-  // Build canonical 32-page structure:
-  // 5 front matter + 24 story pages (12 spreads) + 3 back matter = 32
   const dedEntry = entries.find(e => e.type === 'dedication_page');
   const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;
   const subtitle = `A bedtime story for ${childDetails.name || 'the child'}`;
@@ -417,7 +606,6 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   const plan = { title, entries };
 
-  // Propagate visual consistency fields from planner output
   if (parsed.characterOutfit) plan.characterOutfit = parsed.characterOutfit;
   if (parsed.characterDescription) plan.characterDescription = parsed.characterDescription;
   if (parsed.recurringElement) plan.recurringElement = parsed.recurringElement;
@@ -426,6 +614,80 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   console.log(`[storyPlanner] Plan complete: "${title}" with ${spreads.length} spreads, ${entries.length} total entries`);
   if (plan.characterOutfit) console.log(`[storyPlanner] Character outfit: ${plan.characterOutfit}`);
   return plan;
+}
+
+/**
+ * Plan a complete story.
+ *
+ * For picture books: uses two-phase pipeline (text generation → JSON structuring)
+ * with single-call fallback. For early readers: uses single-call directly.
+ *
+ * @param {object} childDetails - { name, age, gender, appearance, interests }
+ * @param {string} theme
+ * @param {string} bookFormat - 'picture_book' or 'early_reader'
+ * @param {string} customDetails
+ * @param {object} [opts] - { apiKeys, costTracker, approvedTitle, v2Vars }
+ * @returns {Promise<{ title: string, entries: Array<object> }>}
+ */
+async function planStory(childDetails, theme, bookFormat, customDetails, opts = {}) {
+  const { costTracker, approvedTitle, v2Vars } = opts;
+  const isPictureBook = bookFormat === 'picture_book';
+
+  console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
+
+  if (!isPictureBook) {
+    const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+    return normalizePlan(parsed, childDetails, opts);
+  }
+
+  // ── Two-phase pipeline for picture books ──
+  const pipelineStart = Date.now();
+
+  try {
+    // Phase 1: Generate story text freely
+    const storyText = await generateStoryText(childDetails, theme, customDetails, opts);
+
+    // Try to parse the free-form text
+    const parsedText = parseStoryText(storyText);
+    if (!parsedText) {
+      console.warn(`[storyPlanner] Free-form text parse failed — falling back to single-call`);
+      throw new Error('Text parse failed');
+    }
+    console.log(`[storyPlanner] Parsed ${parsedText.spreads.length} spreads from free-form text, title: "${parsedText.title}"`);
+
+    // Phase 2: Structure into JSON with illustration prompts
+    const jsonContent = await structureStoryPlan(storyText, childDetails, opts);
+    const parsed = parseJsonPlan(jsonContent);
+
+    // Override title if customer approved one
+    if (approvedTitle) parsed.title = approvedTitle;
+
+    const plan = normalizePlan(parsed, childDetails, opts);
+
+    // Validate the text quality programmatically
+    const childAge = childDetails.age || childDetails.childAge || 5;
+    const { config } = getAgeTier(childAge);
+    const validation = validateStoryText(plan, config.maxWordsPerSpread);
+    if (validation.issues.length > 0) {
+      console.log(`[storyPlanner] Validation found ${validation.issues.length} issues:`);
+      for (const issue of validation.issues) {
+        console.log(`  - [${issue.type}] ${issue.spread ? `spread ${issue.spread}: ` : ''}${issue.message}`);
+      }
+    }
+
+    const totalMs = Date.now() - pipelineStart;
+    console.log(`[storyPlanner] Two-phase pipeline complete in ${totalMs}ms`);
+    return plan;
+
+  } catch (twoPhaseErr) {
+    console.warn(`[storyPlanner] Two-phase pipeline failed: ${twoPhaseErr.message} — falling back to single-call`);
+    const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+    const plan = normalizePlan(parsed, childDetails, opts);
+
+    const totalMs = Date.now() - pipelineStart;
+    console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
+    return plan;
+  }
 }
 
 /**
@@ -733,4 +995,4 @@ async function polishStory(storyPlan, opts = {}) {
   };
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed };
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText };

@@ -7,7 +7,7 @@
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
-const { buildV2Brief, buildChildContext, getAgeTier } = require('./writerBrief');
+const { buildV2Brief, buildWritingBrief, buildStructureBrief, buildChildContext, getAgeTier } = require('./writerBrief');
 
 /**
  * Build system prompt for V2 story planner.
@@ -103,6 +103,131 @@ IMPORTANT:
 - No newlines inside string values. Use apostrophes directly in strings (no escaping needed).`;
 }
 
+// ── Two-phase prompt builders (split text generation from JSON structuring) ──
+
+/**
+ * Build system prompt for the text-only story writing call.
+ * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string }} vars
+ * @returns {string}
+ */
+function buildStoryWriterSystem(vars) {
+  if (typeof vars === 'number' || typeof vars === 'string') {
+    return buildWritingBrief({
+      name: '{name}',
+      age: Number(vars) || 5,
+      favorite_object: '{favorite_object}',
+      fear: '{fear}',
+      setting: '{setting}',
+    });
+  }
+  return buildWritingBrief(vars);
+}
+
+/**
+ * Build user prompt for the text-only story writing call.
+ * @param {object} childDetails
+ * @param {string} theme
+ * @param {string} customDetails
+ * @param {object} v2Vars - { favorite_object, fear, setting, dedication, beats, repeated_phrase, phrase_arc }
+ * @returns {string}
+ */
+function STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars = {}) {
+  const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
+  const age = childDetails.childAge || childDetails.age || 5;
+  const interests = (childDetails.childInterests || childDetails.interests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
+  const details = customDetails ? sanitizeForPrompt(customDetails, 500) : '';
+  const childContext = buildChildContext(childDetails, details);
+
+  const { tier } = getAgeTier(age);
+
+  const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
+  const fear = v2Vars.fear || 'the dark';
+  const setting = v2Vars.setting || '';
+  const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
+
+  let prompt = `${childContext}
+
+Write a personalized bedtime picture book for ${name} (age ${age}).
+
+Child details:
+- Age: ${age} (Tier ${tier})
+- Gender: ${childDetails.childGender || childDetails.gender || 'not specified'}
+- Interests: ${interests}
+- Favorite object/toy: ${favoriteObject}
+- Fear or challenge: ${fear}
+- Setting: ${setting || 'use theme to determine'}
+- Dedication: ${dedication}
+${details ? `- Special requests / real quirks: ${details}` : ''}
+
+Theme: ${theme || 'bedtime'}`;
+
+  if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length > 0) {
+    prompt += `\n\nSTORY OUTLINE (follow this beat sheet — you may adjust wording but preserve the emotional arc):`;
+    v2Vars.beats.forEach((beat, i) => {
+      prompt += `\nSpread ${i + 1}: ${beat}`;
+    });
+  }
+
+  if (v2Vars.repeated_phrase) {
+    prompt += `\n\nREPEATED PHRASE to use: "${v2Vars.repeated_phrase}"`;
+    if (v2Vars.phrase_arc && Array.isArray(v2Vars.phrase_arc)) {
+      prompt += `\nPhrase evolution: ${v2Vars.phrase_arc.join(' → ')}`;
+    }
+  }
+
+  prompt += `\n\nWrite the COMPLETE story as plain text (NOT JSON). Follow the output format from the system brief exactly.
+- Write exactly 12 spreads with Left/Right text assignments.
+- Focus entirely on literary quality. No illustration prompts needed.
+- Follow ALL writing rules from the system brief (age tier, pacing, dialogue, etc.).`;
+
+  return prompt;
+}
+
+/**
+ * Build system prompt for the JSON structuring call.
+ * @param {{ name: string, favorite_object: string }} vars
+ * @returns {string}
+ */
+function buildStoryStructurerSystem(vars) {
+  if (typeof vars === 'number' || typeof vars === 'string') {
+    return buildStructureBrief({
+      name: '{name}',
+      favorite_object: '{favorite_object}',
+    });
+  }
+  return buildStructureBrief(vars);
+}
+
+/**
+ * Build user prompt for the JSON structuring call.
+ * Takes the raw story text and asks the model to add illustration prompts + visual metadata.
+ * @param {string} storyText - raw text output from the writing call
+ * @param {object} childDetails
+ * @param {object} v2Vars
+ * @returns {string}
+ */
+function STORY_STRUCTURER_USER(storyText, childDetails, v2Vars = {}) {
+  const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
+  const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
+  const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
+
+  return `Here is the story text to structure into JSON:
+
+---
+${storyText}
+---
+
+Child name: ${name}
+Favorite object: ${favoriteObject}
+Dedication: ${dedication}
+
+Convert this story into the JSON format described in the system brief.
+- PRESERVE all story text EXACTLY as written — do not rewrite or paraphrase anything.
+- Add spread_image_prompt for each spread based on what the text describes.
+- Define characterOutfit, characterDescription, recurringElement, and keyObjects at the top level.
+- Return ONLY a valid JSON object.`;
+}
+
 // ── Legacy text generator prompts (kept for backward compat) ──
 
 function buildTextGeneratorSystem(age) {
@@ -165,6 +290,10 @@ module.exports = {
   STORY_PLANNER_SYSTEM,
   buildStoryPlannerSystem,
   STORY_PLANNER_USER,
+  buildStoryWriterSystem,
+  STORY_WRITER_USER,
+  buildStoryStructurerSystem,
+  STORY_STRUCTURER_USER,
   TEXT_GENERATOR_SYSTEM,
   buildTextGeneratorSystem,
   TEXT_GENERATOR_USER,

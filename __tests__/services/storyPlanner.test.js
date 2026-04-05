@@ -53,7 +53,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const { planStory } = require('../../services/storyPlanner');
+const { planStory, validateStoryText } = require('../../services/storyPlanner');
 
 describe('planStory', () => {
   const childDetails = {
@@ -137,5 +137,173 @@ describe('planStory', () => {
     const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
     expect(plan.characterOutfit).toBe('red overalls with yellow boots');
     expect(plan.characterDescription).toBe('curly brown hair, freckles');
+  });
+});
+
+const freeFormStoryText = `TITLE: Emma's Twilight Garden
+
+DEDICATION: For Emma
+
+SPREAD 1:
+Left: "The garden gate swung open before Emma even touched it."
+Right: null
+
+SPREAD 2:
+Left: null
+Right: "Something rustled in the tall grass."
+
+SPREAD 3:
+Left: "Her fingers found the toy dinosaur's worn snout."
+Right: "What was that sound?"
+
+SPREAD 4:
+Left: "The flowers had closed their petals for the night."
+Right: null
+
+SPREAD 5:
+Left: null
+Right: "A frog croaked from somewhere close."
+
+SPREAD 6:
+Left: "The path bent where the old oak tree stood."
+Right: "Hush now, little seed."
+
+SPREAD 7:
+Left: "Emma knelt beside the wilted flower."
+Right: null
+
+SPREAD 8:
+Left: "She cupped water in her hands from the stream."
+Right: "The flower lifted its head."
+
+SPREAD 9:
+Left: null
+Right: "Hush now, little seed — the garden hums with you."
+
+SPREAD 10:
+Left: "The fireflies blinked on, one by one."
+Right: null
+
+SPREAD 11:
+Left: null
+Right: "The oak tree's shadow felt like a blanket."
+
+SPREAD 12:
+Left: null
+Right: "Hush now, little seed. The garden sleeps."`;
+
+describe('two-phase pipeline', () => {
+  const childDetails = {
+    name: 'Emma',
+    age: 5,
+    gender: 'female',
+    interests: ['dinosaurs'],
+  };
+
+  test('uses two-phase pipeline when text parsing succeeds', async () => {
+    let callNum = 0;
+    global.fetch = jest.fn(async () => {
+      callNum++;
+      if (callNum === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: freeFormStoryText }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 800, completion_tokens: 500 },
+          }),
+        };
+      }
+      return makeFetchResponse(validPlan);
+    });
+
+    const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
+    expect(plan.title).toBe('Emma and the Magic Garden');
+    expect(callNum).toBe(2);
+    const spreads = plan.entries.filter(e => e.type === 'spread');
+    expect(spreads.length).toBe(12);
+  });
+
+  test('falls back to single-call when text parsing fails', async () => {
+    let callNum = 0;
+    global.fetch = jest.fn(async () => {
+      callNum++;
+      if (callNum === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: 'Not a valid story format at all.' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 800, completion_tokens: 100 },
+          }),
+        };
+      }
+      return makeFetchResponse(validPlan);
+    });
+
+    const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
+    expect(plan.title).toBe('Emma and the Magic Garden');
+    expect(callNum).toBe(2);
+  });
+});
+
+describe('validateStoryText', () => {
+  test('detects emotion telling', () => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i === 0 ? 'She felt happy about the adventure.' : 'The wind carried a scent.' },
+        right: { text: null },
+      })),
+    };
+    const { issues } = validateStoryText(plan);
+    expect(issues.some(i => i.type === 'emotion_telling')).toBe(true);
+  });
+
+  test('passes for clean text', () => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i < 10 ? 'The garden whispered secrets.' : null },
+        right: { text: i >= 10 ? 'Stars blinked above.' : null },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    const blocking = issues.filter(i => i.type === 'emotion_telling' || i.type === 'spread_count');
+    expect(blocking.length).toBe(0);
+  });
+
+  test('flags excessive word count', () => {
+    const plan = {
+      entries: [
+        {
+          type: 'spread',
+          spread: 1,
+          left: { text: 'word '.repeat(50).trim() },
+          right: { text: null },
+        },
+        ...Array.from({ length: 11 }, (_, i) => ({
+          type: 'spread',
+          spread: i + 2,
+          left: { text: 'Short.' },
+          right: { text: null },
+        })),
+      ],
+    };
+    const { issues } = validateStoryText(plan, 25);
+    expect(issues.some(i => i.type === 'word_count' && i.spread === 1)).toBe(true);
+  });
+
+  test('flags insufficient visual-only spreads', () => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: 'Text on left.' },
+        right: { text: 'Text on right.' },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'visual_spreads')).toBe(true);
   });
 });

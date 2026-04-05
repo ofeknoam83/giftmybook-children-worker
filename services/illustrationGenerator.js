@@ -174,10 +174,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     ``,
     `3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`,
     ``,
+    `4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`,
+    ``,
   ];
 
   if (characterOutfit) {
-    parts.push(`4. OUTFIT LOCK: The child MUST wear EXACTLY this outfit in EVERY illustration — no substitutions, no additions, no removals, no seasonal variations: ${characterOutfit}`);
+    parts.push(`5. OUTFIT LOCK: The child MUST wear EXACTLY this outfit in EVERY illustration — no substitutions, no additions, no removals, no seasonal variations: ${characterOutfit}`);
     parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
     parts.push(``);
   }
@@ -193,11 +195,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
 
   if (hairstyleDesc) {
-    parts.push(`5. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle in EVERY illustration — no changes, no variations, no wind-blown alternatives: ${hairstyleDesc}`);
+    parts.push(`6. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle in EVERY illustration — no changes, no variations, no wind-blown alternatives: ${hairstyleDesc}`);
     parts.push(`   Same hair style, same hair accessories, same hair color, same hair length, same hair texture on every page. Do NOT add headbands, bows, or hair accessories not listed. Do NOT change the hairstyle for any reason (weather, activity, sleep). If the hairstyle does not match this description exactly, the image will be rejected.`);
     parts.push(``);
   } else if (characterDescription) {
-    parts.push(`5. HAIRSTYLE LOCK: The child's hair MUST look EXACTLY the same in every illustration — same style, color, length, texture, and accessories as shown in the reference photo. Do NOT change the hairstyle for any reason.`);
+    parts.push(`6. HAIRSTYLE LOCK: The child's hair MUST look EXACTLY the same in every illustration — same style, color, length, texture, and accessories as shown in the reference photo. Do NOT change the hairstyle for any reason.`);
     parts.push(``);
   }
 
@@ -286,6 +288,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   } else {
     parts.push('- Does the child\'s hair match the reference photo EXACTLY? (If different hair style/color/length, start over)');
   }
+  parts.push('- Are any family members (parents, siblings, grandparents) depicted? (If yes, remove them — show only their effect/presence, never their appearance)');
   parts.push('- Is the font style the same rounded bubbly sans-serif used on every other page? (If different font, start over)');
 
   return parts.join('\n');

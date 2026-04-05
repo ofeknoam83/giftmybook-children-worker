@@ -547,11 +547,23 @@ app.post('/generate-book', authenticate, async (req, res) => {
     bookId, childName, childAge, childGender, childAppearance,
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
-    approvedTitle, approvedCoverUrl,
+    approvedTitle, approvedCoverUrl, childAnecdotes,
   } = sanitized;
   const heartfeltNote = req.body.heartfeltNote || null;
   const bookFrom = req.body.bookFrom || null;
   const apiKeys = req.body.apiKeys;
+
+  // Merge child anecdotes into customDetails so the planner can use them
+  const anecdoteParts = [];
+  if (childAnecdotes) {
+    if (childAnecdotes.favorite_activities) anecdoteParts.push(`Favorite activities: ${childAnecdotes.favorite_activities}`);
+    if (childAnecdotes.funny_thing) anecdoteParts.push(`Funny thing they do: ${childAnecdotes.funny_thing}`);
+    if (childAnecdotes.favorite_food) anecdoteParts.push(`Favorite food: ${childAnecdotes.favorite_food}`);
+    if (childAnecdotes.other_detail) anecdoteParts.push(`Other detail: ${childAnecdotes.other_detail}`);
+  }
+  const enrichedCustomDetails = anecdoteParts.length > 0
+    ? [customDetails, ...anecdoteParts].filter(Boolean).join('\n')
+    : customDetails;
 
   const format = bookFormat;
   const style = artStyle;
@@ -687,7 +699,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
       let storySeed;
       try {
-        storySeed = await brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker });
+        storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, { apiKeys, costTracker });
         bookContext.log('info', 'Story seed ready', {
           favorite_object: storySeed.favorite_object,
           fear: storySeed.fear,
@@ -714,12 +726,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
         fear: storySeed.fear || 'the dark',
         setting: storySeed.setting || 'a magical place',
         dedication,
+        beats: storySeed.beats || [],
+        repeated_phrase: storySeed.repeated_phrase || '',
+        phrase_arc: storySeed.phrase_arc || [],
       };
 
       // Append story seed to custom details so the planner has the full creative direction
-      let enrichedCustomDetails = customDetails || '';
+      let plannerCustomDetails = enrichedCustomDetails || '';
       if (storySeed.storySeed) {
-        enrichedCustomDetails += `\n\nSTORY SEED (use as creative direction): ${storySeed.storySeed}`;
+        plannerCustomDetails += `\n\nSTORY SEED (use as creative direction): ${storySeed.storySeed}`;
       }
 
       // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
@@ -738,7 +753,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
 
         const stage3Start = Date.now();
-        storyPlan = await planStory(childDetails, theme || 'adventure', format, enrichedCustomDetails, {
+        storyPlan = await planStory(childDetails, theme || 'adventure', format, plannerCustomDetails, {
           apiKeys,
           costTracker,
           approvedTitle,
@@ -771,8 +786,27 @@ app.post('/generate-book', authenticate, async (req, res) => {
           const criticData = { ms: polishMs };
           if (storyPlan._criticScores) criticData.scores = storyPlan._criticScores;
           if (storyPlan._criticIssueCount) criticData.issuesFound = storyPlan._criticIssueCount;
-          bookContext.log('info', 'Self-critic pass complete', criticData);
+          bookContext.log('info', 'Self-critic pass 1 complete', criticData);
           bookContext.touchActivity();
+
+          // Conditional second polish pass if quality is below threshold
+          if (storyPlan._criticScores) {
+            const scoreVals = Object.values(storyPlan._criticScores);
+            const avg = scoreVals.reduce((a, b) => a + b, 0) / scoreVals.length;
+            if (avg < 7) {
+              bookContext.log('info', `Self-critic avg score ${avg.toFixed(1)} < 7 — running second polish pass`);
+              if (progressCallbackUrl) {
+                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.23, message: 'Refining story text (pass 2)...', logs: bookContext.logs });
+              }
+              const pass2Start = Date.now();
+              storyPlan = await polishStory(storyPlan, { apiKeys, costTracker });
+              const pass2Ms = Date.now() - pass2Start;
+              const pass2Data = { ms: pass2Ms };
+              if (storyPlan._criticScores) pass2Data.scores = storyPlan._criticScores;
+              bookContext.log('info', 'Self-critic pass 2 complete', pass2Data);
+              bookContext.touchActivity();
+            }
+          }
 
           // Save improved content to DB
           if (progressCallbackUrl) {

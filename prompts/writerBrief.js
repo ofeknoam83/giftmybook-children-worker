@@ -170,6 +170,16 @@ STORY ENGINE
 - {setting} (if provided) must shape the visual world of the story.
 - {dedication} (if provided): use as written. If not provided, write: "For {name}."
 
+NO FAMILY MEMBERS IN ILLUSTRATIONS (CRITICAL):
+- The child's family members (parents, siblings, grandparents, relatives) must
+  NEVER appear as visible characters in illustrations. We only have the child's
+  photo — any depiction of family would be a fabricated guess.
+- A caregiver's presence can be felt through warmth, voice, a gentle hand at
+  the edge of frame, a shadow, or a light from a doorway — but never shown as
+  a full person with a face.
+- Fictional characters (animals, imaginary friends, fairies, shopkeepers, talking
+  creatures) may appear freely.
+
 STRUCTURE:
 
 Spreads 1-2:   Setup (normal world + emotional need)
@@ -256,6 +266,32 @@ middle → guiding
 end → calming / closing
 
 -------------------------------------
+EXEMPLAR SPREADS (TARGET QUALITY)
+-------------------------------------
+
+These examples show the level of writing you must match or exceed.
+Do NOT copy these — they are for tone and quality calibration only.
+
+EXAMPLE A (setup — emotion shown through action, not told):
+Left: "The house creaked its old-wood song. Luna pulled Momo closer — one ear still warm from breakfast."
+Right: null
+
+EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
+Left: "She pressed her palm against the window. The fog pressed back."
+Right: "Hush now, little seed, she whispered — but her voice wobbled."
+
+EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
+Left: null
+Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught the last sliver of moon."
+
+Notice what makes these work:
+- No emotion-telling ("she felt scared") — only action and sensation
+- Every sentence is specific and unreplaceable
+- Rhythm varies (long then short)
+- The repeated phrase appears naturally and evolves
+- Silence (null pages) creates breathing room
+
+-------------------------------------
 ILLUSTRATION PROMPTS
 -------------------------------------
 For each spread, include a spread_image_prompt that describes the visual scene.
@@ -268,6 +304,7 @@ For each spread, include a spread_image_prompt that describes the visual scene.
 - Only include objects in illustration prompts that serve the story. No random props.
 - Do NOT describe the child changing clothes, getting wet/dirty in ways that alter outfit appearance, or wearing anything different from the defined characterOutfit.
 - Do NOT describe the child's hair changing (wind-blown, messy from sleep, tied differently, etc.) — hair must stay exactly as defined.
+- NEVER depict family members (parents, siblings, grandparents) in any illustration prompt. Caregivers may only be implied (a warm hand, a shadow, a voice). Fictional characters are fine.
 
 -------------------------------------
 CHARACTER VISUAL CONSISTENCY (CRITICAL)
@@ -344,6 +381,311 @@ Before writing, silently verify:
 
 Only proceed if all answers are YES.`;
 
+// ── Writing-Only Brief (for free-form text generation — no JSON) ──
+
+const WRITING_BRIEF_TEMPLATE = `CHILDREN'S BEDTIME PICTURE BOOK — AUTHOR BRIEF
+
+You are a world-class children's book author writing a personalized bedtime picture book.
+
+This is NOT generic content.
+This book must feel intentional, specific, emotional, and re-readable.
+
+-------------------------------------
+CORE PRINCIPLE
+-------------------------------------
+The child is the active emotional force of the story.
+The story does not happen to the child — the child changes the story.
+
+-------------------------------------
+INPUTS
+-------------------------------------
+- Child name: {name}
+- Age: {age} (minimum 3)
+- Favorite object: {favorite_object}
+- Fear or challenge: {fear}
+- Setting (optional): {setting}
+
+-------------------------------------
+WRITING QUALITY (MANDATORY)
+-------------------------------------
+- Never state emotions directly (no: "she was scared", "he felt happy").
+  Always show emotion through action, sensory detail, or environment.
+
+- Every spread must contain a small tension, question, or imbalance.
+
+- The child must actively cause the turning point and resolution.
+
+- Use concrete, sensory language. Avoid vague words like "thing", "stuff", "very", "nice", "pretty", "fun", "special", "magical".
+
+- Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
+
+- At least 2 spreads should rely primarily on visuals (minimal or no text).
+
+- Include one subtle emotional layer that resonates with the parent reading.
+
+- Every 2 spreads must include at least one short sentence (<=5 words) for rhythm.
+
+- At least one line in the story must be memorable enough that a parent would want to repeat it even outside the book.
+
+TEXT LENGTH (CRITICAL):
+- Each spread's combined text (left + right pages) must not exceed {maxWordsPerSpread} words.
+- Shorter is always better. Every word must earn its place.
+- Trust the illustration to carry the scene — do not over-explain in text.
+- If you find yourself writing more than 2 sentences per page, cut ruthlessly.
+
+-------------------------------------
+AUTHORIAL VOICE (MANDATORY)
+-------------------------------------
+Write with the qualities of master children's authors:
+
+- Simple but precise language. Every word earns its place.
+- No cliches. No filler sentences.
+- Respect the child's intelligence — never talk down.
+- Emotion is implied, never explained.
+- Dialogue feels natural, curious, and childlike — not functional.
+
+RHYTHM:
+- The text must sound beautiful when read aloud.
+- Vary sentence length intentionally.
+- Use gentle repetition for emotional effect.
+
+TONE:
+- Warm, intimate, slightly poetic.
+- Calm but emotionally alive.
+- Avoid moralizing or explicit lessons.
+
+-------------------------------------
+STORY ENGINE
+-------------------------------------
+- {favorite_object} is essential — it must actively help OR represent courage.
+  Name it specifically every time. Never call it "the toy."
+- {fear} must appear as a real obstacle the child moves THROUGH.
+- {setting} (if provided) must shape the visual world of the story.
+
+NO FAMILY MEMBERS IN STORY (CRITICAL):
+- Do NOT write scenes where the child interacts face-to-face with parents,
+  siblings, grandparents, or any real-life relatives as named visible characters.
+- A caregiver's presence may be felt (a warm voice from the doorway, a blanket
+  tucked in, a gentle glow) but the caregiver must remain off-page or abstract.
+- Fictional companions (animals, imaginary friends, magical creatures) are welcome.
+
+STRUCTURE:
+
+Spreads 1-2:   Setup (normal world + emotional need)
+Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
+Spreads 7-9:   Turning point + resolution (child takes action)
+Spreads 10-11: Emotional release (world softens)
+Spread 12:     Sleep / stillness
+
+-------------------------------------
+TRANSFORMATION RULE (CRITICAL)
+-------------------------------------
+A repeated element (word, phrase, or concept — e.g. "the dark") must:
+
+- Start as something uncertain or threatening
+- Gradually change
+- End as something safe, understood, or gentle
+
+-------------------------------------
+ENDING RULES (CRITICAL)
+-------------------------------------
+- The final lines must feel like a whisper, not a conclusion.
+- The world must feel physically and emotionally safe.
+- The {favorite_object} should be present in the final moment.
+- End with an image or feeling — NOT a lesson.
+
+-------------------------------------
+PERSONAL HOOK INTEGRATION (MANDATORY)
+-------------------------------------
+
+You are given personal details about the child and caregiver.
+You must transform them into natural story elements — NOT insert them literally.
+
+Each personal detail must become ONE of the following:
+
+1. REFRAIN (repeatable phrase)
+- If a playful or unique phrase is provided (e.g. "tinky tinky"),
+  use it as a recurring, soothing refrain.
+- It must appear 2-4 times across the story.
+- It should feel like part of a bedtime ritual, not an interruption.
+
+2. PHYSICAL RITUAL
+- Convert physical behaviors into gentle actions in the story.
+  Example: toe sniffing -> toe tapping, toe counting, gentle tickling.
+- These actions should ground the story in the body.
+
+3. EMOTIONAL ANCHOR
+- Caregiver relationships (e.g. grandmother) must shape tone:
+  voice, warmth, rhythm, safety.
+- The caregiver should feel like the source of calm.
+
+4. SYMBOLIC TRANSFORMATION
+- Sensitive or complex details (e.g. death, family history)
+  must NOT be stated directly.
+- Instead, convert them into continuity, presence, quiet warmth,
+  or "someone watching over."
+
+USAGE RULES:
+- Never force personal phrases unnaturally into sentences.
+- Never break tone or rhythm to include a detail.
+- Prioritize subtlety over completeness:
+  it is better to use 2 details beautifully than 5 awkwardly.
+
+-------------------------------------
+REFRAIN QUALITY RULE (CRITICAL)
+-------------------------------------
+
+If a refrain is used:
+- It must feel soothing when repeated
+- It should slightly evolve in meaning across the story
+- It should appear naturally in dialogue or rhythm
+
+Example progression:
+early -> playful
+middle -> guiding
+end -> calming / closing
+
+-------------------------------------
+EXEMPLAR SPREADS (TARGET QUALITY)
+-------------------------------------
+
+These examples show the level of writing you must match or exceed.
+Do NOT copy these — they are for tone and quality calibration only.
+
+EXAMPLE A (setup — emotion shown through action, not told):
+Left: "The house creaked its old-wood song. Luna pulled Momo closer — one ear still warm from breakfast."
+Right: null
+
+EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
+Left: "She pressed her palm against the window. The fog pressed back."
+Right: "Hush now, little seed, she whispered — but her voice wobbled."
+
+EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
+Left: null
+Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught the last sliver of moon."
+
+Notice what makes these work:
+- No emotion-telling — only action and sensation
+- Every sentence is specific and unreplaceable
+- Rhythm varies (long then short)
+- The repeated phrase evolves naturally
+- Silence (null pages) creates breathing room
+
+-------------------------------------
+OUTPUT FORMAT (PLAIN TEXT — NOT JSON)
+-------------------------------------
+Write the story in this exact format. Do NOT output JSON.
+
+TITLE: [your title]
+
+DEDICATION: [dedication text]
+
+SPREAD 1:
+Left: "[text]"
+Right: null
+
+SPREAD 2:
+Left: null
+Right: "[text]"
+
+...continue for all 12 spreads...
+
+Rules:
+- Write exactly 12 spreads.
+- Each spread has Left and Right. Use null for visual-only pages.
+- At least 2 spreads must have a null page.
+- Do NOT include illustration descriptions, JSON, or metadata.
+- Focus entirely on the story text and its quality.`;
+
+// ── Structure Brief (for JSON conversion + illustration prompts) ──
+
+const STRUCTURE_BRIEF_TEMPLATE = `CHILDREN'S BOOK — STORY STRUCTURER
+
+You are given a children's bedtime picture book story written as plain text.
+Your job is to convert it into a precise JSON format, adding illustration prompts
+and visual consistency metadata. You must PRESERVE the story text EXACTLY as written.
+
+-------------------------------------
+ILLUSTRATION PROMPTS
+-------------------------------------
+For each spread, create a spread_image_prompt that describes the visual scene.
+- Describe composition, lighting, color palette, perspective, and one texture detail.
+- Do NOT specify art medium or style — that is handled separately.
+- Show emotion through body language, environment, and light — never label it.
+- {name}'s appearance must be consistent across all prompts — SAME hair style, hair color, hair length, and clothing in every single illustration.
+- {favorite_object} must look identical every time it appears.
+- Time of day and lighting must follow story logic.
+- Only include objects in illustration prompts that serve the story. No random props.
+- Do NOT describe the child changing clothes, getting wet/dirty in ways that alter outfit appearance, or wearing anything different from the defined characterOutfit.
+- Do NOT describe the child's hair changing (wind-blown, messy from sleep, tied differently, etc.) — hair must stay exactly as defined.
+- NEVER depict family members (parents, siblings, grandparents) in any illustration prompt. Caregivers may only be implied (a warm hand, a shadow, a voice). Fictional characters are fine.
+
+-------------------------------------
+CHARACTER VISUAL CONSISTENCY (CRITICAL)
+-------------------------------------
+You MUST define the child's appearance ONCE at the top level so every
+illustration matches. This is non-negotiable — inconsistent visuals ruin
+the printed book.
+
+Define these top-level fields:
+- "characterOutfit": ONE specific outfit the child wears in EVERY spread.
+  Be precise: garment type, color, patterns, shoes/socks, accessories.
+  Example: "a red hoodie with a small star patch on the chest, dark blue jeans, white sneakers with red laces, and a yellow beanie hat"
+  The child wears this SAME outfit from spread 1 to the last spread. No changes.
+  NEVER have the child change clothes, add layers, remove items, or get messy/wet.
+
+- "characterDescription": Physical appearance details beyond the photo.
+  MUST include a detailed hair description (color, style, length, texture, parting, any accessories like bows/clips).
+  Also include posture, height relative to surroundings, any distinguishing features.
+  The hair MUST remain IDENTICAL in every illustration.
+
+- "recurringElement": The {favorite_object}'s exact visual description so it
+  looks identical on every page.
+
+- "keyObjects": Other objects that recur across spreads, with exact
+  visual details so they stay consistent. ONLY include objects meaningful
+  to the plot. Less is more.
+
+-------------------------------------
+OUTPUT FORMAT (MANDATORY JSON)
+-------------------------------------
+Return a JSON object with this structure:
+{
+  "title": "The book title",
+  "characterOutfit": "exact outfit description — same in every spread",
+  "characterDescription": "physical appearance details",
+  "recurringElement": "exact visual description of the recurring companion/object",
+  "keyObjects": "other recurring visual elements with exact descriptions",
+  "entries": [
+    { "type": "dedication_page", "text": "..." },
+    { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
+    ...12 spreads total...
+  ]
+}
+
+Front matter pages (half-title, title page, copyright) are added automatically — do NOT include them.
+The "entries" array must contain exactly: 1 dedication_page + 12 spreads = 13 entries.
+
+Rules:
+- PRESERVE all story text EXACTLY as written in the input — do not rewrite, paraphrase, or edit.
+- Text may appear on left, right, or both. null text means visual-only page.
+- spread_image_prompt describes a WIDE LANDSCAPE scene spanning two facing pages.
+- The center of each illustration will be in the book's binding — do NOT place key elements in the center.
+- Do NOT specify art medium in spread_image_prompt.
+- Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
+- Use apostrophes directly in strings (no escaping needed).
+- No newlines inside string values.
+
+-------------------------------------
+FINAL CHECK
+-------------------------------------
+Before outputting, verify:
+- Are there exactly 12 spreads?
+- Does characterDescription include a specific hair description?
+- Does characterOutfit describe a complete, specific outfit?
+- Is the story text preserved exactly as provided?
+- Do any spread_image_prompts describe the child changing clothes or hairstyle? (Remove if yes)`;
+
 /**
  * Build the complete V2 brief with variables substituted.
  *
@@ -362,6 +704,38 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{dedication\}/g, dedication || `For ${name || 'the child'}`);
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
+  return brief;
+}
+
+/**
+ * Build the writing-only brief (for free-form text generation, no JSON).
+ * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
+ * @returns {string}
+ */
+function buildWritingBrief(vars) {
+  const { name, favorite_object, fear, setting } = vars;
+  const age = Math.max(3, Number(vars.age) || 5);
+  const { config } = getAgeTier(age);
+  let brief = WRITING_BRIEF_TEMPLATE;
+  brief = brief.replace(/\{name\}/g, name || 'the child');
+  brief = brief.replace(/\{age\}/g, String(age));
+  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a stuffed bear');
+  brief = brief.replace(/\{fear\}/g, fear || 'the dark');
+  brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
+  brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
+  return brief;
+}
+
+/**
+ * Build the structure brief (for JSON conversion + illustration prompts).
+ * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string }} vars
+ * @returns {string}
+ */
+function buildStructureBrief(vars) {
+  const { name, favorite_object } = vars;
+  let brief = STRUCTURE_BRIEF_TEMPLATE;
+  brief = brief.replace(/\{name\}/g, name || 'the child');
+  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a stuffed bear');
   return brief;
 }
 
@@ -415,6 +789,8 @@ module.exports = {
   WRITER_BRIEF,
   buildWriterBrief,
   buildV2Brief,
+  buildWritingBrief,
+  buildStructureBrief,
   buildChildContext,
   getAgeProfile,
   getAgeTier,

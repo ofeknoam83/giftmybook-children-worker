@@ -10,8 +10,35 @@ process.env.GCS_BUCKET_NAME = 'test-bucket';
 jest.mock('../services/storyPlanner', () => ({
   planStory: jest.fn().mockResolvedValue({
     title: 'Test Story',
-    spreads: [{ spreadNumber: 1, text: 'Test', illustrationDescription: 'A scene', layoutType: 'TEXT_BOTTOM', mood: 'cheerful' }],
+    entries: [
+      { type: 'half_title_page', title: 'Test Story' },
+      { type: 'blank' },
+      { type: 'title_page', title: 'Test Story', subtitle: 'A bedtime story' },
+      { type: 'copyright_page' },
+      { type: 'dedication_page', text: 'For Emma' },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Text ${i + 1}` },
+        right: { text: null },
+        spread_image_prompt: `Scene ${i + 1}`,
+      })),
+      { type: 'blank' },
+      { type: 'closing_page' },
+      { type: 'blank' },
+    ],
   }),
+  polishStory: jest.fn().mockImplementation(async (plan) => plan),
+  brainstormStorySeed: jest.fn().mockResolvedValue({
+    favorite_object: 'a toy dinosaur',
+    fear: 'a strange sound',
+    setting: 'a twilight garden',
+    storySeed: 'A child discovers the garden sings at night.',
+    repeated_phrase: 'hush now, little seed',
+    phrase_arc: ['playful', 'guiding', 'calming'],
+    beats: [],
+  }),
+  validateStoryText: jest.fn().mockReturnValue({ valid: true, issues: [] }),
 }));
 jest.mock('../services/textGenerator', () => ({
   generateSpreadText: jest.fn().mockResolvedValue('Generated text.'),
