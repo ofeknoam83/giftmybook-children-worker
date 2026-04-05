@@ -42,13 +42,19 @@ const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFina
 const { withRetry } = require('./services/retry');
 
 const app = express();
+app.set('trust proxy', 1); // Cloud Run runs behind a load balancer
 
 // ── Checkpoint Helpers ──
 async function saveCheckpoint(bookId, data) {
-  const path = `children-jobs/${bookId}/checkpoint.json`;
-  const buf = Buffer.from(JSON.stringify(data));
-  await uploadBuffer(buf, path, 'application/json');
-  console.log(`[checkpoint] Saved checkpoint for ${bookId} at stage: ${data.completedStage}`);
+  try {
+    const path = `children-jobs/${bookId}/checkpoint.json`;
+    const buf = Buffer.from(JSON.stringify(data));
+    await uploadBuffer(buf, path, 'application/json');
+    console.log(`[checkpoint] Saved checkpoint for ${bookId} at stage: ${data.completedStage}`);
+  } catch (err) {
+    console.warn(`[checkpoint] Failed to save checkpoint for ${bookId} (non-fatal): ${err.message}`);
+    // Non-fatal — generation can continue without checkpoint
+  }
 }
 
 async function loadCheckpoint(bookId) {
