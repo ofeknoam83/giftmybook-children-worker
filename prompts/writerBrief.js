@@ -170,15 +170,16 @@ STORY ENGINE
 - {setting} (if provided) must shape the visual world of the story.
 - {dedication} (if provided): use as written. If not provided, write: "For {name}."
 
-NO FAMILY MEMBERS IN ILLUSTRATIONS (CRITICAL):
-- The child's family members (parents, siblings, grandparents, relatives) must
-  NEVER appear as visible characters in illustrations. We only have the child's
-  photo — any depiction of family would be a fabricated guess.
-- A caregiver's presence can be felt through warmth, voice, a gentle hand at
-  the edge of frame, a shadow, or a light from a doorway — but never shown as
-  a full person with a face.
-- Fictional characters (animals, imaginary friends, fairies, shopkeepers, talking
-  creatures) may appear freely.
+FAMILY MEMBERS — TEXT vs. ILLUSTRATIONS (CRITICAL):
+- The story text MAY mention family members (parents, grandparents, siblings)
+  by name — they can speak, tuck the child in, hum a song, etc.
+- Family members must NEVER appear as visible characters in ILLUSTRATIONS.
+  We only have the child's photo — any depiction of relatives would be a
+  fabricated guess. A caregiver's presence can be implied in illustration
+  prompts (a warm hand, a shadow, a light from a doorway) but never shown
+  as a full person with a face.
+- Fictional characters (animals, imaginary friends, fairies, shopkeepers,
+  talking creatures) may appear freely in illustrations.
 
 STRUCTURE:
 
@@ -462,12 +463,14 @@ STORY ENGINE
 - {fear} must appear as a real obstacle the child moves THROUGH.
 - {setting} (if provided) must shape the visual world of the story.
 
-NO FAMILY MEMBERS IN STORY (CRITICAL):
-- Do NOT write scenes where the child interacts face-to-face with parents,
-  siblings, grandparents, or any real-life relatives as named visible characters.
-- A caregiver's presence may be felt (a warm voice from the doorway, a blanket
-  tucked in, a gentle glow) but the caregiver must remain off-page or abstract.
-- Fictional companions (animals, imaginary friends, magical creatures) are welcome.
+FAMILY MEMBERS — TEXT vs. ILLUSTRATIONS:
+- The story text MAY mention family members (parents, grandparents, siblings)
+  by name — they can speak, tuck the child in, hum a song, etc.
+- However, when writing scenes, keep in mind that family members will NEVER
+  be shown in illustrations. Design scenes so the child is the visual focus.
+  When a family member speaks or acts, frame it so the illustration can show
+  the child's reaction, or the effect (a warm light, a tucked blanket, a
+  shadow in the doorway) rather than the relative's face or full body.
 
 STRUCTURE:
 

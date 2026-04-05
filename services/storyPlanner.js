@@ -184,6 +184,9 @@ You will receive details about a child. From these details, invent:
    - Spreads 10-11: Emotional release (world softens)
    - Spread 12: Sleep / stillness
 
+ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
+The story text MAY mention family members (parents, grandparents, siblings) by name — they can speak, tuck the child in, etc. However, family members must NEVER appear as visible characters in illustrations. We only have the child's photo, so any depiction of relatives would be a fabricated guess. In illustration prompts, a caregiver's presence can be implied (a warm voice, a light from a doorway, a hand at the frame's edge, a tucked-in blanket) but never shown as a full person with a face. Keep this in mind when designing the setting and beats — scenes should center the child visually even when family is mentioned in text.
+
 Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
 
 You MUST return ONLY a JSON object with these fields:
