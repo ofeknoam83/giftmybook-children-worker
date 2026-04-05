@@ -211,30 +211,33 @@ You MUST return ONLY a JSON object with exactly these 4 fields, nothing else:
     try {
       seed = JSON.parse(stripped);
     } catch (_) {
-      console.warn(`[storyPlanner] Story seed JSON parse failed. Raw response (first 500 chars): ${content.slice(0, 500)}`);
-      console.warn(`[storyPlanner] Parse error: ${e.message}`);
-      // Last resort: try to extract values with regex from free text
+      console.warn(`[storyPlanner] Story seed JSON parse failed. Raw (500 chars): ${content.slice(0, 500)}`);
+      // Last resort: regex extraction
       const extractField = (field) => {
         const match = content.match(new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`, 'i'));
         return match ? match[1] : null;
       };
-      const extracted = {
+      return {
         favorite_object: extractField('favorite_object') || 'a stuffed bear',
         fear: extractField('fear') || 'the dark',
         setting: extractField('setting') || 'a magical place',
         storySeed: extractField('storySeed') || extractField('story_seed') || '',
       };
-      if (extracted.favorite_object !== 'a stuffed bear' || extracted.fear !== 'the dark') {
-        console.log(`[storyPlanner] Recovered seed from malformed JSON: ${JSON.stringify(extracted)}`);
-        return extracted;
-      }
-      return extracted;
     }
   }
 
-  // Validate that we got real values, not empty strings
-  if (!seed.favorite_object && !seed.fear && !seed.setting) {
-    console.warn(`[storyPlanner] Story seed returned empty fields. Raw: ${content.slice(0, 300)}`);
+  // Handle nested responses: GPT sometimes wraps in { storySeed: { ... } } or { data: { ... } }
+  if (seed && !seed.favorite_object && typeof seed === 'object') {
+    const inner = seed.storySeed || seed.data || seed.seed || seed.story || Object.values(seed)[0];
+    if (inner && typeof inner === 'object' && inner.favorite_object) {
+      console.log(`[storyPlanner] Unwrapped nested seed response`);
+      seed = inner;
+    }
+  }
+
+  // Validate we got usable values
+  if (!seed || (!seed.favorite_object && !seed.fear && !seed.setting)) {
+    console.warn(`[storyPlanner] Story seed has no usable fields. Parsed: ${JSON.stringify(seed).slice(0, 300)}`);
     return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
   }
 
