@@ -707,8 +707,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
           else pageCount += 1;
         }
         pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
+        // Build synopsis from story plan for back cover
+        const synopsis = storyPlan.synopsis
+          || (storyPlan.entries || []).filter(e => e.type === 'spread').slice(0, 2).map(e => [e.left?.text, e.right?.text].filter(Boolean).join(' ')).join(' ')
+          || `A personalized bedtime story for ${childDetails.name}`;
+
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
-          apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount,
+          apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
