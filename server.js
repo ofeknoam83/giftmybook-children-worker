@@ -200,8 +200,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   // Count how many illustrations we need
   const illustratableEntries = entries.map((entry, idx) => {
     if (entry.type === 'blank') return null;
-    if (entry.type === 'title_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl', pageText: entry.title || '' };
-    if (entry.type === 'dedication_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl', pageText: entry.text || '' };
+    if (entry.type === 'title_page') return null; // Title page reuses the approved cover image
+    if (entry.type === 'dedication_page') return null; // Dedication page is text-only, no illustration needed
     if (entry.type === 'spread') {
       // Combine left + right text for embedding in illustration
       const spreadText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
@@ -842,6 +842,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }))
       );
       bookContext.log('info', 'All illustration buffers downloaded');
+
+      // Attach approved cover to title page entry (reuse cover instead of generating new illustration)
+      if (preGeneratedCoverBuffer) {
+        const titleEntry = entriesWithBuffers.find(e => e.type === 'title_page');
+        if (titleEntry && !titleEntry.illustrationBuffer) {
+          titleEntry.illustrationBuffer = preGeneratedCoverBuffer;
+          bookContext.log('info', 'Title page using approved cover image');
+        }
+      }
 
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
       const interiorPdf = await assemblePdf(entriesWithBuffers, format, {

@@ -3,7 +3,7 @@
  */
 
 const VALID_FORMATS = ['picture_book', 'early_reader'];
-const VALID_ART_STYLES = ['watercolor', 'digital_painting', 'storybook'];
+const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook'];
 const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy'];
 const VALID_GENDERS = ['male', 'female', 'neutral'];
 
@@ -125,7 +125,7 @@ function validateGenerateBookRequest(body) {
     childAppearance: sanitizeForPrompt(body.childAppearance || '', 300),
     childInterests: sanitizeInterests(body.childInterests),
     bookFormat: VALID_FORMATS.includes(body.bookFormat) ? body.bookFormat : 'picture_book',
-    artStyle: VALID_ART_STYLES.includes(body.artStyle) ? body.artStyle : 'watercolor',
+    artStyle: VALID_ART_STYLES.includes(body.artStyle) ? body.artStyle : 'pixar_premium',
     theme: VALID_THEMES.includes(body.theme) ? body.theme : 'adventure',
     customDetails: sanitizeForPrompt(body.customDetails || '', MAX_CUSTOM_DETAILS_LENGTH),
     callbackUrl: isValidHttpsUrl(body.callbackUrl) ? body.callbackUrl : null,
