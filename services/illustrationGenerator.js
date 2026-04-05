@@ -159,17 +159,20 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     ``,
     `3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`,
     ``,
-    `Create a single children's book illustration page.`,
-    ``,
-    `MAIN CHARACTER \u2014 ${childName || 'the child'} (THE ONLY CHILD IN THIS IMAGE):`,
   ];
+
+  if (characterOutfit) {
+    parts.push(`4. OUTFIT LOCK: The child MUST wear EXACTLY this outfit — no substitutions, no additions, no removals: ${characterOutfit}`);
+    parts.push(`   Do NOT change any garment, color, or accessory. This outfit is the same on every page of the book. If the outfit does not match this description exactly, the image will be rejected.`);
+    parts.push(``);
+  }
+
+  parts.push(`Create a single children's book illustration page.`);
+  parts.push(``);
+  parts.push(`MAIN CHARACTER \u2014 ${childName || 'the child'} (THE ONLY CHILD IN THIS IMAGE):`);
 
   if (characterDescription) {
     parts.push(characterDescription);
-  }
-
-  if (characterOutfit) {
-    parts.push(`OUTFIT: ${characterOutfit}`);
   }
 
   parts.push('');
@@ -222,6 +225,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('- Is there EXACTLY ONE child in the image? (If two, start over)');
   parts.push('- Does the child have exactly 2 arms and 2 hands? (If 3+, start over)');
   parts.push('- Is this ONE single scene, not a comic strip or sequence? (If multiple panels, start over)');
+  if (characterOutfit) {
+    parts.push(`- Is the child wearing EXACTLY: ${characterOutfit}? (If different clothing, start over)`);
+  }
 
   return parts.join('\n');
 }

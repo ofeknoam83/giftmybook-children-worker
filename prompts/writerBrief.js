@@ -198,10 +198,38 @@ For each spread, include a spread_image_prompt that describes the visual scene.
 - Time of day and lighting must follow story logic.
 
 -------------------------------------
+CHARACTER VISUAL CONSISTENCY (CRITICAL)
+-------------------------------------
+You MUST define the child's appearance ONCE at the top level so every
+illustration matches. This is non-negotiable — inconsistent visuals ruin
+the printed book.
+
+Define these top-level fields:
+- "characterOutfit": ONE specific outfit the child wears in EVERY spread.
+  Be precise: garment type, color, patterns, shoes/socks, accessories.
+  Example: "a red hoodie with a small star patch on the chest, dark blue jeans, white sneakers with red laces, and a yellow beanie hat"
+  The child wears this SAME outfit from spread 1 to the last spread. No changes.
+
+- "characterDescription": Physical appearance details beyond the photo
+  (posture, height relative to surroundings, any distinguishing features).
+
+- "recurringElement": The {favorite_object}'s exact visual description so it
+  looks identical on every page. Example: "a small brown teddy bear with a
+  red bow tie, slightly worn left ear, and button eyes"
+
+- "keyObjects": Any other objects that recur across spreads, with exact
+  visual details so they stay consistent. Example: "a blue flashlight
+  with silver trim; a winding forest path with moss-covered stones"
+
+-------------------------------------
 OUTPUT FORMAT (MANDATORY JSON)
 -------------------------------------
 Return a JSON object with this structure:
 {
+  "characterOutfit": "exact outfit description — same in every spread",
+  "characterDescription": "physical appearance details",
+  "recurringElement": "exact visual description of the recurring companion/object",
+  "keyObjects": "other recurring visual elements with exact descriptions",
   "entries": [
     { "type": "title_page", "page": "right", "title": "...", "subtitle": "A bedtime story for {name}" },
     { "type": "blank", "page": "left" },
@@ -216,6 +244,7 @@ Rules:
 - Text may appear on left, right, or both. A page may have null text for visual-only spreads.
 - spread_image_prompt describes the full illustration scene.
 - Do NOT specify art medium in spread_image_prompt.
+- Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Use apostrophes directly in strings (no escaping needed).
 - No newlines inside string values.
 

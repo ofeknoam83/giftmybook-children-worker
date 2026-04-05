@@ -316,7 +316,14 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   const plan = { title, entries };
 
+  // Propagate visual consistency fields from planner output
+  if (parsed.characterOutfit) plan.characterOutfit = parsed.characterOutfit;
+  if (parsed.characterDescription) plan.characterDescription = parsed.characterDescription;
+  if (parsed.recurringElement) plan.recurringElement = parsed.recurringElement;
+  if (parsed.keyObjects) plan.keyObjects = parsed.keyObjects;
+
   console.log(`[storyPlanner] Plan complete: "${title}" with ${spreads.length} spreads, ${entries.length} total entries`);
+  if (plan.characterOutfit) console.log(`[storyPlanner] Character outfit: ${plan.characterOutfit}`);
   return plan;
 }
 

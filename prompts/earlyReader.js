@@ -45,16 +45,24 @@ Theme: ${theme}
 Generate a JSON response with this exact structure:
 {
   "title": "The Book Title",
+  "characterOutfit": "exact outfit the child wears in EVERY illustration (garment type, color, patterns, shoes, accessories) — same from first page to last",
+  "characterDescription": "physical appearance details beyond the photo",
+  "recurringElement": "exact visual description of any companion or recurring object so it looks identical on every page",
+  "keyObjects": "other objects that recur across pages, with exact visual details",
   "spreads": [
     {
       "spreadNumber": 1,
       "text": "The actual text for this page (60-150 words)",
-      "illustrationDescription": "Detailed visual description of what to illustrate",
+      "illustrationDescription": "Detailed visual description of what to illustrate (do NOT re-describe the outfit — it is defined once at the top level)",
       "layoutType": "TEXT_BOTTOM",
       "mood": "curious"
     }
   ]
 }
+
+IMPORTANT:
+- You MUST include characterOutfit at the top level — the child wears ONE outfit throughout the entire book.
+- Do NOT re-describe clothing in illustrationDescription.
 
 MOODS: warm, curious, exciting, mysterious, peaceful, triumphant, funny, determined, surprised`;
 }

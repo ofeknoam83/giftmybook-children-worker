@@ -75,6 +75,10 @@ Theme: ${theme || 'bedtime'}
 
 Generate the COMPLETE story as a JSON object with this structure:
 {
+  "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
+  "characterDescription": "physical appearance details beyond the photo",
+  "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
+  "keyObjects": "other objects that recur across spreads, with exact visual details",
   "entries": [
     { "type": "title_page", "page": "right", "title": "...", "subtitle": "A bedtime story for ${name}", "image_prompt": "..." },
     { "type": "blank", "page": "left" },
@@ -86,9 +90,12 @@ Generate the COMPLETE story as a JSON object with this structure:
 }
 
 IMPORTANT:
-- Return ONLY a valid JSON object with an "entries" array.
+- You MUST include characterOutfit, characterDescription, recurringElement, and keyObjects at the top level.
+- characterOutfit defines ONE specific outfit the child wears from first spread to last — no clothing changes.
+- Return ONLY a valid JSON object with both the visual consistency fields and an "entries" array.
 - The entries array must contain: title_page, blank, dedication_page, blank, then 14-16 spreads.
 - Each spread must have spread_image_prompt (full two-page scene description).
+- Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Text goes in left.text and/or right.text (one can be null if the illustration carries the moment).
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.
 - Do NOT specify art medium or style in image prompts — that is handled separately by the illustration engine.
