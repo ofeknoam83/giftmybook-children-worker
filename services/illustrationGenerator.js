@@ -76,6 +76,10 @@ const MAX_RETRIES = 2;
  * Art style configurations for illustration prompts.
  */
 const ART_STYLE_CONFIG = {
+  pixar_premium: {
+    prefix: 'premium children\'s book illustration, Pixar-inspired finish,',
+    suffix: 'soft cinematic lighting, expressive character posing, warm color harmony, magical storybook detail, rich textures, professional quality, vibrant yet warm palette',
+  },
   watercolor: {
     prefix: 'children\'s book watercolor illustration,',
     suffix: 'soft watercolor textures, gentle colors, hand-painted look, paper texture visible, warm natural lighting',
@@ -83,6 +87,30 @@ const ART_STYLE_CONFIG = {
   digital_painting: {
     prefix: 'children\'s book digital painting illustration,',
     suffix: 'vibrant colors, clean lines, professional digital art, warm lighting, friendly atmosphere',
+  },
+  gouache: {
+    prefix: 'children\'s book gouache illustration,',
+    suffix: 'thick opaque paint texture, bold flat color areas, visible brushstrokes, matte finish, earthy warm palette',
+  },
+  pencil_sketch: {
+    prefix: 'children\'s book pencil sketch illustration,',
+    suffix: 'detailed graphite on cream paper, crosshatching for shadows, delicate linework, warm sepia tones with selective soft color washes',
+  },
+  paper_cutout: {
+    prefix: 'children\'s book paper cutout collage illustration,',
+    suffix: 'layered paper shapes with visible cut edges and shadows between layers, textured craft paper, bold simple shapes, Eric Carle inspired',
+  },
+  storybook_classic: {
+    prefix: 'classic golden age children\'s storybook illustration,',
+    suffix: 'detailed pen and ink with delicate watercolor tints, ornate borders, Beatrix Potter and Arthur Rackham inspired, vintage whimsical charm',
+  },
+  anime: {
+    prefix: 'Studio Ghibli inspired children\'s book illustration,',
+    suffix: 'large expressive eyes, soft pastel colors, dreamy atmospheric lighting, detailed fantasy background, Hayao Miyazaki style',
+  },
+  pixel_art: {
+    prefix: 'retro pixel art children\'s book illustration,',
+    suffix: '16-bit video game aesthetic, chunky visible pixels, limited color palette, nostalgic warm tones, charming blocky characters',
   },
   storybook: {
     prefix: 'classic children\'s storybook illustration,',
