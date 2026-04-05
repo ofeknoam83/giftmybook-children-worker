@@ -363,10 +363,11 @@ Create a story that:
  * @returns {string} The full brief with all variables replaced
  */
 function buildV2Brief(vars) {
-  const { name, age, favorite_object, fear, setting, dedication } = vars;
+  const { name, favorite_object, fear, setting, dedication } = vars;
+  const age = Math.max(3, Number(vars.age) || 5); // Minimum age 3 — Tier 1 board book text too simple
   let brief = V2_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
-  brief = brief.replace(/\{age\}/g, String(age || 5));
+  brief = brief.replace(/\{age\}/g, String(age));
   brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a stuffed bear');
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
