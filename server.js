@@ -254,6 +254,12 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     illustrationLimit(async () => {
       const { idx, prompt, field } = job;
 
+      // Check abort signal before starting each illustration
+      if (bookContext.abortController.signal.aborted) {
+        bookContext.log('info', `Skipping illustration entry ${idx + 1} — generation aborted`);
+        return;
+      }
+
       // Skip if already resumed from checkpoint
       if (results[idx]?.[field]) {
         return;
@@ -591,12 +597,16 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const forceNew = req.body.forceNew === true;
       let checkpoint = null;
       if (forceNew) {
-        bookContext.log('info', 'Full regeneration requested — clearing GCS data in background');
-        // Fire-and-forget: clean up old files without blocking the pipeline
-        // New illustrations use timestamp-based filenames so they won't collide
-        deletePrefix(`children-jobs/${bookId}/`)
-          .then(() => bookContext.log('info', 'GCS data cleared'))
-          .catch(e => bookContext.log('warn', 'GCS cleanup failed (non-blocking)', { error: (e?.message || String(e)).slice(0, 150) }));
+        bookContext.log('info', 'Full regeneration requested — clearing checkpoint only');
+        // Only delete the checkpoint file — not illustrations.
+        // Old illustrations don't collide (timestamp filenames) and deleting
+        // them can break an in-flight generation that's still referencing them.
+        try {
+          await deletePrefix(`children-jobs/${bookId}/checkpoint.json`);
+          bookContext.log('info', 'Checkpoint cleared');
+        } catch (e) {
+          bookContext.log('warn', 'Checkpoint clear failed — continuing', { error: (e?.message || String(e)).slice(0, 150) });
+        }
       } else {
         // Load checkpoint for resume support
         checkpoint = await loadCheckpoint(bookId);
