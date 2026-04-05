@@ -12,23 +12,26 @@ const API_KEY = process.env.API_KEY || '';
  * @param {object} data - { bookId, stage, progress, message, previewUrls, characterRefUrl, storyContent }
  */
 async function reportProgress(callbackUrl, data) {
-  if (!callbackUrl) return;
+  if (!callbackUrl) return null;
 
   const key = data.bookId || 'unknown';
   const now = Date.now();
   const lastTime = lastReportTimes.get(key) || 0;
 
-  if (now - lastTime < THROTTLE_MS) return;
+  if (now - lastTime < THROTTLE_MS) return null;
   lastReportTimes.set(key, now);
 
   try {
-    await fetch(callbackUrl, {
+    const res = await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify(data),
     });
+    const body = await res.json().catch(() => null);
+    return body;
   } catch (err) {
     console.warn(`[ProgressReporter] Failed to report progress for ${key}:`, err.message);
+    return null;
   }
 }
 

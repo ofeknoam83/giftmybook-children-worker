@@ -38,8 +38,8 @@ function drawTextOverlay(page, font, text, pageWidth, pageHeight, bindingSide) {
 
   const fontSize = 14;
   const lineHeight = fontSize * 1.5;
-  const sideMargin = BLEED + SAFETY_MARGIN; // 0.5" from trim on each side
-  const gutterExtra = GUTTER_MARGIN; // additional margin on binding edge
+  const sideMargin = BLEED + SAFETY_MARGIN;
+  const gutterExtra = GUTTER_MARGIN;
 
   const marginLeft = bindingSide === 'left' ? sideMargin + gutterExtra : sideMargin;
   const marginRight = bindingSide === 'right' ? sideMargin + gutterExtra : sideMargin;
@@ -215,13 +215,9 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
           await embedImageFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer, pageWidth, pageHeight);
         }
 
-        // Text overlays (left page binding is on right, right page binding is on left)
-        if (entry.left?.text) {
-          drawTextOverlay(leftPage, font, entry.left.text, pageWidth, pageHeight, 'right');
-        }
-        if (entry.right?.text) {
-          drawTextOverlay(rightPage, font, entry.right.text, pageWidth, pageHeight, 'left');
-        }
+        // Text is rendered directly into the illustration by Gemini —
+        // no PDF overlay needed. This avoids the forced banner look and
+        // lets text blend naturally with the art.
         break;
       }
 

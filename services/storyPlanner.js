@@ -468,6 +468,7 @@ REWRITE RULES (CRITICAL)
 
 - Reduce similes if overused
 - Improve rhythm (sentence variation)
+- CUT TEXT: if any spread has more than ~25 words total, cut ruthlessly. Trust the illustration. Shorter is better.
 
 -------------------------------------
 ENDING UPGRADE (SPECIAL RULE)

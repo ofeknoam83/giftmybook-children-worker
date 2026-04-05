@@ -567,14 +567,22 @@ app.post('/generate-book', authenticate, async (req, res) => {
     }, ABSOLUTE_TIMEOUT_MS);
 
     // Send heartbeat every 30s so standalone knows we're alive
-    heartbeatInterval = setInterval(() => {
+    // If standalone returns abort:true (book was marked failed), stop generating
+    heartbeatInterval = setInterval(async () => {
       if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, {
-          bookId,
-          stage: 'generating',
-          heartbeat: true,
-          logs: bookContext.logs,
-        }).catch(() => {});
+        try {
+          const resp = await reportProgress(progressCallbackUrl, {
+            bookId,
+            stage: 'generating',
+            heartbeat: true,
+            logs: bookContext.logs,
+          });
+          if (resp?.abort) {
+            bookContext.log('warn', `Abort signal received from standalone: ${resp.reason || 'unknown'}`);
+            console.warn(`[server] Book ${bookId} received abort signal — stopping generation`);
+            bookContext.abortController.abort();
+          }
+        } catch (_) { /* fire-and-forget */ }
       }
     }, 30000);
 

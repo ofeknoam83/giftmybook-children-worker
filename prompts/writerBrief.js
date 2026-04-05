@@ -30,7 +30,8 @@ const AGE_TIERS = {
     label: 'Classic Picture Book',
     range: [3, 5],
     vocabulary: 'conversational, concrete. No words above 2 syllables unless a name.',
-    sentencesPerSpread: '2-4',
+    maxWordsPerSpread: 25,
+    sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
     conflict: 'present but never scary. Stakes are emotional, not physical.',
     dialogue: '2 exchanges required.',
@@ -45,7 +46,8 @@ const AGE_TIERS = {
     label: 'Early Reader / Illustrated Story',
     range: [6, 8],
     vocabulary: 'up to 3-syllable words. May introduce one new word per story.',
-    sentencesPerSpread: 'up to 6',
+    maxWordsPerSpread: 40,
+    sentencesPerSpread: '2-4',
     sentenceStyle: 'Compound sentences allowed.',
     conflict: 'mild physical stakes allowed (lost, stuck, alone in the dark).',
     dialogue: '3 exchanges required. May include subtext.',
@@ -60,7 +62,8 @@ const AGE_TIERS = {
     label: 'Illustrated Chapter / Bedtime Story',
     range: [9, 12],
     vocabulary: 'no restriction. Metaphor and irony permitted.',
-    sentencesPerSpread: 'up to 8',
+    maxWordsPerSpread: 60,
+    sentencesPerSpread: 'up to 6',
     sentenceStyle: 'Varied rhythm intentional.',
     conflict: 'emotional complexity allowed (embarrassment, grief, longing).',
     dialogue: '3-4 exchanges. Subtext expected. Characters may be unreliable.',
@@ -130,6 +133,12 @@ WRITING QUALITY OVERRIDES (MANDATORY)
 - Every 2 spreads must include at least one short sentence (<=5 words) for rhythm.
 
 - At least one line in the story must be memorable enough that a parent would want to repeat it even outside the book.
+
+TEXT LENGTH (CRITICAL):
+- Each spread's combined text (left + right pages) must not exceed {maxWordsPerSpread} words.
+- Shorter is always better. Every word must earn its place.
+- Trust the illustration to carry the scene — do not over-explain in text.
+- If you find yourself writing more than 2 sentences per page, cut ruthlessly.
 
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
@@ -270,6 +279,7 @@ Only proceed if all answers are YES.`;
 function buildV2Brief(vars) {
   const { name, favorite_object, fear, setting, dedication } = vars;
   const age = Math.max(3, Number(vars.age) || 5); // Minimum age 3 — Tier 1 board book text too simple
+  const { config } = getAgeTier(age);
   let brief = V2_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
   brief = brief.replace(/\{age\}/g, String(age));
@@ -277,6 +287,7 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{dedication\}/g, dedication || `For ${name || 'the child'}`);
+  brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
   return brief;
 }
 

@@ -167,6 +167,23 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(``);
   }
 
+  // Extract hairstyle from characterDescription for hard enforcement
+  let hairstyleDesc = '';
+  if (characterDescription) {
+    // Try to extract hair-related details from the character description
+    const hairMatch = characterDescription.match(/hair[^.]*\./i)
+      || characterDescription.match(/(?:curly|straight|wavy|braided|bun|ponytail|afro|locks|twisted|coily|short|long)[^.]*\./i);
+    if (hairMatch) {
+      hairstyleDesc = hairMatch[0].trim();
+    }
+  }
+
+  if (hairstyleDesc) {
+    parts.push(`5. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle — no changes, no variations: ${hairstyleDesc}`);
+    parts.push(`   Same hair style, same hair accessories, same hair color, same hair length on every page. If the hairstyle does not match this description exactly, the image will be rejected.`);
+    parts.push(``);
+  }
+
   parts.push(`Create a single children's book illustration page.`);
   parts.push(``);
   parts.push(`MAIN CHARACTER \u2014 ${childName || 'the child'} (THE ONLY CHILD IN THIS IMAGE):`);
@@ -179,6 +196,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('CHARACTER LIKENESS:');
   parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, and eye color from the photo.');
   parts.push('- NEVER change hair style, hair color, eye color, or skin tone from the reference.');
+  if (hairstyleDesc) {
+    parts.push(`- HAIRSTYLE REMINDER: ${hairstyleDesc}`);
+  }
 
   if (recurringElement) {
     parts.push('');
@@ -227,6 +247,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('- Is this ONE single scene, not a comic strip or sequence? (If multiple panels, start over)');
   if (characterOutfit) {
     parts.push(`- Is the child wearing EXACTLY: ${characterOutfit}? (If different clothing, start over)`);
+  }
+  if (hairstyleDesc) {
+    parts.push(`- Does the child have EXACTLY this hairstyle: ${hairstyleDesc}? (If different hair, start over)`);
   }
 
   return parts.join('\n');
