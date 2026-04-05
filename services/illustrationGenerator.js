@@ -11,7 +11,7 @@ const { withRetry } = require('./retry');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
-const GEMINI_MODEL = 'gemini-2.5-flash-image';
+const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
 
 function buildKeyPool() {
   const keys = [];
@@ -398,7 +398,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal, opts =
       url: `${PROXY_URL}/generate-image`,
       headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
       label: 'gemini-proxy',
-      bodyTransform: (b) => ({ prompt: b.contents[0].parts[0].text, model: 'gemini-2.5-flash-image' })
+      bodyTransform: (b) => ({ prompt: b.contents[0].parts[0].text, model: 'gemini-3.1-flash-image-preview' })
     }] : []),
   ];
 
@@ -415,7 +415,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal, opts =
     try {
       let resp;
       if (ep.label === 'gemini-proxy') {
-        const proxyBody = { prompt: body.contents[0].parts[0].text, model: 'gemini-2.5-flash-image' };
+        const proxyBody = { prompt: body.contents[0].parts[0].text, model: 'gemini-3.1-flash-image-preview' };
         resp = await fetchWithTimeout(ep.url, {
           method: 'POST',
           headers: ep.headers,
@@ -537,7 +537,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
 
       if (costTracker) {
-        costTracker.addImageGeneration('gemini-2.5-flash-image', 1);
+        costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
       }
 
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);

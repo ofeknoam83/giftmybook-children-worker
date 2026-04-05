@@ -106,7 +106,7 @@ FORMAT: Square image, 1:1 aspect ratio.`;
   const startTime = Date.now();
 
   try {
-    const model = 'gemini-2.5-flash-image';
+    const model = 'gemini-3.1-flash-image-preview';
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
@@ -134,7 +134,7 @@ FORMAT: Square image, 1:1 aspect ratio.`;
         const ms = Date.now() - startTime;
         console.log(`[CoverGenerator] Back cover generated in ${ms}ms`);
         if (costTracker) {
-          costTracker.addImageGeneration('gemini-2.5-flash-image', 1);
+          costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
         }
         return Buffer.from(part.inlineData.data, 'base64');
       }
