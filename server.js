@@ -672,26 +672,29 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
 
-        // ── Polish pass: rewrite text for quality ──
-        bookContext.log('info', 'Starting polish pass (rewrite for quality)');
+        // ── Self-Critic + Auto-Rewrite pass ──
+        bookContext.log('info', 'Starting self-critic + rewrite pass');
         if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Polishing story text...', logs: bookContext.logs });
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating and improving story text...', logs: bookContext.logs });
         }
         const polishStart = Date.now();
         try {
           storyPlan = await polishStory(storyPlan, { apiKeys, costTracker });
           const polishMs = Date.now() - polishStart;
-          bookContext.log('info', 'Polish pass complete', { ms: polishMs });
+          const criticData = { ms: polishMs };
+          if (storyPlan._criticScores) criticData.scores = storyPlan._criticScores;
+          if (storyPlan._criticIssueCount) criticData.issuesFound = storyPlan._criticIssueCount;
+          bookContext.log('info', 'Self-critic pass complete', criticData);
           bookContext.touchActivity();
 
-          // Save polished content to DB
+          // Save improved content to DB
           if (progressCallbackUrl) {
             const polishedContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
             reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContentForDb, logs: bookContext.logs }).catch(() => {});
           }
           await saveCheckpoint(bookId, { bookId, completedStage: 'story_polish', storyPlan, timestamp: new Date().toISOString() });
         } catch (polishErr) {
-          bookContext.log('warn', `Polish pass failed — using original text: ${polishErr.message}`);
+          bookContext.log('warn', `Self-critic pass failed — using original text: ${polishErr.message}`);
           // Non-fatal: continue with original text
         }
       }

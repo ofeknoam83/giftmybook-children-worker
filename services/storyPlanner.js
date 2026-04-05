@@ -377,9 +377,143 @@ function repairTruncatedJson(str) {
   }
 }
 
+// ── Self-Critic + Auto-Rewrite prompt ──
+
+const SELF_CRITIC_SYSTEM = `CHILDREN'S BOOK — SELF-CRITIC + AUTO-REWRITE
+
+You are a strict children's book editor.
+
+Your job is to:
+1) Critically evaluate the story
+2) Identify weak or non-compliant lines
+3) Rewrite ONLY what needs improvement
+4) Return a stronger version of the SAME story
+
+Do NOT change:
+- plot
+- structure
+- characters
+- number of spreads
+- which page (left/right) has text vs null
+
+Only improve the writing quality.
+
+-------------------------------------
+EVALUATION CRITERIA (STRICT)
+-------------------------------------
+
+Score each category from 1-10:
+
+1. Emotional Writing
+- Is emotion shown (not told)?
+- Any "she felt / she was scared" → penalty
+
+2. Language Quality
+- Any generic phrases?
+- Any replaceable sentences?
+
+3. Imagery
+- Are visuals specific and vivid?
+- Or vague and common?
+
+4. Authorial Voice
+- Does it feel like a real author?
+- Or like AI-generated text?
+
+5. Child Agency
+- Does the child actively drive the story?
+
+6. Transformation
+- Does the repeated element evolve meaningfully?
+
+7. Ending Quality
+- Is the ending soft, poetic, and non-generic?
+
+-------------------------------------
+VIOLATION DETECTION (MANDATORY)
+-------------------------------------
+
+List ALL lines that violate:
+
+- Emotion telling
+- Explanation (e.g. "she realized", "it was not scary")
+- Generic wording
+- Weak imagery
+- Overused similes ("felt like", "like a...")
+- Flat or unnecessary sentences
+
+Be precise. Quote exact lines.
+
+-------------------------------------
+REWRITE RULES (CRITICAL)
+-------------------------------------
+
+- Rewrite ONLY flagged lines
+- Keep original meaning
+- Make language:
+  - more specific
+  - more sensory
+  - more natural when read aloud
+
+- Replace:
+  - explanation → implication
+  - telling → action or imagery
+
+- Reduce similes if overused
+- Improve rhythm (sentence variation)
+
+-------------------------------------
+ENDING UPGRADE (SPECIAL RULE)
+-------------------------------------
+
+If the ending is generic or explicit:
+- Rewrite the final 1-3 lines to be:
+  - softer
+  - more poetic
+  - non-explanatory
+  - emotionally resonant
+
+-------------------------------------
+OUTPUT FORMAT (JSON)
+-------------------------------------
+
+Return a JSON object with exactly this structure:
+{
+  "scores": {
+    "emotional_writing": <1-10>,
+    "language_quality": <1-10>,
+    "imagery": <1-10>,
+    "authorial_voice": <1-10>,
+    "child_agency": <1-10>,
+    "transformation": <1-10>,
+    "ending_quality": <1-10>
+  },
+  "issues": [
+    { "line": "<exact quote>", "reason": "<violation type>" }
+  ],
+  "improved_spreads": [
+    { "spread": 1, "left": "...", "right": "..." },
+    ...
+  ]
+}
+
+Rules for improved_spreads:
+- Return ALL spreads (same count as input)
+- If a spread needed no changes, return its text unchanged
+- If left or right was null in the input, keep it null
+- No explanations inside the story text
+
+-------------------------------------
+QUALITY BAR
+-------------------------------------
+
+Only return the rewritten story if it is CLEARLY better than the original.
+If not, keep refining internally before output.`;
+
 /**
- * Polish / rewrite pass — takes the raw story plan and improves
- * writing quality without changing the plot or spread structure.
+ * Self-Critic + Auto-Rewrite pass — evaluates the story against strict
+ * quality criteria, identifies violations, and rewrites only what needs
+ * improvement. Returns a stronger version of the same story.
  *
  * @param {object} storyPlan - { title, entries: [...] }
  * @param {object} [opts] - { apiKeys, costTracker }
@@ -397,69 +531,67 @@ async function polishStory(storyPlan, opts = {}) {
     right: s.right?.text || null,
   }));
 
-  const systemPrompt = `You are a world-class children's book editor. You will receive a complete story as JSON (array of spreads with left/right page text).
+  const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}`;
 
-Rewrite EVERY spread to:
-- Remove any weak, generic, or filler phrasing ("very", "really", "nice", "special", "magical", "beautiful", "wonderful")
-- Improve rhythm and read-aloud quality — vary sentence lengths, use pauses and cadence
-- Sharpen imagery — replace vague descriptions with concrete, sensory details
-- Remove any direct emotional statements ("she felt scared", "he was happy") — show emotion through action, body language, environment
-- Strengthen any repeated motifs or transformation arcs
-- Ensure at least one line is memorable enough that a parent would want to repeat it outside the book
-
-Do NOT change:
-- The plot, character names, or sequence of events
-- The number of spreads
-- Which page (left/right) has text vs null
-- The spread_image_prompt values (they are not included — only text is)
-- The dedication or title
-
-Return the SAME JSON array structure with improved text. Every spread must still be present.`;
-
-  const userPrompt = JSON.stringify(textMap);
-
-  console.log(`[storyPlanner] Starting polish pass (${spreads.length} spreads)...`);
+  console.log(`[storyPlanner] Starting self-critic + rewrite pass (${spreads.length} spreads)...`);
   const polishStart = Date.now();
 
-  const response = await callLLM(systemPrompt, userPrompt, {
+  const response = await callLLM(SELF_CRITIC_SYSTEM, userPrompt, {
     openaiApiKey: openaiKey,
-    maxTokens: 8000,
-    temperature: 0.6,
+    maxTokens: 10000,
+    temperature: 0.5,
     jsonMode: true,
     costTracker,
   });
 
   const polishMs = Date.now() - polishStart;
-  console.log(`[storyPlanner] Polish pass completed in ${polishMs}ms (${response.model}, ${response.outputTokens} tokens)`);
+  console.log(`[storyPlanner] Self-critic pass completed in ${polishMs}ms (${response.model}, ${response.outputTokens} tokens)`);
 
   let content = response.text;
-  // Sanitize
+  // Sanitize common JSON issues
   content = content.replace(/\\'/g, "'");
   content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
 
-  let polished;
+  let result;
   try {
-    polished = JSON.parse(content);
+    result = JSON.parse(content);
   } catch (parseErr) {
     // Try stripping markdown fences
     const stripped = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
-      polished = JSON.parse(stripped);
+      result = JSON.parse(stripped);
     } catch (_) {
-      console.warn(`[storyPlanner] Polish pass JSON parse failed: ${parseErr.message} — using original text`);
+      console.warn(`[storyPlanner] Self-critic JSON parse failed: ${parseErr.message} — using original text`);
       return storyPlan;
     }
   }
 
-  // Normalize: could be a raw array or { spreads: [...] } or wrapped
-  const polishedArray = Array.isArray(polished) ? polished : (polished.spreads || polished.entries || []);
+  // Log scores and issues
+  if (result.scores) {
+    const scores = result.scores;
+    const avg = Object.values(scores).reduce((a, b) => a + b, 0) / Object.values(scores).length;
+    console.log(`[storyPlanner] Self-critic scores: ${JSON.stringify(scores)} (avg: ${avg.toFixed(1)})`);
+  }
+  if (result.issues && result.issues.length > 0) {
+    console.log(`[storyPlanner] Self-critic found ${result.issues.length} issues:`);
+    for (const issue of result.issues.slice(0, 10)) {
+      console.log(`  - [${issue.reason}] "${(issue.line || '').slice(0, 80)}..."`);
+    }
+  }
 
-  if (polishedArray.length !== spreads.length) {
-    console.warn(`[storyPlanner] Polish returned ${polishedArray.length} spreads, expected ${spreads.length} — using original text`);
+  // Extract the improved spreads
+  const polishedArray = result.improved_spreads || result.spreads || result.entries || [];
+  if (!Array.isArray(polishedArray)) {
+    console.warn(`[storyPlanner] Self-critic returned no improved_spreads array — using original text`);
     return storyPlan;
   }
 
-  // Apply polished text back into the story plan entries
+  if (polishedArray.length !== spreads.length) {
+    console.warn(`[storyPlanner] Self-critic returned ${polishedArray.length} spreads, expected ${spreads.length} — using original text`);
+    return storyPlan;
+  }
+
+  // Apply improved text back into the story plan entries
   let changedCount = 0;
   const updatedEntries = storyPlan.entries.map(entry => {
     if (entry.type !== 'spread') return entry;
@@ -478,9 +610,14 @@ Return the SAME JSON array structure with improved text. Every spread must still
     return updated;
   });
 
-  console.log(`[storyPlanner] Polish pass: ${changedCount} page texts improved out of ${spreads.length * 2} pages`);
+  console.log(`[storyPlanner] Self-critic pass: ${changedCount} page texts improved out of ${spreads.length * 2} pages`);
 
-  return { ...storyPlan, entries: updatedEntries };
+  return {
+    ...storyPlan,
+    entries: updatedEntries,
+    _criticScores: result.scores || null,
+    _criticIssueCount: (result.issues || []).length,
+  };
 }
 
 module.exports = { planStory, polishStory };
