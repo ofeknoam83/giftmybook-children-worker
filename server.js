@@ -658,6 +658,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookContext.log('info', 'V2 story planned', { spreads: spreads.length, entries: storyPlan.entries.length, title: storyPlan.title, ms: stage3Ms });
         console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
 
+        // Save story content to DB immediately so admin can see the text
+        if (progressCallbackUrl) {
+          const storyContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
+        }
+
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
       }
 
