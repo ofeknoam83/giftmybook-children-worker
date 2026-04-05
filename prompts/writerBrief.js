@@ -196,6 +196,66 @@ ENDING RULES (CRITICAL)
 - End with an image or feeling — NOT a lesson.
 
 -------------------------------------
+PERSONAL HOOK INTEGRATION (MANDATORY)
+-------------------------------------
+
+You are given personal details about the child and caregiver.
+You must transform them into natural story elements — NOT insert them literally.
+
+Each personal detail must become ONE of the following:
+
+1. REFRAIN (repeatable phrase)
+- If a playful or unique phrase is provided (e.g. "tinky tinky"),
+  use it as a recurring, soothing refrain.
+- It must appear 2–4 times across the story.
+- It should feel like part of a bedtime ritual, not an interruption.
+
+2. PHYSICAL RITUAL
+- Convert physical behaviors into gentle actions in the story.
+  Example: toe sniffing → toe tapping, toe counting, gentle tickling.
+- These actions should ground the story in the body.
+
+3. EMOTIONAL ANCHOR
+- Caregiver relationships (e.g. grandmother) must shape tone:
+  voice, warmth, rhythm, safety.
+- The caregiver should feel like the source of calm.
+
+4. SYMBOLIC TRANSFORMATION
+- Sensitive or complex details (e.g. death, family history)
+  must NOT be stated directly.
+- Instead, convert them into:
+  - continuity
+  - presence
+  - quiet warmth
+  - "someone watching over"
+
+-------------------------------------
+USAGE RULES
+-------------------------------------
+
+- Never force personal phrases unnaturally into sentences.
+- Never break tone or rhythm to include a detail.
+- The reader should feel:
+  "this story was written for us" — not "this detail was inserted."
+
+- Prioritize subtlety over completeness:
+  it is better to use 2 details beautifully than 5 awkwardly.
+
+-------------------------------------
+REFRAIN QUALITY RULE (CRITICAL)
+-------------------------------------
+
+If a refrain is used:
+- It must feel soothing when repeated
+- It should slightly evolve in meaning across the story
+- It should appear naturally in dialogue or rhythm
+
+Example progression:
+early → playful
+middle → guiding
+end → calming / closing
+
+-------------------------------------
 ILLUSTRATION PROMPTS
 -------------------------------------
 For each spread, include a spread_image_prompt that describes the visual scene.
