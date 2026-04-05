@@ -75,26 +75,26 @@ Theme: ${theme || 'bedtime'}
 
 Generate the COMPLETE story as a JSON object with this structure:
 {
+  "title": "The book title",
   "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
-  "characterDescription": "physical appearance details beyond the photo",
+  "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",
   "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
   "keyObjects": "other objects that recur across spreads, with exact visual details",
   "entries": [
-    { "type": "title_page", "page": "right", "title": "...", "subtitle": "A bedtime story for ${name}", "image_prompt": "..." },
-    { "type": "blank", "page": "left" },
-    { "type": "dedication_page", "page": "right", "text": "${dedication}", "image_prompt": "..." },
-    { "type": "blank", "page": "left" },
-    { "type": "spread", "spread": 1, "left": { "text": "...", "image_prompt": null }, "right": { "text": "...", "image_prompt": null }, "spread_image_prompt": "..." },
-    ...14-16 spreads total...
+    { "type": "dedication_page", "text": "${dedication}" },
+    { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
+    ...12 spreads total...
   ]
 }
 
 IMPORTANT:
-- You MUST include characterOutfit, characterDescription, recurringElement, and keyObjects at the top level.
+- You MUST include title, characterOutfit, characterDescription, recurringElement, and keyObjects at the top level.
 - characterOutfit defines ONE specific outfit the child wears from first spread to last — no clothing changes.
-- Return ONLY a valid JSON object with both the visual consistency fields and an "entries" array.
-- The entries array must contain: title_page, blank, dedication_page, blank, then 14-16 spreads.
-- Each spread must have spread_image_prompt (full two-page scene description).
+- Return ONLY a valid JSON object with the visual consistency fields and an "entries" array.
+- Front matter (half-title, title page, copyright) is added automatically — do NOT include them.
+- The entries array must contain exactly: 1 dedication_page + 12 spreads = 13 entries.
+- Each spread must have spread_image_prompt (a wide landscape scene spanning two facing pages).
+- The CENTER of each illustration will be in the book's binding — do NOT describe key characters, text, or objects in the center of the scene. Place them on the left or right side.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Text goes in left.text and/or right.text (one can be null if the illustration carries the moment).
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.

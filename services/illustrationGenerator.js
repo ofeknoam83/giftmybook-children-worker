@@ -11,7 +11,7 @@ const { withRetry } = require('./retry');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
-const GEMINI_MODEL = 'gemini-3.1-flash-image-preview'; // Nano Banana 2
+const GEMINI_MODEL = 'gemini-2.5-flash-image';
 
 function buildKeyPool() {
   const keys = [];
@@ -163,6 +163,7 @@ function buildGenericSafePrompt(artStyle) {
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   const skipTextEmbed = opts.skipTextEmbed || false;
+  const isSpread = opts.isSpread || false;
 
   const parts = [
     `\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`,
@@ -176,25 +177,27 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   ];
 
   if (characterOutfit) {
-    parts.push(`4. OUTFIT LOCK: The child MUST wear EXACTLY this outfit — no substitutions, no additions, no removals: ${characterOutfit}`);
-    parts.push(`   Do NOT change any garment, color, or accessory. This outfit is the same on every page of the book. If the outfit does not match this description exactly, the image will be rejected.`);
+    parts.push(`4. OUTFIT LOCK: The child MUST wear EXACTLY this outfit in EVERY illustration — no substitutions, no additions, no removals, no seasonal variations: ${characterOutfit}`);
+    parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
     parts.push(``);
   }
 
   // Extract hairstyle from characterDescription for hard enforcement
   let hairstyleDesc = '';
   if (characterDescription) {
-    // Try to extract hair-related details from the character description
-    const hairMatch = characterDescription.match(/hair[^.]*\./i)
-      || characterDescription.match(/(?:curly|straight|wavy|braided|bun|ponytail|afro|locks|twisted|coily|short|long)[^.]*\./i);
+    const hairMatch = characterDescription.match(/hair[^.!,;]*[.!,;]?/i)
+      || characterDescription.match(/(?:curly|straight|wavy|braided|braid|bun|ponytail|pigtail|afro|locks|twisted|coily|short|long|bob|mohawk|cornrow|dreadlock|bangs|fringe)[^.!,;]*[.!,;]?/i);
     if (hairMatch) {
       hairstyleDesc = hairMatch[0].trim();
     }
   }
 
   if (hairstyleDesc) {
-    parts.push(`5. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle — no changes, no variations: ${hairstyleDesc}`);
-    parts.push(`   Same hair style, same hair accessories, same hair color, same hair length on every page. If the hairstyle does not match this description exactly, the image will be rejected.`);
+    parts.push(`5. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle in EVERY illustration — no changes, no variations, no wind-blown alternatives: ${hairstyleDesc}`);
+    parts.push(`   Same hair style, same hair accessories, same hair color, same hair length, same hair texture on every page. Do NOT add headbands, bows, or hair accessories not listed. Do NOT change the hairstyle for any reason (weather, activity, sleep). If the hairstyle does not match this description exactly, the image will be rejected.`);
+    parts.push(``);
+  } else if (characterDescription) {
+    parts.push(`5. HAIRSTYLE LOCK: The child's hair MUST look EXACTLY the same in every illustration — same style, color, length, texture, and accessories as shown in the reference photo. Do NOT change the hairstyle for any reason.`);
     parts.push(``);
   }
 
@@ -207,11 +210,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
 
   parts.push('');
-  parts.push('CHARACTER LIKENESS:');
-  parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, and eye color from the photo.');
-  parts.push('- NEVER change hair style, hair color, eye color, or skin tone from the reference.');
+  parts.push('CHARACTER LIKENESS (MUST MATCH REFERENCE PHOTO EXACTLY):');
+  parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, hair length, hair texture, and eye color from the photo.');
+  parts.push('- NEVER change hair style, hair color, hair length, eye color, or skin tone from the reference — not even slightly.');
+  parts.push('- The child\'s hair must be IDENTICAL in every illustration: same style, same color, same length, same parting, same accessories.');
+  parts.push('- The child\'s clothing must be IDENTICAL in every illustration: same garments, same colors, same patterns.');
   if (hairstyleDesc) {
     parts.push(`- HAIRSTYLE REMINDER: ${hairstyleDesc}`);
+  }
+  if (characterOutfit) {
+    parts.push(`- OUTFIT REMINDER: ${characterOutfit}`);
   }
 
   if (recurringElement) {
@@ -232,7 +240,18 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   // Always use the configured art style (pixar_premium by default)
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
-  parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
+  if (isSpread) {
+    parts.push('FORMAT: Wide landscape illustration spanning TWO facing pages (a book spread). 16:9 aspect ratio.');
+    parts.push('GUTTER ZONE: The CENTER VERTICAL STRIP of this image (the middle ~8% of the width) will be hidden in the book spine/binding. CRITICAL RULES:');
+    parts.push('- NEVER place the child\'s face, hands, or body in the center strip');
+    parts.push('- NEVER place text in the center strip');
+    parts.push('- NEVER place key objects or the recurring companion in the center strip');
+    parts.push('- Compose the scene so the child and text are clearly on the LEFT side or RIGHT side');
+    parts.push('- Background/environment can flow through the center — only avoid important elements there');
+    parts.push('- The left half and right half should each work as a complete, balanced composition');
+  } else {
+    parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
+  }
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
   // Embed story text directly in the illustration
@@ -245,7 +264,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('TEXT RULES:');
     parts.push('- Render ALL of the text above \u2014 do NOT truncate, cut off, or omit any words');
     parts.push('- The COMPLETE text must be visible and readable in the image');
-    parts.push('- Use a large, clear, friendly children\'s book font');
+    parts.push('- FONT: Use a rounded, bubbly sans-serif font (like Fredoka One / Baloo / Nunito). This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.');
     parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
     parts.push('- Text must be perfectly legible, correctly spelled, and easy to read');
@@ -264,7 +283,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
   if (hairstyleDesc) {
     parts.push(`- Does the child have EXACTLY this hairstyle: ${hairstyleDesc}? (If different hair, start over)`);
+  } else {
+    parts.push('- Does the child\'s hair match the reference photo EXACTLY? (If different hair style/color/length, start over)');
   }
+  parts.push('- Is the font style the same rounded bubbly sans-serif used on every other page? (If different font, start over)');
 
   return parts.join('\n');
 }
@@ -288,17 +310,22 @@ async function downloadPhotoAsBase64(url) {
  * @param {string} photoMime - MIME type of the photo
  * @returns {Promise<Buffer>} Generated image buffer
  */
-async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal) {
+async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, opts = {}) {
   const apiKey = getNextApiKey();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const keyIdx = (keyIndex - 1) % API_KEY_POOL.length;
+
+  const generationConfig = { responseModalities: ['TEXT', 'IMAGE'] };
+  if (opts.aspectRatio) {
+    generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
+  }
 
   const body = {
     contents: [{ role: 'user', parts: [
       { text: prompt },
       { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
     ]}],
-    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    generationConfig,
   };
 
   const epStart = Date.now();
@@ -346,10 +373,15 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal) {
  * @param {number} [deadlineMs] - Milliseconds remaining before outer deadline
  * @returns {Promise<Buffer>} Generated image buffer
  */
-async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal) {
+async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal, opts = {}) {
+  const generationConfig = { responseModalities: ['TEXT', 'IMAGE'] };
+  if (opts.aspectRatio) {
+    generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
+  }
+
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    generationConfig,
   };
 
   // Round-robin across API key pool (each key = different GCP project)
@@ -363,7 +395,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal) {
       url: `${PROXY_URL}/generate-image`,
       headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
       label: 'gemini-proxy',
-      bodyTransform: (b) => ({ prompt: b.contents[0].parts[0].text, model: 'gemini-3.1-flash-image-preview' })
+      bodyTransform: (b) => ({ prompt: b.contents[0].parts[0].text, model: 'gemini-2.5-flash-image' })
     }] : []),
   ];
 
@@ -380,7 +412,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal) {
     try {
       let resp;
       if (ep.label === 'gemini-proxy') {
-        const proxyBody = { prompt: body.contents[0].parts[0].text, model: 'gemini-3.1-flash-image-preview' };
+        const proxyBody = { prompt: body.contents[0].parts[0].text, model: 'gemini-2.5-flash-image' };
         resp = await fetchWithTimeout(ep.url, {
           method: 'POST',
           headers: ep.headers,
@@ -448,7 +480,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle });
+  const isSpread = opts.isSpread || false;
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread });
+  const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);
@@ -489,18 +523,18 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       let imageBuffer;
       // Always use cover image as reference for character likeness
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal);
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
-        imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal);
+        imageBuffer = await callGeminiImageApiNoPhoto(variant.prompt, remaining, opts.abortSignal, { aspectRatio });
       }
 
       const geminiMs = Date.now() - geminiStart;
       console.log(`[illustrationGenerator] Gemini image generated (attempt ${attempt}, ${variant.label}, ${geminiMs}ms, ${imageBuffer.length} bytes)`);
 
       if (costTracker) {
-        costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+        costTracker.addImageGeneration('gemini-2.5-flash-image', 1);
       }
 
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);

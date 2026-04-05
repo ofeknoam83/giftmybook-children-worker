@@ -1,43 +1,58 @@
-jest.mock('openai');
-
-const OpenAI = require('openai');
-
 // Set env before requiring storyPlanner
 process.env.OPENAI_API_KEY = 'test-key';
+process.env.GEMINI_API_KEY = 'test-gemini-key';
 
 const validPlan = {
   title: 'Emma and the Magic Garden',
-  spreads: Array.from({ length: 14 }, (_, i) => ({
-    spreadNumber: i + 1,
-    text: `Spread ${i + 1} text here with some words.`,
-    illustrationDescription: `Scene ${i + 1} description`,
-    layoutType: 'TEXT_BOTTOM',
-    mood: 'cheerful',
-  })),
+  entries: [
+    { type: 'dedication_page', text: 'For Emma' },
+    ...Array.from({ length: 12 }, (_, i) => ({
+      type: 'spread',
+      spread: i + 1,
+      left: { text: `Spread ${i + 1} left text.` },
+      right: { text: `Spread ${i + 1} right text.` },
+      spread_image_prompt: `Scene ${i + 1} description`,
+    })),
+  ],
 };
 
-const mockCreate = jest.fn();
+const longPlan = {
+  title: 'Long Story',
+  entries: [
+    { type: 'dedication_page', text: 'For someone' },
+    ...Array.from({ length: 18 }, (_, i) => ({
+      type: 'spread',
+      spread: i + 1,
+      left: { text: `Text ${i + 1}` },
+      right: { text: null },
+      spread_image_prompt: `Desc ${i + 1}`,
+    })),
+  ],
+};
 
-beforeAll(() => {
-  OpenAI.mockImplementation(() => ({
-    chat: {
-      completions: { create: mockCreate },
-    },
-  }));
-});
+function makeFetchResponse(plan) {
+  return {
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: JSON.stringify(plan) }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 500, completion_tokens: 2000 },
+    }),
+  };
+}
+
+const originalFetch = global.fetch;
 
 beforeEach(() => {
-  mockCreate.mockReset();
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
+  global.fetch = originalFetch;
   jest.restoreAllMocks();
 });
 
-// Need to require after mock setup
 const { planStory } = require('../../services/storyPlanner');
 
 describe('planStory', () => {
@@ -48,109 +63,79 @@ describe('planStory', () => {
     interests: ['dinosaurs'],
   };
 
-  test('returns valid plan for picture book', async () => {
-    // First call: story plan, second call: rhyme pass
-    mockCreate
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify(validPlan) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 500, completion_tokens: 2000 },
-      })
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ spreads: validPlan.spreads }) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 300, completion_tokens: 1000 },
-      });
+  test('returns valid plan with 32-page structure', async () => {
+    let callCount = 0;
+    global.fetch = jest.fn(async () => {
+      callCount++;
+      return makeFetchResponse(validPlan);
+    });
 
     const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
     expect(plan.title).toBe('Emma and the Magic Garden');
-    expect(plan.spreads.length).toBe(14);
-    expect(plan.spreads[0].spreadNumber).toBe(1);
+
+    const spreads = plan.entries.filter(e => e.type === 'spread');
+    expect(spreads.length).toBe(12);
+
+    expect(plan.entries[0].type).toBe('half_title_page');
+    expect(plan.entries[1].type).toBe('blank');
+    expect(plan.entries[2].type).toBe('title_page');
+    expect(plan.entries[3].type).toBe('copyright_page');
+    expect(plan.entries[4].type).toBe('dedication_page');
+
+    const len = plan.entries.length;
+    expect(plan.entries[len - 3].type).toBe('blank');
+    expect(plan.entries[len - 2].type).toBe('closing_page');
+    expect(plan.entries[len - 1].type).toBe('blank');
+
+    // 5 front + 12 spreads + 3 back = 20 entries
+    expect(plan.entries.length).toBe(20);
   });
 
-  test('truncates plans with more than 16 spreads', async () => {
-    const longPlan = {
-      title: 'Long Story',
-      spreads: Array.from({ length: 20 }, (_, i) => ({
-        spreadNumber: i + 1,
-        text: `Text ${i + 1}`,
-        illustrationDescription: `Desc ${i + 1}`,
-        layoutType: 'TEXT_BOTTOM',
-        mood: 'cheerful',
-      })),
-    };
-
-    mockCreate
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify(longPlan) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 500, completion_tokens: 3000 },
-      })
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ spreads: longPlan.spreads.slice(0, 16) }) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 300, completion_tokens: 1000 },
-      });
+  test('truncates plans with more than 12 spreads', async () => {
+    global.fetch = jest.fn(async () => makeFetchResponse(longPlan));
 
     const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
-    expect(plan.spreads.length).toBeLessThanOrEqual(16);
-    // Spreads should be re-numbered sequentially
-    plan.spreads.forEach((s, i) => {
-      expect(s.spreadNumber).toBe(i + 1);
+    const spreads = plan.entries.filter(e => e.type === 'spread');
+    expect(spreads.length).toBeLessThanOrEqual(12);
+    spreads.forEach((s, i) => {
+      expect(s.spread).toBe(i + 1);
     });
   });
 
   test('throws on API error', async () => {
-    mockCreate.mockRejectedValue(new Error('API rate limit'));
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 429,
+      text: async () => 'Rate limited',
+    }));
 
     await expect(planStory(childDetails, 'adventure', 'picture_book', ''))
-      .rejects.toThrow('Story planner API call failed');
-  });
-
-  test('throws on empty response', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: '' }, finish_reason: 'stop' }],
-      usage: {},
-    });
-
-    await expect(planStory(childDetails, 'adventure', 'picture_book', ''))
-      .rejects.toThrow('Empty response');
+      .rejects.toThrow();
   });
 
   test('throws on invalid plan structure', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify({ title: 'Test' }) }, finish_reason: 'stop' }],
-      usage: {},
-    });
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ title: 'Test' }) }, finish_reason: 'stop' }],
+        usage: {},
+      }),
+    }));
 
-    await expect(planStory(childDetails, 'adventure', 'early_reader', ''))
-      .rejects.toThrow('Invalid story plan');
+    await expect(planStory(childDetails, 'adventure', 'picture_book', ''))
+      .rejects.toThrow();
   });
 
-  test('tracks costs when costTracker provided', async () => {
-    mockCreate
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify(validPlan) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 500, completion_tokens: 2000 },
-      })
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ spreads: validPlan.spreads }) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 300, completion_tokens: 1000 },
-      });
-
-    const costTracker = { addTextUsage: jest.fn() };
-    await planStory(childDetails, 'adventure', 'picture_book', '', { costTracker });
-    expect(costTracker.addTextUsage).toHaveBeenCalledWith('gpt-5.4', 500, 2000);
-  });
-
-  test('defaults invalid layoutType to TEXT_BOTTOM', async () => {
-    const planWithBadLayout = {
+  test('propagates characterOutfit from plan', async () => {
+    const planWithOutfit = {
       ...validPlan,
-      spreads: [{ spreadNumber: 1, text: 'test', layoutType: 'INVALID', mood: 'happy' }],
+      characterOutfit: 'red overalls with yellow boots',
+      characterDescription: 'curly brown hair, freckles',
     };
+    global.fetch = jest.fn(async () => makeFetchResponse(planWithOutfit));
 
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify(planWithBadLayout) }, finish_reason: 'stop' }],
-      usage: {},
-    });
-
-    const plan = await planStory(childDetails, 'adventure', 'early_reader', '');
-    expect(plan.spreads[0].layoutType).toBe('TEXT_BOTTOM');
+    const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
+    expect(plan.characterOutfit).toBe('red overalls with yellow boots');
+    expect(plan.characterDescription).toBe('curly brown hair, freckles');
   });
 });

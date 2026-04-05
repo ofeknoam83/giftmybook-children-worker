@@ -37,9 +37,9 @@ const AGE_TIERS = {
     dialogue: '2 exchanges required.',
     imagePromptStyle: 'wide establishing shots mixed with close emotional moments.',
     fearHandling: 'use as written.',
-    pacing: 'Phase 1 (spreads 1-12): emotional aliveness. Phase 2 (spreads 13-16): deliberate de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
     arc: 'full story arc applies.',
-    phaseTwo: 13,
+    phaseTwo: 10,
   },
   3: {
     tier: 3,
@@ -53,9 +53,9 @@ const AGE_TIERS = {
     dialogue: '3 exchanges required. May include subtext.',
     imagePromptStyle: 'layered scenes with background detail permitted.',
     fearHandling: 'use as written. May be specific and named.',
-    pacing: 'Phase 1 (spreads 1-12): emotional aliveness. Phase 2 (spreads 13-16): deliberate de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
     arc: 'arc may include a false resolution before true resolution.',
-    phaseTwo: 13,
+    phaseTwo: 10,
   },
   4: {
     tier: 4,
@@ -69,9 +69,9 @@ const AGE_TIERS = {
     dialogue: '3-4 exchanges. Subtext expected. Characters may be unreliable.',
     imagePromptStyle: 'cinematic framing, shadow/light contrast, symbolic detail.',
     fearHandling: 'may be treated as an internal state, not just external obstacle.',
-    pacing: 'Phase 1 (spreads 1-12): Fuller sentences. Richer texture. Phase 2 (spreads 13-16): same de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 10-12): same de-escalation.',
     arc: 'arc may include a secondary character with their own want.',
-    phaseTwo: 13,
+    phaseTwo: 10,
   },
 };
 
@@ -173,10 +173,10 @@ STORY ENGINE
 STRUCTURE:
 
 Spreads 1-2:   Setup (normal world + emotional need)
-Spreads 3-7:   Rising tension (problem grows, uncertainty increases)
-Spreads 8-12:  Turning point + resolution (child takes action)
-Spreads 13-14: Emotional release (world softens)
-Spreads 15-16: Sleep / stillness
+Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
+Spreads 7-9:   Turning point + resolution (child takes action)
+Spreads 10-11: Emotional release (world softens)
+Spread 12:     Sleep / stillness
 
 -------------------------------------
 TRANSFORMATION RULE (CRITICAL)
@@ -262,10 +262,12 @@ For each spread, include a spread_image_prompt that describes the visual scene.
 - Describe composition, lighting, color palette, perspective, and one texture detail.
 - Do NOT specify art medium or style — that is handled separately.
 - Show emotion through body language, environment, and light — never label it.
-- {name}'s appearance must be consistent across all prompts.
+- {name}'s appearance must be consistent across all prompts — SAME hair style, hair color, hair length, and clothing in every single illustration.
 - {favorite_object} must look identical every time it appears.
 - Time of day and lighting must follow story logic.
 - Only include objects in illustration prompts that serve the story. No random props.
+- Do NOT describe the child changing clothes, getting wet/dirty in ways that alter outfit appearance, or wearing anything different from the defined characterOutfit.
+- Do NOT describe the child's hair changing (wind-blown, messy from sleep, tied differently, etc.) — hair must stay exactly as defined.
 
 -------------------------------------
 CHARACTER VISUAL CONSISTENCY (CRITICAL)
@@ -279,9 +281,12 @@ Define these top-level fields:
   Be precise: garment type, color, patterns, shoes/socks, accessories.
   Example: "a red hoodie with a small star patch on the chest, dark blue jeans, white sneakers with red laces, and a yellow beanie hat"
   The child wears this SAME outfit from spread 1 to the last spread. No changes.
+  NEVER have the child change clothes, add layers, remove items, or get messy/wet.
 
-- "characterDescription": Physical appearance details beyond the photo
-  (posture, height relative to surroundings, any distinguishing features).
+- "characterDescription": Physical appearance details beyond the photo.
+  MUST include a detailed hair description (color, style, length, texture, parting, any accessories like bows/clips).
+  Also include posture, height relative to surroundings, any distinguishing features.
+  The hair MUST remain IDENTICAL in every illustration — no wind-blown variations, no messy-from-sleep versions, no style changes.
 
 - "recurringElement": The {favorite_object}'s exact visual description so it
   looks identical on every page. Example: "a small brown teddy bear with a
@@ -298,23 +303,25 @@ OUTPUT FORMAT (MANDATORY JSON)
 -------------------------------------
 Return a JSON object with this structure:
 {
+  "title": "The book title",
   "characterOutfit": "exact outfit description — same in every spread",
   "characterDescription": "physical appearance details",
   "recurringElement": "exact visual description of the recurring companion/object",
   "keyObjects": "other recurring visual elements with exact descriptions",
   "entries": [
-    { "type": "title_page", "page": "right", "title": "...", "subtitle": "A bedtime story for {name}" },
-    { "type": "blank", "page": "left" },
-    { "type": "dedication_page", "page": "right", "text": "..." },
-    { "type": "blank", "page": "left" },
+    { "type": "dedication_page", "text": "..." },
     { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
-    ...16 spreads total...
+    ...12 spreads total...
   ]
 }
 
+Front matter pages (half-title, title page, copyright) are added automatically — do NOT include them.
+The "entries" array must contain exactly: 1 dedication_page + 12 spreads = 13 entries.
+
 Rules:
 - Text may appear on left, right, or both. A page may have null text for visual-only spreads.
-- spread_image_prompt describes the full illustration scene.
+- spread_image_prompt describes a WIDE LANDSCAPE scene spanning two facing pages.
+- The center of each illustration will be in the book's binding — do NOT describe key characters, text, or objects positioned in the center of the scene. Place them on the left or right side.
 - Do NOT specify art medium in spread_image_prompt.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Use apostrophes directly in strings (no escaping needed).
@@ -330,6 +337,10 @@ Before writing, silently verify:
 - Does the repeated phrase transform from uncertain to safe?
 - Does the ending feel soft and satisfying?
 - Are there at least 2 visual-only spreads?
+- Are there exactly 12 spreads (not fewer, not more)?
+- Does characterDescription include a specific hair description (color, style, length)?
+- Does characterOutfit describe a complete, specific outfit?
+- Do any spread_image_prompts describe the child changing clothes or hairstyle? (If yes, remove those descriptions)
 
 Only proceed if all answers are YES.`;
 

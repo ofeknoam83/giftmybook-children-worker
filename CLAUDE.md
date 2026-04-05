@@ -19,7 +19,7 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 ## Book Formats
 
-- **Picture books** (ages 3-6): 8.5x8.5", 12-16 spreads, rhyming text
+- **Picture books** (ages 3-6): 8.5x8.5", 12 spreads (32 pages total), rhyming text
 - **Early readers** (ages 6-9): 6x9", 24-32 pages, simple chapters
 
 ## Environment Variables

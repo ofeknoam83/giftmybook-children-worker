@@ -383,44 +383,37 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
   }
 
-  // Extract title from title_page entry or from parsed object
+  // Extract title from parsed output
   const titleEntry = entries.find(e => e.type === 'title_page');
   const title = approvedTitle || titleEntry?.title || parsed.title || 'My Story';
 
-  // Validate V2 structure
-  const spreads = entries.filter(e => e.type === 'spread');
-  if (spreads.length < 8) {
-    console.warn(`[storyPlanner] Only ${spreads.length} spreads — expected 14-16`);
+  // Validate spread count
+  let spreads = entries.filter(e => e.type === 'spread');
+  if (spreads.length < 10) {
+    console.warn(`[storyPlanner] Only ${spreads.length} spreads — expected 10-12`);
   }
-  if (spreads.length > 16) {
-    console.warn(`[storyPlanner] ${spreads.length} spreads — truncating to 16`);
-    // Keep front matter + first 16 spreads
-    const frontMatter = entries.filter(e => e.type !== 'spread');
-    const trimmedSpreads = spreads.slice(0, 16).map((s, i) => ({ ...s, spread: i + 1 }));
-    entries = [...frontMatter, ...trimmedSpreads];
+  if (spreads.length > 12) {
+    console.warn(`[storyPlanner] ${spreads.length} spreads — truncating to 12`);
+    spreads = spreads.slice(0, 12).map((s, i) => ({ ...s, spread: i + 1 }));
   }
 
-  // Ensure front matter exists — add if missing
-  const hasTitle = entries.some(e => e.type === 'title_page');
-  const hasDedication = entries.some(e => e.type === 'dedication_page');
-  if (!hasTitle || !hasDedication) {
-    const frontMatter = [];
-    if (!hasTitle) {
-      frontMatter.push({ type: 'title_page', page: 'right', title, subtitle: `A bedtime story for ${childDetails.name || 'the child'}`, image_prompt: null });
-      frontMatter.push({ type: 'blank', page: 'left' });
-    }
-    if (!hasDedication) {
-      const dedText = (v2Vars?.dedication) || `For ${childDetails.name || 'the child'}`;
-      frontMatter.push({ type: 'dedication_page', page: 'right', text: dedText, image_prompt: null });
-      frontMatter.push({ type: 'blank', page: 'left' });
-    }
-    entries = [...frontMatter, ...entries];
-  }
+  // Build canonical 32-page structure:
+  // 5 front matter + 24 story pages (12 spreads) + 3 back matter = 32
+  const dedEntry = entries.find(e => e.type === 'dedication_page');
+  const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;
+  const subtitle = `A bedtime story for ${childDetails.name || 'the child'}`;
 
-  // Override with approved title
-  if (approvedTitle && titleEntry) {
-    titleEntry.title = approvedTitle;
-  }
+  entries = [
+    { type: 'half_title_page', title },
+    { type: 'blank' },
+    { type: 'title_page', title, subtitle },
+    { type: 'copyright_page' },
+    { type: 'dedication_page', text: dedText },
+    ...spreads,
+    { type: 'blank' },
+    { type: 'closing_page' },
+    { type: 'blank' },
+  ];
 
   const plan = { title, entries };
 
@@ -440,22 +433,26 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
  * to V2 entries array.
  */
 function convertLegacyToV2(legacyPlan) {
-  const entries = [
-    { type: 'title_page', page: 'right', title: legacyPlan.title || 'My Story', subtitle: '', image_prompt: null },
-    { type: 'blank', page: 'left' },
-    { type: 'dedication_page', page: 'right', text: '', image_prompt: null },
-    { type: 'blank', page: 'left' },
-  ];
+  const title = legacyPlan.title || 'My Story';
+  const spreads = (legacyPlan.spreads || []).map(spread => ({
+    type: 'spread',
+    spread: spread.spreadNumber,
+    left: { text: spread.text || '', image_prompt: null },
+    right: { text: null, image_prompt: null },
+    spread_image_prompt: spread.illustrationPrompt || spread.illustrationDescription || '',
+  }));
 
-  for (const spread of (legacyPlan.spreads || [])) {
-    entries.push({
-      type: 'spread',
-      spread: spread.spreadNumber,
-      left: { text: spread.text || '', image_prompt: null },
-      right: { text: null, image_prompt: null },
-      spread_image_prompt: spread.illustrationPrompt || spread.illustrationDescription || '',
-    });
-  }
+  const entries = [
+    { type: 'half_title_page', title },
+    { type: 'blank' },
+    { type: 'title_page', title, subtitle: '' },
+    { type: 'copyright_page' },
+    { type: 'dedication_page', text: '' },
+    ...spreads,
+    { type: 'blank' },
+    { type: 'closing_page' },
+    { type: 'blank' },
+  ];
 
   return entries;
 }

@@ -61,7 +61,7 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   // Build the text elements for the back cover
   const textElements = [];
   if (synopsis) {
-    textElements.push(`At the top center, in a warm readable font:\n"${synopsis}"`);
+    textElements.push(`At the top center, in a rounded bubbly sans-serif font (like Fredoka One / Baloo / Nunito — matching the interior pages):\n"${synopsis}"`);
   }
   if (heartfeltNote) {
     const noteText = bookFrom
@@ -89,6 +89,7 @@ BARCODE: Include a realistic-looking fake barcode in the bottom-left corner (sta
 
 TEXT RULES:
 - ALL text must be perfectly legible and correctly spelled
+- FONT: Use a rounded, bubbly sans-serif font (like Fredoka One / Baloo / Nunito) — the same font style used on the interior pages
 - Use warm, soft colors that match the front cover palette
 - Text should feel integrated into the illustration, not overlaid
 - The overall feel should be warm, cozy, and premium
@@ -105,7 +106,7 @@ FORMAT: Square image, 1:1 aspect ratio.`;
   const startTime = Date.now();
 
   try {
-    const model = 'gemini-3.1-flash-image-preview'; // Nano Banana 2 — same as illustrations
+    const model = 'gemini-2.5-flash-image';
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
@@ -133,7 +134,7 @@ FORMAT: Square image, 1:1 aspect ratio.`;
         const ms = Date.now() - startTime;
         console.log(`[CoverGenerator] Back cover generated in ${ms}ms`);
         if (costTracker) {
-          costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+          costTracker.addImageGeneration('gemini-2.5-flash-image', 1);
         }
         return Buffer.from(part.inlineData.data, 'base64');
       }
@@ -253,6 +254,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const targetHPx = Math.round(totalHeight / 72 * 300);
       const resized = await sharp(backCoverBuffer)
         .resize(targetPx, targetHPx, { fit: 'cover' })
+        .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
       const img = await pdfDoc.embedJpg(resized);
@@ -350,6 +352,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const targetHeightPx = Math.round(totalHeight / 72 * 300);
       const resized = await sharp(frontCoverBuffer)
         .resize(targetWidthPx, targetHeightPx, { fit: 'cover' })
+        .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
       const img = await pdfDoc.embedJpg(resized);

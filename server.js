@@ -212,23 +212,22 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   // Count how many illustrations we need
   const illustratableEntries = entries.map((entry, idx) => {
     if (entry.type === 'blank') return null;
-    if (entry.type === 'title_page') return null; // Title page reuses the approved cover image
-    if (entry.type === 'dedication_page') return null; // Dedication page is text-only, no illustration needed
+    if (entry.type === 'title_page') return null;
+    if (entry.type === 'half_title_page') return null;
+    if (entry.type === 'copyright_page') return null;
+    if (entry.type === 'closing_page') return null;
+    if (entry.type === 'dedication_page') return null;
     if (entry.type === 'spread') {
-      // Combine left + right text for embedding in illustration
       const spreadText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
-      // Primary: spread_image_prompt (one illustration for both pages)
-      if (entry.spread_image_prompt) return { idx, prompt: entry.spread_image_prompt, field: 'spreadIllustrationUrl', pageText: spreadText };
-      // Fallback: separate left/right image prompts
+      if (entry.spread_image_prompt) return { idx, prompt: entry.spread_image_prompt, field: 'spreadIllustrationUrl', pageText: spreadText, isSpread: true };
       const jobs = [];
       if (entry.left?.image_prompt) jobs.push({ idx, prompt: entry.left.image_prompt, field: 'leftIllustrationUrl', pageText: entry.left.text || '' });
       if (entry.right?.image_prompt) jobs.push({ idx, prompt: entry.right.image_prompt, field: 'rightIllustrationUrl', pageText: entry.right.text || '' });
       if (jobs.length) return jobs;
-      // Last resort: synthesize illustration prompt from spread text
       if (spreadText) {
         const synthPrompt = `Children's book illustration for this scene: ${spreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.`;
         bookContext.log('warn', `Spread ${entry.spread}: no image prompt — synthesizing from text`, { textLength: spreadText.length });
-        return { idx, prompt: synthPrompt, field: 'spreadIllustrationUrl', pageText: spreadText };
+        return { idx, prompt: synthPrompt, field: 'spreadIllustrationUrl', pageText: spreadText, isSpread: true };
       }
       return null;
     }
@@ -304,6 +303,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             _cachedPhotoMime: cachedPhotoMime,
             spreadIndex: idx,
             pageText: job.pageText || '',
+            isSpread: job.isSpread || false,
             deadlineMs: 200000,
             abortSignal: bookContext.abortController.signal,
           });
@@ -466,6 +466,7 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
     const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
       title: storyPlan.title || 'My Story',
       childName: childDetails.name,
+      year: new Date().getFullYear(),
     });
 
     // 6. Upload interior PDF
@@ -978,6 +979,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         title: bookTitle,
         childName: childDetails.name,
         dedication,
+        year: new Date().getFullYear(),
       });
       bookContext.touchActivity();
       bookContext.log('info', 'Interior PDF assembled', { entries: entriesWithBuffers.length, ms: Date.now() - stage7Start });
@@ -1178,6 +1180,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       recurringElement,
       keyObjects,
       coverArtStyle,
+      isSpread: true,
       _cachedPhotoBase64: cachedPhotoBase64 || null,
     });
 
@@ -1290,6 +1293,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     const pdfBuffer = await assemblePdf(spreadsWithBuffers, bookFormat || 'picture_book', {
       title: title || 'My Story',
       childName: childName || '',
+      year: new Date().getFullYear(),
     });
     bookContext.touchActivity();
 
@@ -1313,7 +1317,7 @@ app.get('/test-gemini-image', authenticate, async (req, res) => {
   const apiKey = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   try {
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
