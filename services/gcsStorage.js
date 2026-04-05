@@ -20,15 +20,12 @@ function getBucket() {
  */
 async function uploadBuffer(buffer, destination, contentType = 'application/octet-stream') {
   const file = getBucket().file(destination);
-  try {
-    await file.save(buffer, { contentType, resumable: false, predefinedAcl: 'publicRead' });
-    return `https://storage.googleapis.com/${bucketName}/${destination}`;
-  } catch (err) {
-    // Uniform bucket-level access blocks per-object ACLs — upload without ACL
-    console.warn(`[gcsStorage] Public ACL failed for ${destination}, uploading without ACL:`, err.message);
-    await file.save(buffer, { contentType, resumable: false });
-    return `https://storage.googleapis.com/${bucketName}/${destination}`;
-  }
+  await file.save(buffer, { contentType, resumable: false });
+  const [signedUrl] = await file.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  });
+  return signedUrl;
 }
 
 /**
