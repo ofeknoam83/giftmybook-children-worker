@@ -205,6 +205,7 @@ For each spread, include a spread_image_prompt that describes the visual scene.
 - {name}'s appearance must be consistent across all prompts.
 - {favorite_object} must look identical every time it appears.
 - Time of day and lighting must follow story logic.
+- Only include objects in illustration prompts that serve the story. No random props.
 
 -------------------------------------
 CHARACTER VISUAL CONSISTENCY (CRITICAL)
@@ -226,9 +227,11 @@ Define these top-level fields:
   looks identical on every page. Example: "a small brown teddy bear with a
   red bow tie, slightly worn left ear, and button eyes"
 
-- "keyObjects": Any other objects that recur across spreads, with exact
-  visual details so they stay consistent. Example: "a blue flashlight
-  with silver trim; a winding forest path with moss-covered stones"
+- "keyObjects": Other objects that recur across spreads, with exact
+  visual details so they stay consistent. ONLY include objects that are
+  meaningful to the plot — if an object appears in illustrations, it must
+  have a reason to exist in the story. Do NOT add random props or filler
+  objects. Less is more. Example: "a blue flashlight with silver trim"
 
 -------------------------------------
 OUTPUT FORMAT (MANDATORY JSON)
