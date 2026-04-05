@@ -78,7 +78,7 @@ const AGE_TIERS = {
  * @returns {{ tier: number, config: object }}
  */
 function getAgeTier(age) {
-  const a = Number(age) || 5;
+  const a = Math.max(3, Number(age) || 5); // Minimum age 3 for writing quality — Tier 1 (board book) text is too simple for a printed picture book
   if (a <= 2) return { tier: 1, config: AGE_TIERS[1] };
   if (a <= 5) return { tier: 2, config: AGE_TIERS[2] };
   if (a <= 8) return { tier: 3, config: AGE_TIERS[3] };
@@ -384,7 +384,7 @@ const AGE_PROFILES = {
 };
 
 function getAgeProfile(age) {
-  const a = Number(age) || 5;
+  const a = Math.max(3, Number(age) || 5); // Minimum age 3
   if (a <= 2) return AGE_PROFILES.toddler;
   if (a <= 5) return AGE_PROFILES.preschool;
   if (a <= 8) return AGE_PROFILES.earlyKid;
