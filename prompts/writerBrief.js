@@ -220,7 +220,7 @@ Rules:
 - Never describe emotion directly in image prompts.
   Show it through body language, environment, and light.
 
-JSON hygiene: straight quotes only. Escape apostrophes (\\').
+JSON hygiene: straight quotes only. Use apostrophes directly inside strings (they don't need escaping in JSON).
 No newlines inside string values. Return the entire output as a single valid JSON array.
 
 -------------------------------------

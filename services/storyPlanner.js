@@ -204,6 +204,12 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   }
   console.log(`[storyPlanner] Response received: ${content.length} chars, finish_reason: ${finishReason || 'n/a'}`);
 
+  // Sanitize common JSON issues from LLM output
+  // Fix invalid \' escapes (GPT sometimes escapes apostrophes which is not valid JSON)
+  content = content.replace(/\\'/g, "'");
+  // Fix smart/curly quotes
+  content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+
   let parsed;
   try {
     parsed = JSON.parse(content);
