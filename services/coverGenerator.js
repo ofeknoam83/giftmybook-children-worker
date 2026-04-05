@@ -211,27 +211,16 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     color: rgb(1, 1, 1),
   });
 
-  // ── Barcode clear zone (bottom right of back cover, 2" × 1.2") ──
-  // Lulu places the barcode here — leave it white
-  const barcodeW = 144; // 2"
-  const barcodeH = 86;  // ~1.2"
-  const barcodeX = bleed + trimWidth - safeMargin - barcodeW;
-  const barcodeY = bleed + 20;
-  page.drawRectangle({
-    x: barcodeX, y: barcodeY,
-    width: barcodeW, height: barcodeH,
-    color: rgb(1, 1, 1), // white
-  });
-
-  // ── GiftMyBook brand mark (bottom left) ──
+  // ── GiftMyBook brand mark (bottom center) ──
   const brandText = 'GiftMyBook.com';
   const brandSize = 7;
+  const brandWidth = font.widthOfTextAtSize(brandText, brandSize);
   page.drawText(brandText, {
-    x: bleed + safeMargin,
+    x: centerX - brandWidth / 2,
     y: bleed + 25,
     size: brandSize,
     font,
-    color: rgb(textColor.r + 0.2, textColor.g + 0.2, textColor.b + 0.2), // lighter
+    color: rgb(textColor.r + 0.2, textColor.g + 0.2, textColor.b + 0.2),
   });
 
   // ── "Made with love for {name}" small text ──
