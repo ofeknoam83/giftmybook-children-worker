@@ -171,7 +171,8 @@ You will receive details about a child. From these details, invent:
 
 Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
 
-Return JSON: { "favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "..." }`;
+You MUST return ONLY a JSON object with exactly these 4 fields, nothing else:
+{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "..."}`;
 
   const parts = [`Child: ${name}, age ${age}`];
   if (gender && gender !== 'neutral' && gender !== 'not specified') {
@@ -189,7 +190,7 @@ Return JSON: { "favorite_object": "...", "fear": "...", "setting": "...", "story
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 500,
-    temperature: 1.0,
+    temperature: 0.9,
     jsonMode: true,
     costTracker,
   });
@@ -198,6 +199,7 @@ Return JSON: { "favorite_object": "...", "fear": "...", "setting": "...", "story
   console.log(`[storyPlanner] Story seed brainstormed in ${seedMs}ms (${response.model})`);
 
   let content = response.text;
+  console.log(`[storyPlanner] Raw brainstorm response (${content.length} chars): ${content.slice(0, 300)}`);
   content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
 
   let seed;
