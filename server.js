@@ -85,6 +85,7 @@ if (process.env.NODE_ENV !== 'test') {
     legacyHeaders: false,
     message: { success: false, error: 'Too many requests, please try again later' },
   });
+  app.use('/generate-style-variant', generationLimiter);
   app.use('/generate-book', generationLimiter);
   app.use('/generate-spread', generationLimiter);
   app.use('/finalize-book', generationLimiter);
@@ -346,6 +347,159 @@ app.get('/health', (req, res) => {
 
 app.post('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// ── POST /generate-style-variant ──
+// Lighter pipeline: reuses existing story plan, only regenerates illustrations + PDFs in a new art style
+app.post('/generate-style-variant', authenticate, async (req, res) => {
+  const { bookId, variantIndex, style, storyPlan, childDetails, approvedCoverUrl, childPhotoUrls, callbackUrl, progressCallbackUrl } = req.body;
+
+  if (!bookId || !style || !storyPlan) {
+    return res.status(400).json({ error: 'bookId, style, and storyPlan are required' });
+  }
+
+  // Respond immediately
+  res.status(202).json({ success: true, status: 'processing', bookId, style });
+
+  // Process in background
+  const bookContext = createBookContext(bookId);
+  bookContext.log('info', `Style variant generation started`, { style, bookId });
+
+  const heartbeatInterval = setInterval(() => {
+    if (progressCallbackUrl) {
+      reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', heartbeat: true, logs: bookContext.logs }).catch(() => {});
+    }
+  }, 30000);
+
+  try {
+    // 1. Cache child photo (64px)
+    let cachedPhotoBase64 = null;
+    let cachedPhotoMime = 'image/jpeg';
+    const childPhotoUrl = childPhotoUrls?.[0];
+    if (childPhotoUrl) {
+      try {
+        const photoBuf = await downloadBuffer(childPhotoUrl);
+        const resized = await require('sharp')(photoBuf).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 60 }).toBuffer();
+        cachedPhotoBase64 = resized.toString('base64');
+        cachedPhotoMime = 'image/jpeg';
+        bookContext.log('info', 'Photo cached for variant');
+      } catch (e) {
+        bookContext.log('warn', `Photo cache failed: ${e.message}`);
+      }
+    }
+
+    // 2. Download approved cover for character reference
+    let characterRefBase64 = cachedPhotoBase64;
+    let characterRefMime = cachedPhotoMime;
+    if (approvedCoverUrl) {
+      try {
+        const coverBuf = await downloadBuffer(approvedCoverUrl);
+        const resized = await require('sharp')(coverBuf).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 60 }).toBuffer();
+        characterRefBase64 = resized.toString('base64');
+        characterRefMime = 'image/jpeg';
+      } catch (e) {
+        bookContext.log('warn', `Cover download failed: ${e.message}`);
+      }
+    }
+
+    // 3. Generate illustrations with the NEW style (sequential)
+    const entries = storyPlan.entries || storyPlan.spreads?.map((s, i) => ({ type: 'spread', spread: i + 1, spread_image_prompt: s.illustrationPrompt || s.illustrationDescription, left: { text: s.text }, right: {} })) || [];
+
+    bookContext.log('info', `Generating ${entries.length} illustrations in style: ${style}`);
+
+    const entriesWithIllustrations = await generateAllIllustrations(entries, storyPlan, childDetails, null, style, {
+      apiKeys: req.body.apiKeys || {},
+      costTracker: null,
+      bookId,
+      bookContext,
+      progressCallbackUrl,
+      resolvedChildPhotoUrl: childPhotoUrl,
+      cachedPhotoBase64: characterRefBase64,
+      cachedPhotoMime: characterRefMime,
+      existingIllustrations: [],
+      checkpointData: null,
+    });
+
+    bookContext.log('info', 'All variant illustrations complete');
+
+    // 4. Download illustration buffers
+    const downloadLimit = pLimit(4);
+    const entriesWithBuffers = await Promise.all(
+      entriesWithIllustrations.map((entry) => downloadLimit(async () => {
+        const result = { ...entry };
+        if (entry.spreadIllustrationUrl) {
+          try { result.spreadIllustrationBuffer = await downloadBuffer(entry.spreadIllustrationUrl); } catch (e) {}
+        }
+        if (entry.illustrationUrl) {
+          try { result.illustrationBuffer = await downloadBuffer(entry.illustrationUrl); } catch (e) {}
+        }
+        return result;
+      }))
+    );
+
+    // 5. Assemble interior PDF
+    const format = storyPlan.format || 'picture_book';
+    const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
+      title: storyPlan.title || 'My Story',
+      childName: childDetails.name,
+    });
+
+    // 6. Upload interior PDF
+    const variantPath = `children-jobs/${bookId}/variants/${style}`;
+    await uploadBuffer(interiorPdf, `${variantPath}/interior.pdf`, 'application/pdf');
+    const interiorPdfUrl = await getSignedUrl(`${variantPath}/interior.pdf`, 30 * 24 * 60 * 60 * 1000);
+
+    // 7. Generate cover PDF
+    let coverPdfUrl = null;
+    // Find the first spread illustration to use as front cover
+    const firstSpread = entriesWithBuffers.find(e => e.spreadIllustrationBuffer || e.illustrationBuffer);
+    const coverBuffer = firstSpread?.spreadIllustrationBuffer || firstSpread?.illustrationBuffer;
+
+    if (coverBuffer) {
+      let pageCount = 0;
+      for (const e of entriesWithBuffers) {
+        if (e.type === 'spread') pageCount += 2;
+        else pageCount += 1;
+      }
+      pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
+
+      const synopsis = storyPlan.synopsis || '';
+      const coverData = await generateCover(storyPlan.title || 'My Story', childDetails, null, format, {
+        bookId, preGeneratedCoverBuffer: coverBuffer, pageCount, synopsis,
+      });
+      if (coverData?.coverPdfBuffer) {
+        await uploadBuffer(coverData.coverPdfBuffer, `${variantPath}/cover.pdf`, 'application/pdf');
+        coverPdfUrl = await getSignedUrl(`${variantPath}/cover.pdf`, 30 * 24 * 60 * 60 * 1000);
+      }
+    }
+
+    // 8. Collect preview URLs
+    const previewImageUrls = entriesWithIllustrations
+      .filter(e => e.spreadIllustrationUrl || e.illustrationUrl)
+      .map(e => e.spreadIllustrationUrl || e.illustrationUrl);
+
+    // 9. Callback
+    bookContext.log('info', `Style variant '${style}' complete`);
+    if (callbackUrl) {
+      await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+        body: JSON.stringify({ success: true, bookId, variantIndex, style, interiorPdfUrl, coverPdfUrl, previewImageUrls }),
+      }).catch(e => console.error(`Variant callback failed: ${e.message}`));
+    }
+  } catch (err) {
+    bookContext.log('error', `Style variant failed: ${err.message}`);
+    if (callbackUrl) {
+      await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+        body: JSON.stringify({ success: false, bookId, variantIndex, style, error: err.message }),
+      }).catch(() => {});
+    }
+  } finally {
+    clearInterval(heartbeatInterval);
+    removeBookContext(bookId);
+  }
 });
 
 // ── POST /generate-book ──
