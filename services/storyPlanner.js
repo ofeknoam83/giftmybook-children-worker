@@ -204,13 +204,36 @@ Return JSON: { "favorite_object": "...", "fear": "...", "setting": "...", "story
   try {
     seed = JSON.parse(content);
   } catch (e) {
-    const stripped = content.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    // Try stripping markdown fences
+    const stripped = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
       seed = JSON.parse(stripped);
     } catch (_) {
-      console.warn(`[storyPlanner] Story seed JSON parse failed — using defaults`);
-      return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
+      console.warn(`[storyPlanner] Story seed JSON parse failed. Raw response (first 500 chars): ${content.slice(0, 500)}`);
+      console.warn(`[storyPlanner] Parse error: ${e.message}`);
+      // Last resort: try to extract values with regex from free text
+      const extractField = (field) => {
+        const match = content.match(new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`, 'i'));
+        return match ? match[1] : null;
+      };
+      const extracted = {
+        favorite_object: extractField('favorite_object') || 'a stuffed bear',
+        fear: extractField('fear') || 'the dark',
+        setting: extractField('setting') || 'a magical place',
+        storySeed: extractField('storySeed') || extractField('story_seed') || '',
+      };
+      if (extracted.favorite_object !== 'a stuffed bear' || extracted.fear !== 'the dark') {
+        console.log(`[storyPlanner] Recovered seed from malformed JSON: ${JSON.stringify(extracted)}`);
+        return extracted;
+      }
+      return extracted;
     }
+  }
+
+  // Validate that we got real values, not empty strings
+  if (!seed.favorite_object && !seed.fear && !seed.setting) {
+    console.warn(`[storyPlanner] Story seed returned empty fields. Raw: ${content.slice(0, 300)}`);
+    return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
   }
 
   console.log(`[storyPlanner] Story seed: object="${seed.favorite_object}", fear="${seed.fear}", setting="${seed.setting}"`);
