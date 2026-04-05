@@ -193,13 +193,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
   parts.push('');
-  // Use extracted cover art style for visual consistency, fallback to generic style config
-  if (opts.coverArtStyle) {
-    parts.push(`ART STYLE (match the cover exactly): ${opts.coverArtStyle}`);
-    parts.push('CRITICAL: Every illustration must look like it belongs in the same book as the cover. Match the exact medium, color palette, line quality, texture, and lighting from the style description above.');
-  } else {
-    parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
-  }
+  // Always use the configured art style (pixar_premium by default)
+  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
