@@ -498,6 +498,30 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
  * @param {string} [finishReason]
  * @returns {object} parsed JSON
  */
+/**
+ * Fix unescaped control characters inside JSON string values.
+ * Walks the string tracking whether we're inside a quoted value and escapes
+ * literal newlines / tabs / carriage returns that the LLM left unescaped.
+ */
+function sanitizeJsonStrings(raw) {
+  let out = '';
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) { out += ch; escape = false; continue; }
+    if (ch === '\\' && inString) { out += ch; escape = true; continue; }
+    if (ch === '"') { inString = !inString; out += ch; continue; }
+    if (inString) {
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') { out += '\\r'; continue; }
+      if (ch === '\t') { out += '\\t'; continue; }
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function parseJsonPlan(content, finishReason) {
   if (!content) {
     throw new Error(`Empty response from story planner (finish_reason: ${finishReason})`);
@@ -506,51 +530,50 @@ function parseJsonPlan(content, finishReason) {
   content = content.replace(/\\'/g, "'");
   content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
 
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch (parseErr) {
-    const firstBrace = content.indexOf('{');
-    if (firstBrace !== -1) {
-      let depth = 0;
-      let inString = false;
-      let escape = false;
-      let endIdx = -1;
+  const attempts = [
+    // 1. Direct parse
+    () => JSON.parse(content),
+    // 2. Strip markdown fences then parse
+    () => JSON.parse(content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()),
+    // 3. Sanitize unescaped control chars inside strings then parse
+    () => JSON.parse(sanitizeJsonStrings(content)),
+    // 4. Extract balanced JSON block and sanitize
+    () => {
+      const firstBrace = content.indexOf('{');
+      if (firstBrace === -1) throw new Error('no opening brace');
+      let depth = 0, inStr = false, esc = false, endIdx = -1;
       for (let ci = firstBrace; ci < content.length; ci++) {
         const ch = content[ci];
-        if (escape) { escape = false; continue; }
-        if (ch === '\\') { escape = true; continue; }
-        if (ch === '"') { inString = !inString; continue; }
-        if (inString) continue;
+        if (esc) { esc = false; continue; }
+        if (ch === '\\') { esc = true; continue; }
+        if (ch === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
         if (ch === '{') depth++;
         if (ch === '}') { depth--; if (depth === 0) { endIdx = ci; break; } }
       }
-      if (endIdx !== -1) {
-        try {
-          parsed = JSON.parse(content.slice(firstBrace, endIdx + 1));
-          console.warn(`[storyPlanner] Extracted balanced JSON from response`);
-        } catch (_) { /* fall through */ }
-      }
-    }
-    if (!parsed && finishReason === 'MAX_TOKENS') {
-      const repaired = repairTruncatedJson(content);
-      if (repaired) {
-        console.warn(`[storyPlanner] Salvaged truncated JSON after repair`);
-        parsed = repaired;
-      }
-    }
-    if (!parsed) {
-      const stripped = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-      try {
-        parsed = JSON.parse(stripped);
-        console.warn(`[storyPlanner] Parsed after stripping markdown fences`);
-      } catch (_) {
-        throw new Error(`Failed to parse story plan JSON: ${parseErr.message}`);
-      }
+      if (endIdx === -1) throw new Error('no balanced close');
+      return JSON.parse(sanitizeJsonStrings(content.slice(firstBrace, endIdx + 1)));
+    },
+  ];
+
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      const parsed = attempts[i]();
+      if (i > 0) console.warn(`[storyPlanner] JSON parsed on attempt ${i + 1}`);
+      return parsed;
+    } catch (_) { /* try next */ }
+  }
+
+  // Last resort for truncated output
+  if (finishReason === 'MAX_TOKENS') {
+    const repaired = repairTruncatedJson(content);
+    if (repaired) {
+      console.warn(`[storyPlanner] Salvaged truncated JSON after repair`);
+      return repaired;
     }
   }
 
-  return parsed;
+  throw new Error(`Failed to parse story plan JSON after all repair attempts`);
 }
 
 /**
