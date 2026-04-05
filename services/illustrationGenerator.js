@@ -30,12 +30,26 @@ function buildKeyPool() {
 
 const API_KEY_POOL = buildKeyPool();
 let keyIndex = 0;
+let stickyKeyIndex = -1; // If a key responds fast, stick with it
+let stickyKeyExpiry = 0;
 
 function getNextApiKey() {
   if (API_KEY_POOL.length === 0) return '';
+  // If we have a sticky key that responded fast recently, prefer it
+  if (stickyKeyIndex >= 0 && Date.now() < stickyKeyExpiry) {
+    return API_KEY_POOL[stickyKeyIndex % API_KEY_POOL.length];
+  }
+  stickyKeyIndex = -1; // expired
   const key = API_KEY_POOL[keyIndex % API_KEY_POOL.length];
   keyIndex++;
   return key;
+}
+
+/** Mark a key as "fast" so we stick with it for a while */
+function markKeyFast(idx) {
+  stickyKeyIndex = idx;
+  stickyKeyExpiry = Date.now() + 5 * 60 * 1000; // stick for 5 minutes
+  console.log(`[illustrationGenerator] Key public-${idx} marked as fast — sticking for 5 min`);
 }
 
 console.log(`[IllustrationGenerator] API key pool: ${API_KEY_POOL.length} keys across ${API_KEY_POOL.length} projects`);
@@ -48,7 +62,7 @@ const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
 const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
 
 /** Fetch with an AbortController timeout */
-async function fetchWithTimeout(url, opts, timeoutMs = 420000, parentSignal) { // 7 min default — Gemini image gen can take 4-5 min under load
+async function fetchWithTimeout(url, opts, timeoutMs = 180000, parentSignal) { // 3 min default timeout for Gemini image gen
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   // If parent aborts (book-level timeout), abort this fetch too
@@ -274,7 +288,7 @@ async function downloadPhotoAsBase64(url) {
  * @param {string} photoMime - MIME type of the photo
  * @returns {Promise<Buffer>} Generated image buffer
  */
-async function callGeminiImageApi(prompt, photoBase64, photoMime) {
+async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal) {
   const apiKey = getNextApiKey();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const keyIdx = (keyIndex - 1) % API_KEY_POOL.length;
@@ -294,7 +308,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, 180000, abortSignal);
 
     if (!resp.ok) {
       const errBody = await resp.text().catch(() => '');
@@ -312,7 +326,12 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime) {
     if (!imagePart) throw new Error(`No image in Gemini response (public-${keyIdx})`);
 
     const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
-    console.log(`[illustrationGenerator] \u2705 public-${keyIdx} with photo succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
+    const elapsedMs = Date.now() - epStart;
+    console.log(`[illustrationGenerator] \u2705 public-${keyIdx} with photo succeeded (${elapsedMs}ms, ${imgBuf.length} bytes)`);
+    // If this key responded fast, stick with it
+    if (elapsedMs < 60000) {
+      markKeyFast(keyIdx);
+    }
     return imgBuf;
   } catch (err) {
     console.warn(`[illustrationGenerator] \u274c public-${keyIdx} with photo failed after ${Date.now() - epStart}ms: ${err.message.slice(0, 200)}`);
@@ -470,7 +489,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       let imageBuffer;
       // Always use cover image as reference for character likeness
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime);
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal);
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
