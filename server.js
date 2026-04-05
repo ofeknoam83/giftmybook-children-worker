@@ -1099,6 +1099,68 @@ app.post('/generate-book', authenticate, async (req, res) => {
   });
 });
 
+// ── POST /regenerate-illustration ──
+// Regenerate a single spread illustration without stopping the main pipeline.
+// Called by admin "regenerate illustration" button.
+app.post('/regenerate-illustration', authenticate, async (req, res) => {
+  const { bookId, spreadIndex, spreadImagePrompt, pageText, artStyle,
+    characterOutfit, characterDescription, recurringElement, keyObjects,
+    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64 } = req.body;
+
+  if (!bookId || typeof spreadIndex !== 'number') {
+    return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
+  }
+  if (!spreadImagePrompt) {
+    return res.status(400).json({ success: false, error: 'spreadImagePrompt is required' });
+  }
+
+  console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}`);
+
+  const costTracker = new CostTracker();
+  const style = artStyle || 'pixar_premium';
+
+  try {
+    // Generate the illustration
+    const result = await generateIllustration(spreadImagePrompt, null, style, {
+      costTracker,
+      bookId,
+      childName,
+      childPhotoUrl,
+      spreadIndex,
+      pageText: pageText || '',
+      characterOutfit,
+      characterDescription,
+      recurringElement,
+      keyObjects,
+      coverArtStyle,
+      _cachedPhotoBase64: cachedPhotoBase64 || null,
+    });
+
+    if (!result) {
+      return res.status(500).json({ success: false, error: 'Illustration generation returned no result' });
+    }
+
+    // Upload to GCS, replacing the old illustration
+    const gcsPath = `children-jobs/${bookId}/illustrations/spread-${spreadIndex}-${Date.now()}.png`;
+    const imageBuffer = await downloadBuffer(result);
+    await uploadBuffer(imageBuffer, gcsPath, 'image/png');
+    const newUrl = await getSignedUrl(gcsPath, 30 * 24 * 60 * 60 * 1000);
+
+    console.log(`[server] Illustration regenerated for book ${bookId}, spread ${spreadIndex}`);
+
+    res.json({
+      success: true,
+      bookId,
+      spreadIndex,
+      illustrationUrl: newUrl,
+      costs: costTracker.getSummary(),
+    });
+  } catch (err) {
+    console.error(`[server] Regenerate illustration failed for ${bookId} spread ${spreadIndex}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /generate-spread ──
 // Generate a single spread (for Cloud Tasks parallelism)
 app.post('/generate-spread', authenticate, async (req, res) => {
