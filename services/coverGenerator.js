@@ -2,33 +2,15 @@
  * Cover Generator — Creates Lulu-compliant wrap-around cover PDF
  * (back cover + spine + front cover) with 0.125" bleed.
  *
- * Back cover includes: synopsis blurb, age badge, barcode clear zone, GiftMyBook mark.
+ * Back cover: Gemini-generated illustration matching front cover style,
+ * with synopsis, heartfelt note, branding, and fake barcode integrated.
+ * Spine: Color-matched to front cover, no text for books under 80 pages.
  */
 
 const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
-const { generateIllustration } = require('./illustrationGenerator');
+const { generateIllustration, getNextApiKey } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
 const sharp = require('sharp');
-
-/**
- * Word-wrap text to fit a max width.
- */
-function wrapText(text, font, fontSize, maxWidth) {
-  const words = text.split(/\s+/);
-  const lines = [];
-  let currentLine = '';
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (font.widthOfTextAtSize(testLine, fontSize) > maxWidth && currentLine) {
-      lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
-    }
-  }
-  if (currentLine) lines.push(currentLine);
-  return lines;
-}
 
 /**
  * Extract dominant color from an image buffer using sharp.
@@ -60,6 +42,110 @@ function softenColor(color, amount = 0.5) {
 }
 
 /**
+ * Generate back cover illustration using Gemini, matching the front cover style.
+ *
+ * @param {Buffer} frontCoverBuffer - Front cover image
+ * @param {object} opts - { title, childName, synopsis, heartfeltNote, bookFrom }
+ * @returns {Promise<Buffer|null>} Back cover image buffer, or null on failure
+ */
+async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
+  const { title, childName, synopsis, heartfeltNote, bookFrom, costTracker } = opts;
+
+  // Resize front cover to use as style reference
+  const refBuffer = await sharp(frontCoverBuffer)
+    .resize(512, 512, { fit: 'cover' })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+  const refBase64 = refBuffer.toString('base64');
+
+  // Build the text elements for the back cover
+  const textElements = [];
+  if (synopsis) {
+    textElements.push(`At the top center, in a warm readable font:\n"${synopsis}"`);
+  }
+  if (heartfeltNote) {
+    const noteText = bookFrom
+      ? `${heartfeltNote}\n— ${bookFrom}`
+      : heartfeltNote;
+    textElements.push(`Below a small decorative separator:\n${noteText}`);
+  }
+  textElements.push(`Near the bottom center:\n"Made with love for ${childName || 'you'}"\n"GiftMyBook.com"`);
+
+  const prompt = `Create a back cover illustration for a children's picture book.
+
+STYLE REFERENCE: Match the EXACT same art style, color palette, and visual mood as the reference image (the front cover). Use the same lighting, texture, and illustration technique.
+
+LAYOUT REQUIREMENTS:
+- This is the BACK COVER of the book — it should feel like a companion to the front cover
+- Background: Use a softer, calmer version of the front cover's scene/colors — like a continuation of the world
+- The main character should NOT appear on the back cover
+- Include gentle, decorative elements from the story world (stars, clouds, or thematic elements from the front cover)
+
+TEXT TO INCLUDE (render beautifully integrated into the illustration):
+
+${textElements.join('\n\n')}
+
+BARCODE: Include a realistic-looking fake barcode in the bottom-left corner (standard book barcode size, approximately 2" x 1.25"). It should look like a real ISBN barcode with vertical lines and numbers underneath, but the numbers can be fictional.
+
+TEXT RULES:
+- ALL text must be perfectly legible and correctly spelled
+- Use warm, soft colors that match the front cover palette
+- Text should feel integrated into the illustration, not overlaid
+- The overall feel should be warm, cozy, and premium
+
+FORMAT: Square image, 1:1 aspect ratio.`;
+
+  const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('[CoverGenerator] No Gemini API key available for back cover generation');
+    return null;
+  }
+
+  console.log('[CoverGenerator] Generating back cover illustration with Gemini...');
+  const startTime = Date.now();
+
+  try {
+    const model = 'gemini-3.1-flash-image-preview'; // Nano Banana 2 — same as illustrations
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: prompt },
+            { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
+          ]}],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+      }
+    );
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`Gemini API error ${resp.status}: ${err.slice(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData?.mimeType?.startsWith('image/')) {
+        const ms = Date.now() - startTime;
+        console.log(`[CoverGenerator] Back cover generated in ${ms}ms`);
+        if (costTracker) {
+          costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+        }
+        return Buffer.from(part.inlineData.data, 'base64');
+      }
+    }
+    throw new Error('No image in Gemini response');
+  } catch (err) {
+    console.error(`[CoverGenerator] Back cover generation failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Generate a Lulu-compliant wrap-around cover PDF.
  *
  * Layout (left → right): bleed | back cover | spine | front cover | bleed
@@ -77,11 +163,12 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const trimHeight = isPictureBook ? 612 : 648;
   const bleed = 9; // 0.125" Lulu standard
 
+  // Spine width: (pages / 444) + 0.06 inches (Lulu paperback formula)
   const pageCount = opts.pageCount || 32;
   const spineInches = (pageCount / 444) + 0.06;
   const spineWidth = Math.max(spineInches * 72, 6);
 
-  const totalWidth = (trimWidth + bleed) * 2 + spineWidth;
+  const totalWidth = bleed + trimWidth + spineWidth + trimWidth + bleed;
   const totalHeight = trimHeight + bleed * 2;
 
   console.log(`[CoverGenerator] Wrap-around cover: ${totalWidth.toFixed(1)}x${totalHeight.toFixed(1)}pts, spine=${spineWidth.toFixed(1)}pts (${pageCount} pages)`);
@@ -94,7 +181,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     console.log('[CoverGenerator] Using pre-generated cover buffer');
     frontCoverBuffer = opts.preGeneratedCoverBuffer;
   } else {
-    const artStyle = opts.artStyle || 'watercolor';
+    const artStyle = opts.artStyle || 'pixar_premium';
     const coverScene = `A beautiful ${artStyle} children's book cover illustration. `
       + `The main character is a ${childDetails.childAge || childDetails.age || 5}-year-old child named ${childDetails.childName || childDetails.name}. `
       + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
@@ -122,16 +209,34 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     }
   }
 
-  // ── Extract dominant color from front cover for back cover palette ──
+  // ── Extract dominant color from front cover for spine ──
   const coverColor = frontCoverBuffer
     ? await extractDominantColor(frontCoverBuffer)
     : { r: 0.95, g: 0.93, b: 0.88 };
-  const backBgColor = softenColor(coverColor, 0.6); // soft version of cover's dominant color
-  const spineBgColor = softenColor(coverColor, 0.4); // slightly deeper for spine
-  const textColor = { r: 0.2, g: 0.18, b: 0.15 }; // warm dark brown
+  const spineBgColor = softenColor(coverColor, 0.3);
+
+  // ── Generate back cover illustration with Gemini ──
+  const childName = childDetails.childName || childDetails.name || '';
+  const synopsis = opts.synopsis || '';
+  const heartfeltNote = opts.heartfeltNote || '';
+  const bookFrom = opts.bookFrom || '';
+
+  let backCoverBuffer = null;
+  if (frontCoverBuffer) {
+    backCoverBuffer = await generateBackCoverImage(frontCoverBuffer, {
+      title,
+      childName,
+      synopsis,
+      heartfeltNote,
+      bookFrom,
+      costTracker: opts.costTracker,
+    });
+  }
 
   // ── Build wrap-around PDF ──
   const pdfDoc = await PDFDocument.create();
+  pdfDoc.setTitle(`${title || 'My Story'} - Cover`);
+  pdfDoc.setAuthor('GiftMyBook.com');
   const page = pdfDoc.addPage([totalWidth, totalHeight]);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -141,187 +246,77 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   const backWidth = bleed + trimWidth;
 
-  // Background — soft version of front cover's dominant color
-  page.drawRectangle({
-    x: 0, y: 0,
-    width: backWidth,
-    height: totalHeight,
-    color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
-  });
-
-  // Subtle decorative line near top
-  const accentColor = softenColor(coverColor, 0.2);
-  page.drawRectangle({
-    x: bleed + 60, y: totalHeight - bleed - 80,
-    width: trimWidth - 120, height: 1.5,
-    color: rgb(accentColor.r, accentColor.g, accentColor.b),
-    opacity: 0.4,
-  });
-
-  const childName = childDetails.childName || childDetails.name || '';
-  const childAge = childDetails.childAge || childDetails.age || 5;
-  const synopsis = opts.synopsis || '';
-  const heartfeltNote = opts.heartfeltNote || '';
-  const bookFrom = opts.bookFrom || '';
-  const safeMargin = 36;
-  const contentWidth = trimWidth - safeMargin * 2;
-  const centerX = bleed + trimWidth / 2;
-
-  let yPos = totalHeight - bleed - 110; // Start below the decorative line
-
-  // ── Synopsis blurb (centered, top area) ──
-  if (synopsis) {
-    const synopsisFontSize = isPictureBook ? 12 : 10;
-    const lineHeight = synopsisFontSize * 1.7;
-    const lines = wrapText(synopsis, font, synopsisFontSize, contentWidth - 20);
-
-    for (let i = 0; i < lines.length; i++) {
-      const lineWidth = font.widthOfTextAtSize(lines[i], synopsisFontSize);
-      page.drawText(lines[i], {
-        x: centerX - lineWidth / 2,
-        y: yPos - i * lineHeight,
-        size: synopsisFontSize,
-        font,
-        color: rgb(textColor.r, textColor.g, textColor.b),
-      });
+  if (backCoverBuffer) {
+    // Use Gemini-generated back cover illustration
+    try {
+      const targetPx = Math.round(backWidth / 72 * 300);
+      const targetHPx = Math.round(totalHeight / 72 * 300);
+      const resized = await sharp(backCoverBuffer)
+        .resize(targetPx, targetHPx, { fit: 'cover' })
+        .jpeg({ quality: 95 })
+        .toBuffer();
+      const img = await pdfDoc.embedJpg(resized);
+      page.drawImage(img, { x: 0, y: 0, width: backWidth, height: totalHeight });
+      console.log('[CoverGenerator] Back cover illustration embedded');
+    } catch (err) {
+      console.error('[CoverGenerator] Failed to embed back cover illustration:', err.message);
+      // Fall through to plain text fallback
+      backCoverBuffer = null;
     }
-    yPos -= lines.length * lineHeight + 25;
   }
 
-  // ── Heartfelt note from gifter (if exists) ──
-  if (heartfeltNote) {
-    // Decorative separator
+  if (!backCoverBuffer) {
+    // Fallback: plain colored back cover with text
+    const backBgColor = softenColor(coverColor, 0.6);
+    const textColor = { r: 0.2, g: 0.18, b: 0.15 };
     page.drawRectangle({
-      x: centerX - 30, y: yPos + 5,
-      width: 60, height: 0.8,
-      color: rgb(accentColor.r, accentColor.g, accentColor.b),
-      opacity: 0.3,
+      x: 0, y: 0,
+      width: backWidth, height: totalHeight,
+      color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
     });
-    yPos -= 15;
 
-    // Note text in slightly smaller, warm style
-    const noteSize = 10;
-    const noteLineHeight = noteSize * 1.6;
-    const noteLines = wrapText(heartfeltNote, font, noteSize, contentWidth - 40);
-    for (let i = 0; i < Math.min(noteLines.length, 6); i++) { // Cap at 6 lines
-      const lw = font.widthOfTextAtSize(noteLines[i], noteSize);
-      page.drawText(noteLines[i], {
-        x: centerX - lw / 2,
-        y: yPos - i * noteLineHeight,
-        size: noteSize,
-        font,
-        color: rgb(textColor.r + 0.1, textColor.g + 0.1, textColor.b + 0.1),
-      });
+    const centerX = bleed + trimWidth / 2;
+    const contentWidth = trimWidth - 72;
+
+    // Synopsis
+    if (synopsis) {
+      const words = synopsis.split(/\s+/);
+      const lines = [];
+      let cl = '';
+      for (const w of words) {
+        const tl = cl ? `${cl} ${w}` : w;
+        if (font.widthOfTextAtSize(tl, 12) > contentWidth && cl) { lines.push(cl); cl = w; } else { cl = tl; }
+      }
+      if (cl) lines.push(cl);
+      let y = totalHeight - bleed - 100;
+      for (const line of lines) {
+        const lw = font.widthOfTextAtSize(line, 12);
+        page.drawText(line, { x: centerX - lw / 2, y, size: 12, font, color: rgb(textColor.r, textColor.g, textColor.b) });
+        y -= 20;
+      }
     }
-    yPos -= Math.min(noteLines.length, 6) * noteLineHeight + 10;
 
-    // Attribution
-    if (bookFrom) {
-      const attrText = `— ${bookFrom}`;
-      const attrSize = 9;
-      const attrWidth = font.widthOfTextAtSize(attrText, attrSize);
-      page.drawText(attrText, {
-        x: centerX - attrWidth / 2,
-        y: yPos,
-        size: attrSize,
-        font,
-        color: rgb(textColor.r + 0.15, textColor.g + 0.15, textColor.b + 0.15),
-      });
-      yPos -= 30;
-    }
+    // Brand
+    const brand = 'GiftMyBook.com';
+    const bw = font.widthOfTextAtSize(brand, 8);
+    page.drawText(brand, { x: centerX - bw / 2, y: bleed + 25, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
   }
-
-  // ── Age badge (pill shape, centered) ──
-  const ageTier = childAge <= 2 ? '0-2' : childAge <= 5 ? '3-5' : childAge <= 8 ? '6-8' : '9-12';
-  const ageText = `Ages ${ageTier}`;
-  const ageFontSize = 8;
-  const ageTextWidth = font.widthOfTextAtSize(ageText, ageFontSize);
-  const pillWidth = ageTextWidth + 16;
-  const pillHeight = 17;
-  const pillX = centerX - pillWidth / 2;
-  const pillY = Math.max(yPos - 10, bleed + 80);
-
-  page.drawRectangle({
-    x: pillX, y: pillY,
-    width: pillWidth, height: pillHeight,
-    color: rgb(textColor.r, textColor.g, textColor.b),
-    opacity: 0.85,
-    borderWidth: 0,
-  });
-  page.drawText(ageText, {
-    x: pillX + 8,
-    y: pillY + 5,
-    size: ageFontSize,
-    font: boldFont,
-    color: rgb(1, 1, 1),
-  });
-
-  // ── "Made with love for {name}" ──
-  if (childName) {
-    const loveText = `Made with love for ${childName}`;
-    const loveSize = 8;
-    const loveWidth = font.widthOfTextAtSize(loveText, loveSize);
-    page.drawText(loveText, {
-      x: centerX - loveWidth / 2,
-      y: bleed + 50,
-      size: loveSize,
-      font,
-      color: rgb(textColor.r + 0.15, textColor.g + 0.15, textColor.b + 0.15),
-    });
-  }
-
-  // ── GiftMyBook.com brand mark (bottom) ──
-  const brandText = 'GiftMyBook.com';
-  const brandSize = 7;
-  const brandWidth = font.widthOfTextAtSize(brandText, brandSize);
-  page.drawText(brandText, {
-    x: centerX - brandWidth / 2,
-    y: bleed + 25,
-    size: brandSize,
-    font,
-    color: rgb(textColor.r + 0.25, textColor.g + 0.25, textColor.b + 0.25),
-  });
-
-  // Subtle decorative line near bottom
-  page.drawRectangle({
-    x: bleed + 60, y: bleed + 70,
-    width: trimWidth - 120, height: 1.5,
-    color: rgb(accentColor.r, accentColor.g, accentColor.b),
-    opacity: 0.4,
-  });
 
   // ═══════════════════════════════════════
   // SPINE
   // ═══════════════════════════════════════
   const spineX = backWidth;
 
-  // Spine background — deeper shade of the cover color
   page.drawRectangle({
     x: spineX, y: 0,
-    width: spineWidth,
-    height: totalHeight,
+    width: spineWidth, height: totalHeight,
     color: rgb(spineBgColor.r, spineBgColor.g, spineBgColor.b),
   });
 
-  // Subtle edge lines on both sides of spine
-  page.drawRectangle({
-    x: spineX, y: 0,
-    width: 0.5, height: totalHeight,
-    color: rgb(accentColor.r, accentColor.g, accentColor.b),
-    opacity: 0.15,
-  });
-  page.drawRectangle({
-    x: spineX + spineWidth - 0.5, y: 0,
-    width: 0.5, height: totalHeight,
-    color: rgb(accentColor.r, accentColor.g, accentColor.b),
-    opacity: 0.15,
-  });
-
-  // Spine text (vertical, if spine >= 18pts / 0.25")
-  if (spineWidth >= 18 && title) {
+  // Lulu recommends: no spine text for books under 80 pages
+  if (pageCount >= 80 && spineWidth >= 18 && title) {
     const spineFontSize = Math.min(8, spineWidth * 0.55);
     const spineTextWidth = boldFont.widthOfTextAtSize(title, spineFontSize);
-    // Center the text vertically and horizontally on the spine
     const textX = spineX + spineWidth / 2 + spineFontSize * 0.35;
     const textY = totalHeight / 2 + spineTextWidth / 2;
     page.drawText(title, {
@@ -329,7 +324,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       y: textY,
       size: spineFontSize,
       font: boldFont,
-      color: rgb(textColor.r, textColor.g, textColor.b),
+      color: rgb(0.2, 0.18, 0.15),
       rotate: degrees(-90),
     });
   }
@@ -341,10 +336,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const frontWidth = trimWidth + bleed;
 
   // Background fallback
+  const backBgColor = softenColor(coverColor, 0.6);
   page.drawRectangle({
     x: frontX, y: 0,
-    width: frontWidth,
-    height: totalHeight,
+    width: frontWidth, height: totalHeight,
     color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
   });
 
