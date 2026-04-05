@@ -92,7 +92,7 @@ if (process.env.NODE_ENV !== 'test') {
 
 const PORT = process.env.PORT || 8080;
 const API_KEY = process.env.API_KEY;
-const ABSOLUTE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour max per book
+const ABSOLUTE_TIMEOUT_MS = 90 * 60 * 1000; // 90 minutes max per book
 
 // ── Per-Book Activity Tracking ──
 const activeBooks = new Map();
@@ -199,15 +199,17 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   // Count how many illustrations we need
   const illustratableEntries = entries.map((entry, idx) => {
     if (entry.type === 'blank') return null;
-    if (entry.type === 'title_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl' };
-    if (entry.type === 'dedication_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl' };
+    if (entry.type === 'title_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl', pageText: entry.title || '' };
+    if (entry.type === 'dedication_page' && entry.image_prompt) return { idx, prompt: entry.image_prompt, field: 'illustrationUrl', pageText: entry.text || '' };
     if (entry.type === 'spread') {
+      // Combine left + right text for embedding in illustration
+      const spreadText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
       // Primary: spread_image_prompt (one illustration for both pages)
-      if (entry.spread_image_prompt) return { idx, prompt: entry.spread_image_prompt, field: 'spreadIllustrationUrl' };
+      if (entry.spread_image_prompt) return { idx, prompt: entry.spread_image_prompt, field: 'spreadIllustrationUrl', pageText: spreadText };
       // Fallback: separate left/right image prompts
       const jobs = [];
-      if (entry.left?.image_prompt) jobs.push({ idx, prompt: entry.left.image_prompt, field: 'leftIllustrationUrl' });
-      if (entry.right?.image_prompt) jobs.push({ idx, prompt: entry.right.image_prompt, field: 'rightIllustrationUrl' });
+      if (entry.left?.image_prompt) jobs.push({ idx, prompt: entry.left.image_prompt, field: 'leftIllustrationUrl', pageText: entry.left.text || '' });
+      if (entry.right?.image_prompt) jobs.push({ idx, prompt: entry.right.image_prompt, field: 'rightIllustrationUrl', pageText: entry.right.text || '' });
       if (jobs.length) return jobs;
       return null;
     }
@@ -275,7 +277,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             _cachedPhotoBase64: cachedPhotoBase64,
             _cachedPhotoMime: cachedPhotoMime,
             spreadIndex: idx,
-            skipTextEmbed: true, // V2: text overlaid by layout engine
+            pageText: job.pageText || '',
             deadlineMs: 450000,
             abortSignal: bookContext.abortController.signal,
           });
@@ -783,9 +785,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
     }
   })();
 
-  // Hard wall: kill generation after 45 minutes no matter what
+  // Hard wall: kill generation after 90 minutes no matter what
   const hardTimeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Generation exceeded 45 minute hard limit')), 45 * 60 * 1000)
+    setTimeout(() => reject(new Error('Generation exceeded 90 minute hard limit')), 90 * 60 * 1000)
   );
 
   Promise.race([generationWork, hardTimeout]).catch(async (err) => {

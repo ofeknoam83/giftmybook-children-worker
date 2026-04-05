@@ -166,11 +166,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
-  parts.push('Do NOT include any text, letters, words, or writing in the illustration. This is a pure illustration — text will be overlaid separately.');
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
-  // V2: text is overlaid by the layout engine, not embedded in images.
-  // Legacy path: if pageText is provided and skipTextEmbed is false, embed text in image.
+  // Embed story text directly in the illustration
   if (pageText && !skipTextEmbed) {
     parts.push('');
     parts.push('TEXT IN IMAGE:');
