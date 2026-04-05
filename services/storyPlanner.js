@@ -377,4 +377,110 @@ function repairTruncatedJson(str) {
   }
 }
 
-module.exports = { planStory };
+/**
+ * Polish / rewrite pass — takes the raw story plan and improves
+ * writing quality without changing the plot or spread structure.
+ *
+ * @param {object} storyPlan - { title, entries: [...] }
+ * @param {object} [opts] - { apiKeys, costTracker }
+ * @returns {Promise<object>} Polished story plan with same structure
+ */
+async function polishStory(storyPlan, opts = {}) {
+  const { costTracker, apiKeys } = opts;
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  // Build a compact representation of just the text to rewrite
+  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+  const textMap = spreads.map(s => ({
+    spread: s.spread,
+    left: s.left?.text || null,
+    right: s.right?.text || null,
+  }));
+
+  const systemPrompt = `You are a world-class children's book editor. You will receive a complete story as JSON (array of spreads with left/right page text).
+
+Rewrite EVERY spread to:
+- Remove any weak, generic, or filler phrasing ("very", "really", "nice", "special", "magical", "beautiful", "wonderful")
+- Improve rhythm and read-aloud quality — vary sentence lengths, use pauses and cadence
+- Sharpen imagery — replace vague descriptions with concrete, sensory details
+- Remove any direct emotional statements ("she felt scared", "he was happy") — show emotion through action, body language, environment
+- Strengthen any repeated motifs or transformation arcs
+- Ensure at least one line is memorable enough that a parent would want to repeat it outside the book
+
+Do NOT change:
+- The plot, character names, or sequence of events
+- The number of spreads
+- Which page (left/right) has text vs null
+- The spread_image_prompt values (they are not included — only text is)
+- The dedication or title
+
+Return the SAME JSON array structure with improved text. Every spread must still be present.`;
+
+  const userPrompt = JSON.stringify(textMap);
+
+  console.log(`[storyPlanner] Starting polish pass (${spreads.length} spreads)...`);
+  const polishStart = Date.now();
+
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 8000,
+    temperature: 0.6,
+    jsonMode: true,
+    costTracker,
+  });
+
+  const polishMs = Date.now() - polishStart;
+  console.log(`[storyPlanner] Polish pass completed in ${polishMs}ms (${response.model}, ${response.outputTokens} tokens)`);
+
+  let content = response.text;
+  // Sanitize
+  content = content.replace(/\\'/g, "'");
+  content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+
+  let polished;
+  try {
+    polished = JSON.parse(content);
+  } catch (parseErr) {
+    // Try stripping markdown fences
+    const stripped = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    try {
+      polished = JSON.parse(stripped);
+    } catch (_) {
+      console.warn(`[storyPlanner] Polish pass JSON parse failed: ${parseErr.message} — using original text`);
+      return storyPlan;
+    }
+  }
+
+  // Normalize: could be a raw array or { spreads: [...] } or wrapped
+  const polishedArray = Array.isArray(polished) ? polished : (polished.spreads || polished.entries || []);
+
+  if (polishedArray.length !== spreads.length) {
+    console.warn(`[storyPlanner] Polish returned ${polishedArray.length} spreads, expected ${spreads.length} — using original text`);
+    return storyPlan;
+  }
+
+  // Apply polished text back into the story plan entries
+  let changedCount = 0;
+  const updatedEntries = storyPlan.entries.map(entry => {
+    if (entry.type !== 'spread') return entry;
+    const match = polishedArray.find(p => p.spread === entry.spread);
+    if (!match) return entry;
+
+    const updated = { ...entry };
+    if (match.left !== undefined && entry.left) {
+      if (match.left !== entry.left.text) changedCount++;
+      updated.left = { ...entry.left, text: match.left };
+    }
+    if (match.right !== undefined && entry.right) {
+      if (match.right !== entry.right.text) changedCount++;
+      updated.right = { ...entry.right, text: match.right };
+    }
+    return updated;
+  });
+
+  console.log(`[storyPlanner] Polish pass: ${changedCount} page texts improved out of ${spreads.length * 2} pages`);
+
+  return { ...storyPlan, entries: updatedEntries };
+}
+
+module.exports = { planStory, polishStory };

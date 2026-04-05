@@ -29,7 +29,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory } = require('./services/storyPlanner');
+const { planStory, polishStory } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
@@ -671,6 +671,29 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
+
+        // ── Polish pass: rewrite text for quality ──
+        bookContext.log('info', 'Starting polish pass (rewrite for quality)');
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Polishing story text...', logs: bookContext.logs });
+        }
+        const polishStart = Date.now();
+        try {
+          storyPlan = await polishStory(storyPlan, { apiKeys, costTracker });
+          const polishMs = Date.now() - polishStart;
+          bookContext.log('info', 'Polish pass complete', { ms: polishMs });
+          bookContext.touchActivity();
+
+          // Save polished content to DB
+          if (progressCallbackUrl) {
+            const polishedContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
+            reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContentForDb, logs: bookContext.logs }).catch(() => {});
+          }
+          await saveCheckpoint(bookId, { bookId, completedStage: 'story_polish', storyPlan, timestamp: new Date().toISOString() });
+        } catch (polishErr) {
+          bookContext.log('warn', `Polish pass failed — using original text: ${polishErr.message}`);
+          // Non-fatal: continue with original text
+        }
       }
 
       // V2: Text is already in the story plan — no separate text generation needed.
