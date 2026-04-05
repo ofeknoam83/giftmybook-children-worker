@@ -153,6 +153,42 @@ function buildGenericSafePrompt(artStyle) {
 }
 
 /**
+ * Strip hair-accessory mentions from a per-spread scene description so
+ * the only hair info reaching the image model comes from the locked
+ * characterDescription, preventing per-spread contradictions.
+ */
+function stripHairFromScene(scene) {
+  const hairAccessoryPattern = /\b(headband|hair\s*band|hair\s*bow|bow\s+in\s+(?:her|his)\s+hair|hair\s*clip|barrette|ribbon\s+in\s+(?:her|his)\s+hair|hair\s*elastic|scrunchie|hair\s*tie|pigtails?|ponytail|braid|braided|cornrow|puff|puffs|bun|updo|afro\s*puffs?|two\s+puffs?|pink\s+bow|purple\s+bow)\b/gi;
+  return scene.replace(hairAccessoryPattern, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Build explicit negative instructions for hair accessories NOT present in
+ * the character description. Tells the model exactly what NOT to add.
+ */
+function buildHairNegatives(characterDescription) {
+  const desc = (characterDescription || '').toLowerCase();
+  const allAccessories = [
+    { word: 'headband', pattern: /headband/i },
+    { word: 'bow', pattern: /\bbow\b/i },
+    { word: 'ribbon', pattern: /ribbon/i },
+    { word: 'clip', pattern: /\bclip\b/i },
+    { word: 'barrette', pattern: /barrette/i },
+    { word: 'scrunchie', pattern: /scrunchie/i },
+    { word: 'hair tie', pattern: /hair\s*tie/i },
+    { word: 'flower', pattern: /flower/i },
+    { word: 'tiara', pattern: /tiara|crown/i },
+    { word: 'hat', pattern: /\bhat\b/i },
+    { word: 'beanie', pattern: /beanie/i },
+  ];
+  const banned = allAccessories.filter(a => !a.pattern.test(desc)).map(a => a.word);
+  if (banned.length > 0) {
+    return `DO NOT add any of these to the child's hair: ${banned.join(', ')}. Only accessories explicitly described above are allowed.`;
+  }
+  return '';
+}
+
+/**
  * Build a structured illustration prompt with character identity anchoring.
  *
  * @param {string} sceneDescription - Scene to illustrate
@@ -164,6 +200,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   const skipTextEmbed = opts.skipTextEmbed || false;
   const isSpread = opts.isSpread || false;
+
+  // Strip any hair-accessory mentions from the per-spread scene so only the
+  // locked characterDescription defines the child's hair.
+  const cleanScene = stripHairFromScene(sceneDescription);
 
   const parts = [
     `\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`,
@@ -219,6 +259,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('- NEVER change hair style, hair color, hair length, eye color, or skin tone from the reference — not even slightly.');
   parts.push('- The child\'s hair must be IDENTICAL in every illustration: same style, same color, same length, same parting, same accessories.');
   parts.push('- ZERO INVENTION RULE: Do NOT add hair accessories (headbands, bows, ribbons, clips, barrettes, flowers) that are not explicitly described. If the description says nothing about accessories, the child has NONE.');
+  const hairNegatives = buildHairNegatives(characterDescription);
+  if (hairNegatives) {
+    parts.push(`- ${hairNegatives}`);
+  }
   parts.push('- The child\'s clothing must be IDENTICAL in every illustration: same garments, same colors, same patterns.');
   if (hairstyleDesc) {
     parts.push(`- HAIRSTYLE (copy exactly): ${hairstyleDesc}`);
@@ -241,7 +285,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
 
   parts.push('');
-  parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
+  parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
   parts.push('');
   // Always use the configured art style (pixar_premium by default)
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
@@ -290,6 +334,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`- Does the child have EXACTLY this hairstyle: ${hairstyleDesc}? (If different hair, start over)`);
   } else {
     parts.push('- Does the child\'s hair match the reference photo EXACTLY? (If different hair style/color/length, start over)');
+  }
+  if (hairNegatives) {
+    parts.push(`- HAIR ACCESSORIES CHECK: ${hairNegatives} (If any forbidden accessory appears, start over)`);
   }
   parts.push('- Are any family members (parents, siblings, grandparents) depicted? (If yes, remove them — show only their effect/presence, never their appearance)');
   parts.push('- Is the font style the same rounded bubbly sans-serif used on every other page? (If different font, start over)');
