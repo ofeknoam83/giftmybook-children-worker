@@ -151,10 +151,16 @@ Write with the qualities of master children's authors:
 - Emotion is implied, never explained.
 - Dialogue feels natural, curious, and childlike — not functional.
 
-RHYTHM:
+RHYTHM & RHYME:
 - The text must sound beautiful when read aloud.
 - Vary sentence length intentionally.
 - Use gentle repetition for emotional effect.
+- Weave in natural, soft rhymes — internal rhymes, near-rhymes, or end-rhymes
+  that emerge from the language rather than being forced. Think of rhyme as a
+  musical texture, not a strict pattern. A couplet here, a slant rhyme there.
+  NOT every line. NOT a rigid AABB scheme. Let the rhyme come and go like a
+  melody the reader half-notices. If a rhyme feels forced or bends the meaning,
+  drop it — the story always wins over the sound.
 
 TONE:
 - Warm, intimate, slightly poetic.
@@ -445,10 +451,16 @@ Write with the qualities of master children's authors:
 - Emotion is implied, never explained.
 - Dialogue feels natural, curious, and childlike — not functional.
 
-RHYTHM:
+RHYTHM & RHYME:
 - The text must sound beautiful when read aloud.
 - Vary sentence length intentionally.
 - Use gentle repetition for emotional effect.
+- Weave in natural, soft rhymes — internal rhymes, near-rhymes, or end-rhymes
+  that emerge from the language rather than being forced. Think of rhyme as a
+  musical texture, not a strict pattern. A couplet here, a slant rhyme there.
+  NOT every line. NOT a rigid AABB scheme. Let the rhyme come and go like a
+  melody the reader half-notices. If a rhyme feels forced or bends the meaning,
+  drop it — the story always wins over the sound.
 
 TONE:
 - Warm, intimate, slightly poetic.

@@ -170,7 +170,7 @@ You will receive details about a child. From these details, invent:
 
 4. storySeed: One sentence describing the unique emotional journey. Example: "A child discovers that the rumbling sound in the walls is just the old house settling, and learns to hear it as a lullaby."
 
-5. repeated_phrase: A short, soothing phrase (2-6 words) that will repeat through the story and evolve in meaning. NOT generic ("everything will be okay"). Should feel like it belongs in THIS story. Example: "hush now, little seed" or "the house remembers."
+5. repeated_phrase: A short, soothing phrase (2-6 words) that will repeat through the story and evolve in meaning. NOT generic ("everything will be okay"). Should feel like it belongs in THIS story and have a gentle musical quality — a soft rhyme or rhythm that makes it satisfying to say aloud. Example: "hush now, little seed" or "the house remembers."
 
 6. phrase_arc: Three short descriptions of how the repeated phrase evolves:
    - early: how it feels the first time (playful, uncertain, questioning)
@@ -808,9 +808,12 @@ Score each category from 1-10:
 - Is emotion shown (not told)?
 - Any "she felt / she was scared" → penalty
 
-2. Language Quality
+2. Language Quality & Musicality
 - Any generic phrases?
 - Any replaceable sentences?
+- Are there natural rhymes, near-rhymes, or internal rhymes woven in?
+  (Not forced AABB — subtle, musical touches that make lines satisfying to read aloud.)
+  Where a natural rhyme opportunity exists, use it. Where it would feel forced, skip it.
 
 3. Imagery
 - Are visuals specific and vivid?
