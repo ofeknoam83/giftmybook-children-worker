@@ -134,6 +134,11 @@ function createBookContext(bookId) {
       context.lastActivity = Date.now();
       global.__lastGlobalActivity = Date.now();
     },
+    checkAbort() {
+      if (abortController.signal.aborted) {
+        throw new Error('Generation aborted');
+      }
+    },
   };
   activeBooks.set(bookId, context);
   return context;
@@ -656,6 +661,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const characterRef = null;
 
       // ── Brainstorm unique story seed ──
+      bookContext.checkAbort();
       bookContext.log('info', 'Brainstorming unique story seed');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.10, message: 'Brainstorming story idea...', logs: bookContext.logs });
@@ -700,6 +706,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookContext.log('info', 'Resumed V2 story plan from checkpoint', { spreads: spreads.length, title: storyPlan.title });
       } else {
         // Always start fresh for V2 (incompatible with old checkpoint format)
+        bookContext.checkAbort();
         bookContext.log('info', 'Starting V2 story planning', { theme: theme || 'adventure' });
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...', logs: bookContext.logs });
@@ -727,6 +734,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
 
         // ── Self-Critic + Auto-Rewrite pass ──
+        bookContext.checkAbort();
         bookContext.log('info', 'Starting self-critic + rewrite pass');
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating and improving story text...', logs: bookContext.logs });
@@ -757,6 +765,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       // Stage 3: Prepare cover + character reference
       const stage6Start = Date.now();
+      bookContext.checkAbort();
       bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover preparation');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.30, message: 'Preparing cover...', logs: bookContext.logs });
@@ -843,6 +852,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
       // Stage 4: Generate illustrations (V2 — text overlaid by layout engine, not embedded in images)
+      bookContext.checkAbort();
       bookContext.log('info', 'Starting V2 illustration generation');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
@@ -877,6 +887,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       // Stage 5: Assemble PDF
       const stage7Start = Date.now();
+      bookContext.checkAbort();
       bookContext.log('info', 'Starting V2 PDF assembly');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...', logs: bookContext.logs });
