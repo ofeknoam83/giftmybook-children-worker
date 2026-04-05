@@ -603,60 +603,64 @@ app.post('/generate-book', authenticate, async (req, res) => {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...', logs: bookContext.logs });
       }
 
-      // Download illustration URLs into buffers for PDF embedding (parallel)
+      // Download illustration URLs into buffers for PDF embedding
+      // Use pLimit(4) to avoid overwhelming GCS, with 60s timeout per download
+      const downloadLimit = pLimit(4);
+      async function downloadWithTimeout(url, label) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 60000); // 60s timeout
+        try {
+          const buf = await downloadBuffer(url);
+          clearTimeout(timer);
+          return buf;
+        } catch (err) {
+          clearTimeout(timer);
+          throw err;
+        }
+      }
+
+      bookContext.log('info', 'Downloading illustration buffers for PDF');
       const entriesWithBuffers = await Promise.all(
-        entriesWithIllustrations.map(async (entry) => {
+        entriesWithIllustrations.map((entry) => downloadLimit(async () => {
           const result = { ...entry };
 
-          // Download spread illustration
           if (entry.spreadIllustrationUrl) {
             try {
-              result.spreadIllustrationBuffer = await withRetry(
-                () => downloadBuffer(entry.spreadIllustrationUrl),
-                { maxRetries: 3, baseDelayMs: 1000, label: `download-spread-${entry.spread || entry.type}` }
-              );
+              result.spreadIllustrationBuffer = await downloadWithTimeout(entry.spreadIllustrationUrl, `spread-${entry.spread || entry.type}`);
+              bookContext.log('info', `Downloaded spread ${entry.spread || entry.type} illustration`);
             } catch (err) {
               bookContext.log('error', `Failed to download spread illustration`, { error: err.message, spread: entry.spread });
             }
           }
 
-          // Download left/right illustrations
           if (entry.leftIllustrationUrl) {
             try {
-              result.leftIllustrationBuffer = await withRetry(
-                () => downloadBuffer(entry.leftIllustrationUrl),
-                { maxRetries: 3, baseDelayMs: 1000, label: `download-left-${entry.spread}` }
-              );
+              result.leftIllustrationBuffer = await downloadWithTimeout(entry.leftIllustrationUrl, `left-${entry.spread}`);
             } catch (err) {
               bookContext.log('error', `Failed to download left illustration`, { error: err.message });
             }
           }
           if (entry.rightIllustrationUrl) {
             try {
-              result.rightIllustrationBuffer = await withRetry(
-                () => downloadBuffer(entry.rightIllustrationUrl),
-                { maxRetries: 3, baseDelayMs: 1000, label: `download-right-${entry.spread}` }
-              );
+              result.rightIllustrationBuffer = await downloadWithTimeout(entry.rightIllustrationUrl, `right-${entry.spread}`);
             } catch (err) {
               bookContext.log('error', `Failed to download right illustration`, { error: err.message });
             }
           }
 
-          // Download title/dedication page illustrations
           if (entry.illustrationUrl) {
             try {
-              result.illustrationBuffer = await withRetry(
-                () => downloadBuffer(entry.illustrationUrl),
-                { maxRetries: 3, baseDelayMs: 1000, label: `download-${entry.type}` }
-              );
+              result.illustrationBuffer = await downloadWithTimeout(entry.illustrationUrl, entry.type);
+              bookContext.log('info', `Downloaded ${entry.type} illustration`);
             } catch (err) {
               bookContext.log('error', `Failed to download ${entry.type} illustration`, { error: err.message });
             }
           }
 
           return result;
-        })
+        }))
       );
+      bookContext.log('info', 'All illustration buffers downloaded');
 
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
       const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
