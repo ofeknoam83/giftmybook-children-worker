@@ -634,20 +634,30 @@ app.post('/generate-book', authenticate, async (req, res) => {
       let cachedPhotoMime = 'image/jpeg';
 
       if (childPhotoUrl) {
+        const cachedPhotoPath = `children-jobs/${bookId}/photo-512.jpg`;
         try {
-          const sharp = require('sharp');
-          const photoBuf = await downloadBuffer(childPhotoUrl);
-          const resizedBuf = await sharp(photoBuf)
-            .resize(512, 512, { fit: 'cover' })
-            .jpeg({ quality: 80 })
-            .toBuffer();
-          cachedPhotoBase64 = resizedBuf.toString('base64');
-          cachedPhotoMime = 'image/jpeg';
-          bookContext.log('info', 'Child photo cached (resized to 512px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
-          console.log(`[server] Cached child photo for book ${bookId} (${photoBuf.length} -> ${resizedBuf.length} bytes)`);
+          // Try to load previously cached resized photo first (42KB vs 4.6MB)
+          const cachedBuf = await downloadBuffer(cachedPhotoPath).catch(() => null);
+          if (cachedBuf && cachedBuf.length > 1000) {
+            cachedPhotoBase64 = cachedBuf.toString('base64');
+            bookContext.log('info', 'Child photo loaded from cache', { bytes: cachedBuf.length });
+          } else {
+            // Download original and resize
+            const sharp = require('sharp');
+            const photoBuf = await downloadBuffer(childPhotoUrl);
+            const resizedBuf = await sharp(photoBuf)
+              .resize(512, 512, { fit: 'cover' })
+              .jpeg({ quality: 80 })
+              .toBuffer();
+            cachedPhotoBase64 = resizedBuf.toString('base64');
+            bookContext.log('info', 'Child photo cached (resized to 512px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
+            // Save resized photo to GCS for reuse (fire-and-forget)
+            uploadBuffer(resizedBuf, cachedPhotoPath, 'image/jpeg')
+              .then(() => console.log(`[server] Saved cached photo for ${bookId}`))
+              .catch(() => {});
+          }
         } catch (photoErr) {
           bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
-          console.warn(`[server] Failed to cache child photo for book ${bookId}: ${photoErr.message}`);
         }
       }
       bookContext.touchActivity();
