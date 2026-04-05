@@ -105,7 +105,7 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
  * Call the best available LLM — GPT 5.4 first, Gemini fallback.
  */
 async function callLLM(systemPrompt, userPrompt, opts = {}) {
-  const openaiKey = opts.openaiApiKey;
+  const openaiKey = opts.openaiApiKey || process.env.OPENAI_API_KEY;
 
   if (openaiKey) {
     try {
