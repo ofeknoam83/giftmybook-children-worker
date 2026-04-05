@@ -164,7 +164,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${sceneDescription}`);
   parts.push('');
-  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  // Use extracted cover art style for visual consistency, fallback to generic style config
+  if (opts.coverArtStyle) {
+    parts.push(`ART STYLE (match the cover exactly): ${opts.coverArtStyle}`);
+    parts.push('CRITICAL: Every illustration must look like it belongs in the same book as the cover. Match the exact medium, color palette, line quality, texture, and lighting from the style description above.');
+  } else {
+    parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  }
   parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
@@ -363,7 +369,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle });
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);

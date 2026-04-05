@@ -273,6 +273,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             characterDescription: storyPlan.characterDescription || '',
             recurringElement: storyPlan.recurringElement || '',
             keyObjects: storyPlan.keyObjects || '',
+            coverArtStyle: storyPlan.coverArtStyle || '',
             childPhotoUrl: resolvedChildPhotoUrl,
             _cachedPhotoBase64: cachedPhotoBase64,
             _cachedPhotoMime: cachedPhotoMime,
@@ -547,10 +548,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Describe the child character on this book cover in precise visual detail for an illustrator. Include:\n- Hair: color, style, length (e.g., "short curly brown hair")\n- Eyes: color, shape (e.g., "big round green eyes")\n- Skin tone (e.g., "light olive skin with rosy cheeks")\n- Age appearance (e.g., "looks about 5 years old")\n- Face shape and distinguishing features\n- Exact outfit and accessories\n\nBe very specific so another illustrator can draw the EXACT same character. Respond with ONLY the description, no introduction.` },
+                    { text: `Analyze this children's book cover and provide TWO sections:\n\nCHARACTER DESCRIPTION:\nDescribe the child character in precise visual detail for an illustrator. Include:\n- Hair: color, style, length (e.g., "short curly brown hair")\n- Eyes: color, shape (e.g., "big round green eyes")\n- Skin tone (e.g., "light olive skin with rosy cheeks")\n- Age appearance (e.g., "looks about 5 years old")\n- Face shape and distinguishing features\n- Exact outfit and accessories\n\nART STYLE DESCRIPTION:\nDescribe the exact art style of this cover so another illustrator can replicate it precisely. Include:\n- Medium (watercolor, digital, gouache, pencil, etc.)\n- Color palette (warm, cool, muted, vibrant, specific dominant colors)\n- Line quality (soft edges, bold outlines, ink outlines, no outlines)\n- Texture (paper texture, smooth, grainy, etc.)\n- Lighting style (soft, dramatic, flat, warm glow, etc.)\n- Overall mood/atmosphere of the visual style\n- Any distinctive techniques (splatters, gradients, cross-hatching, etc.)\n\nRespond in this exact format:\nCHARACTER: [character description]\nSTYLE: [art style description]` },
                     { inline_data: { mime_type: 'image/jpeg', data: characterRefBase64 } },
                   ]}],
-                  generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
+                  generationConfig: { maxOutputTokens: 1000, temperature: 0.2 },
                 }),
                 signal: bookContext.abortController.signal,
               }
@@ -559,8 +560,20 @@ app.post('/generate-book', authenticate, async (req, res) => {
               const visionData = await visionResp.json();
               const extractedDesc = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
               if (extractedDesc && extractedDesc.length > 20) {
-                storyPlan.characterDescription = extractedDesc;
-                bookContext.log('info', 'Character appearance extracted from cover', { description: extractedDesc.slice(0, 100) });
+                // Parse CHARACTER and STYLE sections
+                const charMatch = extractedDesc.match(/CHARACTER:\s*([\s\S]*?)(?=STYLE:|$)/i);
+                const styleMatch = extractedDesc.match(/STYLE:\s*([\s\S]*?)$/i);
+                if (charMatch?.[1]?.trim()) {
+                  storyPlan.characterDescription = charMatch[1].trim();
+                  bookContext.log('info', 'Character appearance extracted from cover', { description: charMatch[1].trim().slice(0, 100) });
+                } else {
+                  storyPlan.characterDescription = extractedDesc;
+                  bookContext.log('info', 'Character appearance extracted (unstructured)', { description: extractedDesc.slice(0, 100) });
+                }
+                if (styleMatch?.[1]?.trim()) {
+                  storyPlan.coverArtStyle = styleMatch[1].trim();
+                  bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 150) });
+                }
               }
             }
           } catch (visionErr) {
