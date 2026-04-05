@@ -212,7 +212,7 @@ Each spread:
 Rules:
 - spread_image_prompt describes the full two-page illustration as one composition.
   Always specify: lighting, dominant color palette, perspective, and one texture detail.
-  Art style is consistent across all spreads: soft watercolor with ink outlines.
+  Art style is consistent across all spreads. Do NOT specify the art medium in the image prompt — the art style is handled separately.
 - left.image_prompt and right.image_prompt are optional. Use only when the spread
   splits into two distinct panels rather than one full bleed illustration.
 - Text may appear on left, right, or both — distribute naturally.
