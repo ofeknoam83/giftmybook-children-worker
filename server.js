@@ -699,7 +699,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
       let storySeed;
       try {
-        storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, { apiKeys, costTracker });
+        storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, { apiKeys, costTracker, theme });
         bookContext.log('info', 'Story seed ready', {
           favorite_object: storySeed.favorite_object,
           fear: storySeed.fear,

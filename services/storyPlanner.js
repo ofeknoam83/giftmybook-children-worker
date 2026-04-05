@@ -146,11 +146,11 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
  * @param {object} childDetails - { name, age, gender, interests }
  * @param {string} customDetails - freeform text from the customer
  * @param {string} approvedTitle - if set, the story must fit this title
- * @param {object} [opts] - { apiKeys, costTracker }
+ * @param {object} [opts] - { apiKeys, costTracker, theme }
  * @returns {Promise<object>} { favorite_object, fear, setting, storySeed }
  */
 async function brainstormStorySeed(childDetails, customDetails, approvedTitle, opts = {}) {
-  const { costTracker, apiKeys } = opts;
+  const { costTracker, apiKeys, theme } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const name = childDetails.name || childDetails.childName || 'the child';
@@ -189,6 +189,9 @@ The story text MAY mention family members (parents, grandparents, siblings) by n
 
 Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
 
+ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
+If the theme is "adventure", the story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — not stay in one place. Each location should have its own look, atmosphere, and challenge. Think: a trail through woods → a rope bridge over a stream → a cave with glowing crystals → a hilltop at sunset. The "setting" field should describe the overall world, and the individual beats must name the specific locations the child travels through. A story that stays in one room, one garden, or one building is NOT an adventure.
+
 You MUST return ONLY a JSON object with these fields:
 {"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 12 beat"]}`;
 
@@ -197,8 +200,12 @@ You MUST return ONLY a JSON object with these fields:
     parts.push(gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : gender);
   }
   if (interests.length) parts.push(`Interests: ${interests.join(', ')}`);
+  if (theme) parts.push(`Theme: ${theme}`);
   if (customDetails) parts.push(`Customer note: ${customDetails}`);
   if (approvedTitle) parts.push(`The book title is already chosen: "${approvedTitle}". The story seed must fit this title.`);
+  if (theme === 'adventure') {
+    parts.push('IMPORTANT: This is an ADVENTURE book. The story must be a physical journey through multiple distinct locations. The child must travel and explore — not stay in one place. Each beat should name the specific location the child is in.');
+  }
 
   const userPrompt = parts.join('. ');
 

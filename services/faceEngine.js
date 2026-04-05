@@ -12,7 +12,7 @@ const { uploadBuffer, uploadFromUrl, downloadBuffer, getSignedUrl, saveJson, loa
 const { withRetry } = require('./retry');
 
 /** Current prompt version — bump to invalidate cached descriptions */
-const APPEARANCE_PROMPT_VERSION = 'v2';
+const APPEARANCE_PROMPT_VERSION = 'v3';
 
 /** GCS prefix for cached appearance descriptions */
 const APPEARANCE_CACHE_PREFIX = 'appearance-cache';
@@ -343,7 +343,7 @@ async function describeChildAppearance(photoUrls, childDetails, opts = {}) {
               { text: `This is a photo of a child provided by their parent for a personalized children's storybook.
 
 Describe this child's physical appearance for an illustrator who will draw them as a storybook character. Cover:
-- Hair: color and style (e.g., curly brown hair, straight blonde pigtails)
+- Hair: color, texture, length, and exact style (e.g., "short curly dark brown hair with no accessories", "straight blonde hair in two pigtails with pink elastics"). IMPORTANT: If the child has any hair accessories (headbands, bows, ribbons, clips, elastics, barrettes), describe them exactly. If the child has NO hair accessories, explicitly state "no hair accessories."
 - Eyes: color and shape (if visible)
 - Face shape: round, oval, etc.
 - Skin tone: general, using artistic terms (e.g., warm beige, deep brown, light peach)
@@ -356,7 +356,8 @@ RULES:
 - Do NOT include any identifying information (no names, locations, backgrounds)
 - Do NOT include any sensitive, inappropriate, or potentially harmful content
 - Write a cohesive 3-5 sentence paragraph (not a bulleted list)
-- Focus on visual details an illustrator would need to draw this child consistently across multiple pictures` },
+- Focus on visual details an illustrator would need to draw this child consistently across multiple pictures
+- Be EXTREMELY precise about hair — an illustrator must reproduce the exact same hairstyle on every page` },
               { inline_data: { mime_type: mimeType, data: base64 } },
             ],
           }],

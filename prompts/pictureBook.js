@@ -57,7 +57,9 @@ function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}) {
   const setting = v2Vars.setting || '';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
 
-  return `${childContext}
+  const isAdventure = theme === 'adventure';
+
+  let prompt = `${childContext}
 
 Create a personalized bedtime picture book for ${name} (age ${age}).
 
@@ -71,9 +73,25 @@ Child details:
 - Dedication: ${dedication}
 ${details ? `- Special requests / real quirks: ${details}` : ''}
 
-Theme: ${theme || 'bedtime'}
+Theme: ${theme || 'bedtime'}`;
 
-Generate the COMPLETE story as a JSON object with this structure:
+  if (isAdventure) {
+    prompt += `
+
+ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
+This is an ADVENTURE book. The story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — crossing terrain, discovering new places, and encountering different environments.
+- Each spread's illustration should show a DIFFERENT setting from the previous one (at least every 2-3 spreads).
+- The locations must be visually distinct: different colors, lighting, terrain, atmosphere.
+- The child must physically travel (walk, climb, cross, wade, fly, ride) — not stay in one room or garden.
+- A story that stays in a single location is NOT an adventure. The journey IS the story.
+- The story can still wind down for bedtime at the end (returning home, settling into camp, etc.), but the middle must be a real journey.`;
+  }
+
+  prompt += `
+
+Generate the COMPLETE story as a JSON object with this structure:`;
+
+  return prompt + `
 {
   "title": "The book title",
   "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
@@ -160,6 +178,17 @@ Child details:
 ${details ? `- Special requests / real quirks: ${details}` : ''}
 
 Theme: ${theme || 'bedtime'}`;
+
+  if (theme === 'adventure') {
+    prompt += `
+
+ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
+This is an ADVENTURE book. The story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — crossing terrain, discovering new places, and encountering different environments.
+- Every 2-3 spreads should place the child in a NEW, visually distinct location.
+- The child must physically travel (walk, climb, cross, wade, fly, ride) — not stay in one room or garden.
+- A story that stays in a single location is NOT an adventure. The journey IS the story.
+- The story can still wind down for bedtime at the end (returning home, settling into camp, etc.), but the middle must be a real journey through different places.`;
+  }
 
   if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length > 0) {
     prompt += `\n\nSTORY OUTLINE (follow this beat sheet — you may adjust wording but preserve the emotional arc):`;

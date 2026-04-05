@@ -24,6 +24,7 @@ const AGE_TIERS = {
     pacing: 'every spread is already calm. No phasing required.',
     arc: 'no arc. Distribute sensory observations evenly across spreads.',
     phaseTwo: null,
+    rhymeLevel: 'heavy — MOST lines should rhyme. Use simple end-rhymes, couplets, and sing-song patterns. Think nursery rhyme: "The stars are bright, / they say goodnight." Babies and toddlers love predictable sound patterns. Rhyme is the main texture of the text at this age.',
   },
   2: {
     tier: 2,
@@ -40,6 +41,7 @@ const AGE_TIERS = {
     pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
     arc: 'full story arc applies.',
     phaseTwo: 10,
+    rhymeLevel: 'moderate — roughly half the spreads should contain a rhyme or near-rhyme. Mix rhyming couplets with prose. The repeated phrase should rhyme or have a strong rhythmic beat. At age 3, children still love the musicality of rhyme.',
   },
   3: {
     tier: 3,
@@ -56,6 +58,7 @@ const AGE_TIERS = {
     pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
     arc: 'arc may include a false resolution before true resolution.',
     phaseTwo: 10,
+    rhymeLevel: 'light — occasional internal rhymes or near-rhymes for flavor. Story prose dominates. A couplet here and there, not a pattern.',
   },
   4: {
     tier: 4,
@@ -72,6 +75,7 @@ const AGE_TIERS = {
     pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 10-12): same de-escalation.',
     arc: 'arc may include a secondary character with their own want.',
     phaseTwo: 10,
+    rhymeLevel: 'subtle — only where it emerges naturally from the prose. Slant rhymes and internal echoes preferred over end-rhymes.',
   },
 };
 
@@ -81,7 +85,8 @@ const AGE_TIERS = {
  * @returns {{ tier: number, config: object }}
  */
 function getAgeTier(age) {
-  const a = Math.max(3, Number(age) || 5);
+  const a = Number(age) || 5;
+  if (a <= 2) return { tier: 1, config: AGE_TIERS[1] };
   if (a <= 5) return { tier: 2, config: AGE_TIERS[2] };
   if (a <= 8) return { tier: 3, config: AGE_TIERS[3] };
   return { tier: 4, config: AGE_TIERS[4] };
@@ -155,12 +160,9 @@ RHYTHM & RHYME:
 - The text must sound beautiful when read aloud.
 - Vary sentence length intentionally.
 - Use gentle repetition for emotional effect.
-- Weave in natural, soft rhymes — internal rhymes, near-rhymes, or end-rhymes
-  that emerge from the language rather than being forced. Think of rhyme as a
-  musical texture, not a strict pattern. A couplet here, a slant rhyme there.
-  NOT every line. NOT a rigid AABB scheme. Let the rhyme come and go like a
-  melody the reader half-notices. If a rhyme feels forced or bends the meaning,
-  drop it — the story always wins over the sound.
+- RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
+  If a rhyme feels forced or bends the meaning, drop it — the story always
+  wins over the sound. But DO lean into rhyme at the level specified above.
 
 TONE:
 - Warm, intimate, slightly poetic.
@@ -328,9 +330,10 @@ Define these top-level fields:
   NEVER have the child change clothes, add layers, remove items, or get messy/wet.
 
 - "characterDescription": Physical appearance details beyond the photo.
-  MUST include a detailed hair description (color, style, length, texture, parting, any accessories like bows/clips).
+  MUST include a detailed hair description (color, style, length, texture, parting).
+  MUST explicitly state hair accessories: if the child has a headband, bow, clip, ribbon, or elastic, describe it exactly (color, position). If the child has NO hair accessories, write "no hair accessories."
   Also include posture, height relative to surroundings, any distinguishing features.
-  The hair MUST remain IDENTICAL in every illustration — no wind-blown variations, no messy-from-sleep versions, no style changes.
+  The hair MUST remain IDENTICAL in every illustration — no wind-blown variations, no messy-from-sleep versions, no style changes, no added or removed accessories.
 
 - "recurringElement": The {favorite_object}'s exact visual description so it
   looks identical on every page. Example: "a small brown teddy bear with a
@@ -368,6 +371,7 @@ Rules:
 - The center of each illustration will be in the book's binding — do NOT describe key characters, text, or objects positioned in the center of the scene. Place them on the left or right side.
 - Do NOT specify art medium in spread_image_prompt.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
+- Do NOT re-describe hair or hair accessories in spread_image_prompt — they are defined once in characterDescription. Never mention headbands, bows, clips, or any hair accessory in individual spread prompts.
 - Use apostrophes directly in strings (no escaping needed).
 - No newlines inside string values.
 
@@ -455,12 +459,9 @@ RHYTHM & RHYME:
 - The text must sound beautiful when read aloud.
 - Vary sentence length intentionally.
 - Use gentle repetition for emotional effect.
-- Weave in natural, soft rhymes — internal rhymes, near-rhymes, or end-rhymes
-  that emerge from the language rather than being forced. Think of rhyme as a
-  musical texture, not a strict pattern. A couplet here, a slant rhyme there.
-  NOT every line. NOT a rigid AABB scheme. Let the rhyme come and go like a
-  melody the reader half-notices. If a rhyme feels forced or bends the meaning,
-  drop it — the story always wins over the sound.
+- RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
+  If a rhyme feels forced or bends the meaning, drop it — the story always
+  wins over the sound. But DO lean into rhyme at the level specified above.
 
 TONE:
 - Warm, intimate, slightly poetic.
@@ -650,9 +651,10 @@ Define these top-level fields:
   NEVER have the child change clothes, add layers, remove items, or get messy/wet.
 
 - "characterDescription": Physical appearance details beyond the photo.
-  MUST include a detailed hair description (color, style, length, texture, parting, any accessories like bows/clips).
+  MUST include a detailed hair description (color, style, length, texture, parting).
+  MUST explicitly state hair accessories: if the child has a headband, bow, clip, ribbon, or elastic, describe it exactly (color, position). If the child has NO hair accessories, write "no hair accessories."
   Also include posture, height relative to surroundings, any distinguishing features.
-  The hair MUST remain IDENTICAL in every illustration.
+  The hair MUST remain IDENTICAL in every illustration — no added or removed accessories.
 
 - "recurringElement": The {favorite_object}'s exact visual description so it
   looks identical on every page.
@@ -688,6 +690,7 @@ Rules:
 - The center of each illustration will be in the book's binding — do NOT place key elements in the center.
 - Do NOT specify art medium in spread_image_prompt.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
+- Do NOT re-describe hair or hair accessories in spread_image_prompt — they are defined once in characterDescription. Never mention headbands, bows, clips, or any hair accessory in individual spread prompts.
 - Use apostrophes directly in strings (no escaping needed).
 - No newlines inside string values.
 
@@ -696,8 +699,10 @@ FINAL CHECK
 -------------------------------------
 Before outputting, verify:
 - Are there exactly 12 spreads?
-- Does characterDescription include a specific hair description?
+- Does characterDescription include a specific hair description (color, style, length, texture)?
+- Does characterDescription explicitly mention hair accessories or state "no hair accessories"?
 - Does characterOutfit describe a complete, specific outfit?
+- Do any spread_image_prompts mention hair accessories, headbands, bows, or clips? (If yes, remove them — hair is defined only in characterDescription)
 - Is the story text preserved exactly as provided?
 - Do any spread_image_prompts describe the child changing clothes or hairstyle? (Remove if yes)`;
 
@@ -709,7 +714,7 @@ Before outputting, verify:
  */
 function buildV2Brief(vars) {
   const { name, favorite_object, fear, setting, dedication } = vars;
-  const age = Math.max(3, Number(vars.age) || 5); // Minimum age 3 — Tier 1 board book text too simple
+  const age = Number(vars.age) || 5;
   const { config } = getAgeTier(age);
   let brief = V2_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
@@ -719,6 +724,7 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{dedication\}/g, dedication || `For ${name || 'the child'}`);
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
+  brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   return brief;
 }
 
@@ -729,7 +735,7 @@ function buildV2Brief(vars) {
  */
 function buildWritingBrief(vars) {
   const { name, favorite_object, fear, setting } = vars;
-  const age = Math.max(3, Number(vars.age) || 5);
+  const age = Number(vars.age) || 5;
   const { config } = getAgeTier(age);
   let brief = WRITING_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
@@ -738,6 +744,7 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
+  brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   return brief;
 }
 

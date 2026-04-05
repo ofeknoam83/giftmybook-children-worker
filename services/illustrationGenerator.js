@@ -184,22 +184,24 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(``);
   }
 
-  // Extract hairstyle from characterDescription for hard enforcement
+  // Extract ALL hair-related sentences from characterDescription for hard enforcement
   let hairstyleDesc = '';
   if (characterDescription) {
-    const hairMatch = characterDescription.match(/hair[^.!,;]*[.!,;]?/i)
-      || characterDescription.match(/(?:curly|straight|wavy|braided|braid|bun|ponytail|pigtail|afro|locks|twisted|coily|short|long|bob|mohawk|cornrow|dreadlock|bangs|fringe)[^.!,;]*[.!,;]?/i);
-    if (hairMatch) {
-      hairstyleDesc = hairMatch[0].trim();
+    const hairKeywords = /hair|curly|straight|wavy|braided|braid|bun|ponytail|pigtail|afro|locks|twisted|coily|mohawk|cornrow|dreadlock|bangs|fringe|headband|bow|ribbon|clip|barrette|puff|puffs/i;
+    const sentences = characterDescription.split(/(?<=[.!;])\s+/);
+    const hairSentences = sentences.filter(s => hairKeywords.test(s));
+    if (hairSentences.length > 0) {
+      hairstyleDesc = hairSentences.join(' ').trim();
     }
   }
 
   if (hairstyleDesc) {
     parts.push(`6. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle in EVERY illustration — no changes, no variations, no wind-blown alternatives: ${hairstyleDesc}`);
+    parts.push(`   HAIR ACCESSORIES: If the description above mentions headbands, bows, ribbons, clips, or any hair accessories, include EXACTLY those and NOTHING else. If NO accessories are mentioned, the child has NO hair accessories — do NOT invent any.`);
     parts.push(`   Same hair style, same hair accessories, same hair color, same hair length, same hair texture on every page. Do NOT add headbands, bows, or hair accessories not listed. Do NOT change the hairstyle for any reason (weather, activity, sleep). If the hairstyle does not match this description exactly, the image will be rejected.`);
     parts.push(``);
   } else if (characterDescription) {
-    parts.push(`6. HAIRSTYLE LOCK: The child's hair MUST look EXACTLY the same in every illustration — same style, color, length, texture, and accessories as shown in the reference photo. Do NOT change the hairstyle for any reason.`);
+    parts.push(`6. HAIRSTYLE LOCK: The child's hair MUST look EXACTLY the same in every illustration — same style, color, length, texture, and accessories as shown in the reference photo. Do NOT add any hair accessories (headbands, bows, clips, ribbons) unless they are clearly visible in the reference photo. Do NOT change the hairstyle for any reason.`);
     parts.push(``);
   }
 
@@ -216,12 +218,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, hair length, hair texture, and eye color from the photo.');
   parts.push('- NEVER change hair style, hair color, hair length, eye color, or skin tone from the reference — not even slightly.');
   parts.push('- The child\'s hair must be IDENTICAL in every illustration: same style, same color, same length, same parting, same accessories.');
+  parts.push('- ZERO INVENTION RULE: Do NOT add hair accessories (headbands, bows, ribbons, clips, barrettes, flowers) that are not explicitly described. If the description says nothing about accessories, the child has NONE.');
   parts.push('- The child\'s clothing must be IDENTICAL in every illustration: same garments, same colors, same patterns.');
   if (hairstyleDesc) {
-    parts.push(`- HAIRSTYLE REMINDER: ${hairstyleDesc}`);
+    parts.push(`- HAIRSTYLE (copy exactly): ${hairstyleDesc}`);
   }
   if (characterOutfit) {
-    parts.push(`- OUTFIT REMINDER: ${characterOutfit}`);
+    parts.push(`- OUTFIT (copy exactly): ${characterOutfit}`);
   }
 
   if (recurringElement) {
