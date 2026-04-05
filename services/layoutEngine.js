@@ -179,18 +179,97 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
           await embedImageFullBleed(pdfDoc, page, entry.illustrationBuffer, pageWidth, pageHeight);
         }
 
-        // Draw dedication text centered
+        // Draw dedication text centered with word-wrap support
         const dedText = entry.text || opts.dedication || '';
         if (dedText) {
-          const dedFontSize = 18;
-          const dedWidth = font.widthOfTextAtSize(dedText, dedFontSize);
-          page.drawText(dedText, {
-            x: (pageWidth - dedWidth) / 2,
-            y: pageHeight / 2,
-            size: dedFontSize,
-            font,
-            color: entry.illustrationBuffer ? rgb(1, 1, 1) : rgb(0.3, 0.3, 0.3),
-          });
+          const textColor = entry.illustrationBuffer ? rgb(1, 1, 1) : rgb(0.3, 0.3, 0.3);
+          const sideMargin = BLEED + SAFETY_MARGIN + 20;
+          const maxDedWidth = pageWidth - sideMargin * 2;
+
+          // Check if there's a "From ...:\n" prefix
+          const fromMatch = dedText.match(/^(From [^:]+:)\n(.*)$/s);
+          let yPos = pageHeight / 2 + 40;
+
+          if (fromMatch) {
+            // Draw the "From ..." line in italic-style smaller font
+            const fromText = fromMatch[1];
+            const fromSize = 13;
+            const fromWidth = font.widthOfTextAtSize(fromText, fromSize);
+            page.drawText(fromText, {
+              x: (pageWidth - fromWidth) / 2,
+              y: yPos + 30,
+              size: fromSize,
+              font,
+              color: textColor,
+            });
+
+            // Word-wrap the heartfelt note
+            const noteText = fromMatch[2].trim();
+            const noteFontSize = 14;
+            const noteLineHeight = noteFontSize * 1.6;
+            const noteWords = noteText.split(/\s+/);
+            const noteLines = [];
+            let currentLine = '';
+            for (const word of noteWords) {
+              const testLine = currentLine ? `${currentLine} ${word}` : word;
+              if (font.widthOfTextAtSize(testLine, noteFontSize) > maxDedWidth && currentLine) {
+                noteLines.push(currentLine);
+                currentLine = word;
+              } else {
+                currentLine = testLine;
+              }
+            }
+            if (currentLine) noteLines.push(currentLine);
+
+            for (let i = 0; i < noteLines.length; i++) {
+              const lineWidth = font.widthOfTextAtSize(noteLines[i], noteFontSize);
+              page.drawText(noteLines[i], {
+                x: (pageWidth - lineWidth) / 2,
+                y: yPos - (i * noteLineHeight),
+                size: noteFontSize,
+                font,
+                color: textColor,
+              });
+            }
+          } else {
+            // Simple dedication — single line or short text
+            const dedFontSize = 18;
+            const dedWidth = font.widthOfTextAtSize(dedText, dedFontSize);
+            if (dedWidth <= maxDedWidth) {
+              page.drawText(dedText, {
+                x: (pageWidth - dedWidth) / 2,
+                y: pageHeight / 2,
+                size: dedFontSize,
+                font,
+                color: textColor,
+              });
+            } else {
+              // Word-wrap long simple dedication
+              const dedLineHeight = dedFontSize * 1.5;
+              const words = dedText.split(/\s+/);
+              const lines = [];
+              let cl = '';
+              for (const w of words) {
+                const tl = cl ? `${cl} ${w}` : w;
+                if (font.widthOfTextAtSize(tl, dedFontSize) > maxDedWidth && cl) {
+                  lines.push(cl);
+                  cl = w;
+                } else { cl = tl; }
+              }
+              if (cl) lines.push(cl);
+              const startY = pageHeight / 2 + (lines.length * dedLineHeight) / 2;
+              for (let i = 0; i < lines.length; i++) {
+                const lw = font.widthOfTextAtSize(lines[i], dedFontSize);
+                page.drawText(lines[i], {
+                  x: (pageWidth - lw) / 2,
+                  y: startY - i * dedLineHeight,
+                  size: dedFontSize,
+                  font,
+                  color: textColor,
+                });
+              }
+            }
+          }
         }
         break;
       }

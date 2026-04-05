@@ -141,7 +141,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   const backWidth = bleed + trimWidth;
 
-  // Background
+  // Background — soft version of front cover's dominant color
   page.drawRectangle({
     x: 0, y: 0,
     width: backWidth,
@@ -149,65 +149,105 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
   });
 
+  // Subtle decorative line near top
+  const accentColor = softenColor(coverColor, 0.2);
+  page.drawRectangle({
+    x: bleed + 60, y: totalHeight - bleed - 80,
+    width: trimWidth - 120, height: 1.5,
+    color: rgb(accentColor.r, accentColor.g, accentColor.b),
+    opacity: 0.4,
+  });
+
   const childName = childDetails.childName || childDetails.name || '';
   const childAge = childDetails.childAge || childDetails.age || 5;
   const synopsis = opts.synopsis || '';
-  const safeMargin = 36; // 0.5" safety margin from trim edge
-  const contentX = bleed + safeMargin;
+  const heartfeltNote = opts.heartfeltNote || '';
+  const bookFrom = opts.bookFrom || '';
+  const safeMargin = 36;
   const contentWidth = trimWidth - safeMargin * 2;
   const centerX = bleed + trimWidth / 2;
 
-  // ── Synopsis blurb (centered, upper area) ──
-  if (synopsis) {
-    const synopsisFontSize = isPictureBook ? 13 : 11;
-    const lineHeight = synopsisFontSize * 1.6;
-    const lines = wrapText(synopsis, font, synopsisFontSize, contentWidth);
+  let yPos = totalHeight - bleed - 110; // Start below the decorative line
 
-    const blockHeight = lines.length * lineHeight;
-    const startY = totalHeight / 2 + blockHeight / 2 + 40; // slightly above center
+  // ── Synopsis blurb (centered, top area) ──
+  if (synopsis) {
+    const synopsisFontSize = isPictureBook ? 12 : 10;
+    const lineHeight = synopsisFontSize * 1.7;
+    const lines = wrapText(synopsis, font, synopsisFontSize, contentWidth - 20);
 
     for (let i = 0; i < lines.length; i++) {
       const lineWidth = font.widthOfTextAtSize(lines[i], synopsisFontSize);
       page.drawText(lines[i], {
         x: centerX - lineWidth / 2,
-        y: startY - i * lineHeight,
+        y: yPos - i * lineHeight,
         size: synopsisFontSize,
         font,
         color: rgb(textColor.r, textColor.g, textColor.b),
       });
     }
-  } else {
-    // Fallback: just show "A personalized story for {name}"
-    const fallback = `A personalized bedtime story for ${childName}`;
-    const fbSize = 14;
-    const fbWidth = font.widthOfTextAtSize(fallback, fbSize);
-    page.drawText(fallback, {
-      x: centerX - fbWidth / 2,
-      y: totalHeight / 2 + 40,
-      size: fbSize,
-      font,
-      color: rgb(textColor.r, textColor.g, textColor.b),
-    });
+    yPos -= lines.length * lineHeight + 25;
   }
 
-  // ── Age badge (pill shape) ──
+  // ── Heartfelt note from gifter (if exists) ──
+  if (heartfeltNote) {
+    // Decorative separator
+    page.drawRectangle({
+      x: centerX - 30, y: yPos + 5,
+      width: 60, height: 0.8,
+      color: rgb(accentColor.r, accentColor.g, accentColor.b),
+      opacity: 0.3,
+    });
+    yPos -= 15;
+
+    // Note text in slightly smaller, warm style
+    const noteSize = 10;
+    const noteLineHeight = noteSize * 1.6;
+    const noteLines = wrapText(heartfeltNote, font, noteSize, contentWidth - 40);
+    for (let i = 0; i < Math.min(noteLines.length, 6); i++) { // Cap at 6 lines
+      const lw = font.widthOfTextAtSize(noteLines[i], noteSize);
+      page.drawText(noteLines[i], {
+        x: centerX - lw / 2,
+        y: yPos - i * noteLineHeight,
+        size: noteSize,
+        font,
+        color: rgb(textColor.r + 0.1, textColor.g + 0.1, textColor.b + 0.1),
+      });
+    }
+    yPos -= Math.min(noteLines.length, 6) * noteLineHeight + 10;
+
+    // Attribution
+    if (bookFrom) {
+      const attrText = `— ${bookFrom}`;
+      const attrSize = 9;
+      const attrWidth = font.widthOfTextAtSize(attrText, attrSize);
+      page.drawText(attrText, {
+        x: centerX - attrWidth / 2,
+        y: yPos,
+        size: attrSize,
+        font,
+        color: rgb(textColor.r + 0.15, textColor.g + 0.15, textColor.b + 0.15),
+      });
+      yPos -= 30;
+    }
+  }
+
+  // ── Age badge (pill shape, centered) ──
   const ageTier = childAge <= 2 ? '0-2' : childAge <= 5 ? '3-5' : childAge <= 8 ? '6-8' : '9-12';
   const ageText = `Ages ${ageTier}`;
-  const ageFontSize = 9;
+  const ageFontSize = 8;
   const ageTextWidth = font.widthOfTextAtSize(ageText, ageFontSize);
   const pillWidth = ageTextWidth + 16;
-  const pillHeight = 18;
+  const pillHeight = 17;
   const pillX = centerX - pillWidth / 2;
-  const pillY = totalHeight / 2 - 40;
+  const pillY = Math.max(yPos - 10, bleed + 80);
 
-  // Pill background
   page.drawRectangle({
     x: pillX, y: pillY,
     width: pillWidth, height: pillHeight,
     color: rgb(textColor.r, textColor.g, textColor.b),
+    opacity: 0.85,
     borderWidth: 0,
   });
-  // Pill text (white on dark)
   page.drawText(ageText, {
     x: pillX + 8,
     y: pillY + 5,
@@ -216,7 +256,21 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     color: rgb(1, 1, 1),
   });
 
-  // ── GiftMyBook brand mark (bottom center) ──
+  // ── "Made with love for {name}" ──
+  if (childName) {
+    const loveText = `Made with love for ${childName}`;
+    const loveSize = 8;
+    const loveWidth = font.widthOfTextAtSize(loveText, loveSize);
+    page.drawText(loveText, {
+      x: centerX - loveWidth / 2,
+      y: bleed + 50,
+      size: loveSize,
+      font,
+      color: rgb(textColor.r + 0.15, textColor.g + 0.15, textColor.b + 0.15),
+    });
+  }
+
+  // ── GiftMyBook.com brand mark (bottom) ──
   const brandText = 'GiftMyBook.com';
   const brandSize = 7;
   const brandWidth = font.widthOfTextAtSize(brandText, brandSize);
@@ -225,27 +279,23 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     y: bleed + 25,
     size: brandSize,
     font,
-    color: rgb(textColor.r + 0.2, textColor.g + 0.2, textColor.b + 0.2),
+    color: rgb(textColor.r + 0.25, textColor.g + 0.25, textColor.b + 0.25),
   });
 
-  // ── "Made with love for {name}" small text ──
-  if (childName) {
-    const loveText = `Made with love for ${childName}`;
-    const loveSize = 8;
-    const loveWidth = font.widthOfTextAtSize(loveText, loveSize);
-    page.drawText(loveText, {
-      x: centerX - loveWidth / 2,
-      y: totalHeight / 2 - 75,
-      size: loveSize,
-      font,
-      color: rgb(textColor.r + 0.15, textColor.g + 0.15, textColor.b + 0.15),
-    });
-  }
+  // Subtle decorative line near bottom
+  page.drawRectangle({
+    x: bleed + 60, y: bleed + 70,
+    width: trimWidth - 120, height: 1.5,
+    color: rgb(accentColor.r, accentColor.g, accentColor.b),
+    opacity: 0.4,
+  });
 
   // ═══════════════════════════════════════
   // SPINE
   // ═══════════════════════════════════════
   const spineX = backWidth;
+
+  // Spine background — deeper shade of the cover color
   page.drawRectangle({
     x: spineX, y: 0,
     width: spineWidth,
@@ -253,17 +303,32 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     color: rgb(spineBgColor.r, spineBgColor.g, spineBgColor.b),
   });
 
+  // Subtle edge lines on both sides of spine
+  page.drawRectangle({
+    x: spineX, y: 0,
+    width: 0.5, height: totalHeight,
+    color: rgb(accentColor.r, accentColor.g, accentColor.b),
+    opacity: 0.15,
+  });
+  page.drawRectangle({
+    x: spineX + spineWidth - 0.5, y: 0,
+    width: 0.5, height: totalHeight,
+    color: rgb(accentColor.r, accentColor.g, accentColor.b),
+    opacity: 0.15,
+  });
+
   // Spine text (vertical, if spine >= 18pts / 0.25")
   if (spineWidth >= 18 && title) {
-    const spineFontSize = Math.min(8, spineWidth * 0.6);
-    const spineTextWidth = font.widthOfTextAtSize(title, spineFontSize);
+    const spineFontSize = Math.min(8, spineWidth * 0.55);
+    const spineTextWidth = boldFont.widthOfTextAtSize(title, spineFontSize);
+    // Center the text vertically and horizontally on the spine
     const textX = spineX + spineWidth / 2 + spineFontSize * 0.35;
     const textY = totalHeight / 2 + spineTextWidth / 2;
     page.drawText(title, {
       x: textX,
       y: textY,
       size: spineFontSize,
-      font,
+      font: boldFont,
       color: rgb(textColor.r, textColor.g, textColor.b),
       rotate: degrees(-90),
     });

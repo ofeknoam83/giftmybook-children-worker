@@ -542,6 +542,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
     customDetails, callbackUrl, progressCallbackUrl, childId,
     approvedTitle, approvedCoverUrl,
   } = sanitized;
+  const heartfeltNote = req.body.heartfeltNote || null;
+  const bookFrom = req.body.bookFrom || null;
   const apiKeys = req.body.apiKeys;
 
   const format = bookFormat;
@@ -681,7 +683,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
       bookContext.touchActivity();
 
-      const dedication = `For ${childDetails.name || 'the child'}`;
+      // Build dedication from heartfelt note if available
+      let dedication;
+      if (heartfeltNote) {
+        dedication = bookFrom ? `From ${bookFrom}:\n${heartfeltNote}` : heartfeltNote;
+      } else {
+        dedication = `For ${childDetails.name || 'the child'}`;
+      }
       const v2Vars = {
         name: childDetails.name,
         age: childDetails.age || 5,
@@ -946,14 +954,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
       );
       bookContext.log('info', 'All illustration buffers downloaded');
 
-      // Attach approved cover to title page entry (reuse cover instead of generating new illustration)
-      if (preGeneratedCoverBuffer) {
-        const titleEntry = entriesWithBuffers.find(e => e.type === 'title_page');
-        if (titleEntry && !titleEntry.illustrationBuffer) {
-          titleEntry.illustrationBuffer = preGeneratedCoverBuffer;
-          bookContext.log('info', 'Title page using approved cover image');
-        }
-      }
+      // Interior title page is text-only — the cover image is for the cover PDF only.
+      // Do NOT attach the cover image to the title page entry.
 
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
       const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
@@ -995,6 +997,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
+          heartfeltNote, bookFrom,
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
