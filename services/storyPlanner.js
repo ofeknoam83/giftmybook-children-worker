@@ -192,7 +192,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   console.log(`[storyPlanner] ${response.model} call completed in ${llmMs}ms (input: ${response.inputTokens}, output: ${response.outputTokens} tokens)`);
 
-  const content = response.text;
+  let content = response.text;
   const finishReason = response.finishReason;
 
   if (!content) {
