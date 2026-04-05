@@ -151,11 +151,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const skipTextEmbed = opts.skipTextEmbed || false;
 
   const parts = [
-    `\u26a0\ufe0f ABSOLUTE RULE: The main character (${childName || 'the child'}) must appear EXACTLY ONCE in this illustration. There is only ONE child in this scene. Do NOT draw the character twice. Do NOT show the same child from multiple angles. ONE child, ONE time.`,
+    `\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`,
+    ``,
+    `1. CHARACTER COUNT: EXACTLY ONE CHILD in this image. Only one. Not two. Not a smaller version in the background. Not a reflection. Not a shadow copy. ONE CHILD TOTAL in the entire image. If you draw two children, the image will be rejected.`,
+    ``,
+    `2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`,
+    ``,
+    `3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`,
     ``,
     `Create a single children's book illustration page.`,
     ``,
-    `MAIN CHARACTER \u2014 ${childName || 'the child'} (appears ONCE and only once):`,
+    `MAIN CHARACTER \u2014 ${childName || 'the child'} (THE ONLY CHILD IN THIS IMAGE):`,
   ];
 
   if (characterDescription) {
@@ -167,14 +173,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
 
   parts.push('');
-  parts.push('STRICT CHARACTER RULES:');
-  parts.push('- There is exactly ONE instance of the main character in this image. NOT TWO. NOT THREE. ONE.');
-  parts.push('- Do NOT show the character at different moments or from different angles in the same image');
-  parts.push('- Do NOT create a sequence or comic strip layout \u2014 this is a SINGLE moment in time');
-  parts.push('- CRITICAL: The child in the illustration MUST closely resemble the reference photo provided. Match the face shape, skin tone, hair color, hair style, and eye color exactly from the photo.');
-  parts.push('- The illustrated character should be immediately recognizable as the same child from the photo, drawn in the art style of the book');
-  parts.push('- NEVER change the character\'s hair style, hair color, eye color, or skin tone from what is shown in the reference photo');
-  parts.push('- Keep the same age, face shape, and body proportions as the real child in the photo');
+  parts.push('CHARACTER LIKENESS:');
+  parts.push('- The child MUST closely resemble the reference photo. Match face shape, skin tone, hair color, hair style, and eye color from the photo.');
+  parts.push('- NEVER change hair style, hair color, eye color, or skin tone from the reference.');
 
   if (recurringElement) {
     parts.push('');
@@ -219,6 +220,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Integrate the text naturally into the composition');
     parts.push('- Do NOT place text over the character\'s face or the main action');
   }
+
+  // Final reminder at the end (Gemini pays most attention to start and end of prompt)
+  parts.push('');
+  parts.push('\u26a0\ufe0f FINAL CHECK BEFORE GENERATING:');
+  parts.push('- Is there EXACTLY ONE child in the image? (If two, start over)');
+  parts.push('- Does the child have exactly 2 arms and 2 hands? (If 3+, start over)');
+  parts.push('- Is this ONE single scene, not a comic strip or sequence? (If multiple panels, start over)');
 
   return parts.join('\n');
 }
