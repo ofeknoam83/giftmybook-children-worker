@@ -24,7 +24,7 @@ const AGE_TIERS = {
     pacing: 'every spread is already calm. No phasing required.',
     arc: 'no arc. Distribute sensory observations evenly across spreads.',
     phaseTwo: null,
-    rhymeLevel: 'heavy — MOST lines should rhyme. Use simple end-rhymes, couplets, and sing-song patterns. Think nursery rhyme: "The stars are bright, / they say goodnight." Babies and toddlers love predictable sound patterns. Rhyme is the main texture of the text at this age.',
+    rhymeLevel: 'mandatory couplets — write EVERY spread as two rhyming lines. Format: Line 1 (sets up the image), Line 2 (rhymes and closes). Example: "The stars come out one by one. / Goodnight moon, goodnight sun." Use exact end-rhymes or strong near-rhymes. If you cannot find a natural rhyme, rewrite Line 1 until Line 2 rhymes naturally. No prose. Couplets only.',
   },
   2: {
     tier: 2,
@@ -35,7 +35,7 @@ const AGE_TIERS = {
     sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
     conflict: 'present but never scary. Stakes are emotional, not physical.',
-    dialogue: '2 exchanges required.',
+    dialogue: '2 exchanges required. Rules: (1) Child\'s voice must sound like a real 3-5 year old — short sentences, concrete words, more questions than statements; (2) Dialogue must advance the plot or reveal character — not just describe what the child already knows; (3) The child\'s voice must sound different from the narrator\'s voice.',
     imagePromptStyle: 'wide establishing shots mixed with close emotional moments.',
     fearHandling: 'use as written.',
     pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
@@ -131,7 +131,10 @@ WRITING QUALITY OVERRIDES (MANDATORY)
 
 - Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
 
-- At least 2 spreads should rely primarily on visuals (minimal or no text).
+- At least 2 spreads should be entirely visual (no text on either page). Place these strategically:
+  - ONE at the moment of highest tension — where silence is more powerful than words (typically spreads 6-8)
+  - ONE just before or at the ending — where the image completes what words cannot (typically spreads 11-12)
+  Do NOT place visual-only spreads during setup (spreads 1-3) — the reader needs words to enter the world first.
 
 - Include one subtle emotional layer that resonates with the parent reading.
 
@@ -205,6 +208,13 @@ A repeated element (word, phrase, or concept — e.g. "the dark") must:
 - Start as something uncertain or threatening
 - Gradually change
 - End as something safe, understood, or gentle
+
+PHRASE ARC USAGE (CRITICAL):
+The brainstorm provided a phrase_arc with 3 stages. You MUST use them:
+- When the phrase appears in spreads 1-4: the surrounding action/imagery must reflect the EARLY meaning. The phrase should feel tentative, playful, or questioning.
+- When the phrase appears in spreads 5-8: the surrounding action/imagery must reflect the MIDDLE meaning. The phrase should feel braver or more purposeful.
+- When the phrase appears in spreads 9-12: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
+Show the evolution through what the child DOES around the phrase — not by adding explanation.
 
 -------------------------------------
 ENDING RULES (CRITICAL)
@@ -292,6 +302,37 @@ Right: "Hush now, little seed, she whispered — but her voice wobbled."
 EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
 Left: null
 Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught the last sliver of moon."
+
+EXAMPLE D (ending spread — whisper, not conclusion):
+Left: null
+Right: "The last Number Num clicked into place. One, two, three — all the way to ten. She let out a breath she didn't know she'd been holding. The blanket pulled itself up around her chin."
+
+Notice: No "and she fell asleep" — the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
+
+EXAMPLE E (visual-only spread — silence as storytelling):
+Left: null
+Right: null
+[Image prompt: Wide shot of the child standing still at the center of the forest, small against the tall trees, the glow of a single Number Num floating at eye level. No text. The moment holds itself.]
+
+Notice: No words. The reader pauses. The image does more than any sentence could.
+
+EXAMPLE F (refrain spread — phrase at its middle stage):
+Left: "The path forked into three. She held Barnaby tighter."
+Right: "Grammy's warmth is always with you, she whispered to herself. This time it came out more like a question."
+
+Notice: The refrain appears naturally in dialogue. "More like a question" shows it's still evolving — not yet resolved.
+
+EXAMPLE G (resolution spread — child causes the turning point):
+Left: "She didn't wait for the dark to move."
+Right: "She walked into it."
+
+Notice: Two sentences. Five words on the right. The child acts — the story turns. No explanation.
+
+EXAMPLE H (tension spread — specific sensory detail, not vague fear):
+Left: "A sound. Not the house. Not the wind."
+Right: "She pressed her ear against the door and heard — counting. One, two, three."
+
+Notice: Short sentences create rhythm and suspense. The fear becomes specific. The child investigates — not paralyzed.
 
 Notice what makes these work:
 - No emotion-telling ("she felt scared") — only action and sensation
@@ -430,7 +471,10 @@ WRITING QUALITY (MANDATORY)
 
 - Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
 
-- At least 2 spreads should rely primarily on visuals (minimal or no text).
+- At least 2 spreads should be entirely visual (no text on either page). Place these strategically:
+  - ONE at the moment of highest tension — where silence is more powerful than words (typically spreads 6-8)
+  - ONE just before or at the ending — where the image completes what words cannot (typically spreads 11-12)
+  Do NOT place visual-only spreads during setup (spreads 1-3) — the reader needs words to enter the world first.
 
 - Include one subtle emotional layer that resonates with the parent reading.
 
@@ -501,6 +545,13 @@ A repeated element (word, phrase, or concept — e.g. "the dark") must:
 - Start as something uncertain or threatening
 - Gradually change
 - End as something safe, understood, or gentle
+
+PHRASE ARC USAGE (CRITICAL):
+The brainstorm provided a phrase_arc with 3 stages. You MUST use them:
+- When the phrase appears in spreads 1-4: the surrounding action/imagery must reflect the EARLY meaning. The phrase should feel tentative, playful, or questioning.
+- When the phrase appears in spreads 5-8: the surrounding action/imagery must reflect the MIDDLE meaning. The phrase should feel braver or more purposeful.
+- When the phrase appears in spreads 9-12: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
+Show the evolution through what the child DOES around the phrase — not by adding explanation.
 
 -------------------------------------
 ENDING RULES (CRITICAL)

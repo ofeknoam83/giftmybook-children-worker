@@ -190,7 +190,13 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
 - The story can still wind down for bedtime at the end (returning home, settling into camp, etc.), but the middle must be a real journey through different places.`;
   }
 
-  if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length > 0) {
+  if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length >= 12) {
+    prompt += `\n\nYOU MUST follow this exact emotional arc for each spread:`;
+    for (let i = 0; i < 12; i++) {
+      prompt += `\nSPREAD ${i + 1}: ${v2Vars.beats[i]}`;
+    }
+    prompt += `\n\nEach spread's text must reflect its assigned beat. Write the story in this order. Do not skip beats.`;
+  } else if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length > 0) {
     prompt += `\n\nSTORY OUTLINE (follow this beat sheet — you may adjust wording but preserve the emotional arc):`;
     v2Vars.beats.forEach((beat, i) => {
       prompt += `\nSpread ${i + 1}: ${beat}`;
@@ -235,12 +241,12 @@ function buildStoryStructurerSystem(vars) {
  * @param {object} v2Vars
  * @returns {string}
  */
-function STORY_STRUCTURER_USER(storyText, childDetails, v2Vars = {}) {
+function STORY_STRUCTURER_USER(storyText, childDetails, v2Vars = {}, beats) {
   const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
   const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
 
-  return `Here is the story text to structure into JSON:
+  let prompt = `Here is the story text to structure into JSON:
 
 ---
 ${storyText}
@@ -255,6 +261,12 @@ Convert this story into the JSON format described in the system brief.
 - Add spread_image_prompt for each spread based on what the text describes.
 - Define characterOutfit, characterDescription, recurringElement, and keyObjects at the top level.
 - Return ONLY a valid JSON object.`;
+
+  if (beats && Array.isArray(beats) && beats.length > 0) {
+    prompt += `\n\nSTRUCTURE VERIFICATION — Beat Sheet:\n${beats.map((b, i) => `Spread ${i+1}: ${b}`).join('\n')}\n\nVerify that each spread's emotional content aligns with its assigned beat above.`;
+  }
+
+  return prompt;
 }
 
 // ── Legacy text generator prompts (kept for backward compat) ──

@@ -200,47 +200,58 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   const skipTextEmbed = opts.skipTextEmbed || false;
   const isSpread = opts.isSpread || false;
+  const spreadIndex = opts.spreadIndex;
+  const totalSpreads = opts.totalSpreads || 12;
+  const childAge = opts.childAge;
 
   // Strip any hair-accessory mentions from the per-spread scene so only the
   // locked characterDescription defines the child's hair.
   const cleanScene = stripHairFromScene(sceneDescription);
 
-  const parts = [
-    `\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`,
-    ``,
-    `1. CHARACTER COUNT: EXACTLY ONE CHILD in this image. Only one. Not two. Not a smaller version in the background. Not a reflection. Not a shadow copy. ONE CHILD TOTAL in the entire image. If you draw two children, the image will be rejected.`,
-    ``,
-    `2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`,
-    ``,
-    `3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`,
-    ``,
-    `4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`,
-    ``,
-  ];
+  // Use full characterDescription (no regex extraction) — Change 14
+  const hairstyleDesc = characterDescription || '';
+
+  const parts = [];
+
+  // Change 13: LOCKED APPEARANCE at position 1 (before everything)
+  parts.push(`LOCKED CHARACTER APPEARANCE (READ THIS BEFORE ANYTHING ELSE):`);
+  parts.push(`${characterDescription ? characterDescription : 'Match the child in the reference photo exactly.'}`);
+  parts.push(`OUTFIT (do not change): ${characterOutfit || 'match the reference photo'}`);
+  parts.push(`This is the ONLY child in this book. Their appearance does NOT change between illustrations.`);
+  parts.push(`Do not modify their hair, outfit, or any physical features.`);
+  parts.push(``);
+
+  // Change 22: Per-spread continuity anchor
+  if (spreadIndex !== undefined) {
+    parts.push(`CONTINUITY: This is illustration ${spreadIndex + 1} of ${totalSpreads} for the same book. The child's face, hair, body proportions, and clothing are IDENTICAL to all other illustrations in this book. Only the scene, action, and background change between illustrations.`);
+    parts.push(``);
+  }
+
+  parts.push(`\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`);
+  parts.push(``);
+  parts.push(`1. CHARACTER COUNT: EXACTLY ONE CHILD in this image. Only one. Not two. Not a smaller version in the background. Not a reflection. Not a shadow copy. ONE CHILD TOTAL in the entire image. If you draw two children, the image will be rejected.`);
+  parts.push(``);
+  parts.push(`2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`);
+  parts.push(``);
+  parts.push(`3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`);
+  parts.push(``);
+  parts.push(`4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`);
+  parts.push(``);
 
   if (characterOutfit) {
     parts.push(`5. OUTFIT LOCK: The child MUST wear EXACTLY this outfit in EVERY illustration — no substitutions, no additions, no removals, no seasonal variations: ${characterOutfit}`);
     parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
+    // Change 19: Outfit additions forbidden
+    parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described. Any addition is a violation of this rule.`);
     parts.push(``);
   }
 
-  // Extract ALL hair-related sentences from characterDescription for hard enforcement
-  let hairstyleDesc = '';
   if (characterDescription) {
-    const hairKeywords = /hair|curly|straight|wavy|braided|braid|bun|ponytail|pigtail|afro|locks|twisted|coily|mohawk|cornrow|dreadlock|bangs|fringe|headband|bow|ribbon|clip|barrette|puff|puffs/i;
-    const sentences = characterDescription.split(/(?<=[.!;])\s+/);
-    const hairSentences = sentences.filter(s => hairKeywords.test(s));
-    if (hairSentences.length > 0) {
-      hairstyleDesc = hairSentences.join(' ').trim();
-    }
-  }
-
-  if (hairstyleDesc) {
-    parts.push(`6. HAIRSTYLE LOCK: The child MUST have EXACTLY this hairstyle in EVERY illustration — no changes, no variations, no wind-blown alternatives: ${hairstyleDesc}`);
+    parts.push(`6. HAIRSTYLE LOCK: The child MUST have EXACTLY this appearance in EVERY illustration — no changes, no variations, no wind-blown alternatives: ${characterDescription}`);
     parts.push(`   HAIR ACCESSORIES: If the description above mentions headbands, bows, ribbons, clips, or any hair accessories, include EXACTLY those and NOTHING else. If NO accessories are mentioned, the child has NO hair accessories — do NOT invent any.`);
     parts.push(`   Same hair style, same hair accessories, same hair color, same hair length, same hair texture on every page. Do NOT add headbands, bows, or hair accessories not listed. Do NOT change the hairstyle for any reason (weather, activity, sleep). If the hairstyle does not match this description exactly, the image will be rejected.`);
     parts.push(``);
-  } else if (characterDescription) {
+  } else {
     parts.push(`6. HAIRSTYLE LOCK: The child's hair MUST look EXACTLY the same in every illustration — same style, color, length, texture, and accessories as shown in the reference photo. Do NOT add any hair accessories (headbands, bows, clips, ribbons) unless they are clearly visible in the reference photo. Do NOT change the hairstyle for any reason.`);
     parts.push(``);
   }
@@ -264,8 +275,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`- ${hairNegatives}`);
   }
   parts.push('- The child\'s clothing must be IDENTICAL in every illustration: same garments, same colors, same patterns.');
-  if (hairstyleDesc) {
-    parts.push(`- HAIRSTYLE (copy exactly): ${hairstyleDesc}`);
+  if (characterDescription) {
+    parts.push(`- APPEARANCE (copy exactly): ${characterDescription}`);
   }
   if (characterOutfit) {
     parts.push(`- OUTFIT (copy exactly): ${characterOutfit}`);
@@ -286,6 +297,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
+
+  // Change 16: Scene grounding — BACKGROUND RULE
+  parts.push('');
+  parts.push('BACKGROUND RULE: No human faces, silhouettes, or figures visible in the background or anywhere in the scene. Any human presence (family, caregivers) is implied only through objects — a cup of tea on a table, a light left on in a window, a handmade quilt on a chair. Fictional animals, creatures, and fantastical beings are fine.');
+
+  // Change 17: Board book complexity limit
+  if (childAge !== undefined && childAge <= 2) {
+    parts.push('');
+    parts.push('BOARD BOOK COMPOSITION (age 0-2): Extreme close-up or simple centered composition. Maximum 2-3 objects total in the scene. High contrast between subject and background. No complex or busy backgrounds. One clear emotional focal point.');
+  }
+
   parts.push('');
   // Always use the configured art style (pixar_premium by default)
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
@@ -321,25 +343,30 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Do NOT place text over the character\'s face or the main action');
   }
 
-  // Final reminder at the end (Gemini pays most attention to start and end of prompt)
+  // Change 20: Text integration quality rules
+  if (pageText && !skipTextEmbed) {
+    parts.push('');
+    parts.push('TEXT RENDERING RULES (if page text is provided):');
+    parts.push('- Render the text EXACTLY as written — no paraphrasing, no additions, no removals');
+    parts.push('- Text should appear naturally integrated into the scene: in the sky, on the ground, woven into the environment — never in a box, bubble, banner, or caption');
+    parts.push('- Font style should feel handwritten or storybook-style, harmonizing with the illustration');
+    parts.push('- Text color should contrast with its immediate background for readability');
+  }
+
+  // Change 15: Enumerated anti-weird-stuff checklist (replaces old FINAL CHECK)
   parts.push('');
-  parts.push('\u26a0\ufe0f FINAL CHECK BEFORE GENERATING:');
-  parts.push('- Is there EXACTLY ONE child in the image? (If two, start over)');
-  parts.push('- Does the child have exactly 2 arms and 2 hands? (If 3+, start over)');
-  parts.push('- Is this ONE single scene, not a comic strip or sequence? (If multiple panels, start over)');
-  if (characterOutfit) {
-    parts.push(`- Is the child wearing EXACTLY: ${characterOutfit}? (If different clothing, start over)`);
-  }
-  if (hairstyleDesc) {
-    parts.push(`- Does the child have EXACTLY this hairstyle: ${hairstyleDesc}? (If different hair, start over)`);
-  } else {
-    parts.push('- Does the child\'s hair match the reference photo EXACTLY? (If different hair style/color/length, start over)');
-  }
-  if (hairNegatives) {
-    parts.push(`- HAIR ACCESSORIES CHECK: ${hairNegatives} (If any forbidden accessory appears, start over)`);
-  }
-  parts.push('- Are any family members (parents, siblings, grandparents) depicted? (If yes, remove them — show only their effect/presence, never their appearance)');
-  parts.push('- Is the font style the same rounded bubbly sans-serif used on every other page? (If different font, start over)');
+  parts.push('\u26a0\ufe0f MANDATORY PRE-GENERATE CHECKLIST — mentally verify each before generating:');
+  parts.push(`1. CHILD COUNT: exactly 1 child visible in the scene. \u2713`);
+  parts.push(`2. ARM COUNT: exactly 2 arms on the child. \u2713`);
+  parts.push(`3. HAND COUNT: exactly 2 hands, each with exactly 5 fingers. \u2713`);
+  parts.push(`4. LEG COUNT: exactly 2 legs. \u2713`);
+  parts.push(`5. NO FLOATING: all held objects are gripped; all resting objects are on surfaces. \u2713`);
+  parts.push(`6. CORRECT SCALE: the child's head, body, and limbs are in normal human proportion. \u2713`);
+  parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
+  parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
+  parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
+  parts.push(`10. TEXT EXACT: any text rendered in the image matches EXACTLY what is specified in the page text field — no additions, no rewording. \u2713`);
+  parts.push('If any check fails, adjust the scene before generating.');
 
   return parts.join('\n');
 }
@@ -534,7 +561,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 12, childAge: opts.childAge });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);

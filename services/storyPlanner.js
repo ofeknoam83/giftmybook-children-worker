@@ -170,14 +170,16 @@ You will receive details about a child. From these details, invent:
 
 4. storySeed: One sentence describing the unique emotional journey. Example: "A child discovers that the rumbling sound in the walls is just the old house settling, and learns to hear it as a lullaby."
 
-5. repeated_phrase: A short, soothing phrase (2-6 words) that will repeat through the story and evolve in meaning. NOT generic ("everything will be okay"). Should feel like it belongs in THIS story and have a gentle musical quality — a soft rhyme or rhythm that makes it satisfying to say aloud. Example: "hush now, little seed" or "the house remembers."
+5. emotional_core: One sentence describing what the PARENT (not the child) will feel after reading this book. This is the emotional truth the story should express, beyond what happens on the page. Example: "A grandparent's love continues to guide even when they aren't in the room." or "The warmth of bedtime rituals can make any unfamiliar place feel safe." Keep it to one sentence.
 
-6. phrase_arc: Three short descriptions of how the repeated phrase evolves:
+6. repeated_phrase: A short, soothing phrase (2-6 words) that will repeat through the story and evolve in meaning. NOT generic ("everything will be okay"). Should feel like it belongs in THIS story and have a gentle musical quality — a soft rhyme or rhythm that makes it satisfying to say aloud. Example: "hush now, little seed" or "the house remembers."
+
+7. phrase_arc: Three short descriptions of how the repeated phrase evolves:
    - early: how it feels the first time (playful, uncertain, questioning)
    - middle: how it shifts (guiding, braver, searching)
    - end: how it lands (calm, safe, transformed)
 
-7. beats: An array of exactly 12 one-line descriptions — one per spread — mapping the emotional journey. Follow this structure:
+8. beats: An array of exactly 12 one-line descriptions — one per spread — mapping the emotional journey. Follow this structure:
    - Spreads 1-2: Setup (normal world + emotional need)
    - Spreads 3-6: Rising tension (problem grows, uncertainty increases)
    - Spreads 7-9: Turning point + resolution (child takes action)
@@ -193,7 +195,7 @@ ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
 If the theme is "adventure", the story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — not stay in one place. Each location should have its own look, atmosphere, and challenge. Think: a trail through woods → a rope bridge over a stream → a cave with glowing crystals → a hilltop at sunset. The "setting" field should describe the overall world, and the individual beats must name the specific locations the child travels through. A story that stays in one room, one garden, or one building is NOT an adventure.
 
 You MUST return ONLY a JSON object with these fields:
-{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 12 beat"]}`;
+{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "emotional_core": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 12 beat"]}`;
 
   const parts = [`Child: ${name}, age ${age}`];
   if (gender && gender !== 'neutral' && gender !== 'not specified') {
@@ -247,6 +249,7 @@ You MUST return ONLY a JSON object with these fields:
         fear: extractField('fear') || 'the dark',
         setting: extractField('setting') || 'a magical place',
         storySeed: extractField('storySeed') || extractField('story_seed') || '',
+        emotional_core: extractField('emotional_core') || '',
         repeated_phrase: extractField('repeated_phrase') || '',
         phrase_arc: [],
         beats: [],
@@ -266,14 +269,16 @@ You MUST return ONLY a JSON object with these fields:
   // Validate we got usable values
   if (!seed || (!seed.favorite_object && !seed.fear && !seed.setting)) {
     console.warn(`[storyPlanner] Story seed has no usable fields. Parsed: ${JSON.stringify(seed).slice(0, 300)}`);
-    return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '', repeated_phrase: '', phrase_arc: [], beats: [] };
+    return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [] };
   }
 
+  if (!seed.emotional_core) seed.emotional_core = '';
   if (!seed.repeated_phrase) seed.repeated_phrase = '';
   if (!Array.isArray(seed.phrase_arc)) seed.phrase_arc = [];
   if (!Array.isArray(seed.beats)) seed.beats = [];
 
   console.log(`[storyPlanner] Story seed: object="${seed.favorite_object}", fear="${seed.fear}", setting="${seed.setting}"`);
+  if (seed.emotional_core) console.log(`[storyPlanner] Emotional core: "${seed.emotional_core}"`);
   if (seed.repeated_phrase) console.log(`[storyPlanner] Repeated phrase: "${seed.repeated_phrase}"`);
   if (seed.beats.length) console.log(`[storyPlanner] Beat sheet: ${seed.beats.length} beats`);
   return seed;
@@ -381,7 +386,8 @@ async function structureStoryPlan(storyText, childDetails, opts = {}) {
   };
 
   const systemPrompt = buildStoryStructurerSystem(briefVars);
-  const userPrompt = STORY_STRUCTURER_USER(storyText, childDetails, v2Vars);
+  const beats = opts.beats || (v2Vars?.beats && Array.isArray(v2Vars.beats) ? v2Vars.beats : null);
+  const userPrompt = STORY_STRUCTURER_USER(storyText, childDetails, v2Vars, beats);
 
   console.log(`[storyPlanner] Phase 2: Structuring into JSON with illustration prompts...`);
   const start = Date.now();
@@ -425,9 +431,19 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
   }
 
   const TELLING_PATTERNS = [
+    // Existing
     /\b(?:she|he|they|the child|the boy|the girl)\s+(?:felt|was|seemed|looked|appeared)\s+(?:happy|sad|scared|afraid|brave|excited|angry|worried|nervous|lonely|proud|surprised|relieved|safe|calm|tired)/i,
     /\b(?:realized|understood|knew) that\b/i,
     /\bit (?:was(?:n't| not)|wasn't) scary\b/i,
+    // New patterns
+    /\b(?:she|he|they)\s+(?:was|were)\s+(?:happy|excited|sad|afraid|brave|nervous|worried|relieved|calm)\s+to\b/i,
+    /\bcould feel\b/i,
+    /\bfelt a wave\b/i,
+    /\bknew everything was\b/i,
+    /\brelieved feeling\b/i,
+    /\ba feeling of (?:relief|joy|happiness|sadness|fear|excitement|calm)\b/i,
+    /\bwas filled with (?:joy|happiness|relief|fear|excitement)\b/i,
+    /\bfinally (?:felt|was|understood|knew)\b/i,
   ];
   for (const s of spreads) {
     const allText = [s.left?.text, s.right?.text].filter(Boolean).join(' ');
@@ -689,13 +705,21 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     console.log(`[storyPlanner] Parsed ${parsedText.spreads.length} spreads from free-form text, title: "${parsedText.title}"`);
 
     // Phase 2: Structure into JSON with illustration prompts
-    const jsonContent = await structureStoryPlan(storyText, childDetails, opts);
+    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, beats: v2Vars?.beats });
     const parsed = parseJsonPlan(jsonContent);
 
     // Override title if customer approved one
     if (approvedTitle) parsed.title = approvedTitle;
 
     const plan = normalizePlan(parsed, childDetails, opts);
+
+    // Retry with single-call if spread count is too low
+    const spreadCount = plan.entries.filter(e => e.type === 'spread').length;
+    if (spreadCount < 10) {
+      console.warn(`[storyPlanner] Only ${spreadCount} spreads from two-phase — retrying with single-call`);
+      const retryParsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+      return normalizePlan(retryParsed, childDetails, opts);
+    }
 
     // Validate the text quality programmatically
     const childAge = childDetails.age || childDetails.childAge || 5;
@@ -839,6 +863,21 @@ Score each category from 1-10:
 7. Ending Quality
 - Is the ending soft, poetic, and non-generic?
 
+8. Memorable Line
+- Is there at least one line in this story that a parent would want to repeat to their child outside of the book?
+- A line that could be a reassurance, a small philosophy, or a fragment of lullaby?
+- Score 1: No such line exists
+- Score 5: A line exists but is generic ("everything will be okay")
+- Score 8-10: The line is specific to THIS story, poetic, and feels like it belongs to this child
+
+SCORING DISCIPLINE (CRITICAL):
+Do NOT give any category a score above 7 if ANY of these are present in the story:
+- A phrase with "felt", "was scared", "was happy", "seemed excited" (emotion telling)
+- A generic filler word: "very", "nice", "special", "magical", "wonderful", "beautiful" used as a descriptor
+- A sentence that could appear, unchanged, in a different children's book about a different child
+
+If you find any of the above, cap that category's score at 6, regardless of other quality.
+
 -------------------------------------
 VIOLATION DETECTION (MANDATORY)
 -------------------------------------
@@ -897,7 +936,8 @@ Return a JSON object with exactly this structure:
     "authorial_voice": <1-10>,
     "child_agency": <1-10>,
     "transformation": <1-10>,
-    "ending_quality": <1-10>
+    "ending_quality": <1-10>,
+    "memorable_line": <1-10>
   },
   "issues": [
     { "line": "<exact quote>", "reason": "<violation type>" }

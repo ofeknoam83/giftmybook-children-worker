@@ -302,6 +302,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             _cachedPhotoBase64: cachedPhotoBase64,
             _cachedPhotoMime: cachedPhotoMime,
             spreadIndex: idx,
+            totalSpreads: entries.filter(e => e.type === 'spread').length,
+            childAge: childDetails.age || childDetails.childAge,
             pageText: job.pageText || '',
             isSpread: job.isSpread || false,
             deadlineMs: 200000,
@@ -793,7 +795,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           if (storyPlan._criticScores) {
             const scoreVals = Object.values(storyPlan._criticScores);
             const avg = scoreVals.reduce((a, b) => a + b, 0) / scoreVals.length;
-            if (avg < 7) {
+            if (avg < 7.5) {
               bookContext.log('info', `Self-critic avg score ${avg.toFixed(1)} < 7 — running second polish pass`);
               if (progressCallbackUrl) {
                 reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.23, message: 'Refining story text (pass 2)...', logs: bookContext.logs });
@@ -852,7 +854,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           const coverForVisionBase64 = coverForVision.toString('base64');
 
           const resizedCover = await sharp(coverBuf)
-            .resize(512, 512, { fit: 'cover' })
+            .resize(256, 256, { fit: 'cover' })
             .jpeg({ quality: 80 })
             .toBuffer();
           characterRefBase64 = resizedCover.toString('base64');
@@ -870,7 +872,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Analyze this children's book cover image and respond with exactly two labeled sections.\n\nCHARACTER:\nDescribe the child character in precise visual detail: hair (color, style, length), eyes (color, shape), skin tone, age appearance, face shape, outfit and accessories.\n\nSTYLE:\nDescribe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.\n\nYou MUST start the first section with the word CHARACTER: and the second with STYLE:` },
+                    { text: `Analyze this children's book cover image and respond with exactly two labeled sections.\n\nCHARACTER:\nReturn the character description in this exact format:\nHAIR: [exact color, style, length, texture, and any accessories — e.g. "tight coily black hair, approximately 1 inch, no hair accessories" or "shoulder-length straight brown hair with a pink bow clip"]\nEYES: [color]\nSKIN: [tone description]\nBUILD: [approximate age/size cues visible]\nNOTABLE: [any distinguishing features]\n\nIf you cannot determine a field from the image, write "not visible".\n\nSTYLE:\nDescribe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.\n\nYou MUST start the first section with the word CHARACTER: and the second with STYLE:` },
                     { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
                   ]}],
                   generationConfig: { maxOutputTokens: 1000, temperature: 0.2 },
