@@ -386,45 +386,6 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
         if (entry.rightIllustrationBuffer) await embedFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer);
       }
 
-      // ── Overlay story text on the pages (text is NOT embedded in image) ──
-      const textFont = fonts.playfair || fonts.helv;
-      const TEXT_SZ = 13;
-      const LINE_H  = TEXT_SZ * 1.55;
-      const TEXT_MARGIN = SAFE + 4;
-      const maxW = pw - TEXT_MARGIN * 2;
-
-      if (entry.left?.text) {
-        const lines = wrapText(entry.left.text, textFont, TEXT_SZ, maxW);
-        const blockH = lines.length * LINE_H;
-        // Semi-transparent white band behind text for readability
-        const bandY = BLEED + 8;
-        leftPage.drawRectangle({
-          x: 0, y: bandY, width: pw, height: blockH + 20,
-          color: rgb(1, 1, 1), opacity: 0.55,
-        });
-        let ty = bandY + blockH + 4;
-        for (const line of lines) {
-          const lw = textFont.widthOfTextAtSize(line, TEXT_SZ);
-          leftPage.drawText(line, { x: (pw - lw) / 2, y: ty, size: TEXT_SZ, font: textFont, color: C.black });
-          ty -= LINE_H;
-        }
-      }
-
-      if (entry.right?.text) {
-        const lines = wrapText(entry.right.text, textFont, TEXT_SZ, maxW);
-        const blockH = lines.length * LINE_H;
-        const bandY = BLEED + 8;
-        rightPage.drawRectangle({
-          x: 0, y: bandY, width: pw, height: blockH + 20,
-          color: rgb(1, 1, 1), opacity: 0.55,
-        });
-        let ty = bandY + blockH + 4;
-        for (const line of lines) {
-          const lw = textFont.widthOfTextAtSize(line, TEXT_SZ);
-          rightPage.drawText(line, { x: (pw - lw) / 2, y: ty, size: TEXT_SZ, font: textFont, color: C.black });
-          ty -= LINE_H;
-        }
-      }
     } else {
       // ── EARLY READER: each illustration = one full page (1:1 square) ──
       if (entry.leftIllustrationBuffer) {
