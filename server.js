@@ -293,7 +293,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       }
 
       // Skip if already resumed from checkpoint
-      if (results[idx]?.[field]) {
+      if (results[idx]?.[field]) {  // field = leftIllustrationUrl, rightIllustrationUrl, or spreadIllustrationUrl
         return;
       }
 

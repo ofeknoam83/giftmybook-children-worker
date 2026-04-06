@@ -57,7 +57,8 @@ function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}) {
   const setting = v2Vars.setting || '';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
 
-  const isAdventure = theme === 'adventure';
+  const ACTIVE_THEMES = new Set(['adventure', 'birthday', 'holiday', 'school', 'space', 'underwater', 'fantasy']);
+  const isAdventure = ACTIVE_THEMES.has(theme);
 
   let prompt = `${childContext}
 
@@ -128,20 +129,54 @@ IMPORTANT:
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string }} vars
  * @returns {string}
  */
-function buildStoryWriterSystem(vars, theme) {
-  if (theme === 'adventure') {
-    return buildAdventureWritingBrief(vars);
+// Themes that use the adventure brief (active, journey-based, high energy)
+const ADVENTURE_THEMES = new Set(['adventure', 'birthday', 'holiday', 'school', 'space', 'underwater', 'fantasy', 'nature']);
+
+// Theme-specific context injections appended to the brief
+function getThemeContext(theme) {
+  switch (theme) {
+    case 'birthday':
+      return `\n\nTHEME CONTEXT — BIRTHDAY:\nThis is a birthday celebration story. The child is the birthday hero. The story should feel joyful, exciting, and special. Include: a birthday surprise or discovery, at least one moment of wonder or delight, a celebration element (cake/candles/balloons/friends/gifts — pick what feels natural). The story must NOT feel like a bedtime story — it should have energy and excitement from spread 1. The ending brings the child back to warmth and belonging after the adventure.`;
+    case 'holiday':
+      return `\n\nTHEME CONTEXT — HOLIDAY:\nThis is a holiday celebration story. The child discovers something magical about the holiday. Include festive elements natural to the holiday (lights, gifts, traditions, seasonal wonder). High energy, joyful, ends in warmth and family connection.`;
+    case 'school':
+      return `\n\nTHEME CONTEXT — SCHOOL/FIRST DAY:\nThis is a school adventure story. The child faces a new challenge (first day, new friend, a school project gone wrong). Journey through the school environment — different classrooms, playground, lunch. Ends in confidence and belonging.`;
+    case 'space':
+      return `\n\nTHEME CONTEXT — SPACE:\nThis is a space exploration story. The child travels through space visiting planets, stars, or alien worlds. Sense of wonder and discovery. Scientifically playful (not accurate) — stars can talk, planets have personalities. Ends returning home with something learned.`;
+    case 'underwater':
+      return `\n\nTHEME CONTEXT — UNDERWATER:\nThis is an underwater adventure. The child explores the ocean — coral reefs, deep sea creatures, hidden treasures. Magical and slightly mysterious. Ends returning to the surface with a discovery or friend.`;
+    case 'fantasy':
+      return `\n\nTHEME CONTEXT — FANTASY:\nThis is a fantasy quest story. Magic, enchanted forests, dragons, castles, or fairy-tale creatures. The child has a special power or object that helps them succeed. Classic quest structure. Ends triumphant and back home.`;
+    case 'nature':
+      return `\n\nTHEME CONTEXT — NATURE:\nThis is a nature exploration story. The child discovers the natural world — a garden, a forest, a river. Encounters with animals and plants that have personality. A sense of wonder and connection to the living world. Calm but curious energy.`;
+    case 'friendship':
+      return `\n\nTHEME CONTEXT — FRIENDSHIP:\nThis is a friendship story. The child meets a new friend (could be an animal, a magical creature, or another child). The friendship is tested and deepened through a shared adventure or challenge. Ends with the bond confirmed.`;
+    default:
+      return '';
   }
+}
+
+function buildStoryWriterSystem(vars, theme) {
+  const themeContext = getThemeContext(theme);
+
+  if (ADVENTURE_THEMES.has(theme)) {
+    // Inject theme context into vars so the adventure brief can use it
+    const enrichedVars = { ...vars, themeContext };
+    return buildAdventureWritingBrief(enrichedVars);
+  }
+
+  // bedtime and friendship use the bedtime brief with theme context appended
   if (typeof vars === 'number' || typeof vars === 'string') {
-    return buildWritingBrief({
+    const brief = buildWritingBrief({
       name: '{name}',
       age: Number(vars) || 5,
       favorite_object: '{favorite_object}',
       fear: '{fear}',
       setting: '{setting}',
     });
+    return brief + themeContext;
   }
-  return buildWritingBrief(vars);
+  return buildWritingBrief(vars) + themeContext;
 }
 
 /**
@@ -285,6 +320,11 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
 - Write exactly 13 spreads with Left/Right text assignments.
 - Focus entirely on literary quality. No illustration prompts needed.
 - Follow ALL writing rules from the system brief (age tier, pacing, dialogue, etc.).`;
+
+  // Inject theme-specific context if provided
+  if (vars.themeContext) {
+    prompt += vars.themeContext;
+  }
 
   return prompt;
 }

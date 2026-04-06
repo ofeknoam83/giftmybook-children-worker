@@ -105,20 +105,26 @@ async function embedFullBleed(pdfDoc, page, buf) {
 
 async function splitSpreadImage(buf, pw, ph) {
   const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
-  const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
   const meta = await sharp(buf).metadata();
   const halfW = Math.floor(meta.width / 2);
-  // Extract each half then cover-fill the page (full-bleed, no margin)
-  // Text is NOT in the image (skipTextEmbed:true) so cover cropping is safe
+
+  // Resize each half to fill the page WIDTH exactly.
+  // Height scales proportionally — will be slightly taller than page (8:9 into 1:1 square).
+  // We draw from y=0 (top) so any overflow clips at the bottom (background/bleed only).
+  // This guarantees ZERO cropping from the top — text and characters are always fully visible.
+  const scaleH = l => Math.round(l * (wp / halfW));
+  const scaledH = scaleH(meta.height);
+
   const leftBuf  = await sharp(buf)
     .extract({ left: 0,     top: 0, width: halfW, height: meta.height })
-    .resize(wp, hp, { fit: 'cover', position: 'top' })
+    .resize(wp, scaledH)
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   const rightBuf = await sharp(buf)
     .extract({ left: halfW, top: 0, width: halfW, height: meta.height })
-    .resize(wp, hp, { fit: 'cover', position: 'top' })
+    .resize(wp, scaledH)
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
-  return { leftBuf, rightBuf };
+
+  return { leftBuf, rightBuf, scaledH, wp };
 }
 
 // ── Font loader (lazy, cached per pdfDoc) ────────────────────────────────────
@@ -374,9 +380,15 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       const rightPage = pdfDoc.addPage([pw, ph]);
       if (entry.spreadIllustrationBuffer) {
         try {
-          const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
-          await embedFullBleed(pdfDoc, leftPage,  leftBuf);
-          await embedFullBleed(pdfDoc, rightPage, rightBuf);
+          const { leftBuf, rightBuf, scaledH, wp } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+          // Draw image from top of page at full width — height extends beyond page bottom (clips to bleed)
+          const imgH = ph * (scaledH / wp); // convert pixel height back to pts
+          const embedAndDraw = async (page, buf) => {
+            const img = await pdfDoc.embedJpg(buf);
+            page.drawImage(img, { x: 0, y: ph - imgH, width: pw, height: imgH });
+          };
+          await embedAndDraw(leftPage,  leftBuf);
+          await embedAndDraw(rightPage, rightBuf);
         } catch (e) {
           console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
         }
