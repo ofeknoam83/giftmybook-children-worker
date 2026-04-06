@@ -367,9 +367,29 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   }
 
   const pdfBytes = await pdfDoc.save();
+  // ── Upload back cover image to GCS so it can be used in the interior flipbook ──
+  let backCoverImageUrl = null;
+  if (backCoverBuffer) {
+    try {
+      const { uploadBuffer: _upload, getSignedUrl: _sign } = require('./gcsStorage');
+      const backGcsPath = `children-jobs/${opts.bookId || 'unknown'}/back-cover.jpg`;
+      const backJpeg = await sharp(backCoverBuffer)
+        .resize(800, 800, { fit: 'cover' })
+        .toColorspace('srgb')
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      await _upload(backJpeg, backGcsPath, 'image/jpeg');
+      backCoverImageUrl = await _sign(backGcsPath, 30 * 24 * 60 * 60 * 1000);
+      console.log('[CoverGenerator] Back cover image uploaded to GCS');
+    } catch (err) {
+      console.warn('[CoverGenerator] Back cover GCS upload failed (non-fatal):', err.message);
+    }
+  }
+
   return {
     coverPdfBuffer: Buffer.from(pdfBytes),
     frontCoverImageUrl,
+    backCoverImageUrl,
   };
 }
 

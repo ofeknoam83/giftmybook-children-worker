@@ -1164,6 +1164,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 bookId,
                 interiorPdfUrl,
                 coverPdfUrl,
+                backCoverImageUrl: coverData?.backCoverImageUrl || null,
                 previewImageUrls,
                 title: bookTitle,
                 spreadCount: spreadEntries.length,
