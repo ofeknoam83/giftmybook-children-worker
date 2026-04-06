@@ -341,14 +341,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Always use the configured art style (pixar_premium by default)
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   if (isSpread) {
-    parts.push('FORMAT: Wide landscape illustration spanning TWO facing pages (a book spread). 16:9 aspect ratio.');
-    parts.push('GUTTER ZONE: The CENTER VERTICAL STRIP of this image (the middle ~8% of the width) will be hidden in the book spine/binding. CRITICAL RULES:');
-    parts.push('- NEVER place the child\'s face, hands, or body in the center strip');
-    parts.push('- NEVER place text in the center strip');
-    parts.push('- NEVER place key objects or the recurring companion in the center strip');
-    parts.push('- Compose the scene so the child and text are clearly on the LEFT side or RIGHT side');
-    parts.push('- Background/environment can flow through the center — only avoid important elements there');
-    parts.push('- The left half and right half should each work as a complete, balanced composition');
+    parts.push('FORMAT: Wide cinematic landscape illustration spanning TWO facing pages (a book spread). 16:9 aspect ratio.');
+    parts.push('SAFE ZONE RULES (CRITICAL — image will be cropped ~6% from top and bottom, and split down the center):');
+    parts.push('- Keep ALL important content (faces, text, key objects, hands) within the MIDDLE 85% of the image HEIGHT. The top 7.5% and bottom 7.5% will be cropped — use only for sky/ground/background.');
+    parts.push('- GUTTER: The CENTER VERTICAL STRIP (~8% of width) will be hidden in the spine. Never place faces, text, or key objects in the center.');
+    parts.push('- Subject centered: place the child and main action in the CENTER 60% of the image width, with background extending to the edges.');
+    parts.push('- The left half and right half should each work as a complete, balanced composition.');
   } else {
     parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   }
