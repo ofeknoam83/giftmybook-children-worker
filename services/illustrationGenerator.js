@@ -416,16 +416,24 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
   }
 
+  // Build parts: text prompt + cover reference + optional previous illustration reference
+  const parts = [
+    { text: prompt },
+    { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
+  ];
+
+  if (opts.prevIllustrationBase64) {
+    parts.push({ text: 'PREVIOUS ILLUSTRATION FOR THIS SPREAD (use as style and composition reference — match the art style, color palette, and mood, but apply the new scene and any admin overrides):' });
+    parts.push({ inline_data: { mimeType: opts.prevIllustrationMime || 'image/jpeg', data: opts.prevIllustrationBase64 } });
+  }
+
   const body = {
-    contents: [{ role: 'user', parts: [
-      { text: prompt },
-      { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
-    ]}],
+    contents: [{ role: 'user', parts }],
     generationConfig,
   };
 
   const epStart = Date.now();
-  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference...`);
+  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference${opts.prevIllustrationBase64 ? ' + prev illustration' : ''}...`);
   try {
     const resp = await fetchWithTimeout(url, {
       method: 'POST',
@@ -602,6 +610,20 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     }
   }
 
+  // Download previous illustration as reference (admin regeneration only)
+  let prevIllustrationBase64 = null;
+  let prevIllustrationMime = 'image/jpeg';
+  if (opts.prevIllustrationUrl) {
+    try {
+      const prev = await downloadPhotoAsBase64(opts.prevIllustrationUrl);
+      prevIllustrationBase64 = prev.base64;
+      prevIllustrationMime = prev.mimeType;
+      console.log(`[illustrationGenerator] Previous illustration loaded as reference (${Math.round(prev.base64.length * 0.75 / 1024)}KB)`);
+    } catch (e) {
+      console.warn(`[illustrationGenerator] Could not load prev illustration reference: ${e.message}`);
+    }
+  }
+
   // Build prompt variants for NSFW fallback
   const promptVariants = [
     { label: 'original', prompt: fullPrompt },
@@ -619,7 +641,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       let imageBuffer;
       // Always use cover image as reference for character likeness
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
