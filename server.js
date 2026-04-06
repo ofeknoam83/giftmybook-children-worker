@@ -936,13 +936,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);
       }
 
-      // Clean up old illustrations now that new ones are generated
-      // (safe because all new illustration URLs are already in memory)
-      if (forceNew) {
-        deletePrefix(`children-jobs/${bookId}/illustrations/`)
-          .then(() => bookContext.log('info', 'Old illustrations cleaned up from GCS'))
-          .catch(e => bookContext.log('warn', 'Old illustration cleanup failed (non-blocking)', { error: (e?.message || String(e)).slice(0, 100) }));
-      }
+      // Note: old illustrations from previous runs are NOT deleted here.
+      // They have unique timestamp-based filenames and don't collide with new ones.
+      // Deleting them concurrently with PDF assembly caused 404 errors.
 
       // Stage 5: Assemble PDF
       const stage7Start = Date.now();
