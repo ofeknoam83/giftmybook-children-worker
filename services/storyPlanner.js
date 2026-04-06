@@ -47,10 +47,13 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   }
 
   const data = await resp.json();
+  const choice = data.choices?.[0];
+  const finishReason = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
   return {
-    text: data.choices?.[0]?.message?.content || '',
+    text: choice?.message?.content || '',
     inputTokens: data.usage?.prompt_tokens || 0,
     outputTokens: data.usage?.completion_tokens || 0,
+    finishReason,
   };
 }
 
@@ -403,7 +406,7 @@ async function structureStoryPlan(storyText, childDetails, opts = {}) {
 
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
-    maxTokens: 8000,
+    maxTokens: 14000,
     temperature: 0.3,
     jsonMode: true,
     costTracker,
@@ -512,7 +515,7 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
   const llmStart = Date.now();
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
-    maxTokens: 10000,
+    maxTokens: 14000,
     temperature: 0.8,
     jsonMode: true,
     costTracker,
@@ -603,6 +606,20 @@ function parseJsonPlan(content, finishReason) {
       console.warn(`[storyPlanner] Salvaged truncated JSON after repair`);
       return repaired;
     }
+  }
+
+  // Log enough of the raw output to diagnose the failure
+  const preview = content.slice(0, 500);
+  const tail = content.slice(-200);
+  console.error(`[storyPlanner] JSON parse failed. finish_reason=${finishReason}. Length=${content.length}`);
+  console.error(`[storyPlanner] Output start: ${preview}`);
+  console.error(`[storyPlanner] Output end: ${tail}`);
+
+  // Always try repair regardless of finishReason (GPT returns 'stop' even on truncation sometimes)
+  const repaired = repairTruncatedJson(content);
+  if (repaired) {
+    console.warn(`[storyPlanner] Salvaged JSON via repair (finish_reason=${finishReason})`);
+    return repaired;
   }
 
   throw new Error(`Failed to parse story plan JSON after all repair attempts`);
@@ -747,12 +764,25 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   } catch (twoPhaseErr) {
     console.warn(`[storyPlanner] Two-phase pipeline failed: ${twoPhaseErr.message} — falling back to single-call`);
-    const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
-    const plan = normalizePlan(parsed, childDetails, opts);
-
-    const totalMs = Date.now() - pipelineStart;
-    console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
-    return plan;
+    try {
+      const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+      const plan = normalizePlan(parsed, childDetails, opts);
+      const totalMs = Date.now() - pipelineStart;
+      console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
+      return plan;
+    } catch (singleCallErr) {
+      // Last resort: retry single-call forcing Gemini (no OpenAI key passed)
+      // Gemini handles long JSON output reliably and returns proper finishReason
+      console.warn(`[storyPlanner] Single-call also failed: ${singleCallErr.message} — retrying with Gemini only`);
+      const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, {
+        ...opts,
+        apiKeys: null, // forces Gemini path
+      });
+      const plan = normalizePlan(parsed, childDetails, opts);
+      const totalMs = Date.now() - pipelineStart;
+      console.log(`[storyPlanner] Gemini-only fallback complete in ${totalMs}ms`);
+      return plan;
+    }
   }
 }
 
