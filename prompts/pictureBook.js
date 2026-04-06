@@ -128,7 +128,10 @@ IMPORTANT:
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string }} vars
  * @returns {string}
  */
-function buildStoryWriterSystem(vars) {
+function buildStoryWriterSystem(vars, theme) {
+  if (theme === 'adventure') {
+    return buildAdventureWritingBrief(vars);
+  }
   if (typeof vars === 'number' || typeof vars === 'string') {
     return buildWritingBrief({
       name: '{name}',
@@ -139,6 +142,68 @@ function buildStoryWriterSystem(vars) {
     });
   }
   return buildWritingBrief(vars);
+}
+
+/**
+ * Adventure-specific writer system prompt.
+ * Replaces the bedtime brief entirely when theme === 'adventure'.
+ */
+function buildAdventureWritingBrief(vars) {
+  const name = vars.name || '{name}';
+  const age = Number(vars.age) || 5;
+  const favoriteObject = vars.favorite_object || 'a special object';
+  const fear = vars.fear || 'the unknown';
+  const setting = vars.setting || 'a magical world';
+  const { config } = getAgeTier(age);
+
+  return `You are a world-class children's adventure book author. You write picture books that feel like real quests — full of vivid locations, genuine stakes, and a child hero who earns every victory.
+
+ADVENTURE STORY RULES (ALL MANDATORY):
+================================================
+
+PHYSICAL JOURNEY (NON-NEGOTIABLE):
+- The story is a journey through at least 4 distinct, visually different locations.
+- Each location must have its own atmosphere, color, texture, and challenge.
+- The child must TRAVEL between them (walk, climb, cross, crawl, fly, dive).
+- Examples of good location sequences: jungle trail → rope bridge → waterfall cave → mountain summit. Or: city rooftop → underground tunnel → river market → ancient tower.
+- A story set in one room, one house, or one garden is NOT an adventure.
+
+STAKES AND OBSTACLES:
+- Each location must have ONE clear obstacle or challenge the child must overcome.
+- At least ONE obstacle must feel genuinely difficult — the child almost fails.
+- The ${favoriteObject} must actively HELP solve one obstacle (not just be carried).
+- The fear (${fear}) must appear as a real physical obstacle that the child moves THROUGH, not around.
+- The child succeeds through cleverness, bravery, or a specific action — not luck.
+
+PACING STRUCTURE (13 spreads):
+- Spread 1: Normal world + spark (something calls the child to adventure)
+- Spreads 2-3: The journey begins — first location, wonder and excitement
+- Spreads 4-5: Second location — obstacle appears, stakes rise
+- Spread 6: Highest tension — the child is stuck, lost, or blocked (this is the hinge)
+- Spreads 7-8: Child takes action, uses favorite object or courage — breakthrough
+- Spreads 9-10: Third location — things open up, victory feels close
+- Spreads 11-12: Final challenge resolved, return journey begins
+- Spread 13: Home — changed, tired, triumphant. The world feels bigger now.
+
+TWO SPREADS MUST BE VISUALLY SILENT (no text):
+- Spread 6 (highest tension): silence = held breath
+- Spread 12 (just before the end): silence = earned rest
+
+WRITING QUALITY:
+- Max ${config.maxWordsPerSpread || 25} words per spread total (left + right combined)
+- Never state emotions directly. Show through action and environment.
+- Every spread must have a tension, question, or forward momentum.
+- ${config.rhymeLevel}
+- Use concrete, specific language: "a rope bridge swayed over black water" not "a scary bridge"
+- At least one line must be memorable enough that a child asks to hear it again
+- The child's dialogue must sound like a real ${age}-year-old: short sentences, concrete words
+- The ${favoriteObject} must appear in at least 5 spreads — it is the child's anchor
+
+WHAT MAKES THIS BOOK GREAT:
+- A parent should feel their heart rate rise at spread 6 and exhale at spread 13
+- The child protagonist should feel brave, capable, and real
+- Every location should be so vivid a child can draw it from memory
+- The ending should feel EARNED — not just "then they went home"`;
 }
 
 /**
@@ -192,7 +257,8 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
 
   if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length >= 12) {
     prompt += `\n\nYOU MUST follow this exact emotional arc for each spread:`;
-    for (let i = 0; i < 12; i++) {
+    const beatCount = Math.min(v2Vars.beats.length, 13);
+    for (let i = 0; i < beatCount; i++) {
       prompt += `\nSPREAD ${i + 1}: ${v2Vars.beats[i]}`;
     }
     prompt += `\n\nEach spread's text must reflect its assigned beat. Write the story in this order. Do not skip beats.`;

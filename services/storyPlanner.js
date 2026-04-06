@@ -179,12 +179,14 @@ You will receive details about a child. From these details, invent:
    - middle: how it shifts (guiding, braver, searching)
    - end: how it lands (calm, safe, transformed)
 
-8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Follow this structure:
-   - Spreads 1-2: Setup (normal world + emotional need)
-   - Spreads 3-6: Rising tension (problem grows, uncertainty increases)
-   - Spreads 7-9: Turning point + resolution (child takes action)
-   - Spreads 10-11: Emotional release (world softens)
-   - Spread 12: Sleep / stillness
+8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
+   - Spreads 1-2: Setup (normal world → call to adventure, child leaves home)
+   - Spreads 3-5: Rising action (new locations, each with its own obstacle)
+   - Spread 6: THE HINGE — child is stuck, blocked, or almost fails (this is the most important beat — make it specific and tense)
+   - Spreads 7-9: Breakthrough (child uses the favorite object or courage to overcome the hinge obstacle, victory builds)
+   - Spreads 10-11: Resolution (final challenge solved, journey home begins)
+   - Spread 12: Homecoming — visually silent, no text (child arrives home, changed)
+   - Spread 13: Rest — settled, safe, the world feels bigger
 
 ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
 The story text MAY mention family members (parents, grandparents, siblings) by name — they can speak, tuck the child in, etc. However, family members must NEVER appear as visible characters in illustrations. We only have the child's photo, so any depiction of relatives would be a fabricated guess. In illustration prompts, a caregiver's presence can be implied (a warm voice, a light from a doorway, a hand at the frame's edge, a tucked-in blanket) but never shown as a full person with a face. Keep this in mind when designing the setting and beats — scenes should center the child visually even when family is mentioned in text.
@@ -192,7 +194,14 @@ The story text MAY mention family members (parents, grandparents, siblings) by n
 Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
 
 ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
-If the theme is "adventure", the story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — not stay in one place. Each location should have its own look, atmosphere, and challenge. Think: a trail through woods → a rope bridge over a stream → a cave with glowing crystals → a hilltop at sunset. The "setting" field should describe the overall world, and the individual beats must name the specific locations the child travels through. A story that stays in one room, one garden, or one building is NOT an adventure.
+This is an ADVENTURE book. The story MUST be a physical journey through exactly 4 distinct, visually different locations. Rules:
+- Location 1 (spreads 1-2): The starting place — home, village, backyard. Familiar but the adventure calls.
+- Location 2 (spreads 3-5): The first wild place — forest, ocean, cave, sky. Wonder + first obstacle.
+- Location 3 (spread 6): The hinge location — the most dangerous or difficult place. The child is stuck here.
+- Location 4 (spreads 7-10): The discovery place — where the child breaks through and finds what they were seeking.
+- Return journey (spreads 11-13): The child travels back through familiar ground, changed.
+Each location must have DIFFERENT colors, lighting, terrain, and atmosphere. A story that stays in one building, one room, or one garden is NOT an adventure and will be rejected.
+The "setting" field must describe the world as a whole (e.g. "a magical forest kingdom"). The beats must name each specific location the child passes through.
 
 You MUST return ONLY a JSON object with these fields:
 {"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "emotional_core": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 13 beat"]}`;
@@ -348,7 +357,7 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     setting: '',
   };
 
-  const systemPrompt = buildStoryWriterSystem(briefVars);
+  const systemPrompt = buildStoryWriterSystem(briefVars, theme);
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
 
   if (approvedTitle) {
