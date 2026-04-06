@@ -155,17 +155,15 @@ async function splitSpreadImage(buf, pw, ph) {
   // Step 1: Upscale 4x for print quality
   const upscaled = await upscaleImage(buf);
 
-  // Step 2: Scale to fill spread width exactly
-  const scaled = await sharp(upscaled)
-    .resize(spreadW, null, { fit: 'outside', kernel: 'lanczos3' })
-    .toBuffer({ resolveWithObject: true });
+  // Step 2: Scale to fill spread width exactly, crop center vertically, split — all in one pass
+  const upscaledMeta = await sharp(upscaled).metadata();
+  const scaledH = Math.round(upscaledMeta.height * spreadW / upscaledMeta.width);
+  const cropTop  = Math.max(0, Math.floor((scaledH - hp) / 2));
 
-  const scaledMeta = scaled.info;
-  const cropTop = Math.max(0, Math.floor((scaledMeta.height - hp) / 2));
-
-  // Step 3: Crop to exact spread dimensions (spreadW × hp), centered vertically
-  const spreadBuf = await sharp(scaled.data, { raw: { width: scaledMeta.width, height: scaledMeta.height, channels: scaledMeta.channels } })
-    .extract({ left: 0, top: cropTop, width: Math.min(spreadW, scaledMeta.width), height: hp })
+  // Step 3: Scale + crop in one sharp operation (avoids raw buffer issue)
+  const spreadBuf = await sharp(upscaled)
+    .resize(spreadW, scaledH, { kernel: 'lanczos3' })
+    .extract({ left: 0, top: cropTop, width: spreadW, height: hp })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
 
   // Step 4: Split exactly down the center
@@ -436,20 +434,7 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
           await embedFullBleed(pdfDoc, leftPage,  leftBuf);
           await embedFullBleed(pdfDoc, rightPage, rightBuf);
         } catch (e) {
-          console.warn(`[LayoutEngine] spread split failed (${e.message}), using direct cover fallback`);
-          // Fallback: split naively at 50% using fit:cover so pages are never blank
-          try {
-            const meta = await sharp(entry.spreadIllustrationBuffer).metadata();
-            const halfW = Math.floor(meta.width / 2);
-            const wp2 = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
-            const hp2 = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
-            const lBuf = await sharp(entry.spreadIllustrationBuffer).extract({ left: 0, top: 0, width: halfW, height: meta.height }).resize(wp2, hp2, { fit: 'cover' }).toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
-            const rBuf = await sharp(entry.spreadIllustrationBuffer).extract({ left: halfW, top: 0, width: halfW, height: meta.height }).resize(wp2, hp2, { fit: 'cover' }).toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
-            await embedFullBleed(pdfDoc, leftPage,  lBuf);
-            await embedFullBleed(pdfDoc, rightPage, rBuf);
-          } catch (e2) {
-            console.warn(`[LayoutEngine] fallback split also failed: ${e2.message}`);
-          }
+          console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
         }
       } else {
         // Fallback: pre-split buffers
