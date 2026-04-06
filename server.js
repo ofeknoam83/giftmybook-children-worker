@@ -990,13 +990,30 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
 
       // Download illustration URLs into buffers for PDF embedding
-      // Use pLimit(4) to avoid overwhelming GCS, with 60s timeout per download
-      const downloadLimit = pLimit(4);
-      async function downloadWithTimeout(url, label) {
-        const timeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Download timed out after 60s: ${label}`)), 60000)
-        );
-        return Promise.race([downloadBuffer(url), timeout]);
+      // Use pLimit(2) — GCS TLS connections drop under high concurrency on Cloud Run
+      // Retry up to 3 times with delay on TLS/network errors
+      const downloadLimit = pLimit(2);
+      async function downloadWithRetry(url, label, maxAttempts = 3) {
+        let lastErr;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            const timeout = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`Download timed out after 120s: ${label}`)), 120000)
+            );
+            return await Promise.race([downloadBuffer(url), timeout]);
+          } catch (err) {
+            lastErr = err;
+            const isTlsOrNetwork = err.message.includes('TLS') || err.message.includes('socket') || err.message.includes('network') || err.message.includes('ECONNRESET') || err.message.includes('timed out');
+            if (attempt < maxAttempts && isTlsOrNetwork) {
+              const delay = attempt * 2000; // 2s, 4s
+              bookContext.log('warn', `Download attempt ${attempt} failed for ${label}, retrying in ${delay}ms`, { error: err.message.slice(0, 100) });
+              await new Promise(r => setTimeout(r, delay));
+            } else {
+              throw lastErr;
+            }
+          }
+        }
+        throw lastErr;
       }
 
       bookContext.log('info', 'Downloading illustration buffers for PDF');
@@ -1006,7 +1023,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
           if (entry.spreadIllustrationUrl) {
             try {
-              result.spreadIllustrationBuffer = await downloadWithTimeout(entry.spreadIllustrationUrl, `spread-${entry.spread || entry.type}`);
+              result.spreadIllustrationBuffer = await downloadWithRetry(entry.spreadIllustrationUrl, `spread-${entry.spread || entry.type}`);
               bookContext.log('info', `Downloaded spread ${entry.spread || entry.type} illustration`);
             } catch (err) {
               bookContext.log('error', `Failed to download spread illustration`, { error: err.message, spread: entry.spread });
@@ -1015,14 +1032,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
           if (entry.leftIllustrationUrl) {
             try {
-              result.leftIllustrationBuffer = await downloadWithTimeout(entry.leftIllustrationUrl, `left-${entry.spread}`);
+              result.leftIllustrationBuffer = await downloadWithRetry(entry.leftIllustrationUrl, `left-${entry.spread}`);
             } catch (err) {
               bookContext.log('error', `Failed to download left illustration`, { error: err.message });
             }
           }
           if (entry.rightIllustrationUrl) {
             try {
-              result.rightIllustrationBuffer = await downloadWithTimeout(entry.rightIllustrationUrl, `right-${entry.spread}`);
+              result.rightIllustrationBuffer = await downloadWithRetry(entry.rightIllustrationUrl, `right-${entry.spread}`);
             } catch (err) {
               bookContext.log('error', `Failed to download right illustration`, { error: err.message });
             }
@@ -1030,7 +1047,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
           if (entry.illustrationUrl) {
             try {
-              result.illustrationBuffer = await downloadWithTimeout(entry.illustrationUrl, entry.type);
+              result.illustrationBuffer = await downloadWithRetry(entry.illustrationUrl, entry.type);
               bookContext.log('info', `Downloaded ${entry.type} illustration`);
             } catch (err) {
               bookContext.log('error', `Failed to download ${entry.type} illustration`, { error: err.message });
