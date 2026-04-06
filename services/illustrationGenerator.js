@@ -237,13 +237,23 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   parts.push(`\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`);
   parts.push(``);
-  parts.push(`1. CHARACTER COUNT: EXACTLY ONE CHILD in this image. Only one. Not two. Not a smaller version in the background. Not a reflection. Not a shadow copy. ONE CHILD TOTAL in the entire image. If you draw two children, the image will be rejected.`);
+  const charCountRule = opts.additionalCoverCharacters
+    ? `1. CHARACTER COUNT: The MAIN CHILD plus the additional cover characters listed below are allowed. No invented characters beyond those listed. Do NOT duplicate the child.`
+    : `1. CHARACTER COUNT: EXACTLY ONE CHILD in this image. Only one. Not two. Not a smaller version in the background. Not a reflection. Not a shadow copy. ONE CHILD TOTAL in the entire image. If you draw two children, the image will be rejected.`;
+  parts.push(charCountRule);
   parts.push(``);
   parts.push(`2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`);
   parts.push(``);
   parts.push(`3. COMPOSITION: This is ONE single moment in time. NOT a comic strip. NOT a sequence. NOT a before/after. NOT multiple panels. ONE scene, ONE viewpoint, ONE moment.`);
   parts.push(``);
-  parts.push(`4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`);
+  // If additional characters appear on the approved cover, they are allowed in illustrations
+  if (opts.additionalCoverCharacters) {
+    parts.push(`4. ADDITIONAL CHARACTERS ALLOWED: The following characters appear on the book cover and MAY appear in illustrations. Draw them as described — do NOT invent new relatives or characters not listed here:`);
+    parts.push(opts.additionalCoverCharacters);
+    parts.push(`   IMPORTANT: Only the characters listed above are allowed. Do NOT add any other family members, parents, siblings, or relatives beyond what is listed.`);
+  } else {
+    parts.push(`4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`);
+  }
   parts.push(``);
 
   if (characterOutfit) {
@@ -316,7 +326,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   // Change 16: Scene grounding — BACKGROUND RULE
   parts.push('');
-  parts.push('BACKGROUND RULE: No human faces, silhouettes, or figures visible in the background or anywhere in the scene. Any human presence (family, caregivers) is implied only through objects — a cup of tea on a table, a light left on in a window, a handmade quilt on a chair. Fictional animals, creatures, and fantastical beings are fine.');
+  const bgRule = opts.additionalCoverCharacters
+    ? `BACKGROUND RULE: Only the main child and the additional cover characters listed above may appear as human figures. No other human faces or silhouettes in the background. Fictional animals, creatures, and fantastical beings are fine.`
+    : `BACKGROUND RULE: No human faces, silhouettes, or figures visible in the background or anywhere in the scene. Any human presence (family, caregivers) is implied only through objects — a cup of tea on a table, a light left on in a window, a handmade quilt on a chair. Fictional animals, creatures, and fantastical beings are fine.`;
+  parts.push(bgRule);
 
   // Change 17: Board book complexity limit
   if (childAge !== undefined && childAge <= 2) {
@@ -589,7 +602,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);

@@ -1310,7 +1310,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, recurringElement, keyObjects,
-    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, fontStyle } = req.body;
+    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, fontStyle, additionalCoverCharacters } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -1341,6 +1341,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       isSpread: true,
       promptInjection: promptInjection || '',
       fontStyle: fontStyle || null,
+      additionalCoverCharacters: additionalCoverCharacters || null,
       prevIllustrationUrl: prevIllustrationUrl || null,
       _cachedPhotoBase64: cachedPhotoBase64 || null,
     });
