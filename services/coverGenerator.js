@@ -425,52 +425,64 @@ Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
  * Generate a single upsell cover image for a given style and title.
  */
 async function generateUpsellCoverImage(title, childName, childAge, childGender, artStyle, frontCoverBuffer) {
-  const ART_STYLE_CONFIG = require('./illustrationGenerator').ART_STYLE_CONFIG;
+  const { ART_STYLE_CONFIG, getNextApiKey, fetchWithTimeout } = require('./illustrationGenerator');
   const styleConfig = ART_STYLE_CONFIG?.[artStyle] || {};
   const prefix = styleConfig.prefix || '';
   const suffix = styleConfig.suffix || '';
 
   const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'child';
-  const prompt = `${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. The cover should feel premium, inviting, and irresistibly cute. Large bold title "${title}" at the top in a beautiful font. "By GiftMyBook" in small text at the bottom. ${suffix}`;
+  const prompt = `${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom. ${suffix}`;
 
-  // Use the Gemini proxy — same endpoint that illustrationGenerator uses successfully
-  const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
-  const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
+  const apiKey = getNextApiKey();
+  if (!apiKey) throw new Error('No Gemini API key available for upsell cover generation');
 
-  if (!PROXY_URL) throw new Error('GEMINI_PROXY_URL not set — cannot generate upsell cover');
-
-  // Resize cover reference to 256px for the prompt context
+  // Resize cover reference to 256px
   const ref = await sharp(frontCoverBuffer)
     .resize(256, 256, { fit: 'cover' })
     .jpeg({ quality: 80 })
     .toBuffer();
   const refBase64 = ref.toString('base64');
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3 * 60 * 1000); // 3-min timeout per cover
+  const model = 'gemini-3.1-flash-image-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  try {
-    const resp = await fetch(`${PROXY_URL}/generate-image`, {
+  // Use fetchWithTimeout (same as illustrationGenerator) — 3 min per cover
+  const resp = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [
+        { text: prompt },
+        { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
+      ]}],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    }),
+  }, 3 * 60 * 1000); // 3-min timeout
+
+  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text().then(t => t.slice(0, 100))}`);
+
+  const data = await resp.json();
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  for (const part of parts) {
+    if (part.inlineData?.mimeType?.startsWith('image/')) {
+      return Buffer.from(part.inlineData.data, 'base64');
+    }
+  }
+  // Fallback: try proxy if direct call returned no image
+  const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
+  const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
+  if (PROXY_URL) {
+    console.log('[coverGenerator] Direct Gemini returned no image — trying proxy fallback');
+    const proxyResp = await fetchWithTimeout(`${PROXY_URL}/generate-image`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
-      body: JSON.stringify({
-        prompt,
-        model: 'gemini-3.1-flash-image-preview',
-        referenceImageBase64: refBase64,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-    if (!resp.ok) throw new Error(`Proxy ${resp.status}: ${await resp.text().then(t => t.slice(0, 100))}`);
-
-    const data = await resp.json();
-    if (!data.imageBase64) throw new Error('No imageBase64 in proxy response');
-    return Buffer.from(data.imageBase64, 'base64');
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
+      body: JSON.stringify({ prompt, model }),
+    }, 3 * 60 * 1000);
+    if (!proxyResp.ok) throw new Error(`Proxy fallback ${proxyResp.status}`);
+    const proxyData = await proxyResp.json();
+    if (proxyData.imageBase64) return Buffer.from(proxyData.imageBase64, 'base64');
   }
+  throw new Error('No image in Gemini response (direct + proxy both failed)');
 }
 
 /**
