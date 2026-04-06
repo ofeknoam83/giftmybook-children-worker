@@ -358,8 +358,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
 
   // ── Front matter ──────────────────────────────────────────────────────────
   buildBlankPage(pdfDoc, pw, ph);
-  buildTitlePage(pdfDoc, pw, ph, fonts, { title, childName });
   buildDedicationPage(pdfDoc, pw, ph, fonts, { bookFrom, dedication });
+  buildTitlePage(pdfDoc, pw, ph, fonts, { title, childName });
 
   // ── Story spreads ─────────────────────────────────────────────────────────
   // picture_book (age ≤5): spreadIllustrationBuffer = wide 16:9 image → split into left+right pages
