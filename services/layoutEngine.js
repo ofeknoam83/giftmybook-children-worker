@@ -291,7 +291,7 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
       p.drawRectangle({ x: cardX - 1, y: coverY - 1, width: CARD_W + 2, height: COVER_H + 2,
         borderColor: C.goldLight, borderWidth: 1 });
 
-      // QR — top-right of cover, white bg
+      // QR — bottom-right of cover, white bg
       if (qrcode && bookId) {
         const QR_SZ = 50;
         try {
@@ -299,7 +299,7 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
             { type: 'png', width: 220, margin: 1 });
           const qrImg = await pdfDoc.embedPng(qrBuf);
           const qrX = cardX + CARD_W - QR_SZ - 5;
-          const qrY = coverY + COVER_H - QR_SZ - 5;
+          const qrY = coverY + 5; // bottom-right (PDF y=0 is bottom)
           p.drawRectangle({ x: qrX - 2, y: qrY - 2, width: QR_SZ + 4, height: QR_SZ + 4, color: C.white });
           p.drawImage(qrImg, { x: qrX, y: qrY, width: QR_SZ, height: QR_SZ });
         } catch (e) { console.warn(`[LayoutEngine] QR failed: ${e.message}`); }
