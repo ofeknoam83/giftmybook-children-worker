@@ -88,6 +88,10 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
 - The story can still wind down for bedtime at the end (returning home, settling into camp, etc.), but the middle must be a real journey.`;
   }
 
+  if (details && details.trim()) {
+    prompt += `\n\n\u26a0\ufe0f MANDATORY PERSONALIZATION — THE PARENT WROTE THIS ABOUT THEIR CHILD:\n"${details.trim()}"\nEvery specific person, place, object, or quirk mentioned here MUST appear concretely in the story — not as vague inspiration, but as actual named elements. If a grandparent is mentioned, they appear (voice/presence, not illustrated). If a pet is named, it appears. If a real place is named, the child goes there.`;
+  }
+
   prompt += `
 
 Generate the COMPLETE story as a JSON object with this structure:`;
@@ -284,15 +288,24 @@ ${details ? `- Special requests / real quirks: ${details}` : ''}
 
 Theme: ${theme || 'bedtime'}`;
 
-  if (theme === 'adventure') {
-    prompt += `
+  // Theme-specific structural rules
+  const themeJourneyRules = {
+    adventure: `\n\nADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):\nThis is an ADVENTURE book. The story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — crossing terrain, discovering new places, encountering different environments.\n- Every 2-3 spreads places the child in a NEW, visually distinct location.\n- The child physically travels (walk, climb, cross, wade, fly, ride) — not stay in one room or garden.\n- A story that stays in a single location is NOT an adventure.`,
+    birthday: `\n\nBIRTHDAY THEME — CELEBRATION ARC (CRITICAL):\nThis is a BIRTHDAY story. It must feel joyful, energetic, and special from spread 1.\n- The child is the birthday hero — this is THEIR day.\n- Include a birthday quest, surprise, or discovery that drives the plot.\n- There must be a celebration PEAK moment (spread 9-10): wonder, joy, something unforgettable.\n- The story must NOT feel like a generic bedtime story — it has momentum and excitement.\n- The ending brings warmth and belonging, earned through the adventure.`,
+    holiday: `\n\nHOLIDAY THEME — FESTIVE MAGIC ARC (CRITICAL):\nThis is a HOLIDAY story. Festive magic must be present from spread 1.\n- The child discovers or delivers something magical connected to the holiday.\n- Include at least 3 visually distinct festive locations.\n- The emotional peak is connection and belonging — the holiday feeling fulfilled.\n- High energy through middle spreads, warm and cozy at the end.`,
+    school: `\n\nSCHOOL THEME — BELONGING ARC (CRITICAL):\nThis is a SCHOOL ADVENTURE story.\n- At least 3 distinct school locations (classroom, playground, hallway, cafeteria, gym — pick specific ones).\n- The child faces a real social or emotional challenge (being new, making a mistake, feeling excluded).\n- The story ends in confidence and belonging — the child has EARNED their place.\n- Avoid generic "first day goes fine" stories. There must be a real hinge moment.`,
+    space: `\n\nSPACE THEME — COSMIC JOURNEY RULE (CRITICAL):\nThis is a SPACE EXPLORATION story.\n- At least 3 different cosmic settings: a colorful planet, a star-field, a nebula, a moon — each visually unique.\n- The cosmos is playful, not scientifically accurate — stars can speak, planets have personalities.\n- The child discovers something no one has seen before.\n- The ending returns them home, carrying the universe inside.`,
+    underwater: `\n\nUNDERWATER THEME — OCEAN JOURNEY RULE (CRITICAL):\nThis is an UNDERWATER ADVENTURE.\n- At least 3 ocean zones: sunlit reef, deeper blue, dark deep — each with different lighting and creatures.\n- The ocean world has personality: creatures that help, currents that push, bioluminescence that guides.\n- The child finds something hidden in the deep and brings it back to the surface.`,
+    fantasy: `\n\nFANTASY THEME — QUEST ARC (CRITICAL):\nThis is a FANTASY QUEST. The child crosses into an enchanted world and must complete a quest.\n- At least 4 locations: the threshold, an enchanted forest/field, a castle/tower, the quest endpoint.\n- Victory comes from cleverness or heart, not force. The favorite object is key.`,
+    nature: `\n\nNATURE THEME — DISCOVERY ARC (CRITICAL):\nThis is a NATURE DISCOVERY story.\n- At least 3 distinct natural locations with different light, sound, and life.\n- An animal or plant needs help — the child must observe carefully before acting.\n- The natural world responds to the child's care — something heals, blooms, or moves.`,
+  };
 
-ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
-This is an ADVENTURE book. The story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — crossing terrain, discovering new places, and encountering different environments.
-- Every 2-3 spreads should place the child in a NEW, visually distinct location.
-- The child must physically travel (walk, climb, cross, wade, fly, ride) — not stay in one room or garden.
-- A story that stays in a single location is NOT an adventure. The journey IS the story.
-- The story can still wind down for bedtime at the end (returning home, settling into camp, etc.), but the middle must be a real journey through different places.`;
+  if (themeJourneyRules[theme]) {
+    prompt += themeJourneyRules[theme];
+  }
+
+  if (details && details.trim()) {
+    prompt += `\n\n\u26a0\ufe0f MANDATORY PERSONALIZATION — THE PARENT WROTE THIS ABOUT THEIR CHILD:\n"${details.trim()}"\nEvery specific person, place, object, or quirk mentioned here MUST appear concretely in the story — not as vague inspiration, but as actual named elements. If a grandparent is mentioned, they appear (voice/presence, not illustrated). If a pet is named, it appears. If a real place is named, the child goes there. Do not generalize or ignore any detail.`;
   }
 
   if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length >= 12) {
@@ -322,8 +335,8 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
 - Follow ALL writing rules from the system brief (age tier, pacing, dialogue, etc.).`;
 
   // Inject theme-specific context if provided
-  if (vars.themeContext) {
-    prompt += vars.themeContext;
+  if (v2Vars?.themeContext) {
+    prompt += v2Vars.themeContext;
   }
 
   return prompt;

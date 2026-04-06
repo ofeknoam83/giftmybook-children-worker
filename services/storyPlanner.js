@@ -152,6 +152,124 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
  * @param {object} [opts] - { apiKeys, costTracker, theme }
  * @returns {Promise<object>} { favorite_object, fear, setting, storySeed }
  */
+function getThemeBeatStructure(theme) {
+  switch (theme) {
+    case 'birthday':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY arc:
+   - Spread 1: The child wakes up — it's their birthday. Something feels different, magical, or surprising.
+   - Spread 2: A birthday quest or surprise begins — something is missing, hidden, or has to be found/reached.
+   - Spreads 3-4: The journey to find it — new locations, excitement building, friends or creatures along the way.
+   - Spread 5: A wonderful discovery or first celebration moment.
+   - Spread 6: THE HINGE — something goes wrong, almost ruins the celebration (lost item, wrong path, unexpected obstacle).
+   - Spreads 7-8: The child fixes it — uses their favorite object or a new friend to turn it around.
+   - Spreads 9-10: The celebration reaches its peak — wonder, joy, the moment they will remember.
+   - Spread 11: Returning home, full of joy and birthday energy.
+   - Spread 12: Homecoming — visually silent, no text. The child is back, surrounded by warmth.
+   - Spread 13: Settled in, happy, the birthday magic still glowing.`;
+
+    case 'holiday':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this HOLIDAY arc:
+   - Spread 1: Holiday preparations begin — the child sees or senses the magic coming.
+   - Spread 2: A holiday mystery or mission starts (something to find, deliver, or discover).
+   - Spreads 3-4: Journey through festive locations — each with wonder and a small obstacle.
+   - Spread 5: A magical holiday encounter (a creature, a gift, a secret).
+   - Spread 6: THE HINGE — the mission is at risk. Something unexpected blocks the path.
+   - Spreads 7-8: The child finds a way through — holiday spirit and their favorite object help.
+   - Spreads 9-10: The holiday magic is fulfilled — lights, warmth, belonging.
+   - Spread 11: Heading home through the festive night.
+   - Spread 12: Homecoming — visually silent.
+   - Spread 13: Cozy, warm, the holiday feeling settled in.`;
+
+    case 'school':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this SCHOOL arc:
+   - Spread 1: The child arrives at school (first day, or a special day) — nervous but curious.
+   - Spread 2: Something unexpected happens — a mystery, a challenge, or a new face.
+   - Spreads 3-4: Exploring the school world — classroom, playground, hallway — each with its own moment.
+   - Spread 5: A friendship or connection begins.
+   - Spread 6: THE HINGE — something goes wrong (lost, excluded, a mistake in front of everyone).
+   - Spreads 7-8: The child finds courage — their favorite object or the new friend helps.
+   - Spreads 9-10: A triumph — a presentation, a game, a moment of belonging.
+   - Spread 11: End of day, walking out — taller, more confident.
+   - Spread 12: Homecoming — visually silent.
+   - Spread 13: Home. Settled. Tomorrow feels possible.`;
+
+    case 'space':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this SPACE arc:
+   - Spread 1: The child discovers something (a signal, a telescope, a rocket) — the cosmos calls.
+   - Spread 2: Launch — leaving Earth, the world shrinks below.
+   - Spreads 3-4: First planets or star-fields — each visually distinct, each with a wonder and a challenge.
+   - Spread 5: A cosmic encounter — a planet with personality, a star that speaks, a lost astronaut.
+   - Spread 6: THE HINGE — the child is lost, the rocket stalls, or something vital is missing.
+   - Spreads 7-8: Breakthrough — the favorite object holds a clue, or a new sky-friend helps navigate.
+   - Spreads 9-10: The destination reached — a moon, a nebula, a discovery no one has seen before.
+   - Spread 11: The journey home — Earth grows larger below.
+   - Spread 12: Landing — visually silent.
+   - Spread 13: Back in bed, stars through the window, carrying the universe inside.`;
+
+    case 'underwater':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this UNDERWATER arc:
+   - Spread 1: The child is near water — something shimmers, calls, or falls in.
+   - Spread 2: The dive — the world transforms, colors shift, bubbles rise.
+   - Spreads 3-4: Exploring the ocean — coral reef, deeper blue, dark deep. Each zone different and vivid.
+   - Spread 5: A sea creature befriends them or leads them somewhere.
+   - Spread 6: THE HINGE — the child is caught, tangled, or lost in the deep dark.
+   - Spreads 7-8: Finding a way — the favorite object glows, floats, or guides.
+   - Spreads 9-10: The discovery — a hidden treasure, a whale song, a light in the deep.
+   - Spread 11: Rising back toward the surface — light growing above.
+   - Spread 12: Breaking the surface — visually silent.
+   - Spread 13: On the shore or in bed, something from the deep still in hand.`;
+
+    case 'fantasy':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FANTASY QUEST arc:
+   - Spread 1: The ordinary world — then a door, a map, or a creature appears.
+   - Spread 2: Crossing the threshold — into the enchanted world.
+   - Spreads 3-4: The quest unfolds — forest, castle, river, each with wonder and an obstacle.
+   - Spread 5: An ally joins — a creature, a wise old figure, a magical being.
+   - Spread 6: THE HINGE — the hardest challenge: a locked gate, a guardian, a riddle with no answer.
+   - Spreads 7-8: The child solves it — cleverness or heart, not force. The favorite object is key.
+   - Spreads 9-10: Victory — the quest fulfilled, the magic restored or the treasure found.
+   - Spread 11: The journey back through the enchanted world.
+   - Spread 12: Through the door — visually silent.
+   - Spread 13: Home. The magic still warm. Sleep comes easy.`;
+
+    case 'nature':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this NATURE arc:
+   - Spread 1: The child steps outside — something in nature catches their eye or calls them.
+   - Spread 2: Following the call — into the garden, the forest, the field, or the river.
+   - Spreads 3-4: Discovery — animals, plants, weather. Each encounter vivid and specific.
+   - Spread 5: The child finds something that needs help (a lost creature, a wilting plant, a blocked stream).
+   - Spread 6: THE HINGE — the child can't fix it alone. Something is too big, too tangled, too far.
+   - Spreads 7-8: Working with nature — patience, observation, the right tool (the favorite object).
+   - Spreads 9-10: The natural world responds — healing, returning, blooming, moving.
+   - Spread 11: Walking home through the changed landscape.
+   - Spread 12: Arriving home — visually silent.
+   - Spread 13: In bed, the sound of nature still outside. Connected.`;
+
+    case 'friendship':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FRIENDSHIP arc:
+   - Spread 1: The child is alone, or something changes — a new face, a strange creature, an unexpected meeting.
+   - Spread 2: A hesitant approach — the child and the new friend circle each other.
+   - Spreads 3-4: A shared adventure begins — exploring together, each bringing something different.
+   - Spread 5: A moment of pure joy — they fit together perfectly.
+   - Spread 6: THE HINGE — a misunderstanding or conflict. The friendship feels broken.
+   - Spreads 7-8: The repair — honesty, the favorite object as a gift or gesture, finding each other again.
+   - Spreads 9-10: The friendship deepens — a shared secret, a promise, a place that's just theirs.
+   - Spread 11: Saying goodbye for now — but knowing they'll be back.
+   - Spread 12: Going home — visually silent.
+   - Spread 13: In bed, something from the friend nearby. Not alone.`;
+
+    default: // adventure, bedtime
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
+   - Spreads 1-2: Setup (normal world → call to adventure, child leaves home)
+   - Spreads 3-5: Rising action (new locations, each with its own obstacle)
+   - Spread 6: THE HINGE — child is stuck, blocked, or almost fails (this is the most important beat — make it specific and tense)
+   - Spreads 7-9: Breakthrough (child uses the favorite object or courage to overcome the hinge obstacle, victory builds)
+   - Spreads 10-11: Resolution (final challenge solved, journey home begins)
+   - Spread 12: Homecoming — visually silent, no text (child arrives home, changed)
+   - Spread 13: Rest — settled, safe, the world feels bigger`;
+  }
+}
+
 async function brainstormStorySeed(childDetails, customDetails, approvedTitle, opts = {}) {
   const { costTracker, apiKeys, theme } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -161,67 +279,58 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
   const gender = childDetails.gender || childDetails.childGender || '';
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
 
-  const systemPrompt = `You are a creative children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized bedtime picture book (13 spreads).
+  const beatStructure = getThemeBeatStructure(theme);
 
-You will receive details about a child. From these details, invent:
+  const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (13 spreads).
 
-1. favorite_object: A specific companion or object the child carries through the story. NOT a generic teddy bear unless the customer mentioned one. Be creative — it could be a blanket with a name, a toy dinosaur, a music box, a pair of rain boots, a jar of fireflies, etc. If the child has interests, draw from those.
+You will receive details about a child and a THEME. The theme is NOT optional context — it is the structural backbone of the story. Every field you return must serve the theme.
 
-2. fear: A gentle challenge or emotional tension for a bedtime story. NOT always "the dark". Could be: a sound they can't identify, a missing thing they need to find, a place that looks different at night, a friend who isn't answering, being too small to reach something, a storm outside, the feeling of being alone, etc. Make it age-appropriate and specific.
+THEME: ${theme || 'adventure'}
 
-3. setting: A vivid, specific world for the story. NOT "an enchanted forest" every time. Could be: the garden behind their house at twilight, a houseboat on a still lake, a rooftop where pigeons sleep, a grandmother's kitchen that transforms at night, a library after closing time, a train car with curtained windows, etc.
+Return a JSON object with these fields:
 
-4. storySeed: One sentence describing the unique emotional journey. Example: "A child discovers that the rumbling sound in the walls is just the old house settling, and learns to hear it as a lullaby."
+1. favorite_object: A specific companion or object the child carries through the story. Draw from their interests — NOT a generic teddy bear unless the customer mentioned one. A toy dinosaur, a music box, rain boots, a jar of fireflies, a mini telescope, etc.
 
-5. emotional_core: One sentence describing what the PARENT (not the child) will feel after reading this book. This is the emotional truth the story should express, beyond what happens on the page. Example: "A grandparent's love continues to guide even when they aren't in the room." or "The warmth of bedtime rituals can make any unfamiliar place feel safe." Keep it to one sentence.
+2. fear: The specific emotional challenge or obstacle the child must face IN THIS STORY. It must fit the theme — for birthday it might be "the celebration almost ruined", for space it's "lost between stars", for adventure it's a physical barrier. NOT always "the dark".
 
-6. repeated_phrase: A short, soothing phrase (2-6 words) that will repeat through the story and evolve in meaning. NOT generic ("everything will be okay"). Should feel like it belongs in THIS story and have a gentle musical quality — a soft rhyme or rhythm that makes it satisfying to say aloud. Example: "hush now, little seed" or "the house remembers."
+3. setting: A vivid, specific world matching the theme. One sentence describing the overall world (e.g. "a glittering undersea kingdom beneath the bay at the end of their street"). The beats will name the specific locations within it.
 
-7. phrase_arc: Three short descriptions of how the repeated phrase evolves:
-   - early: how it feels the first time (playful, uncertain, questioning)
-   - middle: how it shifts (guiding, braver, searching)
-   - end: how it lands (calm, safe, transformed)
+4. storySeed: One sentence describing the unique emotional journey. Must reflect the theme's arc.
 
-8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
-   - Spreads 1-2: Setup (normal world → call to adventure, child leaves home)
-   - Spreads 3-5: Rising action (new locations, each with its own obstacle)
-   - Spread 6: THE HINGE — child is stuck, blocked, or almost fails (this is the most important beat — make it specific and tense)
-   - Spreads 7-9: Breakthrough (child uses the favorite object or courage to overcome the hinge obstacle, victory builds)
-   - Spreads 10-11: Resolution (final challenge solved, journey home begins)
-   - Spread 12: Homecoming — visually silent, no text (child arrives home, changed)
-   - Spread 13: Rest — settled, safe, the world feels bigger
+5. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
+
+6. repeated_phrase: A short phrase (2-6 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
+
+7. phrase_arc: Three short descriptions of how the phrase evolves:
+   - early: how it feels the first time
+   - middle: how it shifts
+   - end: how it lands
+
+${beatStructure}
+
+MANDATORY PERSONALIZATION:
+If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
 
 ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
-The story text MAY mention family members (parents, grandparents, siblings) by name — they can speak, tuck the child in, etc. However, family members must NEVER appear as visible characters in illustrations. We only have the child's photo, so any depiction of relatives would be a fabricated guess. In illustration prompts, a caregiver's presence can be implied (a warm voice, a light from a doorway, a hand at the frame's edge, a tucked-in blanket) but never shown as a full person with a face. Keep this in mind when designing the setting and beats — scenes should center the child visually even when family is mentioned in text.
+Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.
 
-Be ORIGINAL. Never repeat the same combination twice. Draw from the child's name, age, gender, interests, and any custom details to make this feel personal.
+Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
-ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
-This is an ADVENTURE book. The story MUST be a physical journey through exactly 4 distinct, visually different locations. Rules:
-- Location 1 (spreads 1-2): The starting place — home, village, backyard. Familiar but the adventure calls.
-- Location 2 (spreads 3-5): The first wild place — forest, ocean, cave, sky. Wonder + first obstacle.
-- Location 3 (spread 6): The hinge location — the most dangerous or difficult place. The child is stuck here.
-- Location 4 (spreads 7-10): The discovery place — where the child breaks through and finds what they were seeking.
-- Return journey (spreads 11-13): The child travels back through familiar ground, changed.
-Each location must have DIFFERENT colors, lighting, terrain, and atmosphere. A story that stays in one building, one room, or one garden is NOT an adventure and will be rejected.
-The "setting" field must describe the world as a whole (e.g. "a magical forest kingdom"). The beats must name each specific location the child passes through.
+You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats.`;
 
-You MUST return ONLY a JSON object with these fields:
-{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "emotional_core": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 13 beat"]}`;
+  const genderLabel = gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : (gender && gender !== 'neutral' && gender !== 'not specified' ? gender : '');
 
-  const parts = [`Child: ${name}, age ${age}`];
-  if (gender && gender !== 'neutral' && gender !== 'not specified') {
-    parts.push(gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : gender);
-  }
-  if (interests.length) parts.push(`Interests: ${interests.join(', ')}`);
-  if (theme) parts.push(`Theme: ${theme}`);
-  if (customDetails) parts.push(`Customer note: ${customDetails}`);
-  if (approvedTitle) parts.push(`The book title is already chosen: "${approvedTitle}". The story seed must fit this title.`);
-  if (theme === 'adventure') {
-    parts.push('IMPORTANT: This is an ADVENTURE book. The story must be a physical journey through multiple distinct locations. The child must travel and explore — not stay in one place. Each beat should name the specific location the child is in.');
+  let userPrompt = `THEME: ${theme || 'adventure'}
+Child: ${name}, age ${age}${genderLabel ? `, ${genderLabel}` : ''}
+Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
+
+  if (customDetails && customDetails.trim()) {
+    userPrompt += `\n\n⚠️ MANDATORY CUSTOMER DETAILS — These are real facts the parent wrote about their child. Every specific person, place, object, or quirk mentioned here MUST appear concretely in the story beats. Do not ignore or generalize any of it:\n${customDetails.trim()}`;
   }
 
-  const userPrompt = parts.join('. ');
+  if (approvedTitle) {
+    userPrompt += `\n\nThe book title is already chosen: "${approvedTitle}". The story seed and beats must fit this title exactly.`;
+  }
 
   console.log(`[storyPlanner] Brainstorming story seed for ${name}...`);
   const seedStart = Date.now();
