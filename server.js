@@ -1391,7 +1391,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  const { bookId, title, spreads, coverData, bookFormat, childName, apiKeys } = req.body;
+  const { bookId, title, spreads, coverData, bookFormat, childName, bookFrom, dedication, upsellCovers, apiKeys } = req.body;
 
   console.log(`[server] /finalize-book: bookId=${bookId}, spreads=${spreads.length}`);
   const bookContext = createBookContext(bookId);
@@ -1402,17 +1402,47 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     for (const spread of spreads) {
       let imageBuffer = null;
       if (spread.imageUrl) {
-        imageBuffer = await downloadBuffer(spread.imageUrl);
+        try { imageBuffer = await downloadBuffer(spread.imageUrl); } catch(e) {
+          console.warn(`[finalize-book] Could not download spread image: ${e.message}`);
+        }
       }
-      spreadsWithBuffers.push({ ...spread, illustrationBuffer: imageBuffer });
+      spreadsWithBuffers.push({ ...spread, spreadIllustrationBuffer: imageBuffer });
       bookContext.touchActivity();
+    }
+
+    // Download upsell cover buffers if provided
+    let resolvedUpsellCovers = [];
+    if (Array.isArray(upsellCovers) && upsellCovers.length > 0) {
+      resolvedUpsellCovers = await Promise.all(upsellCovers.map(async uc => {
+        try {
+          // coverUrl may be a signed GCS URL, a data URI, or a public URL
+          let coverBuffer = null;
+          if (uc.coverUrl && uc.coverUrl.startsWith('data:')) {
+            const base64Data = uc.coverUrl.split(',')[1];
+            coverBuffer = Buffer.from(base64Data, 'base64');
+          } else if (uc.coverUrl) {
+            coverBuffer = await downloadBuffer(uc.coverUrl);
+          } else if (uc.gcsPath) {
+            coverBuffer = await downloadBuffer(uc.gcsPath);
+          }
+          return { ...uc, coverBuffer };
+        } catch(e) {
+          console.warn(`[finalize-book] Could not load upsell cover ${uc.index}: ${e.message}`);
+          return { ...uc, coverBuffer: null };
+        }
+      }));
+      resolvedUpsellCovers = resolvedUpsellCovers.filter(u => u.coverBuffer);
     }
 
     // Assemble final PDF
     const pdfBuffer = await assemblePdf(spreadsWithBuffers, bookFormat || 'picture_book', {
       title: title || 'My Story',
       childName: childName || '',
+      bookFrom: bookFrom || '',
+      dedication: dedication || '',
       year: new Date().getFullYear(),
+      bookId,
+      upsellCovers: resolvedUpsellCovers,
     });
     bookContext.touchActivity();
 
