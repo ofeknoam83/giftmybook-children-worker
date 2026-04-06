@@ -97,7 +97,7 @@ async function embedFullBleed(pdfDoc, page, buf) {
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
   // fit: 'cover' fills the page edge-to-edge (full-bleed design intent)
   const r = await sharp(buf)
-    .resize(wp, hp, { fit: 'cover' })
+    .resize(wp, hp, { fit: 'cover', position: 'top' })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   const img = await pdfDoc.embedJpg(r);
   page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
@@ -112,11 +112,11 @@ async function splitSpreadImage(buf, pw, ph) {
   // Text is NOT in the image (skipTextEmbed:true) so cover cropping is safe
   const leftBuf  = await sharp(buf)
     .extract({ left: 0,     top: 0, width: halfW, height: meta.height })
-    .resize(wp, hp, { fit: 'cover' })
+    .resize(wp, hp, { fit: 'cover', position: 'top' })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   const rightBuf = await sharp(buf)
     .extract({ left: halfW, top: 0, width: halfW, height: meta.height })
-    .resize(wp, hp, { fit: 'cover' })
+    .resize(wp, hp, { fit: 'cover', position: 'top' })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   return { leftBuf, rightBuf };
 }
