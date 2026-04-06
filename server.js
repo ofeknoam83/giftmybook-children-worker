@@ -310,6 +310,14 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           } else {
             bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
           }
+          // Find the most recent completed illustration as style reference
+          let prevIllustrationUrl = null;
+          for (let pi = idx - 1; pi >= 0; pi--) {
+            const prev = results[pi];
+            const prevUrl = prev?.spreadIllustrationUrl || prev?.illustrationUrl;
+            if (prevUrl) { prevIllustrationUrl = prevUrl; break; }
+          }
+
           const illustrationPromise = generateIllustration(prompt, characterRef, style, {
             apiKeys,
             costTracker,
@@ -330,6 +338,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             isSpread: job.isSpread || false,
             deadlineMs: 200000,
             abortSignal: bookContext.abortController.signal,
+            prevIllustrationUrl,
           });
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)

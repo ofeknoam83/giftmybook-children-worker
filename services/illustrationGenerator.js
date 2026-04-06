@@ -426,7 +426,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   ];
 
   if (opts.prevIllustrationBase64) {
-    parts.push({ text: 'PREVIOUS ILLUSTRATION FOR THIS SPREAD (use as style and composition reference — match the art style, color palette, and mood, but apply the new scene and any admin overrides):' });
+    parts.push({ text: 'PREVIOUS SPREAD ILLUSTRATION (reference for style consistency — match the art style, color palette, lighting mood, and character rendering quality from this image. Apply to the NEW scene described above. Do NOT copy the scene or composition):' });
     parts.push({ inline_data: { mimeType: opts.prevIllustrationMime || 'image/jpeg', data: opts.prevIllustrationBase64 } });
   }
 
