@@ -7,7 +7,7 @@
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
-const { buildV2Brief, buildWritingBrief, buildStructureBrief, buildChildContext, getAgeTier } = require('./writerBrief');
+const { buildV2Brief, buildWritingBrief, buildStructureBrief, buildChildContext, getAgeTier, getDialectVars } = require('./writerBrief');
 
 /**
  * Build system prompt for V2 story planner.
@@ -155,6 +155,7 @@ function buildAdventureWritingBrief(vars) {
   const fear = vars.fear || 'the unknown';
   const setting = vars.setting || 'a magical world';
   const { config } = getAgeTier(age);
+  const dialectInfo = getDialectVars(vars.countryCode);
 
   return `You are a world-class children's adventure book author. You write picture books that feel like real quests — full of vivid locations, genuine stakes, and a child hero who earns every victory.
 
@@ -203,7 +204,11 @@ WHAT MAKES THIS BOOK GREAT:
 - A parent should feel their heart rate rise at spread 6 and exhale at spread 13
 - The child protagonist should feel brave, capable, and real
 - Every location should be so vivid a child can draw it from memory
-- The ending should feel EARNED — not just "then they went home"`;
+- The ending should feel EARNED — not just "then they went home"
+
+DIALECT & SPELLING — use \${dialectInfo.dialect} throughout:
+\${dialectInfo.dialectRule}
+Never mix dialects. Every word in the story must be consistent.`;
 }
 
 /**

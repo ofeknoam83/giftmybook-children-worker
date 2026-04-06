@@ -576,6 +576,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
   } = sanitized;
   const heartfeltNote = req.body.heartfeltNote || null;
   const bookFrom = req.body.bookFrom || null;
+  const countryCode = req.body.countryCode || null; // e.g. 'US', 'GB', 'AU'
   const apiKeys = req.body.apiKeys;
 
   // Merge child anecdotes into customDetails so the planner can use them
@@ -754,6 +755,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         beats: storySeed.beats || [],
         repeated_phrase: storySeed.repeated_phrase || '',
         phrase_arc: storySeed.phrase_arc || [],
+        countryCode: countryCode || null,
       };
 
       // Append story seed to custom details so the planner has the full creative direction

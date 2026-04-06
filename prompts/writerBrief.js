@@ -123,6 +123,10 @@ WRITING QUALITY OVERRIDES (MANDATORY)
 - Never state emotions directly (no: "she was scared", "he felt happy").
   Always show emotion through action, sensory detail, or environment.
 
+- DIALECT & SPELLING — use {dialect} throughout:
+  {dialectRule}
+  Never mix dialects. Every single word — story text, dedication, any labels — must be consistent.
+
 - Every spread must contain a small tension, question, or imbalance.
 
 - The child must actively cause the turning point and resolution.
@@ -486,6 +490,10 @@ STYLE RULES:
 - Prefer concrete, visual words (blanket, moon, steps, glow)
 - Avoid abstract phrases and vague words ("magical", "special", "nice", "wonderful")
 
+3.5 DIALECT & SPELLING — use {dialect} throughout:
+{dialectRule}
+Never mix dialects. Every single word in the story must be consistent with the locale above.
+
 4. PLAYFUL INVENTION
 - Allow occasional invented words or sounds (e.g. "tinky", "luma", "sniffle-pop")
 - These should be easy to pronounce and emotionally meaningful
@@ -833,10 +841,33 @@ function buildV2Brief(vars) {
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
  * @returns {string}
  */
+
+// ── Dialect helper ──────────────────────────────────────────────────────────
+const BRITISH_COUNTRIES = new Set([
+  'GB', 'UK', 'AU', 'NZ', 'IE', 'ZA', 'IN', 'SG', 'MY', 'HK', 'NG', 'KE', 'GH',
+  'JM', 'TT', 'BB', 'MT', 'CY', 'MS', 'VG', 'KY', 'TC', 'BM',
+]);
+
+function getDialectVars(countryCode) {
+  const code = (countryCode || 'US').toUpperCase().trim();
+  if (BRITISH_COUNTRIES.has(code)) {
+    return {
+      dialect: 'British English',
+      dialectRule: `Use British spellings and vocabulary throughout: colour, favourite, mum, nappy, biscuit, jumper, torch, loo, flat, brilliant, lovely, whilst, amongst, autumn, fortnight, rubbish, queue, trainers, garden, post (not mail), solicitor. Use British idioms naturally — do not force them, but never use American alternatives.`,
+    };
+  }
+  // Default: American English
+  return {
+    dialect: 'American English',
+    dialectRule: `Use American spellings and vocabulary throughout: color, favorite, mom, diaper, cookie, sweater, flashlight, bathroom, yard, apartment, awesome, fall (not autumn), trash, sneakers, mail (not post), lawyer. Never use British spellings or vocabulary.`,
+  };
+}
+
 function buildWritingBrief(vars) {
   const { name, favorite_object, fear, setting } = vars;
   const age = Number(vars.age) || 5;
   const { config } = getAgeTier(age);
+  const { dialect, dialectRule } = getDialectVars(vars.countryCode);
   let brief = WRITING_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
   brief = brief.replace(/\{age\}/g, String(age));
@@ -845,6 +876,8 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
+  brief = brief.replace(/\{dialect\}/g, dialect);
+  brief = brief.replace(/\{dialectRule\}/g, dialectRule);
   return brief;
 }
 
@@ -916,6 +949,7 @@ module.exports = {
   buildChildContext,
   getAgeProfile,
   getAgeTier,
+  getDialectVars,
   AGE_PROFILES,
   AGE_TIERS,
 };
