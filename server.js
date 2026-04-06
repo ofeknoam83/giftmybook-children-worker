@@ -242,17 +242,16 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     if (entry.type === 'dedication_page') return null;
     if (entry.type === 'spread') {
       const spreadText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
-      if (entry.spread_image_prompt) return { idx, prompt: entry.spread_image_prompt, field: 'spreadIllustrationUrl', pageText: spreadText, isSpread: true };
-      const jobs = [];
-      if (entry.left?.image_prompt) jobs.push({ idx, prompt: entry.left.image_prompt, field: 'leftIllustrationUrl', pageText: entry.left.text || '' });
-      if (entry.right?.image_prompt) jobs.push({ idx, prompt: entry.right.image_prompt, field: 'rightIllustrationUrl', pageText: entry.right.text || '' });
-      if (jobs.length) return jobs;
-      if (spreadText) {
-        const synthPrompt = `Children's book illustration for this scene: ${spreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.`;
-        bookContext.log('warn', `Spread ${entry.spread}: no image prompt — synthesizing from text`, { textLength: spreadText.length });
-        return { idx, prompt: synthPrompt, field: 'spreadIllustrationUrl', pageText: spreadText, isSpread: true };
+      // Always generate as a single wide spread (16:9) — never as separate left/right pages
+      const spreadPrompt = entry.spread_image_prompt
+        || entry.left?.image_prompt
+        || entry.right?.image_prompt
+        || (spreadText ? `Children's book illustration for this scene: ${spreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.` : null);
+      if (!spreadPrompt) return null;
+      if (!entry.spread_image_prompt && (entry.left?.image_prompt || entry.right?.image_prompt)) {
+        bookContext.log('info', `Spread ${entry.spread}: using left/right prompt as spread (forced wide format)`);
       }
-      return null;
+      return { idx, prompt: spreadPrompt, field: 'spreadIllustrationUrl', pageText: spreadText, isSpread: true };
     }
     return null;
   }).flat().filter(Boolean);

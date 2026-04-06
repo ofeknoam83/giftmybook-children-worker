@@ -350,9 +350,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
 
   // ── Story spreads ─────────────────────────────────────────────────────────
   // picture_book (age ≤5): spreadIllustrationBuffer = wide 16:9 image → split into left+right pages
-  // early_reader  (age >5): leftIllustrationBuffer + rightIllustrationBuffer = separate 1:1 images,
-  //                         each rendered as its own full page (no splitting needed)
-  const isPictureBook = (bookFormat || '').toUpperCase() !== 'EARLY_READER';
+  // Always use spread format — illustrations are always wide 16:9 split down center
+  const isPictureBook = true; // was: (bookFormat || '').toUpperCase() !== 'EARLY_READER'
 
   for (const entry of storyEntries) {
     if (entry.type !== 'spread') continue;
