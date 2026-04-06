@@ -325,6 +325,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             childName: childDetails.name,
             characterOutfit: outfit,
             characterDescription: storyPlan.characterDescription || '',
+            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
             recurringElement: storyPlan.recurringElement || '',
             keyObjects: storyPlan.keyObjects || '',
             coverArtStyle: storyPlan.coverArtStyle || '',
@@ -881,7 +882,26 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Analyze this children's book cover image and respond with exactly two labeled sections.\n\nCHARACTER:\nReturn the character description in this exact format:\nHAIR: [exact color, style, length, texture, and any accessories — e.g. "tight coily black hair, approximately 1 inch, no hair accessories" or "shoulder-length straight brown hair with a pink bow clip"]\nEYES: [color]\nSKIN: [tone description]\nBUILD: [approximate age/size cues visible]\nNOTABLE: [any distinguishing features]\n\nIf you cannot determine a field from the image, write "not visible".\n\nSTYLE:\nDescribe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.\n\nYou MUST start the first section with the word CHARACTER: and the second with STYLE:` },
+                    { text: `Analyze this children's book cover image and respond with exactly three labeled sections.
+
+CHARACTER:
+Describe the MAIN child character in this exact format:
+HAIR: [exact color, style, length, texture, and any accessories]
+EYES: [color]
+SKIN: [tone description]
+BUILD: [approximate age/size cues visible]
+NOTABLE: [any distinguishing features]
+
+If you cannot determine a field from the image, write "not visible".
+
+ADDITIONAL_CHARACTERS:
+List any OTHER characters visible on the cover besides the main child. For each one write:
+- [relationship if apparent, e.g. grandmother/elderly woman/adult man]: [brief appearance description — hair, skin, clothing, distinguishing features]. If no other characters are present, write: NONE.
+
+STYLE:
+Describe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.
+
+You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: exactly.` },
                     { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
                   ]}],
                   generationConfig: { maxOutputTokens: 1000, temperature: 0.2 },
@@ -893,8 +913,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
               const visionData = await visionResp.json();
               const extractedDesc = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
               if (extractedDesc && extractedDesc.length > 20) {
-                // Parse CHARACTER and STYLE sections
-                const charMatch = extractedDesc.match(/CHARACTER[:\s]+([\s\S]*?)(?=\nSTYLE[:\s]|$)/i);
+                // Parse CHARACTER, ADDITIONAL_CHARACTERS, and STYLE sections
+                const charMatch = extractedDesc.match(/CHARACTER[:\s]+([\s\S]*?)(?=\nADDITIONAL_CHARACTERS[:\s]|\nSTYLE[:\s]|$)/i);
+                const addlMatch = extractedDesc.match(/ADDITIONAL_CHARACTERS[:\s]+([\s\S]*?)(?=\nSTYLE[:\s]|$)/i);
                 const styleMatch = extractedDesc.match(/STYLE[:\s]+([\s\S]*?)$/i);
                 if (charMatch?.[1]?.trim()) {
                   storyPlan.characterDescription = charMatch[1].trim();
@@ -902,6 +923,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
                 } else {
                   storyPlan.characterDescription = extractedDesc;
                   bookContext.log('info', 'Character appearance extracted (unstructured)', { description: extractedDesc.slice(0, 100) });
+                }
+                // Store additional cover characters (Grammy, siblings, etc.) for illustration allowlist
+                const addlRaw = addlMatch?.[1]?.trim();
+                if (addlRaw && addlRaw.toUpperCase() !== 'NONE' && addlRaw.length > 4) {
+                  storyPlan.additionalCoverCharacters = addlRaw;
+                  bookContext.log('info', 'Additional cover characters detected', { characters: addlRaw.slice(0, 150) });
+                } else {
+                  storyPlan.additionalCoverCharacters = null;
                 }
                 if (styleMatch?.[1]?.trim()) {
                   storyPlan.coverArtStyle = styleMatch[1].trim();
