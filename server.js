@@ -29,7 +29,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed, rhythmCritic, emotionalArcCritic, finalPolish } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
@@ -819,6 +819,45 @@ app.post('/generate-book', authenticate, async (req, res) => {
         } catch (polishErr) {
           bookContext.log('warn', `Self-critic pass failed — using original text: ${polishErr.message}`);
           // Non-fatal: continue with original text
+        }
+
+        // ── Rhythm & Simplicity Critic ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting rhythm & simplicity critic');
+        try {
+          storyPlan = await rhythmCritic(storyPlan, { apiKeys, costTracker });
+          bookContext.log('info', 'Rhythm critic complete');
+          bookContext.touchActivity();
+        } catch (err) {
+          bookContext.log('warn', `Rhythm critic failed — using previous text: ${err.message}`);
+        }
+
+        // ── Emotional Arc Critic ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting emotional arc critic');
+        try {
+          storyPlan = await emotionalArcCritic(storyPlan, { apiKeys, costTracker });
+          bookContext.log('info', 'Emotional arc critic complete');
+          bookContext.touchActivity();
+        } catch (err) {
+          bookContext.log('warn', `Emotional arc critic failed — using previous text: ${err.message}`);
+        }
+
+        // ── Final Polish ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting final polish');
+        try {
+          storyPlan = await finalPolish(storyPlan, { apiKeys, costTracker });
+          bookContext.log('info', 'Final polish complete');
+          bookContext.touchActivity();
+          // Save final polished content to DB
+          if (progressCallbackUrl) {
+            const finalContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
+            reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: finalContent, logs: bookContext.logs }).catch(() => {});
+          }
+          await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString() });
+        } catch (err) {
+          bookContext.log('warn', `Final polish failed — using previous text: ${err.message}`);
         }
       }
 

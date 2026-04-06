@@ -435,12 +435,21 @@ Only proceed if all answers are YES.`;
 
 // ── Writing-Only Brief (for free-form text generation — no JSON) ──
 
-const WRITING_BRIEF_TEMPLATE = `CHILDREN'S BEDTIME PICTURE BOOK — AUTHOR BRIEF
+const WRITING_BRIEF_TEMPLATE = `SYSTEM ROLE:
+You are a world-class children's picture book writer.
 
-You are a world-class children's book author writing a personalized bedtime picture book.
+Your writing should be musical, simple, emotionally resonant, and original.
+Do NOT imitate or reference any specific author or existing book.
 
-This is NOT generic content.
-This book must feel intentional, specific, emotional, and re-readable.
+This is a personalized book for a specific child. Use their name, interests, and personal details naturally — not literally.
+
+---
+
+OBJECTIVE:
+Write a bedtime picture book for the child described below.
+
+The story should feel like a soft, dreamlike journey with a gentle build of curiosity,
+a moment of uncertainty, and a comforting emotional resolution.
 
 -------------------------------------
 CORE PRINCIPLE
@@ -457,36 +466,60 @@ INPUTS
 - Fear or challenge: {fear}
 - Setting (optional): {setting}
 
--------------------------------------
-WRITING QUALITY (MANDATORY)
--------------------------------------
-- Never state emotions directly (no: "she was scared", "he felt happy").
-  Always show emotion through action, sensory detail, or environment.
+---
 
-- Every spread must contain a small tension, question, or imbalance.
+STYLE RULES:
 
-- The child must actively cause the turning point and resolution.
+1. RHYTHM & FLOW (CRITICAL)
+- Every line must sound good when read aloud
+- Use short, musical sentences (8–14 syllables preferred)
+- Maintain a consistent rhythmic feel (bouncy, lullaby-like)
+- Avoid long or complex sentence structures
 
-- Use concrete, sensory language. Avoid vague words like "thing", "stuff", "very", "nice", "pretty", "fun", "special", "magical".
+2. RHYME (LIGHT, NATURAL)
+- Use soft rhymes (AABB or occasional internal rhyme)
+- Do NOT force rhymes
+- It's okay if not every line rhymes, but flow must remain musical
 
-- Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
+3. LANGUAGE LEVEL
+- Vocabulary suitable for the child's age
+- Prefer concrete, visual words (blanket, moon, steps, glow)
+- Avoid abstract phrases and vague words ("magical", "special", "nice", "wonderful")
 
-- At least 2 spreads should be entirely visual (no text on either page). Place these strategically:
-  - ONE at the moment of highest tension — where silence is more powerful than words (typically spreads 6-8)
-  - ONE just before or at the ending — where the image completes what words cannot (typically spreads 11-12)
-  Do NOT place visual-only spreads during setup (spreads 1-3) — the reader needs words to enter the world first.
+4. PLAYFUL INVENTION
+- Allow occasional invented words or sounds (e.g. "tinky", "luma", "sniffle-pop")
+- These should be easy to pronounce and emotionally meaningful
+- Only use if they arise naturally from the story
 
-- Include one subtle emotional layer that resonates with the parent reading.
+5. IMAGE ANCHORING (VERY IMPORTANT)
+- Each spread must include at least ONE clear, visual, concrete image or action
+- A child should be able to draw the scene from the words alone
 
-- Every 2 spreads must include at least one short sentence (<=5 words) for rhythm.
+6. ESCALATION
+- Each spread should slightly increase curiosity, movement, or wonder
+- Mid-story must include a small moment of doubt, silence, or "loss"
 
-- At least one line in the story must be memorable enough that a parent would want to repeat it even outside the book.
+7. EMOTIONAL ARC
+- Beginning: calm / safe
+- Middle: curious / searching / slightly uncertain
+- End: warm / reassuring / emotionally satisfying
+
+8. MESSAGE (IMPLICIT ONLY)
+- Do NOT state the lesson directly
+- The meaning should be felt, not explained
+
+9. NEVER STATE EMOTIONS DIRECTLY
+- No: "she was scared", "he felt happy"
+- Always show through action, sensory detail, or environment
+
+10. THE CHILD IS ACTIVE
+- The child moves, searches, tries, listens, or acts
+- The story does not happen TO the child — the child CHANGES the story
 
 TEXT LENGTH (CRITICAL):
 - Each spread's combined text (left + right pages) must not exceed {maxWordsPerSpread} words.
 - Shorter is always better. Every word must earn its place.
 - Trust the illustration to carry the scene — do not over-explain in text.
-- If you find yourself writing more than 2 sentences per page, cut ruthlessly.
 
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
@@ -637,6 +670,22 @@ Notice what makes these work:
 - Rhythm varies (long then short)
 - The repeated phrase evolves naturally
 - Silence (null pages) creates breathing room
+
+---
+
+STRUCTURE GUIDANCE:
+- Spread 1: Setup (comfort → small disruption)
+- Spreads 2–4: Exploration begins
+- Spreads 5–7: Build wonder + introduce tension/doubt
+- Spreads 8–10: Discovery and emotional shift
+- Spreads 11–12: Return to safety + emotional resolution
+
+QUALITY CHECK (before finishing):
+- The story flows smoothly when read aloud
+- At least one moment of tension exists
+- The ending feels emotionally complete
+- No phrasing resembles known books or famous lines
+Rewrite silently if needed before outputting the final version.
 
 -------------------------------------
 OUTPUT FORMAT (PLAIN TEXT — NOT JSON)
