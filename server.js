@@ -1269,7 +1269,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 // Regenerate a single spread illustration without stopping the main pipeline.
 // Called by admin "regenerate illustration" button.
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
-  const { bookId, spreadIndex, spreadImagePrompt, pageText, artStyle,
+  const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, recurringElement, keyObjects,
     coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64 } = req.body;
 
@@ -1280,14 +1280,19 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'spreadImagePrompt is required' });
   }
 
-  console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}`);
+  // Append admin prompt injection to scene description if provided
+  const finalPrompt = (promptInjection && promptInjection.trim())
+    ? `${spreadImagePrompt.trimEnd()} ${promptInjection.trim()}`
+    : spreadImagePrompt;
+
+  console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
 
   const costTracker = new CostTracker();
   const style = artStyle || 'cinematic_3d';
 
   try {
     // Generate the illustration
-    const result = await generateIllustration(spreadImagePrompt, null, style, {
+    const result = await generateIllustration(finalPrompt, null, style, {
       costTracker,
       bookId,
       childName,
