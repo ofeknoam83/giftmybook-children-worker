@@ -1475,6 +1475,59 @@ app.post('/finalize-book', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /manage-checkpoint — Read or reset a book checkpoint ──
+// Used by standalone (no GCS creds) to read/modify checkpoints for regenerate-phase.
+app.post('/manage-checkpoint', authenticate, async (req, res) => {
+  const { bookId, action, phase } = req.body;
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!['read', 'reset-phase'].includes(action)) {
+    return res.status(400).json({ success: false, error: 'action must be read or reset-phase' });
+  }
+
+  try {
+    const { Storage } = require('@google-cloud/storage');
+    const storage = new Storage();
+    const BUCKET = process.env.GCS_BUCKET_NAME || 'giftmybook-bucket';
+    const bucket = storage.bucket(BUCKET);
+    const file = bucket.file(`children-jobs/${bookId}/checkpoint.json`);
+
+    const [contents] = await file.download();
+    const checkpoint = JSON.parse(contents.toString());
+
+    if (action === 'read') {
+      return res.json({ success: true, checkpoint });
+    }
+
+    // reset-phase: clear data from the requested phase onwards
+    if (phase === 'story') {
+      delete checkpoint.storyPlan;
+      delete checkpoint.spreadsWithText;
+      delete checkpoint.illustrationResults;
+      checkpoint.completedStage = 'photo_cache';
+    } else if (phase === 'text') {
+      delete checkpoint.spreadsWithText;
+      delete checkpoint.illustrationResults;
+      checkpoint.completedStage = 'story_planning';
+    } else if (phase === 'illustrations') {
+      delete checkpoint.illustrationResults;
+      checkpoint.completedStage = 'text_generation';
+    } else if (phase === 'cover') {
+      checkpoint.completedStage = 'text_generation';
+      delete checkpoint.illustrationResults;
+    } else {
+      return res.status(400).json({ success: false, error: `Unknown phase: ${phase}` });
+    }
+
+    await file.save(JSON.stringify(checkpoint));
+    console.log(`[manage-checkpoint] Reset phase '${phase}' for book ${bookId}`);
+    res.json({ success: true, completedStage: checkpoint.completedStage });
+  } catch (err) {
+    console.error('[manage-checkpoint] Error:', err.message);
+    res.status(err.message.includes('No such object') ? 404 : 500)
+      .json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /get-spread-data — Return checkpoint data for one or more spreads ──
 // Used by standalone to get the real scene prompts + character details for regeneration.
 app.post('/get-spread-data', authenticate, async (req, res) => {
