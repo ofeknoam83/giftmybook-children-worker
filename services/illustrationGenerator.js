@@ -353,7 +353,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- The COMPLETE text must be visible and readable in the image');
     const fontInstruction = opts.fontStyle
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
-      : '- FONT: Use a rounded, bubbly sans-serif font (like Fredoka One / Baloo / Nunito). This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.';
+      : '- FONT: Use Fredoka One exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Fredoka One only, consistently throughout.';
     parts.push(fontInstruction);
     parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
@@ -385,6 +385,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: any text rendered in the image matches EXACTLY what is specified in the page text field — no additions, no rewording. \u2713`);
+  parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
   parts.push('If any check fails, adjust the scene before generating.');
 
   return parts.join('\n');
