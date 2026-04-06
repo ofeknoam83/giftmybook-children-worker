@@ -38,7 +38,7 @@ const AGE_TIERS = {
     dialogue: '2 exchanges required. Rules: (1) Child\'s voice must sound like a real 3-5 year old — short sentences, concrete words, more questions than statements; (2) Dialogue must advance the plot or reveal character — not just describe what the child already knows; (3) The child\'s voice must sound different from the narrator\'s voice.',
     imagePromptStyle: 'wide establishing shots mixed with close emotional moments.',
     fearHandling: 'use as written.',
-    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): deliberate de-escalation.',
     arc: 'full story arc applies.',
     phaseTwo: 10,
     rhymeLevel: 'moderate — roughly half the spreads should contain a rhyme or near-rhyme. Mix rhyming couplets with prose. The repeated phrase should rhyme or have a strong rhythmic beat. At age 3, children still love the musicality of rhyme.',
@@ -55,7 +55,7 @@ const AGE_TIERS = {
     dialogue: '3 exchanges required. May include subtext.',
     imagePromptStyle: 'layered scenes with background detail permitted.',
     fearHandling: 'use as written. May be specific and named.',
-    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 10-12): deliberate de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): deliberate de-escalation.',
     arc: 'arc may include a false resolution before true resolution.',
     phaseTwo: 10,
     rhymeLevel: 'light — occasional internal rhymes or near-rhymes for flavor. Story prose dominates. A couplet here and there, not a pattern.',
@@ -72,7 +72,7 @@ const AGE_TIERS = {
     dialogue: '3-4 exchanges. Subtext expected. Characters may be unreliable.',
     imagePromptStyle: 'cinematic framing, shadow/light contrast, symbolic detail.',
     fearHandling: 'may be treated as an internal state, not just external obstacle.',
-    pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 10-12): same de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 11-13): same de-escalation.',
     arc: 'arc may include a secondary character with their own want.',
     phaseTwo: 10,
     rhymeLevel: 'subtle — only where it emerges naturally from the prose. Slant rhymes and internal echoes preferred over end-rhymes.',
@@ -133,7 +133,7 @@ WRITING QUALITY OVERRIDES (MANDATORY)
 
 - At least 2 spreads should be entirely visual (no text on either page). Place these strategically:
   - ONE at the moment of highest tension — where silence is more powerful than words (typically spreads 6-8)
-  - ONE just before or at the ending — where the image completes what words cannot (typically spreads 11-12)
+  - ONE just before or at the ending — where the image completes what words cannot (typically spreads 12-13)
   Do NOT place visual-only spreads during setup (spreads 1-3) — the reader needs words to enter the world first.
 
 - Include one subtle emotional layer that resonates with the parent reading.
@@ -213,7 +213,7 @@ PHRASE ARC USAGE (CRITICAL):
 The brainstorm provided a phrase_arc with 3 stages. You MUST use them:
 - When the phrase appears in spreads 1-4: the surrounding action/imagery must reflect the EARLY meaning. The phrase should feel tentative, playful, or questioning.
 - When the phrase appears in spreads 5-8: the surrounding action/imagery must reflect the MIDDLE meaning. The phrase should feel braver or more purposeful.
-- When the phrase appears in spreads 9-12: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
+- When the phrase appears in spreads 10-13: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
 Show the evolution through what the child DOES around the phrase — not by adding explanation.
 
 -------------------------------------
@@ -399,12 +399,12 @@ Return a JSON object with this structure:
   "entries": [
     { "type": "dedication_page", "text": "..." },
     { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
-    ...12 spreads total...
+    ...13 spreads total...
   ]
 }
 
 Front matter pages (half-title, title page, copyright) are added automatically — do NOT include them.
-The "entries" array must contain exactly: 1 dedication_page + 12 spreads = 13 entries.
+The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
 
 Rules:
 - Text may appear on left, right, or both. A page may have null text for visual-only spreads.
@@ -426,7 +426,7 @@ Before writing, silently verify:
 - Does the repeated phrase transform from uncertain to safe?
 - Does the ending feel soft and satisfying?
 - Are there at least 2 visual-only spreads?
-- Are there exactly 12 spreads (not fewer, not more)?
+- Are there exactly 13 spreads (not fewer, not more)?
 - Does characterDescription include a specific hair description (color, style, length)?
 - Does characterOutfit describe a complete, specific outfit?
 - Do any spread_image_prompts describe the child changing clothes or hairstyle? (If yes, remove those descriptions)
@@ -583,7 +583,7 @@ PHRASE ARC USAGE (CRITICAL):
 The brainstorm provided a phrase_arc with 3 stages. You MUST use them:
 - When the phrase appears in spreads 1-4: the surrounding action/imagery must reflect the EARLY meaning. The phrase should feel tentative, playful, or questioning.
 - When the phrase appears in spreads 5-8: the surrounding action/imagery must reflect the MIDDLE meaning. The phrase should feel braver or more purposeful.
-- When the phrase appears in spreads 9-12: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
+- When the phrase appears in spreads 10-13: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
 Show the evolution through what the child DOES around the phrase — not by adding explanation.
 
 -------------------------------------
@@ -704,10 +704,10 @@ SPREAD 2:
 Left: null
 Right: "[text]"
 
-...continue for all 12 spreads...
+...continue for all 13 spreads...
 
 Rules:
-- Write exactly 12 spreads.
+- Write exactly 13 spreads.
 - Each spread has Left and Right. Use null for visual-only pages.
 - At least 2 spreads must have a null page.
 - Do NOT include illustration descriptions, JSON, or metadata.
@@ -776,12 +776,12 @@ Return a JSON object with this structure:
   "entries": [
     { "type": "dedication_page", "text": "..." },
     { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
-    ...12 spreads total...
+    ...13 spreads total...
   ]
 }
 
 Front matter pages (half-title, title page, copyright) are added automatically — do NOT include them.
-The "entries" array must contain exactly: 1 dedication_page + 12 spreads = 13 entries.
+The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
 
 Rules:
 - PRESERVE all story text EXACTLY as written in the input — do not rewrite, paraphrase, or edit.

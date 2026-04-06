@@ -91,8 +91,8 @@ const MAX_RETRIES = 2;
  */
 const ART_STYLE_CONFIG = {
   pixar_premium: {
-    prefix: 'premium children\'s book illustration, Pixar-inspired finish,',
-    suffix: 'soft cinematic lighting, expressive character posing, warm color harmony, magical storybook detail, rich textures, professional quality, vibrant yet warm palette',
+    prefix: 'Cinematic 3D Pixar-like soft render children\'s book illustration,',
+    suffix: 'photorealistic 3D CGI render, soft volumetric cinematic lighting, subsurface skin scattering, warm saturated color palette, emotionally expressive face and posture, rich fabric textures, dreamy depth-of-field bokeh background, Disney-Pixar production quality, magical storybook atmosphere',
   },
   watercolor: {
     prefix: 'children\'s book watercolor illustration,',
@@ -129,6 +129,14 @@ const ART_STYLE_CONFIG = {
   storybook: {
     prefix: 'classic children\'s storybook illustration,',
     suffix: 'whimsical style, soft pastel colors, detailed backgrounds, cozy atmosphere, fairytale quality',
+  },
+  scandinavian_minimal: {
+    prefix: 'Scandinavian minimal children\'s book illustration,',
+    suffix: 'clean simple shapes, flat design with subtle texture, muted Nordic color palette (soft sage, dusty rose, warm cream, birch white), generous negative space, cozy hygge atmosphere, elegant simplicity',
+  },
+  cinematic_3d: {
+    prefix: 'Cinematic 3D animated children\'s book illustration,',
+    suffix: 'photorealistic 3D CGI render, volumetric cinematic lighting, depth of field, rich textures, dramatic warm golden glow, Disney-Pixar production quality, emotionally expressive characters, vivid saturated palette, subsurface skin scattering, magical storybook atmosphere',
   },
 };
 
@@ -201,7 +209,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const skipTextEmbed = opts.skipTextEmbed || false;
   const isSpread = opts.isSpread || false;
   const spreadIndex = opts.spreadIndex;
-  const totalSpreads = opts.totalSpreads || 12;
+  const totalSpreads = opts.totalSpreads || 13;
   const childAge = opts.childAge;
 
   // Strip any hair-accessory mentions from the per-spread scene so only the
@@ -561,7 +569,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 12, childAge: opts.childAge });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
@@ -656,4 +664,4 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   throw new Error('No illustration generated after all attempts');
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey };
+module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG };

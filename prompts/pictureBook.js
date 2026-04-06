@@ -101,7 +101,7 @@ Generate the COMPLETE story as a JSON object with this structure:`;
   "entries": [
     { "type": "dedication_page", "text": "${dedication}" },
     { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
-    ...12 spreads total...
+    ...13 spreads total...
   ]
 }
 
@@ -110,7 +110,7 @@ IMPORTANT:
 - characterOutfit defines ONE specific outfit the child wears from first spread to last — no clothing changes.
 - Return ONLY a valid JSON object with the visual consistency fields and an "entries" array.
 - Front matter (half-title, title page, copyright) is added automatically — do NOT include them.
-- The entries array must contain exactly: 1 dedication_page + 12 spreads = 13 entries.
+- The entries array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
 - Each spread must have spread_image_prompt (a wide landscape scene spanning two facing pages).
 - The CENTER of each illustration will be in the book's binding — do NOT describe key characters, text, or objects in the center of the scene. Place them on the left or right side.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
@@ -211,7 +211,7 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
   }
 
   prompt += `\n\nWrite the COMPLETE story as plain text (NOT JSON). Follow the output format from the system brief exactly.
-- Write exactly 12 spreads with Left/Right text assignments.
+- Write exactly 13 spreads with Left/Right text assignments.
 - Focus entirely on literary quality. No illustration prompts needed.
 - Follow ALL writing rules from the system brief (age tier, pacing, dialogue, etc.).`;
 

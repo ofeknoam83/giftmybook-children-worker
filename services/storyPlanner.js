@@ -158,7 +158,7 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
   const gender = childDetails.gender || childDetails.childGender || '';
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
 
-  const systemPrompt = `You are a creative children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized bedtime picture book (12 spreads).
+  const systemPrompt = `You are a creative children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized bedtime picture book (13 spreads).
 
 You will receive details about a child. From these details, invent:
 
@@ -179,7 +179,7 @@ You will receive details about a child. From these details, invent:
    - middle: how it shifts (guiding, braver, searching)
    - end: how it lands (calm, safe, transformed)
 
-8. beats: An array of exactly 12 one-line descriptions — one per spread — mapping the emotional journey. Follow this structure:
+8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Follow this structure:
    - Spreads 1-2: Setup (normal world + emotional need)
    - Spreads 3-6: Rising tension (problem grows, uncertainty increases)
    - Spreads 7-9: Turning point + resolution (child takes action)
@@ -195,7 +195,7 @@ ADVENTURE THEME — PHYSICAL JOURNEY RULE (CRITICAL):
 If the theme is "adventure", the story MUST be a physical journey through at least 3-4 distinct, visually different locations. The child must MOVE through the world — not stay in one place. Each location should have its own look, atmosphere, and challenge. Think: a trail through woods → a rope bridge over a stream → a cave with glowing crystals → a hilltop at sunset. The "setting" field should describe the overall world, and the individual beats must name the specific locations the child travels through. A story that stays in one room, one garden, or one building is NOT an adventure.
 
 You MUST return ONLY a JSON object with these fields:
-{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "emotional_core": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 12 beat"]}`;
+{"favorite_object": "...", "fear": "...", "setting": "...", "storySeed": "...", "emotional_core": "...", "repeated_phrase": "...", "phrase_arc": ["early meaning", "middle meaning", "end meaning"], "beats": ["spread 1 beat", "spread 2 beat", ..., "spread 13 beat"]}`;
 
   const parts = [`Child: ${name}, age ${age}`];
   if (gender && gender !== 'neutral' && gender !== 'not specified') {
@@ -461,7 +461,7 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
   }
 
   if (spreads.length < 10) {
-    issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-12)` });
+    issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-13)` });
   }
 
   const blocking = issues.filter(i => i.type === 'emotion_telling' || i.type === 'spread_count');
@@ -630,11 +630,11 @@ function normalizePlan(parsed, childDetails, opts = {}) {
 
   let spreads = entries.filter(e => e.type === 'spread');
   if (spreads.length < 10) {
-    console.warn(`[storyPlanner] Only ${spreads.length} spreads — expected 10-12`);
+    console.warn(`[storyPlanner] Only ${spreads.length} spreads — expected 10-13`);
   }
-  if (spreads.length > 12) {
-    console.warn(`[storyPlanner] ${spreads.length} spreads — truncating to 12`);
-    spreads = spreads.slice(0, 12).map((s, i) => ({ ...s, spread: i + 1 }));
+  if (spreads.length > 13) {
+    console.warn(`[storyPlanner] ${spreads.length} spreads — truncating to 13`);
+    spreads = spreads.slice(0, 13).map((s, i) => ({ ...s, spread: i + 1 }));
   }
 
   const dedEntry = entries.find(e => e.type === 'dedication_page');
@@ -1168,7 +1168,7 @@ Rules:
 - Do NOT add new characters or change the setting
 - Keep the same word count limits per spread (max 20 words per spread total)
 - Do NOT change left/right assignments or null pages
-- The ending (spreads 11-12) must feel like a whisper, not a conclusion
+- The ending (spreads 12-13) must feel like a whisper, not a conclusion
 
 Return JSON:
 {

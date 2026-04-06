@@ -33,7 +33,7 @@ const { planStory, polishStory, brainstormStorySeed, rhythmCritic, emotionalArcC
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
-const { generateCover } = require('./services/coverGenerator');
+const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
@@ -568,7 +568,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     : customDetails;
 
   const format = bookFormat;
-  const style = artStyle;
+  const style = artStyle || 'cinematic_3d';
   const costTracker = new CostTracker();
 
   const childDetails = {
@@ -937,7 +937,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
                   storyPlan.coverArtStyle = styleMatch[1].trim();
                   bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 150) });
                 } else {
-                  bookContext.log('info', 'Cover art style not extracted — using pixar_premium default');
+                  bookContext.log('info', 'Cover art style not extracted — using cinematic_3d default');
                 }
               }
             }
@@ -1063,11 +1063,65 @@ app.post('/generate-book', authenticate, async (req, res) => {
       // Do NOT attach the cover image to the title page entry.
 
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
+
+      // ── Upsell covers: generate 4 styles BEFORE interior PDF so they can be baked in ──
+      let upsellCovers = [];
+      if (preGeneratedCoverBuffer) {
+        try {
+          bookContext.log('info', 'Generating upsell covers (4 styles)...');
+          upsellCovers = await Promise.race([
+            generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
+              apiKeys, costTracker: new CostTracker(),
+            }),
+            new Promise(resolve => setTimeout(() => resolve([]), 4 * 60 * 1000)),
+          ]);
+          bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4`);
+        } catch (upsellErr) {
+          bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
+        }
+      }
+
+      // Download upsell cover image buffers from GCS and inject as upsell_spread entry
+      if (upsellCovers.length > 0) {
+        const upsellEntries = await Promise.all(
+          upsellCovers.map(async (uc) => {
+            try {
+              const buf = await downloadBuffer(uc.gcsPath);
+              return { ...uc, coverBuffer: buf };
+            } catch (e) {
+              console.warn(`[server] Could not download upsell buffer ${uc.gcsPath}: ${e.message}`);
+              return { ...uc, coverBuffer: null };
+            }
+          })
+        );
+        const validUpsell = upsellEntries.filter(u => u.coverBuffer);
+        if (validUpsell.length > 0) {
+          const upsellEntry = {
+            type: 'upsell_spread',
+            upsellCovers: validUpsell,
+            childName: childDetails.name || childDetails.childName,
+            bookId,
+            tagline: `What will ${childDetails.name || childDetails.childName}\'s next story be?`,
+          };
+          // Insert before closing_page, or append
+          const closingIdx = entriesWithBuffers.findIndex(e => e.type === 'closing_page');
+          if (closingIdx >= 0) {
+            entriesWithBuffers.splice(closingIdx, 0, upsellEntry);
+          } else {
+            entriesWithBuffers.push(upsellEntry);
+          }
+          bookContext.log('info', `Upsell spread injected into interior PDF (${validUpsell.length} covers)`);
+        }
+      }
+
       const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
         title: bookTitle,
         childName: childDetails.name,
         dedication,
+        bookFrom,
         year: new Date().getFullYear(),
+        bookId,
+        upsellCovers,
       });
       bookContext.touchActivity();
       bookContext.log('info', 'Interior PDF assembled', { entries: entriesWithBuffers.length, ms: Date.now() - stage7Start });
@@ -1117,6 +1171,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const previewImageUrls = entriesWithIllustrations
         .filter(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl)
         .map(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl);
+
+      // Send upsell cover metadata to standalone DB (already generated above)
+      if (upsellCovers.length > 0 && progressCallbackUrl) {
+        reportProgressForce(progressCallbackUrl, { bookId, upsellCovers, logs: bookContext.logs }).catch(() => {});
+      }
 
       const totalMs = Date.now() - bookStartTime;
       const costSummary = costTracker.getSummary();
@@ -1252,7 +1311,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}`);
 
   const costTracker = new CostTracker();
-  const style = artStyle || 'pixar_premium';
+  const style = artStyle || 'cinematic_3d';
 
   try {
     // Generate the illustration
@@ -1324,7 +1383,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
     global.touchActivity(bookId);
 
     // Generate illustration
-    const style = artStyle || 'watercolor';
+    const style = artStyle || 'cinematic_3d';
     const sceneDesc = spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || text;
     const imageUrl = await generateIllustration(sceneDesc, characterRef, style, {
       apiKeys,

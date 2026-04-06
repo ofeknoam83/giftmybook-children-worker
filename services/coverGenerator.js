@@ -373,4 +373,169 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   };
 }
 
-module.exports = { generateCover };
+// ── Upsell Cover Generation ──
+
+const UPSELL_STYLES = ['paper_cutout', 'watercolor', 'cinematic_3d', 'scandinavian_minimal'];
+
+const UPSELL_STYLE_LABELS = {
+  paper_cutout: 'Paper Cutout',
+  watercolor: 'Watercolor',
+  cinematic_3d: 'Cinematic 3D',
+  scandinavian_minimal: 'Scandinavian Minimal',
+};
+
+/**
+ * Generate 4 upsell cover titles using GPT 5.4.
+ */
+async function generateUpsellTitles(childName, childAge, approvedTitle, openaiApiKey, costTracker) {
+  const key = openaiApiKey || process.env.OPENAI_API_KEY;
+  if (!key) return null;
+
+  const system = `You are a children's book title writer. Generate 4 short, irresistible book titles for a personalized children's book.
+Each title must feel like a brand-new adventure for the same child.
+Titles should be warm, specific, and emotionally evocative.
+Do NOT use the word "adventure". Do NOT copy the original title.
+Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
+
+  const user = `Child: ${childName}, age ${childAge}. Original book title: "${approvedTitle}". Generate 4 completely different titles for their next book.`;
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'gpt-5.4',
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+        max_completion_tokens: 300,
+        temperature: 1.0,
+        response_format: { type: 'json_object' },
+      }),
+    });
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content;
+    const parsed = JSON.parse(content);
+    return parsed.titles || null;
+  } catch (err) {
+    console.warn(`[coverGenerator] Upsell title generation failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Generate a single upsell cover image for a given style and title.
+ */
+async function generateUpsellCoverImage(title, childName, childAge, childGender, artStyle, frontCoverBuffer, apiKey) {
+  const ART_STYLE_CONFIG = require('./illustrationGenerator').ART_STYLE_CONFIG;
+  const styleConfig = ART_STYLE_CONFIG?.[artStyle] || {};
+  const prefix = styleConfig.prefix || '';
+  const suffix = styleConfig.suffix || '';
+
+  const ref = await sharp(frontCoverBuffer)
+    .resize(256, 256, { fit: 'cover' })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+  const refBase64 = ref.toString('base64');
+
+  const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'child';
+  const prompt = `${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. The cover should feel premium, inviting, and irresistibly cute. Large bold title "${title}" at the top in a beautiful font. "By GiftMyBook" in small text at the bottom. ${suffix}`;
+
+  const model = 'gemini-3.1-flash-image-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [
+        { text: prompt },
+        { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
+      ]}],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    }),
+  });
+
+  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text().then(t => t.slice(0, 100))}`);
+
+  const data = await resp.json();
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  for (const part of parts) {
+    if (part.inlineData?.mimeType?.startsWith('image/')) {
+      return Buffer.from(part.inlineData.data, 'base64');
+    }
+  }
+  throw new Error('No image in Gemini response');
+}
+
+/**
+ * Generate 4 upsell covers in parallel and upload to GCS.
+ * Returns array of { title, artStyle, styleLabel, gcsPath, coverUrl }
+ *
+ * @param {string} bookId
+ * @param {object} childDetails - { name/childName, age/childAge, gender/childGender }
+ * @param {Buffer} frontCoverBuffer - approved front cover
+ * @param {string} approvedTitle
+ * @param {object} opts - { openaiApiKey, apiKeys, costTracker, uploadBuffer, getSignedUrl }
+ */
+async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, approvedTitle, opts = {}) {
+  const pLimit = require('p-limit');
+  const { uploadBuffer, getSignedUrl } = require('./gcsStorage');
+
+  const childName = childDetails.childName || childDetails.name || 'the child';
+  const childAge = childDetails.childAge || childDetails.age || 5;
+  const childGender = childDetails.childGender || childDetails.gender || 'neutral';
+  const openaiApiKey = opts.openaiApiKey || opts.apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  console.log(`[coverGenerator] Generating upsell covers for ${childName}...`);
+
+  // Step 1: Generate 4 unique titles
+  let titles = await generateUpsellTitles(childName, childAge, approvedTitle, openaiApiKey, opts.costTracker);
+  if (!titles || titles.length < 4) {
+    // Fallback titles
+    titles = [
+      `${childName} and the Whispering Moon`,
+      `The Day ${childName} Found the Rainbow Door`,
+      `${childName}'s Secret Garden of Stars`,
+      `Where Does ${childName} Dream Tonight?`,
+    ];
+    console.warn('[coverGenerator] Using fallback upsell titles');
+  }
+
+  // Step 2: Generate 4 covers in parallel (one per style)
+  const limit = pLimit(4); // all 4 in parallel — they use different API keys anyway
+  const results = await Promise.allSettled(
+    UPSELL_STYLES.map((style, index) =>
+      limit(async () => {
+        const title = titles[index];
+        const apiKey = getNextApiKey();
+
+        console.log(`[coverGenerator] Generating upsell cover ${index + 1}/4: "${title}" (${style})...`);
+        const startMs = Date.now();
+
+        try {
+          const imgBuffer = await generateUpsellCoverImage(
+            title, childName, childAge, childGender, style, frontCoverBuffer, apiKey
+          );
+
+          const gcsPath = `children-jobs/${bookId}/upsell/${index}/cover.png`;
+          await uploadBuffer(imgBuffer, gcsPath, 'image/png');
+          const coverUrl = await getSignedUrl(gcsPath, 90 * 24 * 60 * 60 * 1000); // 90-day URL
+
+          console.log(`[coverGenerator] Upsell cover ${index + 1} ready in ${Date.now() - startMs}ms`);
+          return { index, title, artStyle: style, styleLabel: UPSELL_STYLE_LABELS[style], gcsPath, coverUrl };
+        } catch (err) {
+          console.error(`[coverGenerator] Upsell cover ${index + 1} failed: ${err.message}`);
+          return null;
+        }
+      })
+    )
+  );
+
+  const covers = results
+    .map(r => r.status === 'fulfilled' ? r.value : null)
+    .filter(Boolean);
+
+  console.log(`[coverGenerator] ${covers.length}/4 upsell covers generated`);
+  return covers;
+}
+
+module.exports = { generateCover, generateUpsellCovers, UPSELL_STYLES, UPSELL_STYLE_LABELS };

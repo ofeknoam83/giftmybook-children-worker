@@ -1,347 +1,408 @@
 /**
- * Layout Engine V2 — Composes V2 story entries into interior PDF.
+ * Layout Engine V3 — Composes story entries into interior PDF.
  *
- * Handles front matter (half-title, title, copyright, dedication) and
- * story spreads (left + right pages with full-bleed illustrations).
+ * Pages (no blank page 2):
+ *   p1: blank
+ *   p2: title page
+ *   p3: copyright
+ *   p4: dedication
+ *   p5–p(4+spreads*2): story spreads
+ *   closing page
+ *   upsell spread (2 pages: 2 covers each, full portrait)
  *
- * Picture book: 8.5" x 8.5" (612 x 612 points)
- * Early reader: 6" x 9" (432 x 648 points)
+ * Picture book: 8.5" × 8.5"  (612 × 612 pts)
+ * Early reader: 6" × 9"       (432 × 648 pts)
+ * All pages include 0.125" (9pt) bleed on all sides.
  *
- * Interior pages include 0.125" (9pt) bleed on all sides per Lulu spec.
- * 32-page books need 0" extra gutter margin per Lulu (< 60 pages threshold).
+ * Fonts (embedded TTF):
+ *   - Playfair Display — titles
+ *   - Dancing Script   — dedication body + subtitle
+ *   - Helvetica        — captions, bylines (standard)
  */
 
-const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-const sharp = require('sharp');
+'use strict';
 
-const BLEED = 9; // 0.125" in pts — Lulu standard
-const SAFETY_MARGIN = 36; // 0.5" in pts — Lulu minimum safety from trim edge
-const TARGET_DPI = 300;
-const PTS_PER_INCH = 72;
+const path = require('path');
+const fs   = require('fs');
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fontkit = require('@pdf-lib/fontkit');
+const sharp   = require('sharp');
+
+// ── Geometry constants ───────────────────────────────────────────────────────
+const BLEED       = 9;    // 0.125" in pts
+const SAFE        = BLEED + 50; // safe text inset from page edge
+const TARGET_DPI  = 300;
+const PTS_PER_INCH= 72;
 
 const FORMATS = {
-  PICTURE_BOOK: { width: 612, height: 612, label: '8.5x8.5' },
-  EARLY_READER: { width: 432, height: 648, label: '6x9' },
+  PICTURE_BOOK: { width: 612, height: 612 },
+  EARLY_READER: { width: 432, height: 648 },
 };
 
-/**
- * Embed an image buffer full-bleed onto a PDF page at print-quality DPI.
- */
-async function embedImageFullBleed(pdfDoc, page, imageBuffer, pageWidth, pageHeight) {
-  const targetWidthPx = Math.round(pageWidth / PTS_PER_INCH * TARGET_DPI);
-  const targetHeightPx = Math.round(pageHeight / PTS_PER_INCH * TARGET_DPI);
+// ── Palette ──────────────────────────────────────────────────────────────────
+const C = {
+  white:      rgb(1, 1, 1),
+  black:      rgb(0.059, 0.086, 0.141),
+  brownMid:   rgb(0.431, 0.325, 0.220),
+  brownLight: rgb(0.600, 0.502, 0.400),
+  gold:       rgb(0.765, 0.549, 0.180),
+  goldLight:  rgb(0.855, 0.718, 0.431),
+  cardBg:     rgb(0.969, 0.949, 0.918),   // #f7f2ea — matches cover-selection page
+  primary:    rgb(0.141, 0.416, 0.780),   // site primary blue
+  grayLight:  rgb(0.620, 0.647, 0.686),
+};
 
-  const resized = await sharp(imageBuffer)
-    .resize(targetWidthPx, targetHeightPx, { fit: 'cover' })
-    .toColorspace('srgb')
-    .jpeg({ quality: 95 })
-    .toBuffer();
+// ── Font paths (bundled in worker image) ─────────────────────────────────────
+const FONT_DIR = path.join(__dirname, '..', 'fonts');
+const FONT_PATHS = {
+  playfair:       path.join(FONT_DIR, 'PlayfairDisplay.ttf'),
+  playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
+  dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
+};
 
-  const img = await pdfDoc.embedJpg(resized);
-  page.drawImage(img, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+// ── Text helpers ──────────────────────────────────────────────────────────────
+function wrapText(text, font, size, maxW) {
+  const words = String(text).split(/\s+/);
+  const lines = []; let cur = '';
+  for (const w of words) {
+    const t = cur ? `${cur} ${w}` : w;
+    if (font.widthOfTextAtSize(t, size) > maxW && cur) { lines.push(cur); cur = w; }
+    else cur = t;
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
-/**
- * Split a landscape spread illustration into left and right halves.
- * The input should be a wide (16:9) image generated for a two-page spread.
- *
- * @param {Buffer} imageBuffer - Wide landscape image
- * @param {number} pageWidth - Single page width in pts (with bleed)
- * @param {number} pageHeight - Single page height in pts (with bleed)
- * @returns {Promise<{leftHalf: Buffer, rightHalf: Buffer}>}
- */
-async function splitSpreadImage(imageBuffer, pageWidth, pageHeight) {
-  const targetWidthPx = Math.round(pageWidth / PTS_PER_INCH * TARGET_DPI);
-  const targetHeightPx = Math.round(pageHeight / PTS_PER_INCH * TARGET_DPI);
-  const fullWidthPx = targetWidthPx * 2;
-
-  const resized = await sharp(imageBuffer)
-    .resize(fullWidthPx, targetHeightPx, { fit: 'cover' })
-    .toColorspace('srgb')
-    .toBuffer();
-
-  const leftHalf = await sharp(resized)
-    .extract({ left: 0, top: 0, width: targetWidthPx, height: targetHeightPx })
-    .jpeg({ quality: 95 })
-    .toBuffer();
-
-  const rightHalf = await sharp(resized)
-    .extract({ left: targetWidthPx, top: 0, width: targetWidthPx, height: targetHeightPx })
-    .jpeg({ quality: 95 })
-    .toBuffer();
-
-  return { leftHalf, rightHalf };
+function drawCentered(page, text, font, size, y, color) {
+  const w = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: (page.getWidth() - w) / 2, y, size, font, color });
 }
 
+function drawCenteredBlock(page, lines, font, size, startY, lineH, color) {
+  for (let i = 0; i < lines.length; i++) {
+    drawCentered(page, lines[i], font, size, startY - i * lineH, color);
+  }
+}
+
+function goldRule(page, y, w = 80) {
+  const pw = page.getWidth();
+  page.drawRectangle({ x: (pw - w) / 2, y, width: w, height: 1.2, color: C.gold });
+}
+
+// ── Image helpers ─────────────────────────────────────────────────────────────
+async function embedFullBleed(pdfDoc, page, buf) {
+  const pw = page.getWidth(); const ph = page.getHeight();
+  const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
+  const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
+  const r = await sharp(buf).resize(wp, hp, { fit: 'cover' }).toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
+  const img = await pdfDoc.embedJpg(r);
+  page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
+}
+
+async function splitSpreadImage(buf, pw, ph) {
+  const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
+  const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
+  const meta = await sharp(buf).metadata();
+  const halfW = Math.floor(meta.width / 2);
+  const leftBuf  = await sharp(buf).extract({ left: 0,     top: 0, width: halfW, height: meta.height }).resize(wp, hp, { fit: 'cover' }).toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
+  const rightBuf = await sharp(buf).extract({ left: halfW, top: 0, width: halfW, height: meta.height }).resize(wp, hp, { fit: 'cover' }).toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
+  return { leftBuf, rightBuf };
+}
+
+// ── Font loader (lazy, cached per pdfDoc) ────────────────────────────────────
+async function loadFonts(pdfDoc) {
+  pdfDoc.registerFontkit(fontkit);
+  const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p)) : null;
+  const [playfair, playfairItalic, dancing, helv, helvB] = await Promise.all([
+    load(FONT_PATHS.playfair),
+    load(FONT_PATHS.playfairItalic),
+    load(FONT_PATHS.dancing),
+    pdfDoc.embedFont(StandardFonts.Helvetica),
+    pdfDoc.embedFont(StandardFonts.HelveticaBold),
+  ]);
+  return { playfair, playfairItalic, dancing, helv, helvB };
+}
+
+// ── Page builders ─────────────────────────────────────────────────────────────
+
+function buildBlankPage(pdfDoc, pw, ph) {
+  pdfDoc.addPage([pw, ph]);
+}
+
+function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
+  const { playfair, playfairItalic, dancing, helv } = fonts;
+  const { title, childName } = opts;
+  const p = pdfDoc.addPage([pw, ph]);
+  const maxW = pw - SAFE * 2;
+
+  // Main title — Playfair Display
+  const TITLE_SZ = pw < 500 ? 28 : 36;
+  const lines  = wrapText(title || 'My Story', playfair || helv, TITLE_SZ, maxW);
+  const lineH  = TITLE_SZ * 1.3;
+  const blockH = lines.length * lineH;
+  const startY = ph / 2 + blockH / 2 + 30;
+  drawCenteredBlock(p, lines, playfair || helv, TITLE_SZ, startY, lineH, C.black);
+
+  goldRule(p, ph / 2 - 8, 100);
+
+  // Subtitle — Dancing Script
+  if (childName) {
+    const sub  = `A story written just for ${childName}`;
+    const subFont = dancing || playfairItalic || helv;
+    const subSz = 22;
+    drawCentered(p, sub, subFont, subSz, ph / 2 - 40, C.brownMid);
+  }
+
+  // Byline
+  const by = 'Created by GiftMyBook';
+  const byW = helv.widthOfTextAtSize(by, 10);
+  p.drawText(by, { x: (pw - byW) / 2, y: BLEED + 22, size: 10, font: helv, color: C.grayLight });
+}
+
+function buildCopyrightPage(pdfDoc, pw, ph, fonts, opts) {
+  const { helv } = fonts;
+  const { year, childName } = opts;
+  const p = pdfDoc.addPage([pw, ph]);
+  const yr = year || new Date().getFullYear();
+  const lines = [
+    `\u00A9 ${yr} GiftMyBook`,
+    'Made with love at GiftMyBook.com',
+    'All rights reserved.',
+    '',
+    childName ? `Personalized for ${childName}` : '',
+  ].filter(l => l !== undefined);
+  let y = ph * 0.38;
+  for (const l of lines) {
+    if (!l) { y -= 12; continue; }
+    const lw = helv.widthOfTextAtSize(l, 10);
+    p.drawText(l, { x: (pw - lw) / 2, y, size: 10, font: helv, color: C.grayLight });
+    y -= 18;
+  }
+}
+
+function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
+  const { playfairItalic, dancing, helv } = fonts;
+  const { bookFrom, dedication } = opts;
+  const p = pdfDoc.addPage([pw, ph]);
+  if (!dedication && !bookFrom) return;
+
+  const maxW = pw - SAFE * 2;
+  const dedFont = dancing || playfairItalic || helv;
+
+  const FROM_SZ  = 18;
+  const DED_SZ   = 26;
+  const DED_LH   = DED_SZ * 1.55;
+  const RULE_GAP = 14;
+
+  const dedText  = dedication || '';
+  const dedLines = wrapText(dedText, dedFont, DED_SZ, maxW);
+  const bodyH    = dedLines.length * DED_LH;
+  const blockH   = FROM_SZ + RULE_GAP + 1.2 + RULE_GAP + bodyH;
+
+  // Anchor whole block to page vertical center
+  let y = ph / 2 + blockH / 2;
+
+  if (bookFrom) {
+    drawCentered(p, `From ${bookFrom}`, playfairItalic || helv, FROM_SZ, y, C.brownMid);
+    y -= FROM_SZ + RULE_GAP;
+    goldRule(p, y, 80);
+    y -= RULE_GAP + 1.2;
+  }
+
+  for (const line of dedLines) {
+    drawCentered(p, line, dedFont, DED_SZ, y, C.black);
+    y -= DED_LH;
+  }
+}
+
+function buildClosingPage(pdfDoc, pw, ph, fonts) {
+  const { playfair, helv } = fonts;
+  const p = pdfDoc.addPage([pw, ph]);
+  const endSz = 44;
+  const endW  = (playfair || helv).widthOfTextAtSize('The End', endSz);
+  p.drawText('The End', { x: (pw - endW) / 2, y: ph / 2 + 12, size: endSz, font: playfair || helv, color: C.black });
+  goldRule(p, ph / 2 - 14, 60);
+  const bw = helv.widthOfTextAtSize('GiftMyBook.com', 10);
+  p.drawText('GiftMyBook.com', { x: (pw - bw) / 2, y: ph / 2 - 34, size: 10, font: helv, color: C.grayLight });
+}
+
+async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
+  const { playfair, playfairItalic, helv, helvB } = fonts;
+  const { upsellCovers, childName, bookId } = opts;
+  if (!upsellCovers || upsellCovers.length === 0) return;
+
+  let qrcode;
+  try { qrcode = require('qrcode'); } catch (_) {}
+
+  const MARGIN = 27;
+  const GAP    = 14;
+  const CARD_W = (pw - MARGIN * 2 - GAP) / 2;
+  const COVER_H= Math.round(CARD_W * (2400 / 1792)); // 3:4 portrait ratio
+  const LABEL_H= 52;
+
+  for (let pageIdx = 0; pageIdx < 2; pageIdx++) {
+    const p = pdfDoc.addPage([pw, ph]);
+    const pagePair = upsellCovers.slice(pageIdx * 2, pageIdx * 2 + 2);
+    if (pagePair.length === 0) continue;
+
+    // Header (left page only)
+    let cardsTopY;
+    if (pageIdx === 0) {
+      const tag    = `What will ${childName || 'your child'}\u2019s next story be?`;
+      const tagSz  = 18;
+      const tagLines = wrapText(tag, playfair || helv, tagSz, pw - MARGIN * 2);
+      const tagLH  = tagSz * 1.35;
+      let ty = ph - MARGIN - 4;
+      for (const line of tagLines) { drawCentered(p, line, playfair || helv, tagSz, ty, C.black); ty -= tagLH; }
+      drawCentered(p, 'Choose the next adventure...', playfairItalic || helv, 11, ty - 2, C.brownMid);
+      cardsTopY = ty - 16;
+    } else {
+      cardsTopY = ph - MARGIN - 4;
+    }
+
+    const availH  = cardsTopY - MARGIN;
+    const cardH   = COVER_H + LABEL_H;
+    const offsetY = MARGIN + Math.max(0, (availH - cardH) / 2);
+    const coverY  = offsetY + LABEL_H;
+
+    for (let ci = 0; ci < pagePair.length; ci++) {
+      const uc   = pagePair[ci];
+      const cardX = MARGIN + ci * (CARD_W + GAP);
+      const buf   = uc.coverBuffer;
+
+      if (buf) {
+        try {
+          const wp = Math.round(CARD_W / PTS_PER_INCH * 200);
+          const hp = Math.round(COVER_H / PTS_PER_INCH * 200);
+          const resized = await sharp(buf)
+            .resize(wp, hp, { fit: 'contain', background: { r: 247, g: 242, b: 234, alpha: 1 } })
+            .toColorspace('srgb').jpeg({ quality: 90 }).toBuffer();
+          const img = await pdfDoc.embedJpg(resized);
+          p.drawImage(img, { x: cardX, y: coverY, width: CARD_W, height: COVER_H });
+        } catch (e) {
+          console.warn(`[LayoutEngine] Upsell cover embed failed: ${e.message}`);
+          p.drawRectangle({ x: cardX, y: coverY, width: CARD_W, height: COVER_H, color: C.cardBg });
+        }
+      } else {
+        p.drawRectangle({ x: cardX, y: coverY, width: CARD_W, height: COVER_H, color: C.cardBg });
+      }
+
+      // Gold border
+      p.drawRectangle({ x: cardX - 1, y: coverY - 1, width: CARD_W + 2, height: COVER_H + 2,
+        borderColor: C.goldLight, borderWidth: 1 });
+
+      // QR — top-right of cover, white bg
+      if (qrcode && bookId) {
+        const QR_SZ = 50;
+        try {
+          const qrBuf = await qrcode.toBuffer(`https://giftmybook.com/upsell/${bookId}/${uc.index ?? (pageIdx * 2 + ci)}`,
+            { type: 'png', width: 220, margin: 1 });
+          const qrImg = await pdfDoc.embedPng(qrBuf);
+          const qrX = cardX + CARD_W - QR_SZ - 5;
+          const qrY = coverY + COVER_H - QR_SZ - 5;
+          p.drawRectangle({ x: qrX - 2, y: qrY - 2, width: QR_SZ + 4, height: QR_SZ + 4, color: C.white });
+          p.drawImage(qrImg, { x: qrX, y: qrY, width: QR_SZ, height: QR_SZ });
+        } catch (e) { console.warn(`[LayoutEngine] QR failed: ${e.message}`); }
+      }
+
+      // Style label
+      const labelY = offsetY + LABEL_H - 16;
+      p.drawText((uc.styleLabel || uc.artStyle || '').toUpperCase(), {
+        x: cardX, y: labelY, size: 8, font: helvB, color: C.primary,
+      });
+
+      // Title
+      const titleLines = wrapText(uc.title || '', playfair || helv, 10, CARD_W);
+      for (let ti = 0; ti < Math.min(titleLines.length, 2); ti++) {
+        p.drawText(titleLines[ti], { x: cardX, y: labelY - 13 - ti * 13, size: 10, font: playfair || helv, color: C.black });
+      }
+    }
+
+    // Footer
+    const ft = `GiftMyBook.com  \u00B7  A personalized book made just for ${childName || 'your child'}`;
+    const ftW = helv.widthOfTextAtSize(ft, 7);
+    p.drawText(ft, { x: (pw - ftW) / 2, y: BLEED + 4, size: 7, font: helv, color: C.grayLight });
+  }
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
 /**
- * Assemble all V2 story entries into a single interior PDF.
- *
- * @param {Array<object>} storyEntries - V2 array: [{type, page, ...}, ...]
- *   Each entry may have: illustrationBuffer, spreadIllustrationBuffer,
- *   leftIllustrationBuffer, rightIllustrationBuffer (attached by caller)
- * @param {string} bookFormat - PICTURE_BOOK or EARLY_READER
- * @param {object} opts - { title, childName, dedication, year }
- * @returns {Promise<Buffer>} PDF buffer
+ * @param {Array} storyEntries
+ * @param {string} bookFormat - PICTURE_BOOK | EARLY_READER
+ * @param {object} opts - { title, childName, dedication, bookFrom, year, upsellCovers, bookId }
  */
 async function assemblePdf(storyEntries, bookFormat, opts = {}) {
-  const format = FORMATS[bookFormat] || FORMATS[(bookFormat || '').toUpperCase()] || FORMATS.PICTURE_BOOK;
-  const pageWidth = format.width + BLEED * 2;
-  const pageHeight = format.height + BLEED * 2;
+  const fmt    = FORMATS[(bookFormat || '').toUpperCase()] || FORMATS.PICTURE_BOOK;
+  const pw     = fmt.width  + BLEED * 2;
+  const ph     = fmt.height + BLEED * 2;
+
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fonts  = await loadFonts(pdfDoc);
+
+  const { title, childName, dedication, bookFrom, year, upsellCovers, bookId } = opts;
+
+  // ── Front matter ──────────────────────────────────────────────────────────
+  buildBlankPage(pdfDoc, pw, ph);
+  buildTitlePage(pdfDoc, pw, ph, fonts, { title, childName });
+  buildDedicationPage(pdfDoc, pw, ph, fonts, { bookFrom, dedication });
+
+  // ── Story spreads ─────────────────────────────────────────────────────────
+  // picture_book (age ≤5): spreadIllustrationBuffer = wide 16:9 image → split into left+right pages
+  // early_reader  (age >5): leftIllustrationBuffer + rightIllustrationBuffer = separate 1:1 images,
+  //                         each rendered as its own full page (no splitting needed)
+  const isPictureBook = (bookFormat || '').toUpperCase() !== 'EARLY_READER';
 
   for (const entry of storyEntries) {
-    switch (entry.type) {
-      case 'blank': {
-        pdfDoc.addPage([pageWidth, pageHeight]);
-        break;
+    if (entry.type !== 'spread') continue;
+
+    if (isPictureBook) {
+      // ── PICTURE BOOK: wide landscape image split down the middle ──
+      const leftPage  = pdfDoc.addPage([pw, ph]);
+      const rightPage = pdfDoc.addPage([pw, ph]);
+      if (entry.spreadIllustrationBuffer) {
+        try {
+          const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+          await embedFullBleed(pdfDoc, leftPage,  leftBuf);
+          await embedFullBleed(pdfDoc, rightPage, rightBuf);
+        } catch (e) {
+          console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
+        }
+      } else {
+        // Fallback: pre-split buffers
+        if (entry.leftIllustrationBuffer)  await embedFullBleed(pdfDoc, leftPage,  entry.leftIllustrationBuffer);
+        if (entry.rightIllustrationBuffer) await embedFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer);
       }
-
-      case 'half_title_page': {
-        const page = pdfDoc.addPage([pageWidth, pageHeight]);
-        const titleText = entry.title || opts.title || 'My Story';
-        const titleFontSize = 22;
-        const titleWidth = boldFont.widthOfTextAtSize(titleText, titleFontSize);
-        page.drawText(titleText, {
-          x: (pageWidth - titleWidth) / 2,
-          y: pageHeight * 0.55,
-          size: titleFontSize,
-          font: boldFont,
-          color: rgb(0.2, 0.15, 0.1),
-        });
-        break;
+    } else {
+      // ── EARLY READER: each illustration = one full page (1:1 square) ──
+      if (entry.leftIllustrationBuffer) {
+        await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.leftIllustrationBuffer);
       }
-
-      case 'title_page': {
-        const page = pdfDoc.addPage([pageWidth, pageHeight]);
-
-        if (entry.illustrationBuffer) {
-          await embedImageFullBleed(pdfDoc, page, entry.illustrationBuffer, pageWidth, pageHeight);
-        }
-
-        const titleText = entry.title || opts.title || 'My Story';
-        const titleFontSize = 28;
-        const titleWidth = boldFont.widthOfTextAtSize(titleText, titleFontSize);
-        const textColor = entry.illustrationBuffer ? rgb(1, 1, 1) : rgb(0.15, 0.15, 0.15);
-        page.drawText(titleText, {
-          x: (pageWidth - titleWidth) / 2,
-          y: pageHeight / 2 + 50,
-          size: titleFontSize,
-          font: boldFont,
-          color: textColor,
-        });
-
-        const subtitleText = entry.subtitle || (opts.childName ? `A bedtime story for ${opts.childName}` : '');
-        if (subtitleText) {
-          const subFontSize = 16;
-          const subWidth = font.widthOfTextAtSize(subtitleText, subFontSize);
-          page.drawText(subtitleText, {
-            x: (pageWidth - subWidth) / 2,
-            y: pageHeight / 2 + 5,
-            size: subFontSize,
-            font,
-            color: entry.illustrationBuffer ? rgb(0.9, 0.9, 0.9) : rgb(0.4, 0.4, 0.4),
-          });
-        }
-
-        const bylineText = 'Created by GiftMyBook';
-        const bylineFontSize = 11;
-        const bylineWidth = font.widthOfTextAtSize(bylineText, bylineFontSize);
-        page.drawText(bylineText, {
-          x: (pageWidth - bylineWidth) / 2,
-          y: pageHeight / 2 - 25,
-          size: bylineFontSize,
-          font,
-          color: entry.illustrationBuffer ? rgb(0.8, 0.8, 0.8) : rgb(0.5, 0.5, 0.5),
-        });
-        break;
+      if (entry.rightIllustrationBuffer) {
+        await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.rightIllustrationBuffer);
       }
-
-      case 'copyright_page': {
-        const page = pdfDoc.addPage([pageWidth, pageHeight]);
-        const year = entry.year || opts.year || new Date().getFullYear();
-        const lines = [
-          `\u00A9 ${year} GiftMyBook`,
-          'Made with love at GiftMyBook.com',
-          'All rights reserved',
-        ];
-        const fontSize = 10;
-        const lineHeight = fontSize * 1.8;
-        const textColor = rgb(0.5, 0.5, 0.5);
-        const startY = pageHeight * 0.3;
-
-        for (let i = 0; i < lines.length; i++) {
-          const lineWidth = font.widthOfTextAtSize(lines[i], fontSize);
-          page.drawText(lines[i], {
-            x: (pageWidth - lineWidth) / 2,
-            y: startY - i * lineHeight,
-            size: fontSize,
-            font,
-            color: textColor,
-          });
-        }
-        break;
+      // Single spread image fallback
+      if (!entry.leftIllustrationBuffer && !entry.rightIllustrationBuffer && entry.spreadIllustrationBuffer) {
+        await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.spreadIllustrationBuffer);
       }
-
-      case 'dedication_page': {
-        const page = pdfDoc.addPage([pageWidth, pageHeight]);
-
-        if (entry.illustrationBuffer) {
-          await embedImageFullBleed(pdfDoc, page, entry.illustrationBuffer, pageWidth, pageHeight);
-        }
-
-        const dedText = entry.text || opts.dedication || '';
-        if (dedText) {
-          const textColor = entry.illustrationBuffer ? rgb(1, 1, 1) : rgb(0.3, 0.3, 0.3);
-          const sideMargin = BLEED + SAFETY_MARGIN + 20;
-          const maxDedWidth = pageWidth - sideMargin * 2;
-
-          const fromMatch = dedText.match(/^(From [^:]+:)\n(.*)$/s);
-          let yPos = pageHeight / 2 + 40;
-
-          if (fromMatch) {
-            const fromText = fromMatch[1];
-            const fromSize = 13;
-            const fromWidth = font.widthOfTextAtSize(fromText, fromSize);
-            page.drawText(fromText, {
-              x: (pageWidth - fromWidth) / 2,
-              y: yPos + 30,
-              size: fromSize,
-              font,
-              color: textColor,
-            });
-
-            const noteText = fromMatch[2].trim();
-            const noteFontSize = 14;
-            const noteLineHeight = noteFontSize * 1.6;
-            const noteWords = noteText.split(/\s+/);
-            const noteLines = [];
-            let currentLine = '';
-            for (const word of noteWords) {
-              const testLine = currentLine ? `${currentLine} ${word}` : word;
-              if (font.widthOfTextAtSize(testLine, noteFontSize) > maxDedWidth && currentLine) {
-                noteLines.push(currentLine);
-                currentLine = word;
-              } else {
-                currentLine = testLine;
-              }
-            }
-            if (currentLine) noteLines.push(currentLine);
-
-            for (let i = 0; i < noteLines.length; i++) {
-              const lineWidth = font.widthOfTextAtSize(noteLines[i], noteFontSize);
-              page.drawText(noteLines[i], {
-                x: (pageWidth - lineWidth) / 2,
-                y: yPos - (i * noteLineHeight),
-                size: noteFontSize,
-                font,
-                color: textColor,
-              });
-            }
-          } else {
-            const dedFontSize = 18;
-            const dedWidth = font.widthOfTextAtSize(dedText, dedFontSize);
-            if (dedWidth <= maxDedWidth) {
-              page.drawText(dedText, {
-                x: (pageWidth - dedWidth) / 2,
-                y: pageHeight / 2,
-                size: dedFontSize,
-                font,
-                color: textColor,
-              });
-            } else {
-              const dedLineHeight = dedFontSize * 1.5;
-              const words = dedText.split(/\s+/);
-              const lines = [];
-              let cl = '';
-              for (const w of words) {
-                const tl = cl ? `${cl} ${w}` : w;
-                if (font.widthOfTextAtSize(tl, dedFontSize) > maxDedWidth && cl) {
-                  lines.push(cl);
-                  cl = w;
-                } else { cl = tl; }
-              }
-              if (cl) lines.push(cl);
-              const startY = pageHeight / 2 + (lines.length * dedLineHeight) / 2;
-              for (let i = 0; i < lines.length; i++) {
-                const lw = font.widthOfTextAtSize(lines[i], dedFontSize);
-                page.drawText(lines[i], {
-                  x: (pageWidth - lw) / 2,
-                  y: startY - i * dedLineHeight,
-                  size: dedFontSize,
-                  font,
-                  color: textColor,
-                });
-              }
-            }
-          }
-        }
-        break;
-      }
-
-      case 'spread': {
-        const leftPage = pdfDoc.addPage([pageWidth, pageHeight]);
-        const rightPage = pdfDoc.addPage([pageWidth, pageHeight]);
-
-        if (entry.spreadIllustrationBuffer) {
-          const { leftHalf, rightHalf } = await splitSpreadImage(
-            entry.spreadIllustrationBuffer, pageWidth, pageHeight
-          );
-          const leftImg = await pdfDoc.embedJpg(leftHalf);
-          leftPage.drawImage(leftImg, { x: 0, y: 0, width: pageWidth, height: pageHeight });
-          const rightImg = await pdfDoc.embedJpg(rightHalf);
-          rightPage.drawImage(rightImg, { x: 0, y: 0, width: pageWidth, height: pageHeight });
-        }
-
-        if (entry.leftIllustrationBuffer) {
-          await embedImageFullBleed(pdfDoc, leftPage, entry.leftIllustrationBuffer, pageWidth, pageHeight);
-        }
-        if (entry.rightIllustrationBuffer) {
-          await embedImageFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer, pageWidth, pageHeight);
-        }
-        break;
-      }
-
-      case 'closing_page': {
-        const page = pdfDoc.addPage([pageWidth, pageHeight]);
-        const endText = 'The End';
-        const endFontSize = 20;
-        const endWidth = boldFont.widthOfTextAtSize(endText, endFontSize);
-        page.drawText(endText, {
-          x: (pageWidth - endWidth) / 2,
-          y: pageHeight / 2 + 10,
-          size: endFontSize,
-          font: boldFont,
-          color: rgb(0.2, 0.15, 0.1),
-        });
-
-        const brandText = 'GiftMyBook.com';
-        const brandFontSize = 9;
-        const brandWidth = font.widthOfTextAtSize(brandText, brandFontSize);
-        page.drawText(brandText, {
-          x: (pageWidth - brandWidth) / 2,
-          y: pageHeight / 2 - 20,
-          size: brandFontSize,
-          font,
-          color: rgb(0.5, 0.5, 0.5),
-        });
-        break;
-      }
-
-      default:
-        console.warn(`[LayoutEngine] Unknown entry type: ${entry.type}`);
-        break;
     }
   }
+  // ── Closing ───────────────────────────────────────────────────────────────
+  buildClosingPage(pdfDoc, pw, ph, fonts);
 
-  // Ensure even page count for print
-  if (pdfDoc.getPageCount() % 2 !== 0) {
-    pdfDoc.addPage([pageWidth, pageHeight]);
+  // ── Upsell spread ─────────────────────────────────────────────────────────
+  if (upsellCovers && upsellCovers.length > 0) {
+    await buildUpsellSpread(pdfDoc, pw, ph, fonts, { upsellCovers, childName, bookId });
   }
 
-  const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes);
+  // Enforce Lulu minimum page count (32 for paperback, 24 for hardcover)
+  // and ensure even page count for binding
+  const MIN_PAGES = 32;
+  while (pdfDoc.getPageCount() < MIN_PAGES || pdfDoc.getPageCount() % 2 !== 0) {
+    pdfDoc.addPage([pw, ph]);
+  }
+
+  return Buffer.from(await pdfDoc.save());
 }
 
 module.exports = { assemblePdf, FORMATS };
