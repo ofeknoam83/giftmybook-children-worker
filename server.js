@@ -1415,15 +1415,19 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     if (Array.isArray(upsellCovers) && upsellCovers.length > 0) {
       resolvedUpsellCovers = await Promise.all(upsellCovers.map(async uc => {
         try {
-          // coverUrl may be a signed GCS URL, a data URI, or a public URL
+          // Prefer gcsPath (direct GCS read, never expires) over coverUrl (may be expired signed URL)
           let coverBuffer = null;
-          if (uc.coverUrl && uc.coverUrl.startsWith('data:')) {
+          if (uc.gcsPath) {
+            const { Storage } = require('@google-cloud/storage');
+            const storage = new Storage();
+            const bucket = storage.bucket(process.env.GCS_BUCKET_NAME || 'giftmybook-bucket');
+            const [contents] = await bucket.file(uc.gcsPath).download();
+            coverBuffer = contents;
+          } else if (uc.coverUrl && uc.coverUrl.startsWith('data:')) {
             const base64Data = uc.coverUrl.split(',')[1];
             coverBuffer = Buffer.from(base64Data, 'base64');
           } else if (uc.coverUrl) {
             coverBuffer = await downloadBuffer(uc.coverUrl);
-          } else if (uc.gcsPath) {
-            coverBuffer = await downloadBuffer(uc.gcsPath);
           }
           return { ...uc, coverBuffer };
         } catch(e) {
