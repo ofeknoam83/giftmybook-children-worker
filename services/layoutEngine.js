@@ -90,16 +90,14 @@ function goldRule(page, y, w = 80) {
 }
 
 // ── Image helpers ─────────────────────────────────────────────────────────────
-// Cream background color for letterbox areas (matches book interior)
-const CREAM_BG = { r: 250, g: 247, b: 241, alpha: 1 };
 
 async function embedFullBleed(pdfDoc, page, buf) {
   const pw = page.getWidth(); const ph = page.getHeight();
   const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
-  // fit: 'contain' preserves the full illustration — no cropping
+  // fit: 'cover' fills the page edge-to-edge (full-bleed design intent)
   const r = await sharp(buf)
-    .resize(wp, hp, { fit: 'contain', background: CREAM_BG })
+    .resize(wp, hp, { fit: 'cover' })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   const img = await pdfDoc.embedJpg(r);
   page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
@@ -110,14 +108,15 @@ async function splitSpreadImage(buf, pw, ph) {
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);
   const meta = await sharp(buf).metadata();
   const halfW = Math.floor(meta.width / 2);
-  // Extract each half at native resolution, then fit into page without cropping
+  // Extract each half then cover-fill the page (full-bleed, no margin)
+  // Text is NOT in the image (skipTextEmbed:true) so cover cropping is safe
   const leftBuf  = await sharp(buf)
     .extract({ left: 0,     top: 0, width: halfW, height: meta.height })
-    .resize(wp, hp, { fit: 'contain', background: CREAM_BG })
+    .resize(wp, hp, { fit: 'cover' })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   const rightBuf = await sharp(buf)
     .extract({ left: halfW, top: 0, width: halfW, height: meta.height })
-    .resize(wp, hp, { fit: 'contain', background: CREAM_BG })
+    .resize(wp, hp, { fit: 'cover' })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
   return { leftBuf, rightBuf };
 }
