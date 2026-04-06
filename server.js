@@ -1460,6 +1460,28 @@ app.post('/finalize-book', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /refresh-url — Return a fresh signed URL for a GCS object ──
+// Used by standalone when it lacks GCS credentials to re-sign URLs.
+app.post('/refresh-url', authenticate, async (req, res) => {
+  const { gcsUrl } = req.body;
+  if (!gcsUrl || typeof gcsUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'gcsUrl is required' });
+  }
+  try {
+    const BUCKET = process.env.GCS_BUCKET_NAME || 'giftmybook-bucket';
+    const base = gcsUrl.split('?')[0];
+    const marker = `${BUCKET}/`;
+    const idx = base.indexOf(marker);
+    if (idx === -1) return res.status(400).json({ success: false, error: 'Not a known GCS bucket URL' });
+    const filePath = decodeURIComponent(base.slice(idx + marker.length));
+    const signedUrl = await getSignedUrl(filePath, 30 * 24 * 60 * 60 * 1000); // 30 days
+    res.json({ success: true, signedUrl });
+  } catch (err) {
+    console.error('[refresh-url] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Diagnostic: test Gemini image generation latency ──
 app.get('/test-gemini-image', authenticate, async (req, res) => {
   const start = Date.now();
