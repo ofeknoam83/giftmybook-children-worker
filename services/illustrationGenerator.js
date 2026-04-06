@@ -306,6 +306,14 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
 
+  // Admin prompt injection — placed immediately after scene, with high-priority framing
+  if (opts.promptInjection && opts.promptInjection.trim()) {
+    parts.push('');
+    parts.push(`⚠️ ADMIN OVERRIDE — HIGHEST PRIORITY (overrides scene description above if conflicting):`);
+    parts.push(opts.promptInjection.trim());
+    parts.push(`This override MUST be reflected in the final image. If it conflicts with the scene above, follow THIS instruction.`);
+  }
+
   // Change 16: Scene grounding — BACKGROUND RULE
   parts.push('');
   parts.push('BACKGROUND RULE: No human faces, silhouettes, or figures visible in the background or anywhere in the scene. Any human presence (family, caregivers) is implied only through objects — a cup of tea on a table, a light left on in a window, a handmade quilt on a chair. Fictional animals, creatures, and fantastical beings are fine.');
@@ -569,7 +577,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);

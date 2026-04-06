@@ -1280,11 +1280,6 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'spreadImagePrompt is required' });
   }
 
-  // Append admin prompt injection to scene description if provided
-  const finalPrompt = (promptInjection && promptInjection.trim())
-    ? `${spreadImagePrompt.trimEnd()} ${promptInjection.trim()}`
-    : spreadImagePrompt;
-
   console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
 
   const costTracker = new CostTracker();
@@ -1292,7 +1287,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
 
   try {
     // Generate the illustration
-    const result = await generateIllustration(finalPrompt, null, style, {
+    const result = await generateIllustration(spreadImagePrompt, null, style, {
       costTracker,
       bookId,
       childName,
@@ -1305,6 +1300,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       keyObjects,
       coverArtStyle,
       isSpread: true,
+      promptInjection: promptInjection || '',
       _cachedPhotoBase64: cachedPhotoBase64 || null,
     });
 
