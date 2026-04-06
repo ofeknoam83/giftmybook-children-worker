@@ -1460,6 +1460,46 @@ app.post('/finalize-book', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /get-spread-data — Return checkpoint data for one or more spreads ──
+// Used by standalone to get the real scene prompts + character details for regeneration.
+app.post('/get-spread-data', authenticate, async (req, res) => {
+  const { bookId, spreadIndices } = req.body;
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+
+  try {
+    const { Storage } = require('@google-cloud/storage');
+    const storage = new Storage();
+    const bucket = storage.bucket(process.env.GCS_BUCKET_NAME || 'giftmybook-bucket');
+    const [contents] = await bucket.file(`children-jobs/${bookId}/checkpoint.json`).download();
+    const checkpoint = JSON.parse(contents.toString());
+
+    const storyPlan = checkpoint.storyPlan || {};
+    const entries = (storyPlan.entries || []).filter(e => e.type === 'spread');
+
+    const indices = Array.isArray(spreadIndices) ? spreadIndices : Array.from({ length: entries.length }, (_, i) => i);
+
+    const spreads = indices.map(idx => {
+      const entry = entries[idx];
+      if (!entry) return { idx, error: 'out of range' };
+      return {
+        idx,
+        spreadImagePrompt: entry.spread_image_prompt || '',
+        pageText: [entry.left?.text, entry.right?.text].filter(Boolean).join(' '),
+        characterOutfit: storyPlan.characterOutfit || '',
+        characterDescription: storyPlan.characterDescription || '',
+        recurringElement: storyPlan.recurringElement || '',
+        keyObjects: storyPlan.keyObjects || [],
+        coverArtStyle: storyPlan.coverArtStyle || '',
+      };
+    });
+
+    res.json({ success: true, spreads });
+  } catch (err) {
+    console.error('[get-spread-data] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /refresh-url — Return a fresh signed URL for a GCS object ──
 // Used by standalone when it lacks GCS credentials to re-sign URLs.
 app.post('/refresh-url', authenticate, async (req, res) => {
