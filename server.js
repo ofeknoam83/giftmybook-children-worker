@@ -1271,7 +1271,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, recurringElement, keyObjects,
-    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl } = req.body;
+    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, fontStyle } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -1301,6 +1301,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       coverArtStyle,
       isSpread: true,
       promptInjection: promptInjection || '',
+      fontStyle: fontStyle || null,
       prevIllustrationUrl: prevIllustrationUrl || null,
       _cachedPhotoBase64: cachedPhotoBase64 || null,
     });

@@ -351,7 +351,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('TEXT RULES:');
     parts.push('- Render ALL of the text above \u2014 do NOT truncate, cut off, or omit any words');
     parts.push('- The COMPLETE text must be visible and readable in the image');
-    parts.push('- FONT: Use a rounded, bubbly sans-serif font (like Fredoka One / Baloo / Nunito). This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.');
+    const fontInstruction = opts.fontStyle
+      ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
+      : '- FONT: Use a rounded, bubbly sans-serif font (like Fredoka One / Baloo / Nunito). This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.';
+    parts.push(fontInstruction);
     parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
     parts.push('- Text must be perfectly legible, correctly spelled, and easy to read');
@@ -585,7 +588,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
