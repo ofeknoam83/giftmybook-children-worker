@@ -336,6 +336,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             totalSpreads: entries.filter(e => e.type === 'spread').length,
             childAge: childDetails.age || childDetails.childAge,
             pageText: job.pageText || '',
+            skipTextEmbed: true, // Text is overlaid by layoutEngine — never bake into illustration
             isSpread: job.isSpread || false,
             deadlineMs: 200000,
             abortSignal: bookContext.abortController.signal,
