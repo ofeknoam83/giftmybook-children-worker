@@ -1093,6 +1093,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
       }
 
+      // Pass validUpsell (with coverBuffer) to assemblePdf, not the raw upsellCovers
+      const upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
       const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
         title: bookTitle,
         childName: childDetails.name,
@@ -1100,7 +1102,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookFrom,
         year: new Date().getFullYear(),
         bookId,
-        upsellCovers,
+        upsellCovers: upsellCoversWithBuffers,
       });
       bookContext.touchActivity();
       bookContext.log('info', 'Interior PDF assembled', { entries: entriesWithBuffers.length, ms: Date.now() - stage7Start });
