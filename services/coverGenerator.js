@@ -424,46 +424,53 @@ Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
 /**
  * Generate a single upsell cover image for a given style and title.
  */
-async function generateUpsellCoverImage(title, childName, childAge, childGender, artStyle, frontCoverBuffer, apiKey) {
+async function generateUpsellCoverImage(title, childName, childAge, childGender, artStyle, frontCoverBuffer) {
   const ART_STYLE_CONFIG = require('./illustrationGenerator').ART_STYLE_CONFIG;
   const styleConfig = ART_STYLE_CONFIG?.[artStyle] || {};
   const prefix = styleConfig.prefix || '';
   const suffix = styleConfig.suffix || '';
 
+  const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'child';
+  const prompt = `${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. The cover should feel premium, inviting, and irresistibly cute. Large bold title "${title}" at the top in a beautiful font. "By GiftMyBook" in small text at the bottom. ${suffix}`;
+
+  // Use the Gemini proxy — same endpoint that illustrationGenerator uses successfully
+  const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
+  const PROXY_API_KEY = process.env.GEMINI_PROXY_API_KEY || '';
+
+  if (!PROXY_URL) throw new Error('GEMINI_PROXY_URL not set — cannot generate upsell cover');
+
+  // Resize cover reference to 256px for the prompt context
   const ref = await sharp(frontCoverBuffer)
     .resize(256, 256, { fit: 'cover' })
     .jpeg({ quality: 80 })
     .toBuffer();
   const refBase64 = ref.toString('base64');
 
-  const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'child';
-  const prompt = `${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. The cover should feel premium, inviting, and irresistibly cute. Large bold title "${title}" at the top in a beautiful font. "By GiftMyBook" in small text at the bottom. ${suffix}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3 * 60 * 1000); // 3-min timeout per cover
 
-  const model = 'gemini-3.1-flash-image-preview';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  try {
+    const resp = await fetch(`${PROXY_URL}/generate-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
+      body: JSON.stringify({
+        prompt,
+        model: 'gemini-3.1-flash-image-preview',
+        referenceImageBase64: refBase64,
+      }),
+      signal: controller.signal,
+    });
 
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [
-        { text: prompt },
-        { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
-      ]}],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-    }),
-  });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`Proxy ${resp.status}: ${await resp.text().then(t => t.slice(0, 100))}`);
 
-  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text().then(t => t.slice(0, 100))}`);
-
-  const data = await resp.json();
-  const parts = data.candidates?.[0]?.content?.parts || [];
-  for (const part of parts) {
-    if (part.inlineData?.mimeType?.startsWith('image/')) {
-      return Buffer.from(part.inlineData.data, 'base64');
-    }
+    const data = await resp.json();
+    if (!data.imageBase64) throw new Error('No imageBase64 in proxy response');
+    return Buffer.from(data.imageBase64, 'base64');
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
   }
-  throw new Error('No image in Gemini response');
 }
 
 /**
@@ -506,14 +513,13 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
     UPSELL_STYLES.map((style, index) =>
       limit(async () => {
         const title = titles[index];
-        const apiKey = getNextApiKey();
 
         console.log(`[coverGenerator] Generating upsell cover ${index + 1}/4: "${title}" (${style})...`);
         const startMs = Date.now();
 
         try {
           const imgBuffer = await generateUpsellCoverImage(
-            title, childName, childAge, childGender, style, frontCoverBuffer, apiKey
+            title, childName, childAge, childGender, style, frontCoverBuffer
           );
 
           const gcsPath = `children-jobs/${bookId}/upsell/${index}/cover.png`;
