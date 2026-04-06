@@ -163,13 +163,14 @@ Write with the qualities of master children's authors:
 - Emotion is implied, never explained.
 - Dialogue feels natural, curious, and childlike — not functional.
 
-RHYTHM & RHYME:
-- The text must sound beautiful when read aloud.
-- Vary sentence length intentionally.
-- Use gentle repetition for emotional effect.
+RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
+- Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
+- Syllable target: 8–14 syllables per sentence. Vary length for natural breathing points.
+- Every spread must contain at least one short sentence (5 words or fewer) for rhythm contrast.
+- Avoid: tongue twisters, three-word noun stacks, words over 3 syllables (except names/invented words).
 - RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
-  If a rhyme feels forced or bends the meaning, drop it — the story always
-  wins over the sound. But DO lean into rhyme at the level specified above.
+  A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
+- Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
 
 TONE:
 - Warm, intimate, slightly poetic.
@@ -474,16 +475,20 @@ INPUTS
 
 STYLE RULES:
 
-1. RHYTHM & FLOW (CRITICAL)
-- Every line must sound good when read aloud
-- Use short, musical sentences (8–14 syllables preferred)
-- Maintain a consistent rhythmic feel (bouncy, lullaby-like)
-- Avoid long or complex sentence structures
+1. RHYTHM & FLOW (CRITICAL — this book is read aloud)
+- After writing EACH spread, read it aloud in your head. If it stumbles anywhere, rewrite it before moving on.
+- Syllable target: 8–14 syllables per sentence. Count stressed syllables as you write.
+- Use short, musical sentences — varied length creates natural breathing points.
+- Avoid: consecutive hard consonants that create tongue twisters.
+- Avoid: three-word noun stacks ("big bright bold") or abstract modifiers.
+- Avoid: words over 3 syllables unless it is a character name or a meaningful invented sound.
+- Every spread must have at least ONE short sentence of 5 words or fewer for rhythm contrast.
 
-2. RHYME (LIGHT, NATURAL)
-- Use soft rhymes (AABB or occasional internal rhyme)
-- Do NOT force rhymes
-- It's okay if not every line rhymes, but flow must remain musical
+2. RHYME (EARNED, NOT FORCED)
+- {rhymeLevel}
+- A near-rhyme or internal rhyme is always better than a strained end-rhyme.
+- If a rhyme would bend the meaning or feel like a coincidence, drop it entirely.
+- Rhymes that feel inevitable are the goal — the reader should feel the rhyme before they hear it.
 
 3. LANGUAGE LEVEL
 - Vocabulary suitable for the child's age
@@ -540,13 +545,14 @@ Write with the qualities of master children's authors:
 - Emotion is implied, never explained.
 - Dialogue feels natural, curious, and childlike — not functional.
 
-RHYTHM & RHYME:
-- The text must sound beautiful when read aloud.
-- Vary sentence length intentionally.
-- Use gentle repetition for emotional effect.
+RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
+- Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
+- Syllable target: 8–14 syllables per sentence. Vary length for natural breathing points.
+- Every spread must contain at least one short sentence (5 words or fewer) for rhythm contrast.
+- Avoid: tongue twisters, three-word noun stacks, words over 3 syllables (except names/invented words).
 - RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
-  If a rhyme feels forced or bends the meaning, drop it — the story always
-  wins over the sound. But DO lean into rhyme at the level specified above.
+  A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
+- Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
 
 TONE:
 - Warm, intimate, slightly poetic.

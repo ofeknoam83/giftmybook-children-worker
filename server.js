@@ -52,7 +52,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed, rhythmCritic, emotionalArcCritic, finalPolish } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed, combinedCritic } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
@@ -801,88 +801,25 @@ app.post('/generate-book', authenticate, async (req, res) => {
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
 
         // ── Self-Critic + Auto-Rewrite pass ──
+        // ── Combined critic: rhythm + arc + memorable line + language quality ──
         bookContext.checkAbort();
-        bookContext.log('info', 'Starting self-critic + rewrite pass');
+        bookContext.log('info', 'Starting combined critic (rhythm, arc, language)');
         if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating and improving story text...', logs: bookContext.logs });
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.22, message: 'Refining story quality...', logs: bookContext.logs });
         }
-        const polishStart = Date.now();
         try {
-          storyPlan = await polishStory(storyPlan, { apiKeys, costTracker });
-          const polishMs = Date.now() - polishStart;
-          const criticData = { ms: polishMs };
-          if (storyPlan._criticScores) criticData.scores = storyPlan._criticScores;
-          if (storyPlan._criticIssueCount) criticData.issuesFound = storyPlan._criticIssueCount;
-          bookContext.log('info', 'Self-critic pass 1 complete', criticData);
+          const criticStart = Date.now();
+          storyPlan = await combinedCritic(storyPlan, { apiKeys, costTracker });
+          bookContext.log('info', 'Combined critic complete', { ms: Date.now() - criticStart });
           bookContext.touchActivity();
-
-          // Conditional second polish pass if quality is below threshold
-          if (storyPlan._criticScores) {
-            const scoreVals = Object.values(storyPlan._criticScores);
-            const avg = scoreVals.reduce((a, b) => a + b, 0) / scoreVals.length;
-            if (avg < 7.5) {
-              bookContext.log('info', `Self-critic avg score ${avg.toFixed(1)} < 7 — running second polish pass`);
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.23, message: 'Refining story text (pass 2)...', logs: bookContext.logs });
-              }
-              const pass2Start = Date.now();
-              storyPlan = await polishStory(storyPlan, { apiKeys, costTracker });
-              const pass2Ms = Date.now() - pass2Start;
-              const pass2Data = { ms: pass2Ms };
-              if (storyPlan._criticScores) pass2Data.scores = storyPlan._criticScores;
-              bookContext.log('info', 'Self-critic pass 2 complete', pass2Data);
-              bookContext.touchActivity();
-            }
-          }
-
-          // Save improved content to DB
+          // Save polished content to DB
           if (progressCallbackUrl) {
-            const polishedContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
-            reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContentForDb, logs: bookContext.logs }).catch(() => {});
-          }
-          await saveCheckpoint(bookId, { bookId, completedStage: 'story_polish', storyPlan, timestamp: new Date().toISOString() });
-        } catch (polishErr) {
-          bookContext.log('warn', `Self-critic pass failed — using original text: ${polishErr.message}`);
-          // Non-fatal: continue with original text
-        }
-
-        // ── Rhythm & Simplicity Critic ──
-        bookContext.checkAbort();
-        bookContext.log('info', 'Starting rhythm & simplicity critic');
-        try {
-          storyPlan = await rhythmCritic(storyPlan, { apiKeys, costTracker });
-          bookContext.log('info', 'Rhythm critic complete');
-          bookContext.touchActivity();
-        } catch (err) {
-          bookContext.log('warn', `Rhythm critic failed — using previous text: ${err.message}`);
-        }
-
-        // ── Emotional Arc Critic ──
-        bookContext.checkAbort();
-        bookContext.log('info', 'Starting emotional arc critic');
-        try {
-          storyPlan = await emotionalArcCritic(storyPlan, { apiKeys, costTracker });
-          bookContext.log('info', 'Emotional arc critic complete');
-          bookContext.touchActivity();
-        } catch (err) {
-          bookContext.log('warn', `Emotional arc critic failed — using previous text: ${err.message}`);
-        }
-
-        // ── Final Polish ──
-        bookContext.checkAbort();
-        bookContext.log('info', 'Starting final polish');
-        try {
-          storyPlan = await finalPolish(storyPlan, { apiKeys, costTracker });
-          bookContext.log('info', 'Final polish complete');
-          bookContext.touchActivity();
-          // Save final polished content to DB
-          if (progressCallbackUrl) {
-            const finalContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
-            reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: finalContent, logs: bookContext.logs }).catch(() => {});
+            const polishedContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
+            reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContent, logs: bookContext.logs }).catch(() => {});
           }
           await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString() });
-        } catch (err) {
-          bookContext.log('warn', `Final polish failed — using previous text: ${err.message}`);
+        } catch (criticErr) {
+          bookContext.log('warn', `Combined critic failed — using original text: ${criticErr.message}`);
         }
       }
 

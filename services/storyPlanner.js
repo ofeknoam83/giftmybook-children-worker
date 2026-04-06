@@ -1082,40 +1082,79 @@ async function polishStory(storyPlan, opts = {}) {
 
 // ── Rhythm & Simplicity Critic ──
 
-const RHYTHM_CRITIC_SYSTEM = `You are a children's book rhythm and language critic.
+const COMBINED_CRITIC_SYSTEM = `You are a world-class children's book editor. You review the story in ONE pass and fix everything at once.
 
-Evaluate the story for:
-1. READ-ALOUD FLOW: Does every line sound good when spoken aloud? Are there any awkward rhythms, tongue twisters, or clunky phrases?
-2. WORD DIFFICULTY: Are all words appropriate for the child's age? Flag any words that are too complex (more than 3 syllables, abstract, or unfamiliar).
-3. FORCED RHYMES: Are any rhymes strained or unnatural? Does any line feel rewritten just to rhyme?
+Your job covers four areas. Evaluate ALL of them, then produce ONE set of improved spreads.
 
-Fix all identified issues. Rewrite ONLY the affected lines while preserving meaning and the story structure.
+─────────────────────────────────────────
+1. RHYTHM & READ-ALOUD (highest priority)
+─────────────────────────────────────────
+Read every line aloud in your head. Fix any line that:
+- Stumbles, feels clunky, or is hard to say smoothly
+- Has consecutive hard consonants creating tongue twisters
+- Has words over 3 syllables (unless a name or meaningful invented word)
+- Violates the 8–14 syllable preference per sentence
+- Contains a forced or strained rhyme that bends the meaning
 
-Rules:
-- Keep every fix shorter or the same length as the original
-- Maintain the 8–14 syllable preference per sentence
-- Preserve the emotional content and all story events
-- Do NOT change left/right assignments or null pages
-- Do NOT restructure the story
+Rules for rhythm fixes:
+- Keep fixes shorter or equal length to the original
+- Maintain 8–14 syllables per sentence
+- Every spread must have at least one short sentence (≤5 words) for contrast
+- Near-rhymes and internal rhymes are always better than strained end-rhymes
+- If a rhyme feels forced, drop it — the story always wins over the sound
 
-Return the SAME JSON structure with improved text in improved_spreads.
+─────────────────────────────────────────
+2. EMOTIONAL ARC
+─────────────────────────────────────────
+Check:
+- ESCALATION: Each spread slightly increases curiosity, movement, or wonder through the middle
+- DOUBT MOMENT: There is a clear moment of uncertainty or tension in spreads 5–8
+- ENDING: The final 2 spreads feel like a whisper — soft, resolved, dream-like (not a conclusion)
+
+Fix weak spreads. Do NOT add new characters, events, or settings.
+
+─────────────────────────────────────────
+3. MEMORABLE LINE
+─────────────────────────────────────────
+Ensure at least ONE line exists that a parent would want to repeat to their child outside the book.
+It should be specific to THIS child and THIS story — not generic.
+If no such line exists, create one naturally within the existing story structure.
+
+─────────────────────────────────────────
+4. LANGUAGE QUALITY
+─────────────────────────────────────────
+- Replace any generic filler words: "very", "nice", "special", "magical", "wonderful", "beautiful" used as descriptors
+- Replace any emotion-telling: "she felt scared", "he was happy" → show through action/sensation
+- Sharpen one word per spread if a more specific/sensory word fits better
+- Only reduce or maintain word count — never increase
+
+─────────────────────────────────────────
+RULES FOR ALL REWRITES
+─────────────────────────────────────────
+- Rewrite ONLY what genuinely needs it — if a line already works, leave it exactly as-is
+- Do NOT change: plot, structure, characters, spread count, left/right assignments, null pages
+- Quality bar: only return a rewrite if it is clearly better than the original
+- The ending (spreads 12–13) must feel like settling into sleep — soft, not triumphant
 
 Return JSON:
 {
-  "issues": [ { "spread": 1, "line": "exact quote", "reason": "rhythm issue / complex word / forced rhyme" } ],
-  "improved_spreads": [ { "spread": 1, "left": "...", "right": "..." }, ... ]
+  "issues": [
+    { "spread": 1, "area": "rhythm|arc|memorable|language", "line": "exact quote", "reason": "brief description" }
+  ],
+  "improved_spreads": [
+    { "spread": 1, "left": "...", "right": "..." }
+  ]
 }
 
-Rules for improved_spreads:
-- Return ALL spreads
-- If a spread needed no changes, return its text unchanged
+- Return ALL spreads in improved_spreads (unchanged spreads returned as-is)
 - If left or right was null, keep it null
-- QUALITY BAR: Only return a rewrite if it is clearly better. If a line already works, leave it.`;
+- issues array may be empty if the story is already strong`;
 
 /**
- * Rhythm & Simplicity Critic — checks read-aloud flow, word difficulty, forced rhymes.
+ * Combined critic — rhythm, emotional arc, memorable line, language quality in one pass.
+ * Replaces the three separate rhythm/arc/polish critics.
  */
-async function rhythmCritic(storyPlan, opts = {}) {
+async function combinedCritic(storyPlan, opts = {}) {
   const { costTracker, apiKeys } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
@@ -1126,229 +1165,46 @@ async function rhythmCritic(storyPlan, opts = {}) {
     right: s.right?.text || null,
   }));
 
-  console.log(`[storyPlanner] Starting rhythm critic (${spreads.length} spreads)...`);
+  console.log(`[storyPlanner] Starting combined critic (${spreads.length} spreads)...`);
   const start = Date.now();
 
-  const response = await callLLM(RHYTHM_CRITIC_SYSTEM, JSON.stringify(textMap), {
+  const response = await callLLM(COMBINED_CRITIC_SYSTEM, JSON.stringify(textMap), {
     openaiApiKey: openaiKey,
-    maxTokens: 6000,
-    temperature: 0.4,
+    maxTokens: 7000,
+    temperature: 0.35,
     jsonMode: true,
     costTracker,
   });
 
-  console.log(`[storyPlanner] Rhythm critic completed in ${Date.now() - start}ms`);
+  console.log(`[storyPlanner] Combined critic completed in ${Date.now() - start}ms`);
 
   let result;
   try {
-    let content = response.text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+    let content = response.text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
     result = JSON.parse(content);
   } catch (e) {
     const stripped = response.text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
     try { result = JSON.parse(stripped); } catch (_) {
-      console.warn('[storyPlanner] Rhythm critic JSON parse failed — using original');
+      console.warn('[storyPlanner] Combined critic JSON parse failed — using original');
       return storyPlan;
     }
   }
 
   if (result.issues && result.issues.length > 0) {
-    console.log(`[storyPlanner] Rhythm critic found ${result.issues.length} issues`);
-    for (const issue of result.issues.slice(0, 5)) {
-      console.log(`  - Spread ${issue.spread} [${issue.reason}]: "${(issue.line || '').slice(0, 60)}"`);
+    console.log(`[storyPlanner] Combined critic found ${result.issues.length} issues:`);
+    const byArea = {};
+    for (const issue of result.issues) {
+      byArea[issue.area] = (byArea[issue.area] || 0) + 1;
     }
+    console.log(`  Areas: ${JSON.stringify(byArea)}`);
+    for (const issue of result.issues.slice(0, 4)) {
+      console.log(`  - Spread ${issue.spread} [${issue.area}]: "${(issue.line || '').slice(0, 60)}"`);
+    }
+  } else {
+    console.log('[storyPlanner] Combined critic: no issues found — story is strong');
   }
 
   return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
 }
 
-// ── Emotional Arc Critic ──
-
-const EMOTIONAL_ARC_CRITIC_SYSTEM = `You are a children's book emotional arc critic.
-
-Check the story for:
-1. ESCALATION: Does each spread slightly increase curiosity, movement, or wonder toward the middle?
-2. MOMENT OF DOUBT: Is there a clear moment of uncertainty, silence, or "loss" in spreads 5-8?
-3. EMOTIONAL SATISFACTION: Does the ending feel warm, complete, and emotionally resolved?
-
-Fix weak parts. Rewrite ONLY the spreads that need improvement.
-
-Rules:
-- Preserve the story's plot and all events
-- Do NOT add new characters or change the setting
-- Keep the same word count limits per spread (max 20 words per spread total)
-- Do NOT change left/right assignments or null pages
-- The ending (spreads 12-13) must feel like a whisper, not a conclusion
-
-Return JSON:
-{
-  "arc_assessment": {
-    "has_escalation": true/false,
-    "has_doubt_moment": true/false,
-    "ending_satisfying": true/false,
-    "weakest_spreads": [spread numbers that need work]
-  },
-  "improved_spreads": [ { "spread": 1, "left": "...", "right": "..." }, ... ]
-}
-
-Rules for improved_spreads:
-- Return ALL spreads
-- If a spread is already strong, return it unchanged
-- QUALITY BAR: Only rewrite what genuinely needs it`;
-
-/**
- * Emotional Arc Critic — checks escalation, doubt moment, and ending satisfaction.
- */
-async function emotionalArcCritic(storyPlan, opts = {}) {
-  const { costTracker, apiKeys } = opts;
-  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-
-  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
-  const textMap = spreads.map(s => ({
-    spread: s.spread,
-    left: s.left?.text || null,
-    right: s.right?.text || null,
-  }));
-
-  console.log(`[storyPlanner] Starting emotional arc critic...`);
-  const start = Date.now();
-
-  const response = await callLLM(EMOTIONAL_ARC_CRITIC_SYSTEM, JSON.stringify(textMap), {
-    openaiApiKey: openaiKey,
-    maxTokens: 6000,
-    temperature: 0.4,
-    jsonMode: true,
-    costTracker,
-  });
-
-  console.log(`[storyPlanner] Emotional arc critic completed in ${Date.now() - start}ms`);
-
-  let result;
-  try {
-    let content = response.text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-    result = JSON.parse(content);
-  } catch (e) {
-    const stripped = response.text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-    try { result = JSON.parse(stripped); } catch (_) {
-      console.warn('[storyPlanner] Emotional arc critic JSON parse failed — using original');
-      return storyPlan;
-    }
-  }
-
-  if (result.arc_assessment) {
-    console.log(`[storyPlanner] Arc assessment: escalation=${result.arc_assessment.has_escalation}, doubt=${result.arc_assessment.has_doubt_moment}, ending=${result.arc_assessment.ending_satisfying}`);
-    if (result.arc_assessment.weakest_spreads?.length > 0) {
-      console.log(`[storyPlanner] Weakest spreads: ${result.arc_assessment.weakest_spreads.join(', ')}`);
-    }
-  }
-
-  return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
-}
-
-// ── Final Polish ──
-
-const FINAL_POLISH_SYSTEM = `You are a children's book final editor.
-
-Make the story slightly more vivid while keeping it simple.
-
-Your only job is to:
-1. Tighten rhythm — remove any awkward phrasing, adjust syllable flow
-2. Sharpen one word per spread if a more specific/sensory word would work better
-3. Remove any remaining filler words or unnecessary syllables
-4. Ensure the final 2 spreads feel soft and dream-like
-
-Do NOT:
-- Change the plot
-- Rewrite entire sentences
-- Add new events or characters
-- Change null pages
-- Increase word count (only reduce or keep the same)
-
-Return JSON:
-{
-  "improved_spreads": [ { "spread": 1, "left": "...", "right": "..." }, ... ]
-}
-
-Rules for improved_spreads:
-- Return ALL spreads
-- If a spread is already clean, return it unchanged
-- QUALITY BAR: If in doubt, leave it alone. Only polish what clearly needs it.`;
-
-/**
- * Final Polish — vivid language, tightened rhythm, cleaner phrasing.
- */
-async function finalPolish(storyPlan, opts = {}) {
-  const { costTracker, apiKeys } = opts;
-  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-
-  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
-  const textMap = spreads.map(s => ({
-    spread: s.spread,
-    left: s.left?.text || null,
-    right: s.right?.text || null,
-  }));
-
-  console.log(`[storyPlanner] Starting final polish...`);
-  const start = Date.now();
-
-  const response = await callLLM(FINAL_POLISH_SYSTEM, JSON.stringify(textMap), {
-    openaiApiKey: openaiKey,
-    maxTokens: 5000,
-    temperature: 0.3,
-    jsonMode: true,
-    costTracker,
-  });
-
-  console.log(`[storyPlanner] Final polish completed in ${Date.now() - start}ms`);
-
-  let result;
-  try {
-    let content = response.text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-    result = JSON.parse(content);
-  } catch (e) {
-    const stripped = response.text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-    try { result = JSON.parse(stripped); } catch (_) {
-      console.warn('[storyPlanner] Final polish JSON parse failed — using original');
-      return storyPlan;
-    }
-  }
-
-  return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
-}
-
-/**
- * Shared helper: apply improved_spreads array back into the story plan.
- */
-function applyImprovedSpreads(storyPlan, improvedSpreads) {
-  if (!improvedSpreads || !Array.isArray(improvedSpreads) || improvedSpreads.length === 0) {
-    return storyPlan;
-  }
-
-  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
-  if (improvedSpreads.length !== spreads.length) {
-    console.warn(`[storyPlanner] Improved spreads count mismatch (${improvedSpreads.length} vs ${spreads.length}) — using original`);
-    return storyPlan;
-  }
-
-  let changedCount = 0;
-  const updatedEntries = storyPlan.entries.map(entry => {
-    if (entry.type !== 'spread') return entry;
-    const match = improvedSpreads.find(p => p.spread === entry.spread);
-    if (!match) return entry;
-
-    const updated = { ...entry };
-    if (match.left !== undefined && entry.left) {
-      if (match.left !== entry.left.text) changedCount++;
-      updated.left = { ...entry.left, text: match.left };
-    }
-    if (match.right !== undefined && entry.right) {
-      if (match.right !== entry.right.text) changedCount++;
-      updated.right = { ...entry.right, text: match.right };
-    }
-    return updated;
-  });
-
-  console.log(`[storyPlanner] Applied ${changedCount} text improvements`);
-  return { ...storyPlan, entries: updatedEntries };
-}
-
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, rhythmCritic, emotionalArcCritic, finalPolish };
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic };
