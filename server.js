@@ -14,9 +14,32 @@ process.on('unhandledRejection', (reason) => {
   if (reason?.stack) console.error(reason.stack);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.warn('[PROCESS] Received SIGTERM — Cloud Run is shutting down this instance');
-  // Allow 10s for cleanup
+
+  // Report failure for all in-memory active book generations
+  // so their status resets to failed and they can be retried
+  try {
+    const inFlight = Array.from(activeBooks.keys());
+    console.warn(`[PROCESS] SIGTERM: ${inFlight.length} in-flight book(s): ${inFlight.join(', ')}`);
+    for (const bookId of inFlight) {
+      const ctx = activeBooks.get(bookId);
+      if (ctx?.progressCallbackUrl) {
+        const { reportProgressForce } = require('./services/progressReporter');
+        reportProgressForce(ctx.progressCallbackUrl, {
+          bookId,
+          stage: 'failed',
+          progress: 0,
+          message: 'Worker instance was shut down mid-generation (Cloud Run SIGTERM). Will be retried.',
+          logs: ctx.logs || [],
+          error: 'SIGTERM: Cloud Run instance recycled during generation',
+        }).catch(() => {});
+      }
+    }
+  } catch (cleanupErr) {
+    console.error('[PROCESS] SIGTERM cleanup error:', cleanupErr.message);
+  }
+
   setTimeout(() => process.exit(0), 10000);
 });
 
@@ -1069,13 +1092,22 @@ app.post('/generate-book', authenticate, async (req, res) => {
       if (preGeneratedCoverBuffer) {
         try {
           bookContext.log('info', 'Generating upsell covers (4 styles)...');
-          upsellCovers = await Promise.race([
-            generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
-              apiKeys, costTracker: new CostTracker(),
-            }),
-            new Promise(resolve => setTimeout(() => resolve([]), 4 * 60 * 1000)),
-          ]);
-          bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4`);
+          // Race against a 4-minute timeout. The upsell promise is always caught so
+          // it never becomes an unhandled rejection even if it outlives the timeout.
+          const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
+            apiKeys, costTracker: new CostTracker(),
+          }).catch(e => {
+            console.warn(`[server] Upsell covers background error: ${e.message}`);
+            return [];
+          });
+          const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 4 * 60 * 1000));
+          const result = await Promise.race([upsellPromise, timeoutPromise]);
+          if (result === null) {
+            bookContext.log('warn', 'Upsell cover generation timed out after 4 min — continuing without upsell spread');
+          } else {
+            upsellCovers = result;
+            bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4`);
+          }
         } catch (upsellErr) {
           bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
         }
