@@ -189,15 +189,16 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const maxW = pw - SAFE * 2;
   const dedFont = dancing || playfairItalic || helv;
 
-  const FROM_SZ  = 18;
-  const DED_SZ   = 26;
-  const DED_LH   = DED_SZ * 1.55;
-  const RULE_GAP = 14;
+  const FROM_SZ      = 18;
+  const DED_SZ       = 26;
+  const DED_LH       = DED_SZ * 1.55;
+  const RULE_GAP     = 14;
+  const TITLE_TO_DED = DED_LH * 2; // 2 lines of extra space between rule and dedication text
 
   const dedText  = dedication || '';
   const dedLines = wrapText(dedText, dedFont, DED_SZ, maxW);
   const bodyH    = dedLines.length * DED_LH;
-  const blockH   = FROM_SZ + RULE_GAP + 1.2 + RULE_GAP + bodyH;
+  const blockH   = FROM_SZ + RULE_GAP + 1.2 + RULE_GAP + TITLE_TO_DED + bodyH;
 
   // Anchor whole block to page vertical center
   let y = ph / 2 + blockH / 2;
@@ -206,7 +207,7 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
     drawCentered(p, `From ${bookFrom}`, playfairItalic || helv, FROM_SZ, y, C.brownMid);
     y -= FROM_SZ + RULE_GAP;
     goldRule(p, y, 80);
-    y -= RULE_GAP + 1.2;
+    y -= RULE_GAP + 1.2 + TITLE_TO_DED; // extra 2-line gap after rule
   }
 
   for (const line of dedLines) {
