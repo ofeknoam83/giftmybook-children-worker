@@ -474,7 +474,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Embed story text directly in the illustration — or explicitly forbid text
   if (!pageText || skipTextEmbed) {
     parts.push('');
-    parts.push('NO TEXT IN THIS IMAGE: This is a visual-only spread. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration. The image must contain ONLY artwork — zero text of any kind. If a reference image contains text, IGNORE it completely.');
+    parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   } else if (pageText && !skipTextEmbed) {
     parts.push('');
     parts.push('TEXT IN IMAGE — VERBATIM COPY (THIS IS THE EXACT TEXT TO RENDER):');
@@ -561,9 +561,15 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
   ];
 
-  if (opts.prevIllustrationBase64) {
-    parts.push({ text: 'STYLE REFERENCE ONLY — this is a previous spread from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of this reference image — do NOT reproduce or imitate the composition. IGNORE any text or words visible in this reference — do NOT copy, reproduce, or include any text from this reference image. Only the rendering style transfers:' });
-    parts.push({ inline_data: { mimeType: opts.prevIllustrationMime || 'image/jpeg', data: opts.prevIllustrationBase64 } });
+  // Add all style reference images (multiple supported)
+  const styleRefs = Array.isArray(opts.prevIllustrationRefs) && opts.prevIllustrationRefs.length > 0
+    ? opts.prevIllustrationRefs
+    : (opts.prevIllustrationBase64 ? [{ base64: opts.prevIllustrationBase64, mimeType: opts.prevIllustrationMime || 'image/jpeg' }] : []);
+  if (styleRefs.length > 0) {
+    parts.push({ text: `STYLE REFERENCE${styleRefs.length > 1 ? 'S' : ''} ONLY (${styleRefs.length} image${styleRefs.length > 1 ? 's' : ''}) — these are previous spreads from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of these reference images — do NOT reproduce or imitate the composition. IGNORE any text visible in these references. Only the rendering style transfers:` });
+    for (const ref of styleRefs) {
+      parts.push({ inline_data: { mimeType: ref.mimeType || 'image/jpeg', data: ref.base64 } });
+    }
   }
 
   const body = {
@@ -749,19 +755,24 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     }
   }
 
-  // Download previous illustration as reference (admin regeneration only)
-  let prevIllustrationBase64 = null;
-  let prevIllustrationMime = 'image/jpeg';
-  if (opts.prevIllustrationUrl) {
+  // Download previous illustrations as style references (admin regeneration only)
+  // prevIllustrationUrls (array) takes precedence; falls back to single prevIllustrationUrl
+  const refUrls = Array.isArray(opts.prevIllustrationUrls) && opts.prevIllustrationUrls.length > 0
+    ? opts.prevIllustrationUrls
+    : (opts.prevIllustrationUrl ? [opts.prevIllustrationUrl] : []);
+  const prevIllustrationRefs = []; // [{ base64, mimeType }]
+  for (const refUrl of refUrls) {
     try {
-      const prev = await downloadPhotoAsBase64(opts.prevIllustrationUrl);
-      prevIllustrationBase64 = prev.base64;
-      prevIllustrationMime = prev.mimeType;
-      console.log(`[illustrationGenerator] Previous illustration loaded as reference (${Math.round(prev.base64.length * 0.75 / 1024)}KB)`);
+      const prev = await downloadPhotoAsBase64(refUrl);
+      prevIllustrationRefs.push({ base64: prev.base64, mimeType: prev.mimeType });
+      console.log(`[illustrationGenerator] Style reference loaded (${Math.round(prev.base64.length * 0.75 / 1024)}KB): ${refUrl.slice(0, 80)}`);
     } catch (e) {
-      console.warn(`[illustrationGenerator] Could not load prev illustration reference: ${e.message}`);
+      console.warn(`[illustrationGenerator] Could not load style reference: ${e.message}`);
     }
   }
+  // Legacy single-ref compat
+  const prevIllustrationBase64 = prevIllustrationRefs[0]?.base64 || null;
+  const prevIllustrationMime = prevIllustrationRefs[0]?.mimeType || 'image/jpeg';
 
   // Build prompt variants for NSFW fallback
   const promptVariants = [
@@ -780,7 +791,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       let imageBuffer;
       // Always use cover image as reference for character likeness
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;

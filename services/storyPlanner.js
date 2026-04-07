@@ -286,7 +286,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: The child fixes it — uses their favorite object or a new friend to turn it around.
    - Spreads 9-10: The celebration reaches its peak — wonder, joy, the moment they will remember.
    - Spread 11: Returning home, full of joy and birthday energy — the journey has made this moment even sweeter.
-   - Spread 12: Everyone gathers. Something is coming. The room hushes. [visually silent, no text]
+   - Spread 12: Everyone gathers. Something is coming. The room hushes. One quiet whispered line.
    - Spread 13: [ILLUSTRATION LOCKED] The birthday cake arrives. The child leans in cheeks puffed, about to blow out ${candleText} (either ${age} individual candles OR one numeral-"${age}" candle — no other count). This is what the whole day was building to.`;
 
     case 'holiday':
@@ -299,7 +299,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: The child finds a way through — holiday spirit and their favorite object help.
    - Spreads 9-10: The holiday magic is fulfilled — lights, warmth, belonging.
    - Spread 11: Heading home through the festive night.
-   - Spread 12: Homecoming — visually silent.
+   - Spread 12: Homecoming — one quiet settling line.
    - Spread 13: Cozy, warm, the holiday feeling settled in.`;
 
     case 'school':
@@ -312,7 +312,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: The child finds courage — their favorite object or the new friend helps.
    - Spreads 9-10: A triumph — a presentation, a game, a moment of belonging.
    - Spread 11: End of day, walking out — taller, more confident.
-   - Spread 12: Homecoming — visually silent.
+   - Spread 12: Homecoming — one quiet settling line.
    - Spread 13: Home. Settled. Tomorrow feels possible.`;
 
     case 'space':
@@ -325,7 +325,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: Breakthrough — the favorite object holds a clue, or a new sky-friend helps navigate.
    - Spreads 9-10: The destination reached — a moon, a nebula, a discovery no one has seen before.
    - Spread 11: The journey home — Earth grows larger below.
-   - Spread 12: Landing — visually silent.
+   - Spread 12: Landing — one quiet line.
    - Spread 13: Back in bed, stars through the window, carrying the universe inside.`;
 
     case 'underwater':
@@ -338,7 +338,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: Finding a way — the favorite object glows, floats, or guides.
    - Spreads 9-10: The discovery — a hidden treasure, a whale song, a light in the deep.
    - Spread 11: Rising back toward the surface — light growing above.
-   - Spread 12: Breaking the surface — visually silent.
+   - Spread 12: Breaking the surface — one quiet line.
    - Spread 13: On the shore or in bed, something from the deep still in hand.`;
 
     case 'fantasy':
@@ -351,7 +351,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: The child solves it — cleverness or heart, not force. The favorite object is key.
    - Spreads 9-10: Victory — the quest fulfilled, the magic restored or the treasure found.
    - Spread 11: The journey back through the enchanted world.
-   - Spread 12: Through the door — visually silent.
+   - Spread 12: Through the door — one quiet line.
    - Spread 13: Home. The magic still warm. Sleep comes easy.`;
 
     case 'nature':
@@ -364,7 +364,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: Working with nature — patience, observation, the right tool (the favorite object).
    - Spreads 9-10: The natural world responds — healing, returning, blooming, moving.
    - Spread 11: Walking home through the changed landscape.
-   - Spread 12: Arriving home — visually silent.
+   - Spread 12: Arriving home — one quiet line.
    - Spread 13: In bed, the sound of nature still outside. Connected.`;
 
     case 'friendship':
@@ -377,7 +377,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 7-8: The repair — honesty, the favorite object as a gift or gesture, finding each other again.
    - Spreads 9-10: The friendship deepens — a shared secret, a promise, a place that's just theirs.
    - Spread 11: Saying goodbye for now — but knowing they'll be back.
-   - Spread 12: Going home — visually silent.
+   - Spread 12: Going home — one quiet line.
    - Spread 13: In bed, something from the friend nearby. Not alone.`;
 
     default: // adventure, bedtime
@@ -387,7 +387,7 @@ function getThemeBeatStructure(theme, age) {
    - Spread 6: THE HINGE — child is stuck, blocked, or almost fails (this is the most important beat — make it specific and tense)
    - Spreads 7-9: Breakthrough (child uses the favorite object or courage to overcome the hinge obstacle, victory builds)
    - Spreads 10-11: Resolution (final challenge solved, journey home begins)
-   - Spread 12: Homecoming — visually silent, no text (child arrives home, changed)
+   - Spread 12: Homecoming — one quiet settling line (child arrives home, changed)
    - Spread 13: Rest — settled, safe, the world feels bigger`;
   }
 }
@@ -722,25 +722,17 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
-  // Visual-only spreads: intentional silent spreads are allowed (max 2),
-  // but accidental empty spreads outside the last 2 are blocking errors.
-  const visualOnly = spreads.filter(s => !s.left?.text && !s.right?.text);
-  const lastTwoSpreadNums = spreads.slice(-2).map(s => s.spread);
-  const accidentalEmpty = visualOnly.filter(s => !lastTwoSpreadNums.includes(s.spread));
-  if (accidentalEmpty.length > 0) {
-    accidentalEmpty.forEach(s => {
-      issues.push({ spread: s.spread, type: 'empty_spread', message: `Spread ${s.spread} has no text — accidental empty spread` });
-    });
-  }
-  if (visualOnly.length > 2) {
-    issues.push({ type: 'too_many_visual', message: `${visualOnly.length} visual-only spreads (max 2 allowed)` });
+  // All spreads must have text — no visual-only spreads allowed
+  const emptySpread = spreads.find(s => !s.left?.text && !s.right?.text);
+  if (emptySpread) {
+    issues.push({ spread: emptySpread.spread, type: 'empty_spread', message: `Spread ${emptySpread.spread} has no text on either page — all spreads must have text` });
   }
 
   if (spreads.length < 10) {
     issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-13)` });
   }
 
-  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread', 'too_many_visual'].includes(i.type));
+  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread'].includes(i.type));
   return { valid: blocking.length === 0, issues };
 }
 
@@ -926,27 +918,6 @@ function normalizePlan(parsed, childDetails, opts = {}) {
     console.warn(`[storyPlanner] ${spreads.length} spreads — truncating to 13`);
     spreads = spreads.slice(0, 13).map((s, i) => ({ ...s, spread: i + 1 }));
   }
-
-  // Safety net: visual-only spreads must always have a distinct spread_image_prompt
-  // If one is missing, generate a fallback from the beat description or a generic scene
-  const childName = childDetails.name || childDetails.childName || 'the child';
-  const beats = opts.v2Vars?.beats || [];
-  spreads = spreads.map((s, i) => {
-    const isVisualOnly = !s.left?.text && !s.right?.text;
-    if (isVisualOnly && !s.spread_image_prompt?.trim()) {
-      const beat = beats[i] || '';
-      const fallbackPrompt = beat
-        ? `${childName} in a moment of stillness: ${beat}. Wide cinematic scene. Warm light. NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions.`
-        : `${childName} standing alone in the scene, a quiet moment of transition. The environment reflects the emotional tone of the story at this point. Soft light, peaceful. NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions.`;
-      console.warn(`[storyPlanner] Spread ${s.spread} is visual-only with no image prompt — injecting fallback`);
-      return { ...s, spread_image_prompt: fallbackPrompt };
-    }
-    // For visual-only spreads that DO have a prompt, ensure NO TEXT instruction is present
-    if (isVisualOnly && s.spread_image_prompt && !s.spread_image_prompt.includes('NO TEXT')) {
-      return { ...s, spread_image_prompt: s.spread_image_prompt + ' NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions.' };
-    }
-    return s;
-  });
 
   const dedEntry = entries.find(e => e.type === 'dedication_page');
   const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;

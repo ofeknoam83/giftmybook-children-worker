@@ -220,12 +220,6 @@ WRITING QUALITY OVERRIDES (MANDATORY)
 
 - Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
 
-- At least 2 spreads should be entirely visual (no text on either page). Place these strategically:
-  - ONE at the moment of highest tension — where silence is more powerful than words (typically spreads 6-8)
-  - ONE just before or at the ending — where the image completes what words cannot (typically spreads 12-13)
-  Do NOT place visual-only spreads during setup (spreads 1-3) — the reader needs words to enter the world first.
-  CRITICAL: Visual-only spreads MUST still have a spread_image_prompt. The prompt must describe a DISTINCT, DIFFERENT scene from the previous spread — never a copy. Add "NO TEXT IN THIS IMAGE" at the end of the prompt.
-
 - Include one subtle emotional layer that resonates with the parent reading.
 
 - Every 2 spreads must include at least one short sentence (<=5 words) for rhythm.
@@ -400,14 +394,7 @@ Right: "The last Number Num clicked into place. One, two, three — all the way 
 
 Notice: No "and she fell asleep" — the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
 
-EXAMPLE E (visual-only spread — silence as storytelling):
-Left: null
-Right: null
-[Image prompt: Wide shot of the child standing still at the center of the forest, small against the tall trees, the glow of a single Number Num floating at eye level. No text. The moment holds itself.]
-
-Notice: No words. The reader pauses. The image does more than any sentence could.
-
-EXAMPLE F (refrain spread — phrase at its middle stage):
+EXAMPLE E (refrain spread — phrase at its middle stage):
 Left: "The path forked into three. She held Barnaby tighter."
 Right: "Grammy's warmth is always with you, she whispered to herself. This time it came out more like a question."
 
@@ -498,7 +485,7 @@ Front matter pages (half-title, title page, copyright) are added automatically �
 The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
 
 Rules:
-- Text may appear on left, right, or both. A page may have null text for visual-only spreads.
+- Every spread MUST have text. null text is not allowed — both left and right may have text, or just one, but at least one must be non-null.
 - spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
 - IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point and the environment surrounding them naturally. The child MUST be positioned in the left third or right third of the scene — NOT at the center. Never describe the child as standing in the middle of the scene.
 - Do NOT specify art medium in spread_image_prompt.
@@ -516,7 +503,7 @@ Before writing, silently verify:
 - Is there at least one memorable line a parent would repeat outside the book?
 - Does the repeated phrase transform from uncertain to safe?
 - Does the ending feel soft and satisfying?
-- Are there at most 2 visual-only spreads, and are they ONLY in spreads 11-13 (never earlier)?
+- Does every spread have text on at least one page (left or right)? No spread may have null text on both pages.
 - Are there exactly 13 spreads (not fewer, not more)?
 - Does characterDescription include a specific hair description (color, style, length)?
 - Does characterOutfit describe a complete, specific outfit?
@@ -808,8 +795,7 @@ Right: "[text]"
 
 Rules:
 - Write exactly 13 spreads.
-- Each spread has Left and Right. Use null for visual-only pages.
-- At least 2 spreads must have a null page.
+- Each spread has Left and Right. At least one must have text — no spread may have both null.
 - Do NOT include illustration descriptions, JSON, or metadata.
 - Focus entirely on the story text and its quality.`;
 
@@ -885,7 +871,7 @@ The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 en
 
 Rules:
 - PRESERVE all story text EXACTLY as written in the input — do not rewrite, paraphrase, or edit.
-- Text may appear on left, right, or both. null text means visual-only page.
+- Every spread MUST have text. null text is not allowed — both left and right may have text, or just one, but at least one must be non-null.
 - spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
 - IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point. The child MUST be positioned in the left third or right third of the scene — NOT at the center. Never describe the child as standing in the middle of the scene.
 - Do NOT specify art medium in spread_image_prompt.
