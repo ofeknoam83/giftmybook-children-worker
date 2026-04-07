@@ -166,7 +166,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 9-10: The celebration reaches its peak — wonder, joy, the moment they will remember.
    - Spread 11: Returning home, full of joy and birthday energy — the journey has made this moment even sweeter.
    - Spread 12: Everyone gathers. Something is coming. The room hushes. [visually silent, no text]
-   - Spread 13: [FIXED — MUST BE THIS] The birthday cake appears with ${candleText} glowing. The child leans in, cheeks puffed. This is what the whole day was building to.`;
+   - Spread 13: [ILLUSTRATION LOCKED] The birthday cake arrives. The child leans in cheeks puffed, about to blow out ${candleText} (either ${age} individual candles OR one numeral-"${age}" candle — no other count). This is what the whole day was building to.`;
 
     case 'holiday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this HOLIDAY arc:
