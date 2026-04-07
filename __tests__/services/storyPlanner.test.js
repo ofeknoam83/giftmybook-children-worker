@@ -91,12 +91,12 @@ describe('planStory', () => {
     expect(plan.entries.length).toBe(20);
   });
 
-  test('truncates plans with more than 12 spreads', async () => {
+  test('truncates plans with more than 13 spreads', async () => {
     global.fetch = jest.fn(async () => makeFetchResponse(longPlan));
 
     const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
     const spreads = plan.entries.filter(e => e.type === 'spread');
-    expect(spreads.length).toBeLessThanOrEqual(12);
+    expect(spreads.length).toBeLessThanOrEqual(13);
     spreads.forEach((s, i) => {
       expect(s.spread).toBe(i + 1);
     });

@@ -825,7 +825,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         }
         try {
           const criticStart = Date.now();
-          storyPlan = await combinedCritic(storyPlan, { apiKeys, costTracker });
+          storyPlan = await combinedCritic(storyPlan, { apiKeys, costTracker, theme });
           bookContext.log('info', 'Combined critic complete', { ms: Date.now() - criticStart });
           bookContext.touchActivity();
           // Save polished content to DB
@@ -956,6 +956,24 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
       }
 
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
+
+      // Birthday theme: ensure spread 13 illustration prompt shows cake/candles
+      if (theme === 'birthday') {
+        const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+        const lastSpread = spreads[spreads.length - 1];
+        if (lastSpread && lastSpread.spread_image_prompt) {
+          const prompt = lastSpread.spread_image_prompt.toLowerCase();
+          if (!prompt.includes('cake') && !prompt.includes('candle')) {
+            const childAge = childDetails.age || childDetails.childAge || 5;
+            const candleDesc = `${childAge} lit candles`;
+            const childNameStr = childDetails.name || childDetails.childName || 'the child';
+            const favoriteObj = storyPlan.recurringElement || v2Vars?.favorite_object || '';
+            const favoriteClause = favoriteObj ? ` The ${favoriteObj} sits on the table nearby.` : '';
+            lastSpread.spread_image_prompt = `${childNameStr} leaning toward a birthday cake with ${candleDesc}, cheeks puffed, about to blow out the candles. Warm golden candlelight illuminates their face from below. Soft confetti and party decorations in the background.${favoriteClause} The room glows with warmth, joy, and celebration. Close-up emotional moment.`;
+            bookContext.log('info', 'Birthday: replaced last spread illustration prompt with locked cake/candles scene');
+          }
+        }
+      }
 
       // Stage 4: Generate illustrations (V2 — text overlaid by layout engine, not embedded in images)
       bookContext.checkAbort();

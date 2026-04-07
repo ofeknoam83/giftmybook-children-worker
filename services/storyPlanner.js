@@ -1120,7 +1120,7 @@ If not, keep refining internally before output.`;
  * @returns {Promise<object>} Polished story plan with same structure
  */
 async function polishStory(storyPlan, opts = {}) {
-  const { costTracker, apiKeys } = opts;
+  const { costTracker, apiKeys, theme } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   // Build a compact representation of just the text to rewrite
@@ -1131,12 +1131,17 @@ async function polishStory(storyPlan, opts = {}) {
     right: s.right?.text || null,
   }));
 
+  let systemPrompt = SELF_CRITIC_SYSTEM;
+  if (theme === 'birthday') {
+    systemPrompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- Do NOT soften the ending into a whisper or sleepy tone.\n- The final spread (spread 13) is the birthday cake/candles moment — the emotional climax the whole story earned.\n- The ending should feel warm, joyful, and celebratory — not quiet.\n- "Ending Quality" score should reward a triumphant, emotionally resonant birthday ending.\n- The ENDING UPGRADE rule does NOT apply — do not make the ending softer or more poetic. Make it warmer and more joyful if needed.`;
+  }
+
   const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}`;
 
-  console.log(`[storyPlanner] Starting self-critic + rewrite pass (${spreads.length} spreads)...`);
+  console.log(`[storyPlanner] Starting self-critic + rewrite pass (${spreads.length} spreads, theme: ${theme || 'default'})...`);
   const polishStart = Date.now();
 
-  const response = await callLLM(SELF_CRITIC_SYSTEM, userPrompt, {
+  const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 10000,
     temperature: 0.5,
@@ -1295,7 +1300,7 @@ Return JSON:
  * Replaces the three separate rhythm/arc/polish critics.
  */
 async function combinedCritic(storyPlan, opts = {}) {
-  const { costTracker, apiKeys } = opts;
+  const { costTracker, apiKeys, theme } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const spreads = storyPlan.entries.filter(e => e.type === 'spread');
@@ -1305,10 +1310,15 @@ async function combinedCritic(storyPlan, opts = {}) {
     right: s.right?.text || null,
   }));
 
-  console.log(`[storyPlanner] Starting combined critic (${spreads.length} spreads)...`);
+  let systemPrompt = COMBINED_CRITIC_SYSTEM;
+  if (theme === 'birthday') {
+    systemPrompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- The rule "spreads 12-13 must feel like settling into sleep — soft, not triumphant" does NOT apply.\n- Spread 12 should be a held-breath moment — silent anticipation, the room hushing before the cake.\n- Spread 13 is the birthday cake/candles climax — warm, joyful, celebratory. This is the emotional payoff the whole story earned.\n- Do NOT soften or quiet the ending. Preserve its warmth and joy.\n- The emotional arc should PEAK at spread 13, not wind down.`;
+  }
+
+  console.log(`[storyPlanner] Starting combined critic (${spreads.length} spreads, theme: ${theme || 'default'})...`);
   const start = Date.now();
 
-  const response = await callLLM(COMBINED_CRITIC_SYSTEM, JSON.stringify(textMap), {
+  const response = await callLLM(systemPrompt, JSON.stringify(textMap), {
     openaiApiKey: openaiKey,
     maxTokens: 7000,
     temperature: 0.35,
