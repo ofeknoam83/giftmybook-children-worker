@@ -52,7 +52,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed, combinedCritic } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf } = require('./services/layoutEngine');
@@ -587,6 +587,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const heartfeltNote = req.body.heartfeltNote || null;
   const bookFrom = req.body.bookFrom || null;
   const bindingType = req.body.bindingType || '';
+  const emotionalCategory = sanitized.emotionalCategory || null;
+  const emotionalSituation = sanitized.emotionalSituation || null;
+  const emotionalParentGoal = sanitized.emotionalParentGoal || null;
+  const copingResourceHint = sanitized.copingResourceHint || null;
+  const isEmotionalBook = EMOTIONAL_THEMES.has(theme);
   const countryCode = req.body.countryCode || null; // e.g. 'US', 'GB', 'AU'
   const apiKeys = req.body.apiKeys;
 
@@ -602,9 +607,19 @@ app.post('/generate-book', authenticate, async (req, res) => {
     ? [customDetails, ...anecdoteParts].filter(Boolean).join('\n')
     : customDetails;
 
-  const format = bookFormat;
+  let format = bookFormat;
   const style = artStyle || 'cinematic_3d';
   const costTracker = new CostTracker();
+
+  // Auto-derive emotional tier from age for emotional books
+  let emotionalTierInfo = null;
+  if (isEmotionalBook) {
+    emotionalTierInfo = getEmotionalTier(childAge || 5);
+    if (!format || format === 'picture_book') {
+      format = emotionalTierInfo.bookFormat.toLowerCase();
+      console.log(`[server] [emotional] Tier ${emotionalTierInfo.tier} derived from age ${childAge} → format=${format}, spreads=${emotionalTierInfo.spreads}`);
+    }
+  }
 
   const childDetails = {
     name: childName,
@@ -741,7 +756,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
       let storySeed;
       try {
-        storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, { apiKeys, costTracker, theme });
+        storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, {
+          apiKeys, costTracker, theme,
+          emotionalSituation,
+          copingResourceHint,
+        });
         bookContext.log('info', 'Story seed ready', {
           favorite_object: storySeed.favorite_object,
           fear: storySeed.fear,
@@ -772,6 +791,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
         repeated_phrase: storySeed.repeated_phrase || '',
         phrase_arc: storySeed.phrase_arc || [],
         countryCode: countryCode || null,
+        emotionalSituation: emotionalSituation || null,
+        emotionalParentGoal: emotionalParentGoal || null,
+        copingResourceHint: copingResourceHint || null,
+        emotionalSpreads: emotionalTierInfo ? emotionalTierInfo.spreads : undefined,
+        emotionalTier: emotionalTierInfo ? emotionalTierInfo.tier : undefined,
       };
 
       // Append story seed to custom details so the planner has the full creative direction
@@ -1160,6 +1184,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
         year: new Date().getFullYear(),
         bookId,
         upsellCovers: upsellCoversWithBuffers,
+        minPages: emotionalTierInfo ? emotionalTierInfo.minPages : 32,
       });
       bookContext.touchActivity();
       bookContext.log('info', 'Interior PDF assembled', { entries: entriesWithBuffers.length, ms: Date.now() - stage7Start });
@@ -1237,6 +1262,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                 spreadCount: spreadEntries.length,
                 storyContent: { title: bookTitle, entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })) },
                 costs: costSummary,
+                emotionalCategory: emotionalCategory || null,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
               }),
@@ -1259,6 +1285,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
           spreadCount: spreadEntries.length,
           storyContent: { title: bookTitle, entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })) },
           costs: costSummary,
+          emotionalCategory: emotionalCategory || null,
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
           logs: bookContext.logs,
         });

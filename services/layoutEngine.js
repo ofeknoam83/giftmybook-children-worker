@@ -394,6 +394,77 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
   }
 }
 
+// ── Reflection & Adult Note Pages (Emotional E3/E4) ─────────────────────────
+
+function buildReflectionPage(pdfDoc, pw, ph, fonts, opts) {
+  const { playfair, helv } = fonts;
+  const p = pdfDoc.addPage([pw, ph]);
+  const maxW = pw - SAFE * 2;
+
+  // Title
+  const title = 'For You';
+  const titleSz = 28;
+  drawCentered(p, title, playfair || helv, titleSz, ph - SAFE - 30, C.black);
+
+  // Gold rule under title
+  goldRule(p, ph - SAFE - 50, 60);
+
+  // Reflection text
+  let y = ph - SAFE - 80;
+  if (opts.text) {
+    const textLines = wrapText(opts.text, helv, 11, maxW);
+    for (const line of textLines) {
+      const lw = helv.widthOfTextAtSize(line, 11);
+      p.drawText(line, { x: (pw - lw) / 2, y, size: 11, font: helv, color: C.brownMid });
+      y -= 18;
+    }
+    y -= 10;
+  }
+
+  // Prompts with ruled lines for writing
+  if (opts.prompts && Array.isArray(opts.prompts)) {
+    for (const prompt of opts.prompts) {
+      const promptLines = wrapText(prompt, helv, 11, maxW);
+      for (const line of promptLines) {
+        p.drawText(line, { x: SAFE, y, size: 11, font: helv, color: C.black });
+        y -= 16;
+      }
+      // Add ruled lines for writing
+      for (let li = 0; li < 3; li++) {
+        y -= 18;
+        p.drawRectangle({ x: SAFE, y, width: maxW, height: 0.5, color: C.grayLight });
+      }
+      y -= 14;
+    }
+  }
+}
+
+function buildAdultNotePage(pdfDoc, pw, ph, fonts, opts) {
+  const { playfair, playfairItalic, helv } = fonts;
+  const p = pdfDoc.addPage([pw, ph]);
+  const maxW = pw - SAFE * 2;
+
+  // Title
+  const title = 'For the Adult Reading This';
+  const titleSz = 22;
+  drawCentered(p, title, playfair || helv, titleSz, ph - SAFE - 30, C.black);
+
+  // Gold rule
+  goldRule(p, ph - SAFE - 48, 80);
+
+  // Note text
+  let y = ph - SAFE - 72;
+  if (opts.text) {
+    const noteFont = playfairItalic || helv;
+    const noteLines = wrapText(opts.text, noteFont, 10, maxW);
+    for (const line of noteLines) {
+      const lw = noteFont.widthOfTextAtSize(line, 10);
+      p.drawText(line, { x: (pw - lw) / 2, y, size: 10, font: noteFont, color: C.brownMid });
+      y -= 16;
+    }
+  }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -422,6 +493,14 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
   const isPictureBook = true; // was: (bookFormat || '').toUpperCase() !== 'EARLY_READER'
 
   for (const entry of storyEntries) {
+    if (entry.type === 'reflection') {
+      buildReflectionPage(pdfDoc, pw, ph, fonts, { text: entry.text, prompts: entry.prompts });
+      continue;
+    }
+    if (entry.type === 'adult_note') {
+      buildAdultNotePage(pdfDoc, pw, ph, fonts, { text: entry.text });
+      continue;
+    }
     if (entry.type !== 'spread') continue;
 
     if (isPictureBook) {
@@ -464,9 +543,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
     await buildUpsellSpread(pdfDoc, pw, ph, fonts, { upsellCovers, childName, bookId });
   }
 
-  // Enforce Lulu minimum page count (32 for paperback, 24 for hardcover)
-  // and ensure even page count for binding
-  const MIN_PAGES = 32;
+  // Enforce Lulu minimum page count and ensure even page count for binding
+  const MIN_PAGES = opts.minPages || 32;
   while (pdfDoc.getPageCount() < MIN_PAGES || pdfDoc.getPageCount() % 2 !== 0) {
     pdfDoc.addPage([pw, ph]);
   }

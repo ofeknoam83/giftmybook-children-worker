@@ -92,6 +92,91 @@ function getAgeTier(age) {
   return { tier: 4, config: AGE_TIERS[4] };
 }
 
+// ── Emotional Age Tier Configuration ──
+
+const EMOTIONAL_AGE_TIERS = {
+  E1: {
+    tier: 'E1',
+    label: 'Toddler Emotional',
+    range: [2, 3],
+    vocabulary: 'body-sensation words only. "My tummy feels tight." "My face feels hot." Max 40 unique words.',
+    maxWordsPerSpread: 12,
+    sentencesPerSpread: '1',
+    sentenceStyle: 'Body sensation + simple action. Never name the cause of the emotion directly.',
+    conflict: 'none. Emotion is felt and named in the body only. No story arc — just recognition.',
+    dialogue: 'none. Narrator only. No character voice.',
+    imagePromptStyle: 'extreme close-up on child face and body. Single subject. Warm safe palette. Expressive eyes.',
+    fearHandling: 'name the body sensation only. Never name what caused it.',
+    arc: 'Recognition (spreads 1-3) → The feeling grows (spreads 4-5) → Something soothing arrives (spreads 6-7) → The feeling softens (spread 8). No resolution — just comfort.',
+    rhymeLevel: 'mandatory rhyming couplets throughout. Simple, musical, short.',
+    coachingNote: 'This is a comfort book, not a story. It validates the feeling through rhythm and body language.',
+  },
+  E2: {
+    tier: 'E2',
+    label: 'Picture Book Emotional',
+    range: [4, 6],
+    vocabulary: 'conversational, concrete. Emotion words permitted: worried, frustrated, scared, sad, angry.',
+    maxWordsPerSpread: 28,
+    sentencesPerSpread: '2-3',
+    sentenceStyle: 'distributed across left and right pages. One idea per page.',
+    conflict: 'emotional stakes only. The child feels something difficult and cannot immediately manage it.',
+    dialogue: '2 exchanges. Child voice must sound like a real 4-6 year old. Dialogue reveals emotion.',
+    imagePromptStyle: 'wide establishing shots mixed with emotional close-ups. Warm light. Expressive character.',
+    fearHandling: 'name the emotion and the trigger. Show it in the body AND in behavior.',
+    arc: '6-act emotional arc: Recognition → Storm → Stuck → Bridge → Tool → Turn → Landing.',
+    rhymeLevel: 'occasional — repeated phrase must have rhythm. Prose otherwise.',
+    coachingNote: 'One coping strategy embedded in Acts 5-6. Must leave usable language on spread 13.',
+  },
+  E3: {
+    tier: 'E3',
+    label: 'Illustrated Story Emotional',
+    range: [7, 9],
+    vocabulary: 'up to 3-syllable words. Metaphor permitted. Interior monologue in italics.',
+    maxWordsPerSpread: 55,
+    sentencesPerSpread: '3-5',
+    sentenceStyle: 'varied rhythm. Interior thoughts in italics. Dialogue advances the emotional journey.',
+    conflict: 'emotional complexity: two conflicting feelings simultaneously. External + internal stakes.',
+    dialogue: '3-4 exchanges. Subtext expected. A secondary character has their own perspective.',
+    imagePromptStyle: 'layered scenes with background detail. Symbolic objects. Cinematic framing. One illustration per spread on 6x9 portrait.',
+    fearHandling: 'treated as internal state. The child may be aware of their own emotion patterns.',
+    arc: '6-act emotional arc across 18 spreads. Acts 3-4 (Stuck) get 3 spreads each. Spread 17: Looking back. Spread 18: The Landing + Reflection page.',
+    rhymeLevel: 'none. Pure prose with varied sentence rhythm.',
+    coachingNote: 'Spread 18 ends with 3 reflection questions for the reader. Coping strategy is named and practiced across 2-3 spreads.',
+    reflectionPage: true,
+  },
+  E4: {
+    tier: 'E4',
+    label: 'Story + Reflection Emotional',
+    range: [10, 14],
+    vocabulary: 'no restriction. Metaphor, irony, ambiguity all permitted. Interior monologue extended.',
+    maxWordsPerSpread: 90,
+    sentencesPerSpread: '4-7',
+    sentenceStyle: 'full literary prose. Varying rhythm intentional. Unreliable narrator possible.',
+    conflict: 'emotional complexity fully expressed. The emotion may not be fully resolved by the end.',
+    dialogue: '4-5 exchanges. Characters may be unreliable narrators. Subtext and silence used.',
+    imagePromptStyle: 'cinematic, symbolic, mood-driven. Less literal — metaphor in image. Shadow/light contrast.',
+    fearHandling: 'internal state. Child understands their own emotional patterns. May reflect on them.',
+    arc: '6-act arc across 20 spreads. Spreads 18-19: Adult note to parent + Reflection section with writing prompts.',
+    rhymeLevel: 'none. Literary prose only.',
+    coachingNote: 'Last 2 spreads are structured differently: spread 19 = "For You" reflection with prompts + space to write. Spread 20 = "For the Adult Reading This" — a note about the emotional approach used in this book.',
+    reflectionPage: true,
+    adultNote: true,
+  },
+};
+
+/**
+ * Return the emotional tier and config for a given age.
+ * @param {number|string} age
+ * @returns {{ tier: string, config: object }}
+ */
+function getEmotionalAgeTier(age) {
+  const a = Number(age) || 5;
+  if (a <= 3)  return { tier: 'E1', config: EMOTIONAL_AGE_TIERS.E1 };
+  if (a <= 6)  return { tier: 'E2', config: EMOTIONAL_AGE_TIERS.E2 };
+  if (a <= 9)  return { tier: 'E3', config: EMOTIONAL_AGE_TIERS.E3 };
+  return       { tier: 'E4', config: EMOTIONAL_AGE_TIERS.E4 };
+}
+
 // ── V3 Brief Template (Author-Level) ──
 
 const V2_BRIEF_TEMPLATE = `CHILDREN'S BEDTIME BOOK GENERATION — V3 (AUTHOR-LEVEL)
@@ -956,6 +1041,8 @@ module.exports = {
   getAgeProfile,
   getAgeTier,
   getDialectVars,
+  getEmotionalAgeTier,
   AGE_PROFILES,
   AGE_TIERS,
+  EMOTIONAL_AGE_TIERS,
 };

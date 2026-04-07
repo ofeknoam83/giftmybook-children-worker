@@ -11,7 +11,17 @@
 const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
 const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
-const { getAgeTier } = require('../prompts/writerBrief');
+const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
+
+const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
+
+function getEmotionalTier(age) {
+  const a = Number(age) || 5;
+  if (a <= 3)  return { tier: 'E1', bookFormat: 'PICTURE_BOOK', spreads: 8,  minPages: 32 };
+  if (a <= 6)  return { tier: 'E2', bookFormat: 'PICTURE_BOOK', spreads: 13, minPages: 32 };
+  if (a <= 9)  return { tier: 'E3', bookFormat: 'EARLY_READER', spreads: 18, minPages: 48 };
+  return       { tier: 'E4', bookFormat: 'EARLY_READER', spreads: 20, minPages: 56 };
+}
 
 const GEMINI_MODEL = 'gemini-3-flash-preview';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -152,6 +162,109 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
  * @param {object} [opts] - { apiKeys, costTracker, theme }
  * @returns {Promise<object>} { favorite_object, fear, setting, storySeed }
  */
+// ── E2 13-spread emotional arc (extracted helper) ──
+function getEmotionalBeatStructure_E2(emotion, situation) {
+  const situationHint = situation ? `\nThe specific situation: "${situation}"` : '';
+
+  const baseArc = `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this EMOTIONAL ARC:
+   - Spread 1: RECOGNITION — The child is seen exactly as they are. Their world, their feeling, named without judgment.${situationHint}
+   - Spread 2: THE WORLD — A glimpse of the child's daily life. Something ordinary that the emotion has changed or colored.
+   - Spread 3: THE STORM — The emotion arrives fully. It feels big, real, overwhelming. The child is inside it.
+   - Spread 4: THE STUCK — The child tries to manage alone. It doesn't work. They feel more alone with it.
+   - Spread 5: THE BRIDGE — Something or someone creates a small opening. Not a solution — a presence, a moment, a question.
+   - Spread 6: THE COMPANION — The coping resource enters. A person, object, or action that holds space for the feeling.
+   - Spread 7: THE NAMING — The child finds a word, an image, or a gesture for what they feel. The emotion becomes smaller when named.
+   - Spread 8: THE TOOL — The child uses the coping strategy. Not perfectly — but genuinely.
+   - Spread 9: THE TURN — One small brave step. Not a cure — one manageable action despite the feeling.
+   - Spread 10: THE BREATH — A moment of rest. The emotion has not disappeared, but the child has room again.
+   - Spread 11: LOOKING BACK — The child remembers what they felt at Spread 3. They are still that child — and also more.
+   - Spread 12: VISUALLY SILENT — No text. A warm, open image. The child in their world, slightly bigger now.
+   - Spread 13: THE LANDING — The emotion is still present but the child is its companion, not its prisoner. The last line must give the parent a phrase they can repeat outside this book.`;
+
+  const emotionSpecific = {
+    anxiety: `\n\nANXIETY-SPECIFIC RULES:\n- The worry is NEVER dismissed or minimized ("there's nothing to be scared of" is forbidden)\n- Spread 3: The worry grows visibly — it has weight and presence\n- Spread 6: The companion externalizes the worry — makes it visible and nameable\n- Spread 7: The child names their specific worry out loud — this is the turning point\n- Spread 13 usable phrase: something the child can say when anxious (e.g. "I feel worried. And I am brave anyway.")`,
+    anger: `\n\nANGER-SPECIFIC RULES:\n- The anger is NEVER punished or shamed in the narrative\n- Spread 3: Describe the PHYSICAL experience of anger — heat, tight chest, shaky hands\n- Spread 5: The companion does NOT tell the child to calm down — they witness the anger first\n- Spread 8: The coping tool is a sequence: notice the body → breathe → name it\n- Spread 13 usable phrase: something that helps name big feelings (e.g. "My feelings are big. I know what to do.")`,
+    fear: `\n\nFEAR-SPECIFIC RULES:\n- Fear and desire COEXIST — the child wants to do the thing AND is scared simultaneously\n- Spread 3: Show the child at the edge — frozen, wanting to move forward but unable\n- Spread 9: The brave step is MICRO — the smallest possible action counts\n- At spread 13 the child may STILL be scared — and that is explicitly okay. Bravery ≠ absence of fear\n- Spread 13 usable phrase: something about courage as action-despite-fear`,
+    grief: `\n\nGRIEF-SPECIFIC RULES:\n- The loss is NEVER minimized, explained away, or rushed past\n- Spread 3: The absence is felt — an empty space, a missing sound, a changed routine\n- Spread 5: Connection is maintained across the loss — love does not disappear\n- Spread 8: A memory ritual — something the child can DO to stay connected\n- The story does NOT promise the pain ends — it promises the child is not alone in it\n- Spread 13 usable phrase: a phrase about love persisting (e.g. "I carry you with me everywhere I go.")`,
+    loneliness: `\n\nLONELINESS-SPECIFIC RULES:\n- The child's feeling of invisibility is validated fully before any resolution begins\n- Spread 4: The child watches others connect — and feels outside it\n- Spread 6: One small act of noticing from another — not a full friendship, just a moment of being seen\n- Spread 9: The child initiates one micro-connection — a word, a wave, a shared thing\n- Spread 13 usable phrase: something about being seen (e.g. "I am here. I am worth knowing.")`,
+    new_beginnings: `\n\nNEW BEGINNINGS-SPECIFIC RULES:\n- Validate both the excitement AND the fear of change — they coexist\n- Spread 3: The old familiar world is held — the child misses what was\n- Spread 7: Something familiar is found inside the new — one anchor\n- Spread 9: The child chooses to take one step toward the new\n- Spread 13 usable phrase: something about carrying the old into the new`,
+    self_worth: `\n\nSELF-WORTH-SPECIFIC RULES:\n- The feeling of not-enough is validated — never dismissed as wrong to feel\n- Spread 3: A specific moment of shame, comparison, or failure — concrete, not abstract\n- Spread 5: Someone sees the child exactly as they are — not their achievement\n- Spread 8: A reframe: the "flaw" is looked at differently, not erased\n- Spread 13 usable phrase: something about inherent worth (e.g. "I am enough, exactly as I am.")`,
+    family_change: `\n\nFAMILY CHANGE-SPECIFIC RULES:\n- The confusion and insecurity are validated without taking sides or explaining adult situations\n- Spread 3: The change is felt — something that was solid now feels uncertain\n- Spread 5: Love is confirmed — from the person who gave this book, explicitly present\n- Spread 8: Something stable is named — what has NOT changed\n- Spread 13 usable phrase: something about love being constant (e.g. "Some things change. My love for you never will.")`,
+  };
+
+  return baseArc + (emotionSpecific[emotion] || '');
+}
+
+// ── Tier-aware emotional beat structure ──
+function getEmotionalBeatStructure(emotion, age, situation) {
+  const emotionalTier = getEmotionalTier(age);
+  const situationHint = situation ? `\nThe specific situation: "${situation}"` : '';
+
+  // E1: 8 spreads, simple comfort arc (no 6-act)
+  if (emotionalTier.tier === 'E1') {
+    return `8. beats: An array of exactly 8 one-line descriptions — one per spread. Follow this TODDLER COMFORT arc:
+   - Spread 1: The child is doing something ordinary. Something shifts — a feeling arrives.
+   - Spread 2: The feeling is described in the BODY only (tight tummy, hot face, shaky hands).
+   - Spread 3: The feeling gets bigger.
+   - Spread 4: The child tries to ignore it. It doesn't work.
+   - Spread 5: Something comforting arrives (a person, an object, a familiar thing).
+   - Spread 6: The child and the comfort are together. The feeling is still there but less alone.
+   - Spread 7: The feeling begins to soften — not disappear, just ease.
+   - Spread 8: The child is held, safe, known. The last line is a phrase a parent can say out loud.${situationHint}`;
+  }
+
+  // E2: 13 spreads, full 6-act arc
+  if (emotionalTier.tier === 'E2') {
+    return getEmotionalBeatStructure_E2(emotion, situation);
+  }
+
+  // E3: 18 spreads, expanded 6-act arc
+  if (emotionalTier.tier === 'E3') {
+    return `8. beats: An array of exactly 18 one-line descriptions — one per spread. Follow this ILLUSTRATED STORY EMOTIONAL arc:
+   - Spread 1: RECOGNITION — The child is seen exactly as they are. Their world, their feeling, named.${situationHint}
+   - Spread 2: ORDINARY WORLD — A day in the child's life, now colored by the emotion.
+   - Spread 3: THE TRIGGER — The specific moment or situation where the emotion intensifies.
+   - Spread 4: THE STORM BEGINS — The emotion takes hold. Physical and behavioral signs.
+   - Spread 5: THE STORM PEAKS — The child is fully inside the feeling. Interior monologue visible.
+   - Spread 6: THE STUCK — The child tries to manage alone. Strategy 1 fails.
+   - Spread 7: MORE STUCK — The child tries again. Strategy 2 fails. They feel worse.
+   - Spread 8: ISOLATION — The emotion separates the child from connection.
+   - Spread 9: THE BRIDGE — A secondary character or moment creates an opening.
+   - Spread 10: THE COMPANION — The coping resource enters. A presence, not a fix.
+   - Spread 11: THE NAMING — The child finds language for what they feel.
+   - Spread 12: THE TOOL — The coping strategy is used for the first time. Imperfect but real.
+   - Spread 13: THE PRACTICE — The child uses the strategy again. It works a little better.
+   - Spread 14: THE TURN — One brave step. Small. Concrete. Earned.
+   - Spread 15: THE RIPPLE — Something small changes as a result of the step.
+   - Spread 16: THE BREATH — Rest. The emotion has not gone — but the child has space.
+   - Spread 17: LOOKING BACK — The child remembers Spread 5. They see how far they've come.
+   - Spread 18: THE LANDING + REFLECTION — The child is bigger than the feeling now. Ends with 3 reflection questions the reader can sit with.`;
+  }
+
+  // E4: 20 spreads, full literary arc
+  return `8. beats: An array of exactly 20 one-line descriptions — one per spread. Follow this STORY + REFLECTION arc:
+   - Spread 1: RECOGNITION — The child's world. The emotion present but not yet named.${situationHint}
+   - Spread 2: ORDINARY — Daily life carrying the weight of the emotion.
+   - Spread 3: THE TRIGGER — A specific moment. Interior monologue begins.
+   - Spread 4: THE STORM — Emotion takes hold fully. Physical, behavioral, and internal.
+   - Spread 5: ISOLATION — The emotion separates the child from those around them.
+   - Spread 6: FIRST ATTEMPT — The child tries to manage. It fails. Self-criticism follows.
+   - Spread 7: DEEPER STUCK — The child questions whether the feeling will ever change.
+   - Spread 8: THE WITNESS — Someone sees the child without trying to fix them.
+   - Spread 9: THE QUESTION — An honest exchange. The secondary character asks the right question.
+   - Spread 10: THE NAMING — The child finds language — not perfect language, but theirs.
+   - Spread 11: THE COMPANION — The coping resource emerges from the child's own resources.
+   - Spread 12: THE TOOL TRIED — First use of the strategy. Awkward, imperfect, but real.
+   - Spread 13: THE RESISTANCE — The old pattern pulls back. A moment of relapse.
+   - Spread 14: THE CHOICE — The child chooses the tool again, knowing the cost.
+   - Spread 15: THE TURN — Small, earned, concrete. The brave step.
+   - Spread 16: CHANGE VISIBLE — Something in the child's world responds.
+   - Spread 17: THE BREATH — Spaciousness. Not resolution — capacity.
+   - Spread 18: LOOKING BACK — The child holds both: who they were at Spread 4 and who they are now.
+   - Spread 19: FOR YOU (Reflection page) — Structured reflection with 3 prompts + space to respond.
+   - Spread 20: FOR THE ADULT READING THIS — A note about the emotional approach used in this book and how to continue the conversation.`;
+}
+
 function getThemeBeatStructure(theme, age) {
   const candleText = age ? `exactly ${age} candles` : 'the correct number of candles matching the child\'s age';
   switch (theme) {
@@ -280,9 +393,14 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
   const gender = childDetails.gender || childDetails.childGender || '';
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
 
-  const beatStructure = getThemeBeatStructure(theme, age);
+  const isEmotional = EMOTIONAL_THEMES.has(theme);
+  const emotionalTierInfo = isEmotional ? getEmotionalTier(age) : null;
+  const spreadCount = emotionalTierInfo ? emotionalTierInfo.spreads : 13;
+  const beatStructure = isEmotional
+    ? getEmotionalBeatStructure(theme, age, opts.emotionalSituation || '')
+    : getThemeBeatStructure(theme, age);
 
-  const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (13 spreads).
+  const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (${spreadCount} spreads).
 
 You will receive details about a child and a THEME. The theme is NOT optional context — it is the structural backbone of the story. Every field you return must serve the theme.
 
@@ -327,6 +445,13 @@ Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
 
   if (customDetails && customDetails.trim()) {
     userPrompt += `\n\n⚠️ MANDATORY CUSTOMER DETAILS — These are real facts the parent wrote about their child. Every specific person, place, object, or quirk mentioned here MUST appear concretely in the story beats. Do not ignore or generalize any of it:\n${customDetails.trim()}`;
+  }
+
+  if (isEmotional && opts.emotionalSituation) {
+    userPrompt += `\n\n⚠️ EMOTIONAL SITUATION — THIS IS WHAT IS ACTUALLY HAPPENING WITH THIS CHILD RIGHT NOW:\n"${opts.emotionalSituation}"\nEvery beat must be grounded in THIS specific situation. Do not generalize. The child's specific triggers, patterns, and context should be woven throughout.`;
+  }
+  if (isEmotional && opts.copingResourceHint) {
+    userPrompt += `\n\nCOPING RESOURCE: The parent says "${opts.copingResourceHint}" already helps this child. Build this into the story as the child's companion or tool in Acts 5–8.`;
   }
 
   if (approvedTitle) {
@@ -1357,4 +1482,4 @@ async function combinedCritic(storyPlan, opts = {}) {
   return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic };
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier };

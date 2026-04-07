@@ -4,7 +4,10 @@
 
 const VALID_FORMATS = ['picture_book', 'early_reader'];
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook'];
-const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy'];
+const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
+  // Emotional development themes
+  'anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change'
+];
 const VALID_GENDERS = ['male', 'female', 'neutral'];
 
 const MAX_BOOK_ID_LENGTH = 100;
@@ -150,6 +153,10 @@ function validateGenerateBookRequest(body) {
     approvedTitle: typeof body.approvedTitle === 'string' ? body.approvedTitle.slice(0, 200) : undefined,
     approvedCoverUrl: isValidHttpsUrl(body.approvedCoverUrl) ? body.approvedCoverUrl : undefined,
     childAnecdotes: sanitizeAnecdotes(body.childAnecdotes),
+    emotionalCategory: body.emotionalCategory || null,
+    emotionalSituation: sanitizeForPrompt(body.emotionalSituation || '', 2000),
+    emotionalParentGoal: body.emotionalParentGoal || null,
+    copingResourceHint: sanitizeForPrompt(body.copingResourceHint || '', 500),
   };
 
   return { valid: true, errors: [], sanitized };

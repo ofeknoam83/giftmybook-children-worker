@@ -7,7 +7,87 @@
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
-const { buildV2Brief, buildWritingBrief, buildStructureBrief, buildChildContext, getAgeTier, getDialectVars } = require('./writerBrief');
+const { buildV2Brief, buildWritingBrief, buildStructureBrief, buildChildContext, getAgeTier, getDialectVars, getEmotionalAgeTier } = require('./writerBrief');
+
+const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
+
+const COPING_STRATEGIES = {
+  anxiety: { name: 'Worry Externalizing', description: 'The worry becomes a visible, nameable presence — something the child can talk to and set aside' },
+  anger: { name: 'Body Sensation Awareness', description: 'The child learns to notice the physical signs of anger rising — heat, tight chest, clenched hands — as a signal to pause' },
+  fear: { name: 'Brave Ladder', description: 'One micro-step toward the feared thing, celebrated as genuine courage regardless of outcome' },
+  grief: { name: 'Memory Ritual', description: 'A tangible action the child can take to stay connected to who or what was lost' },
+  loneliness: { name: 'One Act of Noticing', description: 'The child notices one person, and is noticed by one person — the ripple of connection starts small' },
+  new_beginnings: { name: 'Finding the Familiar', description: 'Identifying one anchor of familiarity inside the new situation' },
+  self_worth: { name: 'Inherent Value Reframe', description: 'Separating worth from achievement — the child is seen and valued for who they are, not what they do' },
+  family_change: { name: 'Love as Constant', description: 'Naming what has NOT changed — the love from the people who matter most' },
+};
+
+function getEmotionalWritingRules(emotion, situation, parentGoal, copingResourceHint, age) {
+  const { tier, config } = getEmotionalAgeTier(age);
+  const strategy = COPING_STRATEGIES[emotion];
+
+  let rules = `\n\n\u26a0\ufe0f EMOTIONAL DEVELOPMENT BOOK \u2014 TIER ${tier} (Age ${age}) \u2014 CRITICAL RULES:\n`;
+  rules += `Writing tier: ${config.label}\n`;
+  rules += `Max words per spread: ${config.maxWordsPerSpread}\n`;
+  rules += `Sentences per spread: ${config.sentencesPerSpread}\n`;
+  rules += `Vocabulary: ${config.vocabulary}\n`;
+  rules += `Dialogue: ${config.dialogue}\n\n`;
+
+  // Tier-specific tone
+  if (tier === 'E1') {
+    rules += `TIER E1 RULES \u2014 TODDLER:\n`;
+    rules += `- Body sensations ONLY. Never name the cause of the emotion.\n`;
+    rules += `- No coping strategy. This is a comfort book \u2014 recognition + rhythm.\n`;
+    rules += `- Every spread: rhyming couplets. Musical, short, simple.\n`;
+    rules += `- The emotion softens but does NOT resolve.\n`;
+    rules += `- Last line must be something a parent can say out loud.\n`;
+  } else if (tier === 'E2') {
+    rules += `TIER E2 RULES \u2014 PICTURE BOOK:\n`;
+    rules += `COPING STRATEGY TO EMBED (${strategy?.name}):\n${strategy?.description}\n`;
+    rules += `- Strategy appears in Acts 5-6. It feels like the character's natural response.\n`;
+    rules += `- Last spread: one usable phrase the parent can say in real moments.\n`;
+    rules += `- Never dismiss, minimize, or rush past the Stuck phase.\n`;
+  } else if (tier === 'E3') {
+    rules += `TIER E3 RULES \u2014 ILLUSTRATED STORY:\n`;
+    rules += `- Interior monologue in italics (the child's unspoken thoughts).\n`;
+    rules += `- Secondary character has their own perspective \u2014 not just a helper.\n`;
+    rules += `COPING STRATEGY (${strategy?.name}): ${strategy?.description}\n`;
+    rules += `- Strategy used and practiced across spreads 12-13. Imperfect but genuine.\n`;
+    if (copingResourceHint) rules += `- Parent says this helps: "${copingResourceHint}" \u2014 weave it in.\n`;
+    rules += `- Spread 18 ends with 3 reflection questions for the reader.\n`;
+    rules += `  Format: "What did you feel when...?" "Have you ever...?" "What would you do if...?"\n`;
+  } else if (tier === 'E4') {
+    rules += `TIER E4 RULES \u2014 STORY + REFLECTION:\n`;
+    rules += `- Full literary prose. Unreliable narrator permitted.\n`;
+    rules += `- The emotion may NOT be fully resolved. Ambiguity is allowed and honest.\n`;
+    rules += `COPING STRATEGY (${strategy?.name}): ${strategy?.description}\n`;
+    rules += `- Spread 19 MUST BE: A structured reflection page with exactly 3 prompts + "write your thoughts here" space.\n`;
+    rules += `- Spread 20 MUST BE: A note to the adult reading this. Explain the emotional arc used and suggest how to continue the conversation.\n`;
+    if (copingResourceHint) rules += `- Parent says this helps: "${copingResourceHint}" \u2014 weave it in.\n`;
+  }
+
+  // Universal rules for all tiers
+  rules += `\nUNIVERSAL RULES:\n`;
+  rules += `- Never promise the emotion will go away\n`;
+  rules += `- Never make the resolution too fast\n`;
+  rules += `- Never patronize or talk down to the child's experience\n`;
+  rules += `- ${config.coachingNote}\n`;
+
+  if (situation) {
+    rules += `\nSITUATION: "${situation}" \u2014 Every scene must be grounded in THIS.\n`;
+  }
+
+  if (parentGoal) {
+    const goalMap = {
+      conversation: 'GOAL: Open a conversation \u2014 give the child language to bring back to their parent.',
+      validate: 'GOAL: Validate \u2014 the child must finish feeling seen and not alone, above all else.',
+      tool: 'GOAL: Give a tool \u2014 the coping strategy must be concrete, named, and repeatable.',
+    };
+    rules += `\n${goalMap[parentGoal] || ''}\n`;
+  }
+
+  return rules;
+}
 
 /**
  * Build system prompt for V2 story planner.
@@ -92,6 +172,10 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
     prompt += `\n\n\u26a0\ufe0f MANDATORY PERSONALIZATION — THE PARENT WROTE THIS ABOUT THEIR CHILD:\n"${details.trim()}"\nEvery specific person, place, object, or quirk mentioned here MUST appear concretely in the story — not as vague inspiration, but as actual named elements. If a grandparent is mentioned, they appear (voice/presence, not illustrated). If a pet is named, it appears. If a real place is named, the child goes there.`;
   }
 
+  const plannerSpreadTarget = (EMOTIONAL_THEMES.has(theme) && v2Vars?.emotionalSpreads)
+    ? v2Vars.emotionalSpreads
+    : 13;
+
   prompt += `
 
 Generate the COMPLETE story as a JSON object with this structure:`;
@@ -106,7 +190,7 @@ Generate the COMPLETE story as a JSON object with this structure:`;
   "entries": [
     { "type": "dedication_page", "text": "${dedication}" },
     { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
-    ...13 spreads total...
+    ...${plannerSpreadTarget} spreads total...
   ]
 }
 
@@ -115,7 +199,7 @@ IMPORTANT:
 - characterOutfit defines ONE specific outfit the child wears from first spread to last — no clothing changes.
 - Return ONLY a valid JSON object with the visual consistency fields and an "entries" array.
 - Front matter (half-title, title page, copyright) is added automatically — do NOT include them.
-- The entries array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
+- The entries array must contain exactly: 1 dedication_page + ${plannerSpreadTarget} spreads = ${plannerSpreadTarget + 1} entries.
 - Each spread must have spread_image_prompt — ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still). Describe a single unified scene, NOT separate left-side and right-side content. Do NOT split the composition into two halves.
 - Avoid placing the child at the exact horizontal center of the scene — offset them slightly for visual interest. The environment and background should flow naturally throughout.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
@@ -304,13 +388,26 @@ Theme: ${theme || 'bedtime'}`;
     prompt += themeJourneyRules[theme];
   }
 
+  // Emotional development books — replaces adventure theme rules entirely
+  if (EMOTIONAL_THEMES.has(theme)) {
+    const emotionalRules = getEmotionalWritingRules(
+      theme,
+      v2Vars.emotionalSituation || customDetails,
+      v2Vars.emotionalParentGoal || null,
+      v2Vars.copingResourceHint || null,
+      age
+    );
+    prompt += emotionalRules;
+  }
+
   if (details && details.trim()) {
     prompt += `\n\n\u26a0\ufe0f MANDATORY PERSONALIZATION — THE PARENT WROTE THIS ABOUT THEIR CHILD:\n"${details.trim()}"\nEvery specific person, place, object, or quirk mentioned here MUST appear concretely in the story — not as vague inspiration, but as actual named elements. If a grandparent is mentioned, they appear (voice/presence, not illustrated). If a pet is named, it appears. If a real place is named, the child goes there. Do not generalize or ignore any detail.`;
   }
 
+  const maxBeats = (EMOTIONAL_THEMES.has(theme) && v2Vars?.emotionalSpreads) ? v2Vars.emotionalSpreads : 13;
   if (v2Vars.beats && Array.isArray(v2Vars.beats) && v2Vars.beats.length >= 12) {
     prompt += `\n\nYOU MUST follow this exact emotional arc for each spread:`;
-    const beatCount = Math.min(v2Vars.beats.length, 13);
+    const beatCount = Math.min(v2Vars.beats.length, maxBeats);
     for (let i = 0; i < beatCount; i++) {
       prompt += `\nSPREAD ${i + 1}: ${v2Vars.beats[i]}`;
     }
@@ -337,8 +434,9 @@ Theme: ${theme || 'bedtime'}`;
     }
   }
 
+  const writerSpreadCount = (EMOTIONAL_THEMES.has(theme) && v2Vars?.emotionalSpreads) ? v2Vars.emotionalSpreads : 13;
   prompt += `\n\nWrite the COMPLETE story as plain text (NOT JSON). Follow the output format from the system brief exactly.
-- Write exactly 13 spreads with Left/Right text assignments.
+- Write exactly ${writerSpreadCount} spreads with Left/Right text assignments.
 - Focus entirely on literary quality. No illustration prompts needed.
 - Follow ALL writing rules from the system brief (age tier, pacing, dialogue, etc.).`;
 
@@ -472,4 +570,6 @@ module.exports = {
   TEXT_GENERATOR_USER,
   ILLUSTRATION_PROMPT_BUILDER,
   VOCABULARY_CHECK_PROMPT,
+  getEmotionalWritingRules,
+  COPING_STRATEGIES,
 };
