@@ -278,7 +278,8 @@ function getThemeBeatStructure(theme, age) {
   switch (theme) {
     case 'birthday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY arc:
-   - Spread 1: The child wakes up — it's their birthday. Something feels different, magical, or surprising.
+   AGE-WEAVING RULE: The child is turning ${age}. This specific age must feel meaningful throughout — not just mentioned in spread 1. In at least 3 spreads, the story should reflect what it MEANS to be ${age}: something they can now do that they couldn't before, something they understand now, a milestone only a ${age}-year-old would have. The number ${age} should feel earned by spread 13.
+   - Spread 1: The child wakes up — it's their birthday. Something feels different, magical, or surprising. They are ${age} today.
    - Spread 2: A birthday quest or surprise begins — something is missing, hidden, or has to be found/reached.
    - Spreads 3-4: The journey to find it — new locations, excitement building, friends or creatures along the way.
    - Spread 5: A wonderful discovery or first celebration moment.
@@ -326,7 +327,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 9-10: The destination reached — a moon, a nebula, a discovery no one has seen before.
    - Spread 11: The journey home — Earth grows larger below.
    - Spread 12: Landing — one quiet line.
-   - Spread 13: Back in bed, stars through the window, carrying the universe inside.`;
+   - Spread 13: Standing at the window, face pressed against the glass, the universe still humming inside.`;
 
     case 'underwater':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this UNDERWATER arc:
@@ -339,7 +340,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 9-10: The discovery — a hidden treasure, a whale song, a light in the deep.
    - Spread 11: Rising back toward the surface — light growing above.
    - Spread 12: Breaking the surface — one quiet line.
-   - Spread 13: On the shore or in bed, something from the deep still in hand.`;
+   - Spread 13: On the shore, feet still damp, something from the deep glowing in their hand.`;
 
     case 'fantasy':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FANTASY QUEST arc:
@@ -365,7 +366,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 9-10: The natural world responds — healing, returning, blooming, moving.
    - Spread 11: Walking home through the changed landscape.
    - Spread 12: Arriving home — one quiet line.
-   - Spread 13: In bed, the sound of nature still outside. Connected.`;
+   - Spread 13: On the porch steps, the garden glowing in the dusk, a creature somewhere near. Still.`;
 
     case 'friendship':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FRIENDSHIP arc:
@@ -378,7 +379,7 @@ function getThemeBeatStructure(theme, age) {
    - Spreads 9-10: The friendship deepens — a shared secret, a promise, a place that's just theirs.
    - Spread 11: Saying goodbye for now — but knowing they'll be back.
    - Spread 12: Going home — one quiet line.
-   - Spread 13: In bed, something from the friend nearby. Not alone.`;
+   - Spread 13: At the window or doorstep, something the friend gave them in hand. The world is full.`;
 
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
@@ -1186,6 +1187,7 @@ List ALL lines that violate:
 - Weak imagery
 - Overused similes ("felt like", "like a...")
 - Flat or unnecessary sentences
+- Duplicate consecutive words (e.g. "round round", "the the", "and and") — any word repeated back-to-back is an error
 
 Be precise. Quote exact lines.
 
@@ -1206,6 +1208,7 @@ REWRITE RULES (CRITICAL)
 
 - Reduce similes if overused
 - Improve rhythm (sentence variation)
+- Fix duplicate consecutive words immediately — rewrite the phrase so the word appears only once, preserving the meaning
 - CUT TEXT: if any spread has more than ~25 words total, cut ruthlessly. Trust the illustration. Shorter is better.
 
 -------------------------------------
@@ -1426,7 +1429,7 @@ RULES FOR ALL REWRITES
 - Rewrite ONLY what genuinely needs it — if a line already works, leave it exactly as-is
 - Do NOT change: plot, structure, characters, spread count, left/right assignments, null pages
 - Quality bar: only return a rewrite if it is clearly better than the original
-- The ending (spreads 12–13) must feel like settling into sleep — soft, not triumphant
+- The ending (spreads 12–13) must feel emotionally resolved — the child is changed by the journey. For bedtime/friendship books: soft and settling. For adventure/science/space/nature/school/fantasy/underwater books: triumphant stillness, NOT a bedroom scene. Do NOT end non-bedtime books with the child going to sleep.
 
 Return JSON:
 {

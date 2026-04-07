@@ -315,12 +315,19 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
           }
           // Find the most recent completed illustration as style reference
+          // For spread 1 (idx=0): no prev illustration yet — use cover as style hint (already used as character ref)
+          // For spread 2 (idx=1): use spread 1 once available
           let prevIllustrationUrl = null;
           for (let pi = idx - 1; pi >= 0; pi--) {
             const prev = results[pi];
             const prevUrl = prev?.spreadIllustrationUrl || prev?.illustrationUrl;
             if (prevUrl) { prevIllustrationUrl = prevUrl; break; }
           }
+          // For spread 1 specifically: if no cover has been generated yet,
+          // use the approved cover itself as the style anchor (in addition to being the character ref)
+          // This is already handled via characterRefBase64 — no change needed here.
+          // BUT: add a style establishment note to spread 1's prompt injection via spreadIndex check
+          const isFirstSpread = (idx === 0);
 
           const illustrationPromise = generateIllustration(prompt, characterRef, style, {
             apiKeys,
@@ -344,6 +351,9 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             deadlineMs: 200000,
             abortSignal: bookContext.abortController.signal,
             prevIllustrationUrl,
+            promptInjection: isFirstSpread
+              ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
+              : '',
           });
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)

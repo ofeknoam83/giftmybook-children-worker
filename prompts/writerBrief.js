@@ -308,6 +308,8 @@ ENDING RULES (CRITICAL)
 - The world must feel physically and emotionally safe.
 - The {favorite_object} should be present in the final moment.
 - End with an image or feeling — NOT a lesson.
+- ENDING ILLUSTRATION — ADVENTURE/JOURNEY THEMES: If this is an adventure, science, space, underwater, fantasy, school, or nature book, the final spread illustration must show the child in the moment AFTER the climax — triumphant, still, changed — NOT in a bedroom, NOT in pajamas, NOT going to sleep. The story ends where the journey ends: on the hill, at the lab bench, under the stars, in the garden. Sleep is implied by the emotional landing, never shown.
+- ENDING ILLUSTRATION — BEDTIME/FRIENDSHIP themes only: the final spread may show the child settling in, cozy, eyes closing — but never literally sitting by a door or in a hallway. The final location must be warm and interior: a bed, a couch, a nest of pillows.
 
 -------------------------------------
 PERSONAL HOOK INTEGRATION (MANDATORY)
@@ -680,6 +682,8 @@ ENDING RULES (CRITICAL)
 - The world must feel physically and emotionally safe.
 - The {favorite_object} should be present in the final moment.
 - End with an image or feeling — NOT a lesson.
+- ENDING ILLUSTRATION — ADVENTURE/JOURNEY THEMES: If this is an adventure, science, space, underwater, fantasy, school, or nature book, the final spread illustration must show the child in the moment AFTER the climax — triumphant, still, changed — NOT in a bedroom, NOT in pajamas, NOT going to sleep. The story ends where the journey ends: on the hill, at the lab bench, under the stars, in the garden. Sleep is implied by the emotional landing, never shown.
+- ENDING ILLUSTRATION — BEDTIME/FRIENDSHIP themes only: the final spread may show the child settling in, cozy, eyes closing — but never literally sitting by a door or in a hallway. The final location must be warm and interior: a bed, a couch, a nest of pillows.
 
 -------------------------------------
 PERSONAL HOOK INTEGRATION (MANDATORY)

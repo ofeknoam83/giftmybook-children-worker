@@ -218,8 +218,9 @@ function compareTexts(expected, extracted) {
 
   for (const [word, count] of Object.entries(extractedBag)) {
     const expectedCount = expectedBag[word] || 0;
-    if (count > expectedCount + 1) {
-      issues.push(`"${word}" appears ${count}x (expected ${expectedCount}x)`);
+    // Zero tolerance for duplicate text — if a word appears more times than expected, reject and retry
+    if (count > expectedCount) {
+      issues.push(`"${word}" appears ${count}x in illustration (expected ${expectedCount}x) — text rendered twice`);
     }
   }
 
@@ -482,7 +483,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('');
     parts.push('TEXT RULES:');
     parts.push('- Copy the text above VERBATIM — character for character, word for word');
-    parts.push('- Do NOT repeat any word. If the text says a word once, render it exactly once');
+    parts.push('- Do NOT repeat any word. If the text says a word once, render it exactly once')
+    parts.push('- DUPLICATE TEXT FORBIDDEN: Do NOT render the text block twice. The text appears in exactly ONE place in the image. If you find yourself placing text in two locations, stop — only one placement is allowed. A duplicate text block is an automatic rejection.');
     parts.push('- Do NOT add extra words, do NOT skip words, do NOT paraphrase or rewrite');
     parts.push('- Do NOT truncate or cut off — the COMPLETE text must be visible and readable');
     parts.push('- Count the words before and after rendering — the count must match exactly');
