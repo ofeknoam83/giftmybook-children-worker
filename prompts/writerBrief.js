@@ -413,8 +413,8 @@ The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 en
 
 Rules:
 - Text may appear on left, right, or both. A page may have null text for visual-only spreads.
-- spread_image_prompt describes a WIDE LANDSCAPE scene spanning two facing pages.
-- The center of each illustration will be in the book's binding — do NOT describe key characters, text, or objects positioned in the center of the scene. Place them on the left or right side.
+- spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
+- IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point and the environment surrounding them naturally. Avoid placing the child at the exact horizontal center of the composition — offset them slightly for visual interest.
 - Do NOT specify art medium in spread_image_prompt.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Do NOT re-describe hair or hair accessories in spread_image_prompt — they are defined once in characterDescription. Never mention headbands, bows, clips, or any hair accessory in individual spread prompts.
@@ -800,8 +800,8 @@ The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 en
 Rules:
 - PRESERVE all story text EXACTLY as written in the input — do not rewrite, paraphrase, or edit.
 - Text may appear on left, right, or both. null text means visual-only page.
-- spread_image_prompt describes a WIDE LANDSCAPE scene spanning two facing pages.
-- The center of each illustration will be in the book's binding — do NOT place key elements in the center.
+- spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
+- IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point. Avoid placing the child at the exact horizontal center — offset them slightly for visual interest.
 - Do NOT specify art medium in spread_image_prompt.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Do NOT re-describe hair or hair accessories in spread_image_prompt — they are defined once in characterDescription. Never mention headbands, bows, clips, or any hair accessory in individual spread prompts.

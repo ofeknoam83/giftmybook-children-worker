@@ -368,11 +368,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
       : '- FONT: Use Fredoka One exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Fredoka One only, consistently throughout.';
     parts.push(fontInstruction);
-    parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text within the safe zone. Leave at least 10% margin from the top edge and 10% margin from the bottom edge. Text that touches or nearly touches the top/bottom edge will be cropped off in printing.');
+    parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text well away from every edge. Leave at least 15% margin from the top edge, 15% margin from the bottom edge, and 8% margin from the left and right edges. Text that is near ANY edge will be cropped off in printing. If in doubt, move the text further inward.');
     if (isSpread) {
-      parts.push('- TEXT PLACEMENT — AVOID CENTER (CRITICAL): Do not place any text in the narrow center strip of the image (the middle ~8% of the width). Place text blocks toward the left side or right side of the image. If text is long, put some lines on the left side and some on the right side — but do NOT let a single line of text span across the center.');
+      parts.push('- TEXT PLACEMENT — AVOID CENTER (CRITICAL): Do not place any text in the narrow center strip of the image (the middle ~8% of the width). Place text blocks away from the center — offset toward either end of the image. Do NOT let a single line of text span across the center.');
     }
-    parts.push('- Place the text in the top or bottom portion of its page half, where the background is simplest/softest');
+    parts.push('- Place the text in the top or bottom portion of the image, where the background is simplest/softest');
     parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
     parts.push('- Text color should contrast with its immediate background for readability');
@@ -393,7 +393,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
-  parts.push(`12. TEXT MARGINS: text has at least 10% padding from top and bottom edges — nothing near the crop zone. \u2713`);
+  parts.push(`12. TEXT MARGINS: text has at least 15% padding from top and bottom edges and 8% from left and right edges — nothing near any edge. \u2713`);
   if (isSpread) {
     parts.push(`13. TEXT AVOIDS CENTER: no line of text spans across the center of the image. \u2713`);
     parts.push(`14. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere. \u2713`);

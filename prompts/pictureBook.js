@@ -116,8 +116,8 @@ IMPORTANT:
 - Return ONLY a valid JSON object with the visual consistency fields and an "entries" array.
 - Front matter (half-title, title page, copyright) is added automatically — do NOT include them.
 - The entries array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
-- Each spread must have spread_image_prompt (a wide landscape scene spanning two facing pages).
-- The CENTER of each illustration will be in the book's binding — do NOT describe key characters, text, or objects in the center of the scene. Place them on the left or right side.
+- Each spread must have spread_image_prompt — ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still). Describe a single unified scene, NOT separate left-side and right-side content. Do NOT split the composition into two halves.
+- Avoid placing the child at the exact horizontal center of the scene — offset them slightly for visual interest. The environment and background should flow naturally throughout.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Text goes in left.text and/or right.text (one can be null if the illustration carries the moment).
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.
