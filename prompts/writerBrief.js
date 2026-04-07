@@ -224,6 +224,7 @@ WRITING QUALITY OVERRIDES (MANDATORY)
   - ONE at the moment of highest tension — where silence is more powerful than words (typically spreads 6-8)
   - ONE just before or at the ending — where the image completes what words cannot (typically spreads 12-13)
   Do NOT place visual-only spreads during setup (spreads 1-3) — the reader needs words to enter the world first.
+  CRITICAL: Visual-only spreads MUST still have a spread_image_prompt. The prompt must describe a DISTINCT, DIFFERENT scene from the previous spread — never a copy. Add "NO TEXT IN THIS IMAGE" at the end of the prompt.
 
 - Include one subtle emotional layer that resonates with the parent reading.
 
@@ -515,7 +516,7 @@ Before writing, silently verify:
 - Is there at least one memorable line a parent would repeat outside the book?
 - Does the repeated phrase transform from uncertain to safe?
 - Does the ending feel soft and satisfying?
-- Are there at least 2 visual-only spreads?
+- Are there at most 2 visual-only spreads, and are they ONLY in spreads 11-13 (never earlier)?
 - Are there exactly 13 spreads (not fewer, not more)?
 - Does characterDescription include a specific hair description (color, style, length)?
 - Does characterOutfit describe a complete, specific outfit?

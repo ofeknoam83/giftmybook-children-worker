@@ -711,16 +711,25 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
-  const visualOnly = spreads.filter(s => !s.left?.text || !s.right?.text);
-  if (visualOnly.length < 2) {
-    issues.push({ type: 'visual_spreads', message: `Only ${visualOnly.length} visual-only pages (need >=2)` });
+  // Visual-only spreads: intentional silent spreads are allowed (max 2),
+  // but accidental empty spreads outside the last 2 are blocking errors.
+  const visualOnly = spreads.filter(s => !s.left?.text && !s.right?.text);
+  const lastTwoSpreadNums = spreads.slice(-2).map(s => s.spread);
+  const accidentalEmpty = visualOnly.filter(s => !lastTwoSpreadNums.includes(s.spread));
+  if (accidentalEmpty.length > 0) {
+    accidentalEmpty.forEach(s => {
+      issues.push({ spread: s.spread, type: 'empty_spread', message: `Spread ${s.spread} has no text — accidental empty spread` });
+    });
+  }
+  if (visualOnly.length > 2) {
+    issues.push({ type: 'too_many_visual', message: `${visualOnly.length} visual-only spreads (max 2 allowed)` });
   }
 
   if (spreads.length < 10) {
     issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-13)` });
   }
 
-  const blocking = issues.filter(i => i.type === 'emotion_telling' || i.type === 'spread_count');
+  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread', 'too_many_visual'].includes(i.type));
   return { valid: blocking.length === 0, issues };
 }
 
@@ -906,6 +915,27 @@ function normalizePlan(parsed, childDetails, opts = {}) {
     console.warn(`[storyPlanner] ${spreads.length} spreads — truncating to 13`);
     spreads = spreads.slice(0, 13).map((s, i) => ({ ...s, spread: i + 1 }));
   }
+
+  // Safety net: visual-only spreads must always have a distinct spread_image_prompt
+  // If one is missing, generate a fallback from the beat description or a generic scene
+  const childName = childDetails.name || childDetails.childName || 'the child';
+  const beats = opts.v2Vars?.beats || [];
+  spreads = spreads.map((s, i) => {
+    const isVisualOnly = !s.left?.text && !s.right?.text;
+    if (isVisualOnly && !s.spread_image_prompt?.trim()) {
+      const beat = beats[i] || '';
+      const fallbackPrompt = beat
+        ? `${childName} in a moment of stillness: ${beat}. Wide cinematic scene. Warm light. NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions.`
+        : `${childName} standing alone in the scene, a quiet moment of transition. The environment reflects the emotional tone of the story at this point. Soft light, peaceful. NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions.`;
+      console.warn(`[storyPlanner] Spread ${s.spread} is visual-only with no image prompt — injecting fallback`);
+      return { ...s, spread_image_prompt: fallbackPrompt };
+    }
+    // For visual-only spreads that DO have a prompt, ensure NO TEXT instruction is present
+    if (isVisualOnly && s.spread_image_prompt && !s.spread_image_prompt.includes('NO TEXT')) {
+      return { ...s, spread_image_prompt: s.spread_image_prompt + ' NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions.' };
+    }
+    return s;
+  });
 
   const dedEntry = entries.find(e => e.type === 'dedication_page');
   const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;

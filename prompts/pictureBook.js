@@ -313,6 +313,13 @@ TWO SPREADS MUST BE VISUALLY SILENT (no text):
 - Spread 6 (highest tension): silence = held breath
 - Spread 12 (just before the end): silence = earned rest
 
+CRITICAL — VISUAL-ONLY SPREADS STILL NEED AN ILLUSTRATION PROMPT:
+- Even when left and right text are null, spread_image_prompt MUST be a rich, specific scene description.
+- The illustration for a silent spread must show a DIFFERENT moment from the previous spread — not a copy.
+- Write the image prompt as if this scene is the most important visual in the book.
+- Add this note to the prompt: "NO TEXT IN THIS IMAGE — purely visual, no words, letters, or captions."
+- Example: { "left": null, "right": null, "spread_image_prompt": "Wide shot: the child stands alone at the top of the hill, looking down at the glowing valley below. Golden hour light. The favorite toy in their hand. A moment of stillness before the descent. NO TEXT IN THIS IMAGE." }
+
 WRITING QUALITY:
 - Max ${config.maxWordsPerSpread || 25} words per spread total (left + right combined)
 - Never state emotions directly. Show through action and environment.
