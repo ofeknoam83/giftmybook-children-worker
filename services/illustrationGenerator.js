@@ -231,7 +231,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   // Change 22: Per-spread continuity anchor
   if (spreadIndex !== undefined) {
-    parts.push(`CONTINUITY: This is illustration ${spreadIndex + 1} of ${totalSpreads} for the same book. The child's face, hair, body proportions, and clothing are IDENTICAL to all other illustrations in this book. Only the scene, action, and background change between illustrations.`);
+    parts.push(`CONTINUITY: This is illustration ${spreadIndex + 1} of ${totalSpreads} for the same book. The child's face, hair, body proportions, and clothing are IDENTICAL to all other illustrations in this book. However, each spread illustrates a DIFFERENT scene and moment — the composition, background, setting, camera angle, and character pose must all be visibly distinct from every other spread.`);
     parts.push(``);
   }
 
@@ -341,11 +341,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Always use the configured art style (pixar_premium by default)
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   if (isSpread) {
-    parts.push('FORMAT: Wide cinematic landscape illustration spanning TWO facing pages (a book spread). 16:9 aspect ratio.');
-    parts.push('SAFE ZONE RULES (CRITICAL — image will be cropped ~6% from top and bottom, and split down the center):');
+    parts.push('FORMAT: Wide cinematic landscape illustration. 16:9 aspect ratio. ONE single seamless continuous scene — no dividers, no visual seams.');
+    parts.push('SAFE ZONE RULES (CRITICAL — image will be cropped):');
     parts.push('- Keep ALL important content (faces, text, key objects, hands) within the MIDDLE 85% of the image HEIGHT. The top 7.5% and bottom 7.5% will be cropped — use only for sky/ground/background.');
-    parts.push('- GUTTER: The CENTER VERTICAL STRIP (~8% of width) will be hidden in the spine. Never place faces, text, or key objects in the center.');
-    parts.push('- Subject centered: place the child and main action in the CENTER 60% of the image width, with background extending to the edges.');
+    parts.push('- CENTER DEAD ZONE: The center ~8% of the image width should contain only simple background (sky, grass, wall, etc). Do NOT place characters, faces, text, or key objects in the center vertical strip.');
+    parts.push('- Do NOT draw any fold, crease, seam, shadow line, book spine, or binding effect anywhere in the image. The illustration must be one seamless continuous scene from left edge to right edge.');
+    parts.push('- Place the child and main action in the CENTER 60% of the image width, with background extending to the edges.');
     parts.push('- The left half and right half should each work as a complete, balanced composition.');
   } else {
     parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
@@ -355,32 +356,24 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Embed story text directly in the illustration
   if (pageText && !skipTextEmbed) {
     parts.push('');
-    parts.push('TEXT IN IMAGE:');
-    parts.push('Include the following story text as part of this illustration page:');
+    parts.push('TEXT IN IMAGE — VERBATIM COPY (THIS IS THE EXACT TEXT TO RENDER):');
     parts.push(`"${pageText}"`);
     parts.push('');
     parts.push('TEXT RULES:');
-    parts.push('- Render ALL of the text above \u2014 do NOT truncate, cut off, or omit any words');
-    parts.push('- The COMPLETE text must be visible and readable in the image');
+    parts.push('- Copy the text above VERBATIM — character for character, word for word');
+    parts.push('- Do NOT repeat any word. If the text says a word once, render it exactly once');
+    parts.push('- Do NOT add extra words, do NOT skip words, do NOT paraphrase or rewrite');
+    parts.push('- Do NOT truncate or cut off — the COMPLETE text must be visible and readable');
+    parts.push('- Count the words before and after rendering — the count must match exactly');
     const fontInstruction = opts.fontStyle
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
       : '- FONT: Use Fredoka One exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Fredoka One only, consistently throughout.';
     parts.push(fontInstruction);
     parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
+    parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
-    parts.push('- Text must be perfectly legible, correctly spelled, and easy to read');
-    parts.push('- Integrate the text naturally into the composition');
-    parts.push('- Do NOT place text over the character\'s face or the main action');
-  }
-
-  // Change 20: Text integration quality rules
-  if (pageText && !skipTextEmbed) {
-    parts.push('');
-    parts.push('TEXT RENDERING RULES (if page text is provided):');
-    parts.push('- Render the text EXACTLY as written — no paraphrasing, no additions, no removals');
-    parts.push('- Text should appear naturally integrated into the scene: in the sky, on the ground, woven into the environment — never in a box, bubble, banner, or caption');
-    parts.push('- Font style should feel handwritten or storybook-style, harmonizing with the illustration');
     parts.push('- Text color should contrast with its immediate background for readability');
+    parts.push('- Do NOT place text over the character\'s face or the main action');
   }
 
   // Change 15: Enumerated anti-weird-stuff checklist (replaces old FINAL CHECK)
@@ -395,7 +388,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
-  parts.push(`10. TEXT EXACT: any text rendered in the image matches EXACTLY what is specified in the page text field — no additions, no rewording. \u2713`);
+  parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
   parts.push('If any check fails, adjust the scene before generating.');
 
@@ -438,7 +431,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   ];
 
   if (opts.prevIllustrationBase64) {
-    parts.push({ text: 'PREVIOUS SPREAD ILLUSTRATION (reference for style consistency — match the art style, color palette, lighting mood, and character rendering quality from this image. Apply to the NEW scene described above. Do NOT copy the scene or composition):' });
+    parts.push({ text: 'STYLE REFERENCE ONLY — this is a previous spread from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of this reference image — do NOT reproduce or imitate the composition. Only the rendering style transfers:' });
     parts.push({ inline_data: { mimeType: opts.prevIllustrationMime || 'image/jpeg', data: opts.prevIllustrationBase64 } });
   }
 
