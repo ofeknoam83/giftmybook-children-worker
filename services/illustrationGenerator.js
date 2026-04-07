@@ -83,8 +83,10 @@ async function fetchWithTimeout(url, opts, timeoutMs = 180000, parentSignal) { /
   }
 }
 
-/** Maximum retry attempts per illustration */
-const MAX_RETRIES = 2;
+/** Maximum retry attempts per illustration (includes text verification retries) */
+const MAX_RETRIES = 3;
+
+const TEXT_VERIFY_MODEL = 'gemini-2.5-flash';
 
 /**
  * Art style configurations for illustration prompts.
@@ -194,6 +196,100 @@ function buildHairNegatives(characterDescription) {
     return `DO NOT add any of these to the child's hair: ${banned.join(', ')}. Only accessories explicitly described above are allowed.`;
   }
   return '';
+}
+
+/**
+ * Compare expected page text against OCR-extracted text from the generated image.
+ * Uses word-frequency bags to detect duplications and missing words.
+ */
+function compareTexts(expected, extracted) {
+  const normalize = (s) => s.toLowerCase().replace(/[^\w\s']/g, '').replace(/\s+/g, ' ').trim();
+  const toWordBag = (s) => {
+    const bag = {};
+    for (const w of normalize(s).split(' ').filter(Boolean)) {
+      bag[w] = (bag[w] || 0) + 1;
+    }
+    return bag;
+  };
+
+  const expectedBag = toWordBag(expected);
+  const extractedBag = toWordBag(extracted);
+  const issues = [];
+
+  for (const [word, count] of Object.entries(extractedBag)) {
+    const expectedCount = expectedBag[word] || 0;
+    if (count > expectedCount + 1) {
+      issues.push(`"${word}" appears ${count}x (expected ${expectedCount}x)`);
+    }
+  }
+
+  let missingCount = 0;
+  const uniqueExpected = Object.keys(expectedBag).length;
+  for (const word of Object.keys(expectedBag)) {
+    if (!extractedBag[word]) missingCount++;
+  }
+  if (uniqueExpected > 0 && missingCount / uniqueExpected > 0.25) {
+    issues.push(`${missingCount}/${uniqueExpected} unique words missing`);
+  }
+
+  return { valid: issues.length === 0, issues };
+}
+
+/**
+ * Verify that the text rendered in a generated illustration matches the expected page text.
+ * Uses Gemini Vision to OCR the image, then compares word-by-word.
+ * Returns { valid, extractedText, issues } — on any error, returns valid=true (accept image).
+ */
+async function verifyImageText(imageBuffer, expectedText, abortSignal, costTracker) {
+  if (!expectedText || !expectedText.trim()) return { valid: true };
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return { valid: true, reason: 'no API key' };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${TEXT_VERIFY_MODEL}:generateContent?key=${apiKey}`;
+  const imageBase64 = imageBuffer.toString('base64');
+
+  const body = {
+    contents: [{
+      role: 'user',
+      parts: [
+        { inline_data: { mimeType: 'image/png', data: imageBase64 } },
+        { text: 'Read ALL text visible in this image. Return ONLY the exact text as it appears, preserving word order. No commentary.' },
+      ],
+    }],
+    generationConfig: { temperature: 0, maxOutputTokens: 500 },
+  };
+
+  try {
+    const start = Date.now();
+    const resp = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, 30000, abortSignal);
+
+    if (costTracker) costTracker.addTextUsage(TEXT_VERIFY_MODEL, 500, 100);
+
+    if (!resp.ok) {
+      console.warn(`[illustrationGenerator] Text verify API error ${resp.status} (${Date.now() - start}ms) — accepting image`);
+      return { valid: true, reason: `API error ${resp.status}` };
+    }
+
+    const data = await resp.json();
+    const extractedText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    console.log(`[illustrationGenerator] Text verify OCR (${Date.now() - start}ms): "${extractedText.slice(0, 120)}${extractedText.length > 120 ? '...' : ''}"`);
+
+    if (!extractedText) return { valid: true, reason: 'no text extracted' };
+
+    const result = compareTexts(expectedText, extractedText);
+    if (!result.valid) {
+      console.warn(`[illustrationGenerator] Text verify FAILED: ${result.issues.join('; ')}`);
+    }
+    return { ...result, extractedText };
+  } catch (e) {
+    console.warn(`[illustrationGenerator] Text verify error: ${e.message} — accepting image`);
+    return { valid: true, reason: e.message };
+  }
 }
 
 /**
@@ -351,8 +447,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
-  // Embed story text directly in the illustration
-  if (pageText && !skipTextEmbed) {
+  // Embed story text directly in the illustration — or explicitly forbid text
+  if (!pageText || skipTextEmbed) {
+    parts.push('');
+    parts.push('NO TEXT IN THIS IMAGE: This is a visual-only spread. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration. The image must contain ONLY artwork — zero text of any kind. If a reference image contains text, IGNORE it completely.');
+  } else if (pageText && !skipTextEmbed) {
     parts.push('');
     parts.push('TEXT IN IMAGE — VERBATIM COPY (THIS IS THE EXACT TEXT TO RENDER):');
     parts.push(`"${pageText}"`);
@@ -438,7 +537,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   ];
 
   if (opts.prevIllustrationBase64) {
-    parts.push({ text: 'STYLE REFERENCE ONLY — this is a previous spread from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of this reference image — do NOT reproduce or imitate the composition. Only the rendering style transfers:' });
+    parts.push({ text: 'STYLE REFERENCE ONLY — this is a previous spread from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of this reference image — do NOT reproduce or imitate the composition. IGNORE any text or words visible in this reference — do NOT copy, reproduce, or include any text from this reference image. Only the rendering style transfers:' });
     parts.push({ inline_data: { mimeType: opts.prevIllustrationMime || 'image/jpeg', data: opts.prevIllustrationBase64 } });
   }
 
@@ -668,6 +767,17 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       if (costTracker) {
         costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+      }
+
+      // Verify embedded text accuracy (skip on last attempt — accept best effort)
+      const hasEmbeddedText = opts.pageText && !opts.skipTextEmbed;
+      if (hasEmbeddedText && attempt < MAX_RETRIES) {
+        const textCheck = await verifyImageText(imageBuffer, opts.pageText, opts.abortSignal, costTracker);
+        if (!textCheck.valid) {
+          console.warn(`[illustrationGenerator] Text verification failed on attempt ${attempt} for book ${bookId || 'unknown'}: ${textCheck.issues.join('; ')} — regenerating`);
+          continue;
+        }
+        console.log(`[illustrationGenerator] Text verification passed on attempt ${attempt}`);
       }
 
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);
