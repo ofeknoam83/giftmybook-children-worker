@@ -167,19 +167,33 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const pageCount = opts.pageCount || 32;
   const isHardcover = (opts.bindingType || '').toUpperCase().includes('HARDCOVER');
 
-  // Spine width — binding-aware (Lulu formulas)
-  const spineInches = isHardcover
-    ? pageCount * 0.002347 + 0.5   // hardcover: case boards add ~0.5"
-    : pageCount * 0.002252 + 0.06; // paperback: standard Lulu formula
-  const spineWidth = Math.max(spineInches * 72, isHardcover ? 20 : 6);
+  let totalWidth, totalHeight, spineWidth, hinge, edgeBleed;
 
-  // Hinge: 0.25" gap each side of spine (hardcover case wrap only)
-  const hinge = isHardcover ? 18 : 0; // 18pt = 0.25"
+  if (isHardcover) {
+    // ── Lulu Hardcover Casewrap spec ──────────────────────────────────────────
+    // Source: https://help.lulu.com/en/support/solutions/articles/64000308572
+    // Canvas = wrap(0.75") + back + spine + front + wrap(0.75")
+    // Height = wrap(0.75") + trim + wrap(0.75")
+    // Spine (Lulu hardcover table, mm → inches):
+    //   24–84 pages: 6mm = 0.236"  |  85–168: 12mm  |  169–252: 18mm  |  253–336: 24mm
+    const wrap = 54; // 0.75" × 72 = 54pt
+    const spineTable = [[84,17],[168,34],[252,51],[336,69],[420,86],[504,103],[Infinity,120]];
+    spineWidth = (spineTable.find(([max]) => pageCount <= max) || spineTable[spineTable.length-1])[1];
+    hinge = 0;      // Hinge is part of the wrap area — no separate gap in PDF layout
+    edgeBleed = wrap; // outer edge = wrap (includes bleed)
+    totalWidth  = wrap + trimWidth + spineWidth + trimWidth + wrap;
+    totalHeight = wrap + trimHeight + wrap;
+  } else {
+    // ── Lulu Paperback Perfect Bound spec ────────────────────────────────────
+    const spineInches = pageCount * 0.002252 + 0.06;
+    spineWidth  = Math.max(spineInches * 72, 6);
+    hinge       = 0;
+    edgeBleed   = bleed; // 0.125" standard bleed
+    totalWidth  = bleed + trimWidth + spineWidth + trimWidth + bleed;
+    totalHeight = trimHeight + bleed * 2;
+  }
 
-  const totalWidth = bleed + trimWidth + hinge + spineWidth + hinge + trimWidth + bleed;
-  const totalHeight = trimHeight + bleed * 2;
-
-  console.log(`[CoverGenerator] Wrap-around cover: ${totalWidth.toFixed(1)}x${totalHeight.toFixed(1)}pts, spine=${spineWidth.toFixed(1)}pts, hinge=${hinge}pts (${pageCount} pages, ${isHardcover ? 'hardcover' : 'paperback'})`);
+  console.log(`[CoverGenerator] Cover canvas: ${(totalWidth/72).toFixed(3)}"x${(totalHeight/72).toFixed(3)}", spine=${(spineWidth/72).toFixed(3)}", edge=${(edgeBleed/72).toFixed(3)}" (${pageCount}pp, ${isHardcover ? 'hardcover' : 'paperback'})`);
 
   // ── Obtain front cover image ──
   let frontCoverImageUrl = null;
@@ -252,7 +266,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   // BACK COVER (left side)
   // ═══════════════════════════════════════
-  const backWidth = bleed + trimWidth + hinge;
+  const backWidth = edgeBleed + trimWidth;
 
   if (backCoverBuffer) {
     // Use Gemini-generated back cover illustration
@@ -316,10 +330,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   const spineX = backWidth;
 
-  // Fill entire spine+hinge zone with spine color so no gray gaps show
+  // Fill spine zone with spine color
   page.drawRectangle({
-    x: spineX - hinge, y: 0,
-    width: hinge + spineWidth + hinge, height: totalHeight,
+    x: spineX, y: 0,
+    width: spineWidth, height: totalHeight,
     color: rgb(spineBgColor.r, spineBgColor.g, spineBgColor.b),
   });
 
@@ -342,8 +356,8 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   // FRONT COVER (right side)
   // ═══════════════════════════════════════
-  const frontX = backWidth + spineWidth + hinge;
-  const frontWidth = trimWidth + bleed;
+  const frontX = backWidth + spineWidth;
+  const frontWidth = trimWidth + edgeBleed;
 
   // Background fallback
   const backBgColor = softenColor(coverColor, 0.6);
