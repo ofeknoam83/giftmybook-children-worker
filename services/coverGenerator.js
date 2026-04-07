@@ -164,15 +164,22 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const trimHeight = isPictureBook ? 612 : 648;
   const bleed = 9; // 0.125" Lulu standard
 
-  // Spine width: (pages / 444) + 0.06 inches (Lulu paperback formula)
   const pageCount = opts.pageCount || 32;
-  const spineInches = (pageCount / 444) + 0.06;
-  const spineWidth = Math.max(spineInches * 72, 6);
+  const isHardcover = (opts.bindingType || '').toUpperCase().includes('HARDCOVER');
 
-  const totalWidth = bleed + trimWidth + spineWidth + trimWidth + bleed;
+  // Spine width — binding-aware (Lulu formulas)
+  const spineInches = isHardcover
+    ? pageCount * 0.002347 + 0.5   // hardcover: case boards add ~0.5"
+    : pageCount * 0.002252 + 0.06; // paperback: standard Lulu formula
+  const spineWidth = Math.max(spineInches * 72, isHardcover ? 20 : 6);
+
+  // Hinge: 0.25" gap each side of spine (hardcover case wrap only)
+  const hinge = isHardcover ? 18 : 0; // 18pt = 0.25"
+
+  const totalWidth = bleed + trimWidth + hinge + spineWidth + hinge + trimWidth + bleed;
   const totalHeight = trimHeight + bleed * 2;
 
-  console.log(`[CoverGenerator] Wrap-around cover: ${totalWidth.toFixed(1)}x${totalHeight.toFixed(1)}pts, spine=${spineWidth.toFixed(1)}pts (${pageCount} pages)`);
+  console.log(`[CoverGenerator] Wrap-around cover: ${totalWidth.toFixed(1)}x${totalHeight.toFixed(1)}pts, spine=${spineWidth.toFixed(1)}pts, hinge=${hinge}pts (${pageCount} pages, ${isHardcover ? 'hardcover' : 'paperback'})`);
 
   // ── Obtain front cover image ──
   let frontCoverImageUrl = null;
@@ -245,7 +252,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   // BACK COVER (left side)
   // ═══════════════════════════════════════
-  const backWidth = bleed + trimWidth;
+  const backWidth = bleed + trimWidth + hinge;
 
   if (backCoverBuffer) {
     // Use Gemini-generated back cover illustration
@@ -334,7 +341,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
   // FRONT COVER (right side)
   // ═══════════════════════════════════════
-  const frontX = backWidth + spineWidth;
+  const frontX = backWidth + spineWidth + hinge;
   const frontWidth = trimWidth + bleed;
 
   // Background fallback

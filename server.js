@@ -585,6 +585,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
   } = sanitized;
   const heartfeltNote = req.body.heartfeltNote || null;
   const bookFrom = req.body.bookFrom || null;
+  const bindingType = req.body.bindingType || '';
   const countryCode = req.body.countryCode || null; // e.g. 'US', 'GB', 'AU'
   const apiKeys = req.body.apiKeys;
 
@@ -1167,7 +1168,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
 
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
-          heartfeltNote, bookFrom,
+          heartfeltNote, bookFrom, bindingType,
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
@@ -1504,6 +1505,37 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     removeBookContext(bookId);
     console.error(`[server] Finalize failed for ${bookId}:`, err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /rebuild-cover-pdf — Rebuild cover PDF only (binding-aware) ──
+app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
+  const { bookId, title, childDetails, coverImageUrl, bindingType, bookFormat, pageCount, synopsis, heartfeltNote, bookFrom } = req.body;
+  if (!bookId || !coverImageUrl) {
+    return res.status(400).json({ error: 'bookId and coverImageUrl required' });
+  }
+  try {
+    console.log(`[rebuild-cover-pdf] Starting for book ${bookId}, binding=${bindingType}`);
+    const preGeneratedCoverBuffer = await downloadBuffer(coverImageUrl);
+    const resolvedPageCount = pageCount || 32;
+    const coverData = await generateCover(title || 'My Story', childDetails || {}, null, bookFormat || 'PICTURE_BOOK', {
+      bookId,
+      preGeneratedCoverBuffer,
+      pageCount: resolvedPageCount,
+      synopsis: synopsis || '',
+      heartfeltNote: heartfeltNote || '',
+      bookFrom: bookFrom || '',
+      bindingType: bindingType || '',
+    });
+    if (!coverData?.coverPdfBuffer) throw new Error('generateCover returned no buffer');
+    const coverPath = `children-jobs/${bookId}/cover.pdf`;
+    await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
+    const coverPdfUrl = await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000);
+    console.log(`[rebuild-cover-pdf] Done for book ${bookId}: ${coverPdfUrl}`);
+    return res.json({ success: true, coverPdfUrl });
+  } catch (err) {
+    console.error(`[rebuild-cover-pdf] Error:`, err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
