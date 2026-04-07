@@ -369,7 +369,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
       : '- FONT: Use Fredoka One exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Fredoka One only, consistently throughout.';
     parts.push(fontInstruction);
-    parts.push('- Place the text in the top or bottom portion where the background is simplest/softest');
+    parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text within the safe zone. Leave at least 10% margin from the top edge and 10% margin from the bottom edge. Text that touches or nearly touches the top/bottom edge will be cropped off in printing.');
+    if (isSpread) {
+      parts.push('- TEXT PLACEMENT — NO CENTER GUTTER (CRITICAL): This is a two-page spread. The CENTER VERTICAL STRIP of the image is the book binding — text placed there will be hidden or split. ALL text must be placed entirely on the LEFT HALF or entirely on the RIGHT HALF of the image. NEVER let text cross or straddle the center. If text is long, split it: put some lines on the left page and remaining lines on the right page, but each block must stay fully within its half.');
+    }
+    parts.push('- Place the text in the top or bottom portion of its page half, where the background is simplest/softest');
     parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
     parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
     parts.push('- Text color should contrast with its immediate background for readability');
@@ -390,6 +394,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
+  parts.push(`12. TEXT MARGINS: text has at least 10% padding from top and bottom edges — nothing near the crop zone. \u2713`);
+  if (isSpread) {
+    parts.push(`13. TEXT NOT IN GUTTER: ALL text blocks are entirely on the left half or right half — no text crosses or touches the center vertical strip. \u2713`);
+  }
   parts.push('If any check fails, adjust the scene before generating.');
 
   return parts.join('\n');
