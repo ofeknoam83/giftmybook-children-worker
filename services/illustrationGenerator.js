@@ -341,13 +341,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Always use the configured art style (pixar_premium by default)
   parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   if (isSpread) {
-    parts.push('FORMAT: Wide cinematic landscape illustration. 16:9 aspect ratio. ONE single seamless continuous scene — no dividers, no visual seams.');
-    parts.push('SAFE ZONE RULES (CRITICAL — image will be cropped):');
-    parts.push('- Keep ALL important content (faces, text, key objects, hands) within the MIDDLE 85% of the image HEIGHT. The top 7.5% and bottom 7.5% will be cropped — use only for sky/ground/background.');
-    parts.push('- CENTER DEAD ZONE: The center ~8% of the image width should contain only simple background (sky, grass, wall, etc). Do NOT place characters, faces, text, or key objects in the center vertical strip.');
-    parts.push('- Do NOT draw any fold, crease, seam, shadow line, book spine, or binding effect anywhere in the image. The illustration must be one seamless continuous scene from left edge to right edge.');
-    parts.push('- Place the child and main action in the CENTER 60% of the image width, with background extending to the edges.');
-    parts.push('- The left half and right half should each work as a complete, balanced composition.');
+    parts.push('FORMAT: Wide cinematic panoramic landscape illustration, 16:9 aspect ratio.');
+    parts.push('THIS IS ONE SINGLE SEAMLESS PAINTING — like a wide movie still or a panoramic photograph. The scene flows continuously from the left edge to the right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break at the center or anywhere else.');
+    parts.push('IMPORTANT: Do NOT treat this as two separate images side by side. There must be ZERO visual indication that this image will be split into two pages. Paint it as one unified wide scene.');
+    parts.push('SAFE ZONE (printing will crop edges):');
+    parts.push('- Keep important content (faces, hands, key objects) within the middle 85% of the height. Top/bottom 7.5% may be cropped.');
+    parts.push('- Avoid placing the child\'s face, hands, or text at the exact horizontal center of the image — a narrow strip there may be less visible. But the BACKGROUND, ENVIRONMENT, and SCENERY must flow seamlessly through the center with no gap or break.');
   } else {
     parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   }
@@ -371,7 +370,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(fontInstruction);
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text within the safe zone. Leave at least 10% margin from the top edge and 10% margin from the bottom edge. Text that touches or nearly touches the top/bottom edge will be cropped off in printing.');
     if (isSpread) {
-      parts.push('- TEXT PLACEMENT — NO CENTER GUTTER (CRITICAL): This is a two-page spread. The CENTER VERTICAL STRIP of the image is the book binding — text placed there will be hidden or split. ALL text must be placed entirely on the LEFT HALF or entirely on the RIGHT HALF of the image. NEVER let text cross or straddle the center. If text is long, split it: put some lines on the left page and remaining lines on the right page, but each block must stay fully within its half.');
+      parts.push('- TEXT PLACEMENT — AVOID CENTER (CRITICAL): Do not place any text in the narrow center strip of the image (the middle ~8% of the width). Place text blocks toward the left side or right side of the image. If text is long, put some lines on the left side and some on the right side — but do NOT let a single line of text span across the center.');
     }
     parts.push('- Place the text in the top or bottom portion of its page half, where the background is simplest/softest');
     parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
@@ -396,7 +395,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
   parts.push(`12. TEXT MARGINS: text has at least 10% padding from top and bottom edges — nothing near the crop zone. \u2713`);
   if (isSpread) {
-    parts.push(`13. TEXT NOT IN GUTTER: ALL text blocks are entirely on the left half or right half — no text crosses or touches the center vertical strip. \u2713`);
+    parts.push(`13. TEXT AVOIDS CENTER: no line of text spans across the center of the image. \u2713`);
+    parts.push(`14. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere. \u2713`);
   }
   parts.push('If any check fails, adjust the scene before generating.');
 
