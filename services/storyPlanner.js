@@ -279,7 +279,8 @@ function getThemeBeatStructure(theme, age) {
     case 'birthday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY arc:
    AGE-WEAVING RULE: The child is turning ${age}. This specific age must feel meaningful throughout — not just mentioned in spread 1. In at least 3 spreads, the story should reflect what it MEANS to be ${age}: something they can now do that they couldn't before, something they understand now, a milestone only a ${age}-year-old would have. The number ${age} should feel earned by spread 13.
-   - Spread 1: The child wakes up — it's their birthday. Something feels different, magical, or surprising. They are ${age} today.
+   BIRTHDAY ENERGY RULE: This story should feel like the BEST DAY OF THE CHILD'S LIFE from the very first spread. Joy, warmth, and excitement are the emotional BASELINE — not something to be earned. The obstacle at spread 6 is light, quickly overcome, and never threatening. Do NOT let the story drift into anxious adventure territory. Every spread (except spread 6) should feel like a celebration. The tension rule ("every spread must have a small tension or imbalance") is SUSPENDED for birthday books — joy is allowed to fill spreads fully.
+   - Spread 1: The child discovers it's their birthday — this can happen at any time of day, not necessarily a waking-up scene. Something feels different, magical, or surprising. They are ${age} today.
    - Spread 2: A birthday quest or surprise begins — something is missing, hidden, or has to be found/reached.
    - Spreads 3-4: The journey to find it — new locations, excitement building, friends or creatures along the way.
    - Spread 5: A wonderful discovery or first celebration moment.
@@ -383,13 +384,15 @@ function getThemeBeatStructure(theme, age) {
 
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
-   - Spreads 1-2: Setup (normal world → call to adventure, child leaves home)
+   QUEST RULE: This is an adventure story. The child's specific goal MUST be named in spread 1 — concrete, visual, and achievable. "Go on an adventure" is not a quest. A quest has a specific target: an object to find, a place to reach, a creature to help, a mystery to solve. The entire story builds toward this goal. Spread 13 resolves it with success.
+   - Spread 1: THE QUEST IS NAMED — state the specific mission the child is setting out to do, find, or reach. It must be concrete and named (e.g. "find the lost color", "reach the top of Ember Hill", "return the golden acorn to the ancient tree"). The child sets off with clear intention. Do NOT start with "waking up" — start with the quest already beginning.
+   - Spread 2: First steps into the adventure — the world opens up, first wonder or obstacle.
    - Spreads 3-5: Rising action (new locations, each with its own obstacle)
    - Spread 6: THE HINGE — child is stuck, blocked, or almost fails (this is the most important beat — make it specific and tense)
    - Spreads 7-9: Breakthrough (child uses the favorite object or courage to overcome the hinge obstacle, victory builds)
    - Spreads 10-11: Resolution (final challenge solved, journey home begins)
    - Spread 12: Homecoming — one quiet settling line (child arrives home, changed)
-   - Spread 13: Rest — settled, safe, the world feels bigger`;
+   - Spread 13: MISSION COMPLETE — the child has achieved exactly what they set out to do. The final image is triumphant stillness — they did it. The world is bigger because the quest succeeded. NOT rest, NOT sleep, NOT bedroom.`;
   }
 }
 
@@ -428,6 +431,7 @@ Return a JSON object with these fields:
 5. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
 
 6. repeated_phrase: A short phrase (2-6 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
+   The phrase MUST be poetic and sensory — specific and unexpected, never generic motivation. REJECT: "ready to fly", "you've got this", "believe in yourself", "anything is possible". REQUIRE: phrases that carry a physical sensation or unexpected image — "the dark has a sound now", "round enough to jump", "her name in the wind", "still here, still mine". If your phrase could appear on a motivational poster, discard it and try again.
 
 7. phrase_arc: Three short descriptions of how the phrase evolves:
    - early: how it feels the first time
@@ -472,6 +476,12 @@ Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
   if (approvedTitle) {
     userPrompt += `\n\nThe book title is already chosen: "${approvedTitle}". The story seed and beats must fit this title exactly.`;
   }
+
+  if (theme === 'birthday') {
+    userPrompt += `\n\nBIRTHDAY PHRASE RULE: The repeated_phrase must feel celebratory and bright — a birthday refrain, not a lullaby. Examples: "this is the day", "one more wish", "${name}'s whole bright day". REJECT wistful or introspective phrases.`;
+  }
+
+  userPrompt += `\n\nTIME OF DAY: Choose a time that serves the story's emotional logic. Not every book must start in the morning or end at night. Only bedtime-themed stories should default to evening. Adventures, birthdays, science, and space stories can begin at any hour.`;
 
   console.log(`[storyPlanner] Brainstorming story seed for ${name}...`);
   const seedStart = Date.now();

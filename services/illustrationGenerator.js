@@ -358,6 +358,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
     // Change 19: Outfit additions forbidden
     parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described. Any addition is a violation of this rule.`);
+    parts.push(`OUTFIT LOCK (CRITICAL): In THIS illustration, the child is wearing EXACTLY the outfit described above — every garment, color, pattern, and accessory. Do NOT change any item. Do NOT add or remove layers based on the scene's weather or activity. The outfit must be PIXEL-FOR-PIXEL IDENTICAL to every other illustration in this book.`);
     parts.push(``);
   }
 
@@ -514,6 +515,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`6. CORRECT SCALE: the child's head, body, and limbs are in normal human proportion. \u2713`);
   parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
+  parts.push(`OUTFIT CONSISTENCY: the child's outfit matches the characterOutfit definition exactly — same garments, colors, patterns, accessories as every other spread. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);

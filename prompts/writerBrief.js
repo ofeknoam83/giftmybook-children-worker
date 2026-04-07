@@ -205,6 +205,8 @@ INPUTS
 -------------------------------------
 WRITING QUALITY OVERRIDES (MANDATORY)
 -------------------------------------
+- POETIC LANGUAGE (FIRST PRIORITY): Every sentence must earn its place poetically. If you could replace it with a more ordinary sentence without losing meaning, it is not good enough. Reach for the unexpected image. "She held Momo closer" is better than "She was scared." "The fog pressed back" is better than "It was foggy outside." Ask yourself: could a flat writer have written this sentence? If yes — rewrite it.
+
 - Never state emotions directly (no: "she was scared", "he felt happy").
   Always show emotion through action, sensory detail, or environment.
 
@@ -256,6 +258,7 @@ TONE:
 - Warm, intimate, slightly poetic.
 - Calm but emotionally alive.
 - Avoid moralizing or explicit lessons.
+- BIRTHDAY THEME EXCEPTION: Birthday books must feel like a celebration from spread 1. Warmth, joy, and excitement are the emotional baseline — not tension. The reader should feel like they are invited to a wonderful party, not reading a story about a problem to solve. The "every spread needs tension" rule does NOT apply — spreads 1-5 and 7-13 should be purely celebratory.
 
 -------------------------------------
 STORY ENGINE
@@ -265,6 +268,8 @@ STORY ENGINE
 - {fear} must appear as a real obstacle the child moves THROUGH.
 - {setting} (if provided) must shape the visual world of the story.
 - {dedication} (if provided): use as written. If not provided, write: "For {name}."
+
+ADVENTURE/QUEST BOOKS: The quest or mission must be named explicitly in spread 1 or 2. It must be specific and concrete ("find the lost color", "reach the top of Ember Hill", "return the golden acorn"). Vague adventures with no stated goal are not allowed. The final spread must resolve the quest — the child succeeded. "The world feels bigger" is not a resolution. "She held the golden acorn in both hands" is.
 
 FAMILY MEMBERS — TEXT vs. ILLUSTRATIONS (CRITICAL):
 - The story text MAY mention family members (parents, grandparents, siblings)
@@ -283,7 +288,9 @@ Spreads 1-2:   Setup (normal world + emotional need)
 Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
-Spread 12:     Sleep / stillness
+Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+TIME OF DAY (IMPORTANT): The story does NOT need to follow a morning-to-night arc. The time of day must serve the story's emotional logic — not a default bedtime template. An adventure can begin at 2pm and end at sunset. A birthday can unfold entirely in the golden afternoon. A space story might begin and end at midnight. Choose the time that makes this specific story feel most alive. Only bedtime-themed books should default to evening/night.
 
 -------------------------------------
 TRANSFORMATION RULE (CRITICAL)
@@ -421,6 +428,28 @@ Notice what makes these work:
 - The repeated phrase appears naturally and evolves
 - Silence (null pages) creates breathing room
 
+CONTRAST EXAMPLES (what to avoid vs. what to write):
+
+BAD (flat, functional):
+Left: "Zara walked through the dark forest. She was scared but kept going."
+Right: "She held her lantern up to see better."
+
+GOOD (poetic, sensory, unexpected):
+Left: "The forest held its breath. Zara's lantern made one small circle of warmth."
+Right: "She stepped into it anyway."
+
+---
+
+BAD (flat, transition):
+Left: "They ran up the hill quickly."
+Right: "At the top they could see everything."
+
+GOOD (poetic, earned):
+Left: "Her legs burned. The hill didn't care."
+Right: "Then — the whole sky."
+
+Notice: the GOOD versions show emotion through action, use surprising specificity, trust silence, and make every word carry weight.
+
 -------------------------------------
 ILLUSTRATION PROMPTS
 -------------------------------------
@@ -447,8 +476,12 @@ Define these top-level fields:
 - "characterOutfit": ONE specific outfit the child wears in EVERY spread.
   Be precise: garment type, color, patterns, shoes/socks, accessories.
   Example: "a red hoodie with a small star patch on the chest, dark blue jeans, white sneakers with red laces, and a yellow beanie hat"
-  The child wears this SAME outfit from spread 1 to the last spread. No changes.
-  NEVER have the child change clothes, add layers, remove items, or get messy/wet.
+  The child wears this SAME outfit from spread 1 to the last spread. No exceptions.
+  - No added layers, no removed items, no changes due to weather, activity, or time of day.
+  - If the story takes place in rain — the child is still in the exact same outfit.
+  - If the story involves water or mud — the scene composition avoids showing the body below the neck, or the illustration shows them from behind or at a distance. The outfit does NOT change.
+  - NEVER have the child change clothes, get visibly wet/muddy, or wear anything different from the defined characterOutfit.
+  - The illustrator will be given this exact outfit description for every single spread and must match it exactly.
 
 - "characterDescription": Physical appearance details beyond the photo.
   MUST include a detailed hair description (color, style, length, texture, parting).
@@ -633,6 +666,7 @@ TONE:
 - Warm, intimate, slightly poetic.
 - Calm but emotionally alive.
 - Avoid moralizing or explicit lessons.
+- BIRTHDAY THEME EXCEPTION: Birthday books must feel like a celebration from spread 1. Warmth, joy, and excitement are the emotional baseline — not tension. The reader should feel like they are invited to a wonderful party, not reading a story about a problem to solve. The "every spread needs tension" rule does NOT apply — spreads 1-5 and 7-13 should be purely celebratory.
 
 -------------------------------------
 STORY ENGINE
@@ -641,6 +675,8 @@ STORY ENGINE
   Name it specifically every time. Never call it "the toy."
 - {fear} must appear as a real obstacle the child moves THROUGH.
 - {setting} (if provided) must shape the visual world of the story.
+
+ADVENTURE/QUEST BOOKS: The quest or mission must be named explicitly in spread 1 or 2. It must be specific and concrete ("find the lost color", "reach the top of Ember Hill", "return the golden acorn"). Vague adventures with no stated goal are not allowed. The final spread must resolve the quest — the child succeeded. "The world feels bigger" is not a resolution. "She held the golden acorn in both hands" is.
 
 FAMILY MEMBERS — TEXT vs. ILLUSTRATIONS:
 - The story text MAY mention family members (parents, grandparents, siblings)
@@ -657,7 +693,9 @@ Spreads 1-2:   Setup (normal world + emotional need)
 Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
-Spread 12:     Sleep / stillness
+Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+TIME OF DAY (IMPORTANT): The story does NOT need to follow a morning-to-night arc. The time of day must serve the story's emotional logic — not a default bedtime template. An adventure can begin at 2pm and end at sunset. A birthday can unfold entirely in the golden afternoon. A space story might begin and end at midnight. Choose the time that makes this specific story feel most alive. Only bedtime-themed books should default to evening/night.
 
 -------------------------------------
 TRANSFORMATION RULE (CRITICAL)
@@ -762,6 +800,28 @@ Notice what makes these work:
 - The repeated phrase evolves naturally
 - Silence (null pages) creates breathing room
 
+CONTRAST EXAMPLES (what to avoid vs. what to write):
+
+BAD (flat, functional):
+Left: "Zara walked through the dark forest. She was scared but kept going."
+Right: "She held her lantern up to see better."
+
+GOOD (poetic, sensory, unexpected):
+Left: "The forest held its breath. Zara's lantern made one small circle of warmth."
+Right: "She stepped into it anyway."
+
+---
+
+BAD (flat, transition):
+Left: "They ran up the hill quickly."
+Right: "At the top they could see everything."
+
+GOOD (poetic, earned):
+Left: "Her legs burned. The hill didn't care."
+Right: "Then — the whole sky."
+
+Notice: the GOOD versions show emotion through action, use surprising specificity, trust silence, and make every word carry weight.
+
 ---
 
 STRUCTURE GUIDANCE:
@@ -837,8 +897,12 @@ Define these top-level fields:
 - "characterOutfit": ONE specific outfit the child wears in EVERY spread.
   Be precise: garment type, color, patterns, shoes/socks, accessories.
   Example: "a red hoodie with a small star patch on the chest, dark blue jeans, white sneakers with red laces, and a yellow beanie hat"
-  The child wears this SAME outfit from spread 1 to the last spread. No changes.
-  NEVER have the child change clothes, add layers, remove items, or get messy/wet.
+  The child wears this SAME outfit from spread 1 to the last spread. No exceptions.
+  - No added layers, no removed items, no changes due to weather, activity, or time of day.
+  - If the story takes place in rain — the child is still in the exact same outfit.
+  - If the story involves water or mud — the scene composition avoids showing the body below the neck, or the illustration shows them from behind or at a distance. The outfit does NOT change.
+  - NEVER have the child change clothes, get visibly wet/muddy, or wear anything different from the defined characterOutfit.
+  - The illustrator will be given this exact outfit description for every single spread and must match it exactly.
 
 - "characterDescription": Physical appearance details beyond the photo.
   MUST include a detailed hair description (color, style, length, texture, parting).
