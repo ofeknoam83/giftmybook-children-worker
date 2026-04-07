@@ -322,6 +322,13 @@ Theme: ${theme || 'bedtime'}`;
     });
   }
 
+  // BIRTHDAY: spread 13 must always land on the cake/candles moment
+  if (theme === 'birthday') {
+    const candleCount = age || 5;
+    const candleWord = candleCount === 1 ? '1 candle' : `${candleCount} candles`;
+    prompt += `\n\n⚠️ BIRTHDAY ENDING RULE — SPREAD 13 MUST BE THE CAKE MOMENT:\nThe entire story arc should build toward this: spread 13 is always the birthday cake and candles scene.\nWrite the text for spread 13 in your own words — it must feel like the natural, earned payoff of the story that came before it. The text should be warm, joyful, and match the child's voice and the story's rhythm.\nHowever, the ILLUSTRATION for spread 13 is fixed: ${name} leaning toward a birthday cake with EXACTLY ${candleWord} lit on top, cheeks puffed, about to blow. Warm candlelight, confetti, joy. The number ${candleCount} must be clearly visible — either ${candleCount} individual flames or a single numeral candle "${candleCount}".\nShape the preceding spreads so this ending feels inevitable, not sudden.`;
+  }
+
   if (v2Vars.repeated_phrase) {
     prompt += `\n\nREPEATED PHRASE to use: "${v2Vars.repeated_phrase}"`;
     if (v2Vars.phrase_arc && Array.isArray(v2Vars.phrase_arc)) {

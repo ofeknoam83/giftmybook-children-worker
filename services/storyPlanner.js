@@ -152,7 +152,8 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
  * @param {object} [opts] - { apiKeys, costTracker, theme }
  * @returns {Promise<object>} { favorite_object, fear, setting, storySeed }
  */
-function getThemeBeatStructure(theme) {
+function getThemeBeatStructure(theme, age) {
+  const candleText = age ? `exactly ${age} candles` : 'the correct number of candles matching the child\'s age';
   switch (theme) {
     case 'birthday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY arc:
@@ -163,9 +164,9 @@ function getThemeBeatStructure(theme) {
    - Spread 6: THE HINGE — something goes wrong, almost ruins the celebration (lost item, wrong path, unexpected obstacle).
    - Spreads 7-8: The child fixes it — uses their favorite object or a new friend to turn it around.
    - Spreads 9-10: The celebration reaches its peak — wonder, joy, the moment they will remember.
-   - Spread 11: Returning home, full of joy and birthday energy.
-   - Spread 12: Homecoming — visually silent, no text. The child is back, surrounded by warmth.
-   - Spread 13: Settled in, happy, the birthday magic still glowing.`;
+   - Spread 11: Returning home, full of joy and birthday energy — the journey has made this moment even sweeter.
+   - Spread 12: Everyone gathers. Something is coming. The room hushes. [visually silent, no text]
+   - Spread 13: [FIXED — MUST BE THIS] The birthday cake appears with ${candleText} glowing. The child leans in, cheeks puffed. This is what the whole day was building to.`;
 
     case 'holiday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this HOLIDAY arc:
@@ -279,7 +280,7 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
   const gender = childDetails.gender || childDetails.childGender || '';
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
 
-  const beatStructure = getThemeBeatStructure(theme);
+  const beatStructure = getThemeBeatStructure(theme, age);
 
   const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (13 spreads).
 
