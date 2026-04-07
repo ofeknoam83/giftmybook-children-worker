@@ -172,11 +172,12 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   if (isHardcover) {
     // ── Lulu Hardcover Casewrap spec ──────────────────────────────────────────
     // Source: https://help.lulu.com/en/support/solutions/articles/64000308572
-    // Canvas = wrap(0.75") + back + spine + front + wrap(0.75")
-    // Height = wrap(0.75") + trim + wrap(0.75")
-    // Spine (Lulu hardcover table, mm → inches):
-    //   24–84 pages: 6mm = 0.236"  |  85–168: 12mm  |  169–252: 18mm  |  253–336: 24mm
-    const wrap = 54; // 0.75" × 72 = 54pt
+    // Canvas = wrap(0.875") + back + spine + front + wrap(0.875")
+    // Height = wrap(0.875") + trim + wrap(0.875")
+    // Required by Lulu for 8.5x8.5: 19.0" x 10.25" total canvas
+    // Spine (Lulu hardcover table, mm → pt):
+    //   24–84 pages: 6mm=17pt  |  85–168: 12mm=34pt  |  169–252: 18mm=51pt
+    const wrap = 63; // 0.875" × 72 = 63pt (verified against Lulu error for 8.5x8.5)
     const spineTable = [[84,17],[168,34],[252,51],[336,69],[420,86],[504,103],[Infinity,120]];
     spineWidth = (spineTable.find(([max]) => pageCount <= max) || spineTable[spineTable.length-1])[1];
     hinge = 0;      // Hinge is part of the wrap area — no separate gap in PDF layout
