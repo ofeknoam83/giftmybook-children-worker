@@ -232,7 +232,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   const {
     apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
-    existingIllustrations, checkpointData,
+    existingIllustrations, checkpointData, detectedSecondaryCharacters,
   } = opts;
 
   // Count how many illustrations we need
@@ -329,7 +329,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             childName: childDetails.name,
             characterOutfit: outfit,
             characterDescription: storyPlan.characterDescription || '',
-            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+            additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
             recurringElement: storyPlan.recurringElement || '',
             keyObjects: storyPlan.keyObjects || '',
             coverArtStyle: storyPlan.coverArtStyle || '',
@@ -744,6 +744,46 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       const resolvedChildPhotoUrl = childPhotoUrl;
 
+      // Detect secondary characters (e.g. a parent) in the uploaded photo
+      let detectedSecondaryCharacters = null;
+      if (cachedPhotoBase64) {
+        try {
+          const { getNextApiKey } = require('./services/illustrationGenerator');
+          const photoAnalysisKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+          const photoAnalysisResp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${photoAnalysisKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [
+                  { text: `Look at this photo. Answer ONE question: Are there multiple people in this photo?
+
+If YES — list each NON-CHILD person with:
+SECONDARY_CHARACTER: [relationship if apparent, e.g. father/adult man/grandmother]: [hair color and style] | [skin tone] | [approximate age/build] | [any notable features like beard, glasses]
+
+If there is only ONE person (the child), respond with exactly: NONE
+
+Be concise. Only describe adults/secondary people, not the main child.` },
+                  { inline_data: { mime_type: cachedPhotoMime || 'image/jpeg', data: cachedPhotoBase64 } },
+                ]}],
+                generationConfig: { maxOutputTokens: 300, temperature: 0.1 },
+              }),
+            }
+          );
+          if (photoAnalysisResp.ok) {
+            const photoData = await photoAnalysisResp.json();
+            const photoText = photoData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (photoText && photoText !== 'NONE' && photoText.includes('SECONDARY_CHARACTER')) {
+              detectedSecondaryCharacters = photoText.replace(/SECONDARY_CHARACTER:\s*/gi, '').trim();
+              bookContext.log('info', 'Secondary characters detected in uploaded photo', { desc: detectedSecondaryCharacters.slice(0, 150) });
+            }
+          }
+        } catch (photoScanErr) {
+          bookContext.log('warn', 'Photo secondary character scan failed', { error: photoScanErr.message });
+        }
+      }
+
       const stage1Ms = Date.now() - stage1Start;
       bookContext.log('info', 'Photo cache complete', { ms: stage1Ms, hasPhotoCache: !!cachedPhotoBase64 });
 
@@ -764,6 +804,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           apiKeys, costTracker, theme,
           emotionalSituation,
           copingResourceHint,
+          additionalCoverCharacters: detectedSecondaryCharacters || null,
         });
         bookContext.log('info', 'Story seed ready', {
           favorite_object: storySeed.favorite_object,
@@ -829,6 +870,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           costTracker,
           approvedTitle,
           v2Vars,
+          additionalCoverCharacters: detectedSecondaryCharacters || null,
         });
         bookContext.touchActivity();
         const stage3Ms = Date.now() - stage3Start;
@@ -1017,6 +1059,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
         cachedPhotoMime: characterRefMime,
         existingIllustrations: checkpoint?.illustrationResults || [],
         checkpointData: { bookId, storyPlan },
+        detectedSecondaryCharacters: detectedSecondaryCharacters || null,
       });
 
       bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });

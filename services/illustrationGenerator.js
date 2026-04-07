@@ -380,6 +380,19 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     }
   }
 
+  // Secondary character appearance lock (when someone else appears in the uploaded photo)
+  if (opts.additionalCoverCharacters) {
+    parts.push(`8. SECONDARY CHARACTER CONSISTENCY LOCK (CRITICAL):`);
+    parts.push(`   The following secondary character appears in the uploaded photo and MAY appear in this illustration. Their appearance must be IDENTICAL to every other illustration in this book:`);
+    parts.push(`   ${opts.additionalCoverCharacters}`);
+    parts.push(`   - Same hair color, style, and length on every spread`);
+    parts.push(`   - Same skin tone and facial features on every spread`);
+    parts.push(`   - Same approximate age and build on every spread`);
+    parts.push(`   - Do NOT change their ethnicity, hair, or skin tone between spreads`);
+    parts.push(`   - Match their appearance to the uploaded reference photo`);
+    parts.push(``);
+  }
+
   parts.push(`Create a single children's book illustration page.`);
   parts.push(``);
   parts.push(`MAIN CHARACTER \u2014 ${childName || 'the child'} (THE ONLY CHILD IN THIS IMAGE):`);
@@ -450,6 +463,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('FORMAT: Wide cinematic panoramic landscape illustration, 16:9 aspect ratio.');
     parts.push('THIS IS ONE SINGLE SEAMLESS PAINTING — like a wide movie still or a panoramic photograph. The scene flows continuously from the left edge to the right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break at the center or anywhere else.');
     parts.push('IMPORTANT: Do NOT treat this as two separate images side by side. There must be ZERO visual indication that this image will be split into two pages. Paint it as one unified wide scene.');
+    parts.push('CHARACTER POSITION (CRITICAL): The main character MUST be positioned off-center horizontally — clearly in the left third or right third of the image. Do NOT place the main character at the horizontal midpoint (50%) of the image. The exact center of the image is reserved for background scenery, open space, or environmental elements. A character standing at dead-center will be rejected.');
     parts.push('SAFE ZONE (printing will crop edges):');
     parts.push('- Keep important content (faces, hands, key objects) within the middle 85% of the height. Top/bottom 7.5% may be cropped.');
   } else {
@@ -478,7 +492,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(fontInstruction);
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text well away from every edge. Leave at least 15% margin from the top edge, 15% margin from the bottom edge, and 8% margin from the left and right edges. Text that is near ANY edge will be cropped off in printing. If in doubt, move the text further inward.');
     if (isSpread) {
-      parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 35% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
+      parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 30% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
     }
     parts.push('- Place the text in the top or bottom portion of the image, where the background is simplest/softest');
     parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
@@ -503,8 +517,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
   parts.push(`12. TEXT MARGINS: text has at least 15% padding from top and bottom edges and 8% from left and right edges — nothing near any edge. \u2713`);
   if (isSpread) {
-    parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 35% of the image width. \u2713`);
-    parts.push(`14. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
+    parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 30% of the image width. \u2713`);
+    parts.push(`14. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
+    parts.push(`15. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
   }
   parts.push('If any check fails, adjust the scene before generating.');
 

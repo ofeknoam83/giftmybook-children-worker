@@ -96,10 +96,11 @@ function getEmotionalWritingRules(emotion, situation, parentGoal, copingResource
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
  * @returns {string}
  */
-function buildStoryPlannerSystem(vars) {
+function buildStoryPlannerSystem(vars, additionalCoverCharacters = null) {
   // Accept either a vars object (V2) or a bare age number (legacy compat)
+  let brief;
   if (typeof vars === 'number' || typeof vars === 'string') {
-    return buildV2Brief({
+    brief = buildV2Brief({
       name: '{name}',
       age: Number(vars) || 5,
       favorite_object: '{favorite_object}',
@@ -107,8 +108,31 @@ function buildStoryPlannerSystem(vars) {
       setting: '{setting}',
       dedication: '{dedication}',
     });
+  } else {
+    brief = buildV2Brief(vars);
   }
-  return buildV2Brief(vars);
+
+  // Override the family member rule when secondary characters are detected in the photo
+  if (additionalCoverCharacters) {
+    const familyOverride = `SECONDARY CHARACTERS (from the uploaded photo):
+The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
+Do NOT invent other family members beyond what is listed above.`;
+
+    // Replace the static family rule with the override
+    brief = brief.replace(
+      /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+      familyOverride + '\n'
+    );
+    // Also replace the illustration prompt rule about never depicting family
+    brief = brief.replace(
+      /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+      `- The secondary character(s) listed above MAY appear in illustration prompts. Describe them consistently every time. Do NOT invent other family members not listed.`
+    );
+  }
+
+  return brief;
 }
 
 // Static fallback for backward compat
@@ -123,7 +147,7 @@ const STORY_PLANNER_SYSTEM = buildStoryPlannerSystem(5);
  * @param {object} v2Vars - { favorite_object, fear, setting, dedication }
  * @returns {string}
  */
-function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}) {
+function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}, additionalCoverCharacters = null) {
   const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
   const age = childDetails.childAge || childDetails.age || 5;
   const interests = (childDetails.childInterests || childDetails.interests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
@@ -176,15 +200,23 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
     ? v2Vars.emotionalSpreads
     : 13;
 
+  if (additionalCoverCharacters) {
+    prompt += `\n\n⚠️ SECONDARY CHARACTER ON COVER: The uploaded photo includes a secondary person. Their appearance:\n${additionalCoverCharacters}\nWhen you write spread_image_prompt fields, you MAY include this person naturally in scenes. Describe them consistently every time they appear — same hair, skin, build. Add "secondaryCharacterDescription" to the top-level JSON with their full appearance for illustration locking.`;
+  }
+
   prompt += `
 
 Generate the COMPLETE story as a JSON object with this structure:`;
+
+  const secondaryCharField = additionalCoverCharacters
+    ? `\n  "secondaryCharacterDescription": "appearance of secondary person from the photo — hair, skin, build — written so illustrations stay consistent",`
+    : '';
 
   return prompt + `
 {
   "title": "The book title",
   "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
-  "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",
+  "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",${secondaryCharField}
   "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
   "keyObjects": "other objects that recur across spreads, with exact visual details",
   "entries": [
@@ -201,7 +233,7 @@ IMPORTANT:
 - Front matter (half-title, title page, copyright) is added automatically — do NOT include them.
 - The entries array must contain exactly: 1 dedication_page + ${plannerSpreadTarget} spreads = ${plannerSpreadTarget + 1} entries.
 - Each spread must have spread_image_prompt — ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still). Describe a single unified scene, NOT separate left-side and right-side content. Do NOT split the composition into two halves.
-- Avoid placing the child at the exact horizontal center of the scene — offset them slightly for visual interest. The environment and background should flow naturally throughout.
+- CHARACTER POSITION: The child MUST be in the left third or right third of the scene — NOT at the horizontal center. Never describe the child as standing in the middle. The center of the panorama is reserved for environment, depth, or secondary elements.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
 - Text goes in left.text and/or right.text (one can be null if the illustration carries the moment).
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.

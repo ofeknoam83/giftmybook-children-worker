@@ -393,7 +393,7 @@ function getThemeBeatStructure(theme, age) {
 }
 
 async function brainstormStorySeed(childDetails, customDetails, approvedTitle, opts = {}) {
-  const { costTracker, apiKeys, theme } = opts;
+  const { costTracker, apiKeys, theme, additionalCoverCharacters } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const name = childDetails.name || childDetails.childName || 'the child';
@@ -438,8 +438,14 @@ ${beatStructure}
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
 
-ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
-Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.
+${additionalCoverCharacters
+  ? `SECONDARY CHARACTERS (from the uploaded photo):
+The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
+Do NOT invent other family members beyond what is listed above.`
+  : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
+Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`}
 
 Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
@@ -592,7 +598,7 @@ function parseStoryText(text) {
  * Returns raw text output from the LLM.
  */
 async function generateStoryText(childDetails, theme, customDetails, opts = {}) {
-  const { costTracker, apiKeys, approvedTitle, v2Vars } = opts;
+  const { costTracker, apiKeys, approvedTitle, v2Vars, additionalCoverCharacters } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const childAge = childDetails.age || childDetails.childAge || 5;
@@ -604,8 +610,13 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     setting: '',
   };
 
-  const systemPrompt = buildStoryWriterSystem(briefVars, theme);
+  let systemPrompt = buildStoryWriterSystem(briefVars, theme);
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
+
+  // Override the "no family in illustrations" rule when secondary characters are detected
+  if (additionalCoverCharacters) {
+    systemPrompt += `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene.`;
+  }
 
   if (approvedTitle) {
     userPrompt += `\n\nIMPORTANT: The book title has already been chosen: "${approvedTitle}". You MUST use this exact title.`;
@@ -737,7 +748,7 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
  * Single-call fallback — the original pipeline for when two-phase fails or for early readers.
  */
 async function planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts = {}) {
-  const { costTracker, approvedTitle, apiKeys, v2Vars } = opts;
+  const { costTracker, approvedTitle, apiKeys, v2Vars, additionalCoverCharacters } = opts;
   const isPictureBook = bookFormat === 'picture_book';
   const childAge = childDetails.age || childDetails.childAge || 5;
 
@@ -752,8 +763,8 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
       setting: '',
       dedication: `For ${childDetails.name || childDetails.childName || 'the child'}`,
     };
-    systemPrompt = buildStoryPlannerSystem(briefVars);
-    userPrompt = pbUserPrompt(childDetails, theme, customDetails, v2Vars);
+    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters);
+    userPrompt = pbUserPrompt(childDetails, theme, customDetails, v2Vars, additionalCoverCharacters);
   } else {
     systemPrompt = ER_SYSTEM;
     userPrompt = erUserPrompt(childDetails, theme, customDetails);
@@ -959,6 +970,7 @@ function normalizePlan(parsed, childDetails, opts = {}) {
   if (parsed.characterDescription) plan.characterDescription = parsed.characterDescription;
   if (parsed.recurringElement) plan.recurringElement = parsed.recurringElement;
   if (parsed.keyObjects) plan.keyObjects = parsed.keyObjects;
+  if (parsed.secondaryCharacterDescription) plan.secondaryCharacterDescription = parsed.secondaryCharacterDescription;
 
   console.log(`[storyPlanner] Plan complete: "${title}" with ${spreads.length} spreads, ${entries.length} total entries`);
   if (plan.characterOutfit) console.log(`[storyPlanner] Character outfit: ${plan.characterOutfit}`);
