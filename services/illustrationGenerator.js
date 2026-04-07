@@ -370,6 +370,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(``);
   }
 
+  if (characterDescription) {
+    // Extract any ethnicity/race mention from characterDescription for explicit lock
+    const ethnicityMatch = characterDescription.match(/\b(asian|east asian|southeast asian|south asian|black|african american|hispanic|latino|latina|white|caucasian|middle eastern|south american|mixed|biracial)\b/i);
+    if (ethnicityMatch) {
+      parts.push(`7. ETHNICITY LOCK (CRITICAL — DO NOT DRIFT): The child is ${ethnicityMatch[0]}. This MUST be consistent in every single illustration. Do NOT change the child's ethnicity, skin tone, or facial features between spreads. If the reference photo shows an ${ethnicityMatch[0]} child, ALL illustrations must show an ${ethnicityMatch[0]} child. Never drift to a different ethnicity.`);
+    } else {
+      parts.push(`7. SKIN TONE & ETHNICITY LOCK: The child's skin tone, ethnicity, and facial features are FIXED from the reference photo. Do NOT change them between spreads under any circumstances.`);
+    }
+  }
+
   parts.push(`Create a single children's book illustration page.`);
   parts.push(``);
   parts.push(`MAIN CHARACTER \u2014 ${childName || 'the child'} (THE ONLY CHILD IN THIS IMAGE):`);

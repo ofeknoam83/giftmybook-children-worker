@@ -64,6 +64,9 @@ const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAge
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
 
+// Guard against lorem ipsum / placeholder text leaking into illustration prompts
+const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
+
 const app = express();
 app.set('trust proxy', 1); // Cloud Run runs behind a load balancer
 
@@ -242,16 +245,17 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     if (entry.type === 'dedication_page') return null;
     if (entry.type === 'spread') {
       const spreadText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
+      const validSpreadText = spreadText && !LOREM_PATTERNS.test(spreadText) ? spreadText : '';
       // Always generate as a single wide spread (16:9) — never as separate left/right pages
       const spreadPrompt = entry.spread_image_prompt
         || entry.left?.image_prompt
         || entry.right?.image_prompt
-        || (spreadText ? `Children's book illustration for this scene: ${spreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.` : null);
+        || (validSpreadText ? `Children's book illustration for this scene: ${validSpreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.` : null);
       if (!spreadPrompt) return null;
       if (!entry.spread_image_prompt && (entry.left?.image_prompt || entry.right?.image_prompt)) {
         bookContext.log('info', `Spread ${entry.spread}: using left/right prompt as spread (forced wide format)`);
       }
-      return { idx, prompt: spreadPrompt, field: 'spreadIllustrationUrl', pageText: spreadText, isSpread: true };
+      return { idx, prompt: spreadPrompt, field: 'spreadIllustrationUrl', pageText: validSpreadText, isSpread: true };
     }
     return null;
   }).flat().filter(Boolean);
@@ -769,7 +773,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         });
       } catch (seedErr) {
         bookContext.log('warn', `Story seed brainstorm failed — using defaults: ${seedErr.message}`);
-        storySeed = { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '' };
+        storySeed = { favorite_object: 'a favorite toy', fear: 'the dark', setting: 'a magical place', storySeed: '' };
       }
       bookContext.touchActivity();
 
@@ -783,7 +787,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
       const v2Vars = {
         name: childDetails.name,
         age: childDetails.age || 5,
-        favorite_object: storySeed.favorite_object || 'a stuffed bear',
+        favorite_object: storySeed.favorite_object || 'a favorite toy',
         fear: storySeed.fear || 'the dark',
         setting: storySeed.setting || 'a magical place',
         dedication,
@@ -1670,7 +1674,7 @@ app.post('/get-spread-data', authenticate, async (req, res) => {
       return {
         idx,
         spreadImagePrompt: entry.spread_image_prompt || '',
-        pageText: [entry.left?.text, entry.right?.text].filter(Boolean).join(' '),
+        pageText: (() => { const rawPageText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' '); return rawPageText && !LOREM_PATTERNS.test(rawPageText) ? rawPageText : ''; })(),
         characterOutfit: storyPlan.characterOutfit || '',
         characterDescription: storyPlan.characterDescription || '',
         recurringElement: storyPlan.recurringElement || '',

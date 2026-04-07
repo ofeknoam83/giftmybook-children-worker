@@ -132,7 +132,7 @@ function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}) {
 
   const { tier } = getAgeTier(age);
 
-  const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
+  const favoriteObject = v2Vars.favorite_object || 'a favorite toy';
   const fear = v2Vars.fear || 'the dark';
   const setting = v2Vars.setting || '';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
@@ -351,7 +351,7 @@ function STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars = {}) {
 
   const { tier } = getAgeTier(age);
 
-  const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
+  const favoriteObject = v2Vars.favorite_object || 'a favorite toy';
   const fear = v2Vars.fear || 'the dark';
   const setting = v2Vars.setting || '';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
@@ -473,7 +473,7 @@ function buildStoryStructurerSystem(vars) {
  */
 function STORY_STRUCTURER_USER(storyText, childDetails, v2Vars = {}, beats) {
   const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
-  const favoriteObject = v2Vars.favorite_object || 'a stuffed bear';
+  const favoriteObject = v2Vars.favorite_object || 'a favorite toy';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
 
   let prompt = `Here is the story text to structure into JSON:

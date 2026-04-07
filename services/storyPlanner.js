@@ -15,6 +15,14 @@ const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 
+function getAgeAppropriateFallbackObject(age) {
+  const a = Number(age) || 5;
+  if (a <= 3)  return 'a small stuffed animal'; // ok for toddlers
+  if (a <= 6)  return 'a favorite toy';          // generic but not infantilizing
+  if (a <= 9)  return 'a small backpack or special item'; // school-age appropriate
+  return 'something they always carry';           // vague but not babyish for 10+
+}
+
 function getEmotionalTier(age) {
   const a = Number(age) || 5;
   if (a <= 3)  return { tier: 'E1', bookFormat: 'PICTURE_BOOK', spreads: 8,  minPages: 32 };
@@ -408,7 +416,7 @@ THEME: ${theme || 'adventure'}
 
 Return a JSON object with these fields:
 
-1. favorite_object: A specific companion or object the child carries through the story. Draw from their interests — NOT a generic teddy bear unless the customer mentioned one. A toy dinosaur, a music box, rain boots, a jar of fireflies, a mini telescope, etc.
+1. favorite_object: A specific companion or object the child carries through the story. IMPORTANT: Match the object to the child's age. For toddlers (age 1-3), a small stuffed animal is fine. For ages 4-6, choose a specific toy or comfort object. For ages 7+, choose something age-appropriate: a ball, a notebook, a special backpack, a tool, an instrument, a gadget. NEVER give a 7+ year old a teddy bear unless the parent specifically mentioned one.
 
 2. fear: The specific emotional challenge or obstacle the child must face IN THIS STORY. It must fit the theme — for birthday it might be "the celebration almost ruined", for space it's "lost between stars", for adventure it's a physical barrier. NOT always "the dark".
 
@@ -492,7 +500,7 @@ Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
         return match ? match[1] : null;
       };
       return {
-        favorite_object: extractField('favorite_object') || 'a stuffed bear',
+        favorite_object: extractField('favorite_object') || getAgeAppropriateFallbackObject(age),
         fear: extractField('fear') || 'the dark',
         setting: extractField('setting') || 'a magical place',
         storySeed: extractField('storySeed') || extractField('story_seed') || '',
@@ -516,7 +524,7 @@ Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
   // Validate we got usable values
   if (!seed || (!seed.favorite_object && !seed.fear && !seed.setting)) {
     console.warn(`[storyPlanner] Story seed has no usable fields. Parsed: ${JSON.stringify(seed).slice(0, 300)}`);
-    return { favorite_object: 'a stuffed bear', fear: 'the dark', setting: 'a magical place', storySeed: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [] };
+    return { favorite_object: getAgeAppropriateFallbackObject(age), fear: 'the dark', setting: 'a magical place', storySeed: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [] };
   }
 
   if (!seed.emotional_core) seed.emotional_core = '';
@@ -587,10 +595,11 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   const { costTracker, apiKeys, approvedTitle, v2Vars } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
+  const childAge = childDetails.age || childDetails.childAge || 5;
   const briefVars = v2Vars || {
     name: childDetails.name || childDetails.childName || 'the child',
-    age: childDetails.age || childDetails.childAge || 5,
-    favorite_object: 'a stuffed bear',
+    age: childAge,
+    favorite_object: getAgeAppropriateFallbackObject(childAge),
     fear: 'the dark',
     setting: '',
   };
@@ -629,7 +638,7 @@ async function structureStoryPlan(storyText, childDetails, opts = {}) {
 
   const briefVars = {
     name: childDetails.name || childDetails.childName || 'the child',
-    favorite_object: v2Vars?.favorite_object || 'a stuffed bear',
+    favorite_object: v2Vars?.favorite_object || getAgeAppropriateFallbackObject(childDetails.age || childDetails.childAge),
   };
 
   const systemPrompt = buildStoryStructurerSystem(briefVars);
@@ -729,7 +738,7 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
     const briefVars = v2Vars || {
       name: childDetails.name || childDetails.childName || 'the child',
       age: childAge,
-      favorite_object: 'a stuffed bear',
+      favorite_object: getAgeAppropriateFallbackObject(childAge),
       fear: 'the dark',
       setting: '',
       dedication: `For ${childDetails.name || childDetails.childName || 'the child'}`,

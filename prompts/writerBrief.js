@@ -918,7 +918,7 @@ function buildV2Brief(vars) {
   let brief = V2_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
   brief = brief.replace(/\{age\}/g, String(age));
-  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a stuffed bear');
+  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a favorite toy');
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{dedication\}/g, dedication || `For ${name || 'the child'}`);
@@ -962,7 +962,7 @@ function buildWritingBrief(vars) {
   let brief = WRITING_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
   brief = brief.replace(/\{age\}/g, String(age));
-  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a stuffed bear');
+  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a favorite toy');
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
@@ -981,7 +981,7 @@ function buildStructureBrief(vars) {
   const { name, favorite_object } = vars;
   let brief = STRUCTURE_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
-  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a stuffed bear');
+  brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a favorite toy');
   return brief;
 }
 
@@ -1013,7 +1013,7 @@ function buildChildContext(childDetails, customDetails) {
   const age = childDetails.childAge || childDetails.age || 5;
   const gender = childDetails.childGender || childDetails.gender || 'child';
   const interests = (childDetails.childInterests || childDetails.interests || []).filter(Boolean);
-  const favoriteObject = childDetails.favorite_object || (interests[0] ? `a ${interests[0]}` : 'a stuffed bear');
+  const favoriteObject = childDetails.favorite_object || (interests[0] ? `a ${interests[0]}` : 'a favorite toy');
   const fear = childDetails.fear || 'the dark';
   const setting = childDetails.setting || '';
   const dedication = childDetails.dedication || `For ${name}`;
