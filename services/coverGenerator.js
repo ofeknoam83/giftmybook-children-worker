@@ -312,13 +312,14 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   }
 
   // ═══════════════════════════════════════
-  // SPINE
+  // SPINE (+ hinge areas for hardcover)
   // ═══════════════════════════════════════
   const spineX = backWidth;
 
+  // Fill entire spine+hinge zone with spine color so no gray gaps show
   page.drawRectangle({
-    x: spineX, y: 0,
-    width: spineWidth, height: totalHeight,
+    x: spineX - hinge, y: 0,
+    width: hinge + spineWidth + hinge, height: totalHeight,
     color: rgb(spineBgColor.r, spineBgColor.g, spineBgColor.b),
   });
 
