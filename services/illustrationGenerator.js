@@ -369,7 +369,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(fontInstruction);
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text well away from every edge. Leave at least 15% margin from the top edge, 15% margin from the bottom edge, and 8% margin from the left and right edges. Text that is near ANY edge will be cropped off in printing. If in doubt, move the text further inward.');
     if (isSpread) {
-      parts.push('- TEXT PLACEMENT — POSITION: Place all text in the upper-left or upper-right area of the image. Text blocks should be compact and not stretch across the full width of the image.');
+      parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 35% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
     }
     parts.push('- Place the text in the top or bottom portion of the image, where the background is simplest/softest');
     parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
@@ -394,7 +394,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
   parts.push(`12. TEXT MARGINS: text has at least 15% padding from top and bottom edges and 8% from left and right edges — nothing near any edge. \u2713`);
   if (isSpread) {
-    parts.push(`13. TEXT POSITION: text is placed in the upper-left or upper-right area — compact, not stretching across the full width. \u2713`);
+    parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 35% of the image width. \u2713`);
     parts.push(`14. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
   }
   parts.push('If any check fails, adjust the scene before generating.');
