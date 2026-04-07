@@ -73,6 +73,19 @@ class CostTracker {
     this.textUsage = {};
     this.imageUsage = {};
   }
+
+  // Re-hydrate from a previously saved summary (used to resume costs across retries)
+  addFromSummary(summary) {
+    if (!summary || !summary.breakdown) return;
+    for (const [model, data] of Object.entries(summary.breakdown)) {
+      if (data.inputTokens != null) {
+        this.addTextUsage(model, data.inputTokens || 0, data.outputTokens || 0);
+      }
+      if (data.imageCount != null) {
+        this.addImageGeneration(model, data.imageCount);
+      }
+    }
+  }
 }
 
 module.exports = { CostTracker };

@@ -370,6 +370,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           completedStage: 'illustrations_partial',
           illustrationResults: results,
           timestamp: new Date().toISOString(),
+          accumulatedCosts: costTracker.getSummary(),
         }).catch(e => console.warn('[checkpoint] Save failed:', e.message));
       }
 
@@ -674,6 +675,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
       }
       if (checkpoint) {
         bookContext.log('info', 'Checkpoint found — resuming from stage: ' + checkpoint.completedStage);
+        // Seed costTracker with costs accumulated in previous run
+        if (checkpoint.accumulatedCosts) {
+          costTracker.addFromSummary(checkpoint.accumulatedCosts);
+          bookContext.log('info', `[costTracker] Resumed: $${checkpoint.accumulatedCosts.totalCost?.toFixed(4) || '0.0000'} from prior run`);
+        }
       }
 
       // Stage 1: Download + cache child photo for illustration calls (always runs — photo not saved in checkpoint)
@@ -808,7 +814,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
 
-        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString() });
+        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
 
         // ── Self-Critic + Auto-Rewrite pass ──
         // ── Combined critic: rhythm + arc + memorable line + language quality ──
@@ -827,7 +833,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
             const polishedContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
             reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContent, logs: bookContext.logs }).catch(() => {});
           }
-          await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString() });
+          await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
         } catch (criticErr) {
           bookContext.log('warn', `Combined critic failed — using original text: ${criticErr.message}`);
         }
@@ -1071,19 +1077,22 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
           bookContext.log('info', 'Generating upsell covers (4 styles)...');
           // Race against a 4-minute timeout. The upsell promise is always caught so
           // it never becomes an unhandled rejection even if it outlives the timeout.
+          const upsellCostTracker = new CostTracker();
           const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
-            apiKeys, costTracker: new CostTracker(),
+            apiKeys, costTracker: upsellCostTracker,
           }).catch(e => {
             console.warn(`[server] Upsell covers background error: ${e.message}`);
             return [];
           });
           const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 4 * 60 * 1000));
           const result = await Promise.race([upsellPromise, timeoutPromise]);
+          // Merge upsell costs into main tracker regardless of outcome
+          costTracker.addFromSummary(upsellCostTracker.getSummary());
           if (result === null) {
             bookContext.log('warn', 'Upsell cover generation timed out after 4 min — continuing without upsell spread');
           } else {
             upsellCovers = result;
-            bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4`);
+            bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4 (upsell cost: $${upsellCostTracker.getSummary().totalCost.toFixed(4)})`);
           }
         } catch (upsellErr) {
           bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
