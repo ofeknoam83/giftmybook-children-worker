@@ -257,32 +257,46 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const p = pdfDoc.addPage([pw, ph]);
   if (!dedication && !bookFrom) return;
 
+  // If dedication already starts with "From ..." (combined string from server), don't draw bookFrom separately
+  const dedAlreadyHasFrom = (dedication || '').trimStart().toLowerCase().startsWith('from ');
+  const effectiveBookFrom = dedAlreadyHasFrom ? null : bookFrom;
+
   const maxW = pw - SAFE * 2;
-  const dedFont = dancing || playfairItalic || helv;
+  // Use Playfair Display Italic for dedication — Dancing Script has ligature rendering issues
+  // ("th" combinations get visual gaps in pdf-lib). Playfair Italic is elegant and renders correctly.
+  const dedFont = playfairItalic || helv;
 
   const FROM_SZ      = 18;
-  const DED_SZ       = 26;
-  const DED_LH       = DED_SZ * 1.55;
+  const DED_SZ       = 24;
+  const DED_LH       = DED_SZ * 1.65;
   const RULE_GAP     = 14;
-  const TITLE_TO_DED = DED_LH * 2; // 2 lines of extra space between rule and dedication text
 
-  const dedText  = dedication || '';
-  const dedLines = wrapText(dedText, dedFont, DED_SZ, maxW);
-  const bodyH    = dedLines.length * DED_LH;
-  const blockH   = FROM_SZ + RULE_GAP + 1.2 + RULE_GAP + TITLE_TO_DED + bodyH;
+  // Split dedication into lines — honour explicit \n breaks first, then wrap each segment
+  const rawText  = (dedication || '').replace(/\\n/g, '\n'); // normalise escaped newlines
+  const segments = rawText.split('\n');
+  const dedLines = [];
+  for (const seg of segments) {
+    if (seg.trim() === '') { dedLines.push(''); continue; }
+    const wrapped = wrapText(seg, dedFont, DED_SZ, maxW);
+    dedLines.push(...wrapped);
+  }
+
+  const bodyH  = dedLines.length * DED_LH;
+  const fromH  = effectiveBookFrom ? (FROM_SZ + RULE_GAP + 1.2 + RULE_GAP + DED_LH) : 0;
+  const blockH = fromH + bodyH;
 
   // Anchor whole block to page vertical center
   let y = ph / 2 + blockH / 2;
 
-  if (bookFrom) {
-    drawCentered(p, `From ${bookFrom}`, playfairItalic || helv, FROM_SZ, y, C.brownMid);
+  if (effectiveBookFrom) {
+    drawCentered(p, `From ${effectiveBookFrom}`, dedFont, FROM_SZ, y, C.brownMid);
     y -= FROM_SZ + RULE_GAP;
     goldRule(p, y, 80);
-    y -= RULE_GAP + 1.2 + TITLE_TO_DED; // extra 2-line gap after rule
+    y -= RULE_GAP + 1.2 + DED_LH;
   }
 
   for (const line of dedLines) {
-    drawCentered(p, line, dedFont, DED_SZ, y, C.black);
+    if (line !== '') drawCentered(p, line, dedFont, DED_SZ, y, C.black);
     y -= DED_LH;
   }
 }
