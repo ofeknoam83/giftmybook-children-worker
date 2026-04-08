@@ -158,10 +158,10 @@ async function splitSpreadImage(buf, pw, ph) {
   // Step 2: Scale to fill spread width exactly, crop center vertically, split — all in one pass
   const upscaledMeta = await sharp(upscaled).metadata();
   const scaledH = Math.round(upscaledMeta.height * spreadW / upscaledMeta.width);
-  // Crop ONLY from the bottom — never from the top.
-  // Text is always in the upper portion of the illustration (upper-left or upper-right).
-  // Cropping from the top would clip it. Bottom scenery (ground, sky base) is safe to lose.
-  const cropTop  = 0;
+  // Center crop — equal from top and bottom.
+  // The illustration prompt enforces 25% margin from all edges to survive this crop + print bleed.
+  const excessH  = Math.max(0, scaledH - hp);
+  const cropTop  = Math.floor(excessH / 2);
 
   // Step 3: Scale + crop in one sharp operation (avoids raw buffer issue)
   const spreadBuf = await sharp(upscaled)
