@@ -511,7 +511,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
       : '- FONT: Use Fredoka One exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Fredoka One only, consistently throughout.';
     parts.push(fontInstruction);
-    parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text well away from every edge. Leave at least 15% margin from the top edge, 15% margin from the bottom edge, and 8% margin from the left and right edges. Text that is near ANY edge will be cropped off in printing. If in doubt, move the text further inward.');
+    parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): Keep ALL text well away from every edge. Leave at least 20% margin from the top edge, 20% margin from the bottom edge, and 10% margin from the left and right edges. Text that is near ANY edge will be cropped off in printing. If in doubt, move the text further inward.');
     if (isSpread) {
       parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 30% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
     }
@@ -537,7 +537,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
-  parts.push(`12. TEXT MARGINS: text has at least 15% padding from top and bottom edges and 8% from left and right edges — nothing near any edge. \u2713`);
+  parts.push(`12. TEXT MARGINS: text has at least 20% padding from top and bottom edges and 10% from left and right edges — nothing near any edge. \u2713`);
   if (isSpread) {
     parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 30% of the image width. \u2713`);
     parts.push(`14. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);

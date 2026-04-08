@@ -158,7 +158,11 @@ async function splitSpreadImage(buf, pw, ph) {
   // Step 2: Scale to fill spread width exactly, crop center vertically, split — all in one pass
   const upscaledMeta = await sharp(upscaled).metadata();
   const scaledH = Math.round(upscaledMeta.height * spreadW / upscaledMeta.width);
-  const cropTop  = Math.max(0, Math.floor((scaledH - hp) / 2));
+  // Bias crop toward the bottom — text is typically in the upper area of the illustration,
+  // so we preserve more of the top and crop more from the bottom instead of even split.
+  // Crop 35% from top, 65% from bottom of the excess height.
+  const excessH  = Math.max(0, scaledH - hp);
+  const cropTop  = Math.floor(excessH * 0.35);
 
   // Step 3: Scale + crop in one sharp operation (avoids raw buffer issue)
   const spreadBuf = await sharp(upscaled)
