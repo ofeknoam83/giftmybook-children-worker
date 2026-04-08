@@ -216,11 +216,11 @@ function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
 
   goldRule(p, ph / 2 - 8, 100);
 
-  // Subtitle — Dancing Script
+  // Subtitle — Playfair Italic (Dancing Script has ligature rendering issues in pdf-lib)
   if (childName) {
     const sub  = `A story written just for ${childName}`;
-    const subFont = dancing || playfairItalic || helv;
-    const subSz = 22;
+    const subFont = playfairItalic || helv;
+    const subSz = 20;
     drawCentered(p, sub, subFont, subSz, ph / 2 - 40, C.brownMid);
   }
 
@@ -262,9 +262,8 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const effectiveBookFrom = dedAlreadyHasFrom ? null : bookFrom;
 
   const maxW = pw - SAFE * 2;
-  // Use Playfair Display Italic for dedication — Dancing Script has ligature rendering issues
-  // ("th" combinations get visual gaps in pdf-lib). Playfair Italic is elegant and renders correctly.
-  const dedFont = playfairItalic || helv;
+  // Dancing Script for dedication body — cursive feel preferred
+  const dedFont = dancing || playfairItalic || helv;
 
   const FROM_SZ      = 18;
   const DED_SZ       = 24;
