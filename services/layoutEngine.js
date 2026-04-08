@@ -16,6 +16,7 @@
  *
  * Fonts (embedded TTF):
  *   - Playfair Display — titles
+ *   - Kalam            — dedication body (handwritten feel, no ligature bugs)
  *   - Dancing Script   — (disabled: "th" ligature bug in pdf-lib)
  *   - Helvetica        — captions, bylines (standard)
  */
@@ -96,6 +97,7 @@ const FONT_PATHS = {
   playfair:       path.join(FONT_DIR, 'PlayfairDisplay.ttf'),
   playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
+  kalam:          path.join(FONT_DIR, 'Kalam-Regular.ttf'),
 };
 
 // ── Text helpers ──────────────────────────────────────────────────────────────
@@ -185,14 +187,15 @@ async function splitSpreadImage(buf, pw, ph) {
 async function loadFonts(pdfDoc) {
   pdfDoc.registerFontkit(fontkit);
   const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p)) : null;
-  const [playfair, playfairItalic, dancing, helv, helvB] = await Promise.all([
+  const [playfair, playfairItalic, dancing, kalam, helv, helvB] = await Promise.all([
     load(FONT_PATHS.playfair),
     load(FONT_PATHS.playfairItalic),
     load(FONT_PATHS.dancing),
+    load(FONT_PATHS.kalam),
     pdfDoc.embedFont(StandardFonts.Helvetica),
     pdfDoc.embedFont(StandardFonts.HelveticaBold),
   ]);
-  return { playfair, playfairItalic, dancing, helv, helvB };
+  return { playfair, playfairItalic, dancing, kalam, helv, helvB };
 }
 
 // ── Page builders ─────────────────────────────────────────────────────────────
@@ -253,14 +256,14 @@ function buildCopyrightPage(pdfDoc, pw, ph, fonts, opts) {
 }
 
 function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
-  const { playfairItalic, helv } = fonts;
+  const { playfairItalic, kalam, helv } = fonts;
   const { bookFrom, dedication } = opts;
   const p = pdfDoc.addPage([pw, ph]);
   if (!dedication && !bookFrom) return;
 
   const maxW = pw - SAFE * 2;
-  // Playfair Italic — Dancing Script has "th" ligature rendering bugs in pdf-lib
-  const dedFont = playfairItalic || helv;
+  // Kalam — handwritten feel; Dancing Script has "th" ligature bugs in pdf-lib
+  const dedFont = kalam || playfairItalic || helv;
 
   // Extract "From X:" header from the dedication text if present,
   // so it always renders with the styled header treatment (smaller font + gold rule).
