@@ -563,8 +563,12 @@ async function downloadPhotoAsBase64(url) {
  * Call Gemini image generation API.
  *
  * @param {string} prompt - Scene prompt
- * @param {string} photoBase64 - Base64-encoded child photo
+ * @param {string} photoBase64 - Base64-encoded child photo (approved cover)
  * @param {string} photoMime - MIME type of the photo
+ * @param {AbortSignal} abortSignal
+ * @param {object} opts
+ * @param {string} [opts.originalPhotoBase64] - Original uploaded photo (for first spread only — ground truth for ethnicity/skin tone)
+ * @param {string} [opts.originalPhotoMime]
  * @returns {Promise<Buffer>} Generated image buffer
  */
 async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, opts = {}) {
@@ -577,11 +581,23 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
   }
 
-  // Build parts: text prompt + cover reference + optional previous illustration reference
+  // Build parts: text prompt + character references + optional style references
+  // For spread 1: send both the original uploaded photo (ethnicity ground truth) AND the cover (rendered style)
+  // For all other spreads: send only the cover
   const parts = [
     { text: prompt },
-    { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
   ];
+
+  if (opts.originalPhotoBase64) {
+    // Spread 1: original photo first (real-world ground truth for ethnicity, skin tone, eye shape)
+    parts.push({ text: 'CHARACTER REFERENCE — REAL PHOTO (ground truth): This is the actual photograph of the child. Use this as the definitive reference for: ethnicity, skin tone, eye shape, eye color, and facial features. These characteristics are LOCKED and must be reproduced exactly.' });
+    parts.push({ inline_data: { mimeType: opts.originalPhotoMime || 'image/jpeg', data: opts.originalPhotoBase64 } });
+    parts.push({ text: 'CHARACTER REFERENCE — BOOK COVER (rendered style): This is the approved book cover showing the same child in the book\'s art style. Use this as reference for: art style, rendering quality, hair depiction, outfit, and how the character looks in this specific illustration style. Combine both references — the real photo\'s ethnicity/features with the cover\'s art style.' });
+    parts.push({ inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } });
+  } else {
+    // All other spreads: cover only (already anchored by spread 1 as style reference)
+    parts.push({ inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } });
+  }
 
   // Add all style reference images (multiple supported)
   const styleRefs = Array.isArray(opts.prevIllustrationRefs) && opts.prevIllustrationRefs.length > 0
@@ -813,7 +829,13 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       let imageBuffer;
       // Always use cover image as reference for character likeness
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs });
+        // For spread 0 (first illustration): pass both the original uploaded photo AND the cover
+        // The original photo is the ground truth for ethnicity/skin tone/eye shape
+        // The cover shows the rendered art style the character should match
+        const isFirstIllustration = opts.spreadIndex === 0;
+        const originalPhotoBase64 = isFirstIllustration ? (opts._cachedPhotoBase64 || null) : null;
+        const originalPhotoMime = isFirstIllustration ? (opts._cachedPhotoMime || 'image/jpeg') : null;
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
