@@ -1038,17 +1038,21 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
             }
 
             // Dedicated character anchor extraction — explicit ethnicity, eye shape, skin tone
-            try {
-              const { getNextApiKey: getAnchorKey } = require('./services/illustrationGenerator');
-              const anchorApiKey = getAnchorKey() || apiKey; // rotate to next key to avoid quota collision
-              const anchorResp = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${anchorApiKey}`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    contents: [{ role: 'user', parts: [
-                      { text: `Look at the main child character in this image. Answer these questions about their physical appearance with SPECIFIC, PRECISE answers — no vague descriptions.
+            // Retries up to 4 times with rotating API keys until a valid anchor is extracted
+            const MAX_ANCHOR_RETRIES = 4;
+            for (let anchorAttempt = 1; anchorAttempt <= MAX_ANCHOR_RETRIES; anchorAttempt++) {
+              try {
+                const { getNextApiKey: getAnchorKey } = require('./services/illustrationGenerator');
+                const anchorApiKey = getAnchorKey() || apiKey;
+                bookContext.log('info', `Character anchor extraction attempt ${anchorAttempt}/${MAX_ANCHOR_RETRIES}`);
+                const anchorResp = await fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${anchorApiKey}`,
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      contents: [{ role: 'user', parts: [
+                        { text: `Look at the main child character in this image. Answer these questions about their physical appearance with SPECIFIC, PRECISE answers — no vague descriptions.
 
 ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
 SKIN_TONE: Describe the exact skin tone in 3-5 words (e.g. "light golden beige", "deep warm brown", "fair with pink undertones")
@@ -1059,43 +1063,51 @@ HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
 HAIR_LENGTH: Short / medium / long / very long
 
 Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency.` },
-                      { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
-                    ]}],
-                    generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
-                  }),
-                  signal: bookContext.abortController.signal,
+                        { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
+                      ]}],
+                      generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
+                    }),
+                    signal: bookContext.abortController.signal,
+                  }
+                );
+                if (!anchorResp.ok) {
+                  bookContext.log('warn', `Character anchor attempt ${anchorAttempt} failed`, { status: anchorResp.status, statusText: anchorResp.statusText });
+                  if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
+                  continue;
                 }
-              );
-              if (!anchorResp.ok) {
-                bookContext.log('warn', 'Character anchor API call failed', { status: anchorResp.status, statusText: anchorResp.statusText });
-              } else if (anchorResp.ok) {
                 const anchorData = await anchorResp.json();
                 const anchorText = anchorData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-                bookContext.log('info', 'Character anchor raw response', { length: anchorText?.length || 0, preview: anchorText?.slice(0, 80) || '(empty)' });
-                if (anchorText && anchorText.length > 20) {
-                  storyPlan.characterAnchor = anchorText;
-                  bookContext.log('info', 'Character anchor extracted', { anchor: anchorText.slice(0, 200) });
-
-                  // Persist character anchor to DB immediately after extraction
-                  if (progressCallbackUrl) {
-                    reportProgressForce(progressCallbackUrl, {
-                      bookId,
-                      stage: 'cover_analysis',
-                      storyContent: {
-                        title: storyPlan.title,
-                        entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right })),
-                        characterDescription: storyPlan.characterDescription || null,
-                        characterOutfit: storyPlan.characterOutfit || null,
-                        characterAnchor: storyPlan.characterAnchor || null,
-                        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                      },
-                      logs: bookContext.logs,
-                    }).catch(() => {});
-                  }
+                if (!anchorText || anchorText.length < 20) {
+                  bookContext.log('warn', `Character anchor attempt ${anchorAttempt} returned empty/short response`, { length: anchorText?.length || 0 });
+                  if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
+                  continue;
                 }
+                storyPlan.characterAnchor = anchorText;
+                bookContext.log('info', 'Character anchor extracted', { attempt: anchorAttempt, anchor: anchorText.slice(0, 200) });
+                // Persist to DB immediately
+                if (progressCallbackUrl) {
+                  reportProgressForce(progressCallbackUrl, {
+                    bookId,
+                    stage: 'cover_analysis',
+                    storyContent: {
+                      title: storyPlan.title,
+                      entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right })),
+                      characterDescription: storyPlan.characterDescription || null,
+                      characterOutfit: storyPlan.characterOutfit || null,
+                      characterAnchor: storyPlan.characterAnchor || null,
+                      additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                    },
+                    logs: bookContext.logs,
+                  }).catch(() => {});
+                }
+                break; // success — stop retrying
+              } catch (anchorErr) {
+                bookContext.log('warn', `Character anchor attempt ${anchorAttempt} threw`, { error: anchorErr.message });
+                if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
               }
-            } catch (anchorErr) {
-              bookContext.log('warn', 'Character anchor extraction failed', { error: anchorErr.message });
+            }
+            if (!storyPlan.characterAnchor) {
+              bookContext.log('warn', 'Character anchor extraction failed after all retries — illustrations will use characterDescription only');
             }
           } catch (visionErr) {
             bookContext.log('warn', 'Failed to extract character appearance from cover', { error: visionErr.message });
