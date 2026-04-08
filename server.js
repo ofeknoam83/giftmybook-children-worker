@@ -1039,8 +1039,10 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
 
             // Dedicated character anchor extraction — explicit ethnicity, eye shape, skin tone
             try {
+              const { getNextApiKey: getAnchorKey } = require('./services/illustrationGenerator');
+              const anchorApiKey = getAnchorKey() || apiKey; // rotate to next key to avoid quota collision
               const anchorResp = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${anchorApiKey}`,
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -1064,9 +1066,12 @@ Format your answer with each label on its own line followed by a colon and the a
                   signal: bookContext.abortController.signal,
                 }
               );
-              if (anchorResp.ok) {
+              if (!anchorResp.ok) {
+                bookContext.log('warn', 'Character anchor API call failed', { status: anchorResp.status, statusText: anchorResp.statusText });
+              } else if (anchorResp.ok) {
                 const anchorData = await anchorResp.json();
                 const anchorText = anchorData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+                bookContext.log('info', 'Character anchor raw response', { length: anchorText?.length || 0, preview: anchorText?.slice(0, 80) || '(empty)' });
                 if (anchorText && anchorText.length > 20) {
                   storyPlan.characterAnchor = anchorText;
                   bookContext.log('info', 'Character anchor extracted', { anchor: anchorText.slice(0, 200) });
