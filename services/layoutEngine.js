@@ -16,7 +16,7 @@
  *
  * Fonts (embedded TTF):
  *   - Playfair Display — titles
- *   - Dancing Script   — dedication body + subtitle
+ *   - Dancing Script   — (disabled: "th" ligature bug in pdf-lib)
  *   - Helvetica        — captions, bylines (standard)
  */
 
@@ -253,14 +253,14 @@ function buildCopyrightPage(pdfDoc, pw, ph, fonts, opts) {
 }
 
 function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
-  const { playfairItalic, dancing, helv } = fonts;
+  const { playfairItalic, helv } = fonts;
   const { bookFrom, dedication } = opts;
   const p = pdfDoc.addPage([pw, ph]);
   if (!dedication && !bookFrom) return;
 
   const maxW = pw - SAFE * 2;
-  const dedFont = dancing || playfairItalic || helv;
-  const dedCs = dancing ? -0.7 : 0;
+  // Playfair Italic — Dancing Script has "th" ligature rendering bugs in pdf-lib
+  const dedFont = playfairItalic || helv;
 
   // Extract "From X:" header from the dedication text if present,
   // so it always renders with the styled header treatment (smaller font + gold rule).
@@ -279,19 +279,16 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const RULE_GAP = 12;
   const availH   = ph - SAFE * 2;
 
-  // Start with preferred size, scale down if the block overflows
-  let dedSz = 24;
+  let dedSz = 22;
   const MIN_DED_SZ = 14;
 
   function wrapBody(sz) {
     const lh = sz * 1.55;
     const segments = bodyText.split('\n');
     const lines = [];
-    const avgChars = Math.max(10, Math.round(maxW / (sz * 0.5)));
-    const wrapMaxW = maxW - dedCs * avgChars;
     for (const seg of segments) {
       if (seg.trim() === '') { lines.push(''); continue; }
-      lines.push(...wrapText(seg, dedFont, sz, wrapMaxW));
+      lines.push(...wrapText(seg, dedFont, sz, maxW));
     }
     return { lines, lh };
   }
@@ -312,12 +309,11 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const fromH  = fromLabel ? (FROM_SZ + RULE_GAP + 1.2 + RULE_GAP + DED_LH) : 0;
   const blockH = fromH + bodyH;
 
-  // Anchor block to vertical center, but clamp within safe margins
   let y = ph / 2 + blockH / 2;
   y = Math.min(y, ph - SAFE);
 
   if (fromLabel) {
-    drawCentered(p, `From ${fromLabel}`, dedFont, FROM_SZ, y, C.brownMid, { characterSpacing: dedCs });
+    drawCentered(p, `From ${fromLabel}`, dedFont, FROM_SZ, y, C.brownMid);
     y -= FROM_SZ + RULE_GAP;
     goldRule(p, y, 80);
     y -= RULE_GAP + 1.2 + DED_LH;
@@ -325,7 +321,7 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
 
   for (const line of dedLines) {
     if (y < SAFE) break;
-    if (line !== '') drawCentered(p, line, dedFont, dedSz, y, C.black, { characterSpacing: dedCs });
+    if (line !== '') drawCentered(p, line, dedFont, dedSz, y, C.black);
     y -= DED_LH;
   }
 }
