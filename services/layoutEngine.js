@@ -111,9 +111,10 @@ function wrapText(text, font, size, maxW) {
   return lines;
 }
 
-function drawCentered(page, text, font, size, y, color) {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: (page.getWidth() - w) / 2, y, size, font, color });
+function drawCentered(page, text, font, size, y, color, opts = {}) {
+  const cs = opts.characterSpacing || 0;
+  const w = font.widthOfTextAtSize(text, size) + cs * Math.max(0, text.length - 1);
+  page.drawText(text, { x: (page.getWidth() - w) / 2, y, size, font, color, ...(cs !== 0 ? { characterSpacing: cs } : {}) });
 }
 
 function drawCenteredBlock(page, lines, font, size, startY, lineH, color) {
@@ -264,6 +265,9 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const maxW = pw - SAFE * 2;
   // Dancing Script for dedication body — cursive feel preferred
   const dedFont = dancing || playfairItalic || helv;
+  // Dancing Script ligature fix: negative characterSpacing closes the "th" gap
+  // that appears because pdf-lib doesn\'t apply the font\'s ligature/kerning tables
+  const dedCs = dancing ? -1.2 : 0;
 
   const FROM_SZ      = 18;
   const DED_SZ       = 24;
@@ -276,7 +280,10 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   const dedLines = [];
   for (const seg of segments) {
     if (seg.trim() === '') { dedLines.push(''); continue; }
-    const wrapped = wrapText(seg, dedFont, DED_SZ, maxW);
+    // wrapText uses font.widthOfTextAtSize which doesn't account for characterSpacing.
+    // Adjust maxW upward by the expected spacing reduction so we don't wrap too early.
+    const wrapMaxW = maxW - dedCs * 20; // rough correction: ~20 chars avg per line
+    const wrapped = wrapText(seg, dedFont, DED_SZ, wrapMaxW);
     dedLines.push(...wrapped);
   }
 
@@ -288,14 +295,14 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   let y = ph / 2 + blockH / 2;
 
   if (effectiveBookFrom) {
-    drawCentered(p, `From ${effectiveBookFrom}`, dedFont, FROM_SZ, y, C.brownMid);
+    drawCentered(p, `From ${effectiveBookFrom}`, dedFont, FROM_SZ, y, C.brownMid, { characterSpacing: dedCs });
     y -= FROM_SZ + RULE_GAP;
     goldRule(p, y, 80);
     y -= RULE_GAP + 1.2 + DED_LH;
   }
 
   for (const line of dedLines) {
-    if (line !== '') drawCentered(p, line, dedFont, DED_SZ, y, C.black);
+    if (line !== '') drawCentered(p, line, dedFont, DED_SZ, y, C.black, { characterSpacing: dedCs });
     y -= DED_LH;
   }
 }
