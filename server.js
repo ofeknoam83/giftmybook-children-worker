@@ -1689,6 +1689,43 @@ app.post('/generate-spread', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /generate-coloring-book ──────────────────────────────────────────────
+// Converts all existing spread illustrations to coloring pages and assembles a PDF.
+app.post('/generate-coloring-book', authenticate, async (req, res) => {
+  const { bookId, childName, title, illustrationUrls } = req.body;
+
+  if (!bookId || !Array.isArray(illustrationUrls) || illustrationUrls.length === 0) {
+    return res.status(400).json({ success: false, error: 'bookId and illustrationUrls[] are required' });
+  }
+
+  console.log(`[server] /generate-coloring-book: bookId=${bookId}, spreads=${illustrationUrls.length}`);
+
+  try {
+    const { generateColoringPages } = require('./services/coloringBookGenerator');
+    const { buildColoringBookPdf } = require('./services/coloringBookLayout');
+    const { uploadBuffer } = require('./services/gcsStorage');
+
+    // Step 1: Convert each illustration to a coloring page
+    const pages = await generateColoringPages(illustrationUrls);
+    const successCount = pages.filter(p => p.success).length;
+    console.log(`[server] Coloring page conversion: ${successCount}/${illustrationUrls.length} succeeded`);
+
+    // Step 2: Build PDF
+    const pdfBuffer = await buildColoringBookPdf(pages, { title, childName });
+    console.log(`[server] Coloring book PDF built: ${Math.round(pdfBuffer.length / 1024)}KB`);
+
+    // Step 3: Upload to GCS
+    const gcsPath = `children-jobs/${bookId}/coloring-book.pdf`;
+    const coloringBookPdfUrl = await uploadBuffer(pdfBuffer, gcsPath, 'application/pdf');
+    console.log(`[server] Coloring book PDF uploaded: ${coloringBookPdfUrl.slice(0, 80)}`);
+
+    res.json({ success: true, coloringBookPdfUrl, successCount, totalSpreads: illustrationUrls.length });
+  } catch (err) {
+    console.error(`[server] /generate-coloring-book failed: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /finalize-book ──
 // Assemble all spreads into final PDF
 app.post('/finalize-book', authenticate, async (req, res) => {

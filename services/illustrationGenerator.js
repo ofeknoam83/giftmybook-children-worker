@@ -899,4 +899,4 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   throw new Error('No illustration generated after all attempts');
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout };
+module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64 };
