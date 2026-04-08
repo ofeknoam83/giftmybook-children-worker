@@ -1697,7 +1697,9 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  const { bookId, title, spreads, coverData, bookFormat, childName, bookFrom, dedication, upsellCovers, apiKeys } = req.body;
+  const { bookId, title, spreads, coverData, bookFormat, childName, bookFrom, dedication, heartfeltNote, upsellCovers, apiKeys } = req.body;
+  // Build dedication from heartfeltNote + bookFrom (same logic as main generation flow)
+  const resolvedDedication = dedication || (heartfeltNote ? (bookFrom ? `From ${bookFrom}:\n${heartfeltNote}` : heartfeltNote) : (bookFrom ? `From ${bookFrom}` : `For ${childName || 'the child'}`));
 
   console.log(`[server] /finalize-book: bookId=${bookId}, spreads=${spreads.length}`);
   const bookContext = createBookContext(bookId);
@@ -1749,7 +1751,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
       title: title || 'My Story',
       childName: childName || '',
       bookFrom: bookFrom || '',
-      dedication: dedication || '',
+      dedication: resolvedDedication,
       year: new Date().getFullYear(),
       bookId,
       upsellCovers: resolvedUpsellCovers,
