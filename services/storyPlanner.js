@@ -279,17 +279,19 @@ function getThemeBeatStructure(theme, age) {
     case 'birthday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY arc:
    AGE-WEAVING RULE: The child is turning ${age}. This specific age must feel meaningful throughout — not just mentioned in spread 1. In at least 3 spreads, the story should reflect what it MEANS to be ${age}: something they can now do that they couldn't before, something they understand now, a milestone only a ${age}-year-old would have. The number ${age} should feel earned by spread 13.
-   BIRTHDAY ENERGY RULE: This story should feel like the BEST DAY OF THE CHILD'S LIFE from the very first spread. Joy, warmth, and excitement are the emotional BASELINE — not something to be earned. The obstacle at spread 6 is light, quickly overcome, and never threatening. Do NOT let the story drift into anxious adventure territory. Every spread (except spread 6) should feel like a celebration. The tension rule ("every spread must have a small tension or imbalance") is SUSPENDED for birthday books — joy is allowed to fill spreads fully.
-   - Spread 1: The child discovers it's their birthday — this can happen at any time of day, not necessarily a waking-up scene. Something feels different, magical, or surprising. They are ${age} today.
-   - Spread 2: A birthday quest or surprise begins — something is missing, hidden, or has to be found/reached.
-   - Spreads 3-4: The journey to find it — new locations, excitement building, friends or creatures along the way.
-   - Spread 5: A wonderful discovery or first celebration moment.
-   - Spread 6: THE HINGE — something goes wrong, almost ruins the celebration (lost item, wrong path, unexpected obstacle).
-   - Spreads 7-8: The child fixes it — uses their favorite object or a new friend to turn it around.
-   - Spreads 9-10: The celebration reaches its peak — wonder, joy, the moment they will remember.
-   - Spread 11: Returning home, full of joy and birthday energy — the journey has made this moment even sweeter.
-   - Spread 12: Everyone gathers. Something is coming. The room hushes. One quiet whispered line.
-   - Spread 13: [ILLUSTRATION LOCKED] The birthday cake arrives. The child leans in cheeks puffed, about to blow out ${candleText} (either ${age} individual candles OR one numeral-"${age}" candle — no other count). This is what the whole day was building to.`;
+   BIRTHDAY ENERGY RULE: This story should feel like the BEST DAY OF THE CHILD'S LIFE from the very first spread. Joy, warmth, and excitement are the emotional BASELINE — not something to be earned. The obstacle at spread 6 is light, quickly overcome, and never threatening. EVERY spread must feel drenched in birthday — decorations, friends, the smell of something baking, the specific golden light of a birthday afternoon, the feeling of being the most special person in the world today. The tension rule is SUSPENDED — joy fills every spread.
+   BIRTHDAY SATURATION RULE: The birthday must be FELT in every single spread — not just spread 1 and 13. Balloons, streamers, friends gathering, wrapped gifts in the corner, candles being carried, a banner going up, the sound of singing practicing in another room — choose different birthday details for each spread so the celebration builds and accumulates. By spread 12 the reader should feel surrounded by birthday.
+   - Spread 1: The child wakes up and the birthday hits them — something is immediately, unmistakably different. Balloons on the door, a banner, the smell of their favorite breakfast, a parent's voice singing. They are ${age} today and the whole world knows it.
+   - Spread 2: The birthday morning unfolds — getting ready, something special about being ${age}. A birthday outfit, a birthday crown, a first look in the mirror at this new version of themselves.
+   - Spread 3: First guests or celebrations arrive — friends, family, decorations going up. The house or location transforms into a birthday world.
+   - Spread 4: A birthday activity or adventure — a game, an outing, a treasure hunt, something only the birthday child gets to lead.
+   - Spread 5: A peak moment of joy — a gift, a surprise, a best friend arriving, something that makes the child's heart feel huge.
+   - Spread 6: THE HINGE — one small thing goes slightly wrong (nothing scary, nothing sad — a lost ribbon, a wobbly tower of gifts, a game that needs fixing). The child handles it themselves with confidence, because they are ${age} now.
+   - Spreads 7-8: The celebration continues and grows — more friends, more laughter, a shared moment of birthday magic. The child is surrounded by love.
+   - Spreads 9-10: The celebration reaches its peak — the room is full, the energy is electric, everyone is together. The child realizes: this is the best day.
+   - Spread 11: The birthday meal or party — everyone together, the noise and warmth of being celebrated. The favorite object is part of this moment.
+   - Spread 12: The lights dim. Someone is carrying something. The room falls quiet and still. One line — the reader's heart lifts.
+   - Spread 13: [ILLUSTRATION LOCKED] The birthday cake arrives, glowing. The child leans in, cheeks puffed, about to blow out ${candleText}. This is the moment the whole day was building toward. The world holds its breath.`;
 
     case 'holiday':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this HOLIDAY arc:
@@ -478,7 +480,9 @@ Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
   }
 
   if (theme === 'birthday') {
-    userPrompt += `\n\nBIRTHDAY PHRASE RULE: The repeated_phrase must feel celebratory and bright — a birthday refrain, not a lullaby. Examples: "this is the day", "one more wish", "${name}'s whole bright day". REJECT wistful or introspective phrases.`;
+    userPrompt += `\n\nBIRTHDAY PHRASE RULE: The repeated_phrase must feel celebratory and bright — a birthday refrain, not a lullaby. Examples: "this is the day", "one more wish", "${name}'s whole bright day". REJECT wistful or introspective phrases.
+
+BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an adventure that starts on a birthday. Every beat should be a birthday moment: decorations, friends, a special activity, gifts, the smell of cake, the sound of singing. The birthday must be felt in every spread. The favorite_object should appear in the party setting, not on a quest. The fear/obstacle is a small birthday hiccup (a wobbly cake, a missing bow, a game that needs saving) — never a scary or sad obstacle.`;
   }
 
   userPrompt += `\n\nTIME OF DAY: Choose a time that serves the story's emotional logic. Not every book must start in the morning or end at night. Only bedtime-themed stories should default to evening. Adventures, birthdays, science, and space stories can begin at any hour.`;
