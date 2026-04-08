@@ -372,8 +372,26 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(``);
   }
 
-  if (characterDescription) {
-    // Extract any ethnicity/race mention from characterDescription for explicit lock
+  // characterAnchor takes priority — it contains explicit ethnicity, eye shape, skin tone from cover
+  if (opts.characterAnchor) {
+    parts.push(`7. CHARACTER ANCHOR LOCK (CRITICAL — DO NOT DRIFT UNDER ANY CIRCUMSTANCES):`);
+    parts.push(`   The following physical characteristics were extracted directly from the approved cover photo.`);
+    parts.push(`   They MUST be reproduced IDENTICALLY in THIS illustration and every other illustration in this book.`);
+    parts.push(`   ANY deviation — in ethnicity, skin tone, eye shape, or hair — is a rejection.`);
+    parts.push(``);
+    parts.push(opts.characterAnchor);
+    parts.push(``);
+    parts.push(`   CRITICAL RULES:`);
+    parts.push(`   - ETHNICITY: Do NOT change the child's ethnicity or racial appearance between spreads`);
+    parts.push(`   - SKIN TONE: The exact skin tone above must be matched in every spread — do NOT lighten, darken, or shift`);
+    parts.push(`   - EYE SHAPE: The eye shape above must be reproduced exactly — pay special attention to monolid vs almond vs round`);
+    parts.push(`   - EYE COLOR: Match exactly — do not substitute`);
+    parts.push(`   - HAIR: Color, texture, and length must match exactly — no variations`);
+    parts.push(`   If the reference photo shows an East Asian child, ALL illustrations must show an East Asian child.`);
+    parts.push(`   If the reference shows a Black child, ALL illustrations must show a Black child.`);
+    parts.push(`   NEVER drift to a different ethnicity, skin tone, or eye shape — even after multiple spreads.`);
+  } else if (characterDescription) {
+    // Fallback: extract ethnicity from description text
     const ethnicityMatch = characterDescription.match(/\b(asian|east asian|southeast asian|south asian|black|african american|hispanic|latino|latina|white|caucasian|middle eastern|south american|mixed|biracial)\b/i);
     if (ethnicityMatch) {
       parts.push(`7. ETHNICITY LOCK (CRITICAL — DO NOT DRIFT): The child is ${ethnicityMatch[0]}. This MUST be consistent in every single illustration. Do NOT change the child's ethnicity, skin tone, or facial features between spreads. If the reference photo shows an ${ethnicityMatch[0]} child, ALL illustrations must show an ${ethnicityMatch[0]} child. Never drift to a different ethnicity.`);
@@ -734,7 +752,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null, characterAnchor: opts.characterAnchor || null });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);

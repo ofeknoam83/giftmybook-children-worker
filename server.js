@@ -233,6 +233,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
     existingIllustrations, checkpointData, detectedSecondaryCharacters,
+    characterAnchor,
   } = opts;
 
   // Count how many illustrations we need
@@ -336,6 +337,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             childName: childDetails.name,
             characterOutfit: outfit,
             characterDescription: storyPlan.characterDescription || '',
+            characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
             additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
             recurringElement: storyPlan.recurringElement || '',
             keyObjects: storyPlan.keyObjects || '',
@@ -890,7 +892,14 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         // Save story content to DB immediately so admin can see the text
         if (progressCallbackUrl) {
-          const storyContentForDb = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
+          const storyContentForDb = {
+            title: storyPlan.title,
+            entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })),
+            characterDescription: storyPlan.characterDescription || null,
+            characterOutfit: storyPlan.characterOutfit || null,
+            characterAnchor: storyPlan.characterAnchor || null,
+            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+          };
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
 
@@ -1027,6 +1036,62 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                 }
               }
             }
+
+            // Dedicated character anchor extraction — explicit ethnicity, eye shape, skin tone
+            try {
+              const anchorResp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{ role: 'user', parts: [
+                      { text: `Look at the main child character in this image. Answer these questions about their physical appearance with SPECIFIC, PRECISE answers — no vague descriptions.
+
+ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
+SKIN_TONE: Describe the exact skin tone in 3-5 words (e.g. "light golden beige", "deep warm brown", "fair with pink undertones")
+EYE_SHAPE: Describe the eye shape specifically (e.g. "monolid", "almond-shaped with epicanthal fold", "large round", "hooded almond", "wide set round")
+EYE_COLOR: What color are the eyes?
+HAIR_COLOR: Exact hair color
+HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
+HAIR_LENGTH: Short / medium / long / very long
+
+Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency.` },
+                      { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
+                    ]}],
+                    generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
+                  }),
+                  signal: bookContext.abortController.signal,
+                }
+              );
+              if (anchorResp.ok) {
+                const anchorData = await anchorResp.json();
+                const anchorText = anchorData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+                if (anchorText && anchorText.length > 20) {
+                  storyPlan.characterAnchor = anchorText;
+                  bookContext.log('info', 'Character anchor extracted', { anchor: anchorText.slice(0, 200) });
+
+                  // Persist character anchor to DB immediately after extraction
+                  if (progressCallbackUrl) {
+                    reportProgressForce(progressCallbackUrl, {
+                      bookId,
+                      stage: 'cover_analysis',
+                      storyContent: {
+                        title: storyPlan.title,
+                        entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right })),
+                        characterDescription: storyPlan.characterDescription || null,
+                        characterOutfit: storyPlan.characterOutfit || null,
+                        characterAnchor: storyPlan.characterAnchor || null,
+                        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                      },
+                      logs: bookContext.logs,
+                    }).catch(() => {});
+                  }
+                }
+              }
+            } catch (anchorErr) {
+              bookContext.log('warn', 'Character anchor extraction failed', { error: anchorErr.message });
+            }
           } catch (visionErr) {
             bookContext.log('warn', 'Failed to extract character appearance from cover', { error: visionErr.message });
           }
@@ -1070,6 +1135,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
         existingIllustrations: checkpoint?.illustrationResults || [],
         checkpointData: { bookId, storyPlan },
         detectedSecondaryCharacters: detectedSecondaryCharacters || null,
+        characterAnchor: storyPlan.characterAnchor || null,
       });
 
       bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
@@ -1317,7 +1383,14 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                 previewImageUrls,
                 title: bookTitle,
                 spreadCount: spreadEntries.length,
-                storyContent: { title: bookTitle, entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })) },
+                storyContent: {
+                  title: bookTitle,
+                  entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })),
+                  characterDescription: storyPlan.characterDescription || null,
+                  characterOutfit: storyPlan.characterOutfit || null,
+                  characterAnchor: storyPlan.characterAnchor || null,
+                  additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                },
                 costs: costSummary,
                 emotionalCategory: emotionalCategory || null,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
@@ -1340,7 +1413,14 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
           previewImageUrls,
           title: bookTitle,
           spreadCount: spreadEntries.length,
-          storyContent: { title: bookTitle, entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })) },
+          storyContent: {
+            title: bookTitle,
+            entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })),
+            characterDescription: storyPlan.characterDescription || null,
+            characterOutfit: storyPlan.characterOutfit || null,
+            characterAnchor: storyPlan.characterAnchor || null,
+            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+          },
           costs: costSummary,
           emotionalCategory: emotionalCategory || null,
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
@@ -1421,7 +1501,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
 // Called by admin "regenerate illustration" button.
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
-    characterOutfit, characterDescription, recurringElement, keyObjects,
+    characterOutfit, characterDescription, characterAnchor, recurringElement, keyObjects,
     coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
@@ -1447,6 +1527,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       pageText: pageText || '',
       characterOutfit,
       characterDescription,
+      characterAnchor: characterAnchor || null,
       recurringElement,
       keyObjects,
       coverArtStyle,
@@ -1731,6 +1812,7 @@ app.post('/get-spread-data', authenticate, async (req, res) => {
         pageText: (() => { const rawPageText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' '); return rawPageText && !LOREM_PATTERNS.test(rawPageText) ? rawPageText : ''; })(),
         characterOutfit: storyPlan.characterOutfit || '',
         characterDescription: storyPlan.characterDescription || '',
+        characterAnchor: storyPlan.characterAnchor || '',
         recurringElement: storyPlan.recurringElement || '',
         keyObjects: storyPlan.keyObjects || [],
         coverArtStyle: storyPlan.coverArtStyle || '',
