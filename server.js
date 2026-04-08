@@ -763,7 +763,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
           const { getNextApiKey } = require('./services/illustrationGenerator');
           const photoAnalysisKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
           const photoAnalysisResp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${photoAnalysisKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${photoAnalysisKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1046,7 +1046,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                 const anchorApiKey = getAnchorKey() || apiKey;
                 bookContext.log('info', `Character anchor extraction attempt ${anchorAttempt}/${MAX_ANCHOR_RETRIES}`);
                 const anchorResp = await fetch(
-                  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${anchorApiKey}`,
+                  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${anchorApiKey}`,
                   {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1533,6 +1533,58 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const costTracker = new CostTracker();
   const style = artStyle || 'cinematic_3d';
 
+  // Auto-extract characterAnchor if missing — happens for books generated before the anchor feature
+  let resolvedCharacterAnchor = characterAnchor || null;
+  if (!resolvedCharacterAnchor && childPhotoUrl) {
+    console.log(`[server] /regenerate-illustration: characterAnchor missing for ${bookId} — extracting from cover photo`);
+    const MAX_ANCHOR_RETRIES = 3;
+    for (let anchorAttempt = 1; anchorAttempt <= MAX_ANCHOR_RETRIES; anchorAttempt++) {
+      try {
+        const { getNextApiKey, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
+        const anchorApiKey = getNextApiKey();
+        const coverPhoto = await downloadPhotoAsBase64(childPhotoUrl);
+        const anchorResp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${anchorApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [
+                { text: `Look at the main child character in this image. Answer with SPECIFIC, PRECISE answers.
+
+ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
+SKIN_TONE: Exact skin tone in 3-5 words
+EYE_SHAPE: Eye shape specifically (e.g. monolid, almond-shaped with epicanthal fold, large round)
+EYE_COLOR: Eye color
+HAIR_COLOR: Exact hair color
+HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
+HAIR_LENGTH: Short / medium / long / very long
+
+Format: each label on its own line followed by a colon and the answer.` },
+                { inline_data: { mime_type: coverPhoto.mimeType || 'image/jpeg', data: coverPhoto.base64 } },
+              ]}],
+              generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
+            }),
+          }
+        );
+        if (anchorResp.ok) {
+          const anchorData = await anchorResp.json();
+          const anchorText = anchorData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (anchorText && anchorText.length > 20) {
+            resolvedCharacterAnchor = anchorText;
+            console.log(`[server] /regenerate-illustration: characterAnchor extracted (attempt ${anchorAttempt}):`, anchorText.slice(0, 120));
+            break;
+          }
+        } else {
+          console.warn(`[server] /regenerate-illustration: anchor extraction attempt ${anchorAttempt} failed: ${anchorResp.status}`);
+        }
+      } catch (anchorErr) {
+        console.warn(`[server] /regenerate-illustration: anchor extraction attempt ${anchorAttempt} threw:`, anchorErr.message);
+      }
+      if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
+    }
+  }
+
   try {
     // Generate the illustration
     const result = await generateIllustration(spreadImagePrompt, null, style, {
@@ -1544,7 +1596,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       pageText: pageText || '',
       characterOutfit,
       characterDescription,
-      characterAnchor: characterAnchor || null,
+      characterAnchor: resolvedCharacterAnchor,
       recurringElement,
       keyObjects,
       coverArtStyle,
