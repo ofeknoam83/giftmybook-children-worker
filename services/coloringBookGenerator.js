@@ -21,9 +21,30 @@ async function enforceBlackAndWhite(buf) {
     .toBuffer();
 }
 
+// ── Age-adapted complexity helper ──
+
+function ageComplexityInstruction(age) {
+  const n = parseInt(age) || 5;
+  if (n <= 4) return 'SIMPLE: large shapes only, very thick outlines (5px+), maximum 2 characters, minimal background, no tiny details — ideal for a toddler with thick crayons';
+  if (n <= 7) return 'MODERATE: clear scene, medium detail, 3-5 colorable areas, mix of character and simple background elements';
+  return 'DETAILED: rich scene with many elements, intricate patterns, architectural details, varied textures — challenging and satisfying for an older child';
+}
+
+// ── Dark-fill detection ──
+
+async function darkPixelRatio(imageBuffer) {
+  const { data } = await sharp(imageBuffer).grayscale().raw().toBuffer({ resolveWithObject: true });
+  let dark = 0;
+  for (let i = 0; i < data.length; i++) { if (data[i] < 80) dark++; }
+  return dark / data.length;
+}
+
+const DARK_FILL_RETRY_WARNING = `⚠️ CRITICAL RETRY: The previous attempt had too much solid black. This is UNACCEPTABLE for a coloring book. ALL interior areas — including dark hair, dark skin, dark clothing — MUST be pure white with only outlines. Zero solid fills.`;
+
 // ── Trace mode: convert an existing illustration to line art ──
 
-const TRACE_COLORING_PROMPT = `This is a children's book illustration. Convert it into a COLORING BOOK PAGE:
+function buildTracePrompt(age) {
+  return `This is a children's book illustration. Convert it into a COLORING BOOK PAGE:
 - Keep EVERY character, object, and scene element exactly as they appear — nothing removed or simplified
 - Replace ALL colors with CLEAN BLACK OUTLINES ONLY on a PURE WHITE background
 - Lines must be THICK and BOLD (suitable for a child to color with crayons or markers)
@@ -35,9 +56,11 @@ const TRACE_COLORING_PROMPT = `This is a children's book illustration. Convert i
 - ZERO solid fills anywhere — every enclosed area must be empty white so a child can color it
 - NO fill colors, NO gray tones, NO shading, NO watercolor washes, NO color gradients
 - Style: classic children's coloring book — like a Dover coloring book page
+- ${ageComplexityInstruction(age)}
 - Maintain the EXACT SAME composition, proportions, characters and layout as the original
-- This is a wide landscape illustration — maintain the 16:9 wide format
+- PORTRAIT orientation — taller than wide (3:4 aspect ratio), like a standard coloring book page. Do NOT use landscape orientation.
 - ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image — remove any text that appears in the source`;
+}
 
 // ── Generate mode: create an original coloring scene from a text prompt + child photo ──
 
@@ -45,9 +68,10 @@ const TRACE_COLORING_PROMPT = `This is a children's book illustration. Convert i
  * Build the Gemini prompt for generating an original coloring page scene.
  * @param {string} scenePrompt - Description of the scene to draw
  * @param {string} [characterDescription] - Appearance of the child character
+ * @param {number|string} [age] - Child's age for complexity adaptation
  * @returns {string}
  */
-function buildGeneratePrompt(scenePrompt, characterDescription) {
+function buildGeneratePrompt(scenePrompt, characterDescription, age) {
   const charBlock = characterDescription
     ? `\nThe main character looks like this: ${characterDescription}`
     : '';
@@ -64,7 +88,8 @@ STRICT RULES:
   * ZERO solid black fills anywhere in the image
 - Style: classic children's coloring book — like a Dover coloring book page
 - Include rich background details (clouds, trees, objects) so the page is fun to color
-- Wide landscape composition (16:9 aspect ratio)
+- ${ageComplexityInstruction(age)}
+- PORTRAIT orientation — taller than wide (3:4 aspect ratio), like a standard coloring book page. Do NOT use landscape orientation.
 - ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image`;
 }
 
@@ -110,19 +135,42 @@ async function callGeminiImage(parts, timeoutMs = 120000) {
  * Convert a single illustration to a coloring book page via Gemini.
  * @param {string} base64 - base64-encoded source image
  * @param {string} mimeType - image mime type
+ * @param {number|string} [age] - child's age for complexity adaptation
  * @returns {Promise<Buffer>} - coloring page image buffer
  */
-async function convertToColoringPage(base64, mimeType) {
+async function convertToColoringPage(base64, mimeType, age) {
   const MAX_ATTEMPTS = 3;
   let lastError;
+  let darkRetried = false;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
+      const prompt = darkRetried
+        ? `${DARK_FILL_RETRY_WARNING}\n\n${buildTracePrompt(age)}`
+        : buildTracePrompt(age);
       const parts = [
-        { text: TRACE_COLORING_PROMPT },
+        { text: prompt },
         { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64 } },
       ];
       const raw = await callGeminiImage(parts);
+
+      // Dark-fill detection: if ratio > 0.10, retry ONCE
+      if (!darkRetried) {
+        const ratio = await darkPixelRatio(raw);
+        if (ratio > 0.10) {
+          console.warn(`[coloringBookGenerator] trace dark pixel ratio ${(ratio * 100).toFixed(1)}% > 10%, retrying with warning`);
+          darkRetried = true;
+          // Don't count this as a failed attempt — retry immediately
+          const retryPrompt = `${DARK_FILL_RETRY_WARNING}\n\n${buildTracePrompt(age)}`;
+          const retryParts = [
+            { text: retryPrompt },
+            { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64 } },
+          ];
+          const retryRaw = await callGeminiImage(retryParts);
+          return await enforceBlackAndWhite(retryRaw);
+        }
+      }
+
       return await enforceBlackAndWhite(raw);
     } catch (err) {
       lastError = err;
@@ -136,9 +184,10 @@ async function convertToColoringPage(base64, mimeType) {
 /**
  * Convert all spread illustrations to coloring pages (2 in parallel).
  * @param {string[]} illustrationUrls
+ * @param {number|string} [age] - child's age for complexity adaptation
  * @returns {Promise<Array<{index: number, buffer: Buffer|null, success: boolean}>>}
  */
-async function generateColoringPages(illustrationUrls) {
+async function generateColoringPages(illustrationUrls, age) {
   const pLimit = require('p-limit');
   const limit = pLimit(2); // 2 concurrent — balances speed vs. Gemini rate limits
 
@@ -147,7 +196,7 @@ async function generateColoringPages(illustrationUrls) {
       console.log(`[coloringBookGenerator] Converting spread ${i + 1}/${illustrationUrls.length}`);
       try {
         const photo = await downloadPhotoAsBase64(url);
-        const buffer = await convertToColoringPage(photo.base64, photo.mimeType);
+        const buffer = await convertToColoringPage(photo.base64, photo.mimeType, age);
         console.log(`[coloringBookGenerator] Spread ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
         return { index: i, buffer, success: true };
       } catch (err) {
@@ -167,14 +216,15 @@ async function generateColoringPages(illustrationUrls) {
  * Generate a single original coloring page from a scene description + child photo reference.
  * @param {string} scenePrompt
  * @param {{ base64: string, mimeType: string }|null} characterRef - child photo for likeness
- * @param {{ characterDescription?: string, characterAnchor?: { base64: string, mimeType: string } }} [opts]
+ * @param {{ characterDescription?: string, characterAnchor?: { base64: string, mimeType: string }, age?: number|string }} [opts]
  * @returns {Promise<Buffer>}
  */
 async function generateOriginalColoringPage(scenePrompt, characterRef, opts = {}) {
   const MAX_ATTEMPTS = 3;
   let lastError;
+  let darkRetried = false;
 
-  const textPrompt = buildGeneratePrompt(scenePrompt, opts.characterDescription);
+  const textPrompt = buildGeneratePrompt(scenePrompt, opts.characterDescription, opts.age);
   const parts = [{ text: textPrompt }];
 
   if (characterRef?.base64) {
@@ -198,6 +248,22 @@ async function generateOriginalColoringPage(scenePrompt, characterRef, opts = {}
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const raw = await callGeminiImage(parts);
+
+      // Dark-fill detection: if ratio > 0.10, retry ONCE
+      if (!darkRetried) {
+        const ratio = await darkPixelRatio(raw);
+        if (ratio > 0.10) {
+          console.warn(`[coloringBookGenerator] generate dark pixel ratio ${(ratio * 100).toFixed(1)}% > 10%, retrying with warning`);
+          darkRetried = true;
+          const retryParts = [
+            { text: `${DARK_FILL_RETRY_WARNING}\n\n${buildGeneratePrompt(scenePrompt, opts.characterDescription, opts.age)}` },
+            ...parts.slice(1), // keep image parts
+          ];
+          const retryRaw = await callGeminiImage(retryParts);
+          return await enforceBlackAndWhite(retryRaw);
+        }
+      }
+
       return await enforceBlackAndWhite(raw);
     } catch (err) {
       lastError = err;
@@ -209,26 +275,29 @@ async function generateOriginalColoringPage(scenePrompt, characterRef, opts = {}
 }
 
 /**
- * Generate original coloring pages for all scene prompts.
- * @param {string[]} scenePrompts
+ * Generate original coloring pages for all scenes.
+ * @param {Array<{prompt: string, title: string}>} scenes - scene objects with prompt and title
  * @param {{ base64: string, mimeType: string }|null} characterRef
- * @param {{ characterDescription?: string, characterAnchor?: { base64: string, mimeType: string } }} [opts]
- * @returns {Promise<Array<{index: number, buffer: Buffer|null, success: boolean, error?: string}>>}
+ * @param {{ characterDescription?: string, characterAnchor?: { base64: string, mimeType: string }, age?: number|string }} [opts]
+ * @returns {Promise<Array<{index: number, buffer: Buffer|null, success: boolean, title?: string, error?: string}>>}
  */
-async function generateOriginalColoringPages(scenePrompts, characterRef, opts = {}) {
+async function generateOriginalColoringPages(scenes, characterRef, opts = {}) {
   const pLimit = require('p-limit');
   const limit = pLimit(2); // 2 concurrent — balances speed vs. Gemini rate limits
 
-  const tasks = scenePrompts.map((prompt, i) =>
+  const tasks = scenes.map((scene, i) =>
     limit(async () => {
-      console.log(`[coloringBookGenerator] Generating scene ${i + 1}/${scenePrompts.length}`);
+      // Support both new {prompt, title} format and legacy string format
+      const scenePrompt = typeof scene === 'string' ? scene : scene.prompt;
+      const sceneTitle = typeof scene === 'string' ? undefined : scene.title;
+      console.log(`[coloringBookGenerator] Generating scene ${i + 1}/${scenes.length}`);
       try {
-        const buffer = await generateOriginalColoringPage(prompt, characterRef, opts);
+        const buffer = await generateOriginalColoringPage(scenePrompt, characterRef, opts);
         console.log(`[coloringBookGenerator] Scene ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
-        return { index: i, buffer, success: true };
+        return { index: i, buffer, success: true, title: sceneTitle };
       } catch (err) {
         console.error(`[coloringBookGenerator] Scene ${i + 1} failed: ${err.message}`);
-        return { index: i, buffer: null, success: false, error: err.message };
+        return { index: i, buffer: null, success: false, title: sceneTitle, error: err.message };
       }
     })
   );
@@ -242,35 +311,38 @@ async function generateOriginalColoringPages(scenePrompts, characterRef, opts = 
 const SCENE_PLANNER_MODEL = 'gemini-3-flash-preview';
 
 /**
- * Use Gemini to invent original coloring-book scene descriptions for a child,
- * based on the book's title, synopsis, and character description.
- * Scenes are deliberately different from the book's own spreads.
+ * Use Gemini to plan original coloring-book scenes for a child.
+ * Returns objects with { prompt, title } for each scene.
  *
- * @param {{ title: string, synopsis?: string, characterDescription?: string, childName?: string, age?: number, count?: number }} meta
- * @returns {Promise<string[]>} Array of scene prompt strings
+ * @param {{ title: string, synopsis?: string, characterDescription?: string, childName?: string, age?: number, count?: number, storyMoments?: string[] }} meta
+ * @returns {Promise<Array<{prompt: string, title: string}>>}
  */
 async function planColoringScenes(meta) {
-  const { title, synopsis, characterDescription, childName, age, count = 12 } = meta;
+  const { title, synopsis, characterDescription, childName, age, count = 16, storyMoments } = meta;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured for scene planner');
 
-  const systemPrompt = `You are a creative director for a children's coloring book companion. Given a storybook's metadata, invent ${count} unique coloring-page scene descriptions that:
-- Feature the SAME main character in recognizable but BRAND-NEW situations (NOT scenes from the book)
-- Are fun, age-appropriate bonus activities (playing, exploring, celebrating, discovering)
-- Each scene stands alone — no sequential story needed
-- Include enough environment detail (setting, objects, weather) to make a rich coloring page
-- Keep each description to 1-2 sentences
+  const storyBlock = storyMoments && storyMoments.length > 0
+    ? `Story moments from the book:\n${storyMoments.join('\n')}\n\nPlan scenes that feel like BONUS CHAPTERS of this exact story — same world, same adventure, new moments. Reference specific locations, objects, and events from the story above.`
+    : 'Plan fun, varied adventure scenes for this child.';
 
-Return ONLY a JSON array of ${count} strings. No commentary.`;
+  const systemPrompt = `You are planning ${count} original coloring book pages for a children's book.
+Book title: "${title}"
+Child's name: ${childName || 'the child'}, age ${age || 5}
+${storyBlock}
+
+For each scene provide:
+- "title": short fun label, max 5 words (e.g. "Isabella Finds the Map")
+- "prompt": detailed image generation prompt for the coloring page scene
+
+Return a JSON array: [{"title":"...","prompt":"..."}, ...]
+Return ONLY valid JSON, no markdown.`;
 
   const userPrompt = [
-    `Book title: "${title}"`,
     synopsis ? `Synopsis: ${synopsis}` : '',
     characterDescription ? `Character: ${characterDescription}` : '',
-    childName ? `Child's name: ${childName}` : '',
-    age ? `Age: ${age}` : '',
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n') || 'Generate the scenes.';
 
   const resp = await fetch(
     `${GEMINI_BASE}/${SCENE_PLANNER_MODEL}:generateContent?key=${apiKey}`,
@@ -282,7 +354,7 @@ Return ONLY a JSON array of ${count} strings. No commentary.`;
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         generationConfig: {
           temperature: 0.9,
-          maxOutputTokens: 2000,
+          maxOutputTokens: 4000,
           responseMimeType: 'application/json',
         },
       }),
@@ -300,7 +372,11 @@ Return ONLY a JSON array of ${count} strings. No commentary.`;
   if (!Array.isArray(scenes) || scenes.length === 0) {
     throw new Error('Scene planner returned no scenes');
   }
-  return scenes.map(s => String(s));
+  // Normalize: ensure each item has { prompt, title }
+  return scenes.map(s => {
+    if (typeof s === 'string') return { prompt: s, title: '' };
+    return { prompt: String(s.prompt || s), title: String(s.title || '') };
+  });
 }
 
 module.exports = {
