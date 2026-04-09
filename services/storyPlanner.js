@@ -12,6 +12,7 @@ const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('.
 const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
+const { enrichCustomDetails } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 
@@ -980,10 +981,17 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   const { costTracker, approvedTitle, v2Vars } = opts;
   const isPictureBook = bookFormat === 'picture_book';
 
+  // Enrich custom details with pop culture annotations
+  const enrichedCustomDetails = await enrichCustomDetails(
+    customDetails,
+    childDetails.name || childDetails.childName,
+    childDetails.age || childDetails.childAge
+  );
+
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
 
   if (!isPictureBook) {
-    const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+    const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
     return normalizePlan(parsed, childDetails, opts);
   }
 
@@ -992,7 +1000,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   try {
     // Phase 1: Generate story text freely
-    const storyText = await generateStoryText(childDetails, theme, customDetails, opts);
+    const storyText = await generateStoryText(childDetails, theme, enrichedCustomDetails, opts);
 
     // Try to parse the free-form text
     const parsedText = parseStoryText(storyText);
@@ -1015,7 +1023,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     const spreadCount = plan.entries.filter(e => e.type === 'spread').length;
     if (spreadCount < 10) {
       console.warn(`[storyPlanner] Only ${spreadCount} spreads from two-phase — retrying with single-call`);
-      const retryParsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+      const retryParsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
       return normalizePlan(retryParsed, childDetails, opts);
     }
 
@@ -1037,7 +1045,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   } catch (twoPhaseErr) {
     console.warn(`[storyPlanner] Two-phase pipeline failed: ${twoPhaseErr.message} — falling back to single-call`);
     try {
-      const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, opts);
+      const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
       const plan = normalizePlan(parsed, childDetails, opts);
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
@@ -1046,7 +1054,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
       // Last resort: retry single-call forcing Gemini (no OpenAI key passed)
       // Gemini handles long JSON output reliably and returns proper finishReason
       console.warn(`[storyPlanner] Single-call also failed: ${singleCallErr.message} — retrying with Gemini only`);
-      const parsed = await planStorySingleCall(childDetails, theme, bookFormat, customDetails, {
+      const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, {
         ...opts,
         apiKeys: null, // forces Gemini path
       });
@@ -1527,21 +1535,49 @@ async function combinedCritic(storyPlan, opts = {}) {
  * Returns an object with title + 5 chapters (each with chapterTitle, synopsis, imagePrompt, text).
  */
 async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
-  const { apiKeys, costTracker, approvedTitle, bookContext } = opts;
+  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
   const { CHAPTER_PLANNER_SYSTEM, CHAPTER_PLANNER_USER, CHAPTER_WRITER_SYSTEM, CHAPTER_WRITER_USER } = require('../prompts/chapterBook');
 
-  // Step 1: Brainstorm seed (reuse existing)
+  // Step 1: Brainstorm seed + enrich custom details in parallel
   let seed;
+  let enrichedCustomDetails;
   try {
-    seed = await brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme });
+    const [seedResult, enrichedResult] = await Promise.all([
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme })
+        .catch(err => {
+          bookContext?.log('warn', 'Chapter book seed brainstorm failed, using defaults', { error: err.message });
+          return { repeated_phrase: 'one step at a time', favorite_object: customDetails || 'a compass', setting: 'the neighborhood', fear: 'failing' };
+        }),
+      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age),
+    ]);
+    seed = seedResult;
+    enrichedCustomDetails = enrichedResult;
   } catch (err) {
-    bookContext?.log('warn', 'Chapter book seed brainstorm failed, using defaults', { error: err.message });
+    bookContext?.log('warn', 'Chapter book seed/enrich failed, using defaults', { error: err.message });
     seed = { repeated_phrase: 'one step at a time', favorite_object: customDetails || 'a compass', setting: 'the neighborhood', fear: 'failing' };
+    enrichedCustomDetails = customDetails || '';
   }
+
+  // Build parent story section if a parent picture book was provided
+  let parentStorySection = '';
+  if (parentStoryContent) {
+    const origTitle = parentStoryContent.title || '';
+    const texts = (parentStoryContent.entries || [])
+      .map(e => e.text || [e.left?.text, e.right?.text].filter(Boolean).join(' ') || '')
+      .filter(t => t.trim())
+      .join(' ');
+    if (origTitle || texts) {
+      parentStorySection = `\n\nORIGINAL PICTURE BOOK (this chapter book MUST be an expanded retelling of this exact story — same world, same characters, same arc):\nTitle: "${origTitle}"\nStory: ${texts}`;
+    }
+  }
+
+  const titleInstruction = parentBookTitle
+    ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
+    : '';
 
   // Step 2: Plan chapter structure
   bookContext?.log('info', 'Planning chapter structure');
-  const planUserPrompt = CHAPTER_PLANNER_USER(childDetails, theme, customDetails, seed);
+  const planUserPrompt = CHAPTER_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
 
   let chapterPlan;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1616,19 +1652,47 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
 }
 
 async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
-  const { apiKeys, costTracker, approvedTitle, bookContext } = opts;
+  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
   const { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER } = require('../prompts/graphicNovel');
 
-  // Brainstorm seed
+  // Brainstorm seed + enrich custom details in parallel
   let seed;
+  let enrichedCustomDetails;
   try {
-    seed = await brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme });
+    const [seedResult, enrichedResult] = await Promise.all([
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme })
+        .catch(e => {
+          bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
+          return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
+        }),
+      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age),
+    ]);
+    seed = seedResult;
+    enrichedCustomDetails = enrichedResult;
   } catch (e) {
-    bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
+    bookContext?.log('warn', 'Graphic novel seed/enrich failed', { error: e.message });
     seed = { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
+    enrichedCustomDetails = customDetails || '';
   }
 
-  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed);
+  // Build parent story section if a parent picture book was provided
+  let parentStorySection = '';
+  if (parentStoryContent) {
+    const origTitle = parentStoryContent.title || '';
+    const texts = (parentStoryContent.entries || [])
+      .map(e => e.text || [e.left?.text, e.right?.text].filter(Boolean).join(' ') || '')
+      .filter(t => t.trim())
+      .join(' ');
+    if (origTitle || texts) {
+      parentStorySection = `\n\nORIGINAL PICTURE BOOK (this graphic novel MUST be a comic-format adaptation of this exact story — same world, same characters, same arc):\nTitle: "${origTitle}"\nStory: ${texts}`;
+    }
+  }
+
+  const titleInstruction = parentBookTitle
+    ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
+    : '';
+
+  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
 
   let plan;
   for (let attempt = 1; attempt <= 3; attempt++) {

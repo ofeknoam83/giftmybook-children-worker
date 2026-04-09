@@ -22,7 +22,9 @@ STRUCTURE:
 - Chapter 2: First attempt + early win + complication emerges
 - Chapter 3: Out of comfort zone + new allies + stakes escalate
 - Chapter 4: THE DARK MOMENT — biggest failure, character must face their flaw
-- Chapter 5: Turn + earned resolution + world changed + brief satisfying coda`;
+- Chapter 5: Turn + earned resolution + world changed + brief satisfying coda
+
+ADAPTATION RULE: If an original picture book is provided in the user prompt, the chapter book MUST be an expanded, chapter-format retelling of that exact story. Preserve the characters, setting, and narrative arc. Do not invent a new story.`;
 
 function CHAPTER_PLANNER_USER(childDetails, theme, customDetails, seed) {
   const { name, age, gender, childPhotoDescription } = childDetails;

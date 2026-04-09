@@ -26,7 +26,9 @@ WRITING QUALITY:
 COMIC PANEL CONVENTIONS:
 - Panel 1 of each scene: wide establishing shot
 - Interior panels: medium shots, close-ups for emotion
-- Last panel of scene: cliffhanger or emotional beat`;
+- Last panel of scene: cliffhanger or emotional beat
+
+ADAPTATION RULE: If an original picture book is provided in the user prompt, the graphic novel MUST be a comic-format adaptation of that exact story. Preserve the characters, setting, and narrative arc. Do not invent a new story.`;
 
 function GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed) {
   const { name, age, gender } = childDetails;

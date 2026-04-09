@@ -624,6 +624,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const isEmotionalBook = EMOTIONAL_THEMES.has(theme);
   const countryCode = req.body.countryCode || null; // e.g. 'US', 'GB', 'AU'
   const apiKeys = req.body.apiKeys;
+  const parentBookTitle = req.body.parentBookTitle || null;
+  const parentStoryContent = req.body.parentStoryContent || null;
+  const parentCharacterAnchor = req.body.parentCharacterAnchor || null;
 
   // Merge child anecdotes into customDetails so the planner can use them
   const anecdoteParts = [];
@@ -904,6 +907,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           costTracker,
           approvedTitle,
           bookContext,
+          parentBookTitle,
+          parentStoryContent,
         });
         storyPlan.isChapterBook = true;
         bookContext.touchActivity();
@@ -934,6 +939,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         const gnStart = Date.now();
         storyPlan = await planGraphicNovel(childDetails, theme || 'adventure', plannerCustomDetails, {
           apiKeys, costTracker, approvedTitle, bookContext,
+          parentBookTitle, parentStoryContent,
         });
         storyPlan.isGraphicNovel = true;
         bookContext.touchActivity();
@@ -1207,6 +1213,12 @@ Format your answer with each label on its own line followed by a colon and the a
         } catch (dlErr) {
           bookContext.log('warn', 'Failed to download approved cover for reference, using original photo', { error: dlErr.message });
         }
+      }
+
+      // If we still have no characterAnchor but parent provided one, use it
+      if (!storyPlan.characterAnchor && parentCharacterAnchor) {
+        storyPlan.characterAnchor = parentCharacterAnchor;
+        bookContext.log('info', '[generate-book] Using parentCharacterAnchor from parent book');
       }
 
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
