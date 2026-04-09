@@ -35,9 +35,10 @@ async function convertToColoringPage(base64, mimeType) {
             { text: COLORING_PROMPT },
             { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64 } },
           ]}],
+          // Note: for image-to-image, include TEXT in responseModalities
+          // and omit imageConfig.aspectRatio (not supported for editing)
           generationConfig: {
-            responseModalities: ['IMAGE'],
-            imageConfig: { aspectRatio: '16:9' },
+            responseModalities: ['TEXT', 'IMAGE'],
           },
         }),
       }, 120000);
@@ -48,8 +49,12 @@ async function convertToColoringPage(base64, mimeType) {
       }
 
       const data = await resp.json();
-      const imgPart = data?.candidates?.[0]?.content?.parts?.find(p => p.inline_data?.data);
-      if (!imgPart) throw new Error('No image returned from Gemini');
+      // Log response structure for debugging
+      if (!data?.candidates?.[0]?.content?.parts) {
+        throw new Error(`Unexpected response: ${JSON.stringify(data).slice(0, 300)}`);
+      }
+      const imgPart = data.candidates[0].content.parts.find(p => p.inline_data?.data);
+      if (!imgPart) throw new Error(`No image in response parts: ${JSON.stringify(data.candidates[0].content.parts.map(p => Object.keys(p))).slice(0, 200)}`);
 
       return Buffer.from(imgPart.inline_data.data, 'base64');
     } catch (err) {
