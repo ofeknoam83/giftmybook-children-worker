@@ -843,6 +843,7 @@ function groupPanelsIntoPages(allPanels) {
     'strip+2': 3,
     '1large+2small': 3,
     '3equal': 3,
+    '3wide': 3,
     '2equal': 2,
     '4equal': 4,
   };
@@ -862,9 +863,11 @@ function groupPanelsIntoPages(allPanels) {
 /**
  * Draw a speech bubble with a short edge-attached tail pointing toward the speaker.
  * All coordinates in panelRect are top-left origin; pageH converts to pdf-lib bottom-up.
+ * captionH = height of the caption box at the top of the panel (in screen coords).
  */
-function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
+function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH, captionH) {
   const sp = speakerPosition || 'left';
+  captionH = captionH || 0;
 
   const fontSize = 9;
   const maxTextW = panelRect.w * 0.38; // smaller bubble — don't cover character
@@ -902,8 +905,12 @@ function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
   const bpos = posMap[sp] || posMap['left'];
   const spos = speakerHint[sp] || speakerHint['left'];
 
+  // Clamp bubble's by so it doesn't overlap the caption box
+  const minBubbleTopFraction = (captionH + 12) / panelRect.h;
+  const safeBY = Math.max(bpos.by, minBubbleTopFraction + (bubbleH / 2) / panelRect.h);
+
   let cx = panelRect.x + panelRect.w * bpos.bx;
-  let cy = panelRect.y + panelRect.h * bpos.by;
+  let cy = panelRect.y + panelRect.h * safeBY;
 
   const margin = 5;
   cx = Math.max(panelRect.x + bubbleW / 2 + margin, Math.min(panelRect.x + panelRect.w - bubbleW / 2 - margin, cx));
@@ -980,10 +987,31 @@ function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
 }
 
 /**
+ * Wrap text into lines for caption rendering.
+ */
+function wrapTextLines(text, font, fontSize, maxW) {
+  if (!text || !text.trim()) return [];
+  const words = text.trim().split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (font.widthOfTextAtSize(test, fontSize) > maxW && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
  * Render a single comic page from a page group { layout, panels }.
  */
 async function renderComicPage(pdfDoc, pageGroup, ctx) {
-  const { bangersFont, helv, pageH: PAGE_H, pageW: PAGE_W } = ctx;
+  const { bangersFont, helv, pageH: PAGE_H, pageW: PAGE_W, pageNumber } = ctx;
 
   const MARGIN_C = 24;
   const GUTTER_C = 8;
@@ -995,11 +1023,8 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
 
   const { layout, panels } = pageGroup;
 
-  // Check if first panel is scene opener (establishing + panelNumber 1)
-  const firstPanel = panels[0] || {};
   const CONTENT_Y = MARGIN_C;
   const CONTENT_H = PAGE_H - MARGIN_C * 2;
-  const contentTopY = CONTENT_Y + CONTENT_H;
 
   const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
@@ -1030,7 +1055,7 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
       { x: CONTENT_X, y: CONTENT_Y, w: smallW, h: smallH },
       { x: CONTENT_X + smallW + GUTTER_C, y: CONTENT_Y, w: smallW, h: smallH },
     ];
-  } else if (layout === '3equal') {
+  } else if (layout === '3equal' || layout === '3wide') {
     const panelH = (CONTENT_H - GUTTER_C * 2) / 3;
     for (let i = 0; i < 3; i++) {
       panelRects.push({ x: CONTENT_X, y: CONTENT_Y + (2 - i) * (panelH + GUTTER_C), w: CONTENT_W, h: panelH });
@@ -1058,12 +1083,25 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
     }
   }
 
+  // Caption rendering constants
+  const CAPTION_FONT_SIZE = 8.5;
+  const CAPTION_LINE_H = CAPTION_FONT_SIZE * 1.45;
+  const CAPTION_PAD_X = 10;
+  const CAPTION_PAD_Y = 7;
+
   // Draw each panel
   for (let pi = 0; pi < Math.min(panels.length, panelRects.length); pi++) {
     const panel = panels[pi];
     const rect = panelRects[pi];
 
-    // 1. Draw panel image or placeholder
+    // Pre-compute caption height before drawing anything
+    const captionMaxW = rect.w - CAPTION_PAD_X * 2;
+    const captionLines = wrapTextLines(panel.caption || '', bangersFont, CAPTION_FONT_SIZE, captionMaxW);
+    const captionH = captionLines.length > 0
+      ? Math.ceil(CAPTION_PAD_Y * 2 + captionLines.length * CAPTION_LINE_H)
+      : 0;
+
+    // 1. Draw panel image or blank fallback
     if (panel.imageBuffer) {
       try {
         const targetW = px(rect.w);
@@ -1075,39 +1113,53 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
         const img = await pdfDoc.embedJpg(resized);
         page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
       } catch (_) {
-        page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
+        // Fallback on image processing error
+        page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.15, 0.18, 0.25) });
+        const ellipsis = '...';
+        const ew = bangersFont.widthOfTextAtSize(ellipsis, 16);
+        page.drawText(ellipsis, {
+          x: rect.x + (rect.w - ew) / 2,
+          y: rect.y + rect.h / 2 - 8,
+          size: 16, font: bangersFont, color: rgb(0.4, 0.45, 0.5)
+        });
       }
     } else {
-      // Soft blue-grey placeholder (#b8c5d6)
-      page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
+      // Blank panel fallback — deep blue-grey tonal background
+      page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.15, 0.18, 0.25) });
+      const ellipsis = '...';
+      const ew = bangersFont.widthOfTextAtSize(ellipsis, 16);
+      page.drawText(ellipsis, {
+        x: rect.x + (rect.w - ew) / 2,
+        y: rect.y + rect.h / 2 - 8,
+        size: 16, font: bangersFont, color: rgb(0.4, 0.45, 0.5)
+      });
     }
 
-    // 2. Caption band at top of panel — dynamic height for multi-line narration
-    if (panel.caption && panel.caption.trim()) {
-      const capFS = 9;
-      const capLH = capFS * 1.4;
-      const capPadX = 8;
-      const capPadY = 5;
-      const capLines = wrapText(panel.caption, bangersFont, capFS, rect.w - capPadX * 2);
-      const maxBandH = rect.h * 0.30;
-      const visibleLines = [];
-      let runH = capPadY * 2;
-      for (const ln of capLines) {
-        if (runH + capLH > maxBandH) break;
-        visibleLines.push(ln);
-        runH += capLH;
-      }
-      const bandH = visibleLines.length * capLH + capPadY * 2;
-      const captionY = rect.y + rect.h - bandH;
-      page.drawRectangle({ x: rect.x, y: captionY, width: rect.w, height: bandH, color: rgb(0.102, 0.102, 0.180) });
-      let ty = captionY + bandH - capPadY - capFS;
-      for (const ln of visibleLines) {
-        page.drawText(ln, { x: rect.x + capPadX, y: ty, size: capFS, font: bangersFont, color: rgb(1, 1, 1) });
-        ty -= capLH;
-      }
+    // 2. Dynamic multi-line caption strip at top of panel
+    if (captionLines.length > 0) {
+      // Caption box sits at the TOP of the panel visually.
+      // In PDF coords (y=0 at bottom), "top" = rect.y + rect.h - captionH
+      const capBoxY = rect.y + rect.h - captionH;
+      page.drawRectangle({
+        x: rect.x,
+        y: capBoxY,
+        width: rect.w,
+        height: captionH,
+        color: rgb(0.06, 0.06, 0.12), // dark navy
+      });
+      captionLines.forEach((line, i) => {
+        const lineY = capBoxY + captionH - CAPTION_PAD_Y - (i + 1) * CAPTION_LINE_H + CAPTION_LINE_H * 0.25;
+        page.drawText(line, {
+          x: rect.x + CAPTION_PAD_X,
+          y: lineY,
+          size: CAPTION_FONT_SIZE,
+          font: bangersFont,
+          color: rgb(1, 1, 1),
+        });
+      });
     }
 
-    // 3. Speech bubble
+    // 3. Speech bubble (respects caption height)
     if (panel.dialogue && panel.dialogue.trim()) {
       // Convert panel rect to top-left coordinate system for bubble positioning
       const bubbleRect = {
@@ -1116,26 +1168,36 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
         w: rect.w,
         h: rect.h,
       };
-      drawOvalBubble(page, bubbleRect, panel.dialogue, panel.speakerPosition, bangersFont, PAGE_H);
+      drawOvalBubble(page, bubbleRect, panel.dialogue, panel.speakerPosition, bangersFont, PAGE_H, captionH);
     }
   }
 
-  // Page number
-  const pgNum = `${pdfDoc.getPageCount()}`;
-  const pnw = helv.widthOfTextAtSize(pgNum, 8);
-  page.drawText(pgNum, { x: (PAGE_W - pnw) / 2, y: 6, size: 8, font: helv, color: rgb(0.6, 0.6, 0.6) });
+  // Page number with background
+  const actualPageNumber = pageNumber || pdfDoc.getPageCount();
+  if (actualPageNumber > 0) {
+    const numStr = String(actualPageNumber);
+    const numSize = 9;
+    const numW = bangersFont.widthOfTextAtSize(numStr, numSize);
+    const padX = 6, padY = 3;
+    const numBoxW = numW + padX * 2;
+    const numBoxH = numSize + padY * 2;
+    const numBoxX = (PAGE_W - numBoxW) / 2;
+    const numBoxY = 6; // 6pt from bottom in PDF coords
+    page.drawRectangle({ x: numBoxX, y: numBoxY, width: numBoxW, height: numBoxH, color: rgb(0, 0, 0) });
+    page.drawText(numStr, { x: numBoxX + padX, y: numBoxY + padY, size: numSize, font: bangersFont, color: rgb(0.9, 0.9, 0.9) });
+  }
 }
 
 /**
- * Build a 6x9" graphic novel PDF.
+ * Build a 7x10" graphic novel PDF.
  * @param {Array<{caption: string, imageBuffer: Buffer|null}>} panels - all panels in order
  * @param {object} opts - { title, childName, tagline, bookFrom, dedication, year, scenes }
  */
 async function buildGraphicNovelPdf(panels, opts = {}) {
   const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
 
-  const PAGE_W = 432;  // 6" at 72pt/inch
-  const PAGE_H = 648;  // 9"
+  const PAGE_W = 504;  // 7" at 72pt/inch
+  const PAGE_H = 720;  // 10"
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
@@ -1174,36 +1236,36 @@ async function buildGraphicNovelPdf(panels, opts = {}) {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
     p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.08, 0.08, 0.15) });
 
-    const titleLines = wrapText(title, titleFont, 26, PAGE_W - 40);
-    let ty = PAGE_H / 2 + 40;
+    const titleLines = wrapText(title, titleFont, 28, PAGE_W - 50);
+    let ty = PAGE_H / 2 + 50;
     for (const line of titleLines) {
-      const lw = titleFont.widthOfTextAtSize(line, 26);
-      p.drawText(line, { x: (PAGE_W - lw) / 2, y: ty, size: 26, font: titleFont, color: WHITE });
-      ty -= 36;
+      const lw = titleFont.widthOfTextAtSize(line, 28);
+      p.drawText(line, { x: (PAGE_W - lw) / 2, y: ty, size: 28, font: titleFont, color: WHITE });
+      ty -= 38;
     }
 
     if (tagline) {
-      const tagText = tagline.length > 50 ? tagline.slice(0, 47) + '...' : tagline;
-      const tw = (playfairItalic || bodyFont).widthOfTextAtSize(tagText, 11);
-      p.drawText(tagText, { x: Math.max(10, (PAGE_W - tw) / 2), y: PAGE_H / 2 - 10, size: 11, font: playfairItalic || bodyFont, color: rgb(0.8, 0.8, 0.8) });
+      const tagText = tagline.length > 60 ? tagline.slice(0, 57) + '...' : tagline;
+      const tw = (playfairItalic || bodyFont).widthOfTextAtSize(tagText, 12);
+      p.drawText(tagText, { x: Math.max(10, (PAGE_W - tw) / 2), y: PAGE_H / 2 - 10, size: 12, font: playfairItalic || bodyFont, color: rgb(0.8, 0.8, 0.8) });
     }
 
     const sub = `A personalized graphic novel for ${childName}`;
-    const sw = bodyFont.widthOfTextAtSize(sub, 10);
-    p.drawText(sub, { x: (PAGE_W - sw) / 2, y: 44, size: 10, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
-    const yw = bodyFont.widthOfTextAtSize(`${year} \u00B7 GiftMyBook`, 8);
-    p.drawText(`${year} \u00B7 GiftMyBook`, { x: (PAGE_W - yw) / 2, y: 24, size: 8, font: bodyFont, color: rgb(0.4, 0.4, 0.4) });
+    const sw = bodyFont.widthOfTextAtSize(sub, 11);
+    p.drawText(sub, { x: (PAGE_W - sw) / 2, y: 50, size: 11, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
+    const yw = bodyFont.widthOfTextAtSize(`${year} \u00B7 GiftMyBook`, 9);
+    p.drawText(`${year} \u00B7 GiftMyBook`, { x: (PAGE_W - yw) / 2, y: 28, size: 9, font: bodyFont, color: rgb(0.4, 0.4, 0.4) });
   }
 
   // ── Dedication page ──
   if (dedication) {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
-    const dedLines = wrapText(dedication, playfairItalic || bodyFont, 11, PAGE_W - 80);
-    let dy = PAGE_H / 2 + (dedLines.length * 16) / 2;
+    const dedLines = wrapText(dedication, playfairItalic || bodyFont, 12, PAGE_W - 90);
+    let dy = PAGE_H / 2 + (dedLines.length * 18) / 2;
     for (const line of dedLines) {
-      const lw = (playfairItalic || bodyFont).widthOfTextAtSize(line, 11);
-      p.drawText(line, { x: (PAGE_W - lw) / 2, y: dy, size: 11, font: playfairItalic || bodyFont, color: BLACK });
-      dy -= 16;
+      const lw = (playfairItalic || bodyFont).widthOfTextAtSize(line, 12);
+      p.drawText(line, { x: (PAGE_W - lw) / 2, y: dy, size: 12, font: playfairItalic || bodyFont, color: BLACK });
+      dy -= 18;
     }
   }
 
@@ -1211,18 +1273,27 @@ async function buildGraphicNovelPdf(panels, opts = {}) {
   const pageGroups = groupPanelsIntoPages(panels);
   const ctx = { bangersFont, helv, helvBold, pageH: PAGE_H, pageW: PAGE_W };
 
-  for (const group of pageGroups) {
-    await renderComicPage(pdfDoc, group, ctx);
+  for (let gi = 0; gi < pageGroups.length; gi++) {
+    ctx.pageNumber = gi + 1;
+    await renderComicPage(pdfDoc, pageGroups[gi], ctx);
   }
 
-  // ── "The End" page ──
+  // ── "The End" page — draw in two parts to avoid ligature issues ──
   {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
     p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.08, 0.08, 0.15) });
-    const endW = (playfairItalic || titleFont).widthOfTextAtSize('The End', 32);
-    p.drawText('The End', { x: (PAGE_W - endW) / 2, y: PAGE_H / 2, size: 32, font: playfairItalic || titleFont, color: WHITE });
-    const subW = bodyFont.widthOfTextAtSize(`${childName}'s story`, 11);
-    p.drawText(`${childName}'s story`, { x: (PAGE_W - subW) / 2, y: PAGE_H / 2 - 28, size: 11, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
+
+    const endFont = playfairItalic || playfair || bangersFont;
+    const endSize = 36;
+    const part1 = 'The ';
+    const part2 = 'End';
+    const totalW = endFont.widthOfTextAtSize(part1 + part2, endSize);
+    const endColor = rgb(0.9, 0.9, 0.95);
+    p.drawText(part1, { x: (PAGE_W - totalW) / 2, y: PAGE_H / 2 + 10, size: endSize, font: endFont, color: endColor });
+    p.drawText(part2, { x: (PAGE_W - totalW) / 2 + endFont.widthOfTextAtSize(part1, endSize), y: PAGE_H / 2 + 10, size: endSize, font: endFont, color: endColor });
+
+    const subW = bodyFont.widthOfTextAtSize(`${childName}'s story`, 12);
+    p.drawText(`${childName}'s story`, { x: (PAGE_W - subW) / 2, y: PAGE_H / 2 - 28, size: 12, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
   }
 
   // Pad to even page count for binding

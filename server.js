@@ -952,6 +952,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         storyPlan = await planGraphicNovel(childDetails, theme || 'adventure', plannerCustomDetails, {
           apiKeys, costTracker, approvedTitle, bookContext,
           parentBookTitle, parentStoryContent,
+          artStyle: childDetails.artStyle || childDetails.art_style || 'cinematic_3d',
         });
         storyPlan.isGraphicNovel = true;
         bookContext.touchActivity();
@@ -1329,10 +1330,24 @@ Format your answer with each label on its own line followed by a colon and the a
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating graphic novel panels...', logs: bookContext.logs });
         }
+        // Secondary character consistency for graphic novel panels
+        const gnSecondaryChars = storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null;
+        if (gnSecondaryChars) {
+          storyPlan.secondaryCharacterDescription = gnSecondaryChars;
+          bookContext.log('info', 'Secondary character consistency enabled for graphic novel', { chars: String(gnSecondaryChars).slice(0, 120) });
+        }
+
         const allPanels = storyPlan.allPanels || [];
         for (let i = 0; i < allPanels.length; i++) {
           const panel = allPanels[i];
           bookContext.log('info', `Generating panel ${i + 1}/${allPanels.length} (scene ${panel.sceneNumber})`);
+
+          // Build secondary character injection for panels that reference secondary characters
+          let secondaryCharInjection = '';
+          if (gnSecondaryChars) {
+            secondaryCharInjection = ` SECONDARY CHARACTER CONSISTENCY: ${gnSecondaryChars}. Same secondary character must appear identically in all panels.`;
+          }
+
           try {
             const illustUrl = await generateIllustration(
               panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`,
@@ -1354,7 +1369,8 @@ Format your answer with each label on its own line followed by a colon and the a
                 totalSpreads: allPanels.length,
                 skipTextEmbed: true,
                 pageText: '',
-                promptInjection: `COMIC PANEL (${panel.panelType || panel.type || 'action'}). ${(panel.panelType || panel.type) === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : (panel.panelType || panel.type) === 'reaction' ? 'CLOSE-UP on character face/reaction.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.`,
+                additionalCoverCharacters: gnSecondaryChars,
+                promptInjection: `COMIC PANEL (${panel.panelType || panel.type || 'action'}). ${(panel.panelType || panel.type) === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : (panel.panelType || panel.type) === 'reaction' || (panel.panelType || panel.type) === 'reaction-close' ? 'CLOSE-UP on character face/reaction.' : (panel.panelType || panel.type) === 'wide-action' ? 'CINEMATIC WIDE SHOT with characters in environment.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.${secondaryCharInjection}`,
                 artStyle: style,
               }
             );

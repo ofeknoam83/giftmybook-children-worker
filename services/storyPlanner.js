@@ -1663,6 +1663,7 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
 
 async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
+  const artStyle = opts.artStyle || childDetails.artStyle || childDetails.art_style || 'cinematic_3d';
   const { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER } = require('../prompts/graphicNovel');
 
   // Brainstorm seed + enrich custom details in parallel
@@ -1703,7 +1704,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
     : '';
 
-  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
+  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed).replace('{artStyle}', artStyle) + parentStorySection + titleInstruction;
 
   let plan;
   for (let attempt = 1; attempt <= 3; attempt++) {
