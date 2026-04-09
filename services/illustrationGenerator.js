@@ -387,6 +387,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`   - EYE SHAPE: The eye shape above must be reproduced exactly — pay special attention to monolid vs almond vs round`);
     parts.push(`   - EYE COLOR: Match exactly — do not substitute`);
     parts.push(`   - HAIR: Color, texture, and length must match exactly — no variations`);
+    parts.push(`   - HAIR STYLE AND LENGTH ARE LOCKED — NEVER CHANGE THEM:`);
+    parts.push(`     The child's hair style (arrangement, length, accessories like ties or clips) must be IDENTICAL in every single illustration.`);
+    parts.push(`     If the characterAnchor says two pigtails, every spread shows two pigtails. If it says loose curly hair to shoulders, every spread shows that.`);
+    parts.push(`     Never add, remove, or change hairstyle between illustrations.`);
     parts.push(`   If the reference photo shows an East Asian child, ALL illustrations must show an East Asian child.`);
     parts.push(`   If the reference shows a Black child, ALL illustrations must show a Black child.`);
     parts.push(`   NEVER drift to a different ethnicity, skin tone, or eye shape — even after multiple spreads.`);

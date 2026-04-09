@@ -1168,6 +1168,7 @@ EYE_COLOR: What color are the eyes?
 HAIR_COLOR: Exact hair color
 HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
 HAIR_LENGTH: Short / medium / long / very long
+HAIR_STYLE: Specific style/arrangement (e.g. "two high pigtails with pink ties", "single braid", "afro puffs", "loose curly", "short straight bowl cut")
 
 Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency.` },
                         { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
@@ -1914,6 +1915,7 @@ EYE_COLOR: Eye color
 HAIR_COLOR: Exact hair color
 HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
 HAIR_LENGTH: Short / medium / long / very long
+HAIR_STYLE: Specific style/arrangement (e.g. "two high pigtails with pink ties", "single braid", "afro puffs", "loose curly", "short straight bowl cut")
 
 Format: each label on its own line followed by a colon and the answer.` },
                 { inline_data: { mime_type: coverPhoto.mimeType || 'image/jpeg', data: coverPhoto.base64 } },
