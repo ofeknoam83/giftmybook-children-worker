@@ -1388,9 +1388,7 @@ Format your answer with each label on its own line followed by a colon and the a
         // ── P2: Safe area instruction for caption/bubble clearance ──
         function gnSafeAreaInstruction(hasCaption, speakerPosition) {
           const parts = [];
-          if (hasCaption) {
-            parts.push('SAFE AREA: keep top 18% of image as low-detail background (sky, wall, dark space, empty area) — narration caption text placed there');
-          }
+          // Caption is rendered in a separate zone above the image — no need to reserve space in the illustration.
           if (speakerPosition && speakerPosition !== '' && speakerPosition !== 'none') {
             const cornerMap = {
               'left': 'top-right corner (top 25%, right 30%)',
@@ -1402,7 +1400,7 @@ Format your answer with each label on its own line followed by a colon and the a
               'top-right': 'bottom-left corner',
             };
             const corner = cornerMap[speakerPosition] || 'top-right corner';
-            parts.push(`keep ${corner} clear of faces and important objects — speech bubble placed there`);
+            parts.push(`SAFE AREA: keep ${corner} clear of faces and important objects — speech bubble placed there`);
           }
           return parts.length > 0 ? parts.join('. ') + '.' : '';
         }
@@ -1431,11 +1429,11 @@ Format your answer with each label on its own line followed by a colon and the a
             secondaryCharInjection = ` SECONDARY CHARACTER CONSISTENCY: ${gnSecondaryChars}. Same secondary character must appear identically in all panels.`;
           }
 
-          // P2: Append safe area instruction to imagePrompt
+          // P2: Append safe area instruction + cinematic 3D style enforcement to imagePrompt
           const safeArea = gnSafeAreaInstruction(!!panel.caption, panel.speakerPosition);
-          const finalPrompt = safeArea
-            ? `${panel.imagePrompt || panel.action || ''} ${safeArea}`
-            : (panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`);
+          const CINEMATIC_3D_SUFFIX = 'Style: high-end 3D CGI animation, Pixar-quality render, volumetric lighting, depth of field, photorealistic materials — NOT watercolor, NOT 2D illustration.';
+          const basePrompt = panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`;
+          const finalPrompt = [basePrompt, safeArea, CINEMATIC_3D_SUFFIX].filter(Boolean).join(' ');
 
           try {
             const illustUrl = await generateIllustration(

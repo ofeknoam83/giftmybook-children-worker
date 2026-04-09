@@ -88,10 +88,12 @@ mystery   → "dim ambient light, isolated pools of light, unseen elements beyon
 urgency   → "harsh overhead or side strobe-like light, high contrast, red-orange tint"
 
 IMAGEPROMPT TEMPLATE (follow exactly for every panel):
-"[SHOT_TYPE] at [CAMERA_ANGLE]. [CHARACTER] [specific action with body language detail], [emotional state visible in face/posture]. [MOOD] mood, [LIGHTING description]. Foreground: [fg elements]. Midground: [mg elements]. Background: [bg elements]. [SAFE_AREA_PLACEHOLDER]. Cinematic Pixar quality, clean comic style."
+"[SHOT_TYPE] at [CAMERA_ANGLE]. [CHARACTER] [specific action with body language detail], [emotional state visible in face/posture]. [MOOD] mood, [LIGHTING description]. Foreground: [fg elements]. Midground: [mg elements]. Background: [bg elements]. [SAFE_AREA_PLACEHOLDER]. Cinematic Pixar quality, clean comic style. Style: high-end 3D CGI animation (Pixar-quality), volumetric lighting, depth of field, photorealistic materials — NOT watercolor, NOT 2D illustration."
+
+CRITICAL: Every imagePrompt must end with: "Style: high-end 3D CGI animation (Pixar-quality), volumetric lighting, depth of field, photorealistic materials — NOT watercolor, NOT 2D illustration."
 
 Example imagePrompt:
-"MEDIUM SHOT at eye-level. Isabella reaches toward a glowing door, eyes wide with wonder, fingertips almost touching the surface. Wonder mood, soft blue-purple glow from door illuminates her face warmly. Foreground: scattered glowing rocks and dust motes. Midground: Isabella centered, body leaning forward. Background: vast dark cavern with distant stars visible. Cinematic Pixar quality, clean comic style."
+"MEDIUM SHOT at eye-level. Isabella reaches toward a glowing door, eyes wide with wonder, fingertips almost touching the surface. Wonder mood, soft blue-purple glow from door illuminates her face warmly. Foreground: scattered glowing rocks and dust motes. Midground: Isabella centered, body leaning forward. Background: vast dark cavern with distant stars visible. Cinematic Pixar quality, clean comic style. Style: high-end 3D CGI animation (Pixar-quality), volumetric lighting, depth of field, photorealistic materials — NOT watercolor, NOT 2D illustration."
 
 PAGE LAYOUT VALUES:
 - splash: 1 panel per page — for splash panels only

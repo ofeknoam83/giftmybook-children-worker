@@ -1101,79 +1101,46 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
       ? Math.ceil(CAPTION_PAD_Y * 2 + captionLines.length * CAPTION_LINE_H)
       : 0;
 
-    // P7: Top gradient guard — simulates a navy→transparent fade at the top of every panel
-    function drawTopGradientGuard(pg, x, y, width, height) {
-      const GUARD_HEIGHT = 30; // pt total fade zone
+    // Gradient guard — navy→transparent fade at the top of a zone
+    function drawTopGradientGuard(pg, x, pdfBottomY, width, height) {
+      const GUARD_HEIGHT = 30;
       const STEPS = 6;
       const stepH = GUARD_HEIGHT / STEPS;
       const opacities = [0.55, 0.42, 0.30, 0.18, 0.09, 0.03];
       for (let gi = 0; gi < STEPS; gi++) {
         pg.drawRectangle({
           x,
-          y: y + height - GUARD_HEIGHT + gi * stepH,
+          y: pdfBottomY + height - GUARD_HEIGHT + gi * stepH,
           width,
-          height: stepH + 0.5, // slight overlap to avoid banding
+          height: stepH + 0.5,
           color: rgb(0.04, 0.05, 0.10),
           opacity: opacities[gi],
         });
       }
     }
 
-    // 1. Draw panel image or blank fallback
-    if (panel.imageBuffer) {
-      try {
-        const targetW = px(rect.w);
-        const targetH = px(rect.h);
-        const resized = await sharp(panel.imageBuffer)
-          .resize(targetW, targetH, { fit: 'cover' })
-          .jpeg({ quality: 88 })
-          .toBuffer();
-        const img = await pdfDoc.embedJpg(resized);
-        page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
-      } catch (_) {
-        // Fallback on image processing error
-        page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.15, 0.18, 0.25) });
-        const ellipsis = '...';
-        const ew = bangersFont.widthOfTextAtSize(ellipsis, 16);
-        page.drawText(ellipsis, {
-          x: rect.x + (rect.w - ew) / 2,
-          y: rect.y + rect.h / 2 - 8,
-          size: 16, font: bangersFont, color: rgb(0.4, 0.45, 0.5)
-        });
-      }
-    } else {
-      // Blank panel fallback — deep blue-grey tonal background
-      page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.15, 0.18, 0.25) });
-      const ellipsis = '...';
-      const ew = bangersFont.widthOfTextAtSize(ellipsis, 16);
-      page.drawText(ellipsis, {
-        x: rect.x + (rect.w - ew) / 2,
-        y: rect.y + rect.h / 2 - 8,
-        size: 16, font: bangersFont, color: rgb(0.4, 0.45, 0.5)
-      });
-    }
+    // ── Split-zone layout: caption zone (top) + image zone (below) ──
+    // In PDF coords (y=0 at bottom): caption zone is at high y, image zone at low y.
+    const captionZoneH = captionLines.length > 0 ? Math.max(captionH, 24) : 0;
+    const imageZone = {
+      x: rect.x,
+      y: rect.y,                          // PDF bottom of image zone
+      w: rect.w,
+      h: rect.h - captionZoneH,           // remaining height after caption
+    };
 
-    // P7: Apply gradient guard at top of every panel (after image, before text)
-    drawTopGradientGuard(page, rect.x, rect.y, rect.w, rect.h);
-
-    // 2. Dynamic multi-line caption strip at top of panel (P6: two-layer contrast)
+    // 1. Draw caption zone (solid dark band, no image behind it)
     if (captionLines.length > 0) {
-      // Caption box sits at the TOP of the panel visually.
-      // In PDF coords (y=0 at bottom), "top" = rect.y + rect.h - captionH
-      const MIN_CAPTION_STRIP_HEIGHT = 24;
-      const captionStripH = Math.max(captionH, MIN_CAPTION_STRIP_HEIGHT);
-      const capBoxY = rect.y + rect.h - captionStripH;
-      // Layer 1: fully opaque dark base (ensures contrast regardless of image)
+      const capBoxY = rect.y + rect.h - captionZoneH;
       page.drawRectangle({
         x: rect.x,
         y: capBoxY,
         width: rect.w,
-        height: captionStripH,
-        color: rgb(0.04, 0.05, 0.10), // deep navy, fully opaque
+        height: captionZoneH,
+        color: rgb(0.04, 0.05, 0.10),
       });
-      // Draw text on top of layer 1
       captionLines.forEach((line, i) => {
-        const lineY = capBoxY + captionStripH - CAPTION_PAD_Y - (i + 1) * CAPTION_LINE_H + CAPTION_LINE_H * 0.25;
+        const lineY = capBoxY + captionZoneH - CAPTION_PAD_Y - (i + 1) * CAPTION_LINE_H + CAPTION_LINE_H * 0.25;
         page.drawText(line, {
           x: rect.x + CAPTION_PAD_X,
           y: lineY,
@@ -1184,16 +1151,52 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
       });
     }
 
-    // 3. Speech bubble (respects caption height)
-    if (panel.dialogue && panel.dialogue.trim()) {
-      // Convert panel rect to top-left coordinate system for bubble positioning
-      const bubbleRect = {
-        x: rect.x,
-        y: PAGE_H - rect.y - rect.h, // convert to top-down y
-        w: rect.w,
-        h: rect.h,
-      };
-      drawOvalBubble(page, bubbleRect, panel.dialogue, panel.speakerPosition, bangersFont, PAGE_H, captionH);
+    // 2. Draw image ONLY in image zone (below caption)
+    if (imageZone.h > 10) {
+      if (panel.imageBuffer) {
+        try {
+          const targetW = px(imageZone.w);
+          const targetH = px(imageZone.h);
+          const resized = await sharp(panel.imageBuffer)
+            .resize(targetW, targetH, { fit: 'cover' })
+            .jpeg({ quality: 88 })
+            .toBuffer();
+          const img = await pdfDoc.embedJpg(resized);
+          page.drawImage(img, { x: imageZone.x, y: imageZone.y, width: imageZone.w, height: imageZone.h });
+        } catch (_) {
+          page.drawRectangle({ x: imageZone.x, y: imageZone.y, width: imageZone.w, height: imageZone.h, color: rgb(0.15, 0.18, 0.25) });
+          const ellipsis = '...';
+          const ew = bangersFont.widthOfTextAtSize(ellipsis, 16);
+          page.drawText(ellipsis, {
+            x: imageZone.x + (imageZone.w - ew) / 2,
+            y: imageZone.y + imageZone.h / 2 - 8,
+            size: 16, font: bangersFont, color: rgb(0.4, 0.45, 0.5),
+          });
+        }
+      } else {
+        page.drawRectangle({ x: imageZone.x, y: imageZone.y, width: imageZone.w, height: imageZone.h, color: rgb(0.15, 0.18, 0.25) });
+        const ellipsis = '...';
+        const ew = bangersFont.widthOfTextAtSize(ellipsis, 16);
+        page.drawText(ellipsis, {
+          x: imageZone.x + (imageZone.w - ew) / 2,
+          y: imageZone.y + imageZone.h / 2 - 8,
+          size: 16, font: bangersFont, color: rgb(0.4, 0.45, 0.5),
+        });
+      }
+
+      // Gradient guard at top of IMAGE zone only (not caption zone)
+      drawTopGradientGuard(page, imageZone.x, imageZone.y, imageZone.w, imageZone.h);
+
+      // 3. Speech bubble inside image zone (caption is already separate)
+      if (panel.dialogue && panel.dialogue.trim()) {
+        const bubbleRect = {
+          x: imageZone.x,
+          y: PAGE_H - imageZone.y - imageZone.h,
+          w: imageZone.w,
+          h: imageZone.h,
+        };
+        drawOvalBubble(page, bubbleRect, panel.dialogue.toUpperCase(), panel.speakerPosition, bangersFont, PAGE_H, 0);
+      }
     }
   }
 

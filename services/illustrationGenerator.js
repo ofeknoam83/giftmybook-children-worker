@@ -137,8 +137,8 @@ const ART_STYLE_CONFIG = {
     suffix: 'clean simple shapes, flat design with subtle texture, muted Nordic color palette (soft sage, dusty rose, warm cream, birch white), generous negative space, cozy hygge atmosphere, elegant simplicity',
   },
   cinematic_3d: {
-    prefix: 'Cinematic 3D animated children\'s book illustration,',
-    suffix: 'photorealistic 3D CGI render, volumetric cinematic lighting, depth of field, rich textures, dramatic warm golden glow, Disney-Pixar production quality, emotionally expressive characters, vivid saturated palette, subsurface skin scattering, magical storybook atmosphere',
+    prefix: '3D CGI animated film render — Pixar/DreamWorks studio quality. Photorealistic subsurface scattering on skin, volumetric lighting with motivated light sources, physically-based materials, depth-of-field background blur, ambient occlusion, film-quality shadows and highlights. ABSOLUTELY NOT watercolor. ABSOLUTELY NOT 2D flat illustration. ABSOLUTELY NOT cartoon sketch. PURE 3D rendered animation.',
+    suffix: 'Rendered in high-end 3D animation style. Pixar-quality. Cinematic.',
   },
 };
 
