@@ -53,7 +53,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const { planStory, validateStoryText } = require('../../services/storyPlanner');
+const { planStory, validateStoryText, combinedCritic } = require('../../services/storyPlanner');
 
 describe('planStory', () => {
   const childDetails = {
@@ -305,5 +305,43 @@ describe('validateStoryText', () => {
     };
     const { issues } = validateStoryText(plan, 30);
     expect(issues.some(i => i.type === 'visual_spreads')).toBe(true);
+  });
+});
+
+describe('combinedCritic', () => {
+  test('applies improved spreads without throwing', async () => {
+    const storyPlan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Left ${i + 1}` },
+        right: { text: `Right ${i + 1}` },
+      })),
+    };
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [],
+              improved_spreads: Array.from({ length: 12 }, (_, i) => ({
+                spread: i + 1,
+                left: `Improved left ${i + 1}`,
+                right: `Improved right ${i + 1}`,
+              })),
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 200, completion_tokens: 300 },
+      }),
+    }));
+
+    const result = await combinedCritic(storyPlan, {});
+    expect(result.entries[0].left.text).toBe('Improved left 1');
+    expect(result.entries[0].right.text).toBe('Improved right 1');
+    expect(result.entries[11].left.text).toBe('Improved left 12');
   });
 });

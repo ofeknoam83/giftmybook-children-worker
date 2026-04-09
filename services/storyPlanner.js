@@ -68,8 +68,18 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const data = await resp.json();
   const choice = data.choices?.[0];
   const finishReason = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
+  let content = choice?.message?.content || '';
+  if (Array.isArray(content)) {
+    content = content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return part.text || '';
+        return '';
+      })
+      .join('');
+  }
   return {
-    text: choice?.message?.content || '',
+    text: typeof content === 'string' ? content : '',
     inputTokens: data.usage?.prompt_tokens || 0,
     outputTokens: data.usage?.completion_tokens || 0,
     finishReason,
@@ -139,6 +149,9 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
         maxTokens: opts.maxTokens || 8000,
         jsonMode: opts.jsonMode,
       });
+      if (opts.jsonMode && !String(result.text || '').trim()) {
+        throw new Error('GPT 5.4 returned empty JSON-mode content');
+      }
       if (opts.costTracker) {
         opts.costTracker.addTextUsage('gpt-5.4', result.inputTokens, result.outputTokens);
       }
@@ -1479,6 +1492,35 @@ Return JSON:
 - If left or right was null, keep it null
 - issues array may be empty if the story is already strong`;
 
+function applyImprovedSpreads(storyPlan, improvedSpreads) {
+  const spreads = storyPlan.entries.filter((entry) => entry.type === 'spread');
+  if (!Array.isArray(improvedSpreads)) return storyPlan;
+  if (improvedSpreads.length !== spreads.length) {
+    console.warn(`[storyPlanner] Critic returned ${improvedSpreads.length} spreads, expected ${spreads.length} — using original text`);
+    return storyPlan;
+  }
+
+  const updatedEntries = storyPlan.entries.map((entry) => {
+    if (entry.type !== 'spread') return entry;
+    const match = improvedSpreads.find((spread) => spread.spread === entry.spread);
+    if (!match) return entry;
+
+    const updated = { ...entry };
+    if (entry.left && Object.prototype.hasOwnProperty.call(match, 'left')) {
+      updated.left = { ...entry.left, text: match.left };
+    }
+    if (entry.right && Object.prototype.hasOwnProperty.call(match, 'right')) {
+      updated.right = { ...entry.right, text: match.right };
+    }
+    return updated;
+  });
+
+  return {
+    ...storyPlan,
+    entries: updatedEntries,
+  };
+}
+
 /**
  * Combined critic — rhythm, emotional arc, memorable line, language quality in one pass.
  * Replaces the three separate rhythm/arc/polish critics.
@@ -1675,6 +1717,40 @@ function parseJsonObjectFromText(text) {
   }
 }
 
+function compactGraphicNovelStoryBible(storyBible) {
+  if (!storyBible || typeof storyBible !== 'object') return {};
+  return {
+    title: storyBible.title || '',
+    tagline: storyBible.tagline || '',
+    logline: storyBible.logline || '',
+    audiencePromise: storyBible.audiencePromise || '',
+    cast: Array.isArray(storyBible.cast)
+      ? storyBible.cast.map((member) => ({
+          id: member.id,
+          name: member.name,
+          role: member.role,
+          voiceGuide: member.voiceGuide,
+          visualAnchor: member.visualAnchor,
+          actingNotes: member.actingNotes,
+        }))
+      : [],
+    worldBible: storyBible.worldBible || {},
+    recurringMotifs: storyBible.recurringMotifs || [],
+    sceneColorScript: storyBible.sceneColorScript || [],
+    sceneBlueprints: Array.isArray(storyBible.sceneBlueprints)
+      ? storyBible.sceneBlueprints.map((scene) => ({
+          sceneNumber: scene.sceneNumber,
+          sceneTitle: scene.sceneTitle,
+          purpose: scene.purpose,
+          turningPoint: scene.turningPoint,
+          pageCountTarget: scene.pageCountTarget,
+          dominantEmotion: scene.dominantEmotion,
+          pageTurnIntent: scene.pageTurnIntent,
+        }))
+      : [],
+  };
+}
+
 function legacyGraphicNovelScenesToPages(plan, childDetails = {}) {
   if (Array.isArray(plan.pages) && plan.pages.length) return plan;
   if (!Array.isArray(plan.scenes)) return plan;
@@ -1828,7 +1904,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     theme,
     enrichedCustomDetails,
     seed,
-    storyBible
+    compactGraphicNovelStoryBible(storyBible)
   ) + parentStorySection + titleInstruction;
 
   let plan;
