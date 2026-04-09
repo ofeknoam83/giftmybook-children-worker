@@ -53,10 +53,11 @@ async function convertToColoringPage(base64, mimeType) {
       if (!data?.candidates?.[0]?.content?.parts) {
         throw new Error(`Unexpected response: ${JSON.stringify(data).slice(0, 300)}`);
       }
-      const imgPart = data.candidates[0].content.parts.find(p => p.inline_data?.data);
+      // Gemini API response uses camelCase (inlineData), not snake_case (inline_data)
+      const imgPart = data.candidates[0].content.parts.find(p => p.inlineData?.data);
       if (!imgPart) throw new Error(`No image in response parts: ${JSON.stringify(data.candidates[0].content.parts.map(p => Object.keys(p))).slice(0, 200)}`);
 
-      return Buffer.from(imgPart.inline_data.data, 'base64');
+      return Buffer.from(imgPart.inlineData.data, 'base64');
     } catch (err) {
       lastError = err;
       console.warn(`[coloringBookGenerator] Attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
