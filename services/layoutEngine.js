@@ -810,81 +810,333 @@ async function buildChapterBookPdf(chapters, opts = {}) {
   return Buffer.from(await pdfDoc.save());
 }
 
+// ── Bangers font cache (for graphic novel speech bubbles) ─────────────────────
+let bangersFontBytes = null;
+async function getBangersFont() {
+  if (bangersFontBytes) return bangersFontBytes;
+  const resp = await fetch('https://github.com/google/fonts/raw/main/ofl/bangers/Bangers-Regular.ttf');
+  if (!resp.ok) throw new Error('Failed to download Bangers font');
+  bangersFontBytes = Buffer.from(await resp.arrayBuffer());
+  return bangersFontBytes;
+}
+
 /**
- * Draw a single comic panel: border, image (if available), caption strip at bottom.
+ * Group panels into pages based on pageLayout capacity.
+ * Returns [{ layout, panels: [] }, ...]
  */
-async function drawComicPanel(pdfDoc, page, panel, x, y, w, h, ctx) {
-  const { bodyFont, helvBold, BLACK, WHITE, PANEL_BG, PANEL_BORDER, px, DPI } = ctx;
+function groupPanelsIntoPages(allPanels) {
+  const CAPACITY = {
+    'splash': 1,
+    'strip+2': 3,
+    '1large+2small': 3,
+    '3equal': 3,
+    '2equal': 2,
+    '4equal': 4,
+  };
 
-  // Panel background
-  page.drawRectangle({ x, y, width: w, height: h, color: PANEL_BG });
-  // Panel border
-  page.drawRectangle({ x, y, width: w, height: h, borderColor: BLACK, borderWidth: PANEL_BORDER });
-
-  const captionH = panel.caption ? 32 : 0;
-  const imageH = h - captionH;
-
-  // Embed illustration if available
-  if (panel.imageBuffer) {
-    try {
-      const targetW = px(w - PANEL_BORDER * 2);
-      const targetH = px(imageH - PANEL_BORDER);
-      const resized = await sharp(panel.imageBuffer)
-        .resize(targetW, targetH, { fit: 'cover' })
-        .jpeg({ quality: 88 })
-        .toBuffer();
-      const img = await pdfDoc.embedJpg(resized);
-      page.drawImage(img, {
-        x: x + PANEL_BORDER,
-        y: y + captionH + PANEL_BORDER,
-        width: w - PANEL_BORDER * 2,
-        height: imageH - PANEL_BORDER,
-      });
-    } catch (_) {
-      // Fallback: gray placeholder
-      page.drawRectangle({ x: x + PANEL_BORDER, y: y + captionH, width: w - PANEL_BORDER * 2, height: imageH, color: rgb(0.85, 0.85, 0.85) });
-    }
-  } else {
-    page.drawRectangle({ x: x + PANEL_BORDER, y: y + captionH, width: w - PANEL_BORDER * 2, height: imageH, color: rgb(0.85, 0.85, 0.85) });
+  const pages = [];
+  let i = 0;
+  while (i < allPanels.length) {
+    const layout = allPanels[i].pageLayout || '3equal';
+    const cap = CAPACITY[layout] || 3;
+    const group = allPanels.slice(i, i + cap);
+    pages.push({ layout, panels: group });
+    i += group.length;
   }
+  return pages;
+}
 
-  // Caption strip at bottom
-  if (panel.caption) {
-    page.drawRectangle({ x, y, width: w, height: captionH, color: WHITE });
-    page.drawRectangle({ x, y, width: w, height: captionH, borderColor: BLACK, borderWidth: 1 });
-    const capFont = bodyFont;
-    const capSize = 8;
-    const capPad = 4;
-    const capText = panel.caption.length > 80 ? panel.caption.slice(0, 77) + '...' : panel.caption;
-    const capLines = wrapText(capText, capFont, capSize, w - capPad * 2);
-    let cy = y + captionH - capSize - capPad;
-    for (const line of capLines.slice(0, 2)) {
-      page.drawText(line, { x: x + capPad, y: cy, size: capSize, font: capFont, color: BLACK });
-      cy -= capSize + 2;
-    }
+/**
+ * Draw an oval speech bubble with tail inside a panel.
+ * Uses pdf-lib drawing primitives.
+ */
+function drawOvalBubble(page, panelRect, upperCaseText, speakerPosition, bangersFont, pageH) {
+  const sp = speakerPosition || 'left';
+
+  // Measure text
+  const fontSize = 9;
+  const maxTextW = panelRect.w * 0.55;
+  const textLines = wrapText(upperCaseText, bangersFont, fontSize, maxTextW);
+  const lineH = fontSize * 1.3;
+  const textW = Math.max(...textLines.map(l => bangersFont.widthOfTextAtSize(l, fontSize)), 60);
+  const textH = textLines.length * lineH;
+
+  let bubbleW = Math.max(textW + 20, 80);
+  let bubbleH = Math.max(textH + 16, 32);
+
+  // Position bubble (opposite to speaker)
+  const posMap = {
+    'left':         { bx: 0.75, by: 0.2 },
+    'right':        { bx: 0.25, by: 0.2 },
+    'center':       { bx: 0.50, by: 0.15 },
+    'bottom-left':  { bx: 0.75, by: 0.25 },
+    'bottom-right': { bx: 0.25, by: 0.25 },
+    'top-left':     { bx: 0.75, by: 0.75 },
+    'top-right':    { bx: 0.25, by: 0.75 },
+  };
+
+  const tailMap = {
+    'left':         { tx: 0.15, ty: 0.65 },
+    'right':        { tx: 0.85, ty: 0.65 },
+    'center':       { tx: 0.50, ty: 0.75 },
+    'bottom-left':  { tx: 0.15, ty: 0.75 },
+    'bottom-right': { tx: 0.85, ty: 0.75 },
+    'top-left':     { tx: 0.15, ty: 0.25 },
+    'top-right':    { tx: 0.85, ty: 0.25 },
+  };
+
+  const bpos = posMap[sp] || posMap['left'];
+  const tpos = tailMap[sp] || tailMap['left'];
+
+  let bubbleCX = panelRect.x + panelRect.w * bpos.bx;
+  let bubbleCY = panelRect.y + panelRect.h * bpos.by;
+
+  // Clamp bubble inside panel (6pt margin from edges)
+  const marginPx = 6;
+  bubbleCX = Math.max(panelRect.x + bubbleW / 2 + marginPx, Math.min(panelRect.x + panelRect.w - bubbleW / 2 - marginPx, bubbleCX));
+  bubbleCY = Math.max(panelRect.y + bubbleH / 2 + marginPx, Math.min(panelRect.y + panelRect.h - bubbleH / 2 - marginPx, bubbleCY));
+
+  // Tail tip in panel at speaker location
+  const tailTipX = panelRect.x + panelRect.w * tpos.tx;
+  const tailTipY = panelRect.y + panelRect.h * tpos.ty;
+
+  // pdf-lib y is from bottom
+  const pdfBubbleCY = pageH - bubbleCY;
+  const pdfTailTipY = pageH - tailTipY;
+
+  // Draw tail triangle (white filled with black stroke)
+  const tailBaseHalf = 8;
+  // Perpendicular to the line from bubble center to tail tip
+  const dx = tailTipX - bubbleCX;
+  const dy = tailTipY - bubbleCY;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const perpX = -dy / dist * tailBaseHalf;
+  const perpY = dx / dist * tailBaseHalf;
+
+  // Draw white filled ellipse with black stroke
+  page.drawEllipse({
+    x: bubbleCX,
+    y: pdfBubbleCY,
+    xScale: bubbleW / 2,
+    yScale: bubbleH / 2,
+    color: rgb(1, 1, 1),
+    borderColor: rgb(0, 0, 0),
+    borderWidth: 2,
+  });
+
+  // Draw tail triangle — white fill over ellipse border, then re-stroke
+  const tailBase1 = { x: bubbleCX + perpX, y: pdfBubbleCY + perpY };
+  const tailBase2 = { x: bubbleCX - perpX, y: pdfBubbleCY - perpY };
+  const tailTip = { x: tailTipX, y: pdfTailTipY };
+
+  // White fill triangle to cover ellipse border at base
+  page.drawLine({ start: tailBase1, end: tailTip, thickness: 2, color: rgb(0, 0, 0) });
+  page.drawLine({ start: tailBase2, end: tailTip, thickness: 2, color: rgb(0, 0, 0) });
+  // Fill interior with white to hide ellipse border at tail base
+  // Use a small white rectangle trick — draw white lines between base points
+  const steps = 20;
+  for (let s = 0; s <= steps; s++) {
+    const t = s / steps;
+    const lx = tailBase1.x + (tailTip.x - tailBase1.x) * t;
+    const ly = tailBase1.y + (tailTip.y - tailBase1.y) * t;
+    const rx = tailBase2.x + (tailTip.x - tailBase2.x) * t;
+    const ry = tailBase2.y + (tailTip.y - tailBase2.y) * t;
+    page.drawLine({ start: { x: lx, y: ly }, end: { x: rx, y: ry }, thickness: 1.5, color: rgb(1, 1, 1) });
+  }
+  // Re-draw the outer edges of the tail
+  page.drawLine({ start: tailBase1, end: tailTip, thickness: 1.5, color: rgb(0, 0, 0) });
+  page.drawLine({ start: tailBase2, end: tailTip, thickness: 1.5, color: rgb(0, 0, 0) });
+
+  // Draw text centered in the bubble
+  const textStartY = pdfBubbleCY + (textLines.length * lineH) / 2 - fontSize;
+  for (let li = 0; li < textLines.length; li++) {
+    const line = textLines[li];
+    const lw = bangersFont.widthOfTextAtSize(line, fontSize);
+    page.drawText(line, {
+      x: bubbleCX - lw / 2,
+      y: textStartY - li * lineH,
+      size: fontSize,
+      font: bangersFont,
+      color: rgb(0, 0, 0),
+    });
   }
 }
 
 /**
+ * Render a single comic page from a page group { layout, panels }.
+ */
+async function renderComicPage(pdfDoc, pageGroup, ctx) {
+  const { bangersFont, helv, pageH: PAGE_H, pageW: PAGE_W } = ctx;
+
+  const MARGIN_C = 24;
+  const GUTTER_C = 8;
+  const CONTENT_X = MARGIN_C;
+  const CONTENT_W = PAGE_W - MARGIN_C * 2;
+
+  const DPI = 300;
+  const px = (pt) => Math.round(pt / 72 * DPI);
+
+  const { layout, panels } = pageGroup;
+
+  // Check if first panel is scene opener (establishing + panelNumber 1)
+  const firstPanel = panels[0] || {};
+  const isSceneOpener = firstPanel.panelType === 'establishing' && firstPanel.panelNumber === 1;
+  const sceneHeaderH = isSceneOpener ? 20 : 0;
+
+  const CONTENT_Y = MARGIN_C;
+  const CONTENT_H = PAGE_H - MARGIN_C * 2 - sceneHeaderH;
+  const contentTopY = CONTENT_Y + CONTENT_H; // top of content area in PDF coords (bottom-up)
+
+  const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+
+  // Fill entire page with black (gutters show through)
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0, 0, 0) });
+
+  // Scene title header (above content area)
+  if (isSceneOpener) {
+    const headerY = PAGE_H - MARGIN_C - sceneHeaderH;
+    page.drawRectangle({ x: 0, y: headerY, width: PAGE_W, height: sceneHeaderH, color: rgb(0, 0, 0) });
+    const sceneLabel = `SCENE ${firstPanel.sceneNumber || ''} \u2014 ${(firstPanel.sceneTitle || '').toUpperCase()}`;
+    const slw = bangersFont.widthOfTextAtSize(sceneLabel, 9);
+    page.drawText(sceneLabel, {
+      x: (PAGE_W - slw) / 2,
+      y: headerY + 5,
+      size: 9,
+      font: bangersFont,
+      color: rgb(1, 1, 1),
+    });
+  }
+
+  // Compute panel rects based on layout (in PDF coordinates: y=0 at bottom)
+  let panelRects = [];
+
+  if (layout === 'splash') {
+    panelRects = [{ x: CONTENT_X, y: CONTENT_Y, w: CONTENT_W, h: CONTENT_H }];
+  } else if (layout === 'strip+2') {
+    const stripH = CONTENT_H * 0.18;
+    const lower2H = CONTENT_H - stripH - GUTTER_C;
+    const panelW = (CONTENT_W - GUTTER_C) / 2;
+    // Strip at top (high y in PDF), two panels below
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + lower2H + GUTTER_C, w: CONTENT_W, h: stripH },
+      { x: CONTENT_X, y: CONTENT_Y, w: panelW, h: lower2H },
+      { x: CONTENT_X + panelW + GUTTER_C, y: CONTENT_Y, w: panelW, h: lower2H },
+    ];
+  } else if (layout === '1large+2small') {
+    const largeH = CONTENT_H * 0.55;
+    const smallH = CONTENT_H - largeH - GUTTER_C;
+    const smallW = (CONTENT_W - GUTTER_C) / 2;
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + smallH + GUTTER_C, w: CONTENT_W, h: largeH },
+      { x: CONTENT_X, y: CONTENT_Y, w: smallW, h: smallH },
+      { x: CONTENT_X + smallW + GUTTER_C, y: CONTENT_Y, w: smallW, h: smallH },
+    ];
+  } else if (layout === '3equal') {
+    const panelH = (CONTENT_H - GUTTER_C * 2) / 3;
+    for (let i = 0; i < 3; i++) {
+      panelRects.push({ x: CONTENT_X, y: CONTENT_Y + (2 - i) * (panelH + GUTTER_C), w: CONTENT_W, h: panelH });
+    }
+  } else if (layout === '2equal') {
+    const panelH = (CONTENT_H - GUTTER_C) / 2;
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + panelH + GUTTER_C, w: CONTENT_W, h: panelH },
+      { x: CONTENT_X, y: CONTENT_Y, w: CONTENT_W, h: panelH },
+    ];
+  } else if (layout === '4equal') {
+    const panelW = (CONTENT_W - GUTTER_C) / 2;
+    const panelH = (CONTENT_H - GUTTER_C) / 2;
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + panelH + GUTTER_C, w: panelW, h: panelH },                         // top-left
+      { x: CONTENT_X + panelW + GUTTER_C, y: CONTENT_Y + panelH + GUTTER_C, w: panelW, h: panelH },     // top-right
+      { x: CONTENT_X, y: CONTENT_Y, w: panelW, h: panelH },                                              // bottom-left
+      { x: CONTENT_X + panelW + GUTTER_C, y: CONTENT_Y, w: panelW, h: panelH },                          // bottom-right
+    ];
+  } else {
+    // Fallback: stack all panels equally
+    const panelH = (CONTENT_H - GUTTER_C * Math.max(0, panels.length - 1)) / Math.max(1, panels.length);
+    for (let i = 0; i < panels.length; i++) {
+      panelRects.push({ x: CONTENT_X, y: CONTENT_Y + (panels.length - 1 - i) * (panelH + GUTTER_C), w: CONTENT_W, h: panelH });
+    }
+  }
+
+  // Draw each panel
+  for (let pi = 0; pi < Math.min(panels.length, panelRects.length); pi++) {
+    const panel = panels[pi];
+    const rect = panelRects[pi];
+
+    // 1. Draw panel image or placeholder
+    if (panel.imageBuffer) {
+      try {
+        const targetW = px(rect.w);
+        const targetH = px(rect.h);
+        const resized = await sharp(panel.imageBuffer)
+          .resize(targetW, targetH, { fit: 'cover' })
+          .jpeg({ quality: 88 })
+          .toBuffer();
+        const img = await pdfDoc.embedJpg(resized);
+        page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
+      } catch (_) {
+        page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
+      }
+    } else {
+      // Soft blue-grey placeholder (#b8c5d6)
+      page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
+    }
+
+    // 2. Caption band at top of panel
+    if (panel.caption && panel.caption.trim()) {
+      const captionBandH = 22;
+      const captionY = rect.y + rect.h - captionBandH; // top of panel in PDF coords
+      // Dark navy band (#1a1a2e)
+      page.drawRectangle({ x: rect.x, y: captionY, width: rect.w, height: captionBandH, color: rgb(0.102, 0.102, 0.180) });
+      // Caption text — white, 8pt, left-padded 8pt
+      const capLines = wrapText(panel.caption, bangersFont, 8, rect.w - 16);
+      const capLine = capLines.slice(0, 2).join(' ');
+      page.drawText(capLine, {
+        x: rect.x + 8,
+        y: captionY + (captionBandH - 8) / 2,
+        size: 8,
+        font: bangersFont,
+        color: rgb(1, 1, 1),
+      });
+    }
+
+    // 3. Speech bubble
+    if (panel.dialogue && panel.dialogue.trim()) {
+      // Convert panel rect to top-left coordinate system for bubble positioning
+      const bubbleRect = {
+        x: rect.x,
+        y: PAGE_H - rect.y - rect.h, // convert to top-down y
+        w: rect.w,
+        h: rect.h,
+      };
+      drawOvalBubble(page, bubbleRect, panel.dialogue.toUpperCase(), panel.speakerPosition, bangersFont, PAGE_H);
+    }
+  }
+
+  // Page number
+  const pgNum = `${pdfDoc.getPageCount()}`;
+  const pnw = helv.widthOfTextAtSize(pgNum, 8);
+  page.drawText(pgNum, { x: (PAGE_W - pnw) / 2, y: 6, size: 8, font: helv, color: rgb(0.6, 0.6, 0.6) });
+}
+
+/**
  * Build a 6x9" graphic novel PDF.
- * Each page has 1-2 comic panels arranged in a grid.
  * @param {Array<{caption: string, imageBuffer: Buffer|null}>} panels - all panels in order
  * @param {object} opts - { title, childName, tagline, bookFrom, dedication, year, scenes }
  */
 async function buildGraphicNovelPdf(panels, opts = {}) {
-  const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear(), scenes = [] } = opts;
+  const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
 
-  const PW = 6 * 72;   // 432pt
-  const PH = 9 * 72;   // 648pt
-  const GUTTER = 6;    // gap between panels
-  const MARGIN = 18;   // page margin
-  const PANEL_BORDER = 2; // panel border thickness
+  const PAGE_W = 432;  // 6" at 72pt/inch
+  const PAGE_H = 648;  // 9"
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   pdfDoc.setTitle(title);
   pdfDoc.setAuthor('GiftMyBook');
 
+  // Load fonts
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   let playfair, playfairItalic;
@@ -893,123 +1145,80 @@ async function buildGraphicNovelPdf(panels, opts = {}) {
     playfairItalic = await pdfDoc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf')));
   } catch (_) {}
 
+  // Download and embed Bangers font
+  let bangersFont;
+  try {
+    const bangersBuf = await getBangersFont();
+    bangersFont = await pdfDoc.embedFont(bangersBuf);
+  } catch (e) {
+    console.warn('[LayoutEngine] Bangers font download failed, using Helvetica Bold:', e.message);
+    bangersFont = helvBold;
+  }
+
   const titleFont = playfair || helvBold;
   const bodyFont = helv;
   const BLACK = rgb(0, 0, 0);
   const WHITE = rgb(1, 1, 1);
-  const PANEL_BG = rgb(0.97, 0.97, 0.97);
-
-  const DPI = 300;
-  const px = (pt) => Math.round(pt / 72 * DPI);
 
   // ── Title page ──
   {
-    const p = pdfDoc.addPage([PW, PH]);
-    p.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: rgb(0.08, 0.08, 0.15) });
+    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.08, 0.08, 0.15) });
 
-    // Title
-    const titleLines = wrapText(title, titleFont, 26, PW - 40);
-    let ty = PH / 2 + 40;
+    const titleLines = wrapText(title, titleFont, 26, PAGE_W - 40);
+    let ty = PAGE_H / 2 + 40;
     for (const line of titleLines) {
       const lw = titleFont.widthOfTextAtSize(line, 26);
-      p.drawText(line, { x: (PW - lw) / 2, y: ty, size: 26, font: titleFont, color: WHITE });
+      p.drawText(line, { x: (PAGE_W - lw) / 2, y: ty, size: 26, font: titleFont, color: WHITE });
       ty -= 36;
     }
 
     if (tagline) {
       const tagText = tagline.length > 50 ? tagline.slice(0, 47) + '...' : tagline;
       const tw = (playfairItalic || bodyFont).widthOfTextAtSize(tagText, 11);
-      p.drawText(tagText, { x: Math.max(10, (PW - tw) / 2), y: PH / 2 - 10, size: 11, font: playfairItalic || bodyFont, color: rgb(0.8, 0.8, 0.8) });
+      p.drawText(tagText, { x: Math.max(10, (PAGE_W - tw) / 2), y: PAGE_H / 2 - 10, size: 11, font: playfairItalic || bodyFont, color: rgb(0.8, 0.8, 0.8) });
     }
 
     const sub = `A personalized graphic novel for ${childName}`;
     const sw = bodyFont.widthOfTextAtSize(sub, 10);
-    p.drawText(sub, { x: (PW - sw) / 2, y: MARGIN + 20, size: 10, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
+    p.drawText(sub, { x: (PAGE_W - sw) / 2, y: 44, size: 10, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
     const yw = bodyFont.widthOfTextAtSize(`${year} \u00B7 GiftMyBook`, 8);
-    p.drawText(`${year} \u00B7 GiftMyBook`, { x: (PW - yw) / 2, y: MARGIN, size: 8, font: bodyFont, color: rgb(0.4, 0.4, 0.4) });
+    p.drawText(`${year} \u00B7 GiftMyBook`, { x: (PAGE_W - yw) / 2, y: 24, size: 8, font: bodyFont, color: rgb(0.4, 0.4, 0.4) });
   }
 
   // ── Dedication page ──
   if (dedication) {
-    const p = pdfDoc.addPage([PW, PH]);
-    const dedText = dedication.slice(0, 60);
-    const lw = (playfairItalic || bodyFont).widthOfTextAtSize(dedText, 11);
-    p.drawText(dedText, { x: (PW - lw) / 2, y: PH / 2 + 10, size: 11, font: playfairItalic || bodyFont, color: BLACK });
+    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    const dedLines = wrapText(dedication, playfairItalic || bodyFont, 11, PAGE_W - 80);
+    let dy = PAGE_H / 2 + (dedLines.length * 16) / 2;
+    for (const line of dedLines) {
+      const lw = (playfairItalic || bodyFont).widthOfTextAtSize(line, 11);
+      p.drawText(line, { x: (PAGE_W - lw) / 2, y: dy, size: 11, font: playfairItalic || bodyFont, color: BLACK });
+      dy -= 16;
+    }
   }
 
-  // ── Scene pages ──
-  // Group panels by scene
-  const sceneGroups = [];
-  let currentScene = null;
-  for (const panel of panels) {
-    if (!currentScene || panel.sceneNumber !== currentScene.number) {
-      currentScene = { number: panel.sceneNumber, title: panel.sceneTitle, panels: [] };
-      sceneGroups.push(currentScene);
-    }
-    currentScene.panels.push(panel);
-  }
+  // ── Comic pages ──
+  const pageGroups = groupPanelsIntoPages(panels);
+  const ctx = { bangersFont, helv, helvBold, pageH: PAGE_H, pageW: PAGE_W };
 
-  for (const scene of sceneGroups) {
-    // Lay out panels: 2 per page (top/bottom split)
-    const scenePanels = scene.panels;
-    const pageLayout = scenePanels.length <= 2
-      ? [[scenePanels[0]], [scenePanels[1]].filter(Boolean)]
-      : scenePanels.length === 3
-        ? [[scenePanels[0]], [scenePanels[1], scenePanels[2]]]
-        : [[scenePanels[0], scenePanels[1]], [scenePanels[2], scenePanels[3]]];
-
-    for (let pageIdx = 0; pageIdx < pageLayout.length; pageIdx++) {
-      const pagePanels = pageLayout[pageIdx].filter(Boolean);
-      if (pagePanels.length === 0) continue;
-
-      const p = pdfDoc.addPage([PW, PH]);
-      p.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: WHITE });
-
-      const isFirstPageOfScene = pageIdx === 0;
-      const headerH = isFirstPageOfScene ? 20 : 0;
-
-      // Scene title strip
-      if (isFirstPageOfScene) {
-        p.drawRectangle({ x: 0, y: PH - headerH, width: PW, height: headerH, color: BLACK });
-        const sceneLabel = `Scene ${scene.number}${scene.title ? ': ' + scene.title : ''}`;
-        const slw = helvBold.widthOfTextAtSize(sceneLabel, 9);
-        p.drawText(sceneLabel, { x: (PW - slw) / 2, y: PH - headerH + 5, size: 9, font: helvBold, color: WHITE });
-      }
-
-      const contentH = PH - headerH - MARGIN * 2;
-      const contentY = MARGIN;
-      const contentW = PW - MARGIN * 2;
-
-      if (pagePanels.length === 1) {
-        // Single panel: full page
-        await drawComicPanel(pdfDoc, p, pagePanels[0], MARGIN, contentY, contentW, contentH, { bodyFont, helvBold, BLACK, WHITE, PANEL_BG, PANEL_BORDER, px, DPI });
-      } else {
-        // Two panels: top/bottom split
-        const panelH = (contentH - GUTTER) / 2;
-        await drawComicPanel(pdfDoc, p, pagePanels[0], MARGIN, contentY + panelH + GUTTER, contentW, panelH, { bodyFont, helvBold, BLACK, WHITE, PANEL_BG, PANEL_BORDER, px, DPI });
-        await drawComicPanel(pdfDoc, p, pagePanels[1], MARGIN, contentY, contentW, panelH, { bodyFont, helvBold, BLACK, WHITE, PANEL_BG, PANEL_BORDER, px, DPI });
-      }
-
-      // Page number
-      const pgNum = `${pdfDoc.getPageCount()}`;
-      const pnw = bodyFont.widthOfTextAtSize(pgNum, 8);
-      p.drawText(pgNum, { x: (PW - pnw) / 2, y: 6, size: 8, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
-    }
+  for (const group of pageGroups) {
+    await renderComicPage(pdfDoc, group, ctx);
   }
 
   // ── "The End" page ──
   {
-    const p = pdfDoc.addPage([PW, PH]);
-    p.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: rgb(0.08, 0.08, 0.15) });
+    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.08, 0.08, 0.15) });
     const endW = (playfairItalic || titleFont).widthOfTextAtSize('The End', 32);
-    p.drawText('The End', { x: (PW - endW) / 2, y: PH / 2, size: 32, font: playfairItalic || titleFont, color: WHITE });
+    p.drawText('The End', { x: (PAGE_W - endW) / 2, y: PAGE_H / 2, size: 32, font: playfairItalic || titleFont, color: WHITE });
     const subW = bodyFont.widthOfTextAtSize(`${childName}'s story`, 11);
-    p.drawText(`${childName}'s story`, { x: (PW - subW) / 2, y: PH / 2 - 28, size: 11, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
+    p.drawText(`${childName}'s story`, { x: (PAGE_W - subW) / 2, y: PAGE_H / 2 - 28, size: 11, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
   }
 
   // Pad to even page count for binding
   while (pdfDoc.getPageCount() % 2 !== 0) {
-    pdfDoc.addPage([PW, PH]);
+    pdfDoc.addPage([PAGE_W, PAGE_H]);
   }
 
   return Buffer.from(await pdfDoc.save());
