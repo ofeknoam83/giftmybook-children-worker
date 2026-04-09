@@ -1126,6 +1126,7 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
 
             // Dedicated character anchor extraction — explicit ethnicity, eye shape, skin tone
             // Retries up to 4 times with rotating API keys until a valid anchor is extracted
+            if (childPhotoUrls && childPhotoUrls.length > 0) {
             const MAX_ANCHOR_RETRIES = 4;
             for (let anchorAttempt = 1; anchorAttempt <= MAX_ANCHOR_RETRIES; anchorAttempt++) {
               try {
@@ -1195,6 +1196,10 @@ Format your answer with each label on its own line followed by a colon and the a
             }
             if (!storyPlan.characterAnchor) {
               bookContext.log('warn', 'Character anchor extraction failed after all retries — illustrations will use characterDescription only');
+            }
+            } else {
+              storyPlan.characterAnchor = null;
+              bookContext.log('info', '[generate-book] No photo provided, skipping characterAnchor extraction');
             }
           } catch (visionErr) {
             bookContext.log('warn', 'Failed to extract character appearance from cover', { error: visionErr.message });

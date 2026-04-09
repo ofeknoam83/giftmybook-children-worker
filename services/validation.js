@@ -2,7 +2,7 @@
  * Input validation and prompt sanitization for API requests.
  */
 
-const VALID_FORMATS = ['picture_book', 'early_reader', 'CHAPTER_BOOK'];
+const VALID_FORMATS = ['picture_book', 'early_reader', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
 const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
   // Emotional development themes
@@ -119,8 +119,16 @@ function validateGenerateBookRequest(body) {
     errors.push(`childName must be 1-${MAX_NAME_LENGTH} characters`);
   }
 
+  const photoOptionalFormats = ['CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
+  const isPhotoOptional = photoOptionalFormats.includes(body.bookFormat);
+
   if (!Array.isArray(body.childPhotoUrls) || body.childPhotoUrls.length === 0) {
-    errors.push('childPhotoUrls is required and must be a non-empty array');
+    if (isPhotoOptional) {
+      // Normalize missing/empty to [] for formats that don't require photos
+      body.childPhotoUrls = [];
+    } else {
+      errors.push('childPhotoUrls is required and must be a non-empty array');
+    }
   } else if (body.childPhotoUrls.length > MAX_PHOTO_URLS) {
     errors.push(`childPhotoUrls must have at most ${MAX_PHOTO_URLS} items`);
   } else {
