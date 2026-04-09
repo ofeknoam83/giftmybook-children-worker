@@ -1768,6 +1768,156 @@ function summarizeGraphicNovelStructure(plan) {
   return { pageCount, sceneCount, panelCount, splashCount, issues };
 }
 
+function buildGraphicNovelChunkSpecs(storyBible) {
+  const sceneBlueprints = Array.isArray(storyBible?.sceneBlueprints)
+    ? [...storyBible.sceneBlueprints].sort((a, b) => (a.sceneNumber || 0) - (b.sceneNumber || 0))
+    : [];
+  if (!sceneBlueprints.length) return [];
+
+  const groups = [
+    [1, 2],
+    [3, 4],
+    [5],
+    [6],
+    [7],
+  ];
+
+  return groups
+    .map((sceneNumbers) => {
+      const scenes = sceneBlueprints.filter((scene) => sceneNumbers.includes(scene.sceneNumber));
+      if (!scenes.length) return null;
+      return {
+        scenes,
+        expectedPages: scenes.reduce((sum, scene) => sum + Math.max(2, Number(scene.pageCountTarget) || 0), 0),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildGraphicNovelStoryBibleChunk(storyBible, chunkSpec) {
+  const compact = compactGraphicNovelStoryBible(storyBible);
+  const sceneNumbers = new Set((chunkSpec?.scenes || []).map((scene) => scene.sceneNumber));
+  return {
+    ...compact,
+    sceneBlueprints: (compact.sceneBlueprints || []).filter((scene) => sceneNumbers.has(scene.sceneNumber)),
+    sceneColorScript: (compact.sceneColorScript || []).filter((scene) => sceneNumbers.has(scene.sceneNumber)),
+  };
+}
+
+function summarizeGraphicNovelChunkStructure(plan, chunkSpec) {
+  const pages = Array.isArray(plan?.pages) ? plan.pages : [];
+  const expectedPages = Number(chunkSpec?.expectedPages) || 0;
+  const allowedScenes = new Set((chunkSpec?.scenes || []).map((scene) => scene.sceneNumber));
+  const expectedSplashes = (chunkSpec?.scenes || []).filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7).length;
+  const issues = [];
+
+  if (pages.length !== expectedPages) issues.push(`pages=${pages.length} (need ${expectedPages})`);
+  if (pages.some((page) => !allowedScenes.has(page.sceneNumber))) issues.push('contains pages from unexpected scenes');
+  if (pages.some((page) => !Array.isArray(page.panels) || page.panels.length === 0)) issues.push('contains empty pages');
+  const splashCount = pages.flatMap((page) => page.panels || []).filter((panel) => panel.panelType === 'splash').length;
+  if (splashCount !== expectedSplashes) issues.push(`splashPanels=${splashCount} (need ${expectedSplashes})`);
+
+  return { issues };
+}
+
+async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, storyBible, chunkSpec, opts = {}) {
+  const {
+    apiKeys,
+    costTracker,
+    approvedTitle,
+    bookContext,
+  } = opts;
+  const {
+    GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM,
+    GRAPHIC_NOVEL_SCENE_PLANNER_USER,
+  } = require('../prompts/graphicNovel');
+  const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
+
+  const chunkBible = buildGraphicNovelStoryBibleChunk(storyBible, chunkSpec);
+  const chunkPrompt = GRAPHIC_NOVEL_SCENE_PLANNER_USER(
+    childDetails,
+    theme,
+    customDetails,
+    seed,
+    chunkBible,
+    chunkSpec
+  );
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await callLLM(GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM, chunkPrompt, {
+        openaiApiKey: apiKeys?.OPENAI_API_KEY,
+        costTracker,
+        temperature: 0.65,
+        maxTokens: 9000,
+        jsonMode: true,
+      });
+      const parsedChunk = await parseStructuredJsonWithFallback(
+        resp,
+        GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM,
+        chunkPrompt,
+        {
+          costTracker,
+          temperature: 0.65,
+          maxTokens: 9000,
+          bookContext,
+        }
+      );
+      let chunkPlan = legacyGraphicNovelScenesToPages(parsedChunk, childDetails);
+      chunkPlan = normalizeGraphicNovelPlan(chunkPlan, { fallbackTitle: storyBible.title || approvedTitle });
+      const structure = summarizeGraphicNovelChunkStructure(chunkPlan, chunkSpec);
+      if (structure.issues.length > 0) {
+        throw new Error(`Invalid chunk: ${structure.issues.join(', ')}`);
+      }
+      return chunkPlan;
+    } catch (err) {
+      bookContext?.log('warn', `Graphic novel chunk plan failed for scenes ${(chunkSpec.scenes || []).map((s) => s.sceneNumber).join(', ')} attempt ${attempt}: ${err.message}`);
+      if (attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+
+  throw new Error('Chunk planning exhausted retries');
+}
+
+async function planGraphicNovelByChunks(childDetails, theme, customDetails, seed, storyBible, opts = {}) {
+  const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
+  const chunkSpecs = buildGraphicNovelChunkSpecs(storyBible);
+  const chunkPlans = [];
+
+  for (const chunkSpec of chunkSpecs) {
+    const chunkPlan = await planGraphicNovelChunk(
+      childDetails,
+      theme,
+      customDetails,
+      seed,
+      storyBible,
+      chunkSpec,
+      opts
+    );
+    chunkPlans.push(chunkPlan);
+  }
+
+  const mergedPages = chunkPlans.flatMap((chunkPlan) => chunkPlan.pages || []).map((page, pageIndex) => ({
+    ...page,
+    pageNumber: pageIndex + 1,
+    panels: (page.panels || []).map((panel, panelIndex) => ({
+      ...panel,
+      pageNumber: pageIndex + 1,
+      panelNumber: Number.isFinite(panel.panelNumber) ? panel.panelNumber : panelIndex + 1,
+    })),
+  }));
+
+  return normalizeGraphicNovelPlan(
+    {
+      title: opts.approvedTitle || storyBible.title || chunkPlans[0]?.title || 'My Graphic Novel',
+      tagline: chunkPlans[0]?.tagline || storyBible.tagline || '',
+      pages: mergedPages,
+    },
+    { fallbackTitle: opts.approvedTitle || storyBible.title }
+  );
+}
+
 async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {}) {
   const {
     apiKeys,
@@ -2024,6 +2174,27 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       }
       break;
     } catch (e) {
+      if (String(e.message || '').includes('Failed to parse story plan JSON after all repair attempts')) {
+        try {
+          bookContext?.log('warn', 'Full graphic novel planner output was too malformed; switching to chunked scene planner');
+          plan = await planGraphicNovelByChunks(
+            childDetails,
+            theme,
+            enrichedCustomDetails,
+            seed,
+            storyBible,
+            {
+              apiKeys,
+              costTracker,
+              approvedTitle,
+              bookContext,
+            }
+          );
+          break;
+        } catch (chunkErr) {
+          bookContext?.log('warn', `Chunked graphic novel planner failed: ${chunkErr.message}`);
+        }
+      }
       bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
       if (attempt === 3) throw e;
       await new Promise((r) => setTimeout(r, 2000 * attempt));

@@ -640,4 +640,184 @@ describe('planGraphicNovel robustness', () => {
     expect(result.scenes.length).toBe(7);
     expect(geminiCalls).toBeGreaterThan(0);
   }, 15000);
+
+  test('falls back to chunked GN planning when full-plan JSON is unsalvageable', async () => {
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+        },
+        {
+          panelNumber: 2,
+          panelType: i === 20 || i === 23 ? 'splash' : 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: i === 20 || i === 23 ? 'splash' : '3equal',
+        },
+      ],
+    }));
+
+    let openAiCalls = 0;
+    let geminiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      if (!String(url).includes('api.openai.com')) {
+        geminiCalls++;
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{
+              content: {
+                parts: [{
+                  text: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1,"sceneTitle":"Broken',
+                }],
+              },
+              finishReason: 'STOP',
+            }],
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+          }),
+        };
+      }
+      openAiCalls++;
+
+      if (openAiCalls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a star-map notebook',
+                  fear: 'crossing a broken starlight bridge',
+                  setting: 'a chain of tiny planets',
+                  storySeed: 'Isabella journeys to relight a beacon.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (openAiCalls === 2) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  sceneBlueprints: [
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                  ],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (openAiCalls === 3) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1,"sceneTitle":"Broken',
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      const chunkSlices = [
+        validPages.slice(0, 8),
+        validPages.slice(8, 15),
+        validPages.slice(15, 18),
+        validPages.slice(18, 21),
+        validPages.slice(21, 24),
+      ];
+
+      if (openAiCalls >= 4 && openAiCalls <= 8) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  pages: chunkSlices[openAiCalls - 4],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Lantern Planet',
+                pages: validPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    const childDetails = {
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    };
+
+    const result = await planGraphicNovel(childDetails, 'adventure', '', {});
+    expect(result.pages.length).toBe(24);
+    expect(result.scenes.length).toBe(7);
+    expect(openAiCalls).toBeGreaterThanOrEqual(8);
+    expect(geminiCalls).toBeGreaterThan(0);
+  }, 15000);
 });

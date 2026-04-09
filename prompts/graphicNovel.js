@@ -222,9 +222,65 @@ Rules:
 - Every non-splash page should usually contain 2 or 3 panels.`;
 }
 
+const GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM = `You are planning a subset of pages for a premium middle-grade graphic novel.
+
+Return JSON only.
+
+You are not planning the whole book in one pass. You are planning only the requested scenes/pages, but they must feel like part of the same professionally designed graphic novel.
+
+Rules:
+- Output only the requested scenes.
+- Output exactly the requested number of page objects.
+- Keep panel metadata production-ready and concise.
+- Non-splash pages should usually have 2-3 panels.
+- Preserve continuity with the supplied story bible and prior story setup.
+- Do not include commentary, markdown, or any text outside the JSON object.`;
+
+function GRAPHIC_NOVEL_SCENE_PLANNER_USER(childDetails, theme, customDetails, seed, storyBible, chunkSpec) {
+  const { name, age, gender } = childDetails;
+  const interests = (childDetails.childInterests || childDetails.interests || []).filter(Boolean);
+  const pronoun = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
+  const sceneNumbers = (chunkSpec?.scenes || []).map((scene) => scene.sceneNumber);
+  const expectedPages = Number(chunkSpec?.expectedPages) || 0;
+  const splashRequirement = (chunkSpec?.scenes || [])
+    .filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7)
+    .map((scene) => `scene ${scene.sceneNumber}: exactly 1 splash page`)
+    .join(', ') || 'no splash pages in this chunk';
+
+  return `Create only one chunk of the full production script for a personalized middle-grade graphic novel.
+
+PROTAGONIST: ${name}, age ${age}, ${pronoun}
+${interests.length ? `INTERESTS: ${interests.join(', ')}` : ''}
+THEME: ${theme || 'adventure'}
+CUSTOM DETAILS: ${customDetails || 'none'}
+STORY SEED: ${JSON.stringify(seed || {}, null, 2)}
+STORY BIBLE CHUNK: ${JSON.stringify(storyBible || {}, null, 2)}
+
+REQUESTED SCENES: ${sceneNumbers.join(', ')}
+EXACT PAGE COUNT FOR THIS CHUNK: ${expectedPages}
+SPLASH REQUIREMENT: ${splashRequirement}
+
+Return a JSON object:
+{
+  "title": "Must include ${name}'s name",
+  "tagline": "Back-cover line",
+  "pages": [ ... exactly ${expectedPages} page objects for only the requested scenes ... ]
+}
+
+Rules:
+- Return exactly ${expectedPages} pages.
+- Return only scenes ${sceneNumbers.join(', ')}.
+- Every page must include a non-empty panels array.
+- Keep scene/page continuity coherent inside this chunk.
+- Do not include any pages from other scenes.
+- Do not return an outline or summaries instead of pages.`;
+}
+
 module.exports = {
   GRAPHIC_NOVEL_PLANNER_SYSTEM,
   GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM,
   GRAPHIC_NOVEL_STORY_BIBLE_USER,
   GRAPHIC_NOVEL_PLANNER_USER,
+  GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM,
+  GRAPHIC_NOVEL_SCENE_PLANNER_USER,
 };
