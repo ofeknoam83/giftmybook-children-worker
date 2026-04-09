@@ -140,6 +140,10 @@ const ART_STYLE_CONFIG = {
     prefix: 'Cinematic 3D animated children\'s book illustration,',
     suffix: 'photorealistic 3D CGI render, volumetric cinematic lighting, depth of field, rich textures, dramatic warm golden glow, Disney-Pixar production quality, emotionally expressive characters, vivid saturated palette, subsurface skin scattering, magical storybook atmosphere',
   },
+  graphic_novel_cinematic: {
+    prefix: 'Cinematic 3D middle-grade graphic novel panel illustration,',
+    suffix: 'Pixar-like 3D animation adapted for comics, clean silhouettes, readable facial acting, simplified backgrounds in small panels, graphic value separation, controlled depth of field, premium cinematic lighting, print-friendly color contrast, consistent character materials, polished sequential-art storytelling',
+  },
 };
 
 /** Words that may trigger NSFW filters in children's book contexts */
@@ -160,6 +164,100 @@ function sanitizePrompt(prompt) {
 function buildGenericSafePrompt(artStyle) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}`;
+}
+
+function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  const requestedStyle = artStyle === 'cinematic_3d' || artStyle === 'pixar_premium'
+    ? 'graphic_novel_cinematic'
+    : artStyle;
+  const styleConfig = ART_STYLE_CONFIG[requestedStyle] || ART_STYLE_CONFIG.graphic_novel_cinematic;
+  const parts = [];
+  const textFreeZone = opts.textFreeZone || 'top-right';
+  const balloons = Array.isArray(opts.balloons) ? opts.balloons.filter((item) => item && item.text) : [];
+  const captions = Array.isArray(opts.captions) ? opts.captions.filter((item) => item && item.text) : [];
+  const sfx = Array.isArray(opts.sfx) ? opts.sfx.filter((item) => item && item.text) : [];
+  const layoutHint = opts.layoutTemplate || opts.pageLayout || 'conversationGrid';
+
+  parts.push('Create one premium middle-grade graphic novel panel.');
+  parts.push('This is sequential art, not a picture-book spread and not a collage.');
+  parts.push('The art must feel like a first-class designed graphic novel for ages 9-12.');
+  parts.push('No text may appear inside the image. All dialogue, captions, and SFX will be added later in vector lettering.');
+  parts.push('');
+
+  if (childName) {
+    parts.push(`PRIMARY HERO: ${childName}.`);
+  }
+  if (characterDescription) {
+    parts.push(`LOCKED HERO APPEARANCE: ${characterDescription}`);
+  }
+  if (opts.characterAnchor) {
+    parts.push(`CHARACTER ANCHOR LOCK: ${opts.characterAnchor}`);
+  }
+  if (characterOutfit) {
+    parts.push(`OUTFIT LOCK: ${characterOutfit}`);
+  }
+  if (opts.additionalCoverCharacters) {
+    parts.push(`ALLOWED SUPPORTING CHARACTERS ONLY: ${opts.additionalCoverCharacters}`);
+  }
+  if (recurringElement) {
+    parts.push(`RECURRING MOTIF: ${recurringElement}`);
+  }
+  if (keyObjects) {
+    parts.push(`LOCKED RECURRING PROPS: ${keyObjects}`);
+  }
+
+  parts.push('');
+  parts.push(`COMIC STAGING: ${sceneDescription}`);
+  if (opts.panelType) parts.push(`PANEL TYPE: ${opts.panelType}`);
+  if (opts.shot) parts.push(`SHOT SIZE: ${opts.shot}`);
+  if (opts.cameraAngle) parts.push(`CAMERA ANGLE: ${opts.cameraAngle}`);
+  if (opts.actingNotes) parts.push(`ACTING NOTES: ${opts.actingNotes}`);
+  if (opts.backgroundComplexity) parts.push(`BACKGROUND COMPLEXITY: ${opts.backgroundComplexity}`);
+  if (opts.colorScript) {
+    parts.push(`COLOR SCRIPT: ${typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript)}`);
+  }
+  parts.push(`LAYOUT CONTEXT: This panel belongs to the "${layoutHint}" page template. Compose for clear reading order and leave intentional open space for lettering.`);
+  parts.push(`TEXT SAFE SPACE: preserve clean negative space in the ${textFreeZone} zone. Do not place faces, mouths, or the main action there.`);
+
+  if (balloons.length) {
+    parts.push(`LETTERING PLAN: ${balloons.length} speech balloons will be overlaid later. Keep the ${textFreeZone} zone uncluttered for them.`);
+  }
+  if (captions.length) {
+    parts.push(`CAPTION PLAN: ${captions.length} caption box(es) will be overlaid later. Maintain a clean band for them.`);
+  }
+  if (sfx.length) {
+    parts.push(`SFX PLAN: Reserve visual room for sound effects: ${sfx.map((item) => item.text).join(', ')}.`);
+  }
+
+  parts.push('');
+  parts.push('COMIC ART DIRECTION RULES:');
+  parts.push('- prioritize silhouette clarity and facial readability');
+  parts.push('- simplify backgrounds in small or dialogue-heavy panels');
+  parts.push('- use cinematic Pixar-like lighting adapted for print and small-panel readability');
+  parts.push('- avoid heavy bokeh, clutter, muddy shadows, or film-frame noise');
+  parts.push('- keep one clear focal point');
+  parts.push('- preserve continuity with previous panels and references');
+  parts.push('- no split-screen, no multi-panel collage, no caption boxes, no speech bubbles, no letters, no words');
+  parts.push('');
+  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  if (opts.aspectRatioHint) parts.push(`ASPECT RATIO INTENT: ${opts.aspectRatioHint}`);
+  parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
+
+  if (pageText && !opts.skipTextEmbed) {
+    parts.push('Do not render this text in the image. It is reference-only for performance and tone:');
+    parts.push(pageText);
+  }
+
+  return parts.join('\n');
+}
+
+function determineAspectRatio(opts = {}) {
+  if (opts.aspectRatio) return opts.aspectRatio;
+  if (!opts.comicMode) return opts.isSpread ? '16:9' : '1:1';
+  if (opts.layoutTemplate === 'fullBleedSplash' || opts.panelType === 'splash') return '3:4';
+  if (opts.panelType === 'establishing' || opts.layoutTemplate === 'cinematicTopStrip') return '16:9';
+  if (opts.panelType === 'closeup') return '3:4';
+  return '4:3';
 }
 
 /**
@@ -302,6 +400,20 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
  * @returns {string} Complete prompt
  */
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  if (opts.comicMode) {
+    return buildComicPanelPrompt(
+      sceneDescription,
+      artStyle,
+      childName,
+      pageText,
+      characterOutfit,
+      characterDescription,
+      recurringElement,
+      keyObjects,
+      opts
+    );
+  }
+
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   const skipTextEmbed = opts.skipTextEmbed || false;
   const isSpread = opts.isSpread || false;
@@ -768,8 +880,35 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null, characterAnchor: opts.characterAnchor || null });
-  const aspectRatio = isSpread ? '16:9' : '1:1';
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, {
+    skipTextEmbed: opts.skipTextEmbed,
+    coverArtStyle: opts.coverArtStyle,
+    isSpread,
+    spreadIndex: opts.spreadIndex,
+    totalSpreads: opts.totalSpreads || 13,
+    childAge: opts.childAge,
+    promptInjection: opts.promptInjection,
+    fontStyle: opts.fontStyle,
+    additionalCoverCharacters: opts.additionalCoverCharacters || null,
+    characterAnchor: opts.characterAnchor || null,
+    comicMode: opts.comicMode || false,
+    panelType: opts.panelType || '',
+    shot: opts.shot || '',
+    cameraAngle: opts.cameraAngle || '',
+    actingNotes: opts.actingNotes || '',
+    backgroundComplexity: opts.backgroundComplexity || '',
+    textFreeZone: opts.textFreeZone || '',
+    safeTextZones: opts.safeTextZones || null,
+    balloons: opts.balloons || null,
+    captions: opts.captions || null,
+    sfx: opts.sfx || null,
+    layoutTemplate: opts.layoutTemplate || '',
+    pageLayout: opts.pageLayout || '',
+    colorScript: opts.colorScript || null,
+    aspectRatioHint: opts.aspectRatioHint || '',
+    aspectRatio: opts.aspectRatio || '',
+  });
+  const aspectRatio = determineAspectRatio({ ...opts, isSpread });
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);

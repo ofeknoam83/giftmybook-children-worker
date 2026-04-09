@@ -33,6 +33,9 @@ const { execFile } = require('child_process');
 const os = require('os');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
+const { buildGraphicNovelBlueprints, BLEED_PT } = require('./comicLayoutPresets');
+const { renderPanelLettering } = require('./comicLetterer');
+const { normalizeGraphicNovelPlan, validateGraphicNovelPagesForRender } = require('./graphicNovelQa');
 
 /**
  * Upscale an image buffer 4x using ImageMagick Lanczos + unsharp.
@@ -1143,106 +1146,171 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
   page.drawText(pgNum, { x: (PAGE_W - pnw) / 2, y: 6, size: 8, font: helv, color: rgb(0.6, 0.6, 0.6) });
 }
 
+async function drawGraphicNovelPanelImage(pdfDoc, page, panel, blueprint) {
+  const rect = blueprint.rect;
+  page.drawRectangle({ x: rect.x - 1.5, y: rect.y - 1.5, width: rect.w + 3, height: rect.h + 3, color: rgb(1, 1, 1) });
+  if (!panel.imageBuffer) {
+    page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.72, 0.77, 0.84) });
+    return;
+  }
+  try {
+    const targetW = Math.round(rect.w / 72 * 300);
+    const targetH = Math.round(rect.h / 72 * 300);
+    const resized = await sharp(panel.imageBuffer)
+      .resize(targetW, targetH, { fit: 'cover' })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    const img = await pdfDoc.embedJpg(resized);
+    page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
+  } catch (_) {
+    page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.72, 0.77, 0.84) });
+  }
+}
+
+async function renderGraphicNovelStoryPage(pdfDoc, pageData, blueprint, fonts, pageW, pageH) {
+  const page = pdfDoc.addPage([pageW, pageH]);
+  page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.02, 0.02, 0.03) });
+  page.drawRectangle({
+    x: BLEED_PT,
+    y: BLEED_PT,
+    width: pageW - BLEED_PT * 2,
+    height: pageH - BLEED_PT * 2,
+    color: rgb(0.06, 0.06, 0.08),
+  });
+
+  const sceneLabel = `SCENE ${pageData.sceneNumber}  ${String(pageData.sceneTitle || '').toUpperCase()}`;
+  const sceneLabelWidth = fonts.captionFont.widthOfTextAtSize(sceneLabel, 8);
+  page.drawText(sceneLabel, {
+    x: Math.max(BLEED_PT + 20, (pageW - sceneLabelWidth) / 2),
+    y: pageH - BLEED_PT - 14,
+    size: 8,
+    font: fonts.captionFont,
+    color: rgb(0.80, 0.80, 0.86),
+  });
+
+  for (let i = 0; i < blueprint.panelBlueprints.length; i++) {
+    const panelBlueprint = blueprint.panelBlueprints[i];
+    const panel = pageData.panels[i];
+    await drawGraphicNovelPanelImage(pdfDoc, page, panel, panelBlueprint);
+    renderPanelLettering(page, panel, panelBlueprint, fonts);
+  }
+
+  const pageNumberText = `${pageData.pageNumber}`;
+  const pageNumberWidth = fonts.captionFont.widthOfTextAtSize(pageNumberText, 8);
+  page.drawText(pageNumberText, {
+    x: (pageW - pageNumberWidth) / 2,
+    y: BLEED_PT / 2,
+    size: 8,
+    font: fonts.captionFont,
+    color: rgb(0.60, 0.60, 0.65),
+  });
+}
+
 /**
- * Build a 6x9" graphic novel PDF.
- * @param {Array<{caption: string, imageBuffer: Buffer|null}>} panels - all panels in order
- * @param {object} opts - { title, childName, tagline, bookFrom, dedication, year, scenes }
+ * Build a premium print-ready graphic novel PDF with bleed-safe pages and vector lettering.
+ * @param {Array<object>} panelsOrPages - legacy allPanels array or page-aware plan pages
+ * @param {object} opts - { title, childName, tagline, dedication, year, scenes, pages }
  */
-async function buildGraphicNovelPdf(panels, opts = {}) {
+async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
 
-  const PAGE_W = 432;  // 6" at 72pt/inch
-  const PAGE_H = 648;  // 9"
+  const PAGE_W = 450;  // 6.25" with bleed
+  const PAGE_H = 666;  // 9.25" with bleed
+
+  const planInput = Array.isArray(opts.pages) && opts.pages.length
+    ? { title, tagline, pages: opts.pages, scenes: opts.scenes || [] }
+    : { title, tagline, pages: Array.isArray(panelsOrPages) ? [] : (panelsOrPages.pages || []), scenes: opts.scenes || [], allPanels: Array.isArray(panelsOrPages) ? panelsOrPages : [] };
+  const plan = normalizeGraphicNovelPlan(planInput, { fallbackTitle: title });
+
+  const blueprints = buildGraphicNovelBlueprints(plan.pages, PAGE_W, PAGE_H);
+  const renderQa = validateGraphicNovelPagesForRender(plan, blueprints);
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   pdfDoc.setTitle(title);
   pdfDoc.setAuthor('GiftMyBook');
 
-  // Load fonts
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  let bubblegum, playfair, playfairItalic;
+  let bubblegum = helvBold;
+  let playfairItalic = helv;
+  let kalam = helv;
   try {
-    bubblegum = fs.existsSync(FONT_PATHS.bubblegum)
-      ? await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum))
-      : null;
-    playfair = await pdfDoc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'PlayfairDisplay.ttf')));
-    playfairItalic = await pdfDoc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf')));
+    if (fs.existsSync(FONT_PATHS.bubblegum)) bubblegum = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum));
+    if (fs.existsSync(FONT_PATHS.playfairItalic)) playfairItalic = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic));
+    if (fs.existsSync(FONT_PATHS.kalam)) kalam = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.kalam));
   } catch (_) {}
 
-  // Download and embed comic font (speech bubbles + captions)
-  let bangersFont;
-  try {
-    const comicBuf = await getComicFont();
-    bangersFont = await pdfDoc.embedFont(comicBuf);
-  } catch (e) {
-    console.warn('[LayoutEngine] Comic font download failed, using Helvetica Bold:', e.message);
-    bangersFont = helvBold;
-  }
+  const fonts = {
+    dialogueFont: bubblegum || helvBold,
+    captionFont: kalam || helv,
+    sfxFont: bubblegum || helvBold,
+    titleFont: bubblegum || helvBold,
+    bodyFont: helv,
+    accentFont: playfairItalic || helv,
+  };
 
-  const titleFont = bubblegum || playfair || helvBold;
-  const bodyFont = helv;
-  const BLACK = rgb(0, 0, 0);
-  const WHITE = rgb(1, 1, 1);
-
-  // ── Title page ──
+  // Title page
   {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
-    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.08, 0.08, 0.15) });
-
-    const titleLines = wrapText(title, titleFont, 26, PAGE_W - 40);
-    let ty = PAGE_H / 2 + 40;
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.05, 0.05, 0.08) });
+    const titleLines = wrapText(title, fonts.titleFont, 26, PAGE_W - 90);
+    let y = PAGE_H / 2 + 70;
     for (const line of titleLines) {
-      const lw = titleFont.widthOfTextAtSize(line, 26);
-      p.drawText(line, { x: (PAGE_W - lw) / 2, y: ty, size: 26, font: titleFont, color: WHITE });
-      ty -= 36;
+      const width = fonts.titleFont.widthOfTextAtSize(line, 26);
+      p.drawText(line, { x: (PAGE_W - width) / 2, y, size: 26, font: fonts.titleFont, color: rgb(1, 1, 1) });
+      y -= 34;
     }
-
     if (tagline) {
-      const tagText = tagline.length > 50 ? tagline.slice(0, 47) + '...' : tagline;
-      const tw = (playfairItalic || bodyFont).widthOfTextAtSize(tagText, 11);
-      p.drawText(tagText, { x: Math.max(10, (PAGE_W - tw) / 2), y: PAGE_H / 2 - 10, size: 11, font: playfairItalic || bodyFont, color: rgb(0.8, 0.8, 0.8) });
+      const lines = wrapText(tagline, fonts.accentFont, 11, PAGE_W - 110);
+      let ty = PAGE_H / 2 - 10;
+      for (const line of lines.slice(0, 3)) {
+        const width = fonts.accentFont.widthOfTextAtSize(line, 11);
+        p.drawText(line, { x: (PAGE_W - width) / 2, y: ty, size: 11, font: fonts.accentFont, color: rgb(0.82, 0.82, 0.86) });
+        ty -= 16;
+      }
     }
-
     const sub = `A personalized graphic novel for ${childName}`;
-    const sw = bodyFont.widthOfTextAtSize(sub, 10);
-    p.drawText(sub, { x: (PAGE_W - sw) / 2, y: 44, size: 10, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
-    const yw = bodyFont.widthOfTextAtSize(`${year} \u00B7 GiftMyBook`, 8);
-    p.drawText(`${year} \u00B7 GiftMyBook`, { x: (PAGE_W - yw) / 2, y: 24, size: 8, font: bodyFont, color: rgb(0.4, 0.4, 0.4) });
+    const subWidth = fonts.bodyFont.widthOfTextAtSize(sub, 10);
+    p.drawText(sub, { x: (PAGE_W - subWidth) / 2, y: 44, size: 10, font: fonts.bodyFont, color: rgb(0.65, 0.65, 0.70) });
+    const yearText = `${year} · GiftMyBook`;
+    const yearWidth = fonts.bodyFont.widthOfTextAtSize(yearText, 8);
+    p.drawText(yearText, { x: (PAGE_W - yearWidth) / 2, y: 24, size: 8, font: fonts.bodyFont, color: rgb(0.45, 0.45, 0.50) });
   }
 
-  // ── Dedication page ──
   if (dedication) {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
-    const dedLines = wrapText(dedication, playfairItalic || bodyFont, 11, PAGE_W - 80);
-    let dy = PAGE_H / 2 + (dedLines.length * 16) / 2;
-    for (const line of dedLines) {
-      const lw = (playfairItalic || bodyFont).widthOfTextAtSize(line, 11);
-      p.drawText(line, { x: (PAGE_W - lw) / 2, y: dy, size: 11, font: playfairItalic || bodyFont, color: BLACK });
-      dy -= 16;
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.98, 0.98, 0.97) });
+    const lines = wrapText(dedication, fonts.accentFont, 12, PAGE_W - 120);
+    let y = PAGE_H / 2 + lines.length * 10;
+    for (const line of lines) {
+      const width = fonts.accentFont.widthOfTextAtSize(line, 12);
+      p.drawText(line, { x: (PAGE_W - width) / 2, y, size: 12, font: fonts.accentFont, color: rgb(0.12, 0.12, 0.16) });
+      y -= 18;
     }
   }
 
-  // ── Comic pages ──
-  const pageGroups = groupPanelsIntoPages(panels);
-  const ctx = { bangersFont, helv, helvBold, pageH: PAGE_H, pageW: PAGE_W };
-
-  for (const group of pageGroups) {
-    await renderComicPage(pdfDoc, group, ctx);
+  for (let i = 0; i < plan.pages.length; i++) {
+    await renderGraphicNovelStoryPage(pdfDoc, plan.pages[i], blueprints[i], fonts, PAGE_W, PAGE_H);
   }
 
-  // ── "The End" page ──
+  // End page
   {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
-    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.08, 0.08, 0.15) });
-    const endW = (playfairItalic || titleFont).widthOfTextAtSize('The End', 32);
-    p.drawText('The End', { x: (PAGE_W - endW) / 2, y: PAGE_H / 2, size: 32, font: playfairItalic || titleFont, color: WHITE });
-    const subW = bodyFont.widthOfTextAtSize(`${childName}'s story`, 11);
-    p.drawText(`${childName}'s story`, { x: (PAGE_W - subW) / 2, y: PAGE_H / 2 - 28, size: 11, font: bodyFont, color: rgb(0.6, 0.6, 0.6) });
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.05, 0.05, 0.08) });
+    const main = 'The End';
+    const mainWidth = fonts.accentFont.widthOfTextAtSize(main, 30);
+    p.drawText(main, { x: (PAGE_W - mainWidth) / 2, y: PAGE_H / 2 + 8, size: 30, font: fonts.accentFont, color: rgb(1, 1, 1) });
+    const sub = `${childName}'s story`;
+    const subWidth = fonts.bodyFont.widthOfTextAtSize(sub, 11);
+    p.drawText(sub, { x: (PAGE_W - subWidth) / 2, y: PAGE_H / 2 - 22, size: 11, font: fonts.bodyFont, color: rgb(0.65, 0.65, 0.70) });
+    if (renderQa.globalIssues.length) {
+      const note = `QA notes: ${renderQa.globalIssues.length} advisory issue${renderQa.globalIssues.length === 1 ? '' : 's'}`;
+      const noteWidth = fonts.bodyFont.widthOfTextAtSize(note, 8);
+      p.drawText(note, { x: (PAGE_W - noteWidth) / 2, y: 24, size: 8, font: fonts.bodyFont, color: rgb(0.45, 0.45, 0.50) });
+    }
   }
 
-  // Pad to even page count for binding
   while (pdfDoc.getPageCount() % 2 !== 0) {
     pdfDoc.addPage([PAGE_W, PAGE_H]);
   }

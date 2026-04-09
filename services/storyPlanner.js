@@ -12,7 +12,7 @@ const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('.
 const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
-const { enrichCustomDetails, enrichStoryReferences } = require('./customDetailsEnricher');
+const { enrichCustomDetails } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 
@@ -738,6 +738,14 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
+  const visualBreathingSpreads = spreads.filter((s) => !s.left?.text || !s.right?.text).length;
+  if (spreads.length > 0 && visualBreathingSpreads < Math.max(2, Math.ceil(spreads.length * 0.25))) {
+    issues.push({
+      type: 'visual_spreads',
+      message: `Only ${visualBreathingSpreads} spreads leave one side visual. Picture books need more visual breathing room.`,
+    });
+  }
+
   // All spreads must have text — no visual-only spreads allowed
   const emptySpread = spreads.find(s => !s.left?.text && !s.right?.text);
   if (emptySpread) {
@@ -1012,15 +1020,9 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
     console.log(`[storyPlanner] Parsed ${parsedText.spreads.length} spreads from free-form text, title: "${parsedText.title}"`);
 
-    // Annotate story text with pop-culture reference hints for Phase 2
-    const childName = childDetails.name || childDetails.childName || '';
-    const annotatedStoryText = interests.length
-      ? await enrichStoryReferences(storyText, childName, interests)
-      : storyText;
-
     // Phase 2: Structure into JSON with illustration prompts
     const referenceContext = { interests, enrichedCustomDetails };
-    const jsonContent = await structureStoryPlan(annotatedStoryText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
+    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
     const parsed = parseJsonPlan(jsonContent);
 
     // Override title if customer approved one
@@ -1661,9 +1663,105 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   return chapterPlan;
 }
 
+function parseJsonObjectFromText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) throw new Error('Empty JSON response');
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON object found');
+    return JSON.parse(match[0]);
+  }
+}
+
+function legacyGraphicNovelScenesToPages(plan, childDetails = {}) {
+  if (Array.isArray(plan.pages) && plan.pages.length) return plan;
+  if (!Array.isArray(plan.scenes)) return plan;
+
+  const CAPACITY = {
+    splash: 1,
+    'strip+2': 3,
+    '1large+2small': 3,
+    '3equal': 3,
+    '2equal': 2,
+    '4equal': 4,
+  };
+  const LAYOUT_TO_TEMPLATE = {
+    splash: 'fullBleedSplash',
+    'strip+2': 'cinematicTopStrip',
+    '1large+2small': 'heroTopTwoBottom',
+    '2equal': 'twoTierEqual',
+    '3equal': 'conversationGrid',
+    '4equal': 'fourGrid',
+  };
+
+  const allPanels = plan.scenes.flatMap((scene) => (scene.panels || []).map((panel) => ({
+    ...panel,
+    sceneNumber: scene.number,
+    sceneTitle: scene.sceneTitle,
+  })));
+
+  const pages = [];
+  let idx = 0;
+  while (idx < allPanels.length) {
+    const first = allPanels[idx];
+    const pageLayout = first.pageLayout || '3equal';
+    const cap = CAPACITY[pageLayout] || 3;
+    const group = allPanels.slice(idx, idx + cap);
+    pages.push({
+      pageNumber: pages.length + 1,
+      sceneNumber: first.sceneNumber || 1,
+      sceneTitle: first.sceneTitle || `Scene ${first.sceneNumber || 1}`,
+      pagePurpose: group[0]?.action || '',
+      pageTurnIntent: 'question',
+      dominantBeat: group[group.length - 1]?.action || '',
+      layoutTemplate: LAYOUT_TO_TEMPLATE[pageLayout] || 'conversationGrid',
+      panelCount: group.length,
+      textDensity: 'medium',
+      colorScript: {},
+      panels: group.map((panel, panelIndex) => ({
+        ...panel,
+        panelNumber: panel.panelNumber || panelIndex + 1,
+        balloons: panel.dialogue ? [{
+          id: `p${pages.length + 1}b${panelIndex + 1}`,
+          type: 'speech',
+          speaker: childDetails?.name || childDetails?.childName || 'hero',
+          text: panel.dialogue,
+          order: 1,
+          anchor: panel.speakerPosition || 'left',
+        }] : [],
+        captions: panel.caption ? [{
+          id: `p${pages.length + 1}c${panelIndex + 1}`,
+          type: 'narration',
+          text: panel.caption,
+          placement: 'top-band',
+        }] : [],
+        textFreeZone: panel.caption ? 'upper-band' : 'top-right',
+        safeTextZones: panel.caption ? ['upper-band'] : ['top-right'],
+        shot: panel.panelType === 'establishing' ? 'WS' : panel.panelType === 'closeup' ? 'CU' : 'MS',
+        cameraAngle: 'eye-level',
+        pacing: panel.panelType === 'action' ? 'fast' : 'medium',
+        actingNotes: '',
+        backgroundComplexity: panel.panelType === 'closeup' ? 'minimal' : 'simple',
+      })),
+    });
+    idx += group.length;
+  }
+
+  return { ...plan, pages };
+}
+
 async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
-  const { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER } = require('../prompts/graphicNovel');
+  const {
+    GRAPHIC_NOVEL_PLANNER_SYSTEM,
+    GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM,
+    GRAPHIC_NOVEL_STORY_BIBLE_USER,
+    GRAPHIC_NOVEL_PLANNER_USER,
+  } = require('../prompts/graphicNovel');
+  const { GRAPHIC_NOVEL_CRITIC_SYSTEM, GRAPHIC_NOVEL_CRITIC_USER } = require('../prompts/graphicNovelCritic');
+  const { normalizeGraphicNovelPlan, summarizeGraphicNovelIssues } = require('./graphicNovelQa');
 
   // Brainstorm seed + enrich custom details in parallel
   let seed;
@@ -1703,7 +1801,35 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
     : '';
 
-  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
+  const storyBiblePrompt = GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
+
+  let storyBible;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await callLLM(GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM, storyBiblePrompt, {
+        openaiApiKey: apiKeys?.OPENAI_API_KEY,
+        costTracker,
+        temperature: 0.75,
+        maxTokens: 6000,
+        jsonMode: true,
+      });
+      storyBible = parseJsonObjectFromText(resp.text);
+      if (!storyBible.title) throw new Error('Story bible missing title');
+      break;
+    } catch (e) {
+      bookContext?.log('warn', `Graphic novel story bible attempt ${attempt} failed: ${e.message}`);
+      if (attempt === 3) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+
+  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(
+    childDetails,
+    theme,
+    enrichedCustomDetails,
+    seed,
+    storyBible
+  ) + parentStorySection + titleInstruction;
 
   let plan;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1711,57 +1837,64 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
-        temperature: 0.85,
-        maxTokens: 12000,
+        temperature: 0.8,
+        maxTokens: 14000,
+        jsonMode: true,
       });
-      const text = resp.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON in response');
-      plan = JSON.parse(jsonMatch[0]);
-      if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 5) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes, need at least 5`);
-      // Flatten all panels for easy access, ensuring new fields are present
-      plan.allPanels = plan.scenes.flatMap(s => s.panels.map(p => {
-        const panel = { ...p, sceneNumber: s.number, sceneTitle: s.sceneTitle };
-        // Ensure panelType exists
-        if (!panel.panelType) panel.panelType = panel.type || 'dialogue';
-        // Ensure pageLayout exists with sensible defaults
-        if (!panel.pageLayout) {
-          if (panel.panelType === 'splash') {
-            panel.pageLayout = 'splash';
-          } else if (panel.panelNumber === 1) {
-            panel.pageLayout = 'strip+2';
-          } else {
-            panel.pageLayout = '3equal';
-          }
-        }
-        // Ensure speakerPosition exists
-        if (!panel.speakerPosition) panel.speakerPosition = 'left';
-        // Ensure dialogue is a string (flatten array format if needed)
-        if (Array.isArray(panel.dialogue)) {
-          panel.dialogue = panel.dialogue.map(d => d.text || d).join(' ');
-        }
-        if (panel.dialogue == null) panel.dialogue = '';
-        if (panel.caption == null) panel.caption = '';
-        return panel;
-      }));
-      bookContext?.log('info', 'Graphic novel plan created', { title: plan.title, scenes: plan.scenes.length, panels: plan.allPanels.length });
+      plan = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(resp.text), childDetails);
+      plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
+      if (!plan.title || !Array.isArray(plan.pages) || plan.pages.length < 12) {
+        throw new Error(`Invalid plan: ${plan.pages?.length || 0} pages`);
+      }
       break;
     } catch (e) {
       bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
       if (attempt === 3) throw e;
-      await new Promise(r => setTimeout(r, 2000 * attempt));
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
     }
   }
 
-  plan.title = approvedTitle || plan.title;
-  plan.isGraphicNovel = true;
+  let improvedPlan = plan;
+  try {
+    const criticResp = await callLLM(GRAPHIC_NOVEL_CRITIC_SYSTEM, GRAPHIC_NOVEL_CRITIC_USER(plan), {
+      openaiApiKey: apiKeys?.OPENAI_API_KEY,
+      costTracker,
+      temperature: 0.5,
+      maxTokens: 14000,
+      jsonMode: true,
+    });
+    improvedPlan = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(criticResp.text), childDetails);
+    improvedPlan = normalizeGraphicNovelPlan(improvedPlan, { fallbackTitle: plan.title });
+  } catch (criticErr) {
+    bookContext?.log('warn', `Graphic novel critic failed — using original plan: ${criticErr.message}`);
+  }
+
+  improvedPlan.storyBible = storyBible;
+  improvedPlan.storyBlueprint = storyBible.sceneBlueprints || [];
+  improvedPlan.title = approvedTitle || improvedPlan.title || storyBible.title;
+  improvedPlan.isGraphicNovel = true;
+  improvedPlan.graphicNovelVersion = 'v2_premium';
+
+  const issues = summarizeGraphicNovelIssues(improvedPlan, storyBible);
+  if (issues.length > 0) {
+    improvedPlan.qaSummary = { issues };
+  }
 
   // Carry forward character details from seed
-  plan.characterDescription = seed.characterDescription || null;
-  plan.characterAnchor = seed.characterAnchor || null;
-  plan.characterOutfit = seed.characterOutfit || null;
+  improvedPlan.characterDescription = seed.characterDescription || null;
+  improvedPlan.characterAnchor = seed.characterAnchor || null;
+  improvedPlan.characterOutfit = seed.characterOutfit || null;
+  improvedPlan.recurringElement = seed.favorite_object || null;
+  improvedPlan.keyObjects = seed.keyObjects || null;
 
-  return plan;
+  bookContext?.log('info', 'Graphic novel plan created', {
+    title: improvedPlan.title,
+    scenes: improvedPlan.scenes.length,
+    pages: improvedPlan.pages.length,
+    panels: improvedPlan.allPanels.length,
+  });
+
+  return improvedPlan;
 }
 
 module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, planGraphicNovel };

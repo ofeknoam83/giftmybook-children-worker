@@ -1,81 +1,62 @@
 'use strict';
 
-const GRAPHIC_NOVEL_PLANNER_SYSTEM = `You are a graphic novel storyboard artist and writer for middle-grade readers ages 9-12.
+const GRAPHIC_NOVEL_PLANNER_SYSTEM = `You are a world-class middle-grade graphic novel showrunner, comics editor, storyboard artist, letterer, and production designer.
 
-A graphic novel tells a story through sequential comic panels. Each panel is a single image with:
-- A narration caption (story text in a caption box at the top)
-- Dialogue in a speech bubble (sentence case — the renderer displays it as-is)
-- Visual action (what the reader sees)
+You are planning a shelf-quality graphic novel for readers ages 9-12. Think like a premium publisher: every page needs clear reading flow, controlled pacing, distinct emotional beats, and art-direction metadata that downstream layout and image systems can use reliably.
 
-Your story has 7 SCENES. Each scene has 5-7 PANELS. Total: 36-48 panels.
+Return JSON only.
 
-STORY STRUCTURE (7 scenes):
-- Scene 1: World — protagonist in their everyday life; establish personality and a subtle want
-- Scene 2: Disruption — an inciting event pulls them out of the ordinary; stakes become clear
-- Scene 3: Complication — the problem deepens; first attempt fails and reveals a harder truth
-- Scene 4: Midpoint shift — new information or ally changes the approach; raise tension
-- Scene 5: Escalation — setbacks pile up; the protagonist faces doubt or an internal conflict
-- Scene 6: Climax — the biggest challenge; the protagonist makes a decisive choice (climax splash panel here)
-- Scene 7: Resolution — consequences land; the world has changed and so has the protagonist (resolution splash panel here)
+Editorial principles:
+- Clarity beats density.
+- Default to 2-3 panels per page, with 1-4 total panels on most pages.
+- Every page needs one dominant beat.
+- Every page must have an intentional page-turn function: setup, reveal, joke, dread, question, release, or wonder.
+- Readers must always know where to look next.
+- Dialogue must be concise and actable.
+- Let the art carry at least 20-30% of the book through silent or near-silent panels.
 
-WRITING QUALITY (middle-grade, ages 9-12):
-- Captions: 1-3 sentences, present tense, up to 40 words. Use narration to convey mood, internal monologue, or time jumps. Varied sentence length: mix short punches with longer descriptive lines.
-- Dialogue: up to 30 words per dialogue field, sentence case. Characters must sound distinct — give each a verbal tic, rhythm, or vocabulary level. Use subtext where possible.
-- Vocabulary: no restrictions. Metaphor, irony, and sensory detail are encouraged.
-- Balance: roughly half the panels should carry narration captions, the other half may have empty captions and let the art tell the story. At least a third of panels should have dialogue.
-- Panel cliffhangers: each scene should end on a beat that compels a page turn.
-- Every panel must move the story forward — no filler.
+Story structure:
+- Exactly 7 scenes.
+- Scene 1: ordinary world and want.
+- Scene 2: disruption and pull into the story.
+- Scene 3: complication and failed first approach.
+- Scene 4: midpoint shift and new strategy.
+- Scene 5: escalation and internal doubt.
+- Scene 6: climax and decisive choice.
+- Scene 7: resolution and emotional landing.
 
-PANEL TYPES:
-- establishing: Wide shot introducing the scene environment
-- action: Dynamic movement, physical conflict, chase, transformation
-- dialogue: Character conversation, medium shots
-- closeup: Tight face shot showing emotion
-- reaction: Character responding to something, clear facial expression
-- splash: Epic full-page dramatic moment (EXACTLY 2 total: scene 6 climax, scene 7 resolution)
-- strip: Ultra-wide panoramic establishing shot
+Design constraints:
+- Two splash pages exactly: one in scene 6 and one in scene 7.
+- Scene openers should establish place before relying on close-ups.
+- Dialogue-heavy pages should prefer stable grids.
+- Action pages should privilege hierarchy and negative space.
+- Keep text load per panel low enough to fit professional lettering.
+- Default style is cinematic 3D Pixar-like, but prompts must describe readable comics staging rather than film-frame clutter.
 
-PAGE LAYOUT VALUES:
-- splash: 1 panel per page — for splash panels only
-- strip+2: 3 panels per page — strip across top + 2 panels below
-- 1large+2small: 3 panels per page — large top + 2 small bottom
-- 3equal: 3 equal-height panels stacked — prefer for dialogue-heavy pages
-- 2equal: 2 equal-height panels stacked — use for breathing room or emotional beats
-- 4equal: 2x2 grid — prefer for dialogue-heavy pages
+For each page output production metadata, not vague prose.`;
 
-LAYOUT RULES:
-- First panel of every scene MUST be panelType "establishing" with pageLayout "strip+2"
-- Exactly 2 splash panels total: one at the climax of scene 6, one at the resolution of scene 7
-- Splash panels: panelType "splash", pageLayout "splash"
-- Use "2equal" for emotional breathing room or pivotal dialogue exchanges
-- Dialogue-only pages prefer "3equal" or "4equal" layouts
-- Action pages prefer "1large+2small" or "2equal"
+const GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM = `You are creating the story bible for a premium middle-grade graphic novel. Return JSON only.
 
-SPEAKER POSITION:
-- Must be one of: left, right, top-left, top-right, bottom-left, bottom-right, center
-- Keep consistent for each character throughout the story
+You are not writing pages yet. Instead, define the story engine:
+- title
+- tagline
+- logline
+- cast with voice notes
+- world bible
+- color script by scene
+- scene arc
+- recurring motifs
+- emotional rhythm
+- how the child personalization appears naturally
 
-IMAGE PROMPT TEMPLATES (use these as the basis for imagePrompt, filling in specifics):
-- establishing: "Wide establishing shot showing {full scene environment}, characters small relative to setting, sense of place and scale, {art style}"
-- splash: "Epic full-page illustration, {dramatic scene description}, bold centered composition, cinematic lighting, hero moment, {art style}"
-- closeup: "Close-up portrait of {character}, {expression/emotion}, simple background, {art style}"
-- action: "Dynamic action scene, {action description}, motion energy, dramatic camera angle, {art style}"
-- strip: "Ultra-wide panoramic establishing shot, {environment description}, horizontal composition, {art style}"
-- dialogue/reaction: "Medium shot of {characters} in {scene}, clear facial expressions, {art style}"
+Keep the book commercial, emotionally clear, and page-turnable for ages 9-12.`;
 
-COMIC PANEL CONVENTIONS:
-- Panel 1 of each scene: wide establishing shot
-- Interior panels: medium shots, close-ups for emotion
-- Last panel of scene: cliffhanger or emotional beat
-
-ADAPTATION RULE: If an original picture book is provided in the user prompt, the graphic novel MUST be a comic-format adaptation of that exact story. Preserve the characters, setting, and narrative arc but expand the pacing — add interior emotional beats, reaction panels, and dialogue that the picture book implied but did not show.`;
-
-function GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed) {
+function GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, customDetails, seed) {
   const { name, age, gender } = childDetails;
   const interests = (childDetails.childInterests || childDetails.interests || []).filter(Boolean);
   const pronoun = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
 
-  return `Create a graphic novel plan for:
+  return `Create a story bible for a personalized middle-grade graphic novel.
 
 PROTAGONIST: ${name}, age ${age}, ${pronoun}
 ${interests.length ? `INTERESTS: ${interests.join(', ')}` : ''}
@@ -83,25 +64,136 @@ THEME: ${theme || 'adventure'}
 CUSTOM DETAILS: ${customDetails || 'none'}
 STORY SEED: ${JSON.stringify(seed || {}, null, 2)}
 
-Output a JSON object:
+Return a JSON object with this shape:
 {
-  "title": "Short punchy title with ${name}'s name (5-7 words max)",
-  "tagline": "One exciting sentence that would appear on the back cover",
-  "scenes": [
+  "title": "Must include ${name}'s name",
+  "tagline": "Back-cover quality line",
+  "logline": "1-2 sentence premise",
+  "narrativeMode": "close third person present",
+  "audiencePromise": "What the reader gets emotionally and visually",
+  "cast": [
     {
-      "number": 1,
-      "sceneTitle": "Short scene title",
+      "id": "hero",
+      "name": "${name}",
+      "role": "protagonist",
+      "voiceGuide": "short description of speech rhythm and attitude",
+      "visualAnchor": "2-3 reusable visual identifiers",
+      "actingNotes": "facial and body-language notes the illustrator should keep consistent"
+    }
+  ],
+  "worldBible": {
+    "setting": "core world description",
+    "locationAnchors": ["3-6 recurring location anchors"],
+    "propAnchors": ["3-8 recurring prop anchors"],
+    "styleNorthStar": "How the visuals should feel"
+  },
+  "sceneColorScript": [
+    {
+      "sceneNumber": 1,
+      "dominantPalette": "one sentence",
+      "contrastStrategy": "one sentence"
+    }
+  ],
+  "recurringMotifs": ["2-5 motifs"],
+  "sceneBlueprints": [
+    {
+      "sceneNumber": 1,
+      "sceneTitle": "short title",
+      "purpose": "narrative purpose",
+      "turningPoint": "what changes by the end of scene",
+      "pageCountTarget": 2,
+      "dominantEmotion": "emotion",
+      "pageTurnIntent": "what the final page turn of the scene should do"
+    }
+  ]
+}
+
+Rules:
+- Exactly 7 sceneBlueprints.
+- Total target length should imply roughly 24-32 pages.
+- The protagonist must drive the resolution.
+- Personalization must feel story-native, not pasted on.
+- Avoid babyish tone. Use middle-grade wit, emotional clarity, and adventure.
+- Keep the cast small and production-friendly.`;
+}
+
+function GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed, storyBible) {
+  const { name, age, gender } = childDetails;
+  const interests = (childDetails.childInterests || childDetails.interests || []).filter(Boolean);
+  const pronoun = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
+
+  return `Create the full production script for a personalized middle-grade graphic novel.
+
+PROTAGONIST: ${name}, age ${age}, ${pronoun}
+${interests.length ? `INTERESTS: ${interests.join(', ')}` : ''}
+THEME: ${theme || 'adventure'}
+CUSTOM DETAILS: ${customDetails || 'none'}
+STORY SEED: ${JSON.stringify(seed || {}, null, 2)}
+STORY BIBLE: ${JSON.stringify(storyBible || {}, null, 2)}
+
+Return a JSON object:
+{
+  "title": "Must include ${name}'s name",
+  "tagline": "Back-cover line",
+  "pages": [
+    {
+      "pageNumber": 1,
+      "sceneNumber": 1,
+      "sceneTitle": "scene title",
+      "pagePurpose": "what this page is doing dramatically",
+      "pageTurnIntent": "setup|reveal|joke|threat|wonder|question|release|cliffhanger",
+      "dominantBeat": "the one beat that should dominate the page",
+      "layoutTemplate": "cinematicTopStrip|heroTopTwoBottom|twoTierEqual|conversationGrid|fourGrid|fullBleedSplash",
+      "panelCount": 3,
+      "textDensity": "silent|light|medium",
+      "colorScript": {
+        "paletteId": "short id",
+        "dominantHue": "e.g. ember orange",
+        "contrastMode": "brightFacesDarkGround|coolWideWarmFaces|graphicHighContrast"
+      },
       "panels": [
         {
           "sceneNumber": 1,
           "panelNumber": 1,
-          "panelType": "establishing",
-          "pageLayout": "strip+2",
-          "caption": "Narration text — up to 40 words, 1-3 sentences, or empty string for action panels",
-          "dialogue": "Character speech — up to 30 words, sentence case, or empty string",
-          "speakerPosition": "left",
-          "action": "What is visually happening in this panel",
-          "imagePrompt": "Full AI image generation prompt tailored to panelType. Include: camera angle, what the character is doing, specific environment details, lighting mood, one specific color detail. Do NOT mention art style separately — use the template for the panelType."
+          "panelType": "establishing|action|dialogue|closeup|reaction|insert|splash",
+          "shot": "EWS|WS|MS|MCU|CU|ECU",
+          "cameraAngle": "eye-level|low-angle|high-angle|over-shoulder|profile|dutch",
+          "pacing": "slow|medium|fast",
+          "actingNotes": "concrete expression/gesture/eyeline note",
+          "backgroundComplexity": "minimal|simple|medium",
+          "speakerPosition": "left|right|top-left|top-right|bottom-left|bottom-right|center",
+          "textFreeZone": "top-left|top-right|upper-band|lower-band|left-side|right-side|center-clear",
+          "safeTextZones": ["upper-band", "top-right"],
+          "action": "What the reader sees happen",
+          "balloons": [
+            {
+              "id": "p1b1",
+              "type": "speech|shout|whisper|thought",
+              "speaker": "${name}",
+              "text": "short sentence case line",
+              "order": 1,
+              "anchor": "left|right|top-left|top-right|bottom-left|bottom-right|center"
+            }
+          ],
+          "captions": [
+            {
+              "id": "p1c1",
+              "type": "narration|location_time|internal_monologue",
+              "text": "up to 28 words",
+              "placement": "top-band|bottom-band|top-left-box|top-right-box"
+            }
+          ],
+          "sfx": [
+            {
+              "text": "WHOOM",
+              "placement": "background-left|background-right|mid-action|foreground",
+              "style": "impact|airy|electric|magic"
+            }
+          ],
+          "dialogue": "Combined dialogue string for legacy compatibility",
+          "caption": "Combined caption string for legacy compatibility",
+          "pageLayout": "splash|strip+2|1large+2small|3equal|2equal|4equal",
+          "imagePrompt": "A production-ready image prompt. Include staging, camera, acting, key props, lighting, palette, silhouette clarity, and explicitly preserve clean space in the declared textFreeZone. Do not render text in the art."
         }
       ]
     }
@@ -109,21 +201,24 @@ Output a JSON object:
 }
 
 Rules:
-- Title must contain ${name}'s name
-- Exactly 7 scenes
-- Each scene has 5-7 panels (total 36-48 panels)
-- First panel of every scene: panelType "establishing", pageLayout "strip+2"
-- Exactly 2 splash panels: one at climax of scene 6, one at resolution of scene 7
-- Splash panels: panelType "splash", pageLayout "splash"
-- Every imagePrompt must be a DIFFERENT angle/shot than adjacent panels
-- The story must have a clear beginning, middle, and end
-- The protagonist must cause the resolution — not luck
-- Captions: up to 40 words, 1-3 sentences. Use narration for mood, internal voice, and transitions.
-- Dialogue: up to 30 words, sentence case. Characters must sound distinct.
-- Roughly half the panels should carry narration captions; the rest can be empty-caption action/reaction panels
-- At least a third of all panels should include dialogue
-- speakerPosition must be one of: left, right, top-left, top-right, bottom-left, bottom-right, center
-- Weave the child's interests naturally into the story — at least one clearly recognizable mention (name, visual, or motif) so personalization is visible to parents`;
+- Build 24-32 story pages total.
+- Exactly 7 scenes.
+- Exactly 2 splash pages total: one in scene 6, one in scene 7.
+- Default to 2-3 panels per page.
+- Use 4-panel pages sparingly.
+- At least 20% of panels should have no balloons.
+- Keep most panels under 25 total words across captions and balloons.
+- The last page of each scene should create a clear page-turn impulse.
+- Adjacent panels must not repeat the same shot/camera combination.
+- Keep textFreeZone and safeTextZones aligned with the likely lettering placement.
+- Dialogue must sound distinct per character.
+- Preserve the story bible.
+- Weave the child personalization in naturally so a parent can see it immediately.`;
 }
 
-module.exports = { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER };
+module.exports = {
+  GRAPHIC_NOVEL_PLANNER_SYSTEM,
+  GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM,
+  GRAPHIC_NOVEL_STORY_BIBLE_USER,
+  GRAPHIC_NOVEL_PLANNER_USER,
+};

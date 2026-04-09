@@ -425,6 +425,240 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   return results;
 }
 
+function trimToWordCount(text, maxWords) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return String(text || '').trim();
+  return `${words.slice(0, maxWords).join(' ')}...`;
+}
+
+function buildGraphicNovelStoryContentForDb(storyPlan) {
+  return {
+    title: storyPlan.title,
+    isGraphicNovel: true,
+    graphicNovelVersion: storyPlan.graphicNovelVersion || 'v2_premium',
+    tagline: storyPlan.tagline || '',
+    benchmark: storyPlan.verticalSliceBenchmark || null,
+    pages: (storyPlan.pages || []).map((page) => ({
+      pageNumber: page.pageNumber,
+      sceneNumber: page.sceneNumber,
+      sceneTitle: page.sceneTitle,
+      layoutTemplate: page.layoutTemplate,
+      panelCount: page.panelCount,
+      dominantBeat: page.dominantBeat,
+      panels: (page.panels || []).map((panel) => ({
+        panelNumber: panel.panelNumber,
+        panelType: panel.panelType,
+        shot: panel.shot,
+        dialogue: panel.dialogue,
+        caption: panel.caption,
+      })),
+    })),
+  };
+}
+
+function buildGraphicNovelReferencePack(storyPlan, childDetails) {
+  const storyBible = storyPlan.storyBible || {};
+  const heroName = childDetails.name || childDetails.childName || 'the child';
+  const worldBible = storyBible.worldBible || {};
+  const referencePack = {
+    characterPack: {
+      heroName,
+      voiceGuide: storyBible.cast?.[0]?.voiceGuide || '',
+      visualAnchor: storyBible.cast?.[0]?.visualAnchor || '',
+      actingNotes: storyBible.cast?.[0]?.actingNotes || '',
+      outfit: storyPlan.characterOutfit || '',
+      description: storyPlan.characterDescription || '',
+      anchor: storyPlan.characterAnchor || '',
+      supportingCast: storyPlan.additionalCoverCharacters || '',
+    },
+    worldPack: {
+      setting: worldBible.setting || '',
+      locationAnchors: worldBible.locationAnchors || [],
+      propAnchors: worldBible.propAnchors || [],
+      recurringMotifs: storyBible.recurringMotifs || [],
+      palette: storyBible.sceneColorScript || [],
+      styleNorthStar: worldBible.styleNorthStar || 'Cinematic 3D Pixar-like sequential art adapted for print clarity',
+    },
+  };
+
+  const totalPages = (storyPlan.pages || []).length;
+  const totalPanels = (storyPlan.allPanels || []).length;
+  const silentPanels = (storyPlan.allPanels || []).filter((panel) => !(panel.dialogue || '').trim() && !(panel.caption || '').trim()).length;
+  storyPlan.referencePack = referencePack;
+  storyPlan.verticalSliceBenchmark = {
+    benchmarkBook: `${heroName} premium GN vertical slice`,
+    version: storyPlan.graphicNovelVersion || 'v2_premium',
+    pages: totalPages,
+    panels: totalPanels,
+    avgPanelsPerPage: totalPages ? Number((totalPanels / totalPages).toFixed(2)) : 0,
+    silentPanelRatio: totalPanels ? Number((silentPanels / totalPanels).toFixed(2)) : 0,
+    comparisonAgainstLegacy: {
+      legacyRenderer: 'flat panel grouping with single caption band and one oval bubble',
+      premiumRenderer: 'page-aware templates with vector lettering, text-safe zones, and reference-guided panel staging',
+    },
+  };
+
+  return referencePack;
+}
+
+function collectGraphicNovelReferenceUrls(allPanels, index) {
+  const refs = [];
+  const current = allPanels[index];
+  for (let i = index - 1; i >= 0; i--) {
+    const prev = allPanels[i];
+    if (!prev?.illustrationUrl) continue;
+    if (prev.sceneNumber === current?.sceneNumber) refs.push(prev.illustrationUrl);
+    if (refs.length >= 2) break;
+  }
+  for (let i = index - 1; i >= 0 && refs.length < 4; i--) {
+    const prev = allPanels[i];
+    if (!prev?.illustrationUrl) continue;
+    refs.push(prev.illustrationUrl);
+  }
+  return Array.from(new Set(refs)).slice(0, 4);
+}
+
+function applyGraphicNovelRenderFixes(storyPlan) {
+  const { countWords, normalizeGraphicNovelPlan } = require('./services/graphicNovelQa');
+  const plan = normalizeGraphicNovelPlan(storyPlan, { fallbackTitle: storyPlan.title });
+  for (const page of plan.pages) {
+    if (page.layoutTemplate === 'fullBleedSplash' && page.panels.length > 1) {
+      page.panels = [page.panels[0]];
+      page.panelCount = 1;
+    }
+    for (const panel of page.panels) {
+      if ((panel.balloons || []).length > 2 && (page.layoutTemplate === 'fourGrid' || page.layoutTemplate === 'conversationGrid')) {
+        panel.balloons = panel.balloons.slice(0, 2);
+      }
+      if (countWords(panel.dialogue) > 18) {
+        panel.dialogue = trimToWordCount(panel.dialogue, 18);
+        if (panel.balloons?.length) {
+          panel.balloons[0].text = trimToWordCount(panel.balloons[0].text, 18);
+        }
+      }
+      if (countWords(panel.caption) > 18) {
+        panel.caption = trimToWordCount(panel.caption, 18);
+        if (panel.captions?.length) {
+          panel.captions[0].text = trimToWordCount(panel.captions[0].text, 18);
+        }
+      }
+      if ((page.layoutTemplate === 'fourGrid' || page.layoutTemplate === 'conversationGrid') && panel.backgroundComplexity === 'medium') {
+        panel.backgroundComplexity = 'simple';
+      }
+    }
+  }
+  return normalizeGraphicNovelPlan(plan, { fallbackTitle: storyPlan.title });
+}
+
+async function generateGraphicNovelPanels(storyPlan, childDetails, style, opts) {
+  const {
+    apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
+    resolvedChildPhotoUrl, characterRefBase64, characterRefMime,
+  } = opts;
+  const totalPanels = (storyPlan.allPanels || []).length;
+  const referencePack = storyPlan.referencePack || buildGraphicNovelReferencePack(storyPlan, childDetails);
+  let completed = 0;
+  const allPanels = storyPlan.allPanels || [];
+
+  for (const page of storyPlan.pages || []) {
+    for (const panel of page.panels || []) {
+      const flatIndex = completed;
+      bookContext.checkAbort();
+      bookContext.log('info', `Generating panel ${completed + 1}/${totalPanels}`, {
+        pageNumber: page.pageNumber,
+        sceneNumber: page.sceneNumber,
+        panelType: panel.panelType,
+        shot: panel.shot,
+      });
+
+      const promptContext = [
+        `PAGE PURPOSE: ${page.pagePurpose || ''}`,
+        `DOMINANT BEAT: ${page.dominantBeat || ''}`,
+        `PAGE TURN INTENT: ${page.pageTurnIntent || ''}`,
+        `REFERENCE PACK: ${JSON.stringify(referencePack)}`,
+      ].filter(Boolean).join('\n');
+
+      const prevIllustrationUrls = collectGraphicNovelReferenceUrls(allPanels, flatIndex);
+      let illustrationUrl = null;
+      try {
+        illustrationUrl = await generateIllustration(
+          panel.imagePrompt || panel.action || `Graphic novel panel ${completed + 1}`,
+          null,
+          storyPlan.coverArtStyle || style,
+          {
+            apiKeys,
+            costTracker,
+            bookId,
+            bookContext,
+            childName: childDetails.name,
+            childAge: parseInt(childDetails.age, 10) || 10,
+            childPhotoUrl: resolvedChildPhotoUrl,
+            _cachedPhotoBase64: characterRefBase64,
+            _cachedPhotoMime: characterRefMime,
+            characterDescription: storyPlan.characterDescription || '',
+            characterAnchor: storyPlan.characterAnchor || null,
+            characterOutfit: storyPlan.characterOutfit || '',
+            recurringElement: storyPlan.recurringElement || '',
+            keyObjects: storyPlan.keyObjects || '',
+            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+            coverArtStyle: storyPlan.coverArtStyle || '',
+            spreadIndex: flatIndex,
+            totalSpreads: totalPanels,
+            skipTextEmbed: true,
+            pageText: `${panel.caption || ''} ${panel.dialogue || ''}`.trim(),
+            promptInjection: promptContext,
+            prevIllustrationUrls,
+            comicMode: true,
+            panelType: panel.panelType,
+            shot: panel.shot,
+            cameraAngle: panel.cameraAngle,
+            actingNotes: panel.actingNotes,
+            backgroundComplexity: panel.backgroundComplexity,
+            textFreeZone: panel.textFreeZone,
+            safeTextZones: panel.safeTextZones,
+            balloons: panel.balloons,
+            captions: panel.captions,
+            sfx: panel.sfx,
+            layoutTemplate: page.layoutTemplate,
+            pageLayout: panel.pageLayout,
+            colorScript: page.colorScript,
+            abortSignal: bookContext.abortController.signal,
+            deadlineMs: 180000,
+          }
+        );
+      } catch (panelErr) {
+        bookContext.log('warn', `Panel ${completed + 1} generation failed`, { error: panelErr.message });
+      }
+
+      panel.illustrationUrl = illustrationUrl || null;
+      const flatPanel = allPanels[flatIndex];
+      if (flatPanel) flatPanel.illustrationUrl = panel.illustrationUrl;
+
+      completed++;
+      bookContext.touchActivity();
+
+      await saveCheckpoint(bookId, {
+        bookId,
+        completedStage: 'illustrations_partial',
+        storyPlan,
+        timestamp: new Date().toISOString(),
+        accumulatedCosts: costTracker.getSummary(),
+      });
+
+      if (progressCallbackUrl) {
+        reportProgress(progressCallbackUrl, {
+          bookId,
+          stage: 'illustration',
+          progress: 0.40 + (0.35 * completed / Math.max(1, totalPanels)),
+          message: `Generating graphic novel panel ${completed} of ${totalPanels}...`,
+          previewUrls: allPanels.map((item) => item.illustrationUrl).filter(Boolean).slice(-8),
+          logs: bookContext.logs,
+        });
+      }
+    }
+  }
+}
+
 // ── Health Check ──
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -960,15 +1194,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         console.log(`[server] Stage timing: story=${gnMs}ms (book ${bookId})`);
 
         if (progressCallbackUrl) {
-          const storyContentForDb = {
-            title: storyPlan.title,
-            isGraphicNovel: true,
-            tagline: storyPlan.tagline || '',
-            scenes: storyPlan.scenes?.map(s => ({
-              number: s.number, sceneTitle: s.sceneTitle,
-              panels: s.panels?.map(p => ({ panelNumber: p.panelNumber, caption: p.caption }))
-            })) || [],
-          };
+          const storyContentForDb = buildGraphicNovelStoryContentForDb(storyPlan);
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
 
@@ -1323,51 +1549,26 @@ Format your answer with each label on its own line followed by a colon and the a
         spreadEntries = [];
       } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
         // ── Graphic novel: Generate comic panel illustrations ──
-        // Expect 36-48 panels (7 scenes x 5-7 each). Each panel = one image gen call,
-        // so cost and latency scale linearly with panel count.
-        bookContext.log('info', `Generating ${storyPlan.allPanels?.length || 0} graphic novel panels`);
+        const { normalizeGraphicNovelPlan } = require('./services/graphicNovelQa');
+        storyPlan = applyGraphicNovelRenderFixes(normalizeGraphicNovelPlan(storyPlan, { fallbackTitle: storyPlan.title }));
+        buildGraphicNovelReferencePack(storyPlan, childDetails);
+        bookContext.log('info', `Generating ${storyPlan.allPanels?.length || 0} premium graphic novel panels`, {
+          version: storyPlan.graphicNovelVersion || 'v2_premium',
+          pages: storyPlan.pages?.length || 0,
+        });
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating graphic novel panels...', logs: bookContext.logs });
         }
-        const allPanels = storyPlan.allPanels || [];
-        for (let i = 0; i < allPanels.length; i++) {
-          const panel = allPanels[i];
-          bookContext.log('info', `Generating panel ${i + 1}/${allPanels.length} (scene ${panel.sceneNumber})`);
-          try {
-            const illustUrl = await generateIllustration(
-              panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`,
-              null,
-              storyPlan.coverArtStyle || style,
-              {
-                apiKeys, costTracker, bookId, bookContext,
-                resolvedChildPhotoUrl: characterRef || resolvedChildPhotoUrl,
-                _cachedPhotoBase64: characterRefBase64,
-                _cachedPhotoMime: characterRefMime,
-                characterRef: characterRefBase64,
-                characterDescription: storyPlan.characterDescription,
-                characterAnchor: storyPlan.characterAnchor,
-                characterOutfit: storyPlan.characterOutfit,
-                childName,
-                childAge: parseInt(childDetails.age) || 10,
-                isSpread: false,
-                spreadIndex: i,
-                totalSpreads: allPanels.length,
-                skipTextEmbed: true,
-                pageText: '',
-                promptInjection: `COMIC PANEL (${panel.panelType || panel.type || 'action'}). ${(panel.panelType || panel.type) === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : (panel.panelType || panel.type) === 'reaction' ? 'CLOSE-UP on character face/reaction.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.`,
-                artStyle: style,
-              }
-            );
-            // generateIllustration returns a string URL
-            panel.illustrationUrl = typeof illustUrl === 'string' ? illustUrl : null;
-            bookContext.log('info', `Panel ${i + 1} done`);
-            bookContext.touchActivity();
-          } catch (e) {
-            bookContext.log('warn', `Panel ${i + 1} failed: ${e.message}`);
-            panel.illustrationUrl = null;
-            bookContext.touchActivity();
-          }
-        }
+        await generateGraphicNovelPanels(storyPlan, childDetails, style, {
+          apiKeys,
+          costTracker,
+          bookId,
+          bookContext,
+          progressCallbackUrl,
+          resolvedChildPhotoUrl: characterRef || resolvedChildPhotoUrl,
+          characterRefBase64,
+          characterRefMime,
+        });
         entriesWithIllustrations = [];
         spreadEntries = [];
       } else {
@@ -1476,6 +1677,8 @@ Format your answer with each label on its own line followed by a colon and the a
       } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
         // ── Graphic novel PDF assembly ──
         const { buildGraphicNovelPdf } = require('./services/layoutEngine');
+        const { buildGraphicNovelBlueprints } = require('./services/comicLayoutPresets');
+        const { validateGraphicNovelPagesForRender } = require('./services/graphicNovelQa');
 
         // Download panel illustration buffers
         const allPanels = storyPlan.allPanels || [];
@@ -1486,6 +1689,13 @@ Format your answer with each label on its own line followed by a colon and the a
           }
         }
 
+        const pageBlueprints = buildGraphicNovelBlueprints(storyPlan.pages || [], 450, 666);
+        const qaReport = validateGraphicNovelPagesForRender(storyPlan, pageBlueprints);
+        if (qaReport.globalIssues.length) {
+          bookContext.log('warn', 'Graphic novel render QA found advisory issues', { count: qaReport.globalIssues.length });
+          storyPlan.renderQa = qaReport;
+        }
+
         interiorPdf = await buildGraphicNovelPdf(allPanels, {
           title: storyPlan.title || bookTitle,
           childName: childDetails.name,
@@ -1494,6 +1704,7 @@ Format your answer with each label on its own line followed by a colon and the a
           dedication,
           year: new Date().getFullYear(),
           scenes: storyPlan.scenes || [],
+          pages: storyPlan.pages || [],
         });
 
         previewImageUrls = allPanels.map(p => p.illustrationUrl).filter(Boolean);
