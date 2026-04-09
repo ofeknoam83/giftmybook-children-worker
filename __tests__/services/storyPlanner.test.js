@@ -840,4 +840,319 @@ describe('planGraphicNovel robustness', () => {
     expect(openAiCalls).toBeGreaterThanOrEqual(8);
     expect(geminiCalls).toBeGreaterThan(0);
   }, 15000);
+
+  test('logs chunk progress during chunked GN planning', async () => {
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: i === 18 || i === 21 ? 'fullBleedSplash' : 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+          pageLayout: i === 18 || i === 21 ? 'splash' : '3equal',
+        },
+        {
+          panelNumber: 2,
+          panelType: 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: '3equal',
+        },
+      ],
+    }));
+    const chunkSlices = [
+      validPages.slice(0, 8),
+      validPages.slice(8, 15),
+      validPages.slice(15, 18),
+      validPages.slice(18, 21),
+      validPages.slice(21, 24),
+    ];
+
+    let openAiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      if (!String(url).includes('api.openai.com')) {
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{
+              content: { parts: [{ text: '{"broken":' }] },
+              finishReason: 'STOP',
+            }],
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+          }),
+        };
+      }
+
+      openAiCalls++;
+      if (openAiCalls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a star-map notebook',
+                  fear: 'crossing a broken starlight bridge',
+                  setting: 'a chain of tiny planets',
+                  storySeed: 'Isabella journeys to relight a beacon.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+      if (openAiCalls === 2) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  sceneBlueprints: [
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                  ],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+      if (openAiCalls === 3) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: { content: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1' },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      const chunkPages = chunkSlices[openAiCalls - 4] || validPages;
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Lantern Planet',
+                pages: chunkPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    const bookContext = { log: jest.fn() };
+    const result = await planGraphicNovel({
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    }, 'adventure', '', { bookContext });
+
+    expect(result.pages.length).toBe(24);
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Starting chunked graphic novel planning', expect.objectContaining({
+      chunkCount: 5,
+    }));
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Planning graphic novel chunk', expect.objectContaining({
+      scenes: '1, 2',
+      attempt: 1,
+    }));
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Graphic novel chunk planned', expect.objectContaining({
+      scenes: '7',
+      pages: 3,
+    }));
+  }, 15000);
+
+  test('times out a stuck full-plan request and falls back to chunks', async () => {
+    jest.useFakeTimers();
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: i === 18 || i === 21 ? 'fullBleedSplash' : 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+          pageLayout: i === 18 || i === 21 ? 'splash' : '3equal',
+        },
+        {
+          panelNumber: 2,
+          panelType: 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: '3equal',
+        },
+      ],
+    }));
+    const chunkSlices = [
+      validPages.slice(0, 8),
+      validPages.slice(8, 15),
+      validPages.slice(15, 18),
+      validPages.slice(18, 21),
+      validPages.slice(21, 24),
+    ];
+
+    let openAiCalls = 0;
+    let geminiCalls = 0;
+    global.fetch = jest.fn((url, init = {}) => {
+      if (!String(url).includes('api.openai.com')) {
+        geminiCalls++;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            candidates: [{
+              content: { parts: [{ text: '{"broken":' }] },
+              finishReason: 'STOP',
+            }],
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+          }),
+        });
+      }
+
+      openAiCalls++;
+      if (openAiCalls === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a star-map notebook',
+                  fear: 'crossing a broken starlight bridge',
+                  setting: 'a chain of tiny planets',
+                  storySeed: 'Isabella journeys to relight a beacon.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        });
+      }
+      if (openAiCalls === 2) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  sceneBlueprints: [
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                  ],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        });
+      }
+      if (openAiCalls === 3) {
+        return new Promise((_, reject) => {
+          init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      }
+
+      const chunkPages = chunkSlices[openAiCalls - 4] || validPages;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Lantern Planet',
+                pages: chunkPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      });
+    });
+
+    const bookContext = { log: jest.fn() };
+    const promise = planGraphicNovel({
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    }, 'adventure', '', { bookContext });
+
+    await jest.advanceTimersByTimeAsync(180000);
+    const result = await promise;
+
+    expect(result.pages.length).toBe(24);
+    expect(geminiCalls).toBeGreaterThan(0);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('GPT 5.4 failed, falling back to Gemini: Graphic novel full-plan fast path timed out after 180000ms'));
+    expect(bookContext.log).toHaveBeenCalledWith('warn', 'Switching to chunked scene planner');
+
+    jest.useRealTimers();
+  }, 15000);
 });

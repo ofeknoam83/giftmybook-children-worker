@@ -15,6 +15,9 @@ const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
+const DEFAULT_LLM_TIMEOUT_MS = 120000;
+const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 180000;
+const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 90000;
 
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
@@ -38,11 +41,31 @@ const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models
 /**
  * Call OpenAI GPT 5.4 chat completions API.
  */
+async function fetchWithTimeout(url, init, timeoutMs, requestLabel) {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (didTimeout) {
+      throw new Error(`${requestLabel || 'LLM request'} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const apiKey = opts.apiKey;
   if (!apiKey) throw new Error('OpenAI API key not available');
 
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  const resp = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -58,7 +81,7 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
       max_completion_tokens: opts.maxTokens || 4000,
       response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
     }),
-  });
+  }, opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS, opts.requestLabel || 'OpenAI request');
 
   if (!resp.ok) {
     const err = await resp.text();
@@ -102,13 +125,15 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
   let resp;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      resp = await fetch(
+      resp = await fetchWithTimeout(
         `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
-        }
+        },
+        genConfig.timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+        genConfig.requestLabel || `Gemini request attempt ${attempt}`
       );
       break;
     } catch (fetchErr) {
@@ -148,6 +173,8 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
         temperature: opts.temperature || 0.8,
         maxTokens: opts.maxTokens || 8000,
         jsonMode: opts.jsonMode,
+        timeoutMs: opts.timeoutMs,
+        requestLabel: opts.requestLabel,
       });
       if (opts.jsonMode && !String(result.text || '').trim()) {
         throw new Error('GPT 5.4 returned empty JSON-mode content');
@@ -166,6 +193,8 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
     maxOutputTokens: opts.maxTokens || 8000,
     temperature: opts.temperature || 0.8,
     responseMimeType: opts.jsonMode ? 'application/json' : undefined,
+    timeoutMs: opts.timeoutMs,
+    requestLabel: opts.requestLabel,
   });
   if (opts.costTracker) {
     opts.costTracker.addTextUsage(GEMINI_MODEL, result.inputTokens, result.outputTokens);
@@ -1887,15 +1916,23 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
     chunkBible,
     chunkSpec
   );
+  const chunkSceneLabel = (chunkSpec.scenes || []).map((scene) => scene.sceneNumber).join(', ');
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      bookContext?.log('info', 'Planning graphic novel chunk', {
+        scenes: chunkSceneLabel,
+        attempt,
+        expectedPages: chunkSpec.expectedPages,
+      });
       const resp = await callLLM(GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM, chunkPrompt, {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
         temperature: 0.65,
         maxTokens: 9000,
         jsonMode: true,
+        timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
+        requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
       });
       const parsedChunk = await parseStructuredJsonWithFallback(
         resp,
@@ -1906,6 +1943,8 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
           temperature: 0.65,
           maxTokens: 9000,
           bookContext,
+          timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
+          requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
         }
       );
       const stampedChunk = stampGraphicNovelChunkPages(parsedChunk, chunkSpec);
@@ -1915,9 +1954,13 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
       if (structure.issues.length > 0) {
         throw new Error(`Invalid chunk: ${structure.issues.join(', ')}`);
       }
+      bookContext?.log('info', 'Graphic novel chunk planned', {
+        scenes: chunkSceneLabel,
+        pages: chunkPlan.pages.length,
+      });
       return chunkPlan;
     } catch (err) {
-      bookContext?.log('warn', `Graphic novel chunk plan failed for scenes ${(chunkSpec.scenes || []).map((s) => s.sceneNumber).join(', ')} attempt ${attempt}: ${err.message}`);
+      bookContext?.log('warn', `Graphic novel chunk plan failed for scenes ${chunkSceneLabel} attempt ${attempt}: ${err.message}`);
       if (attempt === 3) throw err;
       await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
@@ -1930,6 +1973,13 @@ async function planGraphicNovelByChunks(childDetails, theme, customDetails, seed
   const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
   const chunkSpecs = buildGraphicNovelChunkSpecs(storyBible);
   const chunkPlans = [];
+  opts.bookContext?.log('info', 'Starting chunked graphic novel planning', {
+    chunkCount: chunkSpecs.length,
+    chunks: chunkSpecs.map((chunkSpec) => ({
+      scenes: (chunkSpec.scenes || []).map((scene) => scene.sceneNumber),
+      expectedPages: chunkSpec.expectedPages,
+    })),
+  });
 
   for (const chunkSpec of chunkSpecs) {
     const chunkPlan = await planGraphicNovelChunk(
@@ -1985,6 +2035,8 @@ async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {})
       temperature: 0.45,
       maxTokens: 14000,
       jsonMode: true,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel repair pass',
     }
   );
   const repairedParsed = await parseStructuredJsonWithFallback(
@@ -1996,6 +2048,8 @@ async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {})
       temperature: 0.45,
       maxTokens: 14000,
       bookContext,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel repair pass',
     }
   );
   const repaired = legacyGraphicNovelScenesToPages(repairedParsed, childDetails);
@@ -2014,6 +2068,8 @@ async function parseStructuredJsonWithFallback(resp, systemPrompt, userPrompt, o
       maxOutputTokens: opts.maxTokens || 8000,
       temperature: opts.temperature || 0.8,
       responseMimeType: 'application/json',
+      timeoutMs: opts.timeoutMs,
+      requestLabel: opts.requestLabel ? `${opts.requestLabel} Gemini fallback` : 'Gemini fallback',
     });
     if (opts.costTracker) {
       opts.costTracker.addTextUsage(GEMINI_MODEL, geminiResp.inputTokens, geminiResp.outputTokens);
@@ -2159,12 +2215,16 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         temperature: 0.75,
         maxTokens: 6000,
         jsonMode: true,
+        timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
+        requestLabel: `Graphic novel story bible attempt ${attempt}`,
       });
       storyBible = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM, storyBiblePrompt, {
         costTracker,
         temperature: 0.75,
         maxTokens: 6000,
         bookContext,
+        timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
+        requestLabel: `Graphic novel story bible attempt ${attempt}`,
       });
       if (!storyBible.title) throw new Error('Story bible missing title');
       break;
@@ -2191,12 +2251,16 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       temperature: 0.8,
       maxTokens: 16384,
       jsonMode: true,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel full-plan fast path',
     });
     const parsedPlan = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
       costTracker,
       temperature: 0.8,
       maxTokens: 16384,
       bookContext,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel full-plan fast path',
     });
     plan = legacyGraphicNovelScenesToPages(parsedPlan, childDetails);
     plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
@@ -2243,6 +2307,8 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       temperature: 0.5,
       maxTokens: 14000,
       jsonMode: true,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel critic pass',
     });
     const parsedCriticPlan = await parseStructuredJsonWithFallback(
       criticResp,
@@ -2253,6 +2319,8 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         temperature: 0.5,
         maxTokens: 14000,
         bookContext,
+        timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+        requestLabel: 'Graphic novel critic pass',
       }
     );
     improvedPlan = legacyGraphicNovelScenesToPages(parsedCriticPlan, childDetails);
