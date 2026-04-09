@@ -866,8 +866,8 @@ function groupPanelsIntoPages(allPanels) {
 function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
   const sp = speakerPosition || 'left';
 
-  const fontSize = 10;
-  const maxTextW = panelRect.w * 0.50;
+  const fontSize = 9;
+  const maxTextW = panelRect.w * 0.38; // smaller bubble — don't cover character
   const textLines = wrapText(text, font, fontSize, maxTextW);
   const lineH = fontSize * 1.35;
   const textW = Math.max(...textLines.map(l => font.widthOfTextAtSize(l, fontSize)), 50);
@@ -878,24 +878,25 @@ function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
   let bubbleW = Math.max(textW + padX * 2, 70);
   let bubbleH = Math.max(textH + padY * 2, 28);
 
-  // Bubble placed away from speaker; speaker hint for tail direction
+  // Bubble goes to the TOP CORNER away from the speaker so it doesn't cover the character.
+  // by = fraction from top of panel (small = near top edge, large = near bottom).
   const posMap = {
-    'left':         { bx: 0.72, by: 0.18 },
-    'right':        { bx: 0.28, by: 0.18 },
-    'center':       { bx: 0.50, by: 0.15 },
-    'bottom-left':  { bx: 0.72, by: 0.18 },
-    'bottom-right': { bx: 0.28, by: 0.18 },
-    'top-left':     { bx: 0.72, by: 0.72 },
-    'top-right':    { bx: 0.28, by: 0.72 },
+    'left':         { bx: 0.82, by: 0.08 }, // speaker left  → bubble top-right corner
+    'right':        { bx: 0.18, by: 0.08 }, // speaker right → bubble top-left corner
+    'center':       { bx: 0.80, by: 0.07 },
+    'bottom-left':  { bx: 0.82, by: 0.08 },
+    'bottom-right': { bx: 0.18, by: 0.08 },
+    'top-left':     { bx: 0.80, by: 0.80 }, // speaker top-left → bubble bottom-right
+    'top-right':    { bx: 0.20, by: 0.80 },
   };
   const speakerHint = {
-    'left':         { sx: 0.18, sy: 0.45 },
-    'right':        { sx: 0.82, sy: 0.45 },
-    'center':       { sx: 0.50, sy: 0.60 },
-    'bottom-left':  { sx: 0.18, sy: 0.72 },
-    'bottom-right': { sx: 0.82, sy: 0.72 },
-    'top-left':     { sx: 0.18, sy: 0.28 },
-    'top-right':    { sx: 0.82, sy: 0.28 },
+    'left':         { sx: 0.20, sy: 0.50 },
+    'right':        { sx: 0.80, sy: 0.50 },
+    'center':       { sx: 0.50, sy: 0.55 },
+    'bottom-left':  { sx: 0.20, sy: 0.75 },
+    'bottom-right': { sx: 0.80, sy: 0.75 },
+    'top-left':     { sx: 0.20, sy: 0.25 },
+    'top-right':    { sx: 0.80, sy: 0.25 },
   };
 
   const bpos = posMap[sp] || posMap['left'];
@@ -996,32 +997,14 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
 
   // Check if first panel is scene opener (establishing + panelNumber 1)
   const firstPanel = panels[0] || {};
-  const isSceneOpener = firstPanel.panelType === 'establishing' && firstPanel.panelNumber === 1;
-  const sceneHeaderH = isSceneOpener ? 20 : 0;
-
   const CONTENT_Y = MARGIN_C;
-  const CONTENT_H = PAGE_H - MARGIN_C * 2 - sceneHeaderH;
-  const contentTopY = CONTENT_Y + CONTENT_H; // top of content area in PDF coords (bottom-up)
+  const CONTENT_H = PAGE_H - MARGIN_C * 2;
+  const contentTopY = CONTENT_Y + CONTENT_H;
 
   const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
   // Fill entire page with black (gutters show through)
   page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0, 0, 0) });
-
-  // Scene title header (above content area)
-  if (isSceneOpener) {
-    const headerY = PAGE_H - MARGIN_C - sceneHeaderH;
-    page.drawRectangle({ x: 0, y: headerY, width: PAGE_W, height: sceneHeaderH, color: rgb(0, 0, 0) });
-    const sceneLabel = `SCENE ${firstPanel.sceneNumber || ''} \u2014 ${(firstPanel.sceneTitle || '').toUpperCase()}`;
-    const slw = bangersFont.widthOfTextAtSize(sceneLabel, 9);
-    page.drawText(sceneLabel, {
-      x: (PAGE_W - slw) / 2,
-      y: headerY + 5,
-      size: 9,
-      font: bangersFont,
-      color: rgb(1, 1, 1),
-    });
-  }
 
   // Compute panel rects based on layout (in PDF coordinates: y=0 at bottom)
   let panelRects = [];

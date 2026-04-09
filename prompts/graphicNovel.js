@@ -20,7 +20,7 @@ STORY STRUCTURE (7 scenes):
 
 WRITING QUALITY (middle-grade, ages 9-12):
 - Captions: 1-3 sentences, present tense, up to 40 words. Use narration to convey mood, internal monologue, or time jumps. Varied sentence length: mix short punches with longer descriptive lines.
-- Dialogue: up to 30 words per dialogue field, sentence case. Characters must sound distinct — give each a verbal tic, rhythm, or vocabulary level. Use subtext where possible.
+- Dialogue: MAXIMUM 10 WORDS per bubble — short, punchy, character-specific. Longer thoughts must be split across multiple panels. Characters must sound distinct. Use subtext.
 - Vocabulary: no restrictions. Metaphor, irony, and sensory detail are encouraged.
 - Balance: roughly half the panels should carry narration captions, the other half may have empty captions and let the art tell the story. At least a third of panels should have dialogue.
 - Panel cliffhangers: each scene should end on a beat that compels a page turn.
@@ -119,7 +119,7 @@ Rules:
 - The story must have a clear beginning, middle, and end
 - The protagonist must cause the resolution — not luck
 - Captions: up to 40 words, 1-3 sentences. Use narration for mood, internal voice, and transitions.
-- Dialogue: up to 30 words, sentence case. Characters must sound distinct.
+- Dialogue: MAXIMUM 10 WORDS per bubble — short and punchy. Split longer thoughts across panels.
 - Roughly half the panels should carry narration captions; the rest can be empty-caption action/reaction panels
 - At least a third of all panels should include dialogue
 - speakerPosition must be one of: left, right, top-left, top-right, bottom-left, bottom-right, center
