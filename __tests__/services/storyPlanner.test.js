@@ -765,11 +765,31 @@ describe('planGraphicNovel robustness', () => {
       }
 
       const chunkSlices = [
-        validPages.slice(0, 8),
-        validPages.slice(8, 15),
-        validPages.slice(15, 18),
-        validPages.slice(18, 21),
-        validPages.slice(21, 24),
+        validPages.slice(0, 8).map((page) => ({ ...page, sceneNumber: 1, sceneTitle: 'Wrong Scene' })),
+        validPages.slice(8, 15).map((page) => ({ ...page, sceneNumber: 1, sceneTitle: 'Wrong Scene' })),
+        validPages.slice(15, 18).map((page) => ({ ...page, sceneNumber: 1, sceneTitle: 'Wrong Scene' })),
+        validPages.slice(18, 21).map((page, index) => ({
+          ...page,
+          sceneNumber: 1,
+          sceneTitle: 'Wrong Scene',
+          layoutTemplate: index === 0 ? 'fullBleedSplash' : page.layoutTemplate,
+          panels: (page.panels || []).map((panel) => ({
+            ...panel,
+            panelType: 'reaction',
+            pageLayout: index === 0 ? 'splash' : '3equal',
+          })),
+        })),
+        validPages.slice(21, 24).map((page, index) => ({
+          ...page,
+          sceneNumber: 1,
+          sceneTitle: 'Wrong Scene',
+          layoutTemplate: index === 0 ? 'fullBleedSplash' : page.layoutTemplate,
+          panels: (page.panels || []).map((panel) => ({
+            ...panel,
+            panelType: 'reaction',
+            pageLayout: index === 0 ? 'splash' : '3equal',
+          })),
+        })),
       ];
 
       if (openAiCalls >= 4 && openAiCalls <= 8) {

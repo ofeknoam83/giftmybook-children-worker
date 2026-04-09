@@ -1804,18 +1804,63 @@ function buildGraphicNovelStoryBibleChunk(storyBible, chunkSpec) {
   };
 }
 
+function buildGraphicNovelChunkPageAssignments(chunkSpec) {
+  return (chunkSpec?.scenes || []).flatMap((scene) => Array.from(
+    { length: Math.max(2, Number(scene.pageCountTarget) || 0) },
+    () => ({
+      sceneNumber: scene.sceneNumber,
+      sceneTitle: scene.sceneTitle || `Scene ${scene.sceneNumber}`,
+    })
+  ));
+}
+
+function stampGraphicNovelChunkPages(rawPlan, chunkSpec) {
+  if (!rawPlan || typeof rawPlan !== 'object') return rawPlan;
+  const pageAssignments = buildGraphicNovelChunkPageAssignments(chunkSpec);
+  if (!Array.isArray(rawPlan.pages)) return rawPlan;
+
+  return {
+    ...rawPlan,
+    pages: rawPlan.pages.map((page, index) => {
+      const assignment = pageAssignments[index] || pageAssignments[pageAssignments.length - 1] || {
+        sceneNumber: 1,
+        sceneTitle: 'Scene 1',
+      };
+      const stampedPanels = Array.isArray(page?.panels)
+        ? page.panels.map((panel, panelIndex) => ({
+            ...panel,
+            sceneNumber: assignment.sceneNumber,
+            sceneTitle: assignment.sceneTitle,
+            panelNumber: Number.isFinite(panel?.panelNumber) ? panel.panelNumber : panelIndex + 1,
+          }))
+        : [];
+
+      return {
+        ...page,
+        pageNumber: Number.isFinite(page?.pageNumber) ? page.pageNumber : index + 1,
+        sceneNumber: assignment.sceneNumber,
+        sceneTitle: page?.sceneTitle || assignment.sceneTitle,
+        panels: stampedPanels,
+      };
+    }),
+  };
+}
+
 function summarizeGraphicNovelChunkStructure(plan, chunkSpec) {
   const pages = Array.isArray(plan?.pages) ? plan.pages : [];
   const expectedPages = Number(chunkSpec?.expectedPages) || 0;
-  const allowedScenes = new Set((chunkSpec?.scenes || []).map((scene) => scene.sceneNumber));
   const expectedSplashes = (chunkSpec?.scenes || []).filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7).length;
   const issues = [];
 
   if (pages.length !== expectedPages) issues.push(`pages=${pages.length} (need ${expectedPages})`);
-  if (pages.some((page) => !allowedScenes.has(page.sceneNumber))) issues.push('contains pages from unexpected scenes');
   if (pages.some((page) => !Array.isArray(page.panels) || page.panels.length === 0)) issues.push('contains empty pages');
-  const splashCount = pages.flatMap((page) => page.panels || []).filter((panel) => panel.panelType === 'splash').length;
-  if (splashCount !== expectedSplashes) issues.push(`splashPanels=${splashCount} (need ${expectedSplashes})`);
+  if (expectedSplashes > 0) {
+    const splashCount = pages.filter((page) => {
+      if (page.layoutTemplate === 'fullBleedSplash' || page.pageLayout === 'splash') return true;
+      return (page.panels || []).some((panel) => panel.panelType === 'splash' || panel.pageLayout === 'splash');
+    }).length;
+    if (splashCount !== expectedSplashes) issues.push(`splashPages=${splashCount} (need ${expectedSplashes})`);
+  }
 
   return { issues };
 }
@@ -1863,7 +1908,8 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
           bookContext,
         }
       );
-      let chunkPlan = legacyGraphicNovelScenesToPages(parsedChunk, childDetails);
+      const stampedChunk = stampGraphicNovelChunkPages(parsedChunk, chunkSpec);
+      let chunkPlan = legacyGraphicNovelScenesToPages(stampedChunk, childDetails);
       chunkPlan = normalizeGraphicNovelPlan(chunkPlan, { fallbackTitle: storyBible.title || approvedTitle });
       const structure = summarizeGraphicNovelChunkStructure(chunkPlan, chunkSpec);
       if (structure.issues.length > 0) {
@@ -2138,67 +2184,55 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   ) + parentStorySection + titleInstruction;
 
   let plan;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
-        openaiApiKey: apiKeys?.OPENAI_API_KEY,
-        costTracker,
-        temperature: 0.8,
-        maxTokens: 14000,
-        jsonMode: true,
-      });
-      const parsedPlan = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
-        costTracker,
-        temperature: 0.8,
-        maxTokens: 14000,
-        bookContext,
-      });
-      plan = legacyGraphicNovelScenesToPages(parsedPlan, childDetails);
-      plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
-      const structure = summarizeGraphicNovelStructure(plan);
-      if (structure.issues.length > 0) {
-        try {
-          plan = await repairGraphicNovelPlan(plan, storyBible, childDetails, {
-            apiKeys,
-            costTracker,
-            bookContext,
-          });
-          plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
-        } catch (repairErr) {
-          bookContext?.log('warn', `Graphic novel plan repair failed: ${repairErr.message}`);
-        }
+  try {
+    const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
+      openaiApiKey: apiKeys?.OPENAI_API_KEY,
+      costTracker,
+      temperature: 0.8,
+      maxTokens: 16384,
+      jsonMode: true,
+    });
+    const parsedPlan = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
+      costTracker,
+      temperature: 0.8,
+      maxTokens: 16384,
+      bookContext,
+    });
+    plan = legacyGraphicNovelScenesToPages(parsedPlan, childDetails);
+    plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
+    const structure = summarizeGraphicNovelStructure(plan);
+    if (structure.issues.length > 0) {
+      try {
+        plan = await repairGraphicNovelPlan(plan, storyBible, childDetails, {
+          apiKeys,
+          costTracker,
+          bookContext,
+        });
+        plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
+      } catch (repairErr) {
+        bookContext?.log('warn', `Graphic novel plan repair failed: ${repairErr.message}`);
       }
-      const repairedStructure = summarizeGraphicNovelStructure(plan);
-      if (!plan.title || repairedStructure.issues.length > 0) {
-        throw new Error(`Invalid plan: ${plan.pages?.length || 0} pages`);
-      }
-      break;
-    } catch (e) {
-      if (String(e.message || '').includes('Failed to parse story plan JSON after all repair attempts')) {
-        try {
-          bookContext?.log('warn', 'Full graphic novel planner output was too malformed; switching to chunked scene planner');
-          plan = await planGraphicNovelByChunks(
-            childDetails,
-            theme,
-            enrichedCustomDetails,
-            seed,
-            storyBible,
-            {
-              apiKeys,
-              costTracker,
-              approvedTitle,
-              bookContext,
-            }
-          );
-          break;
-        } catch (chunkErr) {
-          bookContext?.log('warn', `Chunked graphic novel planner failed: ${chunkErr.message}`);
-        }
-      }
-      bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
-      if (attempt === 3) throw e;
-      await new Promise((r) => setTimeout(r, 2000 * attempt));
     }
+    const repairedStructure = summarizeGraphicNovelStructure(plan);
+    if (!plan.title || repairedStructure.issues.length > 0) {
+      throw new Error(`Invalid plan: ${plan.pages?.length || 0} pages`);
+    }
+  } catch (e) {
+    bookContext?.log('warn', `Graphic novel full-plan fast path failed: ${e.message}`);
+    bookContext?.log('warn', 'Switching to chunked scene planner');
+    plan = await planGraphicNovelByChunks(
+      childDetails,
+      theme,
+      enrichedCustomDetails,
+      seed,
+      storyBible,
+      {
+        apiKeys,
+        costTracker,
+        approvedTitle,
+        bookContext,
+      }
+    );
   }
 
   let improvedPlan = plan;

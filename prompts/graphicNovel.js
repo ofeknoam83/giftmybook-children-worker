@@ -242,6 +242,9 @@ function GRAPHIC_NOVEL_SCENE_PLANNER_USER(childDetails, theme, customDetails, se
   const pronoun = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
   const sceneNumbers = (chunkSpec?.scenes || []).map((scene) => scene.sceneNumber);
   const expectedPages = Number(chunkSpec?.expectedPages) || 0;
+  const scenePageBudgets = (chunkSpec?.scenes || [])
+    .map((scene) => `scene ${scene.sceneNumber}: ${Math.max(2, Number(scene.pageCountTarget) || 0)} pages`)
+    .join(', ');
   const splashRequirement = (chunkSpec?.scenes || [])
     .filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7)
     .map((scene) => `scene ${scene.sceneNumber}: exactly 1 splash page`)
@@ -258,18 +261,56 @@ STORY BIBLE CHUNK: ${JSON.stringify(storyBible || {}, null, 2)}
 
 REQUESTED SCENES: ${sceneNumbers.join(', ')}
 EXACT PAGE COUNT FOR THIS CHUNK: ${expectedPages}
+SCENE PAGE BUDGETS: ${scenePageBudgets}
 SPLASH REQUIREMENT: ${splashRequirement}
 
 Return a JSON object:
 {
   "title": "Must include ${name}'s name",
   "tagline": "Back-cover line",
-  "pages": [ ... exactly ${expectedPages} page objects for only the requested scenes ... ]
+  "pages": [
+    {
+      "pageNumber": 1,
+      "sceneNumber": ${sceneNumbers[0] || 1},
+      "sceneTitle": "scene title",
+      "pagePurpose": "what this page is doing dramatically",
+      "pageTurnIntent": "setup|reveal|joke|threat|wonder|question|release|cliffhanger",
+      "dominantBeat": "the one beat that should dominate the page",
+      "layoutTemplate": "cinematicTopStrip|heroTopTwoBottom|twoTierEqual|conversationGrid|fourGrid|fullBleedSplash",
+      "panelCount": 2,
+      "textDensity": "silent|light|medium",
+      "colorScript": { "paletteId": "short id", "dominantHue": "ember orange", "contrastMode": "graphicHighContrast" },
+      "panels": [
+        {
+          "sceneNumber": ${sceneNumbers[0] || 1},
+          "panelNumber": 1,
+          "panelType": "dialogue|action|reaction|closeup|establishing|insert|splash",
+          "shot": "WS|MS|MCU|CU",
+          "cameraAngle": "eye-level|low-angle|high-angle|over-shoulder|profile|dutch",
+          "pacing": "slow|medium|fast",
+          "actingNotes": "concrete expression/gesture note",
+          "backgroundComplexity": "minimal|simple|medium",
+          "speakerPosition": "left|right|top-left|top-right|bottom-left|bottom-right|center",
+          "textFreeZone": "top-left|top-right|upper-band|lower-band|left-side|right-side|center-clear",
+          "safeTextZones": ["upper-band"],
+          "action": "What the reader sees happen",
+          "balloons": [{ "type": "speech", "speaker": "${name}", "text": "short line", "order": 1, "anchor": "left" }],
+          "captions": [{ "type": "narration", "text": "up to 28 words", "placement": "top-band" }],
+          "sfx": [{ "text": "WHOOM", "placement": "mid-action", "style": "impact" }],
+          "dialogue": "legacy combined dialogue string",
+          "caption": "legacy combined caption string",
+          "pageLayout": "splash|strip+2|1large+2small|3equal|2equal|4equal",
+          "imagePrompt": "production-ready image prompt with clean text-free space"
+        }
+      ]
+    }
+  ]
 }
 
 Rules:
 - Return exactly ${expectedPages} pages.
 - Return only scenes ${sceneNumbers.join(', ')}.
+- Follow the page/panel schema above for every page in the chunk.
 - Every page must include a non-empty panels array.
 - Keep scene/page continuity coherent inside this chunk.
 - Do not include any pages from other scenes.
