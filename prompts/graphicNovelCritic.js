@@ -38,7 +38,39 @@ PLAN:
 ${JSON.stringify(plan || {}, null, 2)}`;
 }
 
+const GRAPHIC_NOVEL_REPAIR_SYSTEM = `You repair malformed or underdeveloped middle-grade graphic novel production plans.
+
+Return JSON only.
+
+Your job is to take an existing plan that is too short, too outline-like, or structurally invalid and expand/fix it into a full production-ready plan.
+
+Hard requirements:
+- exactly 7 scenes
+- 24-32 fully realized story pages
+- exactly 2 splash pages total
+- every page must include a panels array
+- non-splash pages should usually have 2-3 panels
+- preserve title, child personalization, cast, and core story arc
+- preserve the visual language and world details that already work`;
+
+function GRAPHIC_NOVEL_REPAIR_USER(plan, issues, storyBible) {
+  return `Repair this graphic novel plan into a valid full production script.
+
+Current structural issues:
+${JSON.stringify(issues || [], null, 2)}
+
+Use this story bible as ground truth:
+${JSON.stringify(storyBible || {}, null, 2)}
+
+Return the fully repaired JSON plan, not commentary.
+
+PLAN:
+${JSON.stringify(plan || {}, null, 2)}`;
+}
+
 module.exports = {
   GRAPHIC_NOVEL_CRITIC_SYSTEM,
   GRAPHIC_NOVEL_CRITIC_USER,
+  GRAPHIC_NOVEL_REPAIR_SYSTEM,
+  GRAPHIC_NOVEL_REPAIR_USER,
 };

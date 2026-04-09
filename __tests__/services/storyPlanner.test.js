@@ -53,7 +53,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const { planStory, validateStoryText, combinedCritic } = require('../../services/storyPlanner');
+const { planStory, validateStoryText, combinedCritic, planGraphicNovel } = require('../../services/storyPlanner');
 
 describe('planStory', () => {
   const childDetails = {
@@ -344,4 +344,148 @@ describe('combinedCritic', () => {
     expect(result.entries[0].right.text).toBe('Improved right 1');
     expect(result.entries[11].left.text).toBe('Improved left 12');
   });
+});
+
+describe('planGraphicNovel robustness', () => {
+  test('handles trailing text after JSON object during GN planning', async () => {
+    let callNum = 0;
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const pages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+        },
+        {
+          panelNumber: 2,
+          panelType: i === 20 || i === 23 ? 'splash' : 'reaction',
+          dialogue: '',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: i === 20 || i === 23 ? 'splash' : '3equal',
+        },
+      ],
+    }));
+    global.fetch = jest.fn(async () => {
+      callNum++;
+      if (callNum === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a silver explorer backpack',
+                  fear: 'crossing drifting asteroid stones',
+                  setting: 'a luminous chain of tiny planets',
+                  storySeed: 'Isabella carries a fallen star seed to the Sky Orchard.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (callNum === 2) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Moon Orchard',
+                  sceneBlueprints: Array.from({ length: 7 }, (_, i) => ({
+                    sceneNumber: i + 1,
+                    sceneTitle: `Scene ${i + 1}`,
+                    pageCountTarget: i < 3 ? 4 : 3,
+                  })),
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (callNum === 3) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: `${JSON.stringify({ title: 'Isabella and the Moon Orchard', pages })}\nDONE`,
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Moon Orchard',
+                pages: Array.from({ length: 24 }, (_, i) => ({
+                  pageNumber: i + 1,
+                  sceneNumber: sceneNumbers[i],
+                  sceneTitle: `Scene ${sceneNumbers[i]}`,
+                  pagePurpose: 'Advance the story',
+                  pageTurnIntent: 'question',
+                  dominantBeat: 'A strong beat',
+                  layoutTemplate: 'conversationGrid',
+                  panelCount: 2,
+                  panels: [
+                    { panelNumber: 1, panelType: 'dialogue', dialogue: 'Hello there.', balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }], imagePrompt: 'Panel one prompt' },
+                    { panelNumber: 2, panelType: i === 20 || i === 23 ? 'splash' : 'reaction', caption: 'A quiet beat.', captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }], imagePrompt: 'Panel two prompt', pageLayout: i === 20 || i === 23 ? 'splash' : '3equal' },
+                  ],
+                })),
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    const childDetails = {
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    };
+
+    const result = await planGraphicNovel(childDetails, 'adventure', '', {});
+    expect(result.pages.length).toBeGreaterThanOrEqual(24);
+    expect(result.scenes.length).toBe(7);
+  }, 15000);
 });

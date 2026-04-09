@@ -101,7 +101,7 @@ Return a JSON object with this shape:
       "sceneTitle": "short title",
       "purpose": "narrative purpose",
       "turningPoint": "what changes by the end of scene",
-      "pageCountTarget": 2,
+      "pageCountTarget": 4,
       "dominantEmotion": "emotion",
       "pageTurnIntent": "what the final page turn of the scene should do"
     }
@@ -110,6 +110,7 @@ Return a JSON object with this shape:
 
 Rules:
 - Exactly 7 sceneBlueprints.
+- The sum of all pageCountTarget values must be between 24 and 32.
 - Total target length should imply roughly 24-32 pages.
 - The protagonist must drive the resolution.
 - Personalization must feel story-native, not pasted on.
@@ -202,8 +203,9 @@ Return a JSON object:
 
 Rules:
 - Build 24-32 story pages total.
+- The pages array itself must contain 24-32 fully written page objects.
 - Exactly 7 scenes.
-- Exactly 2 splash pages total: one in scene 6, one in scene 7.
+- Exactly 2 splash pages total: one in scene 6 and one in scene 7.
 - Default to 2-3 panels per page.
 - Use 4-panel pages sparingly.
 - At least 20% of panels should have no balloons.
@@ -213,7 +215,11 @@ Rules:
 - Keep textFreeZone and safeTextZones aligned with the likely lettering placement.
 - Dialogue must sound distinct per character.
 - Preserve the story bible.
-- Weave the child personalization in naturally so a parent can see it immediately.`;
+- Weave the child personalization in naturally so a parent can see it immediately.
+- Returning one page per scene is invalid.
+- Returning only an outline, scene summaries, or page stubs is invalid.
+- Every page object must include a non-empty panels array.
+- Every non-splash page should usually contain 2 or 3 panels.`;
 }
 
 module.exports = {

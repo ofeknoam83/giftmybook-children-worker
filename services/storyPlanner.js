@@ -1710,10 +1710,33 @@ function parseJsonObjectFromText(text) {
   if (!raw) throw new Error('Empty JSON response');
   try {
     return JSON.parse(raw);
-  } catch (_) {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('No JSON object found');
-    return JSON.parse(match[0]);
+  } catch (directErr) {
+    const stripped = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    try {
+      return JSON.parse(stripped);
+    } catch (_) {
+      const firstBrace = stripped.indexOf('{');
+      if (firstBrace === -1) throw directErr;
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      let endIdx = -1;
+      for (let i = firstBrace; i < stripped.length; i++) {
+        const ch = stripped[i];
+        if (esc) { esc = false; continue; }
+        if (ch === '\\') { esc = true; continue; }
+        if (ch === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (ch === '{') depth++;
+        if (ch === '}') {
+          depth--;
+          if (depth === 0) { endIdx = i; break; }
+        }
+      }
+      if (endIdx === -1) throw directErr;
+      const candidate = sanitizeJsonStrings(stripped.slice(firstBrace, endIdx + 1));
+      return JSON.parse(candidate);
+    }
   }
 }
 
@@ -1749,6 +1772,50 @@ function compactGraphicNovelStoryBible(storyBible) {
         }))
       : [],
   };
+}
+
+function summarizeGraphicNovelStructure(plan) {
+  const pageCount = Array.isArray(plan?.pages) ? plan.pages.length : 0;
+  const sceneCount = Array.isArray(plan?.scenes) ? plan.scenes.length : 0;
+  const panelCount = Array.isArray(plan?.allPanels) ? plan.allPanels.length : 0;
+  const splashCount = Array.isArray(plan?.allPanels)
+    ? plan.allPanels.filter((panel) => panel.panelType === 'splash').length
+    : 0;
+  const issues = [];
+  if (pageCount < 24 || pageCount > 32) issues.push(`pages=${pageCount} (need 24-32)`);
+  if (sceneCount !== 7) issues.push(`scenes=${sceneCount} (need 7)`);
+  if (splashCount !== 2) issues.push(`splashPanels=${splashCount} (need 2)`);
+  if (panelCount < Math.max(24, pageCount)) issues.push(`panels=${panelCount} looks too low for a graphic novel`);
+  const emptyPages = (plan?.pages || []).filter((page) => !Array.isArray(page.panels) || page.panels.length === 0).length;
+  if (emptyPages > 0) issues.push(`emptyPages=${emptyPages}`);
+  return { pageCount, sceneCount, panelCount, splashCount, issues };
+}
+
+async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {}) {
+  const {
+    apiKeys,
+    costTracker,
+    bookContext,
+  } = opts;
+  const {
+    GRAPHIC_NOVEL_REPAIR_SYSTEM,
+    GRAPHIC_NOVEL_REPAIR_USER,
+  } = require('../prompts/graphicNovelCritic');
+  const summary = summarizeGraphicNovelStructure(plan);
+  bookContext?.log('warn', 'Repairing invalid graphic novel plan', summary);
+  const resp = await callLLM(
+    GRAPHIC_NOVEL_REPAIR_SYSTEM,
+    GRAPHIC_NOVEL_REPAIR_USER(plan, summary.issues, compactGraphicNovelStoryBible(storyBible)),
+    {
+      openaiApiKey: apiKeys?.OPENAI_API_KEY,
+      costTracker,
+      temperature: 0.45,
+      maxTokens: 14000,
+      jsonMode: true,
+    }
+  );
+  const repaired = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(resp.text), childDetails);
+  return repaired;
 }
 
 function legacyGraphicNovelScenesToPages(plan, childDetails = {}) {
@@ -1919,7 +1986,21 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       });
       plan = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(resp.text), childDetails);
       plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
-      if (!plan.title || !Array.isArray(plan.pages) || plan.pages.length < 12) {
+      const structure = summarizeGraphicNovelStructure(plan);
+      if (structure.issues.length > 0) {
+        try {
+          plan = await repairGraphicNovelPlan(plan, storyBible, childDetails, {
+            apiKeys,
+            costTracker,
+            bookContext,
+          });
+          plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
+        } catch (repairErr) {
+          bookContext?.log('warn', `Graphic novel plan repair failed: ${repairErr.message}`);
+        }
+      }
+      const repairedStructure = summarizeGraphicNovelStructure(plan);
+      if (!plan.title || repairedStructure.issues.length > 0) {
         throw new Error(`Invalid plan: ${plan.pages?.length || 0} pages`);
       }
       break;
