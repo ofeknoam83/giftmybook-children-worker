@@ -840,6 +840,7 @@ async function getComicFont() {
 function groupPanelsIntoPages(allPanels) {
   const CAPACITY = {
     'splash': 1,
+    'single': 1,
     'strip+2': 3,
     '1large+2small': 3,
     '3equal': 3,
@@ -1034,7 +1035,7 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
   // Compute panel rects based on layout (in PDF coordinates: y=0 at bottom)
   let panelRects = [];
 
-  if (layout === 'splash') {
+  if (layout === 'splash' || layout === 'single') {
     panelRects = [{ x: CONTENT_X, y: CONTENT_Y, w: CONTENT_W, h: CONTENT_H }];
   } else if (layout === 'strip+2') {
     const stripH = CONTENT_H * 0.18;

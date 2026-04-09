@@ -96,25 +96,20 @@ Example imagePrompt:
 "MEDIUM SHOT at eye-level. Isabella reaches toward a glowing door, eyes wide with wonder, fingertips almost touching the surface. Wonder mood, soft blue-purple glow from door illuminates her face warmly. Foreground: scattered glowing rocks and dust motes. Midground: Isabella centered, body leaning forward. Background: vast dark cavern with distant stars visible. Cinematic Pixar quality, clean comic style. Style: high-end 3D CGI animation (Pixar-quality), volumetric lighting, depth of field, photorealistic materials — NOT watercolor, NOT 2D illustration."
 
 PAGE LAYOUT VALUES:
-- splash: 1 panel per page — for splash panels only
-- strip+2: 3 panels per page — strip across top + 2 panels below
-- 1large+2small: 3 panels per page — large top + 2 small bottom
-- 3equal: 3 equal-height panels stacked — prefer for dialogue-heavy pages
-- 3wide: 3 wide cinematic panels stacked — prefer for action sequences
-- 2equal: 2 equal-height panels stacked — use for breathing room or emotional beats
-- 4equal: 2x2 grid — prefer for dialogue-heavy pages
+- single: 1 panel per page with visible black border/margin. THE DEFAULT — use for most panels. Great for action, close-up, establishing, emotional beats.
+- 2equal: 2 panels stacked on one page. Use OCCASIONALLY (max 4-5 times total) for rapid back-and-forth dialogue or action/reaction pairs. Creates rhythm variety.
+- splash: 1 full-bleed panel, no margins. ONLY for scene 4 climax and scene 5 resolution — exactly 2 total.
 
-LAYOUT RULES — 8 PANELS PER SCENE distributed across ~3 pages:
-- Page 1 (scene opening): "strip+2" (establishing + 2 story panels)
-- Page 2: "3equal" (3 story panels) OR "3wide" (3 action panels)
-- Page 3 options based on scene needs:
-  - Action peak: "2equal" (2 large panels)
-  - Emotional beat: "1large+2small"
-  - Dialogue page: "4equal"
-  - Climax: "splash"
-- First panel of every scene MUST be panelType "establishing" with pageLayout "strip+2"
-- Exactly 2 splash panels total: one at the climax of scene 4, one at the resolution of scene 5
+LAYOUT RULES — 8 PANELS PER SCENE distributed across ~7 pages per scene (36+ story pages total):
+- Most panels: "single" — one panel per page
+- 2-3 times per book: "2equal" — two panels sharing a page (dialogue exchange or quick action/reaction)
+- Exactly 2: "splash" — full-bleed climax moments
+- Scene openers: panelType "establishing", pageLayout "single" (full page wide establishing shot)
+- Exactly 2 splash panels total: climax of scene 4 and resolution of scene 5
 - Splash panels: panelType "splash", pageLayout "splash"
+
+PAGE COUNT: With 40 panels mostly at 1/page, the book reaches 36-40 story pages.
+NEVER USE: strip+2, 3equal, 1large+2small, 4equal, 3wide — these pack too many panels per page and ruin pacing.
 
 SPEAKER POSITION:
 - Must be one of: left, right, top-left, top-right, bottom-left, bottom-right, center
@@ -165,7 +160,7 @@ Output a JSON object:
           "sceneNumber": 1,
           "panelNumber": 1,
           "panelType": "establishing",
-          "pageLayout": "strip+2",
+          "pageLayout": "single",
           "shotType": "wide",
           "cameraAngle": "eye-level",
           "mood": "warmth",
@@ -184,8 +179,8 @@ Output a JSON object:
 Rules:
 - Title must contain ${name}'s name
 - Exactly 5 scenes
-- Each scene has exactly 5 panels (total 25 panels)
-- First panel of every scene: panelType "establishing", pageLayout "strip+2"
+- Each scene has exactly 8 panels (total 40 panels)
+- First panel of every scene: panelType "establishing", pageLayout "single"
 - Exactly 2 splash panels: one at climax of scene 4, one at resolution of scene 5
 - Splash panels: panelType "splash", pageLayout "splash"
 - Every panel MUST include shotType, cameraAngle, mood, and lighting fields
