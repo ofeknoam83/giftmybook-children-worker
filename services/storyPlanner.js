@@ -1708,8 +1708,31 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       if (!jsonMatch) throw new Error('No JSON in response');
       plan = JSON.parse(jsonMatch[0]);
       if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 3) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes`);
-      // Flatten all panels for easy access
-      plan.allPanels = plan.scenes.flatMap(s => s.panels.map(p => ({ ...p, sceneNumber: s.number, sceneTitle: s.sceneTitle })));
+      // Flatten all panels for easy access, ensuring new fields are present
+      plan.allPanels = plan.scenes.flatMap(s => s.panels.map(p => {
+        const panel = { ...p, sceneNumber: s.number, sceneTitle: s.sceneTitle };
+        // Ensure panelType exists
+        if (!panel.panelType) panel.panelType = panel.type || 'dialogue';
+        // Ensure pageLayout exists with sensible defaults
+        if (!panel.pageLayout) {
+          if (panel.panelType === 'splash') {
+            panel.pageLayout = 'splash';
+          } else if (panel.panelNumber === 1) {
+            panel.pageLayout = 'strip+2';
+          } else {
+            panel.pageLayout = '3equal';
+          }
+        }
+        // Ensure speakerPosition exists
+        if (!panel.speakerPosition) panel.speakerPosition = 'left';
+        // Ensure dialogue is a string (flatten array format if needed)
+        if (Array.isArray(panel.dialogue)) {
+          panel.dialogue = panel.dialogue.map(d => d.text || d).join(' ');
+        }
+        if (panel.dialogue == null) panel.dialogue = '';
+        if (panel.caption == null) panel.caption = '';
+        return panel;
+      }));
       bookContext?.log('info', 'Graphic novel plan created', { title: plan.title, scenes: plan.scenes.length, panels: plan.allPanels.length });
       break;
     } catch (e) {
