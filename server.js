@@ -1287,6 +1287,25 @@ Format your answer with each label on its own line followed by a colon and the a
         bookContext.log('info', '[generate-book] Using parentCharacterAnchor from parent book');
       }
 
+      // Populate characterOutfit from characterAnchor OUTFIT field for ALL formats
+      // This ensures outfit is locked even if the story planner didn't output characterOutfit
+      if (storyPlan.characterAnchor && !storyPlan.characterOutfit) {
+        const outfitMatch = storyPlan.characterAnchor.match(/OUTFIT:\s*([^\n]+)/);
+        if (outfitMatch) {
+          storyPlan.characterOutfit = outfitMatch[1].trim();
+          bookContext.log('info', '[generate-book] characterOutfit set from characterAnchor', { outfit: storyPlan.characterOutfit.slice(0, 80) });
+        }
+      }
+
+      // Also ensure HAIR_STYLE and HAIR_LENGTH are preserved from characterAnchor
+      // so the illustration generator always has them even if characterOutfit was already set
+      if (storyPlan.characterAnchor) {
+        const hairStyleMatch = storyPlan.characterAnchor.match(/HAIR_STYLE:\s*([^\n]+)/);
+        const hairLengthMatch = storyPlan.characterAnchor.match(/HAIR_LENGTH:\s*([^\n]+)/);
+        if (hairStyleMatch) storyPlan.hairStyle = hairStyleMatch[1].trim();
+        if (hairLengthMatch) storyPlan.hairLength = hairLengthMatch[1].trim();
+      }
+
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
       // Birthday theme: ensure spread 13 illustration prompt shows cake/candles
