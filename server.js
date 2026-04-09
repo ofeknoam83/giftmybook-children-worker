@@ -2151,3 +2151,19 @@ if (require.main === module) {
 }
 
 module.exports = app;
+
+// ─── POST /upload-cover-pdf ─── Accept base64 PDF, upload to GCS, return signed URL
+app.post('/upload-cover-pdf', authenticate, async (req, res) => {
+  const { bookId, pdfBase64 } = req.body;
+  if (!bookId || !pdfBase64) return res.status(400).json({ error: 'bookId and pdfBase64 required' });
+  try {
+    const buf = Buffer.from(pdfBase64, 'base64');
+    const { uploadBuffer, getSignedUrl } = require('./services/gcsStorage');
+    const path = `children-jobs/${bookId}/cover.pdf`;
+    await uploadBuffer(buf, path, 'application/pdf');
+    const url = await getSignedUrl(path, 30 * 24 * 60 * 60 * 1000);
+    res.json({ success: true, coverPdfUrl: url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
