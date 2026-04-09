@@ -2055,6 +2055,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     mode = 'trace',
     scenePrompts, childPhotoUrl, characterDescription, characterAnchorUrl,
     synopsis, age, sceneCount,
+    storyEntries, coverImageUrl,
     pagesOnly = false,
   } = req.body;
 
@@ -2086,17 +2087,18 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     let pages;
 
     if (mode === 'trace') {
-      pages = await generateColoringPages(illustrationUrls);
+      pages = await generateColoringPages(illustrationUrls, age);
     } else {
       // Auto-plan scenes if caller didn't supply them
-      let resolvedScenePrompts = scenePrompts;
-      if (!Array.isArray(resolvedScenePrompts) || resolvedScenePrompts.length === 0) {
+      let resolvedScenes = scenePrompts;
+      if (!Array.isArray(resolvedScenes) || resolvedScenes.length === 0) {
         console.log(`[server] Auto-planning coloring scenes from book metadata`);
-        resolvedScenePrompts = await planColoringScenes({
+        resolvedScenes = await planColoringScenes({
           title, synopsis, characterDescription, childName, age,
-          count: sceneCount || 12,
+          count: sceneCount || 16,
+          storyMoments: storyEntries,
         });
-        console.log(`[server] Planned ${resolvedScenePrompts.length} coloring scenes`);
+        console.log(`[server] Planned ${resolvedScenes.length} coloring scenes`);
       }
 
       let characterRef = null;
@@ -2117,9 +2119,10 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
         }
       }
 
-      pages = await generateOriginalColoringPages(resolvedScenePrompts, characterRef, {
+      pages = await generateOriginalColoringPages(resolvedScenes, characterRef, {
         characterDescription,
         characterAnchor,
+        age,
       });
     }
 
@@ -2128,7 +2131,18 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     const successCount = pages.filter(p => p.success).length;
     console.log(`[server] Coloring page ${mode}: ${successCount}/${totalPages} succeeded`);
 
-    const pdfBuffer = await buildColoringBookPdf(pages, { title, childName, pagesOnly });
+    // Download cover image if provided
+    let coverImageBuffer = null;
+    if (coverImageUrl) {
+      try {
+        const coverPhoto = await downloadPhotoAsBase64(coverImageUrl);
+        coverImageBuffer = Buffer.from(coverPhoto.base64, 'base64');
+      } catch (err) {
+        console.warn(`[server] Could not download cover image: ${err.message}`);
+      }
+    }
+
+    const pdfBuffer = await buildColoringBookPdf(pages, { title, childName, pagesOnly, coverImageBuffer });
     console.log(`[server] Coloring book PDF built: ${Math.round(pdfBuffer.length / 1024)}KB`);
 
     const gcsPath = `children-jobs/${bookId}/coloring-book.pdf`;
