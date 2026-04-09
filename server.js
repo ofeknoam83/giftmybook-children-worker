@@ -2167,3 +2167,19 @@ app.post('/upload-cover-pdf', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── POST /upload-image ─── Accept base64 image, upload to GCS, return signed URL
+app.post('/upload-image', authenticate, async (req, res) => {
+  const { bookId, imageBase64, mimeType, gcsPath: customPath } = req.body;
+  if (!bookId || !imageBase64) return res.status(400).json({ error: 'bookId and imageBase64 required' });
+  try {
+    const buf = Buffer.from(imageBase64, 'base64');
+    const { uploadBuffer, getSignedUrl } = require('./services/gcsStorage');
+    const filePath = customPath || `children-covers/${bookId}/cover-admin-upload.jpg`;
+    await uploadBuffer(buf, filePath, mimeType || 'image/jpeg');
+    const url = await getSignedUrl(filePath, 30 * 24 * 60 * 60 * 1000);
+    res.json({ success: true, url, gcsPath: filePath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
