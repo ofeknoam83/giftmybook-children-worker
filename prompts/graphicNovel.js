@@ -69,11 +69,13 @@ ADAPTATION RULE: If an original picture book is provided in the user prompt, the
 
 function GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed) {
   const { name, age, gender } = childDetails;
-  const pronoun = gender === 'girl' ? 'she/her' : gender === 'boy' ? 'he/him' : 'they/them';
+  const interests = (childDetails.childInterests || childDetails.interests || []).filter(Boolean);
+  const pronoun = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
 
   return `Create a graphic novel plan for:
 
 PROTAGONIST: ${name}, age ${age}, ${pronoun}
+${interests.length ? `INTERESTS: ${interests.join(', ')}` : ''}
 THEME: ${theme || 'adventure'}
 CUSTOM DETAILS: ${customDetails || 'none'}
 STORY SEED: ${JSON.stringify(seed || {}, null, 2)}
@@ -115,7 +117,8 @@ Rules:
 - The protagonist must cause the resolution — not luck
 - Max 20 words per caption or dialogue field
 - Action panels should have empty caption string
-- speakerPosition must be one of: left, right, top-left, top-right, bottom-left, bottom-right, center`;
+- speakerPosition must be one of: left, right, top-left, top-right, bottom-left, bottom-right, center
+- Weave the child's interests naturally into the story — at least one clearly recognizable mention (name, visual, or motif) so personalization is visible to parents`;
 }
 
 module.exports = { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER };

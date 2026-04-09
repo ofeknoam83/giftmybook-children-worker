@@ -15,8 +15,9 @@
  * All pages include 0.125" (9pt) bleed on all sides.
  *
  * Fonts (embedded TTF):
- *   - Playfair Display — titles
+ *   - Bubblegum Sans   — titles, body text (primary children's book font)
  *   - Kalam            — dedication body (handwritten feel, no ligature bugs)
+ *   - Playfair Display — fallback / italic accents
  *   - Dancing Script   — (disabled: "th" ligature bug in pdf-lib)
  *   - Helvetica        — captions, bylines (standard)
  */
@@ -94,6 +95,7 @@ const C = {
 // ── Font paths (bundled in worker image) ─────────────────────────────────────
 const FONT_DIR = path.join(__dirname, '..', 'fonts');
 const FONT_PATHS = {
+  bubblegum:      path.join(FONT_DIR, 'BubblegumSans-Regular.ttf'),
   playfair:       path.join(FONT_DIR, 'PlayfairDisplay.ttf'),
   playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
@@ -187,7 +189,8 @@ async function splitSpreadImage(buf, pw, ph) {
 async function loadFonts(pdfDoc) {
   pdfDoc.registerFontkit(fontkit);
   const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p)) : null;
-  const [playfair, playfairItalic, dancing, kalam, helv, helvB] = await Promise.all([
+  const [bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB] = await Promise.all([
+    load(FONT_PATHS.bubblegum),
     load(FONT_PATHS.playfair),
     load(FONT_PATHS.playfairItalic),
     load(FONT_PATHS.dancing),
@@ -195,7 +198,7 @@ async function loadFonts(pdfDoc) {
     pdfDoc.embedFont(StandardFonts.Helvetica),
     pdfDoc.embedFont(StandardFonts.HelveticaBold),
   ]);
-  return { playfair, playfairItalic, dancing, kalam, helv, helvB };
+  return { bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB };
 }
 
 // ── Page builders ─────────────────────────────────────────────────────────────
@@ -205,25 +208,24 @@ function buildBlankPage(pdfDoc, pw, ph) {
 }
 
 function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
-  const { playfair, playfairItalic, dancing, helv } = fonts;
+  const { bubblegum, playfair, playfairItalic, helv } = fonts;
   const { title, childName } = opts;
   const p = pdfDoc.addPage([pw, ph]);
   const maxW = pw - SAFE * 2;
+  const primaryFont = bubblegum || playfair || helv;
 
-  // Main title — Playfair Display
   const TITLE_SZ = pw < 500 ? 28 : 36;
-  const lines  = wrapText(title || 'My Story', playfair || helv, TITLE_SZ, maxW);
+  const lines  = wrapText(title || 'My Story', primaryFont, TITLE_SZ, maxW);
   const lineH  = TITLE_SZ * 1.3;
   const blockH = lines.length * lineH;
   const startY = ph / 2 + blockH / 2 + 30;
-  drawCenteredBlock(p, lines, playfair || helv, TITLE_SZ, startY, lineH, C.black);
+  drawCenteredBlock(p, lines, primaryFont, TITLE_SZ, startY, lineH, C.black);
 
   goldRule(p, ph / 2 - 8, 100);
 
-  // Subtitle — Playfair Italic (Dancing Script has ligature rendering issues in pdf-lib)
   if (childName) {
     const sub  = `A story written just for ${childName}`;
-    const subFont = playfairItalic || helv;
+    const subFont = bubblegum || playfairItalic || helv;
     const subSz = 20;
     drawCentered(p, sub, subFont, subSz, ph / 2 - 40, C.brownMid);
   }
@@ -256,7 +258,7 @@ function buildCopyrightPage(pdfDoc, pw, ph, fonts, opts) {
 }
 
 function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
-  const { playfairItalic, kalam, helv } = fonts;
+  const { bubblegum, playfairItalic, kalam, helv } = fonts;
   const { bookFrom, dedication } = opts;
   const p = pdfDoc.addPage([pw, ph]);
   if (!dedication && !bookFrom) return;
@@ -617,10 +619,10 @@ async function buildChapterBookPdf(chapters, opts = {}) {
   pdfDoc.setAuthor('GiftMyBook');
 
   const fonts = await loadFonts(pdfDoc);
-  const { playfair, playfairItalic, helv, helvB } = fonts;
-  const titleFont = playfair || helvB || helv;
-  const bodyFont = playfair || helv;
-  const italicFont = playfairItalic || playfair || helv;
+  const { bubblegum, playfair, playfairItalic, helv, helvB } = fonts;
+  const titleFont = bubblegum || playfair || helvB || helv;
+  const bodyFont = bubblegum || playfair || helv;
+  const italicFont = playfairItalic || bubblegum || helv;
 
   const BLACK = rgb(0.08, 0.08, 0.1);
   const GOLD = rgb(0.75, 0.55, 0.1);
@@ -1139,13 +1141,16 @@ async function buildGraphicNovelPdf(panels, opts = {}) {
   // Load fonts
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  let playfair, playfairItalic;
+  let bubblegum, playfair, playfairItalic;
   try {
+    bubblegum = fs.existsSync(FONT_PATHS.bubblegum)
+      ? await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum))
+      : null;
     playfair = await pdfDoc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'PlayfairDisplay.ttf')));
     playfairItalic = await pdfDoc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf')));
   } catch (_) {}
 
-  // Download and embed Bangers font
+  // Download and embed Bangers font (speech bubbles)
   let bangersFont;
   try {
     const bangersBuf = await getBangersFont();
@@ -1155,7 +1160,7 @@ async function buildGraphicNovelPdf(panels, opts = {}) {
     bangersFont = helvBold;
   }
 
-  const titleFont = playfair || helvBold;
+  const titleFont = bubblegum || playfair || helvBold;
   const bodyFont = helv;
   const BLACK = rgb(0, 0, 0);
   const WHITE = rgb(1, 1, 1);

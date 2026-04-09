@@ -14,6 +14,7 @@ const PAGE_PX = Math.round(PAGE_PT / PTS_PER_INCH * TARGET_DPI); // 2550px
 // ── Font paths (same location as layoutEngine) ─────────────────────────────
 const FONT_DIR = path.join(__dirname, '..', 'fonts');
 const FONT_PATHS = {
+  bubblegum:      path.join(FONT_DIR, 'BubblegumSans-Regular.ttf'),
   playfair:       path.join(FONT_DIR, 'PlayfairDisplay.ttf'),
   playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
@@ -25,13 +26,14 @@ const FONT_PATHS = {
 async function loadFonts(pdfDoc) {
   pdfDoc.registerFontkit(fontkit);
   const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p)) : null;
-  const [playfair, playfairItalic, dancing, helv] = await Promise.all([
+  const [bubblegum, playfair, playfairItalic, dancing, helv] = await Promise.all([
+    load(FONT_PATHS.bubblegum),
     load(FONT_PATHS.playfair),
     load(FONT_PATHS.playfairItalic),
     load(FONT_PATHS.dancing),
     pdfDoc.embedFont(StandardFonts.Helvetica),
   ]);
-  return { playfair, playfairItalic, dancing, helv };
+  return { bubblegum, playfair, playfairItalic, dancing, helv };
 }
 
 function drawCenteredText(page, text, font, size, y, color = rgb(0.1, 0.1, 0.2)) {
@@ -46,8 +48,8 @@ function drawCenteredText(page, text, font, size, y, color = rgb(0.1, 0.1, 0.2))
 function buildCover(pdfDoc, fonts, { title, childName }) {
   const p = pdfDoc.addPage([PAGE_PT, PAGE_PT]);
   const mid = PAGE_PT / 2;
-  const titleFont = fonts.playfair || fonts.helv;
-  const subFont = fonts.dancing || fonts.playfairItalic || fonts.helv;
+  const titleFont = fonts.bubblegum || fonts.playfair || fonts.helv;
+  const subFont = fonts.bubblegum || fonts.dancing || fonts.playfairItalic || fonts.helv;
   const navy = rgb(0.1, 0.12, 0.25);
   const gold = rgb(0.75, 0.55, 0.1);
 
@@ -116,8 +118,8 @@ function buildBackCover(pdfDoc, fonts, { childName }) {
   const p = pdfDoc.addPage([PAGE_PT, PAGE_PT]);
   const navy = rgb(0.1, 0.12, 0.25);
   const gold = rgb(0.75, 0.55, 0.1);
-  const titleFont = fonts.playfairItalic || fonts.playfair || fonts.helv;
-  const subFont = fonts.dancing || fonts.helv;
+  const titleFont = fonts.bubblegum || fonts.playfairItalic || fonts.playfair || fonts.helv;
+  const subFont = fonts.bubblegum || fonts.dancing || fonts.helv;
 
   p.drawRectangle({ x: 0, y: 0, width: PAGE_PT, height: PAGE_PT, color: rgb(1, 1, 1) });
   p.drawRectangle({ x: 0, y: PAGE_PT - 36, width: PAGE_PT, height: 36, color: navy });

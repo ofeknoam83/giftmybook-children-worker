@@ -28,11 +28,13 @@ ADAPTATION RULE: If an original picture book is provided in the user prompt, the
 
 function CHAPTER_PLANNER_USER(childDetails, theme, customDetails, seed) {
   const { name, age, gender, childPhotoDescription } = childDetails;
-  const pronoun = gender === 'girl' ? 'she/her' : gender === 'boy' ? 'he/him' : 'they/them';
+  const interests = (childDetails.childInterests || childDetails.interests || []).filter(Boolean);
+  const pronoun = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
 
   return `Write a chapter book plan for:
 
 CHILD: ${name}, age ${age}, ${pronoun}
+${interests.length ? `INTERESTS: ${interests.join(', ')}` : ''}
 THEME: ${theme || 'adventure'}
 CUSTOM DETAILS: ${customDetails || 'none provided'}
 
@@ -58,13 +60,14 @@ Rules:
 - Title must contain ${name}'s name
 - Each chapter's imagePrompt must show a DIFFERENT scene and moment — no two chapters with similar compositions
 - The dark moment in chapter 4 must be genuine — real failure, real consequence
-- The resolution in chapter 5 must be earned by the character's growth, not luck`;
+- The resolution in chapter 5 must be earned by the character's growth, not luck
+- Weave the child's interests naturally into the story — at least one clearly recognizable mention (name, visual, or motif) so personalization is visible to parents`;
 }
 
 function CHAPTER_WRITER_SYSTEM(childDetails) {
   const { name, age, gender } = childDetails;
-  const pronoun = gender === 'girl' ? 'she' : gender === 'boy' ? 'he' : 'they';
-  const pronoun2 = gender === 'girl' ? 'her' : gender === 'boy' ? 'his' : 'their';
+  const pronoun = gender === 'female' ? 'she' : gender === 'male' ? 'he' : 'they';
+  const pronoun2 = gender === 'female' ? 'her' : gender === 'male' ? 'his' : 'their';
 
   return `You are writing a chapter for a personalized chapter book. The protagonist is ${name}, age ${age} (${pronoun}/${pronoun2}).
 

@@ -61,7 +61,7 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   // Build the text elements for the back cover
   const textElements = [];
   if (synopsis) {
-    textElements.push(`At the top center, in a rounded bubbly sans-serif font (like Fredoka One / Baloo / Nunito — matching the interior pages):\n"${synopsis}"`);
+    textElements.push(`At the top center, in Bubblegum Sans font (rounded, bubbly, matching the interior pages):\n"${synopsis}"`);
   }
   if (heartfeltNote) {
     const noteText = bookFrom
@@ -89,7 +89,7 @@ BARCODE: Include a realistic-looking fake barcode in the bottom-left corner (sta
 
 TEXT RULES:
 - ALL text must be perfectly legible and correctly spelled
-- FONT: Use a rounded, bubbly sans-serif font (like Fredoka One / Baloo / Nunito) — the same font style used on the interior pages
+- FONT: Use Bubblegum Sans — rounded, bubbly, matching the interior pages exactly
 - Use warm, soft colors that match the front cover palette
 - Text should feel integrated into the illustration, not overlaid
 - The overall feel should be warm, cozy, and premium

@@ -509,7 +509,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Count the words before and after rendering — the count must match exactly');
     const fontInstruction = opts.fontStyle
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
-      : '- FONT: Use Fredoka One exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Fredoka One only, consistently throughout.';
+      : '- FONT: Use Bubblegum Sans exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Bubblegum Sans only, consistently throughout.';
     parts.push(fontInstruction);
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): This image will be cropped ~7% from every edge when printed. To survive this crop, ALL text must be at least 25% away from the top edge, 25% away from the bottom edge, and 12% away from the left and right edges. Text within 25% of any edge WILL BE CROPPED OFF in the final book. If in doubt, move the text further toward the center of the image.');
     if (isSpread) {
@@ -536,7 +536,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`OUTFIT CONSISTENCY: the child's outfit matches the characterOutfit definition exactly — same garments, colors, patterns, accessories as every other spread. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
-  parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Fredoka One'} — the same font used on every other page of this book. \u2713`);
+  parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Bubblegum Sans'} — the same font used on every other page of this book. \u2713`);
   parts.push(`12. TEXT MARGINS: text is at least 25% from top/bottom edges and 12% from left/right edges — it will survive print cropping. \u2713`);
   if (isSpread) {
     parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 30% of the image width. \u2713`);
