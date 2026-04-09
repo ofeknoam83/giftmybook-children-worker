@@ -16,7 +16,7 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 async function enforceBlackAndWhite(buf) {
   return sharp(buf)
     .grayscale()
-    .threshold(200)
+    .threshold(150) // 150 keeps medium grays (skin, hair mid-tones) white; only true dark outlines go black
     .png()
     .toBuffer();
 }
@@ -25,10 +25,15 @@ async function enforceBlackAndWhite(buf) {
 
 const TRACE_COLORING_PROMPT = `This is a children's book illustration. Convert it into a COLORING BOOK PAGE:
 - Keep EVERY character, object, and scene element exactly as they appear — nothing removed or simplified
-- Replace ALL colors with CLEAN BLACK OUTLINES ONLY on a pure white background
+- Replace ALL colors with CLEAN BLACK OUTLINES ONLY on a PURE WHITE background
 - Lines must be THICK and BOLD (suitable for a child to color with crayons or markers)
+- CRITICAL — ALL AREAS INSIDE OUTLINES MUST BE PURE WHITE, INCLUDING:
+  * Dark hair → draw hair strands as OUTLINES only, interior must be white
+  * Dark or brown skin → draw the face/body shape as OUTLINES only, interior must be white
+  * Dark clothing → draw fabric shape as OUTLINES with white interior
+  * Dark objects (sofas, trees, shadows) → OUTLINES only, NO solid black fills
+- ZERO solid fills anywhere — every enclosed area must be empty white so a child can color it
 - NO fill colors, NO gray tones, NO shading, NO watercolor washes, NO color gradients
-- The character faces, hair, clothing details, and all scene objects must all have clear outlines
 - Style: classic children's coloring book — like a Dover coloring book page
 - Maintain the EXACT SAME composition, proportions, characters and layout as the original
 - This is a wide landscape illustration — maintain the 16:9 wide format
@@ -50,8 +55,13 @@ function buildGeneratePrompt(scenePrompt, characterDescription) {
 ${scenePrompt}${charBlock}
 
 STRICT RULES:
-- BLACK OUTLINES ONLY on a pure white background — no fills, no gray, no shading, no gradients
+- BLACK OUTLINES ONLY on a PURE WHITE background — no fills, no gray, no shading, no gradients
 - Lines must be THICK and BOLD, suitable for a young child to color with crayons or markers
+- CRITICAL — ALL AREAS INSIDE OUTLINES MUST BE PURE WHITE, INCLUDING:
+  * Hair → draw as outlined strands, white interior (never a solid dark mass)
+  * Skin → draw face/body as outlined shape, white interior (even dark skin tones must be white inside)
+  * Clothing, objects, backgrounds → outlined shapes, white interiors
+  * ZERO solid black fills anywhere in the image
 - Style: classic children's coloring book — like a Dover coloring book page
 - Include rich background details (clouds, trees, objects) so the page is fun to color
 - Wide landscape composition (16:9 aspect ratio)

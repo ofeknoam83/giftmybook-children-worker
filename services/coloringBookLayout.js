@@ -97,7 +97,7 @@ async function addColoringPage(pdfDoc, imageBuffer) {
   // Process to B&W first, then read actual dimensions
   const processed = await sharp(imageBuffer)
     .grayscale()
-    .threshold(200)
+    .threshold(150) // 150 keeps medium grays (skin, hair mid-tones) white; only true dark outlines go black
     .png()
     .toBuffer();
 
