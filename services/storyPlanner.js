@@ -1712,11 +1712,14 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
-        temperature: 0.85,
-        maxTokens: 12000,
+        temperature: 0.65,
+        maxTokens: 20000,
+        jsonMode: true,
       });
       const text = resp.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      // Strip markdown fences if present, then find JSON object
+      const stripped = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      const jsonMatch = stripped.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       plan = JSON.parse(jsonMatch[0]);
       if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 5) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes, need at least 5`);

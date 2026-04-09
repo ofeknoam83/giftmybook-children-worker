@@ -23,7 +23,7 @@ A graphic novel tells a story through sequential comic panels. Each panel is a s
 - Dialogue in a speech bubble (sentence case — the renderer displays it as-is)
 - Visual action (what the reader sees)
 
-Your story has 5 SCENES. Each scene has exactly 8 PANELS. Total: 40 panels.
+Your story has 5 SCENES. Each scene has exactly 5 PANELS. Total: 25 panels.
 
 STORY STRUCTURE (5 scenes):
 - Scene 1: World — protagonist in their everyday life; establish personality and a subtle want
@@ -184,7 +184,7 @@ Output a JSON object:
 Rules:
 - Title must contain ${name}'s name
 - Exactly 5 scenes
-- Each scene has exactly 8 panels (total 40 panels)
+- Each scene has exactly 5 panels (total 25 panels)
 - First panel of every scene: panelType "establishing", pageLayout "strip+2"
 - Exactly 2 splash panels: one at climax of scene 4, one at resolution of scene 5
 - Splash panels: panelType "splash", pageLayout "splash"
