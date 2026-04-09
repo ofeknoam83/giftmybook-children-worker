@@ -1143,9 +1143,11 @@ function repairTruncatedJson(str) {
     if (ch === ']') openBrackets--;
   }
 
+  if (escape) candidate += '\\';
+  if (inString) candidate += '"';
   const suffix = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
   try {
-    return JSON.parse(candidate + suffix);
+    return JSON.parse(sanitizeJsonStrings(candidate + suffix));
   } catch {
     return null;
   }
@@ -1709,34 +1711,9 @@ function parseJsonObjectFromText(text) {
   const raw = String(text || '').trim();
   if (!raw) throw new Error('Empty JSON response');
   try {
-    return JSON.parse(raw);
-  } catch (directErr) {
-    const stripped = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-    try {
-      return JSON.parse(stripped);
-    } catch (_) {
-      const firstBrace = stripped.indexOf('{');
-      if (firstBrace === -1) throw directErr;
-      let depth = 0;
-      let inStr = false;
-      let esc = false;
-      let endIdx = -1;
-      for (let i = firstBrace; i < stripped.length; i++) {
-        const ch = stripped[i];
-        if (esc) { esc = false; continue; }
-        if (ch === '\\') { esc = true; continue; }
-        if (ch === '"') { inStr = !inStr; continue; }
-        if (inStr) continue;
-        if (ch === '{') depth++;
-        if (ch === '}') {
-          depth--;
-          if (depth === 0) { endIdx = i; break; }
-        }
-      }
-      if (endIdx === -1) throw directErr;
-      const candidate = sanitizeJsonStrings(stripped.slice(firstBrace, endIdx + 1));
-      return JSON.parse(candidate);
-    }
+    return parseJsonPlan(raw, 'unknown');
+  } catch (err) {
+    throw err;
   }
 }
 
@@ -1814,8 +1791,39 @@ async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {})
       jsonMode: true,
     }
   );
-  const repaired = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(resp.text), childDetails);
+  const repairedParsed = await parseStructuredJsonWithFallback(
+    resp,
+    GRAPHIC_NOVEL_REPAIR_SYSTEM,
+    GRAPHIC_NOVEL_REPAIR_USER(plan, summary.issues, compactGraphicNovelStoryBible(storyBible)),
+    {
+      costTracker,
+      temperature: 0.45,
+      maxTokens: 14000,
+      bookContext,
+    }
+  );
+  const repaired = legacyGraphicNovelScenesToPages(repairedParsed, childDetails);
   return repaired;
+}
+
+async function parseStructuredJsonWithFallback(resp, systemPrompt, userPrompt, opts = {}) {
+  try {
+    return parseJsonObjectFromText(resp.text);
+  } catch (parseErr) {
+    if (resp?.model !== 'gpt-5.4') throw parseErr;
+    opts.bookContext?.log('warn', 'GPT returned malformed JSON for graphic novel stage, retrying with Gemini', {
+      error: parseErr.message,
+    });
+    const geminiResp = await callGeminiText(systemPrompt, userPrompt, {
+      maxOutputTokens: opts.maxTokens || 8000,
+      temperature: opts.temperature || 0.8,
+      responseMimeType: 'application/json',
+    });
+    if (opts.costTracker) {
+      opts.costTracker.addTextUsage(GEMINI_MODEL, geminiResp.inputTokens, geminiResp.outputTokens);
+    }
+    return parseJsonObjectFromText(geminiResp.text);
+  }
 }
 
 function legacyGraphicNovelScenesToPages(plan, childDetails = {}) {
@@ -1956,7 +1964,12 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         maxTokens: 6000,
         jsonMode: true,
       });
-      storyBible = parseJsonObjectFromText(resp.text);
+      storyBible = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM, storyBiblePrompt, {
+        costTracker,
+        temperature: 0.75,
+        maxTokens: 6000,
+        bookContext,
+      });
       if (!storyBible.title) throw new Error('Story bible missing title');
       break;
     } catch (e) {
@@ -1984,7 +1997,13 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         maxTokens: 14000,
         jsonMode: true,
       });
-      plan = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(resp.text), childDetails);
+      const parsedPlan = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
+        costTracker,
+        temperature: 0.8,
+        maxTokens: 14000,
+        bookContext,
+      });
+      plan = legacyGraphicNovelScenesToPages(parsedPlan, childDetails);
       plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
       const structure = summarizeGraphicNovelStructure(plan);
       if (structure.issues.length > 0) {
@@ -2020,7 +2039,18 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       maxTokens: 14000,
       jsonMode: true,
     });
-    improvedPlan = legacyGraphicNovelScenesToPages(parseJsonObjectFromText(criticResp.text), childDetails);
+    const parsedCriticPlan = await parseStructuredJsonWithFallback(
+      criticResp,
+      GRAPHIC_NOVEL_CRITIC_SYSTEM,
+      GRAPHIC_NOVEL_CRITIC_USER(plan),
+      {
+        costTracker,
+        temperature: 0.5,
+        maxTokens: 14000,
+        bookContext,
+      }
+    );
+    improvedPlan = legacyGraphicNovelScenesToPages(parsedCriticPlan, childDetails);
     improvedPlan = normalizeGraphicNovelPlan(improvedPlan, { fallbackTitle: plan.title });
   } catch (criticErr) {
     bookContext?.log('warn', `Graphic novel critic failed — using original plan: ${criticErr.message}`);
