@@ -1719,7 +1719,8 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     const coloringBookPdfUrl = await uploadBuffer(pdfBuffer, gcsPath, 'application/pdf');
     console.log(`[server] Coloring book PDF uploaded: ${coloringBookPdfUrl.slice(0, 80)}`);
 
-    res.json({ success: true, coloringBookPdfUrl, successCount, totalSpreads: illustrationUrls.length });
+    const failedErrors = pages.filter(p => !p.success).map(p => p.error).filter(Boolean);
+    res.json({ success: true, coloringBookPdfUrl, successCount, totalSpreads: illustrationUrls.length, failedErrors });
   } catch (err) {
     console.error(`[server] /generate-coloring-book failed: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
