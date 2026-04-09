@@ -1169,6 +1169,7 @@ HAIR_COLOR: Exact hair color
 HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
 HAIR_LENGTH: Short / medium / long / very long
 HAIR_STYLE: Specific style/arrangement (e.g. "two high pigtails with pink ties", "single braid", "afro puffs", "loose curly", "short straight bowl cut")
+OUTFIT: Specific, complete clothing description — include colors, patterns, and distinctive accessories (e.g. "white astronaut suit with pink accents and star patches", "red hoodie with denim shorts and white sneakers", "yellow dress with white collar and brown sandals"). If not clearly visible, invent a consistent, memorable outfit appropriate to the character.
 
 Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency.` },
                         { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
@@ -1301,6 +1302,7 @@ Format your answer with each label on its own line followed by a colon and the a
                 promptInjection: 'PORTRAIT FORMAT: This is a 2:3 portrait illustration for a chapter book. Tall, not wide.',
                 pageText: '',
                 additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                bookFormat: 'CHAPTER_BOOK',
                 artStyle: style,
               }
             );
@@ -1331,6 +1333,86 @@ Format your answer with each label on its own line followed by a colon and the a
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating graphic novel panels...', logs: bookContext.logs });
         }
+
+        // ── P1: Shot variety validation — no two consecutive panels share the same shotType ──
+        function validateShotVariety(scenes) {
+          for (const scene of scenes) {
+            if (!scene.panels) continue;
+            for (let si = 1; si < scene.panels.length; si++) {
+              const prev = scene.panels[si - 1];
+              const curr = scene.panels[si];
+              if (prev.shotType && curr.shotType && prev.shotType === curr.shotType && curr.shotType !== 'wide') {
+                const fallbacks = {
+                  'medium': 'close-up', 'close-up': 'medium', 'wide': 'medium',
+                  'extreme-close-up': 'medium', 'over-the-shoulder': 'medium', 'POV': 'close-up',
+                  'bird\'s-eye': 'medium', 'low-angle': 'medium',
+                };
+                curr.shotType = fallbacks[curr.shotType] || 'medium';
+                console.warn(`[shotVariety] Scene ${scene.number} panel ${si + 1}: changed repeated shotType to ${curr.shotType}`);
+              }
+            }
+          }
+          return scenes;
+        }
+
+        // ── P4: Mood→lighting fallback — fill in lighting if planner left it empty ──
+        const MOOD_LIGHTING_MAP = {
+          'fear': 'hard shadows, high contrast, single cold light source from below or behind, deep shadow pools',
+          'wonder': 'soft diffuse magical glow, warm light sources (stars, lanterns, glowing objects), depth haze, atmospheric',
+          'action': 'strong rim lighting, directional hard side light, motion energy, dust and debris catching light',
+          'triumph': 'warm golden light, broad even illumination, light from above, celebratory atmosphere',
+          'sadness': 'flat grey-blue diffuse light, overcast, soft shadows, muted palette',
+          'humor': 'bright even lighting, slightly exaggerated cartoonish clarity, no harsh shadows',
+          'suspense': 'partial deep shadow, dramatic 45-degree side lighting, key elements hidden in darkness',
+          'warmth': 'soft natural golden-hour light, gentle and even, pleasant diffuse shadows',
+          'mystery': 'dim ambient light, isolated pools of light, unseen elements beyond the frame edge',
+          'urgency': 'harsh overhead or side strobe-like light, high contrast, red-orange tint',
+        };
+
+        function enrichPanelLighting(scenes) {
+          for (const scene of scenes) {
+            if (!scene.panels) continue;
+            for (const panel of scene.panels) {
+              if (!panel.lighting && panel.mood) {
+                panel.lighting = MOOD_LIGHTING_MAP[panel.mood] || 'natural ambient light';
+              }
+              if (!panel.mood) {
+                panel.mood = 'warmth';
+                panel.lighting = panel.lighting || MOOD_LIGHTING_MAP['warmth'];
+              }
+            }
+          }
+          return scenes;
+        }
+
+        // ── P2: Safe area instruction for caption/bubble clearance ──
+        function gnSafeAreaInstruction(hasCaption, speakerPosition) {
+          const parts = [];
+          if (hasCaption) {
+            parts.push('SAFE AREA: keep top 18% of image as low-detail background (sky, wall, dark space, empty area) — narration caption text placed there');
+          }
+          if (speakerPosition && speakerPosition !== '' && speakerPosition !== 'none') {
+            const cornerMap = {
+              'left': 'top-right corner (top 25%, right 30%)',
+              'right': 'top-left corner (top 25%, left 30%)',
+              'center': 'top-right corner (top 25%, right 30%)',
+              'bottom-left': 'top-right corner',
+              'bottom-right': 'top-left corner',
+              'top-left': 'bottom-right corner',
+              'top-right': 'bottom-left corner',
+            };
+            const corner = cornerMap[speakerPosition] || 'top-right corner';
+            parts.push(`keep ${corner} clear of faces and important objects — speech bubble placed there`);
+          }
+          return parts.length > 0 ? parts.join('. ') + '.' : '';
+        }
+
+        // Apply shot variety validation and lighting enrichment to scenes
+        if (storyPlan.scenes && Array.isArray(storyPlan.scenes)) {
+          storyPlan.scenes = validateShotVariety(storyPlan.scenes);
+          storyPlan.scenes = enrichPanelLighting(storyPlan.scenes);
+        }
+
         // Secondary character consistency for graphic novel panels
         const gnSecondaryChars = storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null;
         if (gnSecondaryChars) {
@@ -1349,9 +1431,15 @@ Format your answer with each label on its own line followed by a colon and the a
             secondaryCharInjection = ` SECONDARY CHARACTER CONSISTENCY: ${gnSecondaryChars}. Same secondary character must appear identically in all panels.`;
           }
 
+          // P2: Append safe area instruction to imagePrompt
+          const safeArea = gnSafeAreaInstruction(!!panel.caption, panel.speakerPosition);
+          const finalPrompt = safeArea
+            ? `${panel.imagePrompt || panel.action || ''} ${safeArea}`
+            : (panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`);
+
           try {
             const illustUrl = await generateIllustration(
-              panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`,
+              finalPrompt,
               null,
               storyPlan.coverArtStyle || style,
               {
@@ -1371,6 +1459,7 @@ Format your answer with each label on its own line followed by a colon and the a
                 skipTextEmbed: true,
                 pageText: '',
                 additionalCoverCharacters: gnSecondaryChars,
+                bookFormat: 'GRAPHIC_NOVEL',
                 promptInjection: `COMIC PANEL (${panel.panelType || panel.type || 'action'}). ${(panel.panelType || panel.type) === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : (panel.panelType || panel.type) === 'reaction' || (panel.panelType || panel.type) === 'reaction-close' ? 'CLOSE-UP on character face/reaction.' : (panel.panelType || panel.type) === 'wide-action' ? 'CINEMATIC WIDE SHOT with characters in environment.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.${secondaryCharInjection}`,
                 artStyle: style,
               }

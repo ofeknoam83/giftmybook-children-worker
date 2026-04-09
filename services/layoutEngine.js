@@ -1101,6 +1101,24 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
       ? Math.ceil(CAPTION_PAD_Y * 2 + captionLines.length * CAPTION_LINE_H)
       : 0;
 
+    // P7: Top gradient guard — simulates a navy→transparent fade at the top of every panel
+    function drawTopGradientGuard(pg, x, y, width, height) {
+      const GUARD_HEIGHT = 30; // pt total fade zone
+      const STEPS = 6;
+      const stepH = GUARD_HEIGHT / STEPS;
+      const opacities = [0.55, 0.42, 0.30, 0.18, 0.09, 0.03];
+      for (let gi = 0; gi < STEPS; gi++) {
+        pg.drawRectangle({
+          x,
+          y: y + height - GUARD_HEIGHT + gi * stepH,
+          width,
+          height: stepH + 0.5, // slight overlap to avoid banding
+          color: rgb(0.04, 0.05, 0.10),
+          opacity: opacities[gi],
+        });
+      }
+    }
+
     // 1. Draw panel image or blank fallback
     if (panel.imageBuffer) {
       try {
@@ -1135,20 +1153,27 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
       });
     }
 
-    // 2. Dynamic multi-line caption strip at top of panel
+    // P7: Apply gradient guard at top of every panel (after image, before text)
+    drawTopGradientGuard(page, rect.x, rect.y, rect.w, rect.h);
+
+    // 2. Dynamic multi-line caption strip at top of panel (P6: two-layer contrast)
     if (captionLines.length > 0) {
       // Caption box sits at the TOP of the panel visually.
       // In PDF coords (y=0 at bottom), "top" = rect.y + rect.h - captionH
-      const capBoxY = rect.y + rect.h - captionH;
+      const MIN_CAPTION_STRIP_HEIGHT = 24;
+      const captionStripH = Math.max(captionH, MIN_CAPTION_STRIP_HEIGHT);
+      const capBoxY = rect.y + rect.h - captionStripH;
+      // Layer 1: fully opaque dark base (ensures contrast regardless of image)
       page.drawRectangle({
         x: rect.x,
         y: capBoxY,
         width: rect.w,
-        height: captionH,
-        color: rgb(0.06, 0.06, 0.12), // dark navy
+        height: captionStripH,
+        color: rgb(0.04, 0.05, 0.10), // deep navy, fully opaque
       });
+      // Draw text on top of layer 1
       captionLines.forEach((line, i) => {
-        const lineY = capBoxY + captionH - CAPTION_PAD_Y - (i + 1) * CAPTION_LINE_H + CAPTION_LINE_H * 0.25;
+        const lineY = capBoxY + captionStripH - CAPTION_PAD_Y - (i + 1) * CAPTION_LINE_H + CAPTION_LINE_H * 0.25;
         page.drawText(line, {
           x: rect.x + CAPTION_PAD_X,
           y: lineY,

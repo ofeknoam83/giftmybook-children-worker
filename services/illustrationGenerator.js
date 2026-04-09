@@ -391,6 +391,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`     The child's hair style (arrangement, length, accessories like ties or clips) must be IDENTICAL in every single illustration.`);
     parts.push(`     If the characterAnchor says two pigtails, every spread shows two pigtails. If it says loose curly hair to shoulders, every spread shows that.`);
     parts.push(`     Never add, remove, or change hairstyle between illustrations.`);
+    // P3: OUTFIT lock from characterAnchor — only for GRAPHIC_NOVEL and CHAPTER_BOOK formats
+    const isGraphicOrChapter = opts.bookFormat === 'GRAPHIC_NOVEL' || opts.bookFormat === 'CHAPTER_BOOK';
+    if (isGraphicOrChapter && opts.characterAnchor) {
+      const outfitMatch = opts.characterAnchor.match(/OUTFIT:\s*([^\n]+)/);
+      const anchorOutfit = outfitMatch ? outfitMatch[1].trim() : null;
+      if (anchorOutfit) {
+        parts.push(`   - OUTFIT IS LOCKED — same clothing in every panel: ${anchorOutfit}. Do NOT change or vary the outfit between panels.`);
+      }
+    }
     parts.push(`   If the reference photo shows an East Asian child, ALL illustrations must show an East Asian child.`);
     parts.push(`   If the reference shows a Black child, ALL illustrations must show a Black child.`);
     parts.push(`   NEVER drift to a different ethnicity, skin tone, or eye shape — even after multiple spreads.`);
@@ -772,7 +781,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null, characterAnchor: opts.characterAnchor || null });
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null, characterAnchor: opts.characterAnchor || null, bookFormat: opts.bookFormat || null });
   const aspectRatio = isSpread ? '16:9' : '1:1';
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
