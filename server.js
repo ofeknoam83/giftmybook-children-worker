@@ -1192,12 +1192,16 @@ Format your answer with each label on its own line followed by a colon and the a
                 bookContext.log('info', 'Character anchor extracted', { attempt: anchorAttempt, anchor: anchorText.slice(0, 200) });
                 // Persist to DB immediately
                 if (progressCallbackUrl) {
+                  const entriesSummary = Array.isArray(storyPlan.entries)
+                    ? storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right }))
+                    : [];
                   reportProgressForce(progressCallbackUrl, {
                     bookId,
                     stage: 'cover_analysis',
                     storyContent: {
                       title: storyPlan.title,
-                      entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right })),
+                      entries: entriesSummary,
+                      ...(storyPlan.isGraphicNovel && { isGraphicNovel: true, panelCount: (storyPlan.allPanels || []).length }),
                       characterDescription: storyPlan.characterDescription || null,
                       characterOutfit: storyPlan.characterOutfit || null,
                       characterAnchor: storyPlan.characterAnchor || null,
@@ -1303,6 +1307,7 @@ Format your answer with each label on its own line followed by a colon and the a
             chapter.imageBuffer = null; // will be downloaded later from the URL
             chapter.illustrationUrl = illustUrl;
             bookContext.log('info', `Chapter ${i + 1} illustration done`);
+            bookContext.touchActivity();
           } catch (illustErr) {
             bookContext.log('warn', `Chapter ${i + 1} illustration failed: ${illustErr.message}`);
           }
@@ -1356,9 +1361,11 @@ Format your answer with each label on its own line followed by a colon and the a
             // generateIllustration returns a string URL
             panel.illustrationUrl = typeof illustUrl === 'string' ? illustUrl : null;
             bookContext.log('info', `Panel ${i + 1} done`);
+            bookContext.touchActivity();
           } catch (e) {
             bookContext.log('warn', `Panel ${i + 1} failed: ${e.message}`);
             panel.illustrationUrl = null;
+            bookContext.touchActivity();
           }
         }
         entriesWithIllustrations = [];
@@ -1547,6 +1554,8 @@ Format your answer with each label on its own line followed by a colon and the a
             const upsellCostTracker = new CostTracker();
             const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
               apiKeys, costTracker: upsellCostTracker,
+              characterDescription: storyPlan?.characterDescription || null,
+              characterAnchor: storyPlan?.characterAnchor || null,
             }).catch(e => {
               console.warn(`[server] Upsell covers background error: ${e.message}`);
               return [];

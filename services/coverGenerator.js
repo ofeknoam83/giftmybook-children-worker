@@ -465,16 +465,58 @@ Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
 }
 
 /**
- * Generate a single upsell cover image for a given style and title.
+ * Build the text prompt for a single upsell cover.
+ * Exported for testability.
+ *
+ * @param {string} title
+ * @param {string} childName
+ * @param {number} childAge
+ * @param {string} childGender - 'male' | 'female' | 'neutral'
+ * @param {string} artStyle - one of UPSELL_STYLES
+ * @param {object} [identity] - { characterDescription, characterAnchor }
+ * @returns {string}
  */
-async function generateUpsellCoverImage(title, childName, childAge, childGender, artStyle, frontCoverBuffer) {
-  const { ART_STYLE_CONFIG, getNextApiKey, fetchWithTimeout } = require('./illustrationGenerator');
+function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyle, identity = {}) {
+  const { ART_STYLE_CONFIG } = require('./illustrationGenerator');
   const styleConfig = ART_STYLE_CONFIG?.[artStyle] || {};
   const prefix = styleConfig.prefix || '';
   const suffix = styleConfig.suffix || '';
 
-  const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'child';
-  const prompt = `${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom. ${suffix}`;
+  const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'young child';
+
+  const parts = [];
+
+  parts.push(`REFERENCE IMAGE RULES: The attached image is ONLY a character-likeness reference for ${childName}. Use it ONLY to match ${childName}'s face, hair, skin tone, and build. Do NOT copy the composition, background, props, color palette, title treatment, typography, framing, or overall visual style of the reference image. The output must be a completely NEW illustration.`);
+
+  parts.push(`GENDER (AUTHORITATIVE): ${childName} is a ${genderWord}. ${childGender === 'male' ? 'Depict a boy.' : childGender === 'female' ? 'Depict a girl.' : 'Depict a young child without inventing gendered cues not present in the reference.'} If the reference image shows multiple people, ONLY depict ${childName} — the main child matching this stated gender. Do NOT include siblings or secondary figures from the reference.`);
+
+  if (identity.characterDescription) {
+    parts.push(`CHARACTER APPEARANCE LOCK: ${identity.characterDescription}`);
+  }
+  if (identity.characterAnchor) {
+    parts.push(`PHYSICAL IDENTITY LOCK: ${identity.characterAnchor}`);
+  }
+
+  parts.push(`${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom. ${suffix}`);
+
+  return parts.join('\n\n');
+}
+
+/**
+ * Generate a single upsell cover image for a given style and title.
+ *
+ * @param {string} title
+ * @param {string} childName
+ * @param {number} childAge
+ * @param {string} childGender
+ * @param {string} artStyle
+ * @param {Buffer} frontCoverBuffer
+ * @param {object} [identity] - { characterDescription, characterAnchor }
+ */
+async function generateUpsellCoverImage(title, childName, childAge, childGender, artStyle, frontCoverBuffer, identity = {}) {
+  const { getNextApiKey, fetchWithTimeout } = require('./illustrationGenerator');
+
+  const prompt = buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyle, identity);
 
   const apiKey = getNextApiKey();
   if (!apiKey) throw new Error('No Gemini API key available for upsell cover generation');
@@ -536,7 +578,7 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
  * @param {object} childDetails - { name/childName, age/childAge, gender/childGender }
  * @param {Buffer} frontCoverBuffer - approved front cover
  * @param {string} approvedTitle
- * @param {object} opts - { openaiApiKey, apiKeys, costTracker, uploadBuffer, getSignedUrl }
+ * @param {object} opts - { openaiApiKey, apiKeys, costTracker, characterDescription, characterAnchor }
  */
 async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, approvedTitle, opts = {}) {
   const pLimit = require('p-limit');
@@ -544,8 +586,15 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
 
   const childName = childDetails.childName || childDetails.name || 'the child';
   const childAge = childDetails.childAge || childDetails.age || 5;
-  const childGender = childDetails.childGender || childDetails.gender || 'neutral';
+  const VALID_GENDERS = ['male', 'female', 'neutral'];
+  const rawGender = childDetails.childGender || childDetails.gender || 'neutral';
+  const childGender = VALID_GENDERS.includes(rawGender) ? rawGender : 'neutral';
   const openaiApiKey = opts.openaiApiKey || opts.apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  const identity = {
+    characterDescription: opts.characterDescription || null,
+    characterAnchor: opts.characterAnchor || null,
+  };
 
   console.log(`[coverGenerator] Generating upsell covers for ${childName}...`);
 
@@ -574,7 +623,7 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
 
         try {
           const imgBuffer = await generateUpsellCoverImage(
-            title, childName, childAge, childGender, style, frontCoverBuffer
+            title, childName, childAge, childGender, style, frontCoverBuffer, identity
           );
 
           const gcsPath = `children-jobs/${bookId}/upsell/${index}/cover.png`;
@@ -599,4 +648,4 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
   return covers;
 }
 
-module.exports = { generateCover, generateUpsellCovers, UPSELL_STYLES, UPSELL_STYLE_LABELS };
+module.exports = { generateCover, generateUpsellCovers, buildUpsellCoverPrompt, UPSELL_STYLES, UPSELL_STYLE_LABELS };
