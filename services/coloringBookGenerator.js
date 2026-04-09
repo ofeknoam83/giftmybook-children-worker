@@ -124,28 +124,31 @@ async function convertToColoringPage(base64, mimeType) {
 }
 
 /**
- * Convert all spread illustrations to coloring pages sequentially.
+ * Convert all spread illustrations to coloring pages (2 in parallel).
  * @param {string[]} illustrationUrls
  * @returns {Promise<Array<{index: number, buffer: Buffer|null, success: boolean}>>}
  */
 async function generateColoringPages(illustrationUrls) {
-  const results = [];
+  const pLimit = require('p-limit');
+  const limit = pLimit(2); // 2 concurrent — balances speed vs. Gemini rate limits
 
-  for (let i = 0; i < illustrationUrls.length; i++) {
-    const url = illustrationUrls[i];
-    console.log(`[coloringBookGenerator] Converting spread ${i + 1}/${illustrationUrls.length}`);
-    try {
-      const photo = await downloadPhotoAsBase64(url);
-      const buffer = await convertToColoringPage(photo.base64, photo.mimeType);
-      results.push({ index: i, buffer, success: true });
-      console.log(`[coloringBookGenerator] Spread ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
-    } catch (err) {
-      console.error(`[coloringBookGenerator] Spread ${i + 1} failed: ${err.message}`);
-      results.push({ index: i, buffer: null, success: false, error: err.message });
-    }
-  }
+  const tasks = illustrationUrls.map((url, i) =>
+    limit(async () => {
+      console.log(`[coloringBookGenerator] Converting spread ${i + 1}/${illustrationUrls.length}`);
+      try {
+        const photo = await downloadPhotoAsBase64(url);
+        const buffer = await convertToColoringPage(photo.base64, photo.mimeType);
+        console.log(`[coloringBookGenerator] Spread ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
+        return { index: i, buffer, success: true };
+      } catch (err) {
+        console.error(`[coloringBookGenerator] Spread ${i + 1} failed: ${err.message}`);
+        return { index: i, buffer: null, success: false, error: err.message };
+      }
+    })
+  );
 
-  return results;
+  const results = await Promise.all(tasks);
+  return results.sort((a, b) => a.index - b.index); // preserve order
 }
 
 // ── Generate mode helpers ──
