@@ -38,7 +38,7 @@ const AGE_TIERS = {
     dialogue: '2 exchanges required. Rules: (1) Child\'s voice must sound like a real 3-5 year old — short sentences, concrete words, more questions than statements; (2) Dialogue must advance the plot or reveal character — not just describe what the child already knows; (3) The child\'s voice must sound different from the narrator\'s voice.',
     imagePromptStyle: 'wide establishing shots mixed with close emotional moments.',
     fearHandling: 'use as written.',
-    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): deliberate de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure/birthday/science ends warm and triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling. NEVER deflate the energy on non-bedtime themes.',
     arc: 'full story arc applies.',
     phaseTwo: 10,
     rhymeLevel: 'moderate — roughly half the spreads should contain a rhyme or near-rhyme. Mix rhyming couplets with prose. The repeated phrase should rhyme or have a strong rhythmic beat. At age 3, children still love the musicality of rhyme.',
@@ -55,7 +55,7 @@ const AGE_TIERS = {
     dialogue: '3 exchanges required. May include subtext.',
     imagePromptStyle: 'layered scenes with background detail permitted.',
     fearHandling: 'use as written. May be specific and named.',
-    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): deliberate de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure/birthday/science ends warm and triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling. NEVER deflate the energy on non-bedtime themes.',
     arc: 'arc may include a false resolution before true resolution.',
     phaseTwo: 10,
     rhymeLevel: 'light — occasional internal rhymes or near-rhymes for flavor. Story prose dominates. A couplet here and there, not a pattern.',
@@ -72,7 +72,7 @@ const AGE_TIERS = {
     dialogue: '3-4 exchanges. Subtext expected. Characters may be unreliable.',
     imagePromptStyle: 'cinematic framing, shadow/light contrast, symbolic detail.',
     fearHandling: 'may be treated as an internal state, not just external obstacle.',
-    pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 11-13): same de-escalation.',
+    pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure ends triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling.',
     arc: 'arc may include a secondary character with their own want.',
     phaseTwo: 10,
     rhymeLevel: 'subtle — only where it emerges naturally from the prose. Slant rhymes and internal echoes preferred over end-rhymes.',
@@ -201,6 +201,7 @@ INPUTS
 - Fear or challenge: {fear}
 - Setting (optional): {setting}
 - Dedication (optional): {dedication}
+- Gift is from: {gifterFrom}
 
 -------------------------------------
 WRITING QUALITY OVERRIDES (MANDATORY)
@@ -311,7 +312,11 @@ Show the evolution through what the child DOES around the phrase — not by addi
 -------------------------------------
 ENDING RULES (CRITICAL)
 -------------------------------------
-- The final lines must feel like a whisper, not a conclusion.
+- The final lines must feel EMOTIONALLY COMPLETE — not a whisper unless the theme calls for it. Match the ending energy to the theme:
+  - ADVENTURE / BIRTHDAY / SPACE / SCIENCE / SCHOOL: End with warmth and triumph. The child succeeded. The final spread should feel JOYFUL and energized — not sleepy, not hushed. The reader should close the book feeling happy, not winding down.
+  - FRIENDSHIP / NATURE / HOLIDAY: End with quiet joy and connection — warm and content, not sad.
+  - BEDTIME ONLY: End with calm and settling — soft and safe.
+  Never let a non-bedtime book end with sleepiness, exhaustion, or sadness.
 - The world must feel physically and emotionally safe.
 - The {favorite_object} should be present in the final moment.
 - End with an image or feeling — NOT a lesson.
@@ -578,6 +583,7 @@ INPUTS
 - Favorite object: {favorite_object}
 - Fear or challenge: {fear}
 - Setting (optional): {setting}
+- Gift is from: {gifterFrom}
 
 ---
 
@@ -716,7 +722,11 @@ Show the evolution through what the child DOES around the phrase — not by addi
 -------------------------------------
 ENDING RULES (CRITICAL)
 -------------------------------------
-- The final lines must feel like a whisper, not a conclusion.
+- The final lines must feel EMOTIONALLY COMPLETE — not a whisper unless the theme calls for it. Match the ending energy to the theme:
+  - ADVENTURE / BIRTHDAY / SPACE / SCIENCE / SCHOOL: End with warmth and triumph. The child succeeded. The final spread should feel JOYFUL and energized — not sleepy, not hushed. The reader should close the book feeling happy, not winding down.
+  - FRIENDSHIP / NATURE / HOLIDAY: End with quiet joy and connection — warm and content, not sad.
+  - BEDTIME ONLY: End with calm and settling — soft and safe.
+  Never let a non-bedtime book end with sleepiness, exhaustion, or sadness.
 - The world must feel physically and emotionally safe.
 - The {favorite_object} should be present in the final moment.
 - End with an image or feeling — NOT a lesson.
@@ -966,6 +976,15 @@ Before outputting, verify:
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
  * @returns {string} The full brief with all variables replaced
  */
+function buildGifterFromValue(vars) {
+  if (vars.isMultipleGifters && vars.gifterNames && vars.gifterNames.length > 1) {
+    const bookFrom = vars.gifterNames.join(' and ');
+    return `${bookFrom} (multiple people: ${vars.gifterNames.join(' and ')})\n\nMULTIPLE GIFTERS RULE (TEXT ONLY — illustrations are NOT affected by this rule):\nThis book is a gift from BOTH ${vars.gifterNames[0]} AND ${vars.gifterNames[1]}.\nIf either person is mentioned in the story text (speaking, acting, calling the child's name, being referenced), the OTHER must ALSO be mentioned in the story text at least once.\nBoth gifters must feel equally present in the narrative — not one as the main character and the other forgotten.\nThis applies to TEXT ONLY. Do NOT add family members to illustration prompts — the illustration rules are separate.`;
+  }
+  if (vars.gifterNames && vars.gifterNames.length === 1) return vars.gifterNames[0];
+  return '';
+}
+
 function buildV2Brief(vars) {
   const { name, favorite_object, fear, setting, dedication } = vars;
   const age = Number(vars.age) || 5;
@@ -977,6 +996,7 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
   brief = brief.replace(/\{dedication\}/g, dedication || `For ${name || 'the child'}`);
+  brief = brief.replace(/\{gifterFrom\}/g, buildGifterFromValue(vars));
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   return brief;
@@ -1020,6 +1040,7 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a favorite toy');
   brief = brief.replace(/\{fear\}/g, fear || 'the dark');
   brief = brief.replace(/\{setting\}/g, setting || 'a magical place');
+  brief = brief.replace(/\{gifterFrom\}/g, buildGifterFromValue(vars));
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   brief = brief.replace(/\{dialect\}/g, dialect);

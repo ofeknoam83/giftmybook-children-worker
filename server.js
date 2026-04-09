@@ -67,6 +67,20 @@ const { withRetry } = require('./services/retry');
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
 
+/**
+ * Parse bookFrom into individual gifter names.
+ * "Mom and Dad" → ["Mom", "Dad"]
+ * "Grandma and Grandpa" → ["Grandma", "Grandpa"]
+ * "Alex" → ["Alex"]  (single gifter, no rule needed)
+ */
+function parseGifters(bookFrom) {
+  if (!bookFrom || typeof bookFrom !== 'string') return [];
+  const cleaned = bookFrom.trim();
+  // Split on " and ", " & ", ", "
+  const parts = cleaned.split(/\s+and\s+|\s*&\s*|,\s*/i).map(s => s.trim()).filter(Boolean);
+  return parts.length > 1 ? parts : [cleaned];
+}
+
 const app = express();
 app.set('trust proxy', 1); // Cloud Run runs behind a load balancer
 
@@ -838,6 +852,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       } else {
         dedication = `For ${childDetails.name || 'the child'}`;
       }
+      const gifterNames = parseGifters(bookFrom);
+      const isMultipleGifters = gifterNames.length > 1;
       const v2Vars = {
         name: childDetails.name,
         age: childDetails.age || 5,
@@ -854,6 +870,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         copingResourceHint: copingResourceHint || null,
         emotionalSpreads: emotionalTierInfo ? emotionalTierInfo.spreads : undefined,
         emotionalTier: emotionalTierInfo ? emotionalTierInfo.tier : undefined,
+        gifterNames,
+        isMultipleGifters,
       };
 
       // Append story seed to custom details so the planner has the full creative direction

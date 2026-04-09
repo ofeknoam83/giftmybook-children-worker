@@ -204,6 +204,10 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
     prompt += `\n\n⚠️ SECONDARY CHARACTER ON COVER: The uploaded photo includes a secondary person. Their appearance:\n${additionalCoverCharacters}\nWhen you write spread_image_prompt fields, you MAY include this person naturally in scenes. Describe them consistently every time they appear — same hair, skin, build. Add "secondaryCharacterDescription" to the top-level JSON with their full appearance for illustration locking.`;
   }
 
+  if (v2Vars.isMultipleGifters && v2Vars.gifterNames?.length > 1) {
+    prompt += `\n\nMULTIPLE GIFTERS (TEXT ONLY): This book is from ${v2Vars.gifterNames.join(' and ')}. If one appears in the story text, BOTH must appear at least once. This applies to text only — do NOT add them to illustration prompts.`;
+  }
+
   prompt += `
 
 Generate the COMPLETE story as a JSON object with this structure:`;

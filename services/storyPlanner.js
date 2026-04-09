@@ -1172,7 +1172,7 @@ Score each category from 1-10:
 - Does the repeated element evolve meaningfully?
 
 7. Ending Quality
-- Is the ending soft, poetic, and non-generic?
+- Does the ending match the theme's energy? Adventure/birthday/science/space books must end WARM and JOYFUL — not sleepy, not hushed. Friendship/nature ends with quiet joy. Only bedtime books end softly. If a non-bedtime book ends with the child going to sleep or feeling tired, flag it.
 
 8. Memorable Line
 - Is there at least one line in this story that a parent would want to repeat to their child outside of the book?
@@ -1202,6 +1202,7 @@ List ALL lines that violate:
 - Overused similes ("felt like", "like a...")
 - Flat or unnecessary sentences
 - Duplicate consecutive words (e.g. "round round", "the the", "and and") — any word repeated back-to-back is an error
+- Single gifter appearing while co-gifter is absent: if the book is from multiple people (e.g., "Mom and Dad") and one is mentioned but the other is not
 
 Be precise. Quote exact lines.
 
