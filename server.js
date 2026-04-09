@@ -52,10 +52,10 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
-const { assemblePdf } = require('./services/layoutEngine');
+const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
@@ -626,6 +626,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
   let format = bookFormat;
   const style = artStyle || 'cinematic_3d';
   const costTracker = new CostTracker();
+  const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
 
   // Auto-derive emotional tier from age for emotional books
   let emotionalTierInfo = null;
@@ -863,11 +864,45 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
       let storyPlan;
-      if (checkpoint?.storyPlan && Array.isArray(checkpoint.storyPlan.entries)) {
-        // V2 checkpoint — resume
+      if (checkpoint?.storyPlan && (Array.isArray(checkpoint.storyPlan.entries) || Array.isArray(checkpoint.storyPlan.chapters))) {
+        // checkpoint — resume
         storyPlan = checkpoint.storyPlan;
-        const spreads = storyPlan.entries.filter(e => e.type === 'spread');
-        bookContext.log('info', 'Resumed V2 story plan from checkpoint', { spreads: spreads.length, title: storyPlan.title });
+        const itemCount = storyPlan.isChapterBook
+          ? (storyPlan.chapters || []).length
+          : (storyPlan.entries || []).filter(e => e.type === 'spread').length;
+        bookContext.log('info', 'Resumed story plan from checkpoint', { items: itemCount, title: storyPlan.title, isChapterBook: !!storyPlan.isChapterBook });
+      } else if (isChapterBook) {
+        // ── Chapter book planning (T4 format, ages 9-12) ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting chapter book planning', { theme: theme || 'adventure' });
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning chapter book...', logs: bookContext.logs });
+        }
+
+        const stage3Start = Date.now();
+        storyPlan = await planChapterBook(childDetails, theme || 'adventure', plannerCustomDetails, {
+          apiKeys,
+          costTracker,
+          approvedTitle,
+          bookContext,
+        });
+        storyPlan.isChapterBook = true;
+        bookContext.touchActivity();
+        const stage3Ms = Date.now() - stage3Start;
+        bookContext.log('info', 'Chapter book planned', { chapters: storyPlan.chapters.length, title: storyPlan.title, ms: stage3Ms });
+        console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
+
+        // Save story content to DB immediately so admin can see the text
+        if (progressCallbackUrl) {
+          const storyContentForDb = {
+            title: storyPlan.title,
+            isChapterBook: true,
+            chapters: storyPlan.chapters.map(ch => ({ number: ch.number, chapterTitle: ch.chapterTitle, synopsis: ch.synopsis, text: ch.text })),
+          };
+          reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
+        }
+
+        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
       } else {
         // Always start fresh for V2 (incompatible with old checkpoint format)
         bookContext.checkAbort();
@@ -1120,7 +1155,7 @@ Format your answer with each label on its own line followed by a colon and the a
       bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
       // Birthday theme: ensure spread 13 illustration prompt shows cake/candles
-      if (theme === 'birthday') {
+      if (theme === 'birthday' && !isChapterBook && !storyPlan.isChapterBook) {
         const spreads = storyPlan.entries.filter(e => e.type === 'spread');
         const lastSpread = spreads[spreads.length - 1];
         if (lastSpread && lastSpread.spread_image_prompt) {
@@ -1137,32 +1172,92 @@ Format your answer with each label on its own line followed by a colon and the a
         }
       }
 
-      // Stage 4: Generate illustrations (V2 — text overlaid by layout engine, not embedded in images)
+      // Stage 4: Generate illustrations
       bookContext.checkAbort();
-      bookContext.log('info', 'Starting V2 illustration generation');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
-      }
+      let entriesWithIllustrations;
+      let spreadEntries;
 
-      const entriesWithIllustrations = await generateAllIllustrations(storyPlan.entries, storyPlan, childDetails, characterRef, style, {
-        apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
-        resolvedChildPhotoUrl,
-        cachedPhotoBase64: characterRefBase64,
-        cachedPhotoMime: characterRefMime,
-        existingIllustrations: checkpoint?.illustrationResults || [],
-        checkpointData: { bookId, storyPlan },
-        detectedSecondaryCharacters: detectedSecondaryCharacters || null,
-        characterAnchor: storyPlan.characterAnchor || null,
-      });
+      if (isChapterBook || storyPlan.isChapterBook) {
+        // ── Chapter book: Generate 5 portrait chapter-opener illustrations (no text) ──
+        bookContext.log('info', 'Starting chapter book illustration generation');
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating chapter illustrations...', logs: bookContext.logs });
+        }
 
-      bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
+        for (let i = 0; i < storyPlan.chapters.length; i++) {
+          const chapter = storyPlan.chapters[i];
+          bookContext.log('info', `Generating chapter ${i + 1} illustration`);
+          try {
+            const illus = await generateIllustration(
+              chapter.imagePrompt || `A scene from chapter ${i + 1}: ${chapter.synopsis}`,
+              null,
+              storyPlan.coverArtStyle || style,
+              {
+                apiKeys, costTracker, bookId, bookContext,
+                resolvedChildPhotoUrl: characterRef || resolvedChildPhotoUrl,
+                _cachedPhotoBase64: characterRefBase64,
+                _cachedPhotoMime: characterRefMime,
+                characterRef: characterRefBase64,
+                characterDescription: storyPlan.characterDescription,
+                characterAnchor: storyPlan.characterAnchor,
+                characterOutfit: storyPlan.characterOutfit,
+                recurringElement: storyPlan.recurringElement,
+                keyObjects: storyPlan.keyObjects,
+                coverArtStyle: storyPlan.coverArtStyle,
+                childName,
+                childAge: parseInt(childDetails.age) || 10,
+                isSpread: false,
+                spreadIndex: i,
+                totalSpreads: 5,
+                skipTextEmbed: true,
+                promptInjection: 'PORTRAIT FORMAT: This is a 2:3 portrait illustration for a chapter book. Tall, not wide.',
+                pageText: '',
+                additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                artStyle: style,
+              }
+            );
+            chapter.imageBuffer = illus?.imageBuffer || null;
+            chapter.illustrationUrl = illus?.spreadIllustrationUrl || illus?.illustrationUrl || null;
+            bookContext.log('info', `Chapter ${i + 1} illustration done`);
+          } catch (illustErr) {
+            bookContext.log('warn', `Chapter ${i + 1} illustration failed: ${illustErr.message}`);
+          }
+        }
 
-      // Count illustration failures for spreads
-      const spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
-      const illustrationFailures = spreadEntries.filter(e => !e.spreadIllustrationUrl && !e.leftIllustrationUrl).length;
-      if (illustrationFailures > 0) {
-        bookContext.log('warn', `${illustrationFailures}/${spreadEntries.length} spread illustrations failed`);
-        bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);
+        const illustrationFailures = storyPlan.chapters.filter(ch => !ch.illustrationUrl && !ch.imageBuffer).length;
+        if (illustrationFailures > 0) {
+          bookContext.log('warn', `${illustrationFailures}/${storyPlan.chapters.length} chapter illustrations failed`);
+          bookWarnings.push(`${illustrationFailures} of ${storyPlan.chapters.length} chapter illustrations failed`);
+        }
+        // Set entriesWithIllustrations/spreadEntries to empty for chapter book (not used in standard flow)
+        entriesWithIllustrations = [];
+        spreadEntries = [];
+      } else {
+        // ── Standard picture/early reader illustration generation ──
+        bookContext.log('info', 'Starting V2 illustration generation');
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
+        }
+
+        entriesWithIllustrations = await generateAllIllustrations(storyPlan.entries, storyPlan, childDetails, characterRef, style, {
+          apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
+          resolvedChildPhotoUrl,
+          cachedPhotoBase64: characterRefBase64,
+          cachedPhotoMime: characterRefMime,
+          existingIllustrations: checkpoint?.illustrationResults || [],
+          checkpointData: { bookId, storyPlan },
+          detectedSecondaryCharacters: detectedSecondaryCharacters || null,
+          characterAnchor: storyPlan.characterAnchor || null,
+        });
+
+        bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
+
+        spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
+        const illustrationFailures = spreadEntries.filter(e => !e.spreadIllustrationUrl && !e.leftIllustrationUrl).length;
+        if (illustrationFailures > 0) {
+          bookContext.log('warn', `${illustrationFailures}/${spreadEntries.length} spread illustrations failed`);
+          bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);
+        }
       }
 
       // Note: old illustrations from previous runs are NOT deleted here.
@@ -1172,7 +1267,7 @@ Format your answer with each label on its own line followed by a colon and the a
       // Stage 5: Assemble PDF
       const stage7Start = Date.now();
       bookContext.checkAbort();
-      bookContext.log('info', 'Starting V2 PDF assembly');
+      bookContext.log('info', 'Starting PDF assembly');
       if (progressCallbackUrl) {
         reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...', logs: bookContext.logs });
       }
@@ -1204,130 +1299,167 @@ Format your answer with each label on its own line followed by a colon and the a
         throw lastErr;
       }
 
-      bookContext.log('info', 'Downloading illustration buffers for PDF');
-      const entriesWithBuffers = await Promise.all(
-        entriesWithIllustrations.map((entry) => downloadLimit(async () => {
-          const result = { ...entry };
-
-          if (entry.spreadIllustrationUrl) {
-            try {
-              result.spreadIllustrationBuffer = await downloadWithRetry(entry.spreadIllustrationUrl, `spread-${entry.spread || entry.type}`);
-              bookContext.log('info', `Downloaded spread ${entry.spread || entry.type} illustration`);
-            } catch (err) {
-              bookContext.log('error', `Failed to download spread illustration`, { error: err.message, spread: entry.spread });
-            }
-          }
-
-          if (entry.leftIllustrationUrl) {
-            try {
-              result.leftIllustrationBuffer = await downloadWithRetry(entry.leftIllustrationUrl, `left-${entry.spread}`);
-            } catch (err) {
-              bookContext.log('error', `Failed to download left illustration`, { error: err.message });
-            }
-          }
-          if (entry.rightIllustrationUrl) {
-            try {
-              result.rightIllustrationBuffer = await downloadWithRetry(entry.rightIllustrationUrl, `right-${entry.spread}`);
-            } catch (err) {
-              bookContext.log('error', `Failed to download right illustration`, { error: err.message });
-            }
-          }
-
-          if (entry.illustrationUrl) {
-            try {
-              result.illustrationBuffer = await downloadWithRetry(entry.illustrationUrl, entry.type);
-              bookContext.log('info', `Downloaded ${entry.type} illustration`);
-            } catch (err) {
-              bookContext.log('error', `Failed to download ${entry.type} illustration`, { error: err.message });
-            }
-          }
-
-          return result;
-        }))
-      );
-      bookContext.log('info', 'All illustration buffers downloaded');
-
-      // Interior title page is text-only — the cover image is for the cover PDF only.
-      // Do NOT attach the cover image to the title page entry.
-
       const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
+      let interiorPdf;
+      let entriesWithBuffers = [];
+      let previewImageUrls;
 
-      // ── Upsell covers: generate 4 styles BEFORE interior PDF so they can be baked in ──
-      let upsellCovers = [];
-      if (preGeneratedCoverBuffer) {
-        try {
-          bookContext.log('info', 'Generating upsell covers (4 styles)...');
-          // Race against a 4-minute timeout. The upsell promise is always caught so
-          // it never becomes an unhandled rejection even if it outlives the timeout.
-          const upsellCostTracker = new CostTracker();
-          const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
-            apiKeys, costTracker: upsellCostTracker,
-          }).catch(e => {
-            console.warn(`[server] Upsell covers background error: ${e.message}`);
-            return [];
-          });
-          const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 4 * 60 * 1000));
-          const result = await Promise.race([upsellPromise, timeoutPromise]);
-          // Merge upsell costs into main tracker regardless of outcome
-          costTracker.addFromSummary(upsellCostTracker.getSummary());
-          if (result === null) {
-            bookContext.log('warn', 'Upsell cover generation timed out after 4 min — continuing without upsell spread');
-          } else {
-            upsellCovers = result;
-            bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4 (upsell cost: $${upsellCostTracker.getSummary().totalCost.toFixed(4)})`);
-          }
-        } catch (upsellErr) {
-          bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
-        }
-      }
-
-      // Download upsell cover image buffers from GCS and inject as upsell_spread entry
-      if (upsellCovers.length > 0) {
-        const upsellEntries = await Promise.all(
-          upsellCovers.map(async (uc) => {
+      if (isChapterBook || storyPlan.isChapterBook) {
+        // ── Chapter book PDF assembly ──
+        // Download chapter illustration URLs into buffers
+        for (let i = 0; i < storyPlan.chapters.length; i++) {
+          const chapter = storyPlan.chapters[i];
+          if (chapter.illustrationUrl && !chapter.imageBuffer) {
             try {
-              const buf = await downloadBuffer(uc.gcsPath);
-              return { ...uc, coverBuffer: buf };
-            } catch (e) {
-              console.warn(`[server] Could not download upsell buffer ${uc.gcsPath}: ${e.message}`);
-              return { ...uc, coverBuffer: null };
+              chapter.imageBuffer = await downloadWithRetry(chapter.illustrationUrl, `chapter-${i + 1}`);
+              bookContext.log('info', `Downloaded chapter ${i + 1} illustration buffer`);
+            } catch (err) {
+              bookContext.log('warn', `Failed to download chapter ${i + 1} illustration: ${err.message}`);
             }
-          })
-        );
-        const validUpsell = upsellEntries.filter(u => u.coverBuffer);
-        if (validUpsell.length > 0) {
-          const upsellEntry = {
-            type: 'upsell_spread',
-            upsellCovers: validUpsell,
-            childName: childDetails.name || childDetails.childName,
-            bookId,
-            tagline: `What will ${childDetails.name || childDetails.childName}\'s next story be?`,
-          };
-          // Insert before closing_page, or append
-          const closingIdx = entriesWithBuffers.findIndex(e => e.type === 'closing_page');
-          if (closingIdx >= 0) {
-            entriesWithBuffers.splice(closingIdx, 0, upsellEntry);
-          } else {
-            entriesWithBuffers.push(upsellEntry);
           }
-          bookContext.log('info', `Upsell spread injected into interior PDF (${validUpsell.length} covers)`);
         }
+
+        const chaptersWithBuffers = storyPlan.chapters.map(ch => ({
+          chapterTitle: ch.chapterTitle,
+          text: ch.text,
+          imageBuffer: ch.imageBuffer || null,
+        }));
+        interiorPdf = await buildChapterBookPdf(chaptersWithBuffers, {
+          title: bookTitle,
+          childName: childDetails.name,
+          bookFrom: bookFrom || '',
+          dedication: dedication || '',
+          year: new Date().getFullYear(),
+          bookId,
+          upsellCovers: [],
+        });
+
+        previewImageUrls = storyPlan.chapters.map(ch => ch.illustrationUrl).filter(Boolean);
+      } else {
+        // ── Standard picture/early reader PDF assembly ──
+        bookContext.log('info', 'Downloading illustration buffers for PDF');
+        entriesWithBuffers = await Promise.all(
+          entriesWithIllustrations.map((entry) => downloadLimit(async () => {
+            const result = { ...entry };
+
+            if (entry.spreadIllustrationUrl) {
+              try {
+                result.spreadIllustrationBuffer = await downloadWithRetry(entry.spreadIllustrationUrl, `spread-${entry.spread || entry.type}`);
+                bookContext.log('info', `Downloaded spread ${entry.spread || entry.type} illustration`);
+              } catch (err) {
+                bookContext.log('error', `Failed to download spread illustration`, { error: err.message, spread: entry.spread });
+              }
+            }
+
+            if (entry.leftIllustrationUrl) {
+              try {
+                result.leftIllustrationBuffer = await downloadWithRetry(entry.leftIllustrationUrl, `left-${entry.spread}`);
+              } catch (err) {
+                bookContext.log('error', `Failed to download left illustration`, { error: err.message });
+              }
+            }
+            if (entry.rightIllustrationUrl) {
+              try {
+                result.rightIllustrationBuffer = await downloadWithRetry(entry.rightIllustrationUrl, `right-${entry.spread}`);
+              } catch (err) {
+                bookContext.log('error', `Failed to download right illustration`, { error: err.message });
+              }
+            }
+
+            if (entry.illustrationUrl) {
+              try {
+                result.illustrationBuffer = await downloadWithRetry(entry.illustrationUrl, entry.type);
+                bookContext.log('info', `Downloaded ${entry.type} illustration`);
+              } catch (err) {
+                bookContext.log('error', `Failed to download ${entry.type} illustration`, { error: err.message });
+              }
+            }
+
+            return result;
+          }))
+        );
+        bookContext.log('info', 'All illustration buffers downloaded');
+
+        // Interior title page is text-only — the cover image is for the cover PDF only.
+        // Do NOT attach the cover image to the title page entry.
+
+        // ── Upsell covers: generate 4 styles BEFORE interior PDF so they can be baked in ──
+        let upsellCovers = [];
+        if (preGeneratedCoverBuffer) {
+          try {
+            bookContext.log('info', 'Generating upsell covers (4 styles)...');
+            const upsellCostTracker = new CostTracker();
+            const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
+              apiKeys, costTracker: upsellCostTracker,
+            }).catch(e => {
+              console.warn(`[server] Upsell covers background error: ${e.message}`);
+              return [];
+            });
+            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 4 * 60 * 1000));
+            const result = await Promise.race([upsellPromise, timeoutPromise]);
+            costTracker.addFromSummary(upsellCostTracker.getSummary());
+            if (result === null) {
+              bookContext.log('warn', 'Upsell cover generation timed out after 4 min — continuing without upsell spread');
+            } else {
+              upsellCovers = result;
+              bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4 (upsell cost: $${upsellCostTracker.getSummary().totalCost.toFixed(4)})`);
+            }
+          } catch (upsellErr) {
+            bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
+          }
+        }
+
+        // Download upsell cover image buffers from GCS and inject as upsell_spread entry
+        if (upsellCovers.length > 0) {
+          const upsellEntries = await Promise.all(
+            upsellCovers.map(async (uc) => {
+              try {
+                const buf = await downloadBuffer(uc.gcsPath);
+                return { ...uc, coverBuffer: buf };
+              } catch (e) {
+                console.warn(`[server] Could not download upsell buffer ${uc.gcsPath}: ${e.message}`);
+                return { ...uc, coverBuffer: null };
+              }
+            })
+          );
+          const validUpsell = upsellEntries.filter(u => u.coverBuffer);
+          if (validUpsell.length > 0) {
+            const upsellEntry = {
+              type: 'upsell_spread',
+              upsellCovers: validUpsell,
+              childName: childDetails.name || childDetails.childName,
+              bookId,
+              tagline: `What will ${childDetails.name || childDetails.childName}\'s next story be?`,
+            };
+            const closingIdx = entriesWithBuffers.findIndex(e => e.type === 'closing_page');
+            if (closingIdx >= 0) {
+              entriesWithBuffers.splice(closingIdx, 0, upsellEntry);
+            } else {
+              entriesWithBuffers.push(upsellEntry);
+            }
+            bookContext.log('info', `Upsell spread injected into interior PDF (${validUpsell.length} covers)`);
+          }
+        }
+
+        const upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
+        interiorPdf = await assemblePdf(entriesWithBuffers, format, {
+          title: bookTitle,
+          childName: childDetails.name,
+          dedication,
+          bookFrom,
+          year: new Date().getFullYear(),
+          bookId,
+          upsellCovers: upsellCoversWithBuffers,
+          minPages: emotionalTierInfo ? emotionalTierInfo.minPages : 32,
+        });
+
+        previewImageUrls = entriesWithIllustrations
+          .filter(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl)
+          .map(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl);
       }
 
-      // Pass validUpsell (with coverBuffer) to assemblePdf, not the raw upsellCovers
-      const upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
-      const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
-        title: bookTitle,
-        childName: childDetails.name,
-        dedication,
-        bookFrom,
-        year: new Date().getFullYear(),
-        bookId,
-        upsellCovers: upsellCoversWithBuffers,
-        minPages: emotionalTierInfo ? emotionalTierInfo.minPages : 32,
-      });
       bookContext.touchActivity();
-      bookContext.log('info', 'Interior PDF assembled', { entries: entriesWithBuffers.length, ms: Date.now() - stage7Start });
+      bookContext.log('info', 'Interior PDF assembled', { ms: Date.now() - stage7Start });
 
       console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
 
@@ -1346,17 +1478,29 @@ Format your answer with each label on its own line followed by a colon and the a
         bookContext.log('info', 'Building cover PDF...');
         reportProgressForce(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.95, message: 'Building cover PDF...', logs: bookContext.logs }).catch(() => {});
         // Calculate actual interior page count for spine width
-        // V2: count pages from entries (blank=1, title/dedication=1, spread=2)
-        let pageCount = 0;
-        for (const entry of entriesWithBuffers) {
-          if (entry.type === 'spread') pageCount += 2;
-          else pageCount += 1;
+        let pageCount;
+        if (isChapterBook || storyPlan.isChapterBook) {
+          // Chapter book: estimate from chapters (title + dedication + 5*(title page + ~3 text pages) + end page)
+          pageCount = 2 + storyPlan.chapters.length * 4 + 1;
+          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
+        } else {
+          pageCount = 0;
+          for (const entry of entriesWithBuffers) {
+            if (entry.type === 'spread') pageCount += 2;
+            else pageCount += 1;
+          }
+          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
         }
-        pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
         // Build synopsis from story plan for back cover
-        const synopsis = storyPlan.synopsis
-          || (storyPlan.entries || []).filter(e => e.type === 'spread').slice(0, 2).map(e => [e.left?.text, e.right?.text].filter(Boolean).join(' ')).join(' ')
-          || `A personalized bedtime story for ${childDetails.name}`;
+        let synopsis;
+        if (isChapterBook || storyPlan.isChapterBook) {
+          synopsis = storyPlan.chapters.slice(0, 2).map(ch => ch.synopsis).join(' ')
+            || `A personalized chapter book for ${childDetails.name}`;
+        } else {
+          synopsis = storyPlan.synopsis
+            || (storyPlan.entries || []).filter(e => e.type === 'spread').slice(0, 2).map(e => [e.left?.text, e.right?.text].filter(Boolean).join(' ')).join(' ')
+            || `A personalized bedtime story for ${childDetails.name}`;
+        }
 
         const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
@@ -1371,18 +1515,38 @@ Format your answer with each label on its own line followed by a colon and the a
         bookContext.log('error', 'Cover PDF failed (non-blocking)', { error: coverErr.message });
       }
 
-      const previewImageUrls = entriesWithIllustrations
-        .filter(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl)
-        .map(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl);
-
-      // Send upsell cover metadata to standalone DB (already generated above)
-      if (upsellCovers.length > 0 && progressCallbackUrl) {
-        reportProgressForce(progressCallbackUrl, { bookId, upsellCovers, logs: bookContext.logs }).catch(() => {});
-      }
-
       const totalMs = Date.now() - bookStartTime;
       const costSummary = costTracker.getSummary();
-      bookContext.log('info', 'Book complete', { totalMs, entries: entriesWithIllustrations.length, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
+      const itemCount = (isChapterBook || storyPlan.isChapterBook) ? storyPlan.chapters.length : entriesWithIllustrations.length;
+      bookContext.log('info', 'Book complete', { totalMs, items: itemCount, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
+
+      // Build storyContent for DB
+      let storyContent;
+      if (isChapterBook || storyPlan.isChapterBook) {
+        storyContent = {
+          title: bookTitle,
+          isChapterBook: true,
+          characterDescription: storyPlan.characterDescription || null,
+          characterAnchor: storyPlan.characterAnchor || null,
+          characterOutfit: storyPlan.characterOutfit || null,
+          chapters: storyPlan.chapters.map(ch => ({
+            number: ch.number,
+            chapterTitle: ch.chapterTitle,
+            synopsis: ch.synopsis,
+            text: ch.text,
+            illustrationUrl: ch.illustrationUrl || null,
+          })),
+        };
+      } else {
+        storyContent = {
+          title: bookTitle,
+          entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })),
+          characterDescription: storyPlan.characterDescription || null,
+          characterOutfit: storyPlan.characterOutfit || null,
+          characterAnchor: storyPlan.characterAnchor || null,
+          additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+        };
+      }
 
       // Report completion (with retry)
       if (callbackUrl) {
@@ -1400,14 +1564,7 @@ Format your answer with each label on its own line followed by a colon and the a
                 previewImageUrls,
                 title: bookTitle,
                 spreadCount: spreadEntries.length,
-                storyContent: {
-                  title: bookTitle,
-                  entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })),
-                  characterDescription: storyPlan.characterDescription || null,
-                  characterOutfit: storyPlan.characterOutfit || null,
-                  characterAnchor: storyPlan.characterAnchor || null,
-                  additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                },
+                storyContent,
                 costs: costSummary,
                 emotionalCategory: emotionalCategory || null,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
@@ -1430,14 +1587,7 @@ Format your answer with each label on its own line followed by a colon and the a
           previewImageUrls,
           title: bookTitle,
           spreadCount: spreadEntries.length,
-          storyContent: {
-            title: bookTitle,
-            entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })),
-            characterDescription: storyPlan.characterDescription || null,
-            characterOutfit: storyPlan.characterOutfit || null,
-            characterAnchor: storyPlan.characterAnchor || null,
-            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-          },
+          storyContent,
           costs: costSummary,
           emotionalCategory: emotionalCategory || null,
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
@@ -1448,7 +1598,7 @@ Format your answer with each label on its own line followed by a colon and the a
       // Clear checkpoint on successful completion
       await clearCheckpoint(bookId);
 
-      console.log(`[server] Book ${bookId} complete: ${spreadEntries.length} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
+      console.log(`[server] Book ${bookId} complete: ${itemCount} items, cost: $${costSummary.totalCost.toFixed(4)}`);
     } catch (err) {
       bookContext.log('error', 'Book generation failed', { error: err.message, totalMs: Date.now() - bookStartTime });
       console.error(`[server] Book ${bookId} failed:`, err);

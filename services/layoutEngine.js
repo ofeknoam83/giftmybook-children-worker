@@ -597,4 +597,217 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
   return Buffer.from(await pdfDoc.save());
 }
 
-module.exports = { assemblePdf, FORMATS };
+/**
+ * Build a 6×9" chapter book PDF with typeset text pages and chapter-opener illustrations.
+ * @param {Array<{chapterTitle: string, text: string, imageBuffer?: Buffer}>} chapters
+ * @param {object} opts - { title, childName, bookFrom, dedication, year, bookId, upsellCovers }
+ * @returns {Promise<Buffer>} PDF buffer
+ */
+async function buildChapterBookPdf(chapters, opts = {}) {
+  const { title = 'My Story', childName = '', bookFrom = '', dedication = '', year = new Date().getFullYear() } = opts;
+
+  // 6×9" in points (no bleed for chapter book interior — Lulu handles trim)
+  const PW = 6 * 72;  // 432pt
+  const PH = 9 * 72;  // 648pt
+  const CB_MARGIN = 54;  // 0.75" margins
+  const BODY_W = PW - CB_MARGIN * 2;
+
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.setTitle(title);
+  pdfDoc.setAuthor('GiftMyBook');
+
+  const fonts = await loadFonts(pdfDoc);
+  const { playfair, playfairItalic, helv, helvB } = fonts;
+  const titleFont = playfair || helvB || helv;
+  const bodyFont = playfair || helv;
+  const italicFont = playfairItalic || playfair || helv;
+
+  const BLACK = rgb(0.08, 0.08, 0.1);
+  const GOLD = rgb(0.75, 0.55, 0.1);
+  const GRAY = rgb(0.5, 0.5, 0.5);
+
+  // ── Helper: wrap text to lines ──
+  function cbWrapToLines(text, font, fontSize, maxWidth) {
+    const words = text.split(/\s+/);
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+      const test = current ? `${current} ${word}` : word;
+      if (font.widthOfTextAtSize(test, fontSize) > maxWidth && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  // ── Helper: typeset a block of prose onto pages ──
+  function typesetProse(text, chapterNumber) {
+    const BODY_SZ = 11;
+    const LINE_H = BODY_SZ * 1.65;
+    const PARA_GAP = BODY_SZ * 0.8;
+    const HEADER_H = 40;
+
+    const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
+
+    let page = pdfDoc.addPage([PW, PH]);
+    let y = PH - CB_MARGIN - HEADER_H;
+
+    // Chapter header
+    const chapterLabel = `Chapter ${chapterNumber}`;
+    const headerW = titleFont.widthOfTextAtSize(chapterLabel, 9);
+    page.drawText(chapterLabel, { x: (PW - headerW) / 2, y: PH - CB_MARGIN - 14, size: 9, font: titleFont, color: GOLD });
+    page.drawLine({ start: { x: CB_MARGIN, y: PH - CB_MARGIN - 20 }, end: { x: PW - CB_MARGIN, y: PH - CB_MARGIN - 20 }, thickness: 0.5, color: GOLD });
+
+    for (const para of paragraphs) {
+      const isItalicPara = para.startsWith('*') && para.endsWith('*');
+      const cleanPara = para.replace(/^\*/, '').replace(/\*$/, '');
+      const font = isItalicPara ? italicFont : bodyFont;
+      const lines = cbWrapToLines(cleanPara, font, BODY_SZ, BODY_W);
+
+      const neededH = lines.length * LINE_H + PARA_GAP;
+      if (y - neededH < CB_MARGIN) {
+        // Page number
+        const pageNum = pdfDoc.getPageCount();
+        page.drawText(`${pageNum}`, { x: PW / 2, y: CB_MARGIN / 2, size: 9, font: bodyFont, color: GRAY });
+
+        page = pdfDoc.addPage([PW, PH]);
+        y = PH - CB_MARGIN - HEADER_H;
+        page.drawText(chapterLabel, { x: (PW - headerW) / 2, y: PH - CB_MARGIN - 14, size: 9, font: titleFont, color: GOLD });
+        page.drawLine({ start: { x: CB_MARGIN, y: PH - CB_MARGIN - 20 }, end: { x: PW - CB_MARGIN, y: PH - CB_MARGIN - 20 }, thickness: 0.5, color: GOLD });
+      }
+
+      for (const line of lines) {
+        page.drawText(line, { x: CB_MARGIN, y, size: BODY_SZ, font, color: BLACK });
+        y -= LINE_H;
+      }
+      y -= PARA_GAP;
+    }
+
+    // Page number on last page
+    const pageNum = pdfDoc.getPageCount();
+    page.drawText(`${pageNum}`, { x: PW / 2, y: CB_MARGIN / 2, size: 9, font: bodyFont, color: GRAY });
+  }
+
+  // ── Front matter: Title page ──
+  {
+    const p = pdfDoc.addPage([PW, PH]);
+    p.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: rgb(1, 1, 1) });
+    const titleLines = cbWrapToLines(title, titleFont, 28, BODY_W);
+    let ty = PH / 2 + (titleLines.length * 38) / 2 + 20;
+    for (const line of titleLines) {
+      const lw = titleFont.widthOfTextAtSize(line, 28);
+      p.drawText(line, { x: (PW - lw) / 2, y: ty, size: 28, font: titleFont, color: BLACK });
+      ty -= 38;
+    }
+    p.drawLine({ start: { x: PW / 2 - 40, y: ty - 10 }, end: { x: PW / 2 + 40, y: ty - 10 }, thickness: 1, color: GOLD });
+    if (childName) {
+      const sub = `A story for ${childName}`;
+      const sw = (italicFont).widthOfTextAtSize(sub, 12);
+      p.drawText(sub, { x: (PW - sw) / 2, y: ty - 28, size: 12, font: italicFont, color: GRAY });
+    }
+    const yearStr = `${year} \u00B7 GiftMyBook`;
+    const yw = bodyFont.widthOfTextAtSize(yearStr, 9);
+    p.drawText(yearStr, { x: (PW - yw) / 2, y: CB_MARGIN, size: 9, font: bodyFont, color: GRAY });
+  }
+
+  // ── Dedication page ──
+  if (dedication) {
+    const p = pdfDoc.addPage([PW, PH]);
+    const dedLines = cbWrapToLines(dedication, italicFont, 12, BODY_W - 40);
+    let dy = PH / 2 + (dedLines.length * 18) / 2;
+    for (const line of dedLines) {
+      const lw = italicFont.widthOfTextAtSize(line, 12);
+      p.drawText(line, { x: (PW - lw) / 2, y: dy, size: 12, font: italicFont, color: BLACK });
+      dy -= 18;
+    }
+  }
+
+  // ── Chapters ──
+  for (let i = 0; i < chapters.length; i++) {
+    const chapter = chapters[i];
+
+    // Chapter title page (with illustration if available)
+    const p = pdfDoc.addPage([PW, PH]);
+    p.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: rgb(1, 1, 1) });
+
+    if (chapter.imageBuffer) {
+      try {
+        let imgBuf = chapter.imageBuffer;
+        // Resize to 6×9" portrait at 300 DPI
+        const TARGET_W_PX = Math.round(6 * 300);  // 1800px
+        const TARGET_H_PX = Math.round(9 * 300);  // 2700px
+        const meta = await sharp(imgBuf).metadata();
+        const scaleW = TARGET_W_PX / meta.width;
+        const scaleH = TARGET_H_PX / meta.height;
+        const scale = Math.max(scaleW, scaleH);
+        const scaledW = Math.round(meta.width * scale);
+        const scaledH = Math.round(meta.height * scale);
+        const cropX = Math.floor((scaledW - TARGET_W_PX) / 2);
+        const cropY = Math.floor((scaledH - TARGET_H_PX) / 2);
+
+        imgBuf = await sharp(imgBuf)
+          .resize(scaledW, scaledH, { kernel: 'lanczos3' })
+          .extract({ left: cropX, top: cropY, width: TARGET_W_PX, height: TARGET_H_PX })
+          .jpeg({ quality: 93 })
+          .toBuffer();
+
+        const pdfImg = await pdfDoc.embedJpg(imgBuf);
+        p.drawImage(pdfImg, { x: 0, y: 0, width: PW, height: PH });
+
+        // Dark gradient overlay at bottom for chapter title
+        p.drawRectangle({ x: 0, y: 0, width: PW, height: 100, color: rgb(0, 0, 0), opacity: 0.55 });
+        const chLabelW = titleFont.widthOfTextAtSize(`Chapter ${i + 1}`, 10);
+        p.drawText(`Chapter ${i + 1}`, { x: (PW - chLabelW) / 2, y: 72, size: 10, font: titleFont, color: rgb(0.8, 0.6, 0.1) });
+        const chTitleLines = cbWrapToLines(chapter.chapterTitle, titleFont, 18, PW - 40);
+        let cty = 55;
+        for (const line of chTitleLines.slice().reverse()) {
+          const lw = titleFont.widthOfTextAtSize(line, 18);
+          p.drawText(line, { x: (PW - lw) / 2, y: cty, size: 18, font: titleFont, color: rgb(1, 1, 1) });
+          cty += 22;
+        }
+      } catch (imgErr) {
+        console.warn(`[buildChapterBookPdf] Chapter ${i + 1} image embed failed: ${imgErr.message}`);
+        const chLabel = `Chapter ${i + 1}`;
+        const lw1 = titleFont.widthOfTextAtSize(chLabel, 14);
+        p.drawText(chLabel, { x: (PW - lw1) / 2, y: PH / 2 + 30, size: 14, font: titleFont, color: GOLD });
+        const lw2 = titleFont.widthOfTextAtSize(chapter.chapterTitle, 24);
+        p.drawText(chapter.chapterTitle, { x: (PW - lw2) / 2, y: PH / 2 - 10, size: 24, font: titleFont, color: BLACK });
+      }
+    } else {
+      // No illustration: elegant text chapter title page
+      const chLabel = `\u2014 Chapter ${i + 1} \u2014`;
+      const lw1 = titleFont.widthOfTextAtSize(chLabel, 12);
+      p.drawText(chLabel, { x: (PW - lw1) / 2, y: PH / 2 + 40, size: 12, font: titleFont, color: GOLD });
+      const chTitleW = titleFont.widthOfTextAtSize(chapter.chapterTitle, 22);
+      p.drawText(chapter.chapterTitle, { x: (PW - chTitleW) / 2, y: PH / 2, size: 22, font: titleFont, color: BLACK });
+    }
+
+    // Chapter prose pages
+    if (chapter.text) {
+      typesetProse(chapter.text, i + 1);
+    }
+  }
+
+  // ── Back matter: "The End" ──
+  {
+    const p = pdfDoc.addPage([PW, PH]);
+    const endW = (italicFont).widthOfTextAtSize('The End', 24);
+    p.drawText('The End', { x: (PW - endW) / 2, y: PH / 2, size: 24, font: italicFont, color: BLACK });
+    const childLabel = `A story for ${childName || 'you'}`;
+    const childW = bodyFont.widthOfTextAtSize(childLabel, 12);
+    p.drawText(childLabel, { x: (PW - childW) / 2, y: PH / 2 - 30, size: 12, font: italicFont, color: GRAY });
+  }
+
+  // Pad to even page count for binding
+  while (pdfDoc.getPageCount() % 2 !== 0) {
+    pdfDoc.addPage([PW, PH]);
+  }
+
+  return Buffer.from(await pdfDoc.save());
+}
+
+module.exports = { assemblePdf, buildChapterBookPdf, FORMATS };

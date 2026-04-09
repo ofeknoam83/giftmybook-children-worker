@@ -1521,4 +1521,97 @@ async function combinedCritic(storyPlan, opts = {}) {
   return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier };
+/**
+ * Plan and write a full chapter book (T4 format for ages 9-12).
+ * Returns an object with title + 5 chapters (each with chapterTitle, synopsis, imagePrompt, text).
+ */
+async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
+  const { apiKeys, costTracker, approvedTitle, bookContext } = opts;
+  const { CHAPTER_PLANNER_SYSTEM, CHAPTER_PLANNER_USER, CHAPTER_WRITER_SYSTEM, CHAPTER_WRITER_USER } = require('../prompts/chapterBook');
+
+  // Step 1: Brainstorm seed (reuse existing)
+  let seed;
+  try {
+    seed = await brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme });
+  } catch (err) {
+    bookContext?.log('warn', 'Chapter book seed brainstorm failed, using defaults', { error: err.message });
+    seed = { repeated_phrase: 'one step at a time', favorite_object: customDetails || 'a compass', setting: 'the neighborhood', fear: 'failing' };
+  }
+
+  // Step 2: Plan chapter structure
+  bookContext?.log('info', 'Planning chapter structure');
+  const planUserPrompt = CHAPTER_PLANNER_USER(childDetails, theme, customDetails, seed);
+
+  let chapterPlan;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await callLLM(CHAPTER_PLANNER_SYSTEM, planUserPrompt, {
+        openaiApiKey: apiKeys?.OPENAI_API_KEY,
+        costTracker,
+        temperature: 0.8,
+        maxTokens: 4096,
+        jsonMode: true,
+      });
+      const text = resp.text || '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in response');
+      chapterPlan = JSON.parse(jsonMatch[0]);
+      if (!chapterPlan.title || !Array.isArray(chapterPlan.chapters) || chapterPlan.chapters.length < 5) {
+        throw new Error(`Invalid chapter plan: got ${chapterPlan.chapters?.length} chapters`);
+      }
+      break;
+    } catch (err) {
+      bookContext?.log('warn', `Chapter plan attempt ${attempt} failed: ${err.message}`);
+      if (attempt === 3) throw err;
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
+  }
+
+  // Override title if approved
+  const bookTitle = approvedTitle || chapterPlan.title;
+  chapterPlan.title = bookTitle;
+  bookContext?.log('info', 'Chapter structure planned', { title: bookTitle, chapters: chapterPlan.chapters.map(c => c.chapterTitle) });
+
+  // Step 3: Write prose for each chapter
+  const bookContextForWriter = { title: bookTitle, chapters: chapterPlan.chapters, seed };
+
+  for (let i = 0; i < chapterPlan.chapters.length; i++) {
+    const chapter = chapterPlan.chapters[i];
+    bookContext?.log('info', `Writing chapter ${i + 1}: ${chapter.chapterTitle}`);
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const writerSystem = CHAPTER_WRITER_SYSTEM(childDetails);
+        const writerUser = CHAPTER_WRITER_USER(chapter, i, childDetails, bookContextForWriter);
+
+        const resp = await callLLM(writerSystem, writerUser, {
+          openaiApiKey: apiKeys?.OPENAI_API_KEY,
+          costTracker,
+          temperature: 0.85,
+          maxTokens: 3000,
+        });
+
+        const prose = resp.text || '';
+        if (!prose || prose.length < 500) throw new Error(`Chapter ${i+1} too short: ${prose?.length} chars`);
+        chapter.text = prose.trim();
+        bookContext?.log('info', `Chapter ${i + 1} written`, { words: prose.split(/\s+/).length });
+        break;
+      } catch (err) {
+        bookContext?.log('warn', `Chapter ${i + 1} writing attempt ${attempt} failed: ${err.message}`);
+        if (attempt === 3) throw err;
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+    }
+  }
+
+  // Carry forward character details from seed
+  chapterPlan.characterDescription = seed.characterDescription || null;
+  chapterPlan.characterAnchor = seed.characterAnchor || null;
+  chapterPlan.characterOutfit = seed.characterOutfit || null;
+  chapterPlan.recurringElement = seed.favorite_object || null;
+  chapterPlan.keyObjects = seed.keyObjects || null;
+
+  return chapterPlan;
+}
+
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook };
