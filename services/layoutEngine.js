@@ -812,14 +812,25 @@ async function buildChapterBookPdf(chapters, opts = {}) {
   return Buffer.from(await pdfDoc.save());
 }
 
-// ── Bangers font cache (for graphic novel speech bubbles) ─────────────────────
-let bangersFontBytes = null;
-async function getBangersFont() {
-  if (bangersFontBytes) return bangersFontBytes;
-  const resp = await fetch('https://github.com/google/fonts/raw/main/ofl/bangers/Bangers-Regular.ttf');
-  if (!resp.ok) throw new Error('Failed to download Bangers font');
-  bangersFontBytes = Buffer.from(await resp.arrayBuffer());
-  return bangersFontBytes;
+// ── Comic font cache (for graphic novel speech bubbles & captions) ────────────
+let comicFontBytes = null;
+async function getComicFont() {
+  if (comicFontBytes) return comicFontBytes;
+  // Comic Neue Bold — readable comic lettering font (OFL license, Google Fonts)
+  const urls = [
+    'https://github.com/google/fonts/raw/main/ofl/comicneue/ComicNeue-Bold.ttf',
+    'https://github.com/google/fonts/raw/main/ofl/bangers/Bangers-Regular.ttf',
+  ];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        comicFontBytes = Buffer.from(await resp.arrayBuffer());
+        return comicFontBytes;
+      }
+    } catch (_) { /* try next */ }
+  }
+  throw new Error('Failed to download comic font');
 }
 
 /**
@@ -1160,13 +1171,13 @@ async function buildGraphicNovelPdf(panels, opts = {}) {
     playfairItalic = await pdfDoc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf')));
   } catch (_) {}
 
-  // Download and embed Bangers font (speech bubbles)
+  // Download and embed comic font (speech bubbles + captions)
   let bangersFont;
   try {
-    const bangersBuf = await getBangersFont();
-    bangersFont = await pdfDoc.embedFont(bangersBuf);
+    const comicBuf = await getComicFont();
+    bangersFont = await pdfDoc.embedFont(comicBuf);
   } catch (e) {
-    console.warn('[LayoutEngine] Bangers font download failed, using Helvetica Bold:', e.message);
+    console.warn('[LayoutEngine] Comic font download failed, using Helvetica Bold:', e.message);
     bangersFont = helvBold;
   }
 
