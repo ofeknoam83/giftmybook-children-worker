@@ -89,26 +89,36 @@ function buildCover(pdfDoc, fonts, { title, childName }) {
 }
 
 /**
- * Embed a coloring page image as a full-bleed square page.
- * Forces pure black-and-white output: grayscale + threshold so every pixel
- * is either 0x00 (black) or 0xFF (white) — no color or gray survives.
+ * Embed a coloring page image as a full-bleed page.
+ * Page dimensions match the image's actual aspect ratio — no squashing.
+ * Forces pure black-and-white output: grayscale + threshold.
  */
 async function addColoringPage(pdfDoc, imageBuffer) {
-  const meta = await sharp(imageBuffer).metadata();
-  const scaledH = Math.round(meta.height * PAGE_PX / meta.width);
-  const cropTop = Math.max(0, Math.floor((scaledH - PAGE_PX) / 2));
-
-  const pageImgBuf = await sharp(imageBuffer)
-    .resize(PAGE_PX, scaledH, { kernel: 'lanczos3' })
-    .extract({ left: 0, top: cropTop, width: PAGE_PX, height: Math.min(scaledH, PAGE_PX) })
+  // Process to B&W first, then read actual dimensions
+  const processed = await sharp(imageBuffer)
     .grayscale()
     .threshold(200)
     .png()
     .toBuffer();
 
-  const pdfImage = await pdfDoc.embedPng(pageImgBuf);
-  const p = pdfDoc.addPage([PAGE_PT, PAGE_PT]);
-  p.drawImage(pdfImage, { x: 0, y: 0, width: PAGE_PT, height: PAGE_PT });
+  const meta = await sharp(processed).metadata();
+  const imgW = meta.width;
+  const imgH = meta.height;
+
+  // Normalise so the longer dimension = 8.5" (612pt), preserving ratio
+  const maxPt = 8.5 * PTS_PER_INCH;
+  let pageW, pageH;
+  if (imgW >= imgH) {
+    pageW = maxPt;
+    pageH = Math.round(maxPt * imgH / imgW);
+  } else {
+    pageH = maxPt;
+    pageW = Math.round(maxPt * imgW / imgH);
+  }
+
+  const pdfImage = await pdfDoc.embedPng(processed);
+  const p = pdfDoc.addPage([pageW, pageH]);
+  p.drawImage(pdfImage, { x: 0, y: 0, width: pageW, height: pageH });
 }
 
 /**
