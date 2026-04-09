@@ -206,21 +206,25 @@ async function generateOriginalColoringPage(scenePrompt, characterRef, opts = {}
  * @returns {Promise<Array<{index: number, buffer: Buffer|null, success: boolean, error?: string}>>}
  */
 async function generateOriginalColoringPages(scenePrompts, characterRef, opts = {}) {
-  const results = [];
+  const pLimit = require('p-limit');
+  const limit = pLimit(2); // 2 concurrent — balances speed vs. Gemini rate limits
 
-  for (let i = 0; i < scenePrompts.length; i++) {
-    console.log(`[coloringBookGenerator] Generating scene ${i + 1}/${scenePrompts.length}`);
-    try {
-      const buffer = await generateOriginalColoringPage(scenePrompts[i], characterRef, opts);
-      results.push({ index: i, buffer, success: true });
-      console.log(`[coloringBookGenerator] Scene ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
-    } catch (err) {
-      console.error(`[coloringBookGenerator] Scene ${i + 1} failed: ${err.message}`);
-      results.push({ index: i, buffer: null, success: false, error: err.message });
-    }
-  }
+  const tasks = scenePrompts.map((prompt, i) =>
+    limit(async () => {
+      console.log(`[coloringBookGenerator] Generating scene ${i + 1}/${scenePrompts.length}`);
+      try {
+        const buffer = await generateOriginalColoringPage(prompt, characterRef, opts);
+        console.log(`[coloringBookGenerator] Scene ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
+        return { index: i, buffer, success: true };
+      } catch (err) {
+        console.error(`[coloringBookGenerator] Scene ${i + 1} failed: ${err.message}`);
+        return { index: i, buffer: null, success: false, error: err.message };
+      }
+    })
+  );
 
-  return results;
+  const results = await Promise.all(tasks);
+  return results.sort((a, b) => a.index - b.index);
 }
 
 // ── Scene planner: generate coloring-book scene prompts from book metadata ──
