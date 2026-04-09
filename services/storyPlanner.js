@@ -1666,93 +1666,65 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
 }
 
 async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
-  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
+  const { apiKeys, costTracker, approvedTitle, parentBookTitle, parentStoryContent, bookContext } = opts;
+  const { GRAPHIC_NOVEL_SYSTEM, GRAPHIC_NOVEL_USER } = require('../prompts/graphicNovel');
   const artStyle = opts.artStyle || childDetails.artStyle || childDetails.art_style || 'cinematic_3d';
-  const { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER } = require('../prompts/graphicNovel');
 
-  // Brainstorm seed + enrich custom details in parallel
-  let seed;
-  let enrichedCustomDetails;
+  // Enrich custom details for pop culture references
+  const enrichedCustomDetails = await enrichCustomDetails(
+    customDetails,
+    childDetails.childName || childDetails.name,
+    childDetails.childAge || childDetails.age
+  );
+
+  // Brainstorm story seed
+  let seed = {};
   try {
-    const [seedResult, enrichedResult] = await Promise.all([
-      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme })
-        .catch(e => {
-          bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
-          return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
-        }),
-      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age,
-        (childDetails.childInterests || childDetails.interests || []).filter(Boolean)),
-    ]);
-    seed = seedResult;
-    enrichedCustomDetails = enrichedResult;
+    seed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, {
+      apiKeys, costTracker, theme,
+    });
   } catch (e) {
-    bookContext?.log('warn', 'Graphic novel seed/enrich failed', { error: e.message });
-    seed = { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
-    enrichedCustomDetails = customDetails || '';
+    bookContext?.log('warn', `Story seed failed: ${e.message}`);
   }
 
-  // Build parent story section if a parent picture book was provided
+  // Parent story injection
   let parentStorySection = '';
   if (parentStoryContent) {
     const origTitle = parentStoryContent.title || '';
     const texts = (parentStoryContent.entries || [])
       .map(e => e.text || [e.left?.text, e.right?.text].filter(Boolean).join(' ') || '')
-      .filter(t => t.trim())
-      .join(' ');
+      .filter(t => t.trim()).join(' ').slice(0, 600);
     if (origTitle || texts) {
-      parentStorySection = `\n\nORIGINAL PICTURE BOOK (this graphic novel MUST be a comic-format adaptation of this exact story — same world, same characters, same arc):\nTitle: "${origTitle}"\nStory: ${texts}`;
+      parentStorySection = `\n\nBASE THIS ON THE ORIGINAL PICTURE BOOK:\nTitle: "${origTitle}"\nStory: ${texts}\nThe graphic novel must be an expanded adaptation of this story — same world, same characters.`;
     }
   }
 
-  const titleInstruction = parentBookTitle
-    ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
+  const titleInstruction = (approvedTitle || parentBookTitle)
+    ? `\n\nBook title MUST be exactly: "${approvedTitle || parentBookTitle}"`
     : '';
 
-  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed).replace('{artStyle}', artStyle) + parentStorySection + titleInstruction;
+  const userPrompt = GRAPHIC_NOVEL_USER(childDetails, theme, enrichedCustomDetails, seed, artStyle)
+    + parentStorySection + titleInstruction;
 
   let plan;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
+      const resp = await callLLM(GRAPHIC_NOVEL_SYSTEM, userPrompt, {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
-        temperature: 0.65,
-        maxTokens: 20000,
+        temperature: 0.7,
+        maxTokens: 18000,
         jsonMode: true,
       });
       const text = resp.text || '';
-      // Strip markdown fences if present, then find JSON object
       const stripped = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
       const jsonMatch = stripped.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       plan = JSON.parse(jsonMatch[0]);
-      if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 5) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes, need at least 5`);
-      // Flatten all panels for easy access, ensuring new fields are present
-      plan.allPanels = plan.scenes.flatMap(s => s.panels.map(p => {
-        const panel = { ...p, sceneNumber: s.number, sceneTitle: s.sceneTitle };
-        // Ensure panelType exists
-        if (!panel.panelType) panel.panelType = panel.type || 'dialogue';
-        // Ensure pageLayout exists with sensible defaults
-        if (!panel.pageLayout) {
-          if (panel.panelType === 'splash') {
-            panel.pageLayout = 'splash';
-          } else if (panel.panelNumber === 1) {
-            panel.pageLayout = 'strip+2';
-          } else {
-            panel.pageLayout = '3equal';
-          }
-        }
-        // Ensure speakerPosition exists
-        if (!panel.speakerPosition) panel.speakerPosition = 'left';
-        // Ensure dialogue is a string (flatten array format if needed)
-        if (Array.isArray(panel.dialogue)) {
-          panel.dialogue = panel.dialogue.map(d => d.text || d).join(' ');
-        }
-        if (panel.dialogue == null) panel.dialogue = '';
-        if (panel.caption == null) panel.caption = '';
-        return panel;
-      }));
-      bookContext?.log('info', 'Graphic novel plan created', { title: plan.title, scenes: plan.scenes.length, panels: plan.allPanels.length });
+      if (!plan.title || !Array.isArray(plan.beats) || plan.beats.length < 30) {
+        throw new Error(`Invalid plan: ${plan.beats?.length} beats, need at least 30`);
+      }
+      bookContext?.log('info', 'Graphic novel plan created', { title: plan.title, beats: plan.beats.length });
       break;
     } catch (e) {
       bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
@@ -1761,13 +1733,25 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     }
   }
 
-  plan.title = approvedTitle || plan.title;
+  plan.title = approvedTitle || parentBookTitle || plan.title;
   plan.isGraphicNovel = true;
+  plan.artStyle = artStyle;
 
-  // Carry forward character details from seed
-  plan.characterDescription = seed.characterDescription || null;
-  plan.characterAnchor = seed.characterAnchor || null;
-  plan.characterOutfit = seed.characterOutfit || null;
+  // Normalize beats
+  plan.beats = plan.beats.map((beat, i) => ({
+    n: beat.n || i + 1,
+    scene: beat.scene || Math.ceil((i + 1) / 7),
+    type: beat.type || 'story',
+    caption: beat.caption || '',
+    dialogue: beat.dialogue || '',
+    speaker: beat.speaker || 'left',
+    image: beat.image || '',
+    illustrationUrl: null,
+    imageBuffer: null,
+  }));
+
+  // Backward compat: expose as allPanels for existing server.js code
+  plan.allPanels = plan.beats;
 
   return plan;
 }
