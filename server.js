@@ -1245,6 +1245,7 @@ Format your answer with each label on its own line followed by a colon and the a
       bookContext.checkAbort();
       let entriesWithIllustrations;
       let spreadEntries;
+      let upsellCoversWithBuffers = []; // default empty; PICTURE_BOOK path overwrites below
 
       if (isChapterBook || storyPlan.isChapterBook) {
         // ── Chapter book: Generate 5 portrait chapter-opener illustrations (no text) ──
@@ -1582,7 +1583,7 @@ Format your answer with each label on its own line followed by a colon and the a
           }
         }
 
-        const upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
+        upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
         interiorPdf = await assemblePdf(entriesWithBuffers, format, {
           title: bookTitle,
           childName: childDetails.name,
