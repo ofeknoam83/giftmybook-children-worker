@@ -827,6 +827,53 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
       }
 
+      // ── If no secondary character from photo, check the pre-approved cover ──
+      // This ensures the story writer knows about characters in the chosen cover
+      // (e.g., mom in a Mother's Day cover) even when there's no uploaded photo.
+      if (!detectedSecondaryCharacters && approvedCoverUrl) {
+        try {
+          const { getNextApiKey } = require('./services/illustrationGenerator');
+          const coverAnalysisKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+          const coverImgResp = await fetch(approvedCoverUrl);
+          if (coverImgResp.ok) {
+            const coverBuf = Buffer.from(await coverImgResp.arrayBuffer());
+            const coverB64 = coverBuf.toString('base64');
+            const coverMime = coverImgResp.headers.get('content-type') || 'image/jpeg';
+            const coverScanResp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${coverAnalysisKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ role: 'user', parts: [
+                    { text: `Look at this book cover illustration. Are there multiple characters visible (not just the main child)?
+
+If YES — describe each NON-CHILD character with:
+SECONDARY_CHARACTER: [relationship/role e.g. mother/father/grandmother]: [hair color and style] | [skin tone] | [approximate age/build] | [what they are wearing] | [notable features]
+
+If only the child appears, respond: NONE
+
+Be concise. Focus on adults or other significant characters.` },
+                    { inline_data: { mime_type: coverMime.split(';')[0], data: coverB64 } },
+                  ]}],
+                  generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
+                }),
+              }
+            );
+            if (coverScanResp.ok) {
+              const coverData = await coverScanResp.json();
+              const coverText = coverData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+              if (coverText && coverText !== 'NONE' && coverText.includes('SECONDARY_CHARACTER')) {
+                detectedSecondaryCharacters = coverText.replace(/SECONDARY_CHARACTER:\s*/gi, '').trim();
+                bookContext.log('info', 'Secondary characters detected in chosen cover', { desc: detectedSecondaryCharacters.slice(0, 150) });
+              }
+            }
+          }
+        } catch (coverScanErr) {
+          bookContext.log('warn', 'Cover secondary character scan failed', { error: coverScanErr.message });
+        }
+      }
+
       const stage1Ms = Date.now() - stage1Start;
       bookContext.log('info', 'Photo cache complete', { ms: stage1Ms, hasPhotoCache: !!cachedPhotoBase64 });
 

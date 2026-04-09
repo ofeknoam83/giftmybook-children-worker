@@ -415,14 +415,14 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   // Secondary character appearance lock (when someone else appears in the uploaded photo)
   if (opts.additionalCoverCharacters) {
-    parts.push(`8. SECONDARY CHARACTER CONSISTENCY LOCK (CRITICAL):`);
-    parts.push(`   The following secondary character appears in the uploaded photo and MAY appear in this illustration. Their appearance must be IDENTICAL to every other illustration in this book:`);
+    parts.push(`8. SECONDARY CHARACTER — MUST APPEAR IN THIS ILLUSTRATION:`);
+    parts.push(`   The following character appears in the book cover and is part of this story. When the spread text mentions them or the scene involves them, they MUST be shown. Their appearance must be IDENTICAL across every illustration:`);
     parts.push(`   ${opts.additionalCoverCharacters}`);
     parts.push(`   - Same hair color, style, and length on every spread`);
     parts.push(`   - Same skin tone and facial features on every spread`);
-    parts.push(`   - Same approximate age and build on every spread`);
+    parts.push(`   - Same clothing and approximate age/build on every spread`);
     parts.push(`   - Do NOT change their ethnicity, hair, or skin tone between spreads`);
-    parts.push(`   - Match their appearance to the uploaded reference photo`);
+    parts.push(`   - Their look must match the book cover exactly`);
     parts.push(``);
   }
 

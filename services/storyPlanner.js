@@ -631,7 +631,11 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
 
   // Override the "no family in illustrations" rule when secondary characters are detected
   if (additionalCoverCharacters) {
-    systemPrompt += `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene.`;
+    systemPrompt += `\n\n⚠️ SECONDARY CHARACTER — MUST INCLUDE IN STORY AND ILLUSTRATIONS:\n${additionalCoverCharacters}\n\nThis character appears in the chosen book cover and MUST be part of this story:\n- Include them in AT LEAST 4 spreads' text (reference them by their relationship: Mommy, Dad, Grandma, etc.)
+- They must interact with ${childDetails?.childName || 'the child'} meaningfully in the story
+- Write their name/relationship naturally into the spread text (e.g. "Mommy laughed", "Together with Mom")
+- Their appearance in illustrations MUST match the description above exactly — same hair, skin tone, clothing
+- This overrides the default rule about not showing family members`;
   }
 
   if (approvedTitle) {
