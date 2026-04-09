@@ -586,9 +586,10 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
 
   const childName = childDetails.childName || childDetails.name || 'the child';
   const childAge = childDetails.childAge || childDetails.age || 5;
-  const VALID_GENDERS = ['male', 'female', 'neutral'];
   const rawGender = childDetails.childGender || childDetails.gender || 'neutral';
-  const childGender = VALID_GENDERS.includes(rawGender) ? rawGender : 'neutral';
+  // Normalise 'boy'→'male', 'girl'→'female' so DB values work correctly
+  const normGender = rawGender === 'boy' ? 'male' : rawGender === 'girl' ? 'female' : rawGender;
+  const childGender = ['male', 'female', 'neutral'].includes(normGender) ? normGender : 'neutral';
   const openaiApiKey = opts.openaiApiKey || opts.apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const identity = {
