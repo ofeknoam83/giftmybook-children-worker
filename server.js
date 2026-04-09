@@ -1318,6 +1318,8 @@ Format your answer with each label on its own line followed by a colon and the a
         spreadEntries = [];
       } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
         // ── Graphic novel: Generate comic panel illustrations ──
+        // Expect 36-48 panels (7 scenes x 5-7 each). Each panel = one image gen call,
+        // so cost and latency scale linearly with panel count.
         bookContext.log('info', `Generating ${storyPlan.allPanels?.length || 0} graphic novel panels`);
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating graphic novel panels...', logs: bookContext.logs });
@@ -1347,7 +1349,7 @@ Format your answer with each label on its own line followed by a colon and the a
                 totalSpreads: allPanels.length,
                 skipTextEmbed: true,
                 pageText: '',
-                promptInjection: `COMIC PANEL (${panel.type || 'action'}). ${panel.type === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : panel.type === 'reaction' ? 'CLOSE-UP on character face/reaction.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.`,
+                promptInjection: `COMIC PANEL (${panel.panelType || panel.type || 'action'}). ${(panel.panelType || panel.type) === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : (panel.panelType || panel.type) === 'reaction' ? 'CLOSE-UP on character face/reaction.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.`,
                 artStyle: style,
               }
             );
@@ -1634,7 +1636,7 @@ Format your answer with each label on its own line followed by a colon and the a
         // Calculate actual interior page count for spine width
         let pageCount;
         if (isGraphicNovel || storyPlan.isGraphicNovel) {
-          // Graphic novel: title + dedication + ~8-10 scene pages + end page
+          // Graphic novel: title + dedication + scene pages (panel-count driven) + end page
           const panelCount = (storyPlan.allPanels || []).length;
           pageCount = 2 + Math.ceil(panelCount / 2) + 1;
           pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);

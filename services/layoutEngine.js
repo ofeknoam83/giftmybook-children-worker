@@ -849,117 +849,120 @@ function groupPanelsIntoPages(allPanels) {
 }
 
 /**
- * Draw an oval speech bubble with tail inside a panel.
- * Uses pdf-lib drawing primitives.
+ * Draw a speech bubble with a short edge-attached tail pointing toward the speaker.
+ * All coordinates in panelRect are top-left origin; pageH converts to pdf-lib bottom-up.
  */
-function drawOvalBubble(page, panelRect, upperCaseText, speakerPosition, bangersFont, pageH) {
+function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
   const sp = speakerPosition || 'left';
 
-  // Measure text
-  const fontSize = 9;
-  const maxTextW = panelRect.w * 0.55;
-  const textLines = wrapText(upperCaseText, bangersFont, fontSize, maxTextW);
-  const lineH = fontSize * 1.3;
-  const textW = Math.max(...textLines.map(l => bangersFont.widthOfTextAtSize(l, fontSize)), 60);
+  const fontSize = 10;
+  const maxTextW = panelRect.w * 0.50;
+  const textLines = wrapText(text, font, fontSize, maxTextW);
+  const lineH = fontSize * 1.35;
+  const textW = Math.max(...textLines.map(l => font.widthOfTextAtSize(l, fontSize)), 50);
   const textH = textLines.length * lineH;
 
-  let bubbleW = Math.max(textW + 20, 80);
-  let bubbleH = Math.max(textH + 16, 32);
+  const padX = 14;
+  const padY = 10;
+  let bubbleW = Math.max(textW + padX * 2, 70);
+  let bubbleH = Math.max(textH + padY * 2, 28);
 
-  // Position bubble (opposite to speaker)
+  // Bubble placed away from speaker; speaker hint for tail direction
   const posMap = {
-    'left':         { bx: 0.75, by: 0.2 },
-    'right':        { bx: 0.25, by: 0.2 },
+    'left':         { bx: 0.72, by: 0.18 },
+    'right':        { bx: 0.28, by: 0.18 },
     'center':       { bx: 0.50, by: 0.15 },
-    'bottom-left':  { bx: 0.75, by: 0.25 },
-    'bottom-right': { bx: 0.25, by: 0.25 },
-    'top-left':     { bx: 0.75, by: 0.75 },
-    'top-right':    { bx: 0.25, by: 0.75 },
+    'bottom-left':  { bx: 0.72, by: 0.18 },
+    'bottom-right': { bx: 0.28, by: 0.18 },
+    'top-left':     { bx: 0.72, by: 0.72 },
+    'top-right':    { bx: 0.28, by: 0.72 },
   };
-
-  const tailMap = {
-    'left':         { tx: 0.15, ty: 0.65 },
-    'right':        { tx: 0.85, ty: 0.65 },
-    'center':       { tx: 0.50, ty: 0.75 },
-    'bottom-left':  { tx: 0.15, ty: 0.75 },
-    'bottom-right': { tx: 0.85, ty: 0.75 },
-    'top-left':     { tx: 0.15, ty: 0.25 },
-    'top-right':    { tx: 0.85, ty: 0.25 },
+  const speakerHint = {
+    'left':         { sx: 0.18, sy: 0.45 },
+    'right':        { sx: 0.82, sy: 0.45 },
+    'center':       { sx: 0.50, sy: 0.60 },
+    'bottom-left':  { sx: 0.18, sy: 0.72 },
+    'bottom-right': { sx: 0.82, sy: 0.72 },
+    'top-left':     { sx: 0.18, sy: 0.28 },
+    'top-right':    { sx: 0.82, sy: 0.28 },
   };
 
   const bpos = posMap[sp] || posMap['left'];
-  const tpos = tailMap[sp] || tailMap['left'];
+  const spos = speakerHint[sp] || speakerHint['left'];
 
-  let bubbleCX = panelRect.x + panelRect.w * bpos.bx;
-  let bubbleCY = panelRect.y + panelRect.h * bpos.by;
+  let cx = panelRect.x + panelRect.w * bpos.bx;
+  let cy = panelRect.y + panelRect.h * bpos.by;
 
-  // Clamp bubble inside panel (6pt margin from edges)
-  const marginPx = 6;
-  bubbleCX = Math.max(panelRect.x + bubbleW / 2 + marginPx, Math.min(panelRect.x + panelRect.w - bubbleW / 2 - marginPx, bubbleCX));
-  bubbleCY = Math.max(panelRect.y + bubbleH / 2 + marginPx, Math.min(panelRect.y + panelRect.h - bubbleH / 2 - marginPx, bubbleCY));
+  const margin = 5;
+  cx = Math.max(panelRect.x + bubbleW / 2 + margin, Math.min(panelRect.x + panelRect.w - bubbleW / 2 - margin, cx));
+  cy = Math.max(panelRect.y + bubbleH / 2 + margin, Math.min(panelRect.y + panelRect.h - bubbleH / 2 - margin, cy));
 
-  // Tail tip in panel at speaker location
-  const tailTipX = panelRect.x + panelRect.w * tpos.tx;
-  const tailTipY = panelRect.y + panelRect.h * tpos.ty;
+  const speakerX = panelRect.x + panelRect.w * spos.sx;
+  const speakerY = panelRect.y + panelRect.h * spos.sy;
 
-  // pdf-lib y is from bottom
-  const pdfBubbleCY = pageH - bubbleCY;
-  const pdfTailTipY = pageH - tailTipY;
-
-  // Draw tail triangle (white filled with black stroke)
-  const tailBaseHalf = 8;
-  // Perpendicular to the line from bubble center to tail tip
-  const dx = tailTipX - bubbleCX;
-  const dy = tailTipY - bubbleCY;
+  // Direction from bubble center toward speaker
+  const dx = speakerX - cx;
+  const dy = speakerY - cy;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-  const perpX = -dy / dist * tailBaseHalf;
-  const perpY = dx / dist * tailBaseHalf;
+  const ndx = dx / dist;
+  const ndy = dy / dist;
 
-  // Draw white filled ellipse with black stroke
+  // Point on ellipse boundary closest to speaker
+  const rx = bubbleW / 2;
+  const ry = bubbleH / 2;
+  const t = Math.atan2(ndy * rx, ndx * ry);
+  const edgeX = cx + rx * Math.cos(t);
+  const edgeY = cy + ry * Math.sin(t);
+
+  // Short tail — 18pt or 30% of distance, whichever is smaller
+  const tailLen = Math.min(18, dist * 0.30);
+  const tipX = edgeX + ndx * tailLen;
+  const tipY = edgeY + ndy * tailLen;
+
+  // PDF coords (y from bottom)
+  const pdfCY = pageH - cy;
+  const pdfEdgeY = pageH - edgeY;
+  const pdfTipY = pageH - tipY;
+
+  // Ellipse body
   page.drawEllipse({
-    x: bubbleCX,
-    y: pdfBubbleCY,
-    xScale: bubbleW / 2,
-    yScale: bubbleH / 2,
+    x: cx, y: pdfCY,
+    xScale: rx, yScale: ry,
     color: rgb(1, 1, 1),
-    borderColor: rgb(0, 0, 0),
-    borderWidth: 2,
+    borderColor: rgb(0.12, 0.12, 0.12),
+    borderWidth: 1.25,
   });
 
-  // Draw tail triangle — white fill over ellipse border, then re-stroke
-  const tailBase1 = { x: bubbleCX + perpX, y: pdfBubbleCY + perpY };
-  const tailBase2 = { x: bubbleCX - perpX, y: pdfBubbleCY - perpY };
-  const tailTip = { x: tailTipX, y: pdfTailTipY };
+  // Tail base spread (perpendicular to direction, at the ellipse edge)
+  const tailBaseHalf = 5;
+  const perpX = -ndy * tailBaseHalf;
+  const perpY = ndx * tailBaseHalf;
+  const b1 = { x: edgeX + perpX, y: pdfEdgeY + perpY };
+  const b2 = { x: edgeX - perpX, y: pdfEdgeY - perpY };
+  const tip = { x: tipX, y: pdfTipY };
 
-  // White fill triangle to cover ellipse border at base
-  page.drawLine({ start: tailBase1, end: tailTip, thickness: 2, color: rgb(0, 0, 0) });
-  page.drawLine({ start: tailBase2, end: tailTip, thickness: 2, color: rgb(0, 0, 0) });
-  // Fill interior with white to hide ellipse border at tail base
-  // Use a small white rectangle trick — draw white lines between base points
-  const steps = 20;
-  for (let s = 0; s <= steps; s++) {
-    const t = s / steps;
-    const lx = tailBase1.x + (tailTip.x - tailBase1.x) * t;
-    const ly = tailBase1.y + (tailTip.y - tailBase1.y) * t;
-    const rx = tailBase2.x + (tailTip.x - tailBase2.x) * t;
-    const ry = tailBase2.y + (tailTip.y - tailBase2.y) * t;
-    page.drawLine({ start: { x: lx, y: ly }, end: { x: rx, y: ry }, thickness: 1.5, color: rgb(1, 1, 1) });
+  // White fill to erase ellipse border under the tail base
+  const FILL_STEPS = 12;
+  for (let s = 0; s <= FILL_STEPS; s++) {
+    const f = s / FILL_STEPS;
+    page.drawLine({
+      start: { x: b1.x + (tip.x - b1.x) * f, y: b1.y + (tip.y - b1.y) * f },
+      end:   { x: b2.x + (tip.x - b2.x) * f, y: b2.y + (tip.y - b2.y) * f },
+      thickness: 1.5, color: rgb(1, 1, 1),
+    });
   }
-  // Re-draw the outer edges of the tail
-  page.drawLine({ start: tailBase1, end: tailTip, thickness: 1.5, color: rgb(0, 0, 0) });
-  page.drawLine({ start: tailBase2, end: tailTip, thickness: 1.5, color: rgb(0, 0, 0) });
+  page.drawLine({ start: b1, end: tip, thickness: 1.25, color: rgb(0.12, 0.12, 0.12) });
+  page.drawLine({ start: b2, end: tip, thickness: 1.25, color: rgb(0.12, 0.12, 0.12) });
 
-  // Draw text centered in the bubble
-  const textStartY = pdfBubbleCY + (textLines.length * lineH) / 2 - fontSize;
+  // Text centered in bubble
+  const textStartY = pdfCY + (textLines.length * lineH) / 2 - fontSize;
   for (let li = 0; li < textLines.length; li++) {
     const line = textLines[li];
-    const lw = bangersFont.widthOfTextAtSize(line, fontSize);
+    const lw = font.widthOfTextAtSize(line, fontSize);
     page.drawText(line, {
-      x: bubbleCX - lw / 2,
+      x: cx - lw / 2,
       y: textStartY - li * lineH,
-      size: fontSize,
-      font: bangersFont,
-      color: rgb(0, 0, 0),
+      size: fontSize, font, color: rgb(0, 0, 0),
     });
   }
 }
@@ -1085,22 +1088,29 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
       page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
     }
 
-    // 2. Caption band at top of panel
+    // 2. Caption band at top of panel — dynamic height for multi-line narration
     if (panel.caption && panel.caption.trim()) {
-      const captionBandH = 22;
-      const captionY = rect.y + rect.h - captionBandH; // top of panel in PDF coords
-      // Dark navy band (#1a1a2e)
-      page.drawRectangle({ x: rect.x, y: captionY, width: rect.w, height: captionBandH, color: rgb(0.102, 0.102, 0.180) });
-      // Caption text — white, 8pt, left-padded 8pt
-      const capLines = wrapText(panel.caption, bangersFont, 8, rect.w - 16);
-      const capLine = capLines.slice(0, 2).join(' ');
-      page.drawText(capLine, {
-        x: rect.x + 8,
-        y: captionY + (captionBandH - 8) / 2,
-        size: 8,
-        font: bangersFont,
-        color: rgb(1, 1, 1),
-      });
+      const capFS = 9;
+      const capLH = capFS * 1.4;
+      const capPadX = 8;
+      const capPadY = 5;
+      const capLines = wrapText(panel.caption, bangersFont, capFS, rect.w - capPadX * 2);
+      const maxBandH = rect.h * 0.30;
+      const visibleLines = [];
+      let runH = capPadY * 2;
+      for (const ln of capLines) {
+        if (runH + capLH > maxBandH) break;
+        visibleLines.push(ln);
+        runH += capLH;
+      }
+      const bandH = visibleLines.length * capLH + capPadY * 2;
+      const captionY = rect.y + rect.h - bandH;
+      page.drawRectangle({ x: rect.x, y: captionY, width: rect.w, height: bandH, color: rgb(0.102, 0.102, 0.180) });
+      let ty = captionY + bandH - capPadY - capFS;
+      for (const ln of visibleLines) {
+        page.drawText(ln, { x: rect.x + capPadX, y: ty, size: capFS, font: bangersFont, color: rgb(1, 1, 1) });
+        ty -= capLH;
+      }
     }
 
     // 3. Speech bubble
@@ -1112,7 +1122,7 @@ async function renderComicPage(pdfDoc, pageGroup, ctx) {
         w: rect.w,
         h: rect.h,
       };
-      drawOvalBubble(page, bubbleRect, panel.dialogue.toUpperCase(), panel.speakerPosition, bangersFont, PAGE_H);
+      drawOvalBubble(page, bubbleRect, panel.dialogue, panel.speakerPosition, bangersFont, PAGE_H);
     }
   }
 

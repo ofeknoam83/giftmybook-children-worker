@@ -1712,13 +1712,13 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
         temperature: 0.85,
-        maxTokens: 6000,
+        maxTokens: 12000,
       });
       const text = resp.text || '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       plan = JSON.parse(jsonMatch[0]);
-      if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 3) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes`);
+      if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 5) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes, need at least 5`);
       // Flatten all panels for easy access, ensuring new fields are present
       plan.allPanels = plan.scenes.flatMap(s => s.panels.map(p => {
         const panel = { ...p, sceneNumber: s.number, sceneTitle: s.sceneTitle };
