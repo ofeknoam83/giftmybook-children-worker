@@ -51,18 +51,14 @@ function buildCover(pdfDoc, fonts, { title, childName }) {
   const navy = rgb(0.1, 0.12, 0.25);
   const gold = rgb(0.75, 0.55, 0.1);
 
-  // Background: clean white
   p.drawRectangle({ x: 0, y: 0, width: PAGE_PT, height: PAGE_PT, color: rgb(1, 1, 1) });
 
-  // Decorative top bar
   p.drawRectangle({ x: 0, y: PAGE_PT - 36, width: PAGE_PT, height: 36, color: navy });
   p.drawRectangle({ x: 0, y: PAGE_PT - 40, width: PAGE_PT, height: 4, color: gold });
 
-  // Bottom bar
   p.drawRectangle({ x: 0, y: 0, width: PAGE_PT, height: 36, color: navy });
   p.drawRectangle({ x: 0, y: 36, width: PAGE_PT, height: 4, color: gold });
 
-  // Title (wrapping)
   const titleSz = 32;
   const titleWords = title.split(' ');
   const maxW = PAGE_PT - 80;
@@ -81,31 +77,30 @@ function buildCover(pdfDoc, fonts, { title, childName }) {
     y -= lineH;
   }
 
-  // Gold rule
   const ruleY = mid - 20;
   p.drawLine({ start: { x: PAGE_PT / 2 - 80, y: ruleY }, end: { x: PAGE_PT / 2 + 80, y: ruleY }, thickness: 1.5, color: gold });
 
-  // Subtitle
   const sub = `A Coloring Book for ${childName || 'You'}`;
   drawCenteredText(p, sub, subFont, 18, ruleY - 30, gold);
 
-  // Footer decoration
   drawCenteredText(p, 'Color Your Story', fonts.helv, 12, 60, rgb(0.5, 0.5, 0.5));
 }
 
 /**
  * Embed a coloring page image as a full-bleed square page.
+ * Forces pure black-and-white output: grayscale + threshold so every pixel
+ * is either 0x00 (black) or 0xFF (white) — no color or gray survives.
  */
 async function addColoringPage(pdfDoc, imageBuffer) {
-  // Resize to square 8.5x8.5" at 300 DPI (center crop)
   const meta = await sharp(imageBuffer).metadata();
-  // Scale to fill width (PAGE_PX), then center-crop height
   const scaledH = Math.round(meta.height * PAGE_PX / meta.width);
   const cropTop = Math.max(0, Math.floor((scaledH - PAGE_PX) / 2));
 
   const pageImgBuf = await sharp(imageBuffer)
     .resize(PAGE_PX, scaledH, { kernel: 'lanczos3' })
     .extract({ left: 0, top: cropTop, width: PAGE_PX, height: Math.min(scaledH, PAGE_PX) })
+    .grayscale()
+    .threshold(200)
     .png()
     .toBuffer();
 
@@ -131,7 +126,6 @@ function buildBackCover(pdfDoc, fonts, { childName }) {
   const mid = PAGE_PT / 2;
   drawCenteredText(p, 'Colored by', titleFont, 22, mid + 40, navy);
 
-  // Signature line
   p.drawLine({ start: { x: 100, y: mid }, end: { x: PAGE_PT - 100, y: mid }, thickness: 1, color: rgb(0.6, 0.6, 0.6) });
 
   drawCenteredText(p, childName ? `${childName}'s Masterpiece` : 'My Masterpiece', subFont, 16, mid - 30, gold);
@@ -141,30 +135,31 @@ function buildBackCover(pdfDoc, fonts, { childName }) {
 /**
  * Assemble the full coloring book PDF.
  * @param {Array<{buffer: Buffer|null, success: boolean}>} pages
- * @param {{ title: string, childName: string }} opts
+ * @param {{ title?: string, childName?: string, pagesOnly?: boolean }} opts
  * @returns {Promise<Buffer>} PDF bytes
  */
 async function buildColoringBookPdf(pages, opts = {}) {
-  const { title = 'My Coloring Book', childName = '' } = opts;
+  const { title = 'My Coloring Book', childName = '', pagesOnly = false } = opts;
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle(`${title} — Coloring Book`);
   pdfDoc.setAuthor('GiftMyBook');
 
-  const fonts = await loadFonts(pdfDoc);
+  let fonts;
+  if (!pagesOnly) {
+    fonts = await loadFonts(pdfDoc);
+    buildCover(pdfDoc, fonts, { title, childName });
+  }
 
-  // Cover
-  buildCover(pdfDoc, fonts, { title, childName });
-
-  // Coloring pages
   for (const page of pages) {
     if (page.buffer) {
       await addColoringPage(pdfDoc, page.buffer);
     }
   }
 
-  // Back cover
-  buildBackCover(pdfDoc, fonts, { childName });
+  if (!pagesOnly) {
+    buildBackCover(pdfDoc, fonts, { childName });
+  }
 
   return Buffer.from(await pdfDoc.save());
 }

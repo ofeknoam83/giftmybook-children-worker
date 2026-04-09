@@ -402,7 +402,9 @@ Child details:
 - Dedication: ${dedication}
 ${details ? `- Special requests / real quirks: ${details}` : ''}
 
-Theme: ${theme || 'bedtime'}`;
+Theme: ${theme || 'bedtime'}
+
+When weaving the child's interests into the story, include at least one clearly recognizable mention (name, visual, or unmistakable motif) alongside any playful puns or allusions, so personalization is legible to both parents and downstream illustration systems.`;
 
   // Theme-specific structural rules
   const themeJourneyRules = {
@@ -504,7 +506,7 @@ function buildStoryStructurerSystem(vars) {
  * @param {object} v2Vars
  * @returns {string}
  */
-function STORY_STRUCTURER_USER(storyText, childDetails, v2Vars = {}, beats) {
+function STORY_STRUCTURER_USER(storyText, childDetails, v2Vars = {}, beats, referenceContext) {
   const name = sanitizeForPrompt(childDetails.childName || childDetails.name || '', 50);
   const favoriteObject = v2Vars.favorite_object || 'a favorite toy';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
@@ -524,6 +526,21 @@ Convert this story into the JSON format described in the system brief.
 - Add spread_image_prompt for each spread based on what the text describes.
 - Define characterOutfit, characterDescription, recurringElement, and keyObjects at the top level.
 - Return ONLY a valid JSON object.`;
+
+  if (referenceContext) {
+    const { interests, enrichedCustomDetails } = referenceContext;
+    const interestsList = (interests || []).filter(Boolean);
+    if (interestsList.length || enrichedCustomDetails) {
+      prompt += `\n\nREFERENCE CONTEXT — The child's known interests and personalized details:`;
+      if (interestsList.length) {
+        prompt += `\nInterests: ${interestsList.join(', ')}`;
+      }
+      if (enrichedCustomDetails) {
+        prompt += `\nAnnotated parent details: ${enrichedCustomDetails}`;
+      }
+      prompt += `\nWhen story text alludes to any of these (e.g. puns, compound words, color references), reflect the underlying reference in the spread_image_prompt so illustrations can incorporate recognizable visual nods. Do NOT change the story text itself.`;
+    }
+  }
 
   if (beats && Array.isArray(beats) && beats.length > 0) {
     prompt += `\n\nSTRUCTURE VERIFICATION — Beat Sheet:\n${beats.map((b, i) => `Spread ${i+1}: ${b}`).join('\n')}\n\nVerify that each spread's emotional content aligns with its assigned beat above.`;

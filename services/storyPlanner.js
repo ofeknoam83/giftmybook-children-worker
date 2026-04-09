@@ -12,7 +12,7 @@ const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('.
 const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
-const { enrichCustomDetails } = require('./customDetailsEnricher');
+const { enrichCustomDetails, enrichStoryReferences } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 
@@ -660,7 +660,7 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
  * Uses JSON mode for reliable parsing.
  */
 async function structureStoryPlan(storyText, childDetails, opts = {}) {
-  const { costTracker, apiKeys, v2Vars } = opts;
+  const { costTracker, apiKeys, v2Vars, referenceContext } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const briefVars = {
@@ -670,7 +670,7 @@ async function structureStoryPlan(storyText, childDetails, opts = {}) {
 
   const systemPrompt = buildStoryStructurerSystem(briefVars);
   const beats = opts.beats || (v2Vars?.beats && Array.isArray(v2Vars.beats) ? v2Vars.beats : null);
-  const userPrompt = STORY_STRUCTURER_USER(storyText, childDetails, v2Vars, beats);
+  const userPrompt = STORY_STRUCTURER_USER(storyText, childDetails, v2Vars, beats, referenceContext);
 
   console.log(`[storyPlanner] Phase 2: Structuring into JSON with illustration prompts...`);
   const start = Date.now();
@@ -982,10 +982,12 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   const isPictureBook = bookFormat === 'picture_book';
 
   // Enrich custom details with pop culture annotations
+  const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
   const enrichedCustomDetails = await enrichCustomDetails(
     customDetails,
     childDetails.name || childDetails.childName,
-    childDetails.age || childDetails.childAge
+    childDetails.age || childDetails.childAge,
+    interests
   );
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
@@ -1010,8 +1012,15 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
     console.log(`[storyPlanner] Parsed ${parsedText.spreads.length} spreads from free-form text, title: "${parsedText.title}"`);
 
+    // Annotate story text with pop-culture reference hints for Phase 2
+    const childName = childDetails.name || childDetails.childName || '';
+    const annotatedStoryText = interests.length
+      ? await enrichStoryReferences(storyText, childName, interests)
+      : storyText;
+
     // Phase 2: Structure into JSON with illustration prompts
-    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, beats: v2Vars?.beats });
+    const referenceContext = { interests, enrichedCustomDetails };
+    const jsonContent = await structureStoryPlan(annotatedStoryText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
     const parsed = parseJsonPlan(jsonContent);
 
     // Override title if customer approved one
@@ -1548,7 +1557,8 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
           bookContext?.log('warn', 'Chapter book seed brainstorm failed, using defaults', { error: err.message });
           return { repeated_phrase: 'one step at a time', favorite_object: customDetails || 'a compass', setting: 'the neighborhood', fear: 'failing' };
         }),
-      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age),
+      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age,
+        (childDetails.childInterests || childDetails.interests || []).filter(Boolean)),
     ]);
     seed = seedResult;
     enrichedCustomDetails = enrichedResult;
@@ -1665,7 +1675,8 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
           bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
           return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
         }),
-      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age),
+      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age,
+        (childDetails.childInterests || childDetails.interests || []).filter(Boolean)),
     ]);
     seed = seedResult;
     enrichedCustomDetails = enrichedResult;

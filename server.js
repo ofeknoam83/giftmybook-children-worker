@@ -612,8 +612,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
     bookId, childName, childAge, childGender, childAppearance,
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
-    approvedTitle, approvedCoverUrl, childAnecdotes,
+    approvedCoverUrl, childAnecdotes,
   } = sanitized;
+  let { approvedTitle } = sanitized;
   const heartfeltNote = req.body.heartfeltNote || null;
   const bookFrom = req.body.bookFrom || null;
   const bindingType = req.body.bindingType || '';
@@ -624,9 +625,20 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const isEmotionalBook = EMOTIONAL_THEMES.has(theme);
   const countryCode = req.body.countryCode || null; // e.g. 'US', 'GB', 'AU'
   const apiKeys = req.body.apiKeys;
-  const parentBookTitle = req.body.parentBookTitle || null;
   const parentStoryContent = req.body.parentStoryContent || null;
   const parentCharacterAnchor = req.body.parentCharacterAnchor || null;
+
+  // When generating from a parent book, always preserve the original title.
+  // Derive parentBookTitle from parentStoryContent.title if not explicitly set,
+  // and lock approvedTitle so the planner never invents a different one.
+  let parentBookTitle = req.body.parentBookTitle || null;
+  if (parentStoryContent && !parentBookTitle && parentStoryContent.title) {
+    parentBookTitle = parentStoryContent.title;
+  }
+  if (parentBookTitle && !approvedTitle) {
+    approvedTitle = parentBookTitle;
+    console.log(`[server] Locked title from parent book: "${approvedTitle}"`);
+  }
 
   // Merge child anecdotes into customDetails so the planner can use them
   const anecdoteParts = [];
@@ -2006,39 +2018,98 @@ app.post('/generate-spread', authenticate, async (req, res) => {
 });
 
 // ── POST /generate-coloring-book ──────────────────────────────────────────────
-// Converts all existing spread illustrations to coloring pages and assembles a PDF.
+// mode=trace  (default): converts existing spread illustrations to coloring pages.
+// mode=generate: creates original coloring scenes from scenePrompts + child photo.
 app.post('/generate-coloring-book', authenticate, async (req, res) => {
-  const { bookId, childName, title, illustrationUrls } = req.body;
+  const {
+    bookId, childName, title, illustrationUrls,
+    mode = 'trace',
+    scenePrompts, childPhotoUrl, characterDescription, characterAnchorUrl,
+    synopsis, age, sceneCount,
+    pagesOnly = false,
+  } = req.body;
 
-  if (!bookId || !Array.isArray(illustrationUrls) || illustrationUrls.length === 0) {
-    return res.status(400).json({ success: false, error: 'bookId and illustrationUrls[] are required' });
+  if (!bookId) {
+    return res.status(400).json({ success: false, error: 'bookId is required' });
   }
 
-  console.log(`[server] /generate-coloring-book: bookId=${bookId}, spreads=${illustrationUrls.length}`);
+  if (mode === 'trace') {
+    if (!Array.isArray(illustrationUrls) || illustrationUrls.length === 0) {
+      return res.status(400).json({ success: false, error: 'illustrationUrls[] is required for trace mode' });
+    }
+  } else if (mode === 'generate') {
+    // scenePrompts can be omitted — server will auto-plan from title/synopsis
+    if (!Array.isArray(scenePrompts) && !title) {
+      return res.status(400).json({ success: false, error: 'generate mode requires scenePrompts[] or at least title for auto-planning' });
+    }
+  } else {
+    return res.status(400).json({ success: false, error: `Invalid mode "${mode}" — use "trace" or "generate"` });
+  }
+
+  console.log(`[server] /generate-coloring-book: bookId=${bookId}, mode=${mode}`);
 
   try {
-    const { generateColoringPages } = require('./services/coloringBookGenerator');
+    const { generateColoringPages, generateOriginalColoringPages, planColoringScenes } = require('./services/coloringBookGenerator');
+    const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
     const { buildColoringBookPdf } = require('./services/coloringBookLayout');
     const { uploadBuffer } = require('./services/gcsStorage');
 
-    // Step 1: Convert each illustration to a coloring page
-    const pages = await generateColoringPages(illustrationUrls);
-    const successCount = pages.filter(p => p.success).length;
-    console.log(`[server] Coloring page conversion: ${successCount}/${illustrationUrls.length} succeeded`);
+    let pages;
 
-    // Step 2: Build PDF
-    const pdfBuffer = await buildColoringBookPdf(pages, { title, childName });
+    if (mode === 'trace') {
+      pages = await generateColoringPages(illustrationUrls);
+    } else {
+      // Auto-plan scenes if caller didn't supply them
+      let resolvedScenePrompts = scenePrompts;
+      if (!Array.isArray(resolvedScenePrompts) || resolvedScenePrompts.length === 0) {
+        console.log(`[server] Auto-planning coloring scenes from book metadata`);
+        resolvedScenePrompts = await planColoringScenes({
+          title, synopsis, characterDescription, childName, age,
+          count: sceneCount || 12,
+        });
+        console.log(`[server] Planned ${resolvedScenePrompts.length} coloring scenes`);
+      }
+
+      let characterRef = null;
+      if (childPhotoUrl) {
+        try {
+          characterRef = await downloadPhotoAsBase64(childPhotoUrl);
+        } catch (err) {
+          console.warn(`[server] Could not download child photo for coloring generate: ${err.message}`);
+        }
+      }
+
+      let characterAnchor = null;
+      if (characterAnchorUrl) {
+        try {
+          characterAnchor = await downloadPhotoAsBase64(characterAnchorUrl);
+        } catch (err) {
+          console.warn(`[server] Could not download character anchor for coloring generate: ${err.message}`);
+        }
+      }
+
+      pages = await generateOriginalColoringPages(resolvedScenePrompts, characterRef, {
+        characterDescription,
+        characterAnchor,
+      });
+    }
+
+    const totalPages = pages.length;
+
+    const successCount = pages.filter(p => p.success).length;
+    console.log(`[server] Coloring page ${mode}: ${successCount}/${totalPages} succeeded`);
+
+    const pdfBuffer = await buildColoringBookPdf(pages, { title, childName, pagesOnly });
     console.log(`[server] Coloring book PDF built: ${Math.round(pdfBuffer.length / 1024)}KB`);
 
-    // Step 3: Upload to GCS
     const gcsPath = `children-jobs/${bookId}/coloring-book.pdf`;
     const coloringBookPdfUrl = await uploadBuffer(pdfBuffer, gcsPath, 'application/pdf');
     console.log(`[server] Coloring book PDF uploaded: ${coloringBookPdfUrl.slice(0, 80)}`);
 
     const failedErrors = pages.filter(p => !p.success).map(p => p.error).filter(Boolean);
-    res.json({ success: true, coloringBookPdfUrl, successCount, totalSpreads: illustrationUrls.length, failedErrors });
+    res.json({ success: true, coloringBookPdfUrl, successCount, totalPages, failedErrors, mode });
   } catch (err) {
-    console.error(`[server] /generate-coloring-book failed: ${err.message}`);
+    console.error(`[server] /generate-coloring-book failed (${mode}): ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
