@@ -1615,4 +1615,55 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   return chapterPlan;
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook };
+async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
+  const { apiKeys, costTracker, approvedTitle, bookContext } = opts;
+  const { GRAPHIC_NOVEL_PLANNER_SYSTEM, GRAPHIC_NOVEL_PLANNER_USER } = require('../prompts/graphicNovel');
+
+  // Brainstorm seed
+  let seed;
+  try {
+    seed = await brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme });
+  } catch (e) {
+    bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
+    seed = { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
+  }
+
+  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed);
+
+  let plan;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
+        openaiApiKey: apiKeys?.OPENAI_API_KEY,
+        costTracker,
+        temperature: 0.85,
+        maxTokens: 6000,
+      });
+      const text = resp.text || '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      plan = JSON.parse(jsonMatch[0]);
+      if (!plan.title || !Array.isArray(plan.scenes) || plan.scenes.length < 3) throw new Error(`Invalid plan: ${plan.scenes?.length} scenes`);
+      // Flatten all panels for easy access
+      plan.allPanels = plan.scenes.flatMap(s => s.panels.map(p => ({ ...p, sceneNumber: s.number, sceneTitle: s.sceneTitle })));
+      bookContext?.log('info', 'Graphic novel plan created', { title: plan.title, scenes: plan.scenes.length, panels: plan.allPanels.length });
+      break;
+    } catch (e) {
+      bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
+      if (attempt === 3) throw e;
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
+  }
+
+  plan.title = approvedTitle || plan.title;
+  plan.isGraphicNovel = true;
+
+  // Carry forward character details from seed
+  plan.characterDescription = seed.characterDescription || null;
+  plan.characterAnchor = seed.characterAnchor || null;
+  plan.characterOutfit = seed.characterOutfit || null;
+
+  return plan;
+}
+
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, planGraphicNovel };

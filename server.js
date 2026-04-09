@@ -641,6 +641,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const style = artStyle || 'cinematic_3d';
   const costTracker = new CostTracker();
   const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
+  const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
 
   // Auto-derive emotional tier from age for emotional books
   let emotionalTierInfo = null;
@@ -916,6 +917,39 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             title: storyPlan.title,
             isChapterBook: true,
             chapters: storyPlan.chapters.map(ch => ({ number: ch.number, chapterTitle: ch.chapterTitle, synopsis: ch.synopsis, text: ch.text })),
+          };
+          reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
+        }
+
+        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
+      } else if (isGraphicNovel) {
+        // ── Graphic novel planning (GRAPHIC_NOVEL format, ages 9-12) ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting graphic novel planning', { theme: theme || 'adventure' });
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning graphic novel...', logs: bookContext.logs });
+        }
+
+        const { planGraphicNovel } = require('./services/storyPlanner');
+        const gnStart = Date.now();
+        storyPlan = await planGraphicNovel(childDetails, theme || 'adventure', plannerCustomDetails, {
+          apiKeys, costTracker, approvedTitle, bookContext,
+        });
+        storyPlan.isGraphicNovel = true;
+        bookContext.touchActivity();
+        const gnMs = Date.now() - gnStart;
+        bookContext.log('info', 'Graphic novel planned', { scenes: storyPlan.scenes?.length, panels: storyPlan.allPanels?.length, title: storyPlan.title, ms: gnMs });
+        console.log(`[server] Stage timing: story=${gnMs}ms (book ${bookId})`);
+
+        if (progressCallbackUrl) {
+          const storyContentForDb = {
+            title: storyPlan.title,
+            isGraphicNovel: true,
+            tagline: storyPlan.tagline || '',
+            scenes: storyPlan.scenes?.map(s => ({
+              number: s.number, sceneTitle: s.sceneTitle,
+              panels: s.panels?.map(p => ({ panelNumber: p.panelNumber, caption: p.caption }))
+            })) || [],
           };
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
@@ -1234,8 +1268,10 @@ Format your answer with each label on its own line followed by a colon and the a
                 artStyle: style,
               }
             );
-            chapter.imageBuffer = illus?.imageBuffer || null;
-            chapter.illustrationUrl = illus?.spreadIllustrationUrl || illus?.illustrationUrl || null;
+            // generateIllustration returns a GCS URL string directly
+            const illustUrl = typeof illus === 'string' ? illus : null;
+            chapter.imageBuffer = null; // will be downloaded later from the URL
+            chapter.illustrationUrl = illustUrl;
             bookContext.log('info', `Chapter ${i + 1} illustration done`);
           } catch (illustErr) {
             bookContext.log('warn', `Chapter ${i + 1} illustration failed: ${illustErr.message}`);
@@ -1248,6 +1284,51 @@ Format your answer with each label on its own line followed by a colon and the a
           bookWarnings.push(`${illustrationFailures} of ${storyPlan.chapters.length} chapter illustrations failed`);
         }
         // Set entriesWithIllustrations/spreadEntries to empty for chapter book (not used in standard flow)
+        entriesWithIllustrations = [];
+        spreadEntries = [];
+      } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
+        // ── Graphic novel: Generate comic panel illustrations ──
+        bookContext.log('info', `Generating ${storyPlan.allPanels?.length || 0} graphic novel panels`);
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating graphic novel panels...', logs: bookContext.logs });
+        }
+        const allPanels = storyPlan.allPanels || [];
+        for (let i = 0; i < allPanels.length; i++) {
+          const panel = allPanels[i];
+          bookContext.log('info', `Generating panel ${i + 1}/${allPanels.length} (scene ${panel.sceneNumber})`);
+          try {
+            const illustUrl = await generateIllustration(
+              panel.imagePrompt || panel.action || `Scene ${panel.sceneNumber}, panel ${panel.panelNumber}`,
+              null,
+              storyPlan.coverArtStyle || style,
+              {
+                apiKeys, costTracker, bookId, bookContext,
+                resolvedChildPhotoUrl: characterRef || resolvedChildPhotoUrl,
+                _cachedPhotoBase64: characterRefBase64,
+                _cachedPhotoMime: characterRefMime,
+                characterRef: characterRefBase64,
+                characterDescription: storyPlan.characterDescription,
+                characterAnchor: storyPlan.characterAnchor,
+                characterOutfit: storyPlan.characterOutfit,
+                childName,
+                childAge: parseInt(childDetails.age) || 10,
+                isSpread: false,
+                spreadIndex: i,
+                totalSpreads: allPanels.length,
+                skipTextEmbed: true,
+                pageText: '',
+                promptInjection: `COMIC PANEL (${panel.type || 'action'}). ${panel.type === 'establishing' ? 'WIDE ESTABLISHING SHOT.' : panel.type === 'reaction' ? 'CLOSE-UP on character face/reaction.' : ''} This is a single comic panel image. No text, no speech bubbles, no captions in the image itself.`,
+                artStyle: style,
+              }
+            );
+            // generateIllustration returns a string URL
+            panel.illustrationUrl = typeof illustUrl === 'string' ? illustUrl : null;
+            bookContext.log('info', `Panel ${i + 1} done`);
+          } catch (e) {
+            bookContext.log('warn', `Panel ${i + 1} failed: ${e.message}`);
+            panel.illustrationUrl = null;
+          }
+        }
         entriesWithIllustrations = [];
         spreadEntries = [];
       } else {
@@ -1353,6 +1434,31 @@ Format your answer with each label on its own line followed by a colon and the a
         });
 
         previewImageUrls = storyPlan.chapters.map(ch => ch.illustrationUrl).filter(Boolean);
+      } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
+        // ── Graphic novel PDF assembly ──
+        const { buildGraphicNovelPdf } = require('./services/layoutEngine');
+
+        // Download panel illustration buffers
+        const allPanels = storyPlan.allPanels || [];
+        for (const panel of allPanels) {
+          if (panel.illustrationUrl) {
+            try { panel.imageBuffer = await downloadWithRetry(panel.illustrationUrl, `panel-${panel.sceneNumber}-${panel.panelNumber}`); }
+            catch (e) { panel.imageBuffer = null; }
+          }
+        }
+
+        interiorPdf = await buildGraphicNovelPdf(allPanels, {
+          title: storyPlan.title || bookTitle,
+          childName: childDetails.name,
+          tagline: storyPlan.tagline || '',
+          bookFrom: bookFrom || '',
+          dedication,
+          year: new Date().getFullYear(),
+          scenes: storyPlan.scenes || [],
+        });
+
+        previewImageUrls = allPanels.map(p => p.illustrationUrl).filter(Boolean);
+        spreadEntries = allPanels.map((p, i) => ({ type: 'panel', index: i, illustrationUrl: p.illustrationUrl }));
       } else {
         // ── Standard picture/early reader PDF assembly ──
         bookContext.log('info', 'Downloading illustration buffers for PDF');
@@ -1497,7 +1603,12 @@ Format your answer with each label on its own line followed by a colon and the a
         reportProgressForce(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.95, message: 'Building cover PDF...', logs: bookContext.logs }).catch(() => {});
         // Calculate actual interior page count for spine width
         let pageCount;
-        if (isChapterBook || storyPlan.isChapterBook) {
+        if (isGraphicNovel || storyPlan.isGraphicNovel) {
+          // Graphic novel: title + dedication + ~8-10 scene pages + end page
+          const panelCount = (storyPlan.allPanels || []).length;
+          pageCount = 2 + Math.ceil(panelCount / 2) + 1;
+          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
+        } else if (isChapterBook || storyPlan.isChapterBook) {
           // Chapter book: estimate from chapters (title + dedication + 5*(title page + ~3 text pages) + end page)
           pageCount = 2 + storyPlan.chapters.length * 4 + 1;
           pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
@@ -1511,7 +1622,10 @@ Format your answer with each label on its own line followed by a colon and the a
         }
         // Build synopsis from story plan for back cover
         let synopsis;
-        if (isChapterBook || storyPlan.isChapterBook) {
+        if (isGraphicNovel || storyPlan.isGraphicNovel) {
+          synopsis = storyPlan.tagline
+            || `A personalized graphic novel for ${childDetails.name}`;
+        } else if (isChapterBook || storyPlan.isChapterBook) {
           synopsis = storyPlan.chapters.slice(0, 2).map(ch => ch.synopsis).join(' ')
             || `A personalized chapter book for ${childDetails.name}`;
         } else {
@@ -1535,12 +1649,26 @@ Format your answer with each label on its own line followed by a colon and the a
 
       const totalMs = Date.now() - bookStartTime;
       const costSummary = costTracker.getSummary();
-      const itemCount = (isChapterBook || storyPlan.isChapterBook) ? storyPlan.chapters.length : entriesWithIllustrations.length;
+      const itemCount = (isGraphicNovel || storyPlan.isGraphicNovel)
+        ? (storyPlan.allPanels || []).length
+        : (isChapterBook || storyPlan.isChapterBook) ? storyPlan.chapters.length : entriesWithIllustrations.length;
       bookContext.log('info', 'Book complete', { totalMs, items: itemCount, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
 
       // Build storyContent for DB
       let storyContent;
-      if (isChapterBook || storyPlan.isChapterBook) {
+      if (isGraphicNovel || storyPlan.isGraphicNovel) {
+        storyContent = {
+          title: storyPlan.title || bookTitle,
+          isGraphicNovel: true,
+          tagline: storyPlan.tagline || '',
+          characterDescription: storyPlan.characterDescription || null,
+          characterAnchor: storyPlan.characterAnchor || null,
+          scenes: storyPlan.scenes?.map(s => ({
+            number: s.number, sceneTitle: s.sceneTitle,
+            panels: s.panels?.map(p => ({ panelNumber: p.panelNumber, caption: p.caption, illustrationUrl: p.illustrationUrl || null }))
+          })) || [],
+        };
+      } else if (isChapterBook || storyPlan.isChapterBook) {
         storyContent = {
           title: bookTitle,
           isChapterBook: true,
