@@ -1242,10 +1242,15 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   } else {
     srcPages = Array.isArray(panelsOrPages) ? [] : (panelsOrPages.pages || []);
   }
-  const planInput = { title, tagline, pages: srcPages.map(page => ({
-    ...page,
-    panels: (page.panels || []).map(({ imageBuffer, ...rest }) => rest),
-  })), scenes: opts.scenes || [] };
+  // Strip imageBuffers before normalizeGraphicNovelPlan's JSON.stringify deep-clone.
+  // Both pages[*].panels and scenes[*].panels share the same objects, so strip from both.
+  const stripBuffers = (panels) => (panels || []).map(({ imageBuffer, ...rest }) => rest);
+  const planInput = {
+    title,
+    tagline,
+    pages: srcPages.map(page => ({ ...page, panels: stripBuffers(page.panels) })),
+    scenes: (opts.scenes || []).map(scene => ({ ...scene, panels: stripBuffers(scene.panels) })),
+  };
   const plan = normalizeGraphicNovelPlan(planInput, { fallbackTitle: title });
 
   // Re-attach imageBuffers lost during JSON deep-clone in normalizeGraphicNovelPlan
