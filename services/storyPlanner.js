@@ -65,6 +65,9 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const apiKey = opts.apiKey;
   if (!apiKey) throw new Error('OpenAI API key not available');
 
+  // Use streaming for large token budgets to avoid connection timeout on long generations
+  const useStream = (opts.maxTokens || 4000) > 8000;
+
   const resp = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -80,12 +83,52 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
       temperature: opts.temperature || 0.8,
       max_completion_tokens: opts.maxTokens || 4000,
       response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
+      stream: useStream || undefined,
+      ...(useStream ? { stream_options: { include_usage: true } } : {}),
     }),
   }, opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS, opts.requestLabel || 'OpenAI request');
 
   if (!resp.ok) {
     const err = await resp.text();
     throw new Error(`OpenAI API error ${resp.status}: ${err.slice(0, 200)}`);
+  }
+
+  if (useStream && typeof resp.text === 'function') {
+    // Read SSE stream and collect content + usage
+    const rawText = await resp.text();
+    if (rawText.trimStart().startsWith('data:')) {
+      const lines = rawText.split('\n');
+      let content = '';
+      let finishReason = 'stop';
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break;
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = chunk.choices?.[0]?.delta;
+          if (delta?.content) content += delta.content;
+          const reason = chunk.choices?.[0]?.finish_reason;
+          if (reason) finishReason = reason;
+          if (chunk.usage) {
+            inputTokens = chunk.usage.prompt_tokens || inputTokens;
+            outputTokens = chunk.usage.completion_tokens || outputTokens;
+          }
+        } catch (_) { /* skip malformed SSE lines */ }
+      }
+
+      finishReason = finishReason === 'length' ? 'MAX_TOKENS' : (finishReason || 'stop');
+      return { text: content, inputTokens, outputTokens, finishReason };
+    }
+    // Response is plain JSON despite stream request — parse normally
+    const data = JSON.parse(rawText);
+    const choice = data.choices?.[0];
+    const fr = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
+    let ct = choice?.message?.content || '';
+    return { text: typeof ct === 'string' ? ct : '', inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0, finishReason: fr };
   }
 
   const data = await resp.json();
