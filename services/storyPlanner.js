@@ -16,8 +16,8 @@ const { enrichCustomDetails } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
-const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 180000;
-const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 90000;
+const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 360000;
+const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 180000;
 
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
@@ -2473,6 +2473,11 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
     const structure = summarizeGraphicNovelStructure(plan);
     if (structure.issues.length > 0) {
+      // Skip repair if the plan is completely empty — nothing to repair
+      if (structure.pageCount === 0 && structure.sceneCount === 0) {
+        bookContext?.log('warn', 'Full plan returned empty — skipping repair, will use chunked planner');
+        throw new Error(`Empty plan: 0 pages, 0 scenes`);
+      }
       try {
         plan = await repairGraphicNovelPlan(plan, storyBible, childDetails, {
           apiKeys,

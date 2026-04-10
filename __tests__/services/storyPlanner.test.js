@@ -1241,12 +1241,12 @@ describe('planGraphicNovel robustness', () => {
       interests: ['space'],
     }, 'adventure', '', { bookContext });
 
-    await jest.advanceTimersByTimeAsync(180000);
+    await jest.advanceTimersByTimeAsync(360000);
     const result = await promise;
 
     expect(result.pages.length).toBe(24);
     expect(geminiCalls).toBeGreaterThan(0);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('GPT 5.4 failed, falling back to Gemini: Graphic novel full-plan fast path timed out after 180000ms'));
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('GPT 5.4 failed, falling back to Gemini: Graphic novel full-plan fast path timed out after 360000ms'));
     expect(bookContext.log).toHaveBeenCalledWith('warn', 'Switching to chunked scene planner');
 
     jest.useRealTimers();
