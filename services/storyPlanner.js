@@ -2414,7 +2414,7 @@ async function polishGraphicNovelChunk(chunkPlan, chunkIndex, totalChunks, story
       openaiApiKey: apiKeys?.OPENAI_API_KEY,
       costTracker,
       temperature: 0.5,
-      maxTokens: 24000,
+      maxTokens: 32000,
       jsonMode: true,
       timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
       requestLabel: `Graphic novel polish chunk ${chunkIndex + 1}`,
@@ -2426,7 +2426,7 @@ async function polishGraphicNovelChunk(chunkPlan, chunkIndex, totalChunks, story
       {
         costTracker,
         temperature: 0.5,
-        maxTokens: 24000,
+        maxTokens: 32000,
         bookContext,
         timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
         requestLabel: `Graphic novel polish chunk ${chunkIndex + 1}`,
