@@ -1315,7 +1315,7 @@ function renderTextInterstitialPage(pdfDoc, pageData, fonts, pageW, pageH) {
 
 /**
  * Render a single graphic novel story page by embedding the full-page AI-generated image.
- * The image includes panels, borders, speech bubbles, captions, and SFX — all baked in.
+ * The image includes panels, borders, speech bubbles, captions, and SFX — all rendered by Gemini.
  */
 async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
   const page = pdfDoc.addPage([pageW, pageH]);
@@ -1345,7 +1345,7 @@ async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
 
 /**
  * Build a print-ready graphic novel PDF with full-page AI-generated images.
- * Each story page is a single full-page image (panels, text, bubbles all baked in).
+ * Each story page is a single full-page image (panels, text, bubbles all baked in by Gemini).
  * @param {Array} _unused - Legacy parameter, no longer used
  * @param {object} opts - { title, childName, tagline, dedication, year, pages }
  */
@@ -1455,7 +1455,7 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
     }
   }
 
-  // Story pages — illustrated pages are full-page AI images, text interstitials are programmatic
+  // Story pages — illustrated pages are full-page AI images (text baked in), text interstitials are programmatic
   for (let i = 0; i < srcPages.length; i++) {
     if (srcPages[i].pageType === 'text_interstitial') {
       renderTextInterstitialPage(pdfDoc, srcPages[i], fonts, PAGE_W, PAGE_H);

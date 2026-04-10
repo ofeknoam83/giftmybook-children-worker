@@ -316,18 +316,19 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   parts.push(fullPagePrompt);
   parts.push('');
 
-  // Comic typography rules
-  parts.push('LETTERING RULES:');
-  parts.push('- Speech bubbles: white oval/round with dark outline and a pointed tail toward the speaker');
-  parts.push('- Shout bubbles: jagged/starburst shape with bold uppercase text');
-  parts.push('- Thought bubbles: cloud shape with small circle trail leading to thinker');
-  parts.push('- Whisper bubbles: dashed outline, smaller italic text');
-  parts.push('- Narration captions: rectangular box with dark/navy background and white text');
-  parts.push('- Location captions: rectangular box with light cream background and dark text');
-  parts.push('- Internal monologue captions: rectangular box with yellow background');
-  parts.push('- Sound effects: bold stylized comic lettering integrated into the art');
-  parts.push('- All text MUST be clearly legible and spelled correctly');
-  parts.push('- Reading order flows top-to-bottom, left-to-right');
+  // Comic typography rules — Gemini renders ALL text into the image
+  parts.push('LETTERING RULES (CRITICAL — you MUST render all text):');
+  parts.push('- Speech bubbles: white oval/round with dark outline and a pointed tail toward the speaker. Write the EXACT dialogue text inside.');
+  parts.push('- Shout bubbles: jagged/starburst shape with bold uppercase text inside.');
+  parts.push('- Thought bubbles: cloud shape with small circle trail leading to thinker. Write the thought text inside.');
+  parts.push('- Whisper bubbles: dashed outline, smaller italic text inside.');
+  parts.push('- Narration captions: rectangular box with dark/navy background and white text inside.');
+  parts.push('- Location captions: rectangular box with light cream background and dark text inside.');
+  parts.push('- Internal monologue captions: rectangular box with yellow/warm background.');
+  parts.push('- Sound effects: bold stylized comic lettering integrated into the art.');
+  parts.push('- All text MUST be clearly legible, correctly spelled, and large enough to read at print size.');
+  parts.push('- Reading order flows top-to-bottom, left-to-right.');
+  parts.push('- TEXT IS MANDATORY: If the page description includes dialogue, captions, or SFX, you MUST render them as visible text in the image. A page with missing text will be rejected.');
   parts.push('');
 
   // Art direction
