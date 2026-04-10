@@ -1153,11 +1153,13 @@ async function drawGraphicNovelPanelImage(pdfDoc, page, panel, blueprint) {
     page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
   } else {
     try {
-      const targetW = Math.round(rect.w / 72 * 300);
-      const targetH = Math.round(rect.h / 72 * 300);
+      // Use 200 DPI (not 300) to keep total PDF size under V8 string limits
+      // when assembling 60-80 panel graphic novels. 200 DPI is excellent for print.
+      const targetW = Math.round(rect.w / 72 * 200);
+      const targetH = Math.round(rect.h / 72 * 200);
       const resized = await sharp(panel.imageBuffer)
         .resize(targetW, targetH, { fit: 'cover' })
-        .jpeg({ quality: 90 })
+        .jpeg({ quality: 82 })
         .toBuffer();
       const img = await pdfDoc.embedJpg(resized);
       page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
