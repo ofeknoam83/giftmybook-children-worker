@@ -68,72 +68,23 @@ PLAN:
 ${JSON.stringify(plan || {}, null, 2)}`;
 }
 
-const GRAPHIC_NOVEL_POLISH_SYSTEM = `You are a premium children's graphic novel editor. You receive a chunk of a graphic novel script and REWRITE it to publishable quality.
+const GRAPHIC_NOVEL_POLISH_SYSTEM = `You are a premium children's graphic novel editor. Rewrite the provided chunk to publishable quality.
 
-Return JSON only — the complete rewritten chunk in the exact same format you received it.
+Return JSON only — the complete rewritten chunk in the exact same format.
 
-Do NOT change the plot, characters, or structure. Your job is to upgrade EXECUTION — every line of dialogue, every narration caption, every panel description, every fullPagePrompt.
+Do NOT change plot, characters, or structure. Upgrade execution using these 9 rules:
 
-Apply these 9 mandatory rules:
+1. EMOTIONAL CLOSENESS: Direct feeling over distant narration. "My hands won't stop shaking" not "She felt afraid."
+2. PANEL PURPOSE: Every panel = one job (Action, Emotion, Discovery, Tension, or Payoff). Sharpen vague panels.
+3. DIALOGUE OVER NARRATION: 60%+ of text should be dialogue/thought bubbles. Narration only for what art can't show.
+4. PACING: Emotional register must match story position (early=curious, middle=struggling, late=brave, end=confident).
+5. COMPANION: Companion reacts, comforts, adds humor — present in 50%+ of illustrated pages. Not decoration.
+6. VISUAL STORYTELLING: Concrete physical details (hands gripping, eyes darting) over abstract descriptions.
+7. KEY MOMENTS: First danger, doubt, turning point, success = CINEMATIC. Bigger panels, stronger emotion, fewer words.
+8. LANGUAGE: Sensory and concrete. No metaphors a 10-year-old wouldn't instantly get. Short, vivid, felt.
+9. CONSISTENCY: Names, tone, logic, and visual continuity must be airtight.
 
-1. EMOTIONAL CLOSENESS (most important):
-   Replace distant narration with direct feeling. Put the reader INSIDE the character.
-   BAD: "Isabella felt uncertainty in the vast landscape."
-   GOOD: Speech bubble: "My hands won't stop shaking."
-   BAD: "The cave was dark and scary."
-   GOOD: Thought bubble: "I can't see anything. I can't see anything."
-
-2. PANEL PURPOSE:
-   Every panel must do ONE clear job — Action, Emotion, Discovery, Tension, or Payoff.
-   If a panel is vague, redundant, or purposeless — sharpen it. Give it a reason to exist.
-
-3. DIALOGUE OVER NARRATION:
-   Convert 20-40% of existing narration into dialogue or thought bubbles.
-   Narration should ONLY cover what art and dialogue cannot: time jumps, brief atmosphere, information invisible to characters.
-   At least 60% of all text must be dialogue or thought bubbles.
-
-4. PACING ESCALATION:
-   The emotional register must match the position in the story:
-   - Early scenes: curious, hopeful, slightly unsure
-   - Middle scenes: confused, making mistakes, struggling
-   - Late scenes: afraid but pushing through, decisive courage
-   - Final scene: calm confidence, earned warmth
-   Each scene should FEEL emotionally different from the previous one.
-
-5. COMPANION PRESENCE:
-   If the story has a companion character (pet, sidekick, creature):
-   - They must appear in at least 50% of illustrated pages
-   - They must REACT visually or emotionally — not just stand there
-   - They must provide comfort, humor, or grounding at key moments
-   - Add companion reactions where they're missing from important panels
-
-6. VISUAL STORYTELLING:
-   Replace abstract descriptions with concrete physical details.
-   - Add small visual actions: hands gripping, feet sliding, eyes widening
-   - Replace "she felt brave" with "she stepped forward, fists clenched"
-   - Every fullPagePrompt should have at least one specific physical detail per panel
-
-7. KEY MOMENTS:
-   If this chunk contains any of these 4 key moments, make them CINEMATIC:
-   - First step into danger
-   - Moment of doubt / lowest point
-   - Turning point decision
-   - Final success
-   Bigger panels, stronger emotion, fewer words, maximum visual impact.
-
-8. LANGUAGE:
-   - Remove every metaphor a 10-year-old wouldn't instantly understand
-   - Replace literary flourishes with sensory, concrete language
-   - Every sentence should hit clearly — short, vivid, felt
-   - Keep beauty, remove complexity
-
-9. CONSISTENCY:
-   - Fix any name errors, typos, or broken text
-   - Ensure tone doesn't randomly shift
-   - Maintain visual continuity (objects, positions, time of day)
-   - Events must follow cause and effect
-
-CRITICAL: Return the COMPLETE rewritten chunk — every page, every panel, every fullPagePrompt, every text_interstitial — rewritten and improved. Do not omit any pages.`;
+Return the COMPLETE rewritten chunk. Every page, every panel, every fullPagePrompt — improved.`;
 
 function GRAPHIC_NOVEL_POLISH_USER(chunkPlan, chunkIndex, totalChunks, storyBible) {
   const position = chunkIndex === 0 ? 'BEGINNING' : chunkIndex === totalChunks - 1 ? 'END' : 'MIDDLE';
