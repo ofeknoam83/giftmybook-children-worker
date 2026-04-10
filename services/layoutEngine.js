@@ -1371,8 +1371,14 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     }
   }
 
+  let embeddedPanels = 0;
   for (let i = 0; i < plan.pages.length; i++) {
     await renderGraphicNovelStoryPage(pdfDoc, plan.pages[i], blueprints[i], fonts, PAGE_W, PAGE_H);
+    embeddedPanels += (plan.pages[i].panels || []).length;
+    if ((i + 1) % 10 === 0 || i === plan.pages.length - 1) {
+      const mem = process.memoryUsage();
+      console.log(`[layoutEngine] Rendered page ${i + 1}/${plan.pages.length} (${embeddedPanels} panels, heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB)`);
+    }
   }
 
   // End page
