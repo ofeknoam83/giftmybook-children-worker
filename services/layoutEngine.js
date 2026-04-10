@@ -1314,16 +1314,10 @@ function renderTextInterstitialPage(pdfDoc, pageData, fonts, pageW, pageH) {
 }
 
 /**
- * Render a single graphic novel story page by embedding the full-page AI-generated image,
- * then overlaying speech bubbles, captions, and SFX using vector lettering.
- *
- * The AI generates the visual scene (panels, borders, art). Text elements are rendered
- * on top by comicLetterer for guaranteed legibility and professional quality.
+ * Render a single graphic novel story page by embedding the full-page AI-generated image.
+ * The image includes panels, borders, speech bubbles, captions, and SFX — all rendered by Gemini.
  */
-async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH, ctx) {
-  const { renderPanelLettering } = require('./comicLetterer');
-  const { buildGraphicNovelPageBlueprint } = require('./comicLayoutPresets');
-
+async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
   const page = pdfDoc.addPage([pageW, pageH]);
 
   if (!pageData.imageBuffer) {
@@ -1347,34 +1341,11 @@ async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH, ctx) 
     console.warn(`[layoutEngine] Page embed failed: ${embedErr.message}`);
     page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.88, 0.90, 0.93) });
   }
-
-  // ── Overlay speech bubbles, captions, and SFX using vector lettering ──
-  if (ctx && ctx.letteringFonts && Array.isArray(pageData.panels) && pageData.panels.length > 0) {
-    try {
-      const blueprint = buildGraphicNovelPageBlueprint(pageData, ctx.pageIndex || 0, pageW, pageH);
-      const panels = pageData.panels || [];
-
-      for (let i = 0; i < panels.length && i < blueprint.panelBlueprints.length; i++) {
-        const panel = panels[i];
-        const panelBP = blueprint.panelBlueprints[i];
-
-        const hasBalloons = Array.isArray(panel.balloons) && panel.balloons.some(b => b.text);
-        const hasCaptions = Array.isArray(panel.captions) && panel.captions.some(c => c.text);
-        const hasSfx = Array.isArray(panel.sfx) && panel.sfx.some(s => s.text);
-
-        if (hasBalloons || hasCaptions || hasSfx) {
-          renderPanelLettering(page, panel, panelBP, ctx.letteringFonts);
-        }
-      }
-    } catch (letterErr) {
-      console.warn(`[layoutEngine] Lettering overlay failed for page ${pageData.pageNumber || '?'}: ${letterErr.message}`);
-    }
-  }
 }
 
 /**
- * Build a print-ready graphic novel PDF with full-page AI-generated images
- * and vector-rendered speech bubbles, captions, and SFX overlays.
+ * Build a print-ready graphic novel PDF with full-page AI-generated images.
+ * Each story page is a single full-page image (panels, text, bubbles all baked in by Gemini).
  * @param {Array} _unused - Legacy parameter, no longer used
  * @param {object} opts - { title, childName, tagline, dedication, year, pages }
  */
@@ -1408,17 +1379,6 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
     bodyFont: helv,
     accentFont: playfairItalic || helv,
     handwrittenFont: kalam || helv,
-  };
-
-  // Lettering fonts for speech bubbles, captions, and SFX overlays
-  let comicFont = helvBold;
-  try {
-    if (fs.existsSync(FONT_PATHS.comicNeue)) comicFont = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.comicNeue));
-  } catch (_) {}
-  const letteringFonts = {
-    dialogueFont: comicFont,
-    captionFont: playfairItalic || helv,
-    sfxFont: comicFont,
   };
 
   // ── Helper: decorative double-line border ──
@@ -1495,12 +1455,12 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
     }
   }
 
-  // Story pages — illustrated pages are full-page AI images + vector text overlays, text interstitials are programmatic
+  // Story pages — illustrated pages are full-page AI images (text baked in), text interstitials are programmatic
   for (let i = 0; i < srcPages.length; i++) {
     if (srcPages[i].pageType === 'text_interstitial') {
       renderTextInterstitialPage(pdfDoc, srcPages[i], fonts, PAGE_W, PAGE_H);
     } else {
-      await renderGraphicNovelStoryPage(pdfDoc, srcPages[i], PAGE_W, PAGE_H, { letteringFonts, pageIndex: i });
+      await renderGraphicNovelStoryPage(pdfDoc, srcPages[i], PAGE_W, PAGE_H);
     }
     if ((i + 1) % 10 === 0 || i === srcPages.length - 1) {
       const mem = process.memoryUsage();

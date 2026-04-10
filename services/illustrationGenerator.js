@@ -276,13 +276,10 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   parts.push('This is ONE FULL PAGE of a graphic novel. Render the ENTIRE page as a single image including:');
   parts.push('- Panel borders (dark ink lines) and white gutters between panels');
   parts.push('- All character art with consistent appearance');
+  parts.push('- Speech bubbles with the EXACT dialogue text written inside them');
+  parts.push('- Caption/narration boxes with the EXACT text written inside them');
+  parts.push('- Sound effects as stylized comic lettering');
   parts.push('- The page should have slim white margins around the outer edges');
-  parts.push('');
-  parts.push('CRITICAL — NO TEXT IN IMAGE:');
-  parts.push('Do NOT render any text, speech bubbles, caption boxes, or sound effect lettering in this image.');
-  parts.push('Leave clean space where speech bubbles would go (upper portions of panels near characters).');
-  parts.push('All dialogue, captions, and SFX will be added in a separate vector lettering pass for guaranteed print-quality legibility.');
-  parts.push('The image should contain ONLY visual art: panels, borders, characters, backgrounds, and action.');
   parts.push('');
 
   // Character identity
@@ -319,9 +316,19 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   parts.push(fullPagePrompt);
   parts.push('');
 
-  // Reminder: no text rendering (handled by vector lettering post-processing)
-  parts.push('REMINDER: Do NOT draw any text, letters, words, speech bubbles, caption boxes, or sound effects.');
-  parts.push('Leave clean visual space in upper panel areas for text overlay. Art only.')
+  // Comic typography rules — Gemini renders ALL text into the image
+  parts.push('LETTERING RULES (CRITICAL — you MUST render all text):');
+  parts.push('- Speech bubbles: white oval/round with dark outline and a pointed tail toward the speaker. Write the EXACT dialogue text inside.');
+  parts.push('- Shout bubbles: jagged/starburst shape with bold uppercase text inside.');
+  parts.push('- Thought bubbles: cloud shape with small circle trail leading to thinker. Write the thought text inside.');
+  parts.push('- Whisper bubbles: dashed outline, smaller italic text inside.');
+  parts.push('- Narration captions: rectangular box with dark/navy background and white text inside.');
+  parts.push('- Location captions: rectangular box with light cream background and dark text inside.');
+  parts.push('- Internal monologue captions: rectangular box with yellow/warm background.');
+  parts.push('- Sound effects: bold stylized comic lettering integrated into the art.');
+  parts.push('- All text MUST be clearly legible, correctly spelled, and large enough to read at print size.');
+  parts.push('- Reading order flows top-to-bottom, left-to-right.');
+  parts.push('- TEXT IS MANDATORY: If the page description includes dialogue, captions, or SFX, you MUST render them as visible text in the image. A page with missing text will be rejected.');
   parts.push('');
 
   // Art direction
