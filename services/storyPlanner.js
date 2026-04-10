@@ -2501,76 +2501,36 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     }
   );
 
-  let improvedPlan = plan;
-  try {
-    const criticResp = await callLLM(GRAPHIC_NOVEL_CRITIC_SYSTEM, GRAPHIC_NOVEL_CRITIC_USER(plan), {
-      openaiApiKey: apiKeys?.OPENAI_API_KEY,
-      costTracker,
-      temperature: 0.5,
-      maxTokens: 24000,
-      jsonMode: true,
-      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
-      requestLabel: 'Graphic novel critic pass',
-    });
-    const parsedCriticPlan = await parseStructuredJsonWithFallback(
-      criticResp,
-      GRAPHIC_NOVEL_CRITIC_SYSTEM,
-      GRAPHIC_NOVEL_CRITIC_USER(plan),
-      {
-        costTracker,
-        temperature: 0.5,
-        maxTokens: 24000,
-        bookContext,
-        timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
-        requestLabel: 'Graphic novel critic pass',
-      }
-    );
-    bookContext?.touchActivity?.();
-    const criticCandidate = normalizeGraphicNovelPlan(
-      legacyGraphicNovelScenesToPages(parsedCriticPlan, childDetails),
-      { fallbackTitle: plan.title }
-    );
-    // Only accept critic output if it preserves the plan structure
-    if (criticCandidate.pages.length >= 20 && criticCandidate.pages.length <= 36
-        && criticCandidate.scenes.length >= 5) {
-      improvedPlan = criticCandidate;
-    } else {
-      bookContext?.log('warn', 'Critic output rejected — structure degraded', {
-        criticPages: criticCandidate.pages.length,
-        originalPages: plan.pages.length,
-      });
-    }
-  } catch (criticErr) {
-    bookContext?.touchActivity?.();
-    bookContext?.log('warn', `Graphic novel critic failed — using original plan: ${criticErr.message}`);
-  }
+  // Critic pass removed — it consistently fails for large graphic novel plans
+  // (same token/timeout issues as the old full-plan approach) and adds 6+ minutes
+  // of dead time. The chunked planner already validates each chunk independently.
 
-  improvedPlan.storyBible = storyBible;
-  improvedPlan.storyBlueprint = storyBible.sceneBlueprints || [];
-  improvedPlan.title = approvedTitle || improvedPlan.title || storyBible.title;
-  improvedPlan.isGraphicNovel = true;
-  improvedPlan.graphicNovelVersion = 'v2_premium';
+  plan.storyBible = storyBible;
+  plan.storyBlueprint = storyBible.sceneBlueprints || [];
+  plan.title = approvedTitle || plan.title || storyBible.title;
+  plan.isGraphicNovel = true;
+  plan.graphicNovelVersion = 'v2_premium';
 
-  const issues = summarizeGraphicNovelIssues(improvedPlan, storyBible);
+  const issues = summarizeGraphicNovelIssues(plan, storyBible);
   if (issues.length > 0) {
-    improvedPlan.qaSummary = { issues };
+    plan.qaSummary = { issues };
   }
 
   // Carry forward character details from seed
-  improvedPlan.characterDescription = seed.characterDescription || null;
-  improvedPlan.characterAnchor = seed.characterAnchor || null;
-  improvedPlan.characterOutfit = seed.characterOutfit || null;
-  improvedPlan.recurringElement = seed.favorite_object || null;
-  improvedPlan.keyObjects = seed.keyObjects || null;
+  plan.characterDescription = seed.characterDescription || null;
+  plan.characterAnchor = seed.characterAnchor || null;
+  plan.characterOutfit = seed.characterOutfit || null;
+  plan.recurringElement = seed.favorite_object || null;
+  plan.keyObjects = seed.keyObjects || null;
 
   bookContext?.log('info', 'Graphic novel plan created', {
-    title: improvedPlan.title,
-    scenes: improvedPlan.scenes.length,
-    pages: improvedPlan.pages.length,
-    panels: improvedPlan.allPanels.length,
+    title: plan.title,
+    scenes: plan.scenes.length,
+    pages: plan.pages.length,
+    panels: plan.allPanels.length,
   });
 
-  return improvedPlan;
+  return plan;
 }
 
 module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, planGraphicNovel };
