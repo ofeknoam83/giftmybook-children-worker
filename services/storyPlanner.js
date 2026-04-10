@@ -19,6 +19,129 @@ const DEFAULT_LLM_TIMEOUT_MS = 120000;
 const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 360000;
 const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 180000;
 
+// ── W1: Beat structure per spread ──
+const BEAT_STRUCTURE = `BEAT STRUCTURE — each spread has a PURPOSE:
+Spread 1 (THE HOOK): [child] in their world. Something catches their attention. End with curiosity or excitement.
+Spread 2 (THE DISCOVERY): The adventure begins. Show wonder and excitement. Introduce the setting.
+Spread 3 (RISING FUN): First challenge or new discovery. Use a specific detail from customDetails here.
+Spread 4 (DEEPER IN): The world expands. More characters, places, or surprises.
+Spread 5 (THE HEART): The emotional core of the story. For birthday: the celebration moment. For mothers_day: the deepest bond. For adventure: the biggest obstacle.
+Spread 6 (TURNING POINT): Something changes. A challenge, a surprise, or an emotional shift.
+Spread 7 (PEAK MOMENT): The climax. Maximum joy, tension, or wonder. The most dramatic illustration.
+Spread 8 (AFTERMATH): The immediate result of the peak. Emotion settling. Characters react.
+Spread 9 (RESOLUTION): The challenge is overcome. The celebration is complete. Things come together.
+Spread 10 (NEW WORLD): The world feels different now. Show what changed.
+Spread 11 (WARM GLOW): Quiet warmth. Characters together. Gratitude, love, connection.
+Spread 12 (REFLECTION): Looking back on the adventure. A moment of peace.
+Spread 13 (THE LAST LINE): One perfect closing image. THE most beautiful, memorable sentence in the entire book. This is what parents will quote.`;
+
+// ── W2: Theme-specific story rules ──
+const THEME_RULES = {
+  birthday: `BIRTHDAY THEME — EVERY spread must feel like a celebration:
+- The child's birthday is the CENTRAL EVENT of the entire story
+- Favorite cake/food from customDetails MUST appear in at least one spread
+- Favorite toys/activities MUST appear as birthday elements (gifts, decorations, games)
+- Energy: joyful, excited, celebrated — this child is the STAR today
+- Ending: triumphant, celebratory — NEVER sleepy or quiet
+- The whole world celebrates THIS specific child`,
+
+  birthday_magic: `BIRTHDAY THEME — EVERY spread must feel like a celebration:
+- The child's birthday is the CENTRAL EVENT of the entire story
+- Favorite cake/food from customDetails MUST appear in at least one spread
+- Favorite toys/activities MUST appear as birthday elements
+- Energy: joyful, excited, celebrated — this child is the STAR today
+- Ending: triumphant, celebratory — NEVER sleepy or quiet`,
+
+  bedtime: `BEDTIME THEME — calm, cozy, magical:
+- Every spread has a gentle, warm, dreamy tone — the world softens as night comes
+- Include the sweet bedtime moment from customDetails as a specific scene
+- Story arc: active play → winding down → magical quiet → peaceful sleep
+- Ending: the child drifts peacefully to sleep — this IS a bedtime story
+- Use dreamy imagery: stars, glowing night lights, soft moonlight, warm blankets`,
+
+  bedtime_wonder: `BEDTIME THEME — calm, cozy, magical:
+- Every spread has a gentle, warm, dreamy tone — the world softens as night comes
+- Include the sweet bedtime moment from customDetails as a specific scene
+- Ending: the child drifts peacefully to sleep — dreamy, warm, safe
+- Use dreamy imagery: stars, moonlight, soft glow, warm blankets`,
+
+  mothers_day: `MOTHER'S DAY THEME — a love letter from child to mom:
+- Mom is a NAMED CHARACTER — use the name from customDetails (calls_mom / mom_name). If not provided, use "Mommy"
+- Mom MUST appear in at least 6 of 13 spreads — she is co-protagonist
+- Story is told from the child's perspective of love and gratitude for mom
+- Include the meaningful_moment from customDetails as a specific scene
+- Include moms_favorite_moment if provided
+- Ending: heartfelt, warm — a direct expression of love from child to mom
+- This book should make a mother cry happy tears`,
+
+  fathers_day: `FATHER'S DAY THEME — a bonding adventure:
+- Dad is a NAMED CHARACTER — use the name from customDetails (calls_dad / dad_name). If not provided, use "Daddy"
+- Dad MUST appear in at least 6 of 13 spreads — he is co-protagonist
+- Include shared activities from customDetails as story scenes
+- Include meaningful_moment as a specific spread
+- Tone: adventurous, proud, bonding, playful
+- Ending: heartfelt — child expressing love and admiration for dad`,
+
+  adventure: `ADVENTURE THEME — a quest with a goal:
+- State the quest/mission clearly in spread 1 or 2
+- The meaningful_moment from customDetails inspires the quest destination or reward
+- The child's activities from customDetails become skills used during the adventure
+- Pacing: builds urgency through middle spreads, peaks at spread 7
+- Ending: triumphant — child returns changed/grown, mission accomplished`,
+
+  adventure_play: `ADVENTURE THEME — a quest with a goal:
+- State the quest/mission clearly in spread 1 or 2
+- The child's favorite activities become skills used during the adventure
+- Pacing: builds urgency, peaks at spread 7
+- Ending: triumphant — child returns changed/grown`,
+
+  learning_discovery: `LEARNING THEME — curiosity-driven story:
+- Story built around something the child is curious about
+- Arc: wonder → question → exploration → discovery → understanding
+- The child asks questions and discovers answers through adventure
+- Ending: child shares their new knowledge with someone they love`,
+
+  creative_arts: `CREATIVE ARTS THEME — imagination is the hero:
+- The child's creative activity (drawing/singing/dancing/building) DRIVES the plot
+- The child's imagination creates or transforms the world
+- Tone: joyful, expressive, colorful
+- Ending: the child's creation is celebrated by everyone`,
+
+  friendship: `FRIENDSHIP THEME — kindness and togetherness:
+- If a friend name is in customDetails, use it as a named character
+- Story centers on friendship, sharing, and being there for each other
+- Include the friendship moment from customDetails
+- Ending: friendship is celebrated and strengthened`,
+
+  friendship_fun: `FRIENDSHIP THEME — kindness and togetherness:
+- If a friend name is in customDetails, use it as a named character
+- Story centers on friendship, sharing, kindness
+- Ending: friendship celebrated`,
+};
+
+// ── W4: Dialogue minimum rule ──
+const DIALOGUE_RULE = `DIALOGUE RULE: At least 4 of the 13 spreads MUST contain character dialogue in quotation marks.
+Children love reading dialogue aloud. The child speaks, reacts, exclaims.
+Mix narration and dialogue naturally — never have more than 3 consecutive spreads without dialogue.`;
+
+// ── W5: Age-aware vocabulary ──
+function ageVocabularyRules(age) {
+  const n = parseInt(age) || 5;
+  if (n <= 3) return `VOCABULARY (age ${n}): MAX 8 words per sentence. Use only common toddler words. Simple, repetitive, rhythmic patterns. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
+  if (n <= 5) return `VOCABULARY (age ${n}): MAX 12 words per sentence. Simple but richer vocabulary. Occasional compound sentences. Gentle descriptive words. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
+  if (n <= 8) return `VOCABULARY (age ${n}): MAX 18 words per sentence. Full children's vocabulary. Metaphors and similes welcome. Complex sentences OK. Example: "She felt like a brave explorer discovering a hidden world that no one had ever seen before."`;
+  return `VOCABULARY (age ${n}): Young adult vocabulary. Longer sentences fine. Nuanced emotion. Subtext and irony allowed.`;
+}
+
+// ── W6: Rhythmic prose rule ──
+const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents:
+- Vary sentence length: short punchy sentences followed by flowing ones
+- Use near-rhymes and alliteration where natural (never forced)
+- End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud
+- Create a pattern within each spread: description → action → emotion → surprise
+- The LAST LINE of spread 13 must be the most beautiful sentence in the entire book
+- At least ONE line in the story must be memorable enough that a parent would quote it at dinner`;
+
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
   if (a <= 3)  return 'a small stuffed animal'; // ok for toddlers
@@ -830,6 +953,22 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   };
 
   let systemPrompt = buildStoryWriterSystem(briefVars, theme);
+
+  // ── Inject prompt-level quality improvements (W1, W2, W4, W5, W6) ──
+  // W1: Beat structure — BEFORE existing writing rules
+  systemPrompt = BEAT_STRUCTURE + '\n\n' + systemPrompt;
+  // W2: Theme-specific rules
+  const themeRule = THEME_RULES[theme] || THEME_RULES[theme?.replace(/_/g, '')] || '';
+  if (themeRule) {
+    systemPrompt += '\n\n' + themeRule;
+  }
+  // W4: Dialogue minimum
+  systemPrompt += '\n\n' + DIALOGUE_RULE;
+  // W5: Age-aware vocabulary
+  systemPrompt += '\n\n' + ageVocabularyRules(childDetails.childAge || childDetails.age);
+  // W6: Rhythmic prose
+  systemPrompt += '\n\n' + RHYTHM_RULE;
+
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
 
   // Override the "no family in illustrations" rule when secondary characters are detected

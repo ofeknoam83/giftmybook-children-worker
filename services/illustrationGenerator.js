@@ -432,10 +432,18 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   const parts = [];
 
-  // Change 13: LOCKED APPEARANCE at position 1 (before everything)
-  parts.push(`LOCKED CHARACTER APPEARANCE (READ THIS BEFORE ANYTHING ELSE):`);
-  parts.push(`${characterDescription ? characterDescription : 'Match the child in the reference photo exactly.'}`);
-  parts.push(`OUTFIT (do not change): ${characterOutfit || 'match the reference photo'}`);
+  // C2: CHARACTER description is the VERY FIRST block in the prompt
+  parts.push(`DRAW THIS EXACT CHILD — match the reference photo precisely:`);
+  if (opts.characterAnchor) {
+    parts.push(opts.characterAnchor);
+  } else {
+    parts.push(`${characterDescription ? characterDescription : 'Match the child in the reference photo exactly.'}`);
+  }
+  // Extract hair style from characterDescription for emphasis
+  const hairMatch = (characterDescription || '').match(/hair[:\s]+([^.;,]+)/i) || (characterDescription || '').match(/((?:straight|curly|wavy|coily|braided|short|long|medium)[^.;]*hair[^.;]*)/i);
+  const hairStyle = hairMatch ? hairMatch[1].trim() : (characterDescription || 'as shown in the reference photo');
+  parts.push(`HAIR: ${hairStyle} — IDENTICAL in every illustration, never changes.`);
+  parts.push(`OUTFIT: ${characterOutfit || 'match the reference photo'} — IDENTICAL in every illustration, never changes.`);
   parts.push(`This is the ONLY child in this book. Their appearance does NOT change between illustrations.`);
   parts.push(`Do not modify their hair, outfit, or any physical features.`);
   parts.push(``);
@@ -565,6 +573,21 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(keyObjects);
     parts.push('Do NOT change the color or appearance of any object between pages.');
   }
+
+  // C3: Stronger negative / consistency instructions at END of character section
+  const anchorText = opts.characterAnchor || characterDescription || '';
+  const skinToneMatch = anchorText.match(/skin[:\s]+([^.;,\n]+)/i) || anchorText.match(/((?:light|medium|dark|fair|olive|brown|tan|deep|pale)[^.;,\n]*skin[^.;,\n]*)/i);
+  const skinTone = skinToneMatch ? skinToneMatch[1].trim() : 'as shown in the reference photo';
+  // hairStyle already extracted above for C2
+  const outfitDesc = characterOutfit || 'as shown in the reference photo';
+  parts.push('');
+  parts.push(`CONSISTENCY RULES (NON-NEGOTIABLE):`);
+  parts.push(`- The child's FACE must have the same bone structure, nose shape, and eye placement as the reference photo`);
+  parts.push(`- HAIR must be exactly ${hairStyle} — no variation, no accessories added or removed`);
+  parts.push(`- SKIN TONE must be exactly ${skinTone} — not lighter, not darker, regardless of scene lighting`);
+  parts.push(`- OUTFIT must be exactly ${outfitDesc} — same colors, same design, same details`);
+  parts.push(`- If ANYTHING about the child doesn't match the reference, it is WRONG`);
+  parts.push(`- Character consistency is MORE IMPORTANT than artistic creativity or scene composition`);
 
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
