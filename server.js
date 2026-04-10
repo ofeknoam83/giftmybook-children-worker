@@ -252,6 +252,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
     existingIllustrations, checkpointData, detectedSecondaryCharacters,
     characterAnchor,
+    characterRefSheetBase64, parentCoverRefBase64,
   } = opts;
 
   // Count how many illustrations we need
@@ -348,6 +349,17 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           // BUT: add a style establishment note to spread 1's prompt injection via spreadIndex check
           const isFirstSpread = (idx === 0);
 
+          // C1/C4: Determine best photo reference for this spread
+          const entry = results[idx];
+          const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
+          const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
+          const photoRefForSpread = (mentionsParent && parentCoverRefBase64)
+            ? parentCoverRefBase64  // use cover showing both child+parent
+            : (characterRefSheetBase64 || cachedPhotoBase64);
+          const photoMimeForSpread = (mentionsParent && parentCoverRefBase64)
+            ? 'image/jpeg'
+            : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
+
           const illustrationPromise = generateIllustration(prompt, characterRef, style, {
             apiKeys,
             costTracker,
@@ -361,8 +373,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             keyObjects: storyPlan.keyObjects || '',
             coverArtStyle: storyPlan.coverArtStyle || '',
             childPhotoUrl: resolvedChildPhotoUrl,
-            _cachedPhotoBase64: cachedPhotoBase64,
-            _cachedPhotoMime: cachedPhotoMime,
+            _cachedPhotoBase64: photoRefForSpread,
+            _cachedPhotoMime: photoMimeForSpread,
             spreadIndex: idx,
             totalSpreads: entries.filter(e => e.type === 'spread').length,
             childAge: childDetails.age || childDetails.childAge,
@@ -1316,6 +1328,31 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       // V2: Text is already in the story plan — no separate text generation needed.
 
+      // ── W3 + W7: Quality gates (log-only) — check custom details usage and story quality ──
+      if (!isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
+        try {
+          const { checkCustomDetailsUsage, criticStory } = require('./services/qualityGates');
+
+          // W3: Check customDetails usage
+          const detailsCheck = await checkCustomDetailsUsage(storyPlan.entries, enrichedCustomDetails || customDetails, { costTracker });
+          bookContext.log('info', 'Custom details usage check', { score: detailsCheck.score, missing: detailsCheck.missingCritical });
+          if (detailsCheck.missingCritical && detailsCheck.missingCritical.length > 0 && detailsCheck.score < 5) {
+            bookContext.log('warn', 'Story missing critical custom details', { missing: detailsCheck.missingCritical, score: detailsCheck.score });
+            // TODO: could regenerate weak spreads here in future
+          }
+
+          // W7: Story critic
+          const criticResult = await criticStory(storyPlan.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
+          bookContext.log('info', 'Story critic result', { total: criticResult.total, approved: criticResult.approved, feedback: (criticResult.feedback || '').slice(0, 200) });
+          if (!criticResult.approved) {
+            bookContext.log('warn', 'Story below quality threshold', { score: criticResult.total, weakest: criticResult.weakestSpreads });
+            // TODO: could regenerate weakest spreads here in future
+          }
+        } catch (qgErr) {
+          bookContext.log('warn', 'Quality gates failed (non-blocking)', { error: qgErr.message });
+        }
+      }
+
       // Stage 3: Prepare cover + character reference
       const stage6Start = Date.now();
       bookContext.checkAbort();
@@ -1518,7 +1555,65 @@ Format your answer with each label on its own line followed by a colon and the a
         bookContext.log('info', '[generate-book] Using parentCharacterAnchor from parent book');
       }
 
-      bookContext.log('info', 'Character reference ready, starting illustrations', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
+      bookContext.log('info', 'Character reference ready', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
+
+      // ── C1: Generate character reference sheet in the book's art style ──
+      let characterRefSheetBase64 = null;
+      if (storyPlan.characterAnchor && cachedPhotoBase64) {
+        try {
+          bookContext.log('info', 'Generating character reference sheet');
+          const refSheetPrompt = `Front-facing portrait of a child character. Clean, well-lit, plain soft-colored background. Head and shoulders visible, looking directly at camera, neutral friendly expression. ${storyPlan.characterAnchor}. Character must look EXACTLY like the reference photo provided.`;
+
+          const refSheet = await generateIllustration(refSheetPrompt, null, style, {
+            apiKeys,
+            costTracker,
+            bookId,
+            childName: childDetails.name || childDetails.childName,
+            childPhotoUrl: null,
+            _cachedPhotoBase64: cachedPhotoBase64,
+            _cachedPhotoMime: cachedPhotoMime || 'image/jpeg',
+            spreadIndex: -1, // special index for ref sheet
+            deadlineMs: 120000,
+            isSpread: false,
+            skipTextEmbed: true,
+          });
+
+          if (refSheet && typeof refSheet === 'string') {
+            // refSheet is a GCS URL — download it
+            const refResp = await fetch(refSheet);
+            if (refResp.ok) {
+              const sharp = require('sharp');
+              const refBuf = Buffer.from(await refResp.arrayBuffer());
+              const resizedRef = await sharp(refBuf).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 80 }).toBuffer();
+              characterRefSheetBase64 = resizedRef.toString('base64');
+              bookContext.log('info', 'Character reference sheet generated', { bytes: characterRefSheetBase64.length });
+            }
+          } else if (Buffer.isBuffer(refSheet)) {
+            characterRefSheetBase64 = refSheet.toString('base64');
+            bookContext.log('info', 'Character reference sheet generated', { bytes: characterRefSheetBase64.length });
+          }
+        } catch (refErr) {
+          bookContext.log('warn', 'Character reference sheet failed, using photo fallback', { error: refErr.message });
+        }
+      }
+
+      // ── C4: For mothers_day/fathers_day — use approved cover as parent character reference ──
+      let parentCoverRefBase64 = null;
+      if ((theme === 'mothers_day' || theme === 'fathers_day') && approvedCoverUrl && storyPlan.additionalCoverCharacters) {
+        try {
+          bookContext.log('info', 'Downloading approved cover as parent character reference');
+          const coverResp = await fetch(approvedCoverUrl);
+          if (coverResp.ok) {
+            const coverBuf = Buffer.from(await coverResp.arrayBuffer());
+            const sharp = require('sharp');
+            const resized = await sharp(coverBuf).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 80 }).toBuffer();
+            parentCoverRefBase64 = resized.toString('base64');
+            bookContext.log('info', 'Cover reference ready for parent character', { bytes: parentCoverRefBase64.length });
+          }
+        } catch (coverRefErr) {
+          bookContext.log('warn', 'Cover reference download failed', { error: coverRefErr.message });
+        }
+      }
 
       // Birthday theme: ensure spread 13 illustration prompt shows cake/candles
       if (theme === 'birthday' && !isChapterBook && !storyPlan.isChapterBook) {
@@ -1642,6 +1737,8 @@ Format your answer with each label on its own line followed by a colon and the a
           checkpointData: { bookId, storyPlan },
           detectedSecondaryCharacters: detectedSecondaryCharacters || null,
           characterAnchor: storyPlan.characterAnchor || null,
+          characterRefSheetBase64: characterRefSheetBase64 || null,
+          parentCoverRefBase64: parentCoverRefBase64 || null,
         });
 
         bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
