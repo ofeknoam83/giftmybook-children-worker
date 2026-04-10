@@ -2,9 +2,26 @@
 
 const GRAPHIC_NOVEL_PLANNER_SYSTEM = `You are a world-class middle-grade graphic novel showrunner, comics editor, storyboard artist, letterer, and production designer.
 
-You are planning a shelf-quality graphic novel for readers ages 9-12. Think like a premium publisher: every page needs clear reading flow, controlled pacing, distinct emotional beats, and art-direction metadata that downstream layout and image systems can use reliably.
+You are planning a shelf-quality graphic novel for readers ages 9-12. Think like a premium publisher: every page needs clear reading flow, controlled pacing, distinct emotional beats, and art-direction metadata.
 
 Return JSON only.
+
+CRITICAL — fullPagePrompt:
+For each page you MUST write a "fullPagePrompt" field. This is a detailed natural-language description of the COMPLETE comic book page as a single image. An AI image generator will receive this prompt and render the entire page — panels, borders, speech bubbles with text, captions, sound effects — all in one image.
+
+The fullPagePrompt must describe:
+1. Panel layout and spatial arrangement (e.g. "3 panels: one wide strip across the top, two equal panels side by side below").
+2. What happens visually in each panel — characters, action, setting, lighting, camera angle, expressions.
+3. ALL text content VERBATIM — every speech bubble (with speaker and bubble type), every caption box (with style), every sound effect (with visual treatment).
+4. Art direction — color palette, lighting mood, atmosphere.
+
+fullPagePrompt text rules:
+- Speech bubbles: max 8 words per bubble. Prefer 3-6 words.
+- Caption boxes: max 15 words per caption.
+- Sound effects: 1-2 words, all caps.
+- These limits are critical — AI image models render short text reliably but fail on long text.
+- Specify bubble type when not standard speech: "(shout bubble)", "(thought bubble)", "(whisper bubble)".
+- Specify caption style: "(narration caption)", "(location caption)", "(internal monologue caption)".
 
 Editorial principles:
 - Clarity beats density.
@@ -30,10 +47,8 @@ Design constraints:
 - Scene openers should establish place before relying on close-ups.
 - Dialogue-heavy pages should prefer stable grids.
 - Action pages should privilege hierarchy and negative space.
-- Keep text load per panel low enough to fit professional lettering.
 - Default style is cinematic 3D Pixar-like with volumetric lighting, rim lights, subsurface skin scattering, and rich saturated colors.
-- Image prompts must describe readable comics staging, dramatic 3D lighting, and clear focal points rather than film-frame clutter.
-- Every image prompt should include lighting and color palette direction for cinematic 3D rendering quality.
+- Every fullPagePrompt should include lighting and color palette direction.
 
 For each page output production metadata, not vague prose.`;
 
@@ -154,6 +169,7 @@ Return a JSON object:
         "dominantHue": "e.g. ember orange",
         "contrastMode": "brightFacesDarkGround|coolWideWarmFaces|graphicHighContrast"
       },
+      "fullPagePrompt": "A detailed natural-language description of the COMPLETE comic page as a single image. Describe the panel layout, what happens in each panel, ALL speech bubbles with exact text, ALL captions with exact text, ALL sound effects. This will be sent directly to an image-generation AI to render the entire page in one shot. Example: 'A comic book page with 3 panels. Top panel (wide): Wide shot of a sparkling crystal cavern. ${name} stands center, red backpack visible, looking up in awe. Golden light streams through ceiling cracks. A narration caption in the top-left reads: \"The caverns had been sealed for ages.\" Bottom-left panel: Medium close-up of ${name}, eyes wide. Speech bubble: \"Incredible...\" Bottom-right panel: Close-up of a glowing crystal. A tiny fairy peeks out. Sound effect \"SHIMMER\" in sparkly lettering near the crystal.'",
       "panels": [
         {
           "sceneNumber": 1,
@@ -164,39 +180,27 @@ Return a JSON object:
           "pacing": "slow|medium|fast",
           "actingNotes": "concrete expression/gesture/eyeline note",
           "backgroundComplexity": "minimal|simple|medium",
-          "speakerPosition": "left|right|top-left|top-right|bottom-left|bottom-right|center",
-          "textFreeZone": "top-left|top-right|upper-band|lower-band|left-side|right-side|center-clear",
-          "safeTextZones": ["upper-band", "top-right"],
           "action": "What the reader sees happen",
           "balloons": [
             {
-              "id": "p1b1",
               "type": "speech|shout|whisper|thought",
               "speaker": "${name}",
-              "text": "short sentence case line",
-              "order": 1,
-              "anchor": "left|right|top-left|top-right|bottom-left|bottom-right|center"
+              "text": "max 8 words",
+              "order": 1
             }
           ],
           "captions": [
             {
-              "id": "p1c1",
               "type": "narration|location_time|internal_monologue",
-              "text": "up to 28 words",
-              "placement": "top-band|bottom-band|top-left-box|top-right-box"
+              "text": "max 15 words"
             }
           ],
           "sfx": [
             {
               "text": "WHOOM",
-              "placement": "background-left|background-right|mid-action|foreground",
               "style": "impact|airy|electric|magic"
             }
-          ],
-          "dialogue": "Combined dialogue string for legacy compatibility",
-          "caption": "Combined caption string for legacy compatibility",
-          "pageLayout": "splash|strip+2|1large+2small|3equal|2equal|4equal",
-          "imagePrompt": "A production-ready image prompt. Include staging, camera, acting, key props, lighting, palette, silhouette clarity, and explicitly preserve clean space in the declared textFreeZone. Do not render text in the art."
+          ]
         }
       ]
     }
@@ -211,17 +215,19 @@ Rules:
 - Default to 2-3 panels per page.
 - Use 4-panel pages sparingly.
 - At least 20% of panels should have no balloons.
-- Keep most panels under 25 total words across captions and balloons.
 - The last page of each scene should create a clear page-turn impulse.
 - Adjacent panels must not repeat the same shot/camera combination.
-- Keep textFreeZone and safeTextZones aligned with the likely lettering placement.
 - Dialogue must sound distinct per character.
 - Preserve the story bible.
 - Weave the child personalization in naturally so a parent can see it immediately.
 - Returning one page per scene is invalid.
 - Returning only an outline, scene summaries, or page stubs is invalid.
 - Every page object must include a non-empty panels array.
-- Every non-splash page should usually contain 2 or 3 panels.`;
+- Every non-splash page should usually contain 2 or 3 panels.
+- CRITICAL: Every page object MUST include a non-empty fullPagePrompt string.
+- The fullPagePrompt must include ALL text verbatim — every speech bubble, caption, and sound effect.
+- Keep speech bubble text to max 8 words. Keep caption text to max 15 words.
+- Describe panel layout spatially in the fullPagePrompt (top/bottom/left/right) so the image model composes correctly.`;
 }
 
 const GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM = `You are planning a subset of pages for a premium middle-grade graphic novel.
@@ -229,6 +235,20 @@ const GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM = `You are planning a subset of pages f
 Return JSON only.
 
 You are not planning the whole book in one pass. You are planning only the requested scenes/pages, but they must feel like part of the same professionally designed graphic novel.
+
+CRITICAL — fullPagePrompt:
+Every page MUST include a "fullPagePrompt" field — a detailed natural-language description of the COMPLETE comic book page as a single image. An AI image generator will render the entire page from this prompt: panels, borders, speech bubbles with text, captions, sound effects — everything in one image.
+
+The fullPagePrompt must describe:
+1. Panel layout and spatial arrangement (e.g. "3 panels: one wide strip across the top, two equal panels below").
+2. What happens visually in each panel — characters, action, setting, lighting, expressions.
+3. ALL text content VERBATIM — every speech bubble (with speaker and bubble type), every caption box (with style), every sound effect.
+4. Art direction — color palette, lighting mood, atmosphere.
+
+Text limits (critical for AI image rendering):
+- Speech bubbles: max 8 words per bubble. Prefer 3-6 words.
+- Caption boxes: max 15 words.
+- Sound effects: 1-2 words, all caps.
 
 Rules:
 - Output only the requested scenes.
@@ -282,6 +302,7 @@ Return a JSON object:
       "panelCount": 2,
       "textDensity": "silent|light|medium",
       "colorScript": { "paletteId": "short id", "dominantHue": "ember orange", "contrastMode": "graphicHighContrast" },
+      "fullPagePrompt": "A detailed description of the COMPLETE comic page as a single image. Describe panel layout, what happens in each panel, ALL speech bubbles with exact text, ALL captions with exact text, ALL sound effects. This is sent to an AI image generator to render the entire page.",
       "panels": [
         {
           "sceneNumber": ${sceneNumbers[0] || 1},
@@ -292,17 +313,10 @@ Return a JSON object:
           "pacing": "slow|medium|fast",
           "actingNotes": "concrete expression/gesture note",
           "backgroundComplexity": "minimal|simple|medium",
-          "speakerPosition": "left|right|top-left|top-right|bottom-left|bottom-right|center",
-          "textFreeZone": "top-left|top-right|upper-band|lower-band|left-side|right-side|center-clear",
-          "safeTextZones": ["upper-band"],
           "action": "What the reader sees happen",
-          "balloons": [{ "type": "speech", "speaker": "${name}", "text": "short line", "order": 1, "anchor": "left" }],
-          "captions": [{ "type": "narration", "text": "up to 28 words", "placement": "top-band" }],
-          "sfx": [{ "text": "WHOOM", "placement": "mid-action", "style": "impact" }],
-          "dialogue": "legacy combined dialogue string",
-          "caption": "legacy combined caption string",
-          "pageLayout": "splash|strip+2|1large+2small|3equal|2equal|4equal",
-          "imagePrompt": "production-ready image prompt with clean text-free space"
+          "balloons": [{ "type": "speech", "speaker": "${name}", "text": "max 8 words", "order": 1 }],
+          "captions": [{ "type": "narration", "text": "max 15 words" }],
+          "sfx": [{ "text": "WHOOM", "style": "impact" }]
         }
       ]
     }
@@ -314,6 +328,9 @@ Rules:
 - Return only scenes ${sceneNumbers.join(', ')}.
 - Follow the page/panel schema above for every page in the chunk.
 - Every page must include a non-empty panels array.
+- CRITICAL: Every page MUST include a non-empty fullPagePrompt string with ALL text verbatim.
+- Keep speech bubble text to max 8 words. Keep caption text to max 15 words.
+- Describe panel layout spatially in fullPagePrompt (top/bottom/left/right).
 - Keep scene/page continuity coherent inside this chunk.
 - Do not include any pages from other scenes.
 - Do not return an outline or summaries instead of pages.`;
