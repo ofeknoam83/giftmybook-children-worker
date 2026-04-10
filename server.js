@@ -1771,6 +1771,7 @@ Format your answer with each label on its own line followed by a colon and the a
       }
 
       // ── C4: For mothers_day/fathers_day — use approved cover as parent character reference ──
+      // Only fetch when the cover actually contains the parent (secondary character detected).
       let parentCoverRefBase64 = null;
       if ((theme === 'mothers_day' || theme === 'fathers_day') && approvedCoverUrl && storyPlan.additionalCoverCharacters) {
         try {
@@ -2168,6 +2169,8 @@ Format your answer with each label on its own line followed by a colon and the a
               apiKeys, costTracker: upsellCostTracker,
               characterDescription: storyPlan?.characterDescription || null,
               characterAnchor: storyPlan?.characterAnchor || null,
+              theme: theme || null,
+              momDescription: (theme === 'mothers_day' && storyPlan?.momDescription) ? storyPlan.momDescription : null,
             }).catch(e => {
               console.warn(`[server] Upsell covers background error: ${e.message}`);
               return [];

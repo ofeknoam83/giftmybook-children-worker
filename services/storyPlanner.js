@@ -121,8 +121,15 @@ const THEME_RULES = {
 
 // ── W4: Dialogue minimum rule ──
 const DIALOGUE_RULE = `DIALOGUE RULE: At least 4 of the 13 spreads MUST contain character dialogue in quotation marks.
-Children love reading dialogue aloud. The child speaks, reacts, exclaims.
-Mix narration and dialogue naturally — never have more than 3 consecutive spreads without dialogue.`;
+Children love reading dialogue aloud. Mix narration and dialogue naturally — never have more than 3 consecutive spreads without dialogue.
+
+DIALOGUE QUALITY (CRITICAL — bad dialogue kills a book):
+- The child's voice must sound REAL: short sentences, concrete words, unexpected observations. Children don't say "What a beautiful day!" — they say "That cloud looks like a shoe."
+- Let the child be FUNNY in dialogue. Kids say surprising things: "I think the moon follows me." / "Do worms have dreams?" / "That's not how birds work." These moments make a book feel alive.
+- Dialogue must DO something: reveal character, create humor, advance the plot, or surprise the reader. If dialogue just states what the reader already knows ("Look, a castle!"), cut it.
+- The child's voice must be DISTINCT from the narrator's voice. If you can't tell who's speaking without quotation marks, the dialogue is too flat.
+- Fictional characters (animals, creatures, objects) can have personality in dialogue too: a grumpy map, a nervous star, a door that asks riddles. Give non-child characters a distinct voice — formal, overly polite, hilariously literal.
+- ONE great line of dialogue is worth more than four dutiful ones. Aim for at least one line the parent will remember.`;
 
 // ── W5: Age-aware vocabulary ──
 function ageVocabularyRules(age) {
@@ -134,13 +141,15 @@ function ageVocabularyRules(age) {
 }
 
 // ── W6: Rhythmic prose rule ──
-const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents:
-- Vary sentence length: short punchy sentences followed by flowing ones
-- Use near-rhymes and alliteration where natural (never forced)
-- End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud
-- Create a pattern within each spread: description → action → emotion → surprise
-- The LAST LINE of spread 13 must be the most beautiful sentence in the entire book
-- At least ONE line in the story must be memorable enough that a parent would quote it at dinner`;
+const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents. Every line must sound good in someone's mouth:
+- Vary sentence length: short punchy sentences followed by flowing ones. A three-word sentence after a long one hits like a drum. "The forest opened up before her, canopy dripping with gold and shadow and the last light of afternoon. She stepped through."
+- Write for the EAR: "She stepped inside" has energy (short vowel, hard consonant). "She walked into the room" is flat (soft consonants, no surprise). Choose words that feel good to say. Prefer verbs with texture: crept, tumbled, slid, pressed, clung, drifted.
+- NEAR-RHYME over forced rhyme: "The wind was gone. The leaves held still." has music without rhyming. Internal echoes (gone/long, still/hill) create a feeling of pattern without the cage of end-rhymes. Use alliteration where natural — never stack it.
+- End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud — a sentence you'd want to repeat. Not a summary. An image.
+- ONE-WORD or TWO-WORD sentences are powerful when earned: "Silence." / "Not yet." / "Almost." Use sparingly — max 2 per story.
+- The LAST LINE of spread 13 must be the most beautiful sentence in the entire book. It should feel inevitable — like the only possible ending. A parent should want to read it twice.
+- At least ONE line in the story must be memorable enough that a parent would quote it at dinner — not because it's wise, but because it's perfectly said.
+- PACING WITHIN SPREADS: The left page sets up. The right page lands. Don't put all the energy on one side. The page turn between left and right is a breath; the page turn between spreads is a heartbeat.`;
 
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
@@ -595,6 +604,21 @@ function getThemeBeatStructure(theme, age) {
    - Spread 12: Going home — one quiet line.
    - Spread 13: At the window or doorstep, something the friend gave them in hand. The world is full.`;
 
+    case 'mothers_day':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
+   MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
+   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm, tender, and deeply personal. The story builds from everyday moments to a heartfelt expression of love.
+   - Spread 1: A morning moment — the child wakes up and sees or hears Mom doing something familiar and loving (making breakfast, humming a song, opening curtains). Mom is VISIBLE in this spread.
+   - Spread 2: A special shared ritual — something only this child and Mom do together (a walk, a game, reading, cooking). Mom is VISIBLE.
+   - Spreads 3-4: Memories of things Mom does — comforting when scared, cheering at a game, teaching something new. At least one spread shows Mom VISIBLE alongside the child.
+   - Spread 5: A moment the child realizes how much Mom does — the house is full of Mom's love in small details (a packed lunch, a tucked blanket, a note in a pocket).
+   - Spread 6: THE HINGE — a quiet, tender moment. The child sees Mom tired, or working hard, or giving without asking for anything back. The child's heart swells. Mom is VISIBLE.
+   - Spreads 7-8: The child decides to do something special for Mom — making a gift, picking flowers, preparing a surprise, drawing a picture. The child's love takes action.
+   - Spreads 9-10: The surprise unfolds — the child presents their gift or gesture. Mom's reaction is pure joy. Mom is VISIBLE, receiving the child's love.
+   - Spread 11: A warm shared moment — Mom and child together, the gift between them, the world soft and golden. Mom is VISIBLE.
+   - Spread 12: A quiet embrace — one tender line. Mom holds the child close. Mom is VISIBLE.
+   - Spread 13: The final image — Mom and child together in a warm, loving embrace or side by side. The child whispers or says "I love you." Mom is VISIBLE. This is the emotional peak — make it land.`;
+
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
    QUEST RULE: This is an adventure story. The child's specific goal MUST be named in spread 1 — concrete, visual, and achievable. "Go on an adventure" is not a quest. A quest has a specific target: an object to find, a place to reach, a creature to help, a mystery to solve. The entire story builds toward this goal. Spread 13 resolves it with success.
@@ -663,14 +687,27 @@ ${beatStructure}
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
 
-${additionalCoverCharacters
-  ? `SECONDARY CHARACTERS (from the uploaded photo):
+${theme === 'mothers_day'
+  ? (additionalCoverCharacters
+    ? `MOTHER'S DAY — MOM IN ILLUSTRATIONS + SECONDARY CHARACTERS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time.
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+    : `MOTHER'S DAY — MOM IN ILLUSTRATIONS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`)
+  : (additionalCoverCharacters
+    ? `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
 Do NOT invent other family members beyond what is listed above.`
-  : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
-Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`}
+    : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
+Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`)}
 
 Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
@@ -971,6 +1008,11 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
 
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
 
+  // Always allow/require Mom for Mother's Day stories, even if a secondary person was detected.
+  if (theme === 'mothers_day') {
+    systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+  }
+
   // Override the "no family in illustrations" rule when secondary characters are detected
   if (additionalCoverCharacters) {
     systemPrompt += `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene.`;
@@ -1143,7 +1185,7 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
       setting: '',
       dedication: `For ${childDetails.name || childDetails.childName || 'the child'}`,
     };
-    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters);
+    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters, theme);
     userPrompt = pbUserPrompt(childDetails, theme, customDetails, v2Vars, additionalCoverCharacters);
   } else {
     systemPrompt = ER_SYSTEM;
@@ -1795,7 +1837,7 @@ async function polishStory(storyPlan, opts = {}) {
 
 const COMBINED_CRITIC_SYSTEM = `You are a world-class children's book editor. You review the story in ONE pass and fix everything at once.
 
-Your job covers four areas. Evaluate ALL of them, then produce ONE set of improved spreads.
+Your job covers six areas. Evaluate ALL of them, then produce ONE set of improved spreads.
 
 ─────────────────────────────────────────
 1. RHYTHM & READ-ALOUD (highest priority)
@@ -1806,6 +1848,7 @@ Read every line aloud in your head. Fix any line that:
 - Has words over 3 syllables (unless a name or meaningful invented word)
 - Violates the 8–14 syllable preference per sentence
 - Contains a forced or strained rhyme that bends the meaning
+- Sounds flat when spoken — prefer words with texture and energy ("crept" over "walked", "pressed" over "put")
 
 Rules for rhythm fixes:
 - Keep fixes shorter or equal length to the original
@@ -1820,7 +1863,7 @@ Rules for rhythm fixes:
 Check:
 - ESCALATION: Each spread slightly increases curiosity, movement, or wonder through the middle
 - DOUBT MOMENT: There is a clear moment of uncertainty or tension in spreads 5–8
-- ENDING: The final 2 spreads feel like a whisper — soft, resolved, dream-like (not a conclusion)
+- ENDING: The final 2 spreads feel emotionally resolved — energy matches the theme
 
 Fix weak spreads. Do NOT add new characters, events, or settings.
 
@@ -1830,6 +1873,7 @@ Fix weak spreads. Do NOT add new characters, events, or settings.
 Ensure at least ONE line exists that a parent would want to repeat to their child outside the book.
 It should be specific to THIS child and THIS story — not generic.
 If no such line exists, create one naturally within the existing story structure.
+A memorable line is NOT a wise statement — it's a perfectly observed image or feeling: "The dark had a sound now. Not a growl. A hum."
 
 ─────────────────────────────────────────
 4. LANGUAGE QUALITY
@@ -1838,6 +1882,26 @@ If no such line exists, create one naturally within the existing story structure
 - Replace any emotion-telling: "she felt scared", "he was happy" → show through action/sensation
 - Sharpen one word per spread if a more specific/sensory word fits better
 - Only reduce or maintain word count — never increase
+
+─────────────────────────────────────────
+5. HUMOR & DELIGHT
+─────────────────────────────────────────
+Check for at least 2 genuinely funny or delightful moments in the story (spreads 2-10).
+Not token jokes — real humor that a child would laugh at and a parent would smile at:
+- Does the child say or do something unexpected and funny?
+- Is there a running gag, a recurring absurd detail, or a creature/object with personality?
+- Is there at least one moment of comic timing (setup then surprise)?
+If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation, a sound effect at the wrong moment. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.
+
+─────────────────────────────────────────
+6. ANTI-KITSCHY CHECK
+─────────────────────────────────────────
+Flag and fix any lines that feel like greeting cards, motivational posters, or generic sentiment:
+- "The real treasure was..." / "Love is the strongest..." / "You are special just the way you are" / "With love, anything is possible" / "The magic was inside them all along"
+- Any ending where the character announces what they learned or explains the story's moral
+- Any vague emotional summary: "and the child felt warm and happy and loved"
+- Any line that could appear in ANY children's book — replace with something only THIS story could say
+Replace kitschy lines with specific, concrete images that earn the same emotion: "She pressed her nose against the window. The stars were still there." beats "She felt grateful for the beautiful night."
 
 ─────────────────────────────────────────
 RULES FOR ALL REWRITES
@@ -1853,17 +1917,19 @@ Return JSON:
     "rhythm": <1-10>,
     "emotional_arc": <1-10>,
     "memorable_line": <1-10>,
-    "language_quality": <1-10>
+    "language_quality": <1-10>,
+    "humor": <1-10>,
+    "anti_kitschy": <1-10>
   },
   "issues": [
-    { "spread": 1, "area": "rhythm|arc|memorable|language", "line": "exact quote", "reason": "brief description" }
+    { "spread": 1, "area": "rhythm|arc|memorable|language|humor|kitschy", "line": "exact quote", "reason": "brief description" }
   ],
   "improved_spreads": [
     { "spread": 1, "left": "...", "right": "..." }
   ]
 }
 
-- scores: Rate the story AFTER your improvements on each of your 4 areas (1-10). Be strict — score 7+ only if genuinely strong.
+- scores: Rate the story AFTER your improvements on each of your 6 areas (1-10). Be strict — score 7+ only if genuinely strong.
 - Return ALL spreads in improved_spreads (unchanged spreads returned as-is)
 - If left or right was null, keep it null
 - issues array may be empty if the story is already strong`;

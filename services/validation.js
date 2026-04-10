@@ -5,6 +5,8 @@
 const VALID_FORMATS = ['picture_book', 'early_reader', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
 const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
+  // Occasion themes
+  'mothers_day', 'fathers_day',
   // Emotional development themes
   'anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change'
 ];

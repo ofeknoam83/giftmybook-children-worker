@@ -1258,3 +1258,109 @@ describe('planGraphicNovel robustness', () => {
     expect(bookContext.log).toHaveBeenCalledWith('info', 'Starting chunked graphic novel planning', expect.any(Object));
   }, 15000);
 });
+
+// ── Mother's Day theme-specific prompt tests ──
+describe('buildStoryPlannerSystem — mothers_day theme', () => {
+  const { buildStoryPlannerSystem } = require('../../prompts/pictureBook');
+
+  test('without additionalCoverCharacters: Mom is explicitly required in illustrations', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'mothers_day');
+    expect(system).toMatch(/Mom.*MUST appear in illustration prompts/i);
+    expect(system).not.toMatch(/NEVER depict family members/i);
+  });
+
+  test('without additionalCoverCharacters: other family members are still blocked', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'mothers_day');
+    expect(system).toMatch(/siblings.*grandparents.*dad.*must NOT appear in illustrations/i);
+  });
+
+  test('with additionalCoverCharacters: Mom is still required alongside detected secondary character', () => {
+    const momDesc = 'A woman with brown hair and blue eyes';
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, momDesc, 'mothers_day');
+    expect(system).toMatch(/Mom.*MUST appear in illustration prompts/i);
+    expect(system).toContain(momDesc);
+    // Should not contain the bare "no family" rule
+    expect(system).not.toMatch(/NEVER depict family members/i);
+    // Should not have language that blocks Mom (old contradictory phrasing)
+    expect(system).not.toMatch(/Do NOT invent other family members beyond what is listed above/i);
+    // Should use the unambiguous combined-override phrasing
+    expect(system).toMatch(/Only Mom and the secondary character/i);
+  });
+
+  test('non-mothers_day with additionalCoverCharacters: standard secondary character rule applies', () => {
+    const desc = 'A tall man with dark hair';
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, desc, 'adventure');
+    expect(system).toContain(desc);
+    expect(system).toMatch(/Do NOT invent other family members beyond what is listed above/i);
+    // Mom should NOT be mentioned as a required character
+    expect(system).not.toMatch(/Mom.*MUST appear/i);
+  });
+
+  test('non-mothers_day without additionalCoverCharacters: standard no-family rule applies', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'adventure');
+    expect(system).toMatch(/NEVER depict family members/i);
+  });
+});
+
+describe('generateStoryText (writer system prompt) — mothers_day theme', () => {
+  const capturedPrompts = [];
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    capturedPrompts.length = 0;
+    global.fetch = jest.fn(async (url, opts) => {
+      const body = JSON.parse(opts?.body || '{}');
+      if (body.messages) {
+        capturedPrompts.push(body.messages);
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Once upon a time there was a child.' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function getSystemPrompt() {
+    const messages = capturedPrompts.find(m => m && m[0]?.role === 'system');
+    return messages?.[0]?.content || '';
+  }
+
+  test('without additionalCoverCharacters: Mom override is injected', async () => {
+    const { generateStoryText } = require('../../services/storyPlanner');
+    if (!generateStoryText) return; // skip if not exported
+    const childDetails = { name: 'Lily', age: 5, gender: 'female', interests: ['flowers'] };
+    await generateStoryText(childDetails, 'mothers_day', '', null, {
+      apiKeys: { OPENAI_API_KEY: 'test-key' },
+      costTracker: { add: jest.fn(), getSummary: () => ({}) },
+    }).catch(() => {});
+    const sys = getSystemPrompt();
+    if (sys) {
+      expect(sys).toMatch(/MOTHER'S DAY OVERRIDE/i);
+    }
+  });
+
+  test('with additionalCoverCharacters: both Mom override and secondary character override are present', async () => {
+    const { generateStoryText } = require('../../services/storyPlanner');
+    if (!generateStoryText) return; // skip if not exported
+    const childDetails = { name: 'Lily', age: 5, gender: 'female', interests: ['flowers'] };
+    const momDesc = 'A woman with curly red hair';
+    await generateStoryText(childDetails, 'mothers_day', '', null, {
+      apiKeys: { OPENAI_API_KEY: 'test-key' },
+      additionalCoverCharacters: momDesc,
+      costTracker: { add: jest.fn(), getSummary: () => ({}) },
+    }).catch(() => {});
+    const sys = getSystemPrompt();
+    if (sys) {
+      expect(sys).toMatch(/MOTHER'S DAY OVERRIDE/i);
+      expect(sys).toMatch(/COVER PHOTO OVERRIDE/i);
+      expect(sys).toContain(momDesc);
+    }
+  });
+});
