@@ -308,12 +308,12 @@ describe('validateStoryText', () => {
   });
 
   test.each([
-    ['One day the adventure began', 'One day...'],
-    ['Once upon a time there was a girl', 'Once upon a time'],
-    ['She woke up and stretched her arms', 'woke up'],
-    ['It was a beautiful morning in the park', 'It was a beautiful...'],
-    ['The morning was bright and full of promise', 'The morning was...'],
-    ['The day had finally arrived', 'The day had finally'],
+    ['One day the adventure began'],
+    ['Once upon a time there was a girl'],
+    ['She woke up and stretched her arms'],
+    ['It was a beautiful morning in the park'],
+    ['The morning was bright and full of promise'],
+    ['The day had finally arrived'],
   ])('flags opening cliche: %s', (openingText) => {
     const plan = {
       entries: Array.from({ length: 12 }, (_, i) => ({
