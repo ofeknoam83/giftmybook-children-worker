@@ -12,9 +12,144 @@ const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('.
 const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
-const { enrichCustomDetails, enrichStoryReferences } = require('./customDetailsEnricher');
+const { enrichCustomDetails } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
+const DEFAULT_LLM_TIMEOUT_MS = 120000;
+const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 480000;
+const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 240000;
+
+// ── W1: Beat structure per spread ──
+const BEAT_STRUCTURE = `BEAT STRUCTURE — each spread has a PURPOSE:
+Spread 1 (THE HOOK): [child] in their world. Something catches their attention. End with curiosity or excitement.
+Spread 2 (THE DISCOVERY): The adventure begins. Show wonder and excitement. Introduce the setting.
+Spread 3 (RISING FUN): First challenge or new discovery. Use a specific detail from customDetails here.
+Spread 4 (DEEPER IN): The world expands. More characters, places, or surprises.
+Spread 5 (THE HEART): The emotional core of the story. For birthday: the celebration moment. For mothers_day: the deepest bond. For adventure: the biggest obstacle.
+Spread 6 (TURNING POINT): Something changes. A challenge, a surprise, or an emotional shift.
+Spread 7 (PEAK MOMENT): The climax. Maximum joy, tension, or wonder. The most dramatic illustration.
+Spread 8 (AFTERMATH): The immediate result of the peak. Emotion settling. Characters react.
+Spread 9 (RESOLUTION): The challenge is overcome. The celebration is complete. Things come together.
+Spread 10 (NEW WORLD): The world feels different now. Show what changed.
+Spread 11 (WARM GLOW): Quiet warmth. Characters together. Gratitude, love, connection.
+Spread 12 (REFLECTION): Looking back on the adventure. A moment of peace.
+Spread 13 (THE LAST LINE): One perfect closing image. THE most beautiful, memorable sentence in the entire book. This is what parents will quote.`;
+
+// ── W2: Theme-specific story rules ──
+const THEME_RULES = {
+  birthday: `BIRTHDAY THEME — EVERY spread must feel like a celebration:
+- The child's birthday is the CENTRAL EVENT of the entire story
+- Favorite cake/food from customDetails MUST appear in at least one spread
+- Favorite toys/activities MUST appear as birthday elements (gifts, decorations, games)
+- Energy: joyful, excited, celebrated — this child is the STAR today
+- Ending: triumphant, celebratory — NEVER sleepy or quiet
+- The whole world celebrates THIS specific child`,
+
+  birthday_magic: `BIRTHDAY THEME — EVERY spread must feel like a celebration:
+- The child's birthday is the CENTRAL EVENT of the entire story
+- Favorite cake/food from customDetails MUST appear in at least one spread
+- Favorite toys/activities MUST appear as birthday elements
+- Energy: joyful, excited, celebrated — this child is the STAR today
+- Ending: triumphant, celebratory — NEVER sleepy or quiet`,
+
+  bedtime: `BEDTIME THEME — calm, cozy, magical:
+- Every spread has a gentle, warm, dreamy tone — the world softens as night comes
+- Include the sweet bedtime moment from customDetails as a specific scene
+- Story arc: active play → winding down → magical quiet → peaceful sleep
+- Ending: the child drifts peacefully to sleep — this IS a bedtime story
+- Use dreamy imagery: stars, glowing night lights, soft moonlight, warm blankets`,
+
+  bedtime_wonder: `BEDTIME THEME — calm, cozy, magical:
+- Every spread has a gentle, warm, dreamy tone — the world softens as night comes
+- Include the sweet bedtime moment from customDetails as a specific scene
+- Ending: the child drifts peacefully to sleep — dreamy, warm, safe
+- Use dreamy imagery: stars, moonlight, soft glow, warm blankets`,
+
+  mothers_day: `MOTHER'S DAY THEME — a love letter from child to mom:
+- Mom is a NAMED CHARACTER — use the name from customDetails (calls_mom / mom_name). If not provided, use "Mommy"
+- Mom MUST appear in at least 6 of 13 spreads — she is co-protagonist
+- Story is told from the child's perspective of love and gratitude for mom
+- Include the meaningful_moment from customDetails as a specific scene
+- Include moms_favorite_moment if provided
+- Ending: heartfelt, warm — a direct expression of love from child to mom
+- This book should make a mother cry happy tears`,
+
+  fathers_day: `FATHER'S DAY THEME — a bonding adventure:
+- Dad is a NAMED CHARACTER — use the name from customDetails (calls_dad / dad_name). If not provided, use "Daddy"
+- Dad MUST appear in at least 6 of 13 spreads — he is co-protagonist
+- Include shared activities from customDetails as story scenes
+- Include meaningful_moment as a specific spread
+- Tone: adventurous, proud, bonding, playful
+- Ending: heartfelt — child expressing love and admiration for dad`,
+
+  adventure: `ADVENTURE THEME — a quest with a goal:
+- State the quest/mission clearly in spread 1 or 2
+- The meaningful_moment from customDetails inspires the quest destination or reward
+- The child's activities from customDetails become skills used during the adventure
+- Pacing: builds urgency through middle spreads, peaks at spread 7
+- Ending: triumphant — child returns changed/grown, mission accomplished`,
+
+  adventure_play: `ADVENTURE THEME — a quest with a goal:
+- State the quest/mission clearly in spread 1 or 2
+- The child's favorite activities become skills used during the adventure
+- Pacing: builds urgency, peaks at spread 7
+- Ending: triumphant — child returns changed/grown`,
+
+  learning_discovery: `LEARNING THEME — curiosity-driven story:
+- Story built around something the child is curious about
+- Arc: wonder → question → exploration → discovery → understanding
+- The child asks questions and discovers answers through adventure
+- Ending: child shares their new knowledge with someone they love`,
+
+  creative_arts: `CREATIVE ARTS THEME — imagination is the hero:
+- The child's creative activity (drawing/singing/dancing/building) DRIVES the plot
+- The child's imagination creates or transforms the world
+- Tone: joyful, expressive, colorful
+- Ending: the child's creation is celebrated by everyone`,
+
+  friendship: `FRIENDSHIP THEME — kindness and togetherness:
+- If a friend name is in customDetails, use it as a named character
+- Story centers on friendship, sharing, and being there for each other
+- Include the friendship moment from customDetails
+- Ending: friendship is celebrated and strengthened`,
+
+  friendship_fun: `FRIENDSHIP THEME — kindness and togetherness:
+- If a friend name is in customDetails, use it as a named character
+- Story centers on friendship, sharing, kindness
+- Ending: friendship celebrated`,
+};
+
+// ── W4: Dialogue minimum rule ──
+const DIALOGUE_RULE = `DIALOGUE RULE: At least 4 of the 13 spreads MUST contain character dialogue in quotation marks.
+Children love reading dialogue aloud. Mix narration and dialogue naturally — never have more than 3 consecutive spreads without dialogue.
+
+DIALOGUE QUALITY (CRITICAL — bad dialogue kills a book):
+- The child's voice must sound REAL: short sentences, concrete words, unexpected observations. Children don't say "What a beautiful day!" — they say "That cloud looks like a shoe."
+- Let the child be FUNNY in dialogue. Kids say surprising things: "I think the moon follows me." / "Do worms have dreams?" / "That's not how birds work." These moments make a book feel alive.
+- Dialogue must DO something: reveal character, create humor, advance the plot, or surprise the reader. If dialogue just states what the reader already knows ("Look, a castle!"), cut it.
+- The child's voice must be DISTINCT from the narrator's voice. If you can't tell who's speaking without quotation marks, the dialogue is too flat.
+- Fictional characters (animals, creatures, objects) can have personality in dialogue too: a grumpy map, a nervous star, a door that asks riddles. Give non-child characters a distinct voice — formal, overly polite, hilariously literal.
+- ONE great line of dialogue is worth more than four dutiful ones. Aim for at least one line the parent will remember.`;
+
+// ── W5: Age-aware vocabulary ──
+function ageVocabularyRules(age) {
+  const n = parseInt(age) || 5;
+  if (n <= 3) return `VOCABULARY (age ${n}): MAX 8 words per sentence. Use only common toddler words. Simple, repetitive, rhythmic patterns. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
+  if (n <= 5) return `VOCABULARY (age ${n}): MAX 12 words per sentence. Simple but richer vocabulary. Occasional compound sentences. Gentle descriptive words. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
+  if (n <= 8) return `VOCABULARY (age ${n}): MAX 18 words per sentence. Full children's vocabulary. Metaphors and similes welcome. Complex sentences OK. Example: "She felt like a brave explorer discovering a hidden world that no one had ever seen before."`;
+  return `VOCABULARY (age ${n}): Young adult vocabulary. Longer sentences fine. Nuanced emotion. Subtext and irony allowed.`;
+}
+
+// ── W6: Rhythmic prose rule ──
+const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents. Every line must sound good in someone's mouth:
+- Vary sentence length: short punchy sentences followed by flowing ones. A three-word sentence after a long one hits like a drum. "The forest opened up before her, canopy dripping with gold and shadow and the last light of afternoon. She stepped through."
+- Write for the EAR: "She stepped inside" has energy (short vowel, hard consonant). "She walked into the room" is flat (soft consonants, no surprise). Choose words that feel good to say. Prefer verbs with texture: crept, tumbled, slid, pressed, clung, drifted.
+- NEAR-RHYME over forced rhyme: "The wind was gone. The leaves held still." has music without rhyming. Internal echoes (gone/long, still/hill) create a feeling of pattern without the cage of end-rhymes. Use alliteration where natural — never stack it.
+- End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud — a sentence you'd want to repeat. Not a summary. An image.
+- ONE-WORD or TWO-WORD sentences are powerful when earned: "Silence." / "Not yet." / "Almost." Use sparingly — max 2 per story.
+- The LAST LINE of spread 13 must be the most beautiful sentence in the entire book. It should feel inevitable — like the only possible ending. A parent should want to read it twice.
+- At least ONE line in the story must be memorable enough that a parent would quote it at dinner — not because it's wise, but because it's perfectly said.
+- PACING WITHIN SPREADS: The left page sets up. The right page lands. Don't put all the energy on one side. The page turn between left and right is a breath; the page turn between spreads is a heartbeat.`;
 
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
@@ -38,11 +173,34 @@ const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models
 /**
  * Call OpenAI GPT 5.4 chat completions API.
  */
+async function fetchWithTimeout(url, init, timeoutMs, requestLabel) {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (didTimeout) {
+      throw new Error(`${requestLabel || 'LLM request'} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const apiKey = opts.apiKey;
   if (!apiKey) throw new Error('OpenAI API key not available');
 
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Use streaming for large token budgets to avoid connection timeout on long generations
+  const useStream = (opts.maxTokens || 4000) > 8000;
+
+  const resp = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -57,19 +215,69 @@ async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
       temperature: opts.temperature || 0.8,
       max_completion_tokens: opts.maxTokens || 4000,
       response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
+      stream: useStream || undefined,
+      ...(useStream ? { stream_options: { include_usage: true } } : {}),
     }),
-  });
+  }, opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS, opts.requestLabel || 'OpenAI request');
 
   if (!resp.ok) {
     const err = await resp.text();
     throw new Error(`OpenAI API error ${resp.status}: ${err.slice(0, 200)}`);
   }
 
+  if (useStream && typeof resp.text === 'function') {
+    // Read SSE stream and collect content + usage
+    const rawText = await resp.text();
+    if (rawText.trimStart().startsWith('data:')) {
+      const lines = rawText.split('\n');
+      let content = '';
+      let finishReason = 'stop';
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break;
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = chunk.choices?.[0]?.delta;
+          if (delta?.content) content += delta.content;
+          const reason = chunk.choices?.[0]?.finish_reason;
+          if (reason) finishReason = reason;
+          if (chunk.usage) {
+            inputTokens = chunk.usage.prompt_tokens || inputTokens;
+            outputTokens = chunk.usage.completion_tokens || outputTokens;
+          }
+        } catch (_) { /* skip malformed SSE lines */ }
+      }
+
+      finishReason = finishReason === 'length' ? 'MAX_TOKENS' : (finishReason || 'stop');
+      return { text: content, inputTokens, outputTokens, finishReason };
+    }
+    // Response is plain JSON despite stream request — parse normally
+    const data = JSON.parse(rawText);
+    const choice = data.choices?.[0];
+    const fr = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
+    let ct = choice?.message?.content || '';
+    return { text: typeof ct === 'string' ? ct : '', inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0, finishReason: fr };
+  }
+
   const data = await resp.json();
   const choice = data.choices?.[0];
   const finishReason = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
+  let content = choice?.message?.content || '';
+  if (Array.isArray(content)) {
+    content = content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return part.text || '';
+        return '';
+      })
+      .join('');
+  }
   return {
-    text: choice?.message?.content || '',
+    text: typeof content === 'string' ? content : '',
     inputTokens: data.usage?.prompt_tokens || 0,
     outputTokens: data.usage?.completion_tokens || 0,
     finishReason,
@@ -83,22 +291,26 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
+  const { timeoutMs, requestLabel, ...geminiGenConfig } = genConfig || {};
+
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-    generationConfig: genConfig,
+    generationConfig: geminiGenConfig,
   };
 
   let resp;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      resp = await fetch(
+      resp = await fetchWithTimeout(
         `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
-        }
+        },
+        timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+        requestLabel || `Gemini request attempt ${attempt}`
       );
       break;
     } catch (fetchErr) {
@@ -138,7 +350,12 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
         temperature: opts.temperature || 0.8,
         maxTokens: opts.maxTokens || 8000,
         jsonMode: opts.jsonMode,
+        timeoutMs: opts.timeoutMs,
+        requestLabel: opts.requestLabel,
       });
+      if (opts.jsonMode && !String(result.text || '').trim()) {
+        throw new Error('GPT 5.4 returned empty JSON-mode content');
+      }
       if (opts.costTracker) {
         opts.costTracker.addTextUsage('gpt-5.4', result.inputTokens, result.outputTokens);
       }
@@ -153,6 +370,8 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
     maxOutputTokens: opts.maxTokens || 8000,
     temperature: opts.temperature || 0.8,
     responseMimeType: opts.jsonMode ? 'application/json' : undefined,
+    timeoutMs: opts.timeoutMs,
+    requestLabel: opts.requestLabel,
   });
   if (opts.costTracker) {
     opts.costTracker.addTextUsage(GEMINI_MODEL, result.inputTokens, result.outputTokens);
@@ -385,6 +604,21 @@ function getThemeBeatStructure(theme, age) {
    - Spread 12: Going home — one quiet line.
    - Spread 13: At the window or doorstep, something the friend gave them in hand. The world is full.`;
 
+    case 'mothers_day':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
+   MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
+   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm, tender, and deeply personal. The story builds from everyday moments to a heartfelt expression of love.
+   - Spread 1: A morning moment — the child wakes up and sees or hears Mom doing something familiar and loving (making breakfast, humming a song, opening curtains). Mom is VISIBLE in this spread.
+   - Spread 2: A special shared ritual — something only this child and Mom do together (a walk, a game, reading, cooking). Mom is VISIBLE.
+   - Spreads 3-4: Memories of things Mom does — comforting when scared, cheering at a game, teaching something new. At least one spread shows Mom VISIBLE alongside the child.
+   - Spread 5: A moment the child realizes how much Mom does — the house is full of Mom's love in small details (a packed lunch, a tucked blanket, a note in a pocket).
+   - Spread 6: THE HINGE — a quiet, tender moment. The child sees Mom tired, or working hard, or giving without asking for anything back. The child's heart swells. Mom is VISIBLE.
+   - Spreads 7-8: The child decides to do something special for Mom — making a gift, picking flowers, preparing a surprise, drawing a picture. The child's love takes action.
+   - Spreads 9-10: The surprise unfolds — the child presents their gift or gesture. Mom's reaction is pure joy. Mom is VISIBLE, receiving the child's love.
+   - Spread 11: A warm shared moment — Mom and child together, the gift between them, the world soft and golden. Mom is VISIBLE.
+   - Spread 12: A quiet embrace — one tender line. Mom holds the child close. Mom is VISIBLE.
+   - Spread 13: The final image — Mom and child together in a warm, loving embrace or side by side. The child whispers or says "I love you." Mom is VISIBLE. This is the emotional peak — make it land.`;
+
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
    QUEST RULE: This is an adventure story. The child's specific goal MUST be named in spread 1 — concrete, visual, and achievable. "Go on an adventure" is not a quest. A quest has a specific target: an object to find, a place to reach, a creature to help, a mystery to solve. The entire story builds toward this goal. Spread 13 resolves it with success.
@@ -433,8 +667,15 @@ Return a JSON object with these fields:
 
 5. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
 
-6. repeated_phrase: A short phrase (2-6 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
-   The phrase MUST be poetic and sensory — specific and unexpected, never generic motivation. REJECT: "ready to fly", "you've got this", "believe in yourself", "anything is possible". REQUIRE: phrases that carry a physical sensation or unexpected image — "the dark has a sound now", "round enough to jump", "her name in the wind", "still here, still mine". If your phrase could appear on a motivational poster, discard it and try again.
+6. repeated_phrase: A short phrase (2-8 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
+   The phrase MUST be poetic and sensory — specific and unexpected, never generic motivation. REJECT: "ready to fly", "you've got this", "believe in yourself", "anything is possible", "shine bright", "dream big", "you are enough". REQUIRE: phrases that carry a physical sensation or unexpected image. If your phrase could appear on a motivational poster, discard it and try again.
+   Theme-specific examples of GOOD phrases (for calibration — do NOT copy these):
+   - Adventure: "the map remembers", "boots on stone", "one bridge left", "the trail hums back"
+   - Bedtime: "the dark has a sound now", "still here, still mine", "the blanket knows", "hush is a color"
+   - Birthday: "this cake, this day", "the room is singing", "candles counting down", "frosting on her chin"
+   - Space/Underwater: "bubbles know the way", "salt on her tongue", "the stars are listening", "deep enough to echo"
+   - Emotional: "my hands are shaking still", "the knot unwound", "smaller than it was", "the weight has a name now"
+   - Nature/Friendship: "the roots remember", "your hand in mine", "the river kept going", "bark under her nails"
 
 7. phrase_arc: Three short descriptions of how the phrase evolves:
    - early: how it feels the first time
@@ -446,14 +687,27 @@ ${beatStructure}
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
 
-${additionalCoverCharacters
-  ? `SECONDARY CHARACTERS (from the uploaded photo):
+${theme === 'mothers_day'
+  ? (additionalCoverCharacters
+    ? `MOTHER'S DAY — MOM IN ILLUSTRATIONS + SECONDARY CHARACTERS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time.
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+    : `MOTHER'S DAY — MOM IN ILLUSTRATIONS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`)
+  : (additionalCoverCharacters
+    ? `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
 Do NOT invent other family members beyond what is listed above.`
-  : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
-Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`}
+    : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
+Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`)}
 
 Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
@@ -558,7 +812,116 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   if (seed.emotional_core) console.log(`[storyPlanner] Emotional core: "${seed.emotional_core}"`);
   if (seed.repeated_phrase) console.log(`[storyPlanner] Repeated phrase: "${seed.repeated_phrase}"`);
   if (seed.beats.length) console.log(`[storyPlanner] Beat sheet: ${seed.beats.length} beats`);
+
+  // Validate seed quality and retry once if issues found
+  const seedValidation = validateSeedQuality(seed, theme, age);
+  if (!seedValidation.valid) {
+    console.log(`[storyPlanner] Seed validation failed: ${seedValidation.issues.map(i => `${i.field}:${i.reason}`).join(', ')} — retrying`);
+    const issueDescriptions = seedValidation.issues.map(i => {
+      if (i.reason === 'generic_motivational') return `- repeated_phrase: "${seed.repeated_phrase}" sounds like a motivational poster. Generate a phrase with a physical sensation or concrete image — something that could NOT appear on a greeting card.`;
+      if (i.reason === 'too_generic') return `- setting: "${seed.setting}" is too vague. Make the setting vivid and specific — one sentence with color, texture, or atmosphere.`;
+      if (i.reason === 'default_fear_for_non_bedtime') return `- fear: "the dark" is the default fear. Choose a fear that fits the ${theme} theme specifically.`;
+      if (i.reason === 'wrong_length') return `- repeated_phrase: "${seed.repeated_phrase}" is the wrong length (must be 2-8 words).`;
+      return `- ${i.field}: ${i.reason}`;
+    });
+
+    try {
+      const retryPrompt = userPrompt + `\n\nYour previous response had these quality issues:\n${issueDescriptions.join('\n')}\n\nReturn the COMPLETE corrected JSON with ALL fields (favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats). Fix ONLY the flagged fields — keep everything else the same.`;
+      const retryResponse = await callLLM(systemPrompt, retryPrompt, {
+        openaiApiKey: openaiKey,
+        maxTokens: 1500,
+        temperature: 0.95,
+        jsonMode: true,
+        costTracker,
+      });
+      let retryContent = retryResponse.text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+      let retrySeed;
+      try {
+        retrySeed = JSON.parse(retryContent);
+      } catch (_) {
+        const stripped = retryContent.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+        retrySeed = JSON.parse(stripped);
+      }
+      // Unwrap nested responses
+      if (retrySeed && !retrySeed.favorite_object && typeof retrySeed === 'object') {
+        const inner = retrySeed.storySeed || retrySeed.data || retrySeed.seed || Object.values(retrySeed)[0];
+        if (inner && typeof inner === 'object' && inner.favorite_object) retrySeed = inner;
+      }
+      if (retrySeed && retrySeed.favorite_object) {
+        const flaggedFields = new Set(seedValidation.issues.map(i => i.field).filter(Boolean));
+        const mergedRetrySeed = { ...seed };
+        for (const field of flaggedFields) {
+          if (Object.prototype.hasOwnProperty.call(retrySeed, field)) {
+            mergedRetrySeed[field] = retrySeed[field];
+          }
+        }
+        const retryValidation = validateSeedQuality(mergedRetrySeed, theme, age);
+        if (retryValidation.valid || retryValidation.issues.length < seedValidation.issues.length) {
+          console.log(`[storyPlanner] Seed retry improved quality (${seedValidation.issues.length} -> ${retryValidation.issues.length} issues)`);
+          if (!mergedRetrySeed.emotional_core) mergedRetrySeed.emotional_core = '';
+          if (!mergedRetrySeed.repeated_phrase) mergedRetrySeed.repeated_phrase = '';
+          if (!Array.isArray(mergedRetrySeed.phrase_arc)) mergedRetrySeed.phrase_arc = [];
+          if (!Array.isArray(mergedRetrySeed.beats)) mergedRetrySeed.beats = [];
+          return mergedRetrySeed;
+        }
+        console.log(`[storyPlanner] Seed retry did not improve — keeping original`);
+      }
+    } catch (retryErr) {
+      console.warn(`[storyPlanner] Seed retry failed: ${retryErr.message} — keeping original`);
+    }
+  }
+
   return seed;
+}
+
+/**
+ * Validate the quality of a brainstormed story seed.
+ * Returns { valid: boolean, issues: Array<{ field, reason }> }
+ */
+function validateSeedQuality(seed, theme, age) {
+  const issues = [];
+
+  // Generic repeated phrase detection — reject motivational poster patterns
+  const GENERIC_PHRASE_PATTERNS = [
+    /\b(?:ready to|you(?:'ve| have) got|believe in|anything is|you can|never give|follow your|dream big|shine bright|be brave|stay strong)\b/i,
+    /\b(?:the magic|is possible|inside you|in your heart|makes you special|you are enough|world is yours)\b/i,
+    /\b(?:reach for|shoot for|aim for)\s+(?:the stars|the sky|the moon)\b/i,
+  ];
+  if (seed.repeated_phrase) {
+    for (const pattern of GENERIC_PHRASE_PATTERNS) {
+      if (pattern.test(seed.repeated_phrase)) {
+        issues.push({ field: 'repeated_phrase', reason: 'generic_motivational' });
+        break;
+      }
+    }
+    const wordCount = seed.repeated_phrase.trim().split(/\s+/).length;
+    if (wordCount < 2 || wordCount > 8) {
+      issues.push({ field: 'repeated_phrase', reason: 'wrong_length' });
+    }
+  }
+
+  // Generic setting detection
+  const GENERIC_SETTINGS = [
+    /^a\s+magic(?:al)?\s+(?:forest|place|world|land|kingdom)$/i,
+    /^a\s+beautiful\s/i,
+    /^a\s+wonderful\s/i,
+    /^a\s+special\s+place$/i,
+  ];
+  if (seed.setting) {
+    for (const pattern of GENERIC_SETTINGS) {
+      if (pattern.test(seed.setting.trim())) {
+        issues.push({ field: 'setting', reason: 'too_generic' });
+        break;
+      }
+    }
+  }
+
+  // "the dark" as fear for non-bedtime themes
+  if (seed.fear && /^the dark$/i.test(seed.fear.trim()) && theme !== 'bedtime') {
+    issues.push({ field: 'fear', reason: 'default_fear_for_non_bedtime' });
+  }
+
+  return { valid: issues.length === 0, issues };
 }
 
 // ── Two-Phase Pipeline ──
@@ -627,15 +990,32 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   };
 
   let systemPrompt = buildStoryWriterSystem(briefVars, theme);
+
+  // ── Inject prompt-level quality improvements (W1, W2, W4, W5, W6) ──
+  // W1: Beat structure — BEFORE existing writing rules
+  systemPrompt = BEAT_STRUCTURE + '\n\n' + systemPrompt;
+  // W2: Theme-specific rules
+  const themeRule = THEME_RULES[theme] || THEME_RULES[theme?.replace(/_/g, '')] || '';
+  if (themeRule) {
+    systemPrompt += '\n\n' + themeRule;
+  }
+  // W4: Dialogue minimum
+  systemPrompt += '\n\n' + DIALOGUE_RULE;
+  // W5: Age-aware vocabulary
+  systemPrompt += '\n\n' + ageVocabularyRules(childDetails.childAge || childDetails.age);
+  // W6: Rhythmic prose
+  systemPrompt += '\n\n' + RHYTHM_RULE;
+
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
+
+  // Always allow/require Mom for Mother's Day stories, even if a secondary person was detected.
+  if (theme === 'mothers_day') {
+    systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+  }
 
   // Override the "no family in illustrations" rule when secondary characters are detected
   if (additionalCoverCharacters) {
-    systemPrompt += `\n\n⚠️ SECONDARY CHARACTER — MUST INCLUDE IN STORY AND ILLUSTRATIONS:\n${additionalCoverCharacters}\n\nThis character appears in the chosen book cover and MUST be part of this story:\n- Include them in AT LEAST 4 spreads' text (reference them by their relationship: Mommy, Dad, Grandma, etc.)
-- They must interact with ${childDetails?.childName || 'the child'} meaningfully in the story
-- Write their name/relationship naturally into the spread text (e.g. "Mommy laughed", "Together with Mom")
-- Their appearance in illustrations MUST match the description above exactly — same hair, skin tone, clothing
-- This overrides the default rule about not showing family members`;
+    systemPrompt += `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene.`;
   }
 
   if (approvedTitle) {
@@ -645,16 +1025,17 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   console.log(`[storyPlanner] Phase 1: Generating story text (free-form, no JSON)...`);
   const start = Date.now();
 
+  const textTemperature = v2Vars?.retryTemperature || 0.85;
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 4000,
-    temperature: 0.85,
+    temperature: textTemperature,
     jsonMode: false,
     costTracker,
   });
 
   const ms = Date.now() - start;
-  console.log(`[storyPlanner] Phase 1 complete in ${ms}ms (${response.model}, ${response.outputTokens} tokens)`);
+  console.log(`[storyPlanner] Phase 1 complete in ${ms}ms (${response.model}, temp=${textTemperature}, ${response.outputTokens} tokens)`);
 
   return response.text;
 }
@@ -742,6 +1123,14 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
+  const visualBreathingSpreads = spreads.filter((s) => !s.left?.text || !s.right?.text).length;
+  if (spreads.length > 0 && visualBreathingSpreads < Math.max(2, Math.ceil(spreads.length * 0.25))) {
+    issues.push({
+      type: 'visual_spreads',
+      message: `Only ${visualBreathingSpreads} spreads leave one side visual. Picture books need more visual breathing room.`,
+    });
+  }
+
   // All spreads must have text — no visual-only spreads allowed
   const emptySpread = spreads.find(s => !s.left?.text && !s.right?.text);
   if (emptySpread) {
@@ -750,6 +1139,27 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
 
   if (spreads.length < 10) {
     issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-13)` });
+  }
+
+  // Check spread 1 for opening cliches
+  const firstSpread = spreads.find(s => s.spread === 1);
+  if (firstSpread) {
+    const openingText = [firstSpread.left?.text, firstSpread.right?.text].filter(Boolean).join(' ');
+    const OPENING_CLICHE_PATTERNS = [
+      /^one\s+(?:day|morning|evening|night|sunny|beautiful)/i,
+      /^once\s+upon\s+a\s+time/i,
+      /opened\s+(?:her|his|their)\s+eyes/i,
+      /^it\s+was\s+a\s+(?:beautiful|sunny|warm|cold|rainy|quiet|special)/i,
+      /\bwoke\s+up\b/i,
+      /^the\s+(?:morning|day|sun)\s+(?:was|began|started|came)/i,
+      /^the\s+day\s+(?:had|finally)/i,
+    ];
+    for (const pattern of OPENING_CLICHE_PATTERNS) {
+      if (pattern.test(openingText)) {
+        issues.push({ spread: 1, type: 'opening_cliche', message: `Generic opening: "${openingText.slice(0, 80)}..."` });
+        break;
+      }
+    }
   }
 
   const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread'].includes(i.type));
@@ -775,7 +1185,7 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
       setting: '',
       dedication: `For ${childDetails.name || childDetails.childName || 'the child'}`,
     };
-    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters);
+    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters, theme);
     userPrompt = pbUserPrompt(childDetails, theme, customDetails, v2Vars, additionalCoverCharacters);
   } else {
     systemPrompt = ER_SYSTEM;
@@ -1016,15 +1426,9 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
     console.log(`[storyPlanner] Parsed ${parsedText.spreads.length} spreads from free-form text, title: "${parsedText.title}"`);
 
-    // Annotate story text with pop-culture reference hints for Phase 2
-    const childName = childDetails.name || childDetails.childName || '';
-    const annotatedStoryText = interests.length
-      ? await enrichStoryReferences(storyText, childName, interests)
-      : storyText;
-
     // Phase 2: Structure into JSON with illustration prompts
     const referenceContext = { interests, enrichedCustomDetails };
-    const jsonContent = await structureStoryPlan(annotatedStoryText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
+    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
     const parsed = parseJsonPlan(jsonContent);
 
     // Override title if customer approved one
@@ -1050,6 +1454,8 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
         console.log(`  - [${issue.type}] ${issue.spread ? `spread ${issue.spread}: ` : ''}${issue.message}`);
       }
     }
+    // Attach validation issues for downstream critic passes
+    plan._validationIssues = validation.issues;
 
     const totalMs = Date.now() - pipelineStart;
     console.log(`[storyPlanner] Two-phase pipeline complete in ${totalMs}ms`);
@@ -1132,9 +1538,11 @@ function repairTruncatedJson(str) {
     if (ch === ']') openBrackets--;
   }
 
+  if (escape) candidate += '\\';
+  if (inString) candidate += '"';
   const suffix = ']'.repeat(Math.max(0, openBrackets)) + '}'.repeat(Math.max(0, openBraces));
   try {
-    return JSON.parse(candidate + suffix);
+    return JSON.parse(sanitizeJsonStrings(candidate + suffix));
   } catch {
     return null;
   }
@@ -1306,7 +1714,7 @@ If not, keep refining internally before output.`;
  * @returns {Promise<object>} Polished story plan with same structure
  */
 async function polishStory(storyPlan, opts = {}) {
-  const { costTracker, apiKeys, theme } = opts;
+  const { costTracker, apiKeys, theme, validationIssues } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   // Build a compact representation of just the text to rewrite
@@ -1322,7 +1730,21 @@ async function polishStory(storyPlan, opts = {}) {
     systemPrompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- Do NOT soften the ending into a whisper or sleepy tone.\n- The final spread (spread 13) is the birthday cake/candles moment — the emotional climax the whole story earned.\n- The ending should feel warm, joyful, and celebratory — not quiet.\n- "Ending Quality" score should reward a triumphant, emotionally resonant birthday ending.\n- The ENDING UPGRADE rule does NOT apply — do not make the ending softer or more poetic. Make it warmer and more joyful if needed.`;
   }
 
-  const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}`;
+  // Build user prompt with optional validation warnings
+  let validationWarnings = '';
+  if (validationIssues && validationIssues.length > 0) {
+    const warnings = validationIssues.map(i => {
+      if (i.type === 'opening_cliche') return `⚠️ SPREAD 1 HAS A GENERIC OPENING. The first spread MUST be rewritten to drop the reader into a specific moment — not "one day" or "woke up". This is the highest priority fix.`;
+      if (i.type === 'word_count') return `⚠️ Spread ${i.spread}: ${i.message}. CUT this spread ruthlessly — trust the illustration.`;
+      if (i.type === 'emotion_telling') return `⚠️ Spread ${i.spread}: emotion telling detected (${i.message}). Replace with action or sensation.`;
+      return null;
+    }).filter(Boolean);
+    if (warnings.length > 0) {
+      validationWarnings = `\n\nPRE-IDENTIFIED ISSUES (fix these FIRST):\n${warnings.join('\n')}`;
+    }
+  }
+
+  const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}${validationWarnings}`;
 
   console.log(`[storyPlanner] Starting self-critic + rewrite pass (${spreads.length} spreads, theme: ${theme || 'default'})...`);
   const polishStart = Date.now();
@@ -1330,7 +1752,7 @@ async function polishStory(storyPlan, opts = {}) {
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 10000,
-    temperature: 0.5,
+    temperature: 0.6,
     jsonMode: true,
     costTracker,
   });
@@ -1415,7 +1837,7 @@ async function polishStory(storyPlan, opts = {}) {
 
 const COMBINED_CRITIC_SYSTEM = `You are a world-class children's book editor. You review the story in ONE pass and fix everything at once.
 
-Your job covers four areas. Evaluate ALL of them, then produce ONE set of improved spreads.
+Your job covers six areas. Evaluate ALL of them, then produce ONE set of improved spreads.
 
 ─────────────────────────────────────────
 1. RHYTHM & READ-ALOUD (highest priority)
@@ -1426,6 +1848,7 @@ Read every line aloud in your head. Fix any line that:
 - Has words over 3 syllables (unless a name or meaningful invented word)
 - Violates the 8–14 syllable preference per sentence
 - Contains a forced or strained rhyme that bends the meaning
+- Sounds flat when spoken — prefer words with texture and energy ("crept" over "walked", "pressed" over "put")
 
 Rules for rhythm fixes:
 - Keep fixes shorter or equal length to the original
@@ -1440,7 +1863,7 @@ Rules for rhythm fixes:
 Check:
 - ESCALATION: Each spread slightly increases curiosity, movement, or wonder through the middle
 - DOUBT MOMENT: There is a clear moment of uncertainty or tension in spreads 5–8
-- ENDING: The final 2 spreads feel like a whisper — soft, resolved, dream-like (not a conclusion)
+- ENDING: The final 2 spreads feel emotionally resolved — energy matches the theme
 
 Fix weak spreads. Do NOT add new characters, events, or settings.
 
@@ -1450,6 +1873,7 @@ Fix weak spreads. Do NOT add new characters, events, or settings.
 Ensure at least ONE line exists that a parent would want to repeat to their child outside the book.
 It should be specific to THIS child and THIS story — not generic.
 If no such line exists, create one naturally within the existing story structure.
+A memorable line is NOT a wise statement — it's a perfectly observed image or feeling: "The dark had a sound now. Not a growl. A hum."
 
 ─────────────────────────────────────────
 4. LANGUAGE QUALITY
@@ -1458,6 +1882,26 @@ If no such line exists, create one naturally within the existing story structure
 - Replace any emotion-telling: "she felt scared", "he was happy" → show through action/sensation
 - Sharpen one word per spread if a more specific/sensory word fits better
 - Only reduce or maintain word count — never increase
+
+─────────────────────────────────────────
+5. HUMOR & DELIGHT
+─────────────────────────────────────────
+Check for at least 2 genuinely funny or delightful moments in the story (spreads 2-10).
+Not token jokes — real humor that a child would laugh at and a parent would smile at:
+- Does the child say or do something unexpected and funny?
+- Is there a running gag, a recurring absurd detail, or a creature/object with personality?
+- Is there at least one moment of comic timing (setup then surprise)?
+If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation, a sound effect at the wrong moment. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.
+
+─────────────────────────────────────────
+6. ANTI-KITSCHY CHECK
+─────────────────────────────────────────
+Flag and fix any lines that feel like greeting cards, motivational posters, or generic sentiment:
+- "The real treasure was..." / "Love is the strongest..." / "You are special just the way you are" / "With love, anything is possible" / "The magic was inside them all along"
+- Any ending where the character announces what they learned or explains the story's moral
+- Any vague emotional summary: "and the child felt warm and happy and loved"
+- Any line that could appear in ANY children's book — replace with something only THIS story could say
+Replace kitschy lines with specific, concrete images that earn the same emotion: "She pressed her nose against the window. The stars were still there." beats "She felt grateful for the beautiful night."
 
 ─────────────────────────────────────────
 RULES FOR ALL REWRITES
@@ -1469,17 +1913,55 @@ RULES FOR ALL REWRITES
 
 Return JSON:
 {
+  "scores": {
+    "rhythm": <1-10>,
+    "emotional_arc": <1-10>,
+    "memorable_line": <1-10>,
+    "language_quality": <1-10>,
+    "humor": <1-10>,
+    "anti_kitschy": <1-10>
+  },
   "issues": [
-    { "spread": 1, "area": "rhythm|arc|memorable|language", "line": "exact quote", "reason": "brief description" }
+    { "spread": 1, "area": "rhythm|arc|memorable|language|humor|kitschy", "line": "exact quote", "reason": "brief description" }
   ],
   "improved_spreads": [
     { "spread": 1, "left": "...", "right": "..." }
   ]
 }
 
+- scores: Rate the story AFTER your improvements on each of your 6 areas (1-10). Be strict — score 7+ only if genuinely strong.
 - Return ALL spreads in improved_spreads (unchanged spreads returned as-is)
 - If left or right was null, keep it null
 - issues array may be empty if the story is already strong`;
+
+function applyImprovedSpreads(storyPlan, improvedSpreads) {
+  const spreads = storyPlan.entries.filter((entry) => entry.type === 'spread');
+  if (!Array.isArray(improvedSpreads)) return storyPlan;
+  if (improvedSpreads.length !== spreads.length) {
+    console.warn(`[storyPlanner] Critic returned ${improvedSpreads.length} spreads, expected ${spreads.length} — using original text`);
+    return storyPlan;
+  }
+
+  const updatedEntries = storyPlan.entries.map((entry) => {
+    if (entry.type !== 'spread') return entry;
+    const match = improvedSpreads.find((spread) => spread.spread === entry.spread);
+    if (!match) return entry;
+
+    const updated = { ...entry };
+    if (entry.left && Object.prototype.hasOwnProperty.call(match, 'left')) {
+      updated.left = { ...entry.left, text: match.left };
+    }
+    if (entry.right && Object.prototype.hasOwnProperty.call(match, 'right')) {
+      updated.right = { ...entry.right, text: match.right };
+    }
+    return updated;
+  });
+
+  return {
+    ...storyPlan,
+    entries: updatedEntries,
+  };
+}
 
 /**
  * Combined critic — rhythm, emotional arc, memorable line, language quality in one pass.
@@ -1526,6 +2008,10 @@ async function combinedCritic(storyPlan, opts = {}) {
     }
   }
 
+  if (result.scores) {
+    console.log(`[storyPlanner] Combined critic scores: ${JSON.stringify(result.scores)}`);
+  }
+
   if (result.issues && result.issues.length > 0) {
     console.log(`[storyPlanner] Combined critic found ${result.issues.length} issues:`);
     const byArea = {};
@@ -1540,7 +2026,9 @@ async function combinedCritic(storyPlan, opts = {}) {
     console.log('[storyPlanner] Combined critic: no issues found — story is strong');
   }
 
-  return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
+  const improved = applyImprovedSpreads(storyPlan, result.improved_spreads || []);
+  improved._combinedCriticScores = result.scores || null;
+  return improved;
 }
 
 /**
@@ -1665,183 +2153,635 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   return chapterPlan;
 }
 
-async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
-  const { apiKeys, costTracker, approvedTitle, parentBookTitle, parentStoryContent, bookContext } = opts;
-  const { GRAPHIC_NOVEL_SYSTEM, GRAPHIC_NOVEL_USER } = require('../prompts/graphicNovel');
-  const { getTemplate } = require('./gnPageTemplates');
-  const artStyle = opts.artStyle || childDetails.artStyle || childDetails.art_style || 'cinematic_3d';
-
-  // Enrich custom details for pop culture references
-  const enrichedCustomDetails = await enrichCustomDetails(
-    customDetails,
-    childDetails.childName || childDetails.name,
-    childDetails.childAge || childDetails.age
-  );
-
-  // Brainstorm story seed
-  let seed = {};
+function parseJsonObjectFromText(text, finishReason) {
+  const raw = String(text || '').trim();
+  if (!raw) throw new Error('Empty JSON response');
   try {
-    seed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, {
-      apiKeys, costTracker, theme,
-    });
-  } catch (e) {
-    bookContext?.log('warn', `Story seed failed: ${e.message}`);
+    return parseJsonPlan(raw, finishReason || 'unknown');
+  } catch (err) {
+    throw err;
+  }
+}
+
+function compactGraphicNovelStoryBible(storyBible) {
+  if (!storyBible || typeof storyBible !== 'object') return {};
+  return {
+    title: storyBible.title || '',
+    tagline: storyBible.tagline || '',
+    logline: storyBible.logline || '',
+    audiencePromise: storyBible.audiencePromise || '',
+    cast: Array.isArray(storyBible.cast)
+      ? storyBible.cast.map((member) => ({
+          id: member.id,
+          name: member.name,
+          role: member.role,
+          voiceGuide: member.voiceGuide,
+          visualAnchor: member.visualAnchor,
+          actingNotes: member.actingNotes,
+        }))
+      : [],
+    worldBible: storyBible.worldBible || {},
+    recurringMotifs: storyBible.recurringMotifs || [],
+    sceneColorScript: storyBible.sceneColorScript || [],
+    sceneBlueprints: Array.isArray(storyBible.sceneBlueprints)
+      ? storyBible.sceneBlueprints.map((scene) => ({
+          sceneNumber: scene.sceneNumber,
+          sceneTitle: scene.sceneTitle,
+          purpose: scene.purpose,
+          turningPoint: scene.turningPoint,
+          pageCountTarget: scene.pageCountTarget,
+          dominantEmotion: scene.dominantEmotion,
+          pageTurnIntent: scene.pageTurnIntent,
+        }))
+      : [],
+  };
+}
+
+function summarizeGraphicNovelStructure(plan) {
+  const pageCount = Array.isArray(plan?.pages) ? plan.pages.length : 0;
+  const sceneCount = Array.isArray(plan?.scenes) ? plan.scenes.length : 0;
+  const panelCount = Array.isArray(plan?.allPanels) ? plan.allPanels.length : 0;
+  const splashCount = Array.isArray(plan?.allPanels)
+    ? plan.allPanels.filter((panel) => panel.panelType === 'splash').length
+    : 0;
+  const issues = [];
+  if (pageCount < 24 || pageCount > 32) issues.push(`pages=${pageCount} (need 24-32)`);
+  if (sceneCount !== 7) issues.push(`scenes=${sceneCount} (need 7)`);
+  if (splashCount !== 2) issues.push(`splashPanels=${splashCount} (need 2)`);
+  if (panelCount < Math.max(24, pageCount)) issues.push(`panels=${panelCount} looks too low for a graphic novel`);
+  const emptyPages = (plan?.pages || []).filter((page) => !Array.isArray(page.panels) || page.panels.length === 0).length;
+  if (emptyPages > 0) issues.push(`emptyPages=${emptyPages}`);
+  return { pageCount, sceneCount, panelCount, splashCount, issues };
+}
+
+function buildGraphicNovelChunkSpecs(storyBible) {
+  const sceneBlueprints = Array.isArray(storyBible?.sceneBlueprints)
+    ? [...storyBible.sceneBlueprints].sort((a, b) => (a.sceneNumber || 0) - (b.sceneNumber || 0))
+    : [];
+  if (!sceneBlueprints.length) return [];
+
+  const groups = [
+    [1, 2],
+    [3, 4],
+    [5],
+    [6],
+    [7],
+  ];
+
+  return groups
+    .map((sceneNumbers) => {
+      const scenes = sceneBlueprints.filter((scene) => sceneNumbers.includes(scene.sceneNumber));
+      if (!scenes.length) return null;
+      return {
+        scenes,
+        expectedPages: scenes.reduce((sum, scene) => sum + Math.max(4, Number(scene.pageCountTarget) || 0), 0),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildGraphicNovelStoryBibleChunk(storyBible, chunkSpec) {
+  const compact = compactGraphicNovelStoryBible(storyBible);
+  const sceneNumbers = new Set((chunkSpec?.scenes || []).map((scene) => scene.sceneNumber));
+  return {
+    ...compact,
+    sceneBlueprints: (compact.sceneBlueprints || []).filter((scene) => sceneNumbers.has(scene.sceneNumber)),
+    sceneColorScript: (compact.sceneColorScript || []).filter((scene) => sceneNumbers.has(scene.sceneNumber)),
+  };
+}
+
+function buildGraphicNovelChunkPageAssignments(chunkSpec) {
+  return (chunkSpec?.scenes || []).flatMap((scene) => Array.from(
+    { length: Math.max(2, Number(scene.pageCountTarget) || 0) },
+    () => ({
+      sceneNumber: scene.sceneNumber,
+      sceneTitle: scene.sceneTitle || `Scene ${scene.sceneNumber}`,
+    })
+  ));
+}
+
+function stampGraphicNovelChunkPages(rawPlan, chunkSpec) {
+  if (!rawPlan || typeof rawPlan !== 'object') return rawPlan;
+  const pageAssignments = buildGraphicNovelChunkPageAssignments(chunkSpec);
+  if (!Array.isArray(rawPlan.pages)) return rawPlan;
+
+  return {
+    ...rawPlan,
+    pages: rawPlan.pages.map((page, index) => {
+      const assignment = pageAssignments[index] || pageAssignments[pageAssignments.length - 1] || {
+        sceneNumber: 1,
+        sceneTitle: 'Scene 1',
+      };
+      const stampedPanels = Array.isArray(page?.panels)
+        ? page.panels.map((panel, panelIndex) => ({
+            ...panel,
+            sceneNumber: assignment.sceneNumber,
+            sceneTitle: assignment.sceneTitle,
+            panelNumber: Number.isFinite(panel?.panelNumber) ? panel.panelNumber : panelIndex + 1,
+          }))
+        : [];
+
+      return {
+        ...page,
+        pageNumber: Number.isFinite(page?.pageNumber) ? page.pageNumber : index + 1,
+        sceneNumber: assignment.sceneNumber,
+        sceneTitle: page?.sceneTitle || assignment.sceneTitle,
+        panels: stampedPanels,
+      };
+    }),
+  };
+}
+
+function summarizeGraphicNovelChunkStructure(plan, chunkSpec) {
+  const pages = Array.isArray(plan?.pages) ? plan.pages : [];
+  const expectedPages = Number(chunkSpec?.expectedPages) || 0;
+  const expectedSplashes = (chunkSpec?.scenes || []).filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7).length;
+  const issues = [];
+
+  // Allow flexibility — accept chunks with at least 3 pages or 40% of expected, whichever is lower
+  const minAcceptable = Math.max(2, Math.min(3, Math.floor(expectedPages * 0.4)));
+  if (pages.length < minAcceptable) issues.push(`pages=${pages.length} (need at least ${minAcceptable})`);
+  // Check illustrated pages have panels (text interstitials don't need them)
+  const emptyIllustrated = pages.filter((page) => page.pageType !== 'text_interstitial' && (!Array.isArray(page.panels) || page.panels.length === 0));
+  if (emptyIllustrated.length > 0) issues.push(`${emptyIllustrated.length} illustrated pages have no panels`);
+  // Splash page check is advisory — don't block chunk on missing splashes
+  // The planner prompts request splashes but mocks/LLMs may not always include them
+
+  return { issues };
+}
+
+async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, storyBible, chunkSpec, opts = {}) {
+  const {
+    apiKeys,
+    costTracker,
+    approvedTitle,
+    bookContext,
+  } = opts;
+  const {
+    GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM,
+    GRAPHIC_NOVEL_SCENE_PLANNER_USER,
+  } = require('../prompts/graphicNovel');
+  const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
+
+  const chunkBible = buildGraphicNovelStoryBibleChunk(storyBible, chunkSpec);
+  const chunkPrompt = GRAPHIC_NOVEL_SCENE_PLANNER_USER(
+    childDetails,
+    theme,
+    customDetails,
+    seed,
+    chunkBible,
+    chunkSpec
+  );
+  const chunkSceneLabel = (chunkSpec.scenes || []).map((scene) => scene.sceneNumber).join(', ');
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      bookContext?.log('info', 'Planning graphic novel chunk', {
+        scenes: chunkSceneLabel,
+        attempt,
+        expectedPages: chunkSpec.expectedPages,
+      });
+      const resp = await callLLM(GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM, chunkPrompt, {
+        openaiApiKey: apiKeys?.OPENAI_API_KEY,
+        costTracker,
+        temperature: 0.65,
+        maxTokens: 24000,
+        jsonMode: true,
+        timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
+        requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
+      });
+      const parsedChunk = await parseStructuredJsonWithFallback(
+        resp,
+        GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM,
+        chunkPrompt,
+        {
+          costTracker,
+          temperature: 0.65,
+          maxTokens: 24000,
+          bookContext,
+          timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
+          requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
+        }
+      );
+      // Guard against truncation producing valid JSON with no usable content
+      const chunkPageCount = Array.isArray(parsedChunk.pages) ? parsedChunk.pages.length : 0;
+      const chunkSceneCount = Array.isArray(parsedChunk.scenes) ? parsedChunk.scenes.length : 0;
+      if (chunkPageCount === 0 && chunkSceneCount === 0) {
+        bookContext?.log('warn', 'Chunk parse returned no pages and no scenes', {
+          scenes: chunkSceneLabel,
+          attempt,
+          finishReason: resp.finishReason,
+          outputTokens: resp.outputTokens,
+          parsedKeys: Object.keys(parsedChunk),
+        });
+        throw new Error(
+          `Chunk for scenes ${chunkSceneLabel} produced 0 pages and 0 scenes` +
+          ` (finishReason=${resp.finishReason}, outputTokens=${resp.outputTokens})`
+        );
+      }
+      const stampedChunk = stampGraphicNovelChunkPages(parsedChunk, chunkSpec);
+      let chunkPlan = legacyGraphicNovelScenesToPages(stampedChunk, childDetails);
+      chunkPlan = normalizeGraphicNovelPlan(chunkPlan, { fallbackTitle: storyBible.title || approvedTitle });
+      const structure = summarizeGraphicNovelChunkStructure(chunkPlan, chunkSpec);
+      if (structure.issues.length > 0) {
+        throw new Error(`Invalid chunk: ${structure.issues.join(', ')}`);
+      }
+      bookContext?.touchActivity?.();
+      bookContext?.log('info', 'Graphic novel chunk planned', {
+        scenes: chunkSceneLabel,
+        pages: chunkPlan.pages.length,
+      });
+      return chunkPlan;
+    } catch (err) {
+      bookContext?.log('warn', `Graphic novel chunk plan failed for scenes ${chunkSceneLabel} attempt ${attempt}: ${err.message}`);
+      if (attempt === 3) throw err;
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
   }
 
-  // Parent story injection
+  throw new Error('Chunk planning exhausted retries');
+}
+
+async function polishGraphicNovelChunk(chunkPlan, chunkIndex, totalChunks, storyBible, opts = {}) {
+  const { apiKeys, costTracker, bookContext } = opts;
+  const { GRAPHIC_NOVEL_POLISH_SYSTEM, GRAPHIC_NOVEL_POLISH_USER } = require('../prompts/graphicNovelCritic');
+  const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
+
+  try {
+    bookContext?.log('info', `Polishing graphic novel chunk ${chunkIndex + 1}/${totalChunks}`);
+    const polishPrompt = GRAPHIC_NOVEL_POLISH_USER(chunkPlan, chunkIndex, totalChunks, storyBible);
+    // Use Gemini directly for polish — GPT consistently fails to produce valid JSON
+    // for large rewrite tasks. Gemini handles big JSON output more reliably.
+    const resp = await callGeminiText(GRAPHIC_NOVEL_POLISH_SYSTEM, polishPrompt, {
+      temperature: 0.5,
+      maxOutputTokens: 32000,
+      timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
+      requestLabel: `Graphic novel polish chunk ${chunkIndex + 1}`,
+    });
+    const polished = await parseStructuredJsonWithFallback(
+      resp,
+      GRAPHIC_NOVEL_POLISH_SYSTEM,
+      polishPrompt,
+      {
+        costTracker,
+        temperature: 0.5,
+        maxTokens: 32000,
+        bookContext,
+        timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
+        requestLabel: `Graphic novel polish chunk ${chunkIndex + 1}`,
+      }
+    );
+    // Validate polished output has pages
+    if (!Array.isArray(polished?.pages) || polished.pages.length === 0) {
+      bookContext?.log('warn', `Polish returned no pages — using unpolished chunk ${chunkIndex + 1}`);
+      return null;
+    }
+    const normalized = normalizeGraphicNovelPlan(polished, { fallbackTitle: storyBible?.title });
+    bookContext?.log('info', `Polish complete for chunk ${chunkIndex + 1}`, { pages: normalized.pages.length });
+    return normalized;
+  } catch (err) {
+    bookContext?.log('warn', `Polish failed for chunk ${chunkIndex + 1} — using unpolished`, { error: err.message });
+    return null;
+  }
+}
+
+async function planGraphicNovelByChunks(childDetails, theme, customDetails, seed, storyBible, opts = {}) {
+  const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
+  const chunkSpecs = buildGraphicNovelChunkSpecs(storyBible);
+  const chunkPlans = [];
+  opts.bookContext?.log('info', 'Starting chunked graphic novel planning', {
+    chunkCount: chunkSpecs.length,
+    chunks: chunkSpecs.map((chunkSpec) => ({
+      scenes: (chunkSpec.scenes || []).map((scene) => scene.sceneNumber),
+      expectedPages: chunkSpec.expectedPages,
+    })),
+  });
+
+  for (let ci = 0; ci < chunkSpecs.length; ci++) {
+    const chunkSpec = chunkSpecs[ci];
+    let chunkPlan = await planGraphicNovelChunk(
+      childDetails,
+      theme,
+      customDetails,
+      seed,
+      storyBible,
+      chunkSpec,
+      opts
+    );
+    // Polish pass — rewrite for publishable quality
+    const polished = await polishGraphicNovelChunk(chunkPlan, ci, chunkSpecs.length, storyBible, opts);
+    if (polished) chunkPlan = polished;
+    chunkPlans.push(chunkPlan);
+  }
+
+  const mergedPages = chunkPlans.flatMap((chunkPlan) => chunkPlan.pages || []).map((page, pageIndex) => ({
+    ...page,
+    pageNumber: pageIndex + 1,
+    panels: (page.panels || []).map((panel, panelIndex) => ({
+      ...panel,
+      pageNumber: pageIndex + 1,
+      panelNumber: Number.isFinite(panel.panelNumber) ? panel.panelNumber : panelIndex + 1,
+    })),
+  }));
+
+  return normalizeGraphicNovelPlan(
+    {
+      title: opts.approvedTitle || storyBible.title || chunkPlans[0]?.title || 'My Graphic Novel',
+      tagline: chunkPlans[0]?.tagline || storyBible.tagline || '',
+      pages: mergedPages,
+    },
+    { fallbackTitle: opts.approvedTitle || storyBible.title }
+  );
+}
+
+async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {}) {
+  const {
+    apiKeys,
+    costTracker,
+    bookContext,
+  } = opts;
+  const {
+    GRAPHIC_NOVEL_REPAIR_SYSTEM,
+    GRAPHIC_NOVEL_REPAIR_USER,
+  } = require('../prompts/graphicNovelCritic');
+  const summary = summarizeGraphicNovelStructure(plan);
+  bookContext?.log('warn', 'Repairing invalid graphic novel plan', summary);
+  const resp = await callLLM(
+    GRAPHIC_NOVEL_REPAIR_SYSTEM,
+    GRAPHIC_NOVEL_REPAIR_USER(plan, summary.issues, compactGraphicNovelStoryBible(storyBible)),
+    {
+      openaiApiKey: apiKeys?.OPENAI_API_KEY,
+      costTracker,
+      temperature: 0.45,
+      maxTokens: 24000,
+      jsonMode: true,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel repair pass',
+    }
+  );
+  const repairedParsed = await parseStructuredJsonWithFallback(
+    resp,
+    GRAPHIC_NOVEL_REPAIR_SYSTEM,
+    GRAPHIC_NOVEL_REPAIR_USER(plan, summary.issues, compactGraphicNovelStoryBible(storyBible)),
+    {
+      costTracker,
+      temperature: 0.45,
+      maxTokens: 24000,
+      bookContext,
+      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
+      requestLabel: 'Graphic novel repair pass',
+    }
+  );
+  const repaired = legacyGraphicNovelScenesToPages(repairedParsed, childDetails);
+  return repaired;
+}
+
+async function parseStructuredJsonWithFallback(resp, systemPrompt, userPrompt, opts = {}) {
+  try {
+    const parsed = parseJsonObjectFromText(resp.text, resp.finishReason);
+
+    // Detect truncation: valid JSON but empty content due to token limit
+    if (resp.finishReason === 'MAX_TOKENS') {
+      const pageCount = Array.isArray(parsed.pages) ? parsed.pages.length : 0;
+      const sceneCount = Array.isArray(parsed.scenes) ? parsed.scenes.length : 0;
+      opts.bookContext?.log('warn', 'LLM response hit MAX_TOKENS — output may be truncated', {
+        finishReason: resp.finishReason,
+        model: resp.model,
+        outputTokens: resp.outputTokens,
+        parsedPages: pageCount,
+        parsedScenes: sceneCount,
+      });
+      if (pageCount === 0 && sceneCount === 0) {
+        throw new Error('LLM hit token limit (MAX_TOKENS) and produced no pages or scenes — likely truncated');
+      }
+    }
+
+    return parsed;
+  } catch (parseErr) {
+    if (resp?.model !== 'gpt-5.4') throw parseErr;
+    opts.bookContext?.log('warn', 'GPT returned malformed JSON for graphic novel stage, retrying with Gemini', {
+      error: parseErr.message,
+    });
+    const geminiResp = await callGeminiText(systemPrompt, userPrompt, {
+      maxOutputTokens: opts.maxTokens || 8000,
+      temperature: opts.temperature || 0.8,
+      responseMimeType: 'application/json',
+      timeoutMs: opts.timeoutMs,
+      requestLabel: opts.requestLabel ? `${opts.requestLabel} Gemini fallback` : 'Gemini fallback',
+    });
+    if (opts.costTracker) {
+      opts.costTracker.addTextUsage(GEMINI_MODEL, geminiResp.inputTokens, geminiResp.outputTokens);
+    }
+    return parseJsonObjectFromText(geminiResp.text, geminiResp.finishReason);
+  }
+}
+
+function legacyGraphicNovelScenesToPages(plan, childDetails = {}) {
+  if (Array.isArray(plan.pages) && plan.pages.length) return plan;
+  if (!Array.isArray(plan.scenes)) return plan;
+
+  const CAPACITY = {
+    splash: 1,
+    'strip+2': 3,
+    '1large+2small': 3,
+    '3equal': 3,
+    '2equal': 2,
+    '4equal': 4,
+  };
+  const LAYOUT_TO_TEMPLATE = {
+    splash: 'fullBleedSplash',
+    'strip+2': 'cinematicTopStrip',
+    '1large+2small': 'heroTopTwoBottom',
+    '2equal': 'twoTierEqual',
+    '3equal': 'conversationGrid',
+    '4equal': 'fourGrid',
+  };
+
+  const allPanels = plan.scenes.flatMap((scene) => (scene.panels || []).map((panel) => ({
+    ...panel,
+    sceneNumber: scene.number,
+    sceneTitle: scene.sceneTitle,
+  })));
+
+  const pages = [];
+  let idx = 0;
+  while (idx < allPanels.length) {
+    const first = allPanels[idx];
+    const pageLayout = first.pageLayout || '3equal';
+    const cap = CAPACITY[pageLayout] || 3;
+    const group = allPanels.slice(idx, idx + cap);
+    pages.push({
+      pageNumber: pages.length + 1,
+      sceneNumber: first.sceneNumber || 1,
+      sceneTitle: first.sceneTitle || `Scene ${first.sceneNumber || 1}`,
+      pagePurpose: group[0]?.action || '',
+      pageTurnIntent: 'question',
+      dominantBeat: group[group.length - 1]?.action || '',
+      layoutTemplate: LAYOUT_TO_TEMPLATE[pageLayout] || 'conversationGrid',
+      panelCount: group.length,
+      textDensity: 'medium',
+      colorScript: {},
+      panels: group.map((panel, panelIndex) => ({
+        ...panel,
+        panelNumber: panel.panelNumber || panelIndex + 1,
+        balloons: panel.dialogue ? [{
+          id: `p${pages.length + 1}b${panelIndex + 1}`,
+          type: 'speech',
+          speaker: childDetails?.name || childDetails?.childName || 'hero',
+          text: panel.dialogue,
+          order: 1,
+          anchor: panel.speakerPosition || 'left',
+        }] : [],
+        captions: panel.caption ? [{
+          id: `p${pages.length + 1}c${panelIndex + 1}`,
+          type: 'narration',
+          text: panel.caption,
+          placement: 'top-band',
+        }] : [],
+        textFreeZone: panel.caption ? 'upper-band' : 'top-right',
+        safeTextZones: panel.caption ? ['upper-band'] : ['top-right'],
+        shot: panel.panelType === 'establishing' ? 'WS' : panel.panelType === 'closeup' ? 'CU' : 'MS',
+        cameraAngle: 'eye-level',
+        pacing: panel.panelType === 'action' ? 'fast' : 'medium',
+        actingNotes: '',
+        backgroundComplexity: panel.panelType === 'closeup' ? 'minimal' : 'simple',
+      })),
+    });
+    idx += group.length;
+  }
+
+  return { ...plan, pages };
+}
+
+async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
+  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
+  const {
+    GRAPHIC_NOVEL_PLANNER_SYSTEM,
+    GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM,
+    GRAPHIC_NOVEL_STORY_BIBLE_USER,
+    GRAPHIC_NOVEL_PLANNER_USER,
+  } = require('../prompts/graphicNovel');
+  const { GRAPHIC_NOVEL_CRITIC_SYSTEM, GRAPHIC_NOVEL_CRITIC_USER } = require('../prompts/graphicNovelCritic');
+  const { normalizeGraphicNovelPlan, summarizeGraphicNovelIssues } = require('./graphicNovelQa');
+
+  // Brainstorm seed + enrich custom details in parallel
+  let seed;
+  let enrichedCustomDetails;
+  try {
+    const [seedResult, enrichedResult] = await Promise.all([
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme })
+        .catch(e => {
+          bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
+          return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
+        }),
+      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age,
+        (childDetails.childInterests || childDetails.interests || []).filter(Boolean)),
+    ]);
+    seed = seedResult;
+    enrichedCustomDetails = enrichedResult;
+  } catch (e) {
+    bookContext?.log('warn', 'Graphic novel seed/enrich failed', { error: e.message });
+    seed = { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
+    enrichedCustomDetails = customDetails || '';
+  }
+
+  // Build parent story section if a parent picture book was provided
   let parentStorySection = '';
   if (parentStoryContent) {
     const origTitle = parentStoryContent.title || '';
     const texts = (parentStoryContent.entries || [])
       .map(e => e.text || [e.left?.text, e.right?.text].filter(Boolean).join(' ') || '')
-      .filter(t => t.trim()).join(' ').slice(0, 600);
+      .filter(t => t.trim())
+      .join(' ');
     if (origTitle || texts) {
-      parentStorySection = `\n\nBASE THIS ON THE ORIGINAL PICTURE BOOK:\nTitle: "${origTitle}"\nStory: ${texts}\nThe graphic novel must be an expanded adaptation of this story — same world, same characters.`;
+      parentStorySection = `\n\nORIGINAL PICTURE BOOK (this graphic novel MUST be a comic-format adaptation of this exact story — same world, same characters, same arc):\nTitle: "${origTitle}"\nStory: ${texts}`;
     }
   }
 
-  const titleInstruction = (approvedTitle || parentBookTitle)
-    ? `\n\nBook title MUST be exactly: "${approvedTitle || parentBookTitle}"`
+  const titleInstruction = parentBookTitle
+    ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
     : '';
 
-  const userPrompt = GRAPHIC_NOVEL_USER(childDetails, theme, enrichedCustomDetails, seed, artStyle)
-    + parentStorySection + titleInstruction;
+  const storyBiblePrompt = GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
 
-  let plan;
+  let storyBible;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const resp = await callLLM(GRAPHIC_NOVEL_SYSTEM, userPrompt, {
+      const resp = await callLLM(GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM, storyBiblePrompt, {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
-        temperature: 0.7,
-        maxTokens: 32000,
+        temperature: 0.75,
+        maxTokens: 8000,
         jsonMode: true,
+        timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
+        requestLabel: `Graphic novel story bible attempt ${attempt}`,
       });
-      const text = resp.text || '';
-      const stripped = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-      const jsonMatch = stripped.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON in response');
-      plan = JSON.parse(jsonMatch[0]);
-
-      // Validate page-level format (new) or beats format (legacy fallback)
-      if (plan.pages && Array.isArray(plan.pages) && plan.pages.length >= 20) {
-        bookContext?.log('info', 'Graphic novel plan (page-level) created', { title: plan.title, pages: plan.pages.length });
-      } else if (plan.beats && Array.isArray(plan.beats) && plan.beats.length >= 30) {
-        // Legacy beats format — auto-convert to pages
-        bookContext?.log('info', 'Graphic novel plan (legacy beats) — converting to pages', { beats: plan.beats.length });
-        plan.pages = convertBeatsToPages(plan.beats);
-      } else {
-        const count = plan.pages?.length || plan.beats?.length || 0;
-        throw new Error(`Invalid plan: ${count} pages/beats, need at least 20 pages or 30 beats`);
-      }
+      storyBible = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM, storyBiblePrompt, {
+        costTracker,
+        temperature: 0.75,
+        maxTokens: 8000,
+        bookContext,
+        timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
+        requestLabel: `Graphic novel story bible attempt ${attempt}`,
+      });
+      if (!storyBible.title) throw new Error('Story bible missing title');
+      bookContext?.touchActivity?.();
       break;
     } catch (e) {
-      bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
+      bookContext?.touchActivity?.();
+      bookContext?.log('warn', `Graphic novel story bible attempt ${attempt} failed: ${e.message}`);
       if (attempt === 3) throw e;
-      await new Promise(r => setTimeout(r, 2000 * attempt));
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
   }
 
-  plan.title = approvedTitle || parentBookTitle || plan.title;
-  plan.isGraphicNovel = true;
-  plan.artStyle = artStyle;
-
-  // Normalize pages — ensure valid templates and panel structure
-  plan.pages = plan.pages.map((page, pageIdx) => {
-    const template = getTemplate(page.layout);
-    const panels = (page.panels || []).slice(0, template.panelCount);
-
-    // Pad panels if LLM returned fewer than template expects
-    while (panels.length < template.panelCount) {
-      panels.push({
-        panelIndex: panels.length,
-        image: '',
-        dialogue: [],
-        caption: '',
-        sfx: '',
-      });
+  // Go straight to chunked planner — more reliable than generating
+  // the entire 24-32 page plan in a single LLM call, which consistently
+  // hits token limits, connection timeouts, or produces malformed JSON.
+  let plan = await planGraphicNovelByChunks(
+    childDetails,
+    theme,
+    enrichedCustomDetails,
+    seed,
+    storyBible,
+    {
+      apiKeys,
+      costTracker,
+      approvedTitle,
+      bookContext,
     }
+  );
 
-    return {
-      pageNum: page.pageNum || pageIdx + 1,
-      act: page.act || Math.ceil((pageIdx + 1) / 8),
-      layout: template.name,
-      panels: panels.map((panel, panelIdx) => ({
-        panelIndex: panelIdx,
-        image: panel.image || '',
-        dialogue: Array.isArray(panel.dialogue) ? panel.dialogue.map(d => ({
-          speaker: d.speaker || '',
-          position: d.position || 'left',
-          text: d.text || '',
-          type: d.type || 'speech',
-        })) : [],
-        caption: panel.caption || '',
-        sfx: panel.sfx || '',
-        // Assign aspect ratio from template geometry
-        aspect: template.panels[panelIdx]?.aspect || '1:1',
-        illustrationUrl: null,
-        imageBuffer: null,
-      })),
-    };
+  // Critic pass removed — it consistently fails for large graphic novel plans
+  // (same token/timeout issues as the old full-plan approach) and adds 6+ minutes
+  // of dead time. The chunked planner already validates each chunk independently.
+
+  plan.storyBible = storyBible;
+  plan.storyBlueprint = storyBible.sceneBlueprints || [];
+  plan.title = approvedTitle || plan.title || storyBible.title;
+  plan.isGraphicNovel = true;
+  plan.graphicNovelVersion = 'v2_premium';
+
+  const issues = summarizeGraphicNovelIssues(plan, storyBible);
+  if (issues.length > 0) {
+    plan.qaSummary = { issues };
+  }
+
+  // Carry forward character details from seed
+  plan.characterDescription = seed.characterDescription || null;
+  plan.characterAnchor = seed.characterAnchor || null;
+  plan.characterOutfit = seed.characterOutfit || null;
+  plan.recurringElement = seed.favorite_object || null;
+  plan.keyObjects = seed.keyObjects || null;
+
+  bookContext?.log('info', 'Graphic novel plan created', {
+    title: plan.title,
+    scenes: plan.scenes.length,
+    pages: plan.pages.length,
+    panels: plan.allPanels.length,
   });
 
-  // Build flat allPanels list for illustration generation loop
-  plan.allPanels = [];
-  for (const page of plan.pages) {
-    for (const panel of page.panels) {
-      plan.allPanels.push(panel);
-    }
-  }
-
   return plan;
-}
-
-/**
- * Convert legacy flat beats array to page-level structure.
- * Groups beats into pages of 3-4 panels with GRID_2x2 or GRID_3ROW templates.
- */
-function convertBeatsToPages(beats) {
-  const pages = [];
-  let i = 0;
-  let pageNum = 1;
-  while (i < beats.length) {
-    const beat = beats[i];
-    // Splash beats get their own page
-    if (beat.type === 'splash') {
-      pages.push({
-        pageNum: pageNum++,
-        act: Math.ceil(pageNum / 8),
-        layout: 'SPLASH',
-        panels: [{
-          panelIndex: 0,
-          image: beat.image || '',
-          dialogue: beat.dialogue ? [{ speaker: '', position: beat.speaker || 'left', text: beat.dialogue, type: 'speech' }] : [],
-          caption: beat.caption || '',
-          sfx: '',
-        }],
-      });
-      i++;
-    } else {
-      // Group 3 or 4 beats into a page
-      const groupSize = (i + 4 <= beats.length) ? 4 : Math.min(3, beats.length - i);
-      const layout = groupSize === 4 ? 'GRID_2x2' : 'GRID_3ROW';
-      const group = beats.slice(i, i + groupSize);
-      pages.push({
-        pageNum: pageNum++,
-        act: Math.ceil(pageNum / 8),
-        layout,
-        panels: group.map((b, idx) => ({
-          panelIndex: idx,
-          image: b.image || '',
-          dialogue: b.dialogue ? [{ speaker: '', position: b.speaker || 'left', text: b.dialogue, type: 'speech' }] : [],
-          caption: b.caption || '',
-          sfx: '',
-        })),
-      });
-      i += groupSize;
-    }
-  }
-  return pages;
 }
 
 module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, planGraphicNovel };

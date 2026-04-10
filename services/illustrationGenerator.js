@@ -137,8 +137,12 @@ const ART_STYLE_CONFIG = {
     suffix: 'clean simple shapes, flat design with subtle texture, muted Nordic color palette (soft sage, dusty rose, warm cream, birch white), generous negative space, cozy hygge atmosphere, elegant simplicity',
   },
   cinematic_3d: {
-    prefix: '3D CGI animated film render — Pixar/DreamWorks studio quality. Photorealistic subsurface scattering on skin, volumetric lighting with motivated light sources, physically-based materials, depth-of-field background blur, ambient occlusion, film-quality shadows and highlights. ABSOLUTELY NOT watercolor. ABSOLUTELY NOT 2D flat illustration. ABSOLUTELY NOT cartoon sketch. PURE 3D rendered animation.',
-    suffix: 'Rendered in high-end 3D animation style. Pixar-quality. Cinematic.',
+    prefix: 'Cinematic 3D animated children\'s book illustration,',
+    suffix: 'photorealistic 3D CGI render, volumetric cinematic lighting, depth of field, rich textures, dramatic warm golden glow, Disney-Pixar production quality, emotionally expressive characters, vivid saturated palette, subsurface skin scattering, magical storybook atmosphere',
+  },
+  graphic_novel_cinematic: {
+    prefix: 'Cinematic 3D middle-grade graphic novel panel illustration,',
+    suffix: 'Pixar-like 3D CGI animation adapted for sequential art, photorealistic subsurface skin scattering, volumetric cinematic lighting with dramatic rim lights, rich saturated color palette, emotionally expressive characters with readable facial acting, clean graphic silhouettes, simplified backgrounds in small panels with full environments in establishing shots, controlled depth of field, Disney-Pixar production quality, print-optimized color contrast, warm golden-hour atmosphere, premium sequential-art storytelling',
   },
 };
 
@@ -160,6 +164,199 @@ function sanitizePrompt(prompt) {
 function buildGenericSafePrompt(artStyle) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}`;
+}
+
+function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  const requestedStyle = artStyle === 'cinematic_3d' || artStyle === 'pixar_premium'
+    ? 'graphic_novel_cinematic'
+    : artStyle;
+  const styleConfig = ART_STYLE_CONFIG[requestedStyle] || ART_STYLE_CONFIG.graphic_novel_cinematic;
+  const parts = [];
+  const textFreeZone = opts.textFreeZone || 'top-right';
+  const balloons = Array.isArray(opts.balloons) ? opts.balloons.filter((item) => item && item.text) : [];
+  const captions = Array.isArray(opts.captions) ? opts.captions.filter((item) => item && item.text) : [];
+  const sfx = Array.isArray(opts.sfx) ? opts.sfx.filter((item) => item && item.text) : [];
+  const layoutHint = opts.layoutTemplate || opts.pageLayout || 'conversationGrid';
+
+  parts.push('Create one premium middle-grade graphic novel panel.');
+  parts.push('This is sequential art, not a picture-book spread and not a collage.');
+  parts.push('The art must feel like a first-class designed graphic novel for ages 9-12.');
+  parts.push('No text may appear inside the image. All dialogue, captions, and SFX will be added later in vector lettering.');
+  parts.push('');
+
+  if (childName) {
+    parts.push(`PRIMARY HERO: ${childName}.`);
+  }
+  if (characterDescription) {
+    parts.push(`LOCKED HERO APPEARANCE: ${characterDescription}`);
+  }
+  if (opts.characterAnchor) {
+    parts.push(`CHARACTER ANCHOR LOCK: ${opts.characterAnchor}`);
+  }
+  if (characterOutfit) {
+    parts.push(`OUTFIT LOCK: ${characterOutfit}`);
+  }
+  if (opts.additionalCoverCharacters) {
+    parts.push(`ALLOWED SUPPORTING CHARACTERS ONLY: ${opts.additionalCoverCharacters}`);
+  }
+  if (recurringElement) {
+    parts.push(`RECURRING MOTIF: ${recurringElement}`);
+  }
+  if (keyObjects) {
+    parts.push(`LOCKED RECURRING PROPS: ${keyObjects}`);
+  }
+
+  parts.push('');
+  parts.push(`COMIC STAGING: ${sceneDescription}`);
+  if (opts.panelType) parts.push(`PANEL TYPE: ${opts.panelType}`);
+  if (opts.shot) parts.push(`SHOT SIZE: ${opts.shot}`);
+  if (opts.cameraAngle) parts.push(`CAMERA ANGLE: ${opts.cameraAngle}`);
+  if (opts.actingNotes) parts.push(`ACTING NOTES: ${opts.actingNotes}`);
+  if (opts.backgroundComplexity) parts.push(`BACKGROUND COMPLEXITY: ${opts.backgroundComplexity}`);
+  if (opts.colorScript) {
+    parts.push(`COLOR SCRIPT: ${typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript)}`);
+  }
+  parts.push(`LAYOUT CONTEXT: This panel belongs to the "${layoutHint}" page template. Compose for clear reading order and leave intentional open space for lettering.`);
+  parts.push(`TEXT SAFE SPACE: preserve clean negative space in the ${textFreeZone} zone. Do not place faces, mouths, or the main action there.`);
+
+  if (balloons.length) {
+    parts.push(`LETTERING PLAN: ${balloons.length} speech balloons will be overlaid later. Keep the ${textFreeZone} zone uncluttered for them.`);
+  }
+  if (captions.length) {
+    parts.push(`CAPTION PLAN: ${captions.length} caption box(es) will be overlaid later. Maintain a clean band for them.`);
+  }
+  if (sfx.length) {
+    parts.push(`SFX PLAN: Reserve visual room for sound effects: ${sfx.map((item) => item.text).join(', ')}.`);
+  }
+
+  parts.push('');
+  parts.push('COMIC ART DIRECTION RULES:');
+  parts.push('- prioritize silhouette clarity and facial readability');
+  parts.push('- simplify backgrounds in small or dialogue-heavy panels');
+  parts.push('- use dramatic 3D cinematic lighting with volumetric light shafts and rim lights for depth');
+  parts.push('- render characters with Pixar-quality subsurface skin scattering and expressive eyes');
+  parts.push('- use rich saturated colors with clear value separation for print readability');
+  parts.push('- avoid heavy bokeh, clutter, muddy shadows, or film-frame noise');
+  parts.push('- keep one clear focal point');
+  parts.push('- preserve continuity with previous panels and references');
+  parts.push('- no split-screen, no multi-panel collage, no caption boxes, no speech bubbles, no letters, no words');
+  parts.push('');
+  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  if (opts.aspectRatioHint) parts.push(`ASPECT RATIO INTENT: ${opts.aspectRatioHint}`);
+  parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
+
+  if (pageText && !opts.skipTextEmbed) {
+    parts.push('Do not render this text in the image. It is reference-only for performance and tone:');
+    parts.push(pageText);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build a full-page comic prompt for graphic novels.
+ * Instead of generating individual panels, this creates a prompt for the ENTIRE page
+ * including panels, borders, speech bubbles with text, captions, and sound effects.
+ * The AI image model renders everything in one shot.
+ *
+ * @param {string} fullPagePrompt - LLM-written page composition description (from story planner)
+ * @param {string} artStyle - Art style key
+ * @param {string} childName - Protagonist name
+ * @param {object} opts - Character/world details and art direction
+ * @returns {string} Complete prompt for full-page generation
+ */
+function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
+  // Use the requested art style directly — don't override to graphic_novel_cinematic.
+  // This ensures graphic novels have the same Pixar visual style as other children's books.
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
+  const parts = [];
+
+  // Page-level framing
+  parts.push('Create a complete, print-ready comic book page for a premium middle-grade graphic novel.');
+  parts.push('This is ONE FULL PAGE of a graphic novel. Render the ENTIRE page as a single image including:');
+  parts.push('- Panel borders (dark ink lines) and white gutters between panels');
+  parts.push('- All character art with consistent appearance');
+  parts.push('- Speech bubbles with the EXACT dialogue text written inside them');
+  parts.push('- Caption/narration boxes with the EXACT text written inside them');
+  parts.push('- Sound effects as stylized comic lettering');
+  parts.push('- The page should have slim white margins around the outer edges');
+  parts.push('');
+
+  // Character identity
+  if (childName) {
+    parts.push(`PRIMARY HERO: ${childName}.`);
+  }
+  if (opts.characterDescription) {
+    parts.push(`LOCKED HERO APPEARANCE: ${opts.characterDescription}`);
+  }
+  if (opts.characterAnchor) {
+    parts.push(`CHARACTER ANCHOR LOCK: ${opts.characterAnchor}`);
+  }
+  if (opts.characterOutfit) {
+    parts.push(`OUTFIT LOCK: ${opts.characterOutfit}`);
+  }
+  if (opts.additionalCoverCharacters) {
+    parts.push(`ALLOWED SUPPORTING CHARACTERS: ${opts.additionalCoverCharacters}`);
+  }
+  if (opts.recurringElement) {
+    parts.push(`RECURRING MOTIF: ${opts.recurringElement}`);
+  }
+  if (opts.keyObjects) {
+    parts.push(`LOCKED RECURRING PROPS: ${opts.keyObjects}`);
+  }
+
+  // Hair negatives to prevent hallucinated accessories
+  if (opts.characterDescription) {
+    const negatives = buildHairNegatives(opts.characterDescription);
+    if (negatives) parts.push(negatives);
+  }
+
+  parts.push('');
+  parts.push('=== PAGE COMPOSITION ===');
+  parts.push(fullPagePrompt);
+  parts.push('');
+
+  // Comic typography rules
+  parts.push('LETTERING RULES:');
+  parts.push('- Speech bubbles: white oval/round with dark outline and a pointed tail toward the speaker');
+  parts.push('- Shout bubbles: jagged/starburst shape with bold uppercase text');
+  parts.push('- Thought bubbles: cloud shape with small circle trail leading to thinker');
+  parts.push('- Whisper bubbles: dashed outline, smaller italic text');
+  parts.push('- Narration captions: rectangular box with dark/navy background and white text');
+  parts.push('- Location captions: rectangular box with light cream background and dark text');
+  parts.push('- Internal monologue captions: rectangular box with yellow background');
+  parts.push('- Sound effects: bold stylized comic lettering integrated into the art');
+  parts.push('- All text MUST be clearly legible and spelled correctly');
+  parts.push('- Reading order flows top-to-bottom, left-to-right');
+  parts.push('');
+
+  // Art direction
+  parts.push('ART DIRECTION:');
+  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  if (opts.colorScript) {
+    const cs = typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript);
+    parts.push(`COLOR SCRIPT: ${cs}`);
+  }
+  parts.push('- Cinematic 3D lighting with volumetric light shafts and rim lights for depth');
+  parts.push('- Pixar-quality character rendering with subsurface skin scattering');
+  parts.push('- Clean panel borders, professional comic book page layout');
+  parts.push('- Print-ready quality with clear value separation and saturated colors');
+  parts.push('- Preserve continuity with previous pages and character references');
+  parts.push('');
+  parts.push('ASPECT RATIO: 2:3 (vertical/portrait page)');
+  parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
+
+  return parts.join('\n');
+}
+
+function determineAspectRatio(opts = {}) {
+  if (opts.aspectRatio) return opts.aspectRatio;
+  if (opts.comicPageMode) return '2:3';
+  if (!opts.comicMode) return opts.isSpread ? '16:9' : '1:1';
+  if (opts.layoutTemplate === 'fullBleedSplash' || opts.panelType === 'splash') return '3:4';
+  if (opts.panelType === 'establishing' || opts.layoutTemplate === 'cinematicTopStrip') return '16:9';
+  if (opts.panelType === 'closeup') return '3:4';
+  return '4:3';
 }
 
 /**
@@ -302,6 +499,36 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
  * @returns {string} Complete prompt
  */
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  if (opts.comicPageMode) {
+    return buildComicPagePrompt(
+      sceneDescription,  // In comicPageMode, sceneDescription IS the fullPagePrompt
+      artStyle,
+      childName,
+      {
+        characterDescription,
+        characterAnchor: opts.characterAnchor,
+        characterOutfit,
+        additionalCoverCharacters: opts.additionalCoverCharacters,
+        recurringElement,
+        keyObjects,
+        colorScript: opts.colorScript,
+      }
+    );
+  }
+  if (opts.comicMode) {
+    return buildComicPanelPrompt(
+      sceneDescription,
+      artStyle,
+      childName,
+      pageText,
+      characterOutfit,
+      characterDescription,
+      recurringElement,
+      keyObjects,
+      opts
+    );
+  }
+
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
   const skipTextEmbed = opts.skipTextEmbed || false;
   const isSpread = opts.isSpread || false;
@@ -318,10 +545,18 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   const parts = [];
 
-  // Change 13: LOCKED APPEARANCE at position 1 (before everything)
-  parts.push(`LOCKED CHARACTER APPEARANCE (READ THIS BEFORE ANYTHING ELSE):`);
-  parts.push(`${characterDescription ? characterDescription : 'Match the child in the reference photo exactly.'}`);
-  parts.push(`OUTFIT (do not change): ${characterOutfit || 'match the reference photo'}`);
+  // C2: CHARACTER description is the VERY FIRST block in the prompt
+  parts.push(`DRAW THIS EXACT CHILD — match the reference photo precisely:`);
+  if (opts.characterAnchor) {
+    parts.push(opts.characterAnchor);
+  } else {
+    parts.push(`${characterDescription ? characterDescription : 'Match the child in the reference photo exactly.'}`);
+  }
+  // Extract hair style from characterDescription for emphasis
+  const hairMatch = (characterDescription || '').match(/hair[:\s]+([^.;,]+)/i) || (characterDescription || '').match(/((?:straight|curly|wavy|coily|braided|short|long|medium)[^.;]*hair[^.;]*)/i);
+  const hairStyle = hairMatch ? hairMatch[1].trim() : (characterDescription || 'as shown in the reference photo');
+  parts.push(`HAIR: ${hairStyle} — IDENTICAL in every illustration, never changes.`);
+  parts.push(`OUTFIT: ${characterOutfit || 'match the reference photo'} — IDENTICAL in every illustration, never changes.`);
   parts.push(`This is the ONLY child in this book. Their appearance does NOT change between illustrations.`);
   parts.push(`Do not modify their hair, outfit, or any physical features.`);
   parts.push(``);
@@ -387,19 +622,6 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`   - EYE SHAPE: The eye shape above must be reproduced exactly — pay special attention to monolid vs almond vs round`);
     parts.push(`   - EYE COLOR: Match exactly — do not substitute`);
     parts.push(`   - HAIR: Color, texture, and length must match exactly — no variations`);
-    parts.push(`   - HAIR STYLE AND LENGTH ARE LOCKED — NEVER CHANGE THEM:`);
-    parts.push(`     The child's hair style (arrangement, length, accessories like ties or clips) must be IDENTICAL in every single illustration.`);
-    parts.push(`     If the characterAnchor says two pigtails, every spread shows two pigtails. If it says loose curly hair to shoulders, every spread shows that.`);
-    parts.push(`     Never add, remove, or change hairstyle between illustrations.`);
-    // P3: OUTFIT lock from characterAnchor — only for GRAPHIC_NOVEL and CHAPTER_BOOK formats
-    const isGraphicOrChapter = opts.bookFormat === 'GRAPHIC_NOVEL' || opts.bookFormat === 'CHAPTER_BOOK';
-    if (isGraphicOrChapter && opts.characterAnchor) {
-      const outfitMatch = opts.characterAnchor.match(/OUTFIT:\s*([^\n]+)/);
-      const anchorOutfit = outfitMatch ? outfitMatch[1].trim() : null;
-      if (anchorOutfit) {
-        parts.push(`   - OUTFIT IS LOCKED — same clothing in every panel: ${anchorOutfit}. Do NOT change or vary the outfit between panels.`);
-      }
-    }
     parts.push(`   If the reference photo shows an East Asian child, ALL illustrations must show an East Asian child.`);
     parts.push(`   If the reference shows a Black child, ALL illustrations must show a Black child.`);
     parts.push(`   NEVER drift to a different ethnicity, skin tone, or eye shape — even after multiple spreads.`);
@@ -415,14 +637,14 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   // Secondary character appearance lock (when someone else appears in the uploaded photo)
   if (opts.additionalCoverCharacters) {
-    parts.push(`8. SECONDARY CHARACTER — MUST APPEAR IN THIS ILLUSTRATION:`);
-    parts.push(`   The following character appears in the book cover and is part of this story. When the spread text mentions them or the scene involves them, they MUST be shown. Their appearance must be IDENTICAL across every illustration:`);
+    parts.push(`8. SECONDARY CHARACTER CONSISTENCY LOCK (CRITICAL):`);
+    parts.push(`   The following secondary character appears in the uploaded photo and MAY appear in this illustration. Their appearance must be IDENTICAL to every other illustration in this book:`);
     parts.push(`   ${opts.additionalCoverCharacters}`);
     parts.push(`   - Same hair color, style, and length on every spread`);
     parts.push(`   - Same skin tone and facial features on every spread`);
-    parts.push(`   - Same clothing and approximate age/build on every spread`);
+    parts.push(`   - Same approximate age and build on every spread`);
     parts.push(`   - Do NOT change their ethnicity, hair, or skin tone between spreads`);
-    parts.push(`   - Their look must match the book cover exactly`);
+    parts.push(`   - Match their appearance to the uploaded reference photo`);
     parts.push(``);
   }
 
@@ -464,6 +686,21 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(keyObjects);
     parts.push('Do NOT change the color or appearance of any object between pages.');
   }
+
+  // C3: Stronger negative / consistency instructions at END of character section
+  const anchorText = opts.characterAnchor || characterDescription || '';
+  const skinToneMatch = anchorText.match(/skin[:\s]+([^.;,\n]+)/i) || anchorText.match(/((?:light|medium|dark|fair|olive|brown|tan|deep|pale)[^.;,\n]*skin[^.;,\n]*)/i);
+  const skinTone = skinToneMatch ? skinToneMatch[1].trim() : 'as shown in the reference photo';
+  // hairStyle already extracted above for C2
+  const outfitDesc = characterOutfit || 'as shown in the reference photo';
+  parts.push('');
+  parts.push(`CONSISTENCY RULES (NON-NEGOTIABLE):`);
+  parts.push(`- The child's FACE must have the same bone structure, nose shape, and eye placement as the reference photo`);
+  parts.push(`- HAIR must be exactly ${hairStyle} — no variation, no accessories added or removed`);
+  parts.push(`- SKIN TONE must be exactly ${skinTone} — not lighter, not darker, regardless of scene lighting`);
+  parts.push(`- OUTFIT must be exactly ${outfitDesc} — same colors, same design, same details`);
+  parts.push(`- If ANYTHING about the child doesn't match the reference, it is WRONG`);
+  parts.push(`- Character consistency is MORE IMPORTANT than artistic creativity or scene composition`);
 
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
@@ -781,9 +1018,36 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
   const isSpread = opts.isSpread || false;
-  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null, characterAnchor: opts.characterAnchor || null, bookFormat: opts.bookFormat || null });
-  // Support explicit aspect ratio override (for graphic novel panels)
-  const aspectRatio = opts.aspectRatio || (isSpread ? '16:9' : '1:1');
+  const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, {
+    skipTextEmbed: opts.skipTextEmbed,
+    coverArtStyle: opts.coverArtStyle,
+    isSpread,
+    spreadIndex: opts.spreadIndex,
+    totalSpreads: opts.totalSpreads || 13,
+    childAge: opts.childAge,
+    promptInjection: opts.promptInjection,
+    fontStyle: opts.fontStyle,
+    additionalCoverCharacters: opts.additionalCoverCharacters || null,
+    characterAnchor: opts.characterAnchor || null,
+    bookFormat: opts.bookFormat || null,
+    comicMode: opts.comicMode || false,
+    panelType: opts.panelType || '',
+    shot: opts.shot || '',
+    cameraAngle: opts.cameraAngle || '',
+    actingNotes: opts.actingNotes || '',
+    backgroundComplexity: opts.backgroundComplexity || '',
+    textFreeZone: opts.textFreeZone || '',
+    safeTextZones: opts.safeTextZones || null,
+    balloons: opts.balloons || null,
+    captions: opts.captions || null,
+    sfx: opts.sfx || null,
+    layoutTemplate: opts.layoutTemplate || '',
+    pageLayout: opts.pageLayout || '',
+    colorScript: opts.colorScript || null,
+    aspectRatioHint: opts.aspectRatioHint || '',
+    aspectRatio: opts.aspectRatio || '',
+  });
+  const aspectRatio = determineAspectRatio({ ...opts, isSpread });
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);
@@ -913,4 +1177,57 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   throw new Error('No illustration generated after all attempts');
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64 };
+/**
+ * Quick Gemini Flash check: does the generated illustration match the character reference?
+ * Returns { consistent: boolean, issues: string[] }
+ */
+async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor) {
+  if (!generatedImageBase64 || !referenceImageBase64) return { consistent: true, issues: [] };
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return { consistent: true, issues: [] };
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: `Compare these two images. Image 1 is the REFERENCE (correct appearance). Image 2 is the GENERATED illustration.
+
+Does the child in Image 2 match Image 1 on ALL of these:
+1. HAIR: Same style, length, color, accessories? (yes/no)
+2. SKIN: Same tone? (yes/no)
+3. FACE: Similar structure, nose, eyes? (yes/no)
+4. OUTFIT: Same clothing? (yes/no)
+
+${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
+
+Respond with ONLY valid JSON:
+{"consistent": true} or {"consistent": false, "issues": ["hair is longer", "skin is lighter"]}` },
+            { inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } },
+            { inline_data: { mime_type: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
+          ]}],
+          generationConfig: { maxOutputTokens: 150, temperature: 0.1 },
+        }),
+      }
+    );
+
+    if (!resp.ok) return { consistent: true, issues: [] };
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      const result = JSON.parse(match[0]);
+      return { consistent: !!result.consistent, issues: result.issues || [] };
+    }
+  } catch (e) {
+    console.warn('[illustrationGenerator] Consistency check failed:', e.message);
+  }
+  return { consistent: true, issues: [] };
+}
+
+module.exports = { generateIllustration, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };

@@ -96,7 +96,7 @@ function getEmotionalWritingRules(emotion, situation, parentGoal, copingResource
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
  * @returns {string}
  */
-function buildStoryPlannerSystem(vars, additionalCoverCharacters = null) {
+function buildStoryPlannerSystem(vars, additionalCoverCharacters = null, theme = null) {
   // Accept either a vars object (V2) or a bare age number (legacy compat)
   let brief;
   if (typeof vars === 'number' || typeof vars === 'string') {
@@ -112,8 +112,50 @@ function buildStoryPlannerSystem(vars, additionalCoverCharacters = null) {
     brief = buildV2Brief(vars);
   }
 
-  // Override the family member rule when secondary characters are detected in the photo
-  if (additionalCoverCharacters) {
+  // Override the family member rule based on theme and secondary character detection
+  if (theme === 'mothers_day') {
+    if (additionalCoverCharacters) {
+      // Both Mom AND a detected secondary person are allowed in illustrations
+      const combinedOverride = `MOTHER'S DAY — MOM AS VISIBLE CHARACTER + SECONDARY CHARACTERS:
+Mom is a co-protagonist in this story. She MUST appear in illustration prompts for at least 6 of 13 spreads.
+When writing spread_image_prompt fields that include Mom, describe her presence explicitly:
+- Her position relative to the child (kneeling beside, standing behind, sitting together)
+- Her gesture or action (hugging, pointing, laughing, holding hands)
+- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled woman with gentle eyes")
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`;
+
+      brief = brief.replace(
+        /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+        combinedOverride + '\n'
+      );
+      brief = brief.replace(
+        /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+        `- Mom and the secondary character(s) listed above MAY appear in illustration prompts. Describe each consistently every time. Do NOT invent other family members not listed.`
+      );
+    } else {
+      // For Mother's Day, Mom is a co-protagonist even without a photo reference
+      const motherOverride = `MOTHER'S DAY — MOM AS VISIBLE CHARACTER:
+Mom is a co-protagonist in this story. She MUST appear in illustration prompts for at least 6 of 13 spreads.
+When writing spread_image_prompt fields that include Mom, describe her presence explicitly:
+- Her position relative to the child (kneeling beside, standing behind, sitting together)
+- Her gesture or action (hugging, pointing, laughing, holding hands)
+- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled woman with gentle eyes")
+If a specific Mom appearance description becomes available from the cover, it will override these generic descriptions at illustration time.
+Other family members (siblings, grandparents, dad) still follow the standard rule — text only, never illustrated.`;
+
+      brief = brief.replace(
+        /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+        motherOverride + '\n'
+      );
+      brief = brief.replace(
+        /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+        `- Mom MAY appear in illustration prompts for this Mother's Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.`
+      );
+    }
+  } else if (additionalCoverCharacters) {
+    // Non-mothers_day: override for secondary characters detected in the photo
     const familyOverride = `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
 ${additionalCoverCharacters}
@@ -218,7 +260,7 @@ Generate the COMPLETE story as a JSON object with this structure:`;
 
   return prompt + `
 {
-  "title": "The book title",
+  "title": "The book title (MUST include the child's name and reference something specific to THIS story — see TITLE RULES)",
   "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
   "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",${secondaryCharField}
   "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
@@ -243,7 +285,8 @@ IMPORTANT:
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.
 - Do NOT specify art medium or style in image prompts — that is handled separately by the illustration engine.
 - Follow ALL rules from the system brief (age tier, pacing, dialogue, etc.).
-- No newlines inside string values. Use apostrophes directly in strings (no escaping needed).`;
+- No newlines inside string values. Use apostrophes directly in strings (no escaping needed).
+- TITLE RULES: The title MUST include the child's name and reference something specific to THIS story (the quest, setting, repeated phrase, or favorite object). 3-8 words max. REJECT generic titles like "[Name]'s Adventure" or "A Magical Journey" — the title must be ownable to THIS child and THIS story.`;
 }
 
 // ── Two-phase prompt builders (split text generation from JSON structuring) ──
@@ -275,6 +318,8 @@ function getThemeContext(theme) {
       return `\n\nTHEME CONTEXT — NATURE:\nThis is a nature exploration story. The child discovers the natural world — a garden, a forest, a river. Encounters with animals and plants that have personality. A sense of wonder and connection to the living world. Calm but curious energy.`;
     case 'friendship':
       return `\n\nTHEME CONTEXT — FRIENDSHIP:\nThis is a friendship story. The child meets a new friend (could be an animal, a magical creature, or another child). The friendship is tested and deepened through a shared adventure or challenge. Ends with the bond confirmed.`;
+    case 'mothers_day':
+      return `\n\nTHEME CONTEXT — MOTHER'S DAY:\nThis is a love letter from a child to their mother. Mom is a NAMED, VISIBLE co-protagonist — she appears alongside the child in at least 6 of 13 spreads. The story is told from the child's perspective: gratitude, love, and a desire to show Mom how special she is. The arc moves from everyday shared moments to a heartfelt gesture of love. Mom must be described consistently in every illustration prompt where she appears. The ending is warm, tender, and emotionally resonant — it should make a mother cry happy tears.\n\nMOM IN ILLUSTRATIONS (CRITICAL): Mom is allowed — and required — in illustration prompts for this theme. Describe her presence explicitly when she appears (position, gesture, expression). If a specific appearance description is available from the cover, use it consistently. If not, describe her generically but warmly (e.g. "Mom, a warm-smiled woman with gentle eyes"). Do NOT apply the "never depict family members" rule to Mom in this theme.`;
     default:
       return '';
   }
@@ -416,6 +461,7 @@ When weaving the child's interests into the story, include at least one clearly 
     underwater: `\n\nUNDERWATER THEME — OCEAN JOURNEY RULE (CRITICAL):\nThis is an UNDERWATER ADVENTURE.\n- At least 3 ocean zones: sunlit reef, deeper blue, dark deep — each with different lighting and creatures.\n- The ocean world has personality: creatures that help, currents that push, bioluminescence that guides.\n- The child finds something hidden in the deep and brings it back to the surface.`,
     fantasy: `\n\nFANTASY THEME — QUEST ARC (CRITICAL):\nThis is a FANTASY QUEST. The child crosses into an enchanted world and must complete a quest.\n- At least 4 locations: the threshold, an enchanted forest/field, a castle/tower, the quest endpoint.\n- Victory comes from cleverness or heart, not force. The favorite object is key.`,
     nature: `\n\nNATURE THEME — DISCOVERY ARC (CRITICAL):\nThis is a NATURE DISCOVERY story.\n- At least 3 distinct natural locations with different light, sound, and life.\n- An animal or plant needs help — the child must observe carefully before acting.\n- The natural world responds to the child's care — something heals, blooms, or moves.`,
+    mothers_day: `\n\nMOTHER'S DAY THEME — LOVE LETTER ARC (CRITICAL):\nThis is a MOTHER'S DAY book — a love letter from the child to Mom.\n- Mom is a NAMED, VISIBLE co-protagonist. Use the name from customDetails (calls_mom / mom_name). If not provided, use "Mommy".\n- Mom MUST appear in illustration prompts for at least 6 of 13 spreads — describe her position, gesture, and expression each time.\n- The story is told from the child's perspective of love and gratitude.\n- Arc: everyday shared moments → realization of Mom's love → child's gesture of love back → heartfelt embrace.\n- Include the meaningful_moment from customDetails as a specific scene.\n- The ending is warm, tender, deeply emotional — Mom and child together. NOT a quest ending, NOT a bedtime ending.\n- IGNORE the "never depict family members" rule for Mom. Mom is a visible character in illustrations for this theme.\n- The repeated phrase should feel tender and personal in its final appearance.\n- This book should make a mother cry happy tears.`,
   };
 
   if (themeJourneyRules[theme]) {

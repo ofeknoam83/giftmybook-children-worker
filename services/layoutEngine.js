@@ -33,6 +33,8 @@ const { execFile } = require('child_process');
 const os = require('os');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
+// comicLayoutPresets and comicLetterer are no longer used — graphic novel pages
+// are now rendered as full-page AI-generated images with text baked in.
 
 /**
  * Upscale an image buffer 4x using ImageMagick Lanczos + unsharp.
@@ -100,6 +102,7 @@ const FONT_PATHS = {
   playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
   kalam:          path.join(FONT_DIR, 'Kalam-Regular.ttf'),
+  comicNeue:      path.join(FONT_DIR, 'ComicNeue-Bold.ttf'),
 };
 
 // ── Text helpers ──────────────────────────────────────────────────────────────
@@ -812,257 +815,753 @@ async function buildChapterBookPdf(chapters, opts = {}) {
   return Buffer.from(await pdfDoc.save());
 }
 
-// ── Graphic Novel V2 — Multi-panel professional layout engine ─────────────────
-const { getTemplate, PAGE_W: GN_PAGE_W, PAGE_H: GN_PAGE_H, MARGIN: GN_MARGIN, GUTTER: GN_GUTTER } = require('./gnPageTemplates');
-const { renderPanelOverlays } = require('./gnBubbleRenderer');
-
-const PANEL_BORDER_W = 1.5;
-const PANEL_BORDER_COLOR = rgb(0.05, 0.05, 0.1);
-const GN_PAGE_NUM_SIZE = 8;
-const GN_PAGE_NUM_COLOR = rgb(0.55, 0.55, 0.6);
-
-/** Load embedded comic font from local file (no network download). */
-let _comicFontCache = null;
-function getComicFontBytes() {
-  if (_comicFontCache) return _comicFontCache;
-  const fontPath = path.join(__dirname, '..', 'fonts', 'ComicNeue-Bold.ttf');
-  _comicFontCache = fs.readFileSync(fontPath);
-  return _comicFontCache;
+// ── Comic font cache (for graphic novel speech bubbles & captions) ────────────
+let comicFontBytes = null;
+function getComicFont() {
+  if (comicFontBytes) return comicFontBytes;
+  // Comic Neue Bold — bundled in fonts/ directory (OFL license)
+  if (fs.existsSync(FONT_PATHS.comicNeue)) {
+    comicFontBytes = fs.readFileSync(FONT_PATHS.comicNeue);
+    return comicFontBytes;
+  }
+  return null;
 }
 
 /**
- * Embed a panel image into a panel rect, cover-cropping to fill.
+ * Group panels into pages based on pageLayout capacity.
+ * Returns [{ layout, panels: [] }, ...]
  */
-async function embedPanelImage(pdfDoc, page, imageBuffer, panelRect) {
-  if (!imageBuffer) {
-    // Placeholder — light gray
-    page.drawRectangle({
-      x: panelRect.x, y: panelRect.y,
-      width: panelRect.w, height: panelRect.h,
-      color: rgb(0.92, 0.92, 0.94),
+function groupPanelsIntoPages(allPanels) {
+  const CAPACITY = {
+    'splash': 1,
+    'strip+2': 3,
+    '1large+2small': 3,
+    '3equal': 3,
+    '2equal': 2,
+    '4equal': 4,
+  };
+
+  const pages = [];
+  let i = 0;
+  while (i < allPanels.length) {
+    const layout = allPanels[i].pageLayout || '3equal';
+    const cap = CAPACITY[layout] || 3;
+    const group = allPanels.slice(i, i + cap);
+    pages.push({ layout, panels: group });
+    i += group.length;
+  }
+  return pages;
+}
+
+/**
+ * Draw a speech bubble with a short edge-attached tail pointing toward the speaker.
+ * All coordinates in panelRect are top-left origin; pageH converts to pdf-lib bottom-up.
+ */
+function drawOvalBubble(page, panelRect, text, speakerPosition, font, pageH) {
+  const sp = speakerPosition || 'left';
+
+  const fontSize = 10;
+  const maxTextW = panelRect.w * 0.50;
+  const textLines = wrapText(text, font, fontSize, maxTextW);
+  const lineH = fontSize * 1.35;
+  const textW = Math.max(...textLines.map(l => font.widthOfTextAtSize(l, fontSize)), 50);
+  const textH = textLines.length * lineH;
+
+  const padX = 14;
+  const padY = 10;
+  let bubbleW = Math.max(textW + padX * 2, 70);
+  let bubbleH = Math.max(textH + padY * 2, 28);
+
+  // Bubble placed away from speaker; speaker hint for tail direction
+  const posMap = {
+    'left':         { bx: 0.72, by: 0.18 },
+    'right':        { bx: 0.28, by: 0.18 },
+    'center':       { bx: 0.50, by: 0.15 },
+    'bottom-left':  { bx: 0.72, by: 0.18 },
+    'bottom-right': { bx: 0.28, by: 0.18 },
+    'top-left':     { bx: 0.72, by: 0.72 },
+    'top-right':    { bx: 0.28, by: 0.72 },
+  };
+  const speakerHint = {
+    'left':         { sx: 0.18, sy: 0.45 },
+    'right':        { sx: 0.82, sy: 0.45 },
+    'center':       { sx: 0.50, sy: 0.60 },
+    'bottom-left':  { sx: 0.18, sy: 0.72 },
+    'bottom-right': { sx: 0.82, sy: 0.72 },
+    'top-left':     { sx: 0.18, sy: 0.28 },
+    'top-right':    { sx: 0.82, sy: 0.28 },
+  };
+
+  const bpos = posMap[sp] || posMap['left'];
+  const spos = speakerHint[sp] || speakerHint['left'];
+
+  let cx = panelRect.x + panelRect.w * bpos.bx;
+  let cy = panelRect.y + panelRect.h * bpos.by;
+
+  const margin = 5;
+  cx = Math.max(panelRect.x + bubbleW / 2 + margin, Math.min(panelRect.x + panelRect.w - bubbleW / 2 - margin, cx));
+  cy = Math.max(panelRect.y + bubbleH / 2 + margin, Math.min(panelRect.y + panelRect.h - bubbleH / 2 - margin, cy));
+
+  const speakerX = panelRect.x + panelRect.w * spos.sx;
+  const speakerY = panelRect.y + panelRect.h * spos.sy;
+
+  // Direction from bubble center toward speaker
+  const dx = speakerX - cx;
+  const dy = speakerY - cy;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ndx = dx / dist;
+  const ndy = dy / dist;
+
+  // Point on ellipse boundary closest to speaker
+  const rx = bubbleW / 2;
+  const ry = bubbleH / 2;
+  const t = Math.atan2(ndy * rx, ndx * ry);
+  const edgeX = cx + rx * Math.cos(t);
+  const edgeY = cy + ry * Math.sin(t);
+
+  // Short tail — 18pt or 30% of distance, whichever is smaller
+  const tailLen = Math.min(18, dist * 0.30);
+  const tipX = edgeX + ndx * tailLen;
+  const tipY = edgeY + ndy * tailLen;
+
+  // PDF coords (y from bottom)
+  const pdfCY = pageH - cy;
+  const pdfEdgeY = pageH - edgeY;
+  const pdfTipY = pageH - tipY;
+
+  // Ellipse body
+  page.drawEllipse({
+    x: cx, y: pdfCY,
+    xScale: rx, yScale: ry,
+    color: rgb(1, 1, 1),
+    borderColor: rgb(0.12, 0.12, 0.12),
+    borderWidth: 1.25,
+  });
+
+  // Tail base spread (perpendicular to direction, at the ellipse edge)
+  const tailBaseHalf = 5;
+  const perpX = -ndy * tailBaseHalf;
+  const perpY = ndx * tailBaseHalf;
+  const b1 = { x: edgeX + perpX, y: pdfEdgeY + perpY };
+  const b2 = { x: edgeX - perpX, y: pdfEdgeY - perpY };
+  const tip = { x: tipX, y: pdfTipY };
+
+  // White fill to erase ellipse border under the tail base
+  const FILL_STEPS = 12;
+  for (let s = 0; s <= FILL_STEPS; s++) {
+    const f = s / FILL_STEPS;
+    page.drawLine({
+      start: { x: b1.x + (tip.x - b1.x) * f, y: b1.y + (tip.y - b1.y) * f },
+      end:   { x: b2.x + (tip.x - b2.x) * f, y: b2.y + (tip.y - b2.y) * f },
+      thickness: 1.5, color: rgb(1, 1, 1),
     });
+  }
+  page.drawLine({ start: b1, end: tip, thickness: 1.25, color: rgb(0.12, 0.12, 0.12) });
+  page.drawLine({ start: b2, end: tip, thickness: 1.25, color: rgb(0.12, 0.12, 0.12) });
+
+  // Text centered in bubble
+  const textStartY = pdfCY + (textLines.length * lineH) / 2 - fontSize;
+  for (let li = 0; li < textLines.length; li++) {
+    const line = textLines[li];
+    const lw = font.widthOfTextAtSize(line, fontSize);
+    page.drawText(line, {
+      x: cx - lw / 2,
+      y: textStartY - li * lineH,
+      size: fontSize, font, color: rgb(0, 0, 0),
+    });
+  }
+}
+
+/**
+ * Render a single comic page from a page group { layout, panels }.
+ */
+async function renderComicPage(pdfDoc, pageGroup, ctx) {
+  const { bangersFont, helv, pageH: PAGE_H, pageW: PAGE_W } = ctx;
+
+  const MARGIN_C = 24;
+  const GUTTER_C = 8;
+  const CONTENT_X = MARGIN_C;
+  const CONTENT_W = PAGE_W - MARGIN_C * 2;
+
+  const DPI = 300;
+  const px = (pt) => Math.round(pt / 72 * DPI);
+
+  const { layout, panels } = pageGroup;
+
+  // Check if first panel is scene opener (establishing + panelNumber 1)
+  const firstPanel = panels[0] || {};
+  const isSceneOpener = firstPanel.panelType === 'establishing' && firstPanel.panelNumber === 1;
+  const sceneHeaderH = isSceneOpener ? 20 : 0;
+
+  const CONTENT_Y = MARGIN_C;
+  const CONTENT_H = PAGE_H - MARGIN_C * 2 - sceneHeaderH;
+  const contentTopY = CONTENT_Y + CONTENT_H; // top of content area in PDF coords (bottom-up)
+
+  const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+
+  // Fill entire page with black (gutters show through)
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0, 0, 0) });
+
+  // Scene title header (above content area)
+  if (isSceneOpener) {
+    const headerY = PAGE_H - MARGIN_C - sceneHeaderH;
+    page.drawRectangle({ x: 0, y: headerY, width: PAGE_W, height: sceneHeaderH, color: rgb(0, 0, 0) });
+    const sceneLabel = `SCENE ${firstPanel.sceneNumber || ''} \u2014 ${(firstPanel.sceneTitle || '').toUpperCase()}`;
+    const slw = bangersFont.widthOfTextAtSize(sceneLabel, 9);
+    page.drawText(sceneLabel, {
+      x: (PAGE_W - slw) / 2,
+      y: headerY + 5,
+      size: 9,
+      font: bangersFont,
+      color: rgb(1, 1, 1),
+    });
+  }
+
+  // Compute panel rects based on layout (in PDF coordinates: y=0 at bottom)
+  let panelRects = [];
+
+  if (layout === 'splash') {
+    panelRects = [{ x: CONTENT_X, y: CONTENT_Y, w: CONTENT_W, h: CONTENT_H }];
+  } else if (layout === 'strip+2') {
+    const stripH = CONTENT_H * 0.18;
+    const lower2H = CONTENT_H - stripH - GUTTER_C;
+    const panelW = (CONTENT_W - GUTTER_C) / 2;
+    // Strip at top (high y in PDF), two panels below
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + lower2H + GUTTER_C, w: CONTENT_W, h: stripH },
+      { x: CONTENT_X, y: CONTENT_Y, w: panelW, h: lower2H },
+      { x: CONTENT_X + panelW + GUTTER_C, y: CONTENT_Y, w: panelW, h: lower2H },
+    ];
+  } else if (layout === '1large+2small') {
+    const largeH = CONTENT_H * 0.55;
+    const smallH = CONTENT_H - largeH - GUTTER_C;
+    const smallW = (CONTENT_W - GUTTER_C) / 2;
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + smallH + GUTTER_C, w: CONTENT_W, h: largeH },
+      { x: CONTENT_X, y: CONTENT_Y, w: smallW, h: smallH },
+      { x: CONTENT_X + smallW + GUTTER_C, y: CONTENT_Y, w: smallW, h: smallH },
+    ];
+  } else if (layout === '3equal') {
+    const panelH = (CONTENT_H - GUTTER_C * 2) / 3;
+    for (let i = 0; i < 3; i++) {
+      panelRects.push({ x: CONTENT_X, y: CONTENT_Y + (2 - i) * (panelH + GUTTER_C), w: CONTENT_W, h: panelH });
+    }
+  } else if (layout === '2equal') {
+    const panelH = (CONTENT_H - GUTTER_C) / 2;
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + panelH + GUTTER_C, w: CONTENT_W, h: panelH },
+      { x: CONTENT_X, y: CONTENT_Y, w: CONTENT_W, h: panelH },
+    ];
+  } else if (layout === '4equal') {
+    const panelW = (CONTENT_W - GUTTER_C) / 2;
+    const panelH = (CONTENT_H - GUTTER_C) / 2;
+    panelRects = [
+      { x: CONTENT_X, y: CONTENT_Y + panelH + GUTTER_C, w: panelW, h: panelH },                         // top-left
+      { x: CONTENT_X + panelW + GUTTER_C, y: CONTENT_Y + panelH + GUTTER_C, w: panelW, h: panelH },     // top-right
+      { x: CONTENT_X, y: CONTENT_Y, w: panelW, h: panelH },                                              // bottom-left
+      { x: CONTENT_X + panelW + GUTTER_C, y: CONTENT_Y, w: panelW, h: panelH },                          // bottom-right
+    ];
+  } else {
+    // Fallback: stack all panels equally
+    const panelH = (CONTENT_H - GUTTER_C * Math.max(0, panels.length - 1)) / Math.max(1, panels.length);
+    for (let i = 0; i < panels.length; i++) {
+      panelRects.push({ x: CONTENT_X, y: CONTENT_Y + (panels.length - 1 - i) * (panelH + GUTTER_C), w: CONTENT_W, h: panelH });
+    }
+  }
+
+  // Draw each panel
+  for (let pi = 0; pi < Math.min(panels.length, panelRects.length); pi++) {
+    const panel = panels[pi];
+    const rect = panelRects[pi];
+
+    // 1. Draw panel image or placeholder
+    if (panel.imageBuffer) {
+      try {
+        const targetW = px(rect.w);
+        const targetH = px(rect.h);
+        const resized = await sharp(panel.imageBuffer)
+          .resize(targetW, targetH, { fit: 'cover' })
+          .jpeg({ quality: 88 })
+          .toBuffer();
+        const img = await pdfDoc.embedJpg(resized);
+        page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
+      } catch (_) {
+        page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
+      }
+    } else {
+      // Soft blue-grey placeholder (#b8c5d6)
+      page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.722, 0.773, 0.839) });
+    }
+
+    // 2. Caption band at top of panel — dynamic height for multi-line narration
+    if (panel.caption && panel.caption.trim()) {
+      const capFS = 9;
+      const capLH = capFS * 1.4;
+      const capPadX = 8;
+      const capPadY = 5;
+      const capLines = wrapText(panel.caption, bangersFont, capFS, rect.w - capPadX * 2);
+      const maxBandH = rect.h * 0.30;
+      const visibleLines = [];
+      let runH = capPadY * 2;
+      for (const ln of capLines) {
+        if (runH + capLH > maxBandH) break;
+        visibleLines.push(ln);
+        runH += capLH;
+      }
+      const bandH = visibleLines.length * capLH + capPadY * 2;
+      const captionY = rect.y + rect.h - bandH;
+      page.drawRectangle({ x: rect.x, y: captionY, width: rect.w, height: bandH, color: rgb(0.102, 0.102, 0.180) });
+      let ty = captionY + bandH - capPadY - capFS;
+      for (const ln of visibleLines) {
+        page.drawText(ln, { x: rect.x + capPadX, y: ty, size: capFS, font: bangersFont, color: rgb(1, 1, 1) });
+        ty -= capLH;
+      }
+    }
+
+    // 3. Speech bubble
+    if (panel.dialogue && panel.dialogue.trim()) {
+      // Convert panel rect to top-left coordinate system for bubble positioning
+      const bubbleRect = {
+        x: rect.x,
+        y: PAGE_H - rect.y - rect.h, // convert to top-down y
+        w: rect.w,
+        h: rect.h,
+      };
+      drawOvalBubble(page, bubbleRect, panel.dialogue, panel.speakerPosition, bangersFont, PAGE_H);
+    }
+  }
+
+  // Page number
+  const pgNum = `${pdfDoc.getPageCount()}`;
+  const pnw = helv.widthOfTextAtSize(pgNum, 8);
+  page.drawText(pgNum, { x: (PAGE_W - pnw) / 2, y: 6, size: 8, font: helv, color: rgb(0.6, 0.6, 0.6) });
+}
+
+async function drawGraphicNovelPanelImage(pdfDoc, page, panel, blueprint) {
+  const rect = blueprint.rect;
+  const shadowOff = 2;
+  // Drop shadow behind panel
+  page.drawRectangle({
+    x: rect.x + shadowOff, y: rect.y - shadowOff,
+    width: rect.w, height: rect.h,
+    color: rgb(0.75, 0.75, 0.75),
+  });
+  // White panel backing
+  page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(1, 1, 1) });
+  if (!panel.imageBuffer) {
+    page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
+  } else {
+    try {
+      const targetW = Math.round(rect.w / 72 * 300);
+      const targetH = Math.round(rect.h / 72 * 300);
+      const resized = await sharp(panel.imageBuffer)
+        .resize(targetW, targetH, { fit: 'cover' })
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      // Free the original download buffer — only the resized JPEG is needed
+      panel.imageBuffer = null;
+      const img = await pdfDoc.embedJpg(resized);
+      page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
+    } catch (embedErr) {
+      console.warn(`[layoutEngine] Panel embed failed: ${embedErr.message}`);
+      page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
+    }
+  }
+  // Dark panel border
+  const bw = 2.5;
+  const borderColor = rgb(0.08, 0.08, 0.12);
+  page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: bw, color: borderColor }); // bottom
+  page.drawRectangle({ x: rect.x, y: rect.y + rect.h - bw, width: rect.w, height: bw, color: borderColor }); // top
+  page.drawRectangle({ x: rect.x, y: rect.y, width: bw, height: rect.h, color: borderColor }); // left
+  page.drawRectangle({ x: rect.x + rect.w - bw, y: rect.y, width: bw, height: rect.h, color: borderColor }); // right
+}
+
+/**
+ * Render a text-rich interstitial page (scene opener, internal monologue, letter/diary, narrator aside).
+ * These are programmatic pages with beautiful typography — no AI-generated image needed.
+ */
+function renderTextInterstitialPage(pdfDoc, pageData, fonts, pageW, pageH) {
+  const page = pdfDoc.addPage([pageW, pageH]);
+  const type = pageData.interstitialType || 'scene_opener';
+  const goldColor = rgb(0.765, 0.549, 0.180);
+  const inkColor = rgb(0.08, 0.08, 0.12);
+  const subtleGray = rgb(0.45, 0.45, 0.50);
+  const margin = 60;
+  const textWidth = pageW - margin * 2;
+
+  if (type === 'letter_or_diary') {
+    // Parchment-style background with handwritten feel
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.96, 0.94, 0.88) });
+    // Subtle border
+    const inset = 36;
+    page.drawRectangle({ x: inset, y: inset, width: pageW - inset * 2, height: pageH - inset * 2, borderColor: rgb(0.80, 0.73, 0.62), borderWidth: 0.8 });
+
+    // Heading (if provided)
+    if (pageData.heading) {
+      const headFont = fonts.accentFont || fonts.bodyFont;
+      const headLines = wrapText(pageData.heading, headFont, 16, textWidth);
+      let y = pageH - margin - 40;
+      for (const line of headLines) {
+        const w = headFont.widthOfTextAtSize(line, 16);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: 16, font: headFont, color: inkColor });
+        y -= 24;
+      }
+    }
+
+    // Body text in handwritten-style font
+    if (pageData.bodyText) {
+      const bodyFont = fonts.handwrittenFont || fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 13, textWidth - 20);
+      let y = pageH / 2 + (bodyLines.length * 10);
+      for (const line of bodyLines) {
+        page.drawText(line, { x: margin + 10, y, size: 13, font: bodyFont, color: rgb(0.20, 0.18, 0.15) });
+        y -= 20;
+      }
+    }
+  } else if (type === 'internal_monologue') {
+    // Moody, contemplative page
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.95, 0.95, 0.97) });
+
+    // Gold left accent bar
+    page.drawRectangle({ x: margin - 8, y: pageH / 2 - 80, width: 3, height: 160, color: goldColor });
+
+    // Body text in italic
+    if (pageData.bodyText) {
+      const bodyFont = fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 13, textWidth - 30);
+      let y = pageH / 2 + (bodyLines.length * 10);
+      for (const line of bodyLines) {
+        page.drawText(line, { x: margin + 10, y, size: 13, font: bodyFont, color: rgb(0.15, 0.15, 0.20) });
+        y -= 21;
+      }
+    }
+
+    // Attribution (character name)
+    if (pageData.heading) {
+      const attrFont = fonts.bodyFont;
+      const attrText = `\u2014 ${pageData.heading}`;
+      const attrW = attrFont.widthOfTextAtSize(attrText, 10);
+      page.drawText(attrText, { x: pageW - margin - attrW, y: pageH / 2 - 100, size: 10, font: attrFont, color: subtleGray });
+    }
+  } else if (type === 'narrator_aside') {
+    // Clean, centered prose
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.98, 0.97, 0.95) });
+
+    // Decorative diamond ornament
+    const cx = pageW / 2;
+    const ornY = pageH / 2 + 100;
+    page.drawLine({ start: { x: cx - 4, y: ornY }, end: { x: cx, y: ornY + 4 }, thickness: 1, color: goldColor });
+    page.drawLine({ start: { x: cx, y: ornY + 4 }, end: { x: cx + 4, y: ornY }, thickness: 1, color: goldColor });
+    page.drawLine({ start: { x: cx + 4, y: ornY }, end: { x: cx, y: ornY - 4 }, thickness: 1, color: goldColor });
+    page.drawLine({ start: { x: cx, y: ornY - 4 }, end: { x: cx - 4, y: ornY }, thickness: 1, color: goldColor });
+
+    // Body text centered
+    if (pageData.bodyText) {
+      const bodyFont = fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 13, textWidth - 40);
+      let y = ornY - 30;
+      for (const line of bodyLines) {
+        const w = bodyFont.widthOfTextAtSize(line, 13);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: 13, font: bodyFont, color: rgb(0.15, 0.15, 0.20) });
+        y -= 21;
+      }
+    }
+  } else {
+    // scene_opener (default) — chapter title + atmospheric prose
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.97, 0.96, 0.94) });
+
+    // Decorative border
+    const inset = 30;
+    page.drawRectangle({ x: inset, y: inset, width: pageW - inset * 2, height: pageH - inset * 2, borderColor: inkColor, borderWidth: 1.5 });
+    page.drawRectangle({ x: inset + 5, y: inset + 5, width: pageW - (inset + 5) * 2, height: pageH - (inset + 5) * 2, borderColor: goldColor, borderWidth: 0.8 });
+
+    // Chapter heading
+    if (pageData.heading) {
+      const headFont = fonts.titleFont || fonts.bodyFont;
+      const headSize = 28;
+      const headLines = wrapText(pageData.heading, headFont, headSize, textWidth);
+      let y = pageH / 2 + 80;
+      for (const line of headLines) {
+        const w = headFont.widthOfTextAtSize(line, headSize);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: headSize, font: headFont, color: inkColor });
+        y -= 36;
+      }
+
+      // Gold rule
+      const ruleY = y + 14;
+      page.drawRectangle({ x: (pageW - 80) / 2, y: ruleY, width: 80, height: 1.2, color: goldColor });
+
+      // Subheading
+      if (pageData.subheading) {
+        const subFont = fonts.accentFont || fonts.bodyFont;
+        const subW = subFont.widthOfTextAtSize(pageData.subheading, 14);
+        page.drawText(pageData.subheading, { x: (pageW - subW) / 2, y: ruleY - 24, size: 14, font: subFont, color: subtleGray });
+      }
+    }
+
+    // Body text
+    if (pageData.bodyText) {
+      const bodyFont = fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 12, textWidth - 20);
+      let y = pageH / 2 - 50;
+      for (const line of bodyLines) {
+        const w = bodyFont.widthOfTextAtSize(line, 12);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: 12, font: bodyFont, color: rgb(0.20, 0.20, 0.25) });
+        y -= 19;
+      }
+    }
+  }
+}
+
+/**
+ * Render a single graphic novel story page by embedding the full-page AI-generated image.
+ * The image includes panels, borders, speech bubbles, captions, and SFX — all baked in.
+ */
+async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
+  const page = pdfDoc.addPage([pageW, pageH]);
+
+  if (!pageData.imageBuffer) {
+    // Placeholder if image is missing
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.88, 0.90, 0.93) });
     return;
   }
 
   try {
-    // Resize image to exact panel dimensions with cover crop
-    const resizedBuf = await sharp(imageBuffer)
-      .resize(Math.round(panelRect.w * 3), Math.round(panelRect.h * 3), { fit: 'cover', position: 'center' })
-      .jpeg({ quality: 93 })
+    // Embed full-page image at 300 DPI
+    const targetW = Math.round(pageW / 72 * 300);
+    const targetH = Math.round(pageH / 72 * 300);
+    const resized = await sharp(pageData.imageBuffer)
+      .resize(targetW, targetH, { fit: 'cover' })
+      .jpeg({ quality: 92 })
       .toBuffer();
-
-    let pdfImage;
-    try { pdfImage = await pdfDoc.embedJpg(resizedBuf); }
-    catch { pdfImage = await pdfDoc.embedPng(imageBuffer); }
-
-    page.drawImage(pdfImage, {
-      x: panelRect.x, y: panelRect.y,
-      width: panelRect.w, height: panelRect.h,
-    });
-  } catch (e) {
-    console.warn(`[LayoutEngine] Panel image embed failed: ${e.message}`);
-    page.drawRectangle({
-      x: panelRect.x, y: panelRect.y,
-      width: panelRect.w, height: panelRect.h,
-      color: rgb(0.92, 0.92, 0.94),
-    });
+    pageData.imageBuffer = null; // Free original buffer
+    const img = await pdfDoc.embedJpg(resized);
+    page.drawImage(img, { x: 0, y: 0, width: pageW, height: pageH });
+  } catch (embedErr) {
+    console.warn(`[layoutEngine] Page embed failed: ${embedErr.message}`);
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.88, 0.90, 0.93) });
   }
 }
 
 /**
- * Render a multi-panel story page.
+ * Build a print-ready graphic novel PDF with full-page AI-generated images.
+ * Each story page is a single full-page image (panels, text, bubbles all baked in).
+ * @param {Array} _unused - Legacy parameter, no longer used
+ * @param {object} opts - { title, childName, tagline, dedication, year, pages }
  */
-async function renderGnStoryPage(pdfDoc, pageData, font, pageNum) {
-  const page = pdfDoc.addPage([GN_PAGE_W, GN_PAGE_H]);
+async function buildGraphicNovelPdf(_unused, opts = {}) {
+  const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
 
-  // White background
-  page.drawRectangle({ x: 0, y: 0, width: GN_PAGE_W, height: GN_PAGE_H, color: rgb(1, 1, 1) });
+  const PAGE_W = 450;  // 6.25" with bleed
+  const PAGE_H = 666;  // 9.25" with bleed
 
-  const template = getTemplate(pageData.layout);
-  const panels = pageData.panels || [];
-
-  for (let i = 0; i < template.panels.length; i++) {
-    const tPanel = template.panels[i];
-    const panelData = panels[i] || {};
-
-    // Embed panel illustration
-    await embedPanelImage(pdfDoc, page, panelData.imageBuffer, tPanel);
-
-    // Draw panel border (skip for bleed panels)
-    if (!tPanel.bleed) {
-      page.drawRectangle({
-        x: tPanel.x, y: tPanel.y,
-        width: tPanel.w, height: tPanel.h,
-        borderColor: PANEL_BORDER_COLOR,
-        borderWidth: PANEL_BORDER_W,
-      });
-    }
-
-    // Render dialogue bubbles, captions, SFX overlays
-    renderPanelOverlays(page, panelData, tPanel, font);
-  }
-
-  // Page number — bottom center
-  const numStr = String(pageNum);
-  const nw = font.widthOfTextAtSize(numStr, GN_PAGE_NUM_SIZE);
-  page.drawText(numStr, {
-    x: (GN_PAGE_W - nw) / 2,
-    y: 12,
-    size: GN_PAGE_NUM_SIZE, font, color: GN_PAGE_NUM_COLOR,
-  });
-}
-
-/**
- * Add graphic novel title page — clean white design.
- */
-function addGnTitlePage(pdfDoc, title, subtitle, font) {
-  const page = pdfDoc.addPage([GN_PAGE_W, GN_PAGE_H]);
-  page.drawRectangle({ x: 0, y: 0, width: GN_PAGE_W, height: GN_PAGE_H, color: rgb(1, 1, 1) });
-
-  // Title
-  const titleSize = 32;
-  const maxTitleW = GN_PAGE_W - 80;
-  const words = (title || '').split(/\s+/);
-  const titleLines = [];
-  let cur = '';
-  for (const w of words) {
-    const test = cur ? `${cur} ${w}` : w;
-    if (font.widthOfTextAtSize(test, titleSize) > maxTitleW && cur) { titleLines.push(cur); cur = w; }
-    else cur = test;
-  }
-  if (cur) titleLines.push(cur);
-
-  let ty = GN_PAGE_H / 2 + 60;
-  for (const line of titleLines) {
-    const lw = font.widthOfTextAtSize(line, titleSize);
-    page.drawText(line, { x: (GN_PAGE_W - lw) / 2, y: ty, size: titleSize, font, color: rgb(0.08, 0.08, 0.12) });
-    ty -= 42;
-  }
-
-  // Gold rule
-  const ruleW = 80;
-  page.drawRectangle({ x: (GN_PAGE_W - ruleW) / 2, y: ty + 10, width: ruleW, height: 2, color: rgb(0.76, 0.55, 0.18) });
-
-  if (subtitle) {
-    const subText = subtitle.length > 70 ? subtitle.slice(0, 67) + '...' : subtitle;
-    const sw = font.widthOfTextAtSize(subText, 11);
-    page.drawText(subText, { x: Math.max(10, (GN_PAGE_W - sw) / 2), y: ty - 16, size: 11, font, color: rgb(0.4, 0.4, 0.45) });
-  }
-
-  const gmb = 'GiftMyBook';
-  const gw = font.widthOfTextAtSize(gmb, 10);
-  page.drawText(gmb, { x: (GN_PAGE_W - gw) / 2, y: 30, size: 10, font, color: rgb(0.5, 0.5, 0.55) });
-}
-
-/**
- * Add graphic novel dedication page — clean white.
- */
-function addGnDedicationPage(pdfDoc, dedication, bookFrom, font) {
-  const page = pdfDoc.addPage([GN_PAGE_W, GN_PAGE_H]);
-  page.drawRectangle({ x: 0, y: 0, width: GN_PAGE_W, height: GN_PAGE_H, color: rgb(1, 1, 1) });
-
-  const dedWords = (dedication || '').split(/\s+/);
-  const dedLines = [];
-  let cur = '';
-  for (const w of dedWords) {
-    const test = cur ? `${cur} ${w}` : w;
-    if (font.widthOfTextAtSize(test, 13) > GN_PAGE_W - 90 && cur) { dedLines.push(cur); cur = w; }
-    else cur = test;
-  }
-  if (cur) dedLines.push(cur);
-
-  const totalH = dedLines.length * 20;
-  let dy = GN_PAGE_H / 2 + totalH / 2;
-  for (const line of dedLines) {
-    const lw = font.widthOfTextAtSize(line, 13);
-    page.drawText(line, { x: (GN_PAGE_W - lw) / 2, y: dy, size: 13, font, color: rgb(0.15, 0.15, 0.2) });
-    dy -= 20;
-  }
-
-  if (bookFrom) {
-    const fromText = `— ${bookFrom}`;
-    const fw = font.widthOfTextAtSize(fromText, 10);
-    page.drawText(fromText, { x: (GN_PAGE_W - fw) / 2, y: dy - 14, size: 10, font, color: rgb(0.45, 0.45, 0.5) });
-  }
-}
-
-/**
- * Add graphic novel end page — clean white with "The End".
- */
-function addGnEndPage(pdfDoc, childName, font) {
-  const page = pdfDoc.addPage([GN_PAGE_W, GN_PAGE_H]);
-  page.drawRectangle({ x: 0, y: 0, width: GN_PAGE_W, height: GN_PAGE_H, color: rgb(1, 1, 1) });
-
-  const endSize = 40;
-  const part1 = 'The ';
-  const part2 = 'End';
-  const totalW = font.widthOfTextAtSize(part1 + part2, endSize);
-  const endColor = rgb(0.08, 0.08, 0.12);
-  page.drawText(part1, { x: (GN_PAGE_W - totalW) / 2, y: GN_PAGE_H / 2 + 10, size: endSize, font, color: endColor });
-  page.drawText(part2, { x: (GN_PAGE_W - totalW) / 2 + font.widthOfTextAtSize(part1, endSize), y: GN_PAGE_H / 2 + 10, size: endSize, font, color: endColor });
-
-  // Gold rule
-  const ruleW = 60;
-  page.drawRectangle({ x: (GN_PAGE_W - ruleW) / 2, y: GN_PAGE_H / 2 - 8, width: ruleW, height: 2, color: rgb(0.76, 0.55, 0.18) });
-
-  if (childName) {
-    const subText = `${childName}'s story`;
-    const sw = font.widthOfTextAtSize(subText, 12);
-    page.drawText(subText, { x: (GN_PAGE_W - sw) / 2, y: GN_PAGE_H / 2 - 32, size: 12, font, color: rgb(0.5, 0.5, 0.55) });
-  }
-
-  const gmb = 'GiftMyBook';
-  const gw = font.widthOfTextAtSize(gmb, 9);
-  page.drawText(gmb, { x: (GN_PAGE_W - gw) / 2, y: 28, size: 9, font, color: rgb(0.55, 0.55, 0.6) });
-}
-
-/**
- * Build a 7×10" graphic novel PDF from page-level story data.
- *
- * @param {Array} pages - storyPlan.pages (page-level data with panels)
- * @param {object} opts - { title, subtitle, childName, bookFrom, dedication }
- */
-async function buildGraphicNovelPdf(pages, opts = {}) {
-  const allPages = pages || [];
+  const srcPages = Array.isArray(opts.pages) ? opts.pages : [];
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
+  pdfDoc.setTitle(title);
+  pdfDoc.setAuthor('GiftMyBook');
 
-  // Embed comic font from local file
-  let comicFont;
+  // Fonts for title/dedication/end pages and text interstitial pages
+  const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  let bubblegum = helvBold;
+  let playfairItalic = helv;
+  let kalam = helv;
   try {
-    const fontBuf = getComicFontBytes();
-    comicFont = await pdfDoc.embedFont(fontBuf);
-  } catch (e) {
-    console.warn('[LayoutEngine] Comic font load failed, using Helvetica Bold:', e.message);
-    comicFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    if (fs.existsSync(FONT_PATHS.bubblegum)) bubblegum = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum));
+    if (fs.existsSync(FONT_PATHS.playfairItalic)) playfairItalic = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic));
+    if (fs.existsSync(FONT_PATHS.kalam)) kalam = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.kalam));
+  } catch (_) {}
+
+  const fonts = {
+    titleFont: bubblegum || helvBold,
+    bodyFont: helv,
+    accentFont: playfairItalic || helv,
+    handwrittenFont: kalam || helv,
+  };
+
+  // ── Helper: decorative double-line border ──
+  const goldColor = rgb(0.765, 0.549, 0.180);
+  const inkColor = rgb(0.08, 0.08, 0.12);
+  function drawDecorativeBorder(p, pw, ph) {
+    const inset = 30;
+    p.drawRectangle({ x: inset, y: inset, width: pw - inset * 2, height: ph - inset * 2, borderColor: inkColor, borderWidth: 2 });
+    p.drawRectangle({ x: inset + 6, y: inset + 6, width: pw - (inset + 6) * 2, height: ph - (inset + 6) * 2, borderColor: goldColor, borderWidth: 1 });
+  }
+  function drawGoldRule(p, y, pw, w) {
+    const ruleW = w || 80;
+    p.drawRectangle({ x: (pw - ruleW) / 2, y, width: ruleW, height: 1.2, color: goldColor });
+  }
+  function drawGoldDiamond(p, x, y, size) {
+    const s = size || 4;
+    p.drawLine({ start: { x: x - s, y }, end: { x, y: y + s }, thickness: 1.2, color: goldColor });
+    p.drawLine({ start: { x, y: y + s }, end: { x: x + s, y }, thickness: 1.2, color: goldColor });
+    p.drawLine({ start: { x: x + s, y }, end: { x, y: y - s }, thickness: 1.2, color: goldColor });
+    p.drawLine({ start: { x, y: y - s }, end: { x: x - s, y }, thickness: 1.2, color: goldColor });
   }
 
   // Title page
-  addGnTitlePage(pdfDoc, opts.title || 'My Graphic Novel', opts.subtitle || '', comicFont);
+  {
+    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+    drawDecorativeBorder(p, PAGE_W, PAGE_H);
 
-  // Dedication page
-  if (opts.dedication) {
-    addGnDedicationPage(pdfDoc, opts.dedication, opts.bookFrom, comicFont);
+    const diamondY = PAGE_H / 2 + 110;
+    drawGoldDiamond(p, PAGE_W / 2 - 20, diamondY, 3);
+    drawGoldDiamond(p, PAGE_W / 2, diamondY, 4);
+    drawGoldDiamond(p, PAGE_W / 2 + 20, diamondY, 3);
+
+    const titleLines = wrapText(title, fonts.titleFont, 32, PAGE_W - 100);
+    let y = PAGE_H / 2 + 70;
+    for (const line of titleLines) {
+      const width = fonts.titleFont.widthOfTextAtSize(line, 32);
+      p.drawText(line, { x: (PAGE_W - width) / 2, y, size: 32, font: fonts.titleFont, color: inkColor });
+      y -= 40;
+    }
+
+    drawGoldRule(p, y + 10, PAGE_W, 100);
+
+    if (tagline) {
+      const lines = wrapText(tagline, fonts.accentFont, 12, PAGE_W - 110);
+      let ty = y - 16;
+      for (const line of lines.slice(0, 3)) {
+        const width = fonts.accentFont.widthOfTextAtSize(line, 12);
+        p.drawText(line, { x: (PAGE_W - width) / 2, y: ty, size: 12, font: fonts.accentFont, color: rgb(0.35, 0.35, 0.40) });
+        ty -= 18;
+      }
+    }
+
+    const sub = `A personalized graphic novel for ${childName}`;
+    const subWidth = fonts.bodyFont.widthOfTextAtSize(sub, 11);
+    p.drawText(sub, { x: (PAGE_W - subWidth) / 2, y: 60, size: 11, font: fonts.bodyFont, color: goldColor });
+    const yearText = `${year} \u00B7 GiftMyBook`;
+    const yearWidth = fonts.bodyFont.widthOfTextAtSize(yearText, 8);
+    p.drawText(yearText, { x: (PAGE_W - yearWidth) / 2, y: 40, size: 8, font: fonts.bodyFont, color: rgb(0.55, 0.55, 0.60) });
   }
 
-  // Story pages
-  let pageNum = 1;
-  for (const pageData of allPages) {
-    await renderGnStoryPage(pdfDoc, pageData, comicFont, pageNum);
-    pageNum++;
+  if (dedication) {
+    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.99, 0.98, 0.96) });
+    const inset = 40;
+    p.drawRectangle({ x: inset, y: inset, width: PAGE_W - inset * 2, height: PAGE_H - inset * 2, borderColor: goldColor, borderWidth: 0.8, color: undefined });
+
+    const lines = wrapText(dedication, fonts.accentFont, 14, PAGE_W - 130);
+    let y = PAGE_H / 2 + lines.length * 10;
+    for (const line of lines) {
+      const width = fonts.accentFont.widthOfTextAtSize(line, 14);
+      p.drawText(line, { x: (PAGE_W - width) / 2, y, size: 14, font: fonts.accentFont, color: rgb(0.12, 0.12, 0.16) });
+      y -= 22;
+    }
+  }
+
+  // Story pages — illustrated pages are full-page AI images, text interstitials are programmatic
+  for (let i = 0; i < srcPages.length; i++) {
+    if (srcPages[i].pageType === 'text_interstitial') {
+      renderTextInterstitialPage(pdfDoc, srcPages[i], fonts, PAGE_W, PAGE_H);
+    } else {
+      await renderGraphicNovelStoryPage(pdfDoc, srcPages[i], PAGE_W, PAGE_H);
+    }
+    if ((i + 1) % 10 === 0 || i === srcPages.length - 1) {
+      const mem = process.memoryUsage();
+      console.log(`[layoutEngine] Rendered page ${i + 1}/${srcPages.length} (heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB)`);
+    }
   }
 
   // End page
-  addGnEndPage(pdfDoc, opts.childName || '', comicFont);
+  {
+    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+    drawDecorativeBorder(p, PAGE_W, PAGE_H);
 
-  // Pad to even page count for binding
-  while (pdfDoc.getPageCount() % 2 !== 0) {
-    const blank = pdfDoc.addPage([GN_PAGE_W, GN_PAGE_H]);
-    blank.drawRectangle({ x: 0, y: 0, width: GN_PAGE_W, height: GN_PAGE_H, color: rgb(1, 1, 1) });
+    const main = 'The End';
+    const mainWidth = fonts.accentFont.widthOfTextAtSize(main, 36);
+    p.drawText(main, { x: (PAGE_W - mainWidth) / 2, y: PAGE_H / 2 + 14, size: 36, font: fonts.accentFont, color: inkColor });
+
+    drawGoldRule(p, PAGE_H / 2 - 6, PAGE_W, 80);
+
+    const sub = `${childName}'s story`;
+    const subWidth = fonts.accentFont.widthOfTextAtSize(sub, 12);
+    p.drawText(sub, { x: (PAGE_W - subWidth) / 2, y: PAGE_H / 2 - 28, size: 12, font: fonts.accentFont, color: goldColor });
+
+    drawGoldDiamond(p, PAGE_W / 2 - 20, PAGE_H / 2 - 56, 3);
+    drawGoldDiamond(p, PAGE_W / 2, PAGE_H / 2 - 56, 4);
+    drawGoldDiamond(p, PAGE_W / 2 + 20, PAGE_H / 2 - 56, 3);
+
+    const brand = `${year} \u00B7 GiftMyBook`;
+    const brandWidth = fonts.bodyFont.widthOfTextAtSize(brand, 8);
+    p.drawText(brand, { x: (PAGE_W - brandWidth) / 2, y: 40, size: 8, font: fonts.bodyFont, color: rgb(0.55, 0.55, 0.60) });
   }
 
-  return Buffer.from(await pdfDoc.save());
+  while (pdfDoc.getPageCount() % 2 !== 0) {
+    pdfDoc.addPage([PAGE_W, PAGE_H]);
+  }
+
+  console.log(`[layoutEngine] Graphic novel PDF ready to save: ${pdfDoc.getPageCount()} pages`);
+  try {
+    return Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+  } catch (saveErr) {
+    if (!saveErr.message.includes('Invalid string length')) throw saveErr;
+
+    // pdf-lib hit V8 string limit — rebuild with quality 80 (still 300 DPI)
+    console.warn(`[layoutEngine] PDF save failed (${saveErr.message}), retrying at quality 80`);
+    const retryDoc = await PDFDocument.create();
+    retryDoc.registerFontkit(fontkit);
+
+    const retryFonts = {};
+    retryFonts.bodyFont = await retryDoc.embedFont(StandardFonts.Helvetica);
+    retryFonts.titleFont = await retryDoc.embedFont(StandardFonts.HelveticaBold);
+    retryFonts.accentFont = retryFonts.bodyFont;
+    try { if (fs.existsSync(FONT_PATHS.bubblegum)) retryFonts.titleFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum)); } catch (_) {}
+    try { if (fs.existsSync(FONT_PATHS.playfairItalic)) retryFonts.accentFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic)); } catch (_) {}
+
+    // Re-download page images from GCS (originals were freed during first attempt)
+    const { downloadBuffer: dlBuf } = require('./gcsStorage');
+    for (const page of srcPages) {
+      if (!page.imageBuffer && page.illustrationUrl) {
+        try { page.imageBuffer = await dlBuf(page.illustrationUrl); }
+        catch (_) { page.imageBuffer = null; }
+      }
+    }
+
+    // Title page (simplified)
+    const tp = retryDoc.addPage([PAGE_W, PAGE_H]);
+    tp.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+    const titleLines2 = wrapText(title, retryFonts.titleFont, 32, PAGE_W - 100);
+    let ty2 = PAGE_H / 2 + 70;
+    for (const line of titleLines2) {
+      const w = retryFonts.titleFont.widthOfTextAtSize(line, 32);
+      tp.drawText(line, { x: (PAGE_W - w) / 2, y: ty2, size: 32, font: retryFonts.titleFont, color: rgb(0.08, 0.08, 0.12) });
+      ty2 -= 40;
+    }
+
+    // Story pages at quality 80 — full-page images
+    for (let i = 0; i < srcPages.length; i++) {
+      const pageData = srcPages[i];
+      const pg = retryDoc.addPage([PAGE_W, PAGE_H]);
+      if (pageData.imageBuffer) {
+        try {
+          const tw = Math.round(PAGE_W / 72 * 300);
+          const th = Math.round(PAGE_H / 72 * 300);
+          const resized = await sharp(pageData.imageBuffer)
+            .resize(tw, th, { fit: 'cover' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          pageData.imageBuffer = null;
+          const img = await retryDoc.embedJpg(resized);
+          pg.drawImage(img, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+        } catch (_) {
+          pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.88, 0.90, 0.93) });
+        }
+      } else {
+        pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.88, 0.90, 0.93) });
+      }
+    }
+
+    while (retryDoc.getPageCount() % 2 !== 0) retryDoc.addPage([PAGE_W, PAGE_H]);
+    console.log(`[layoutEngine] Retry PDF saving: ${retryDoc.getPageCount()} pages at quality 80`);
+    return Buffer.from(await retryDoc.save({ useObjectStreams: false }));
+  }
 }
 
 module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS };

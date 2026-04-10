@@ -238,13 +238,21 @@ TEXT LENGTH (CRITICAL):
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-Write with the qualities of master children's authors:
+Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
 
-- Simple but precise language. Every word earns its place.
-- No cliches. No filler sentences.
-- Respect the child's intelligence — never talk down.
-- Emotion is implied, never explained.
-- Dialogue feels natural, curious, and childlike — not functional.
+- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
+- Every sentence earns its place. If you can cut it and the story still works, cut it.
+- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
+- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
+- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+
+ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
+- REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
+- REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
+- REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
+- The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
 RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
@@ -254,11 +262,32 @@ RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
   A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
 - Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
+- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. "The dark had a sound now" is musical. "It was dark and there was a sound" is dead. Choose words that feel good in the mouth.
 
 TONE:
-- Warm, intimate, slightly poetic.
-- Calm but emotionally alive.
-- Avoid moralizing or explicit lessons.
+- Warm but never sentimental. Intimate but never syrupy.
+- Emotionally alive — every spread should make the reader feel something specific (curiosity, tenderness, surprise, delight, wonder), not vaguely "nice."
+- Avoid moralizing or explicit lessons. If the story has a "message," it should be invisible — felt, not stated.
+- Funny and tender should coexist. The funniest children's books are also the most moving. Humor is not the opposite of depth — it's the vehicle.
+
+HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
+- At least 2-3 genuinely funny moments per story, not just one token joke. Humor should be woven through the story, not bolted on.
+- COMIC TIMING: The funniest moments use the page turn. Setup on one spread, punchline revealed on the next. A long sentence followed by one deadpan word. A serious buildup that breaks with something absurd.
+- RUNNING GAGS: Introduce something funny early (a squeaky boot, a stubborn hat, a creature that keeps appearing at the wrong moment) and let it recur 2-3 times, escalating each time. The third appearance should be the biggest payoff.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise. Children are naturally funny — let the character be, too. "That's not how birds work," she said to the cloud.
+- ABSURDIST LOGIC: Children love things that break rules — a fish in a tree, a door that opens to the wrong room, a sandwich that talks back. Play with the world's logic.
+- SURPRISE over SLAPSTICK: A quiet unexpected detail is funnier than a pratfall. "The dragon sneezed. Confetti came out." beats "The dragon slipped on a banana peel."
+- Humor should emerge from character and situation — never from mockery, meanness, or bathroom jokes.
+- CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
+- For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
+
+SOUND WORDS & ONOMATOPOEIA (read-aloud magic):
+- Include at least 2-3 sound words across the story. Children love hearing and repeating these.
+- Examples: splash, whoosh, creak, thump, buzz, crunch, pop, drip-drip-drip, shhhh, click, boom, rustle, squeak.
+- Sound words should appear at natural story moments — a door creaking, boots crunching, water splashing, wind whooshing.
+- Sound words can stand alone as short sentences for dramatic effect: "Creak." or "Drip. Drip. Drip."
+- Do NOT overuse them — 2-3 well-placed sounds are more effective than sounds on every spread.
+
 - BIRTHDAY THEME EXCEPTION: Birthday books must feel like a celebration from spread 1. Warmth, joy, and excitement are the emotional baseline — not tension. The reader should feel like they are invited to a wonderful party, not reading a story about a problem to solve. The "every spread needs tension" rule does NOT apply — spreads 1-5 and 7-13 should be purely celebratory.
 
 -------------------------------------
@@ -290,6 +319,42 @@ Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+-------------------------------------
+PAGE-TURN TENSION (the secret weapon of great picture books)
+-------------------------------------
+The physical page turn is a dramatic device. Use it.
+
+- At least 3 spreads must end with a LINE THAT PULLS THE READER FORWARD — a question, an incomplete action, a sound without a source, a "but then..." moment. The parent should WANT to turn the page.
+- The best page-turn lines are short and unresolved:
+  - "She reached inside and found —" (what??)
+  - "The door was open." (what's behind it?)
+  - "Something moved." (what was it?)
+  - "But the sound wasn't coming from the forest." (then where?)
+- Place page-turn hooks at the END of spreads 2, 4, 6, and/or 8 (the rising-action spreads).
+- Spread 12 is the ULTIMATE page-turn: it must create maximum anticipation for the final spread.
+- Do NOT put page-turn hooks on every spread — the contrast between resolved and unresolved spreads creates rhythm.
+- The right page of a spread is the last thing read before the turn. If you want suspense, put the hook on the right page.
+
+-------------------------------------
+OPENING SPREAD (CRITICAL — the first spread determines whether a parent keeps reading)
+-------------------------------------
+- NEVER open with the child waking up, opening their eyes, or getting out of bed (unless bedtime theme specifically requires the routine).
+- NEVER open with "One day..." / "Once upon a time..." / "It was a [adjective] morning..." / "The day began..."
+- The first spread must drop the reader into a MOMENT — mid-action, mid-sensation, mid-observation.
+- The opening line must contain a specific, concrete image that could only belong to THIS story.
+
+GOOD OPENINGS (for calibration — do NOT copy):
+- "The compass needle spun. Not north. Not south. It pointed at the wall."
+- "Streamers hung from every doorknob. The house smelled like frosting and secrets."
+- "The house creaked its old-wood song. Something in the attic was counting."
+- "A single bubble rose from the drain. Then another. Then a hundred."
+
+BAD OPENINGS (REJECT these patterns):
+- "One sunny morning, [child] woke up to find..."
+- "[Child] opened her eyes and saw something amazing."
+- "It was a beautiful day in [setting]."
+- "Once upon a time, there was a [adjective] child named [name]."
 
 TIME OF DAY (IMPORTANT): The story does NOT need to follow a morning-to-night arc. The time of day must serve the story's emotional logic — not a default bedtime template. An adventure can begin at 2pm and end at sunset. A birthday can unfold entirely in the golden afternoon. A space story might begin and end at midnight. Choose the time that makes this specific story feel most alive. Only bedtime-themed books should default to evening/night.
 
@@ -534,6 +599,14 @@ Rules:
 - Use apostrophes directly in strings (no escaping needed).
 - No newlines inside string values.
 
+TITLE RULES (CRITICAL):
+- The title MUST include the child's name: "{name}" or a possessive form ("{name}'s").
+- The title must reference something SPECIFIC to THIS story — the quest, the setting, the repeated phrase, or the favorite object. NOT a generic concept.
+- Keep it short: 3-8 words maximum.
+- GOOD titles: "{name} and the Map That Remembered", "{name}'s Midnight Garden", "The Day {name} Found the Stars"
+- BAD titles: "{name}'s Adventure", "{name}'s Special Day", "A Magical Journey", "The Brave Little Child"
+- If the title could apply to ANY child's book, it's too generic. Rewrite it.
+
 -------------------------------------
 FINAL CHECK BEFORE OUTPUT
 -------------------------------------
@@ -543,6 +616,7 @@ Before writing, silently verify:
 - Is there at least one memorable line a parent would repeat outside the book?
 - Does the repeated phrase transform from uncertain to safe?
 - Does the ending feel soft and satisfying?
+- Does the title include the child's name and reference something specific to THIS story?
 - Does every spread have text on at least one page (left or right)? No spread may have null text on both pages.
 - Are there exactly 13 spreads (not fewer, not more)?
 - Does characterDescription include a specific hair description (color, style, length)?
@@ -651,13 +725,21 @@ TEXT LENGTH (CRITICAL):
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-Write with the qualities of master children's authors:
+Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
 
-- Simple but precise language. Every word earns its place.
-- No cliches. No filler sentences.
-- Respect the child's intelligence — never talk down.
-- Emotion is implied, never explained.
-- Dialogue feels natural, curious, and childlike — not functional.
+- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
+- Every sentence earns its place. If you can cut it and the story still works, cut it.
+- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
+- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
+- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+
+ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
+- REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
+- REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
+- REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
+- The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
 RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
@@ -667,11 +749,32 @@ RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
   A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
 - Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
+- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. "The dark had a sound now" is musical. "It was dark and there was a sound" is dead. Choose words that feel good in the mouth.
 
 TONE:
-- Warm, intimate, slightly poetic.
-- Calm but emotionally alive.
-- Avoid moralizing or explicit lessons.
+- Warm but never sentimental. Intimate but never syrupy.
+- Emotionally alive — every spread should make the reader feel something specific (curiosity, tenderness, surprise, delight, wonder), not vaguely "nice."
+- Avoid moralizing or explicit lessons. If the story has a "message," it should be invisible — felt, not stated.
+- Funny and tender should coexist. The funniest children's books are also the most moving. Humor is not the opposite of depth — it's the vehicle.
+
+HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
+- At least 2-3 genuinely funny moments per story, not just one token joke. Humor should be woven through the story, not bolted on.
+- COMIC TIMING: The funniest moments use the page turn. Setup on one spread, punchline revealed on the next. A long sentence followed by one deadpan word. A serious buildup that breaks with something absurd.
+- RUNNING GAGS: Introduce something funny early (a squeaky boot, a stubborn hat, a creature that keeps appearing at the wrong moment) and let it recur 2-3 times, escalating each time. The third appearance should be the biggest payoff.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise. Children are naturally funny — let the character be, too. "That's not how birds work," she said to the cloud.
+- ABSURDIST LOGIC: Children love things that break rules — a fish in a tree, a door that opens to the wrong room, a sandwich that talks back. Play with the world's logic.
+- SURPRISE over SLAPSTICK: A quiet unexpected detail is funnier than a pratfall. "The dragon sneezed. Confetti came out." beats "The dragon slipped on a banana peel."
+- Humor should emerge from character and situation — never from mockery, meanness, or bathroom jokes.
+- CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
+- For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
+
+SOUND WORDS & ONOMATOPOEIA (read-aloud magic):
+- Include at least 2-3 sound words across the story. Children love hearing and repeating these.
+- Examples: splash, whoosh, creak, thump, buzz, crunch, pop, drip-drip-drip, shhhh, click, boom, rustle, squeak.
+- Sound words should appear at natural story moments — a door creaking, boots crunching, water splashing, wind whooshing.
+- Sound words can stand alone as short sentences for dramatic effect: "Creak." or "Drip. Drip. Drip."
+- Do NOT overuse them — 2-3 well-placed sounds are more effective than sounds on every spread.
+
 - BIRTHDAY THEME EXCEPTION: Birthday books must feel like a celebration from spread 1. Warmth, joy, and excitement are the emotional baseline — not tension. The reader should feel like they are invited to a wonderful party, not reading a story about a problem to solve. The "every spread needs tension" rule does NOT apply — spreads 1-5 and 7-13 should be purely celebratory.
 
 -------------------------------------
@@ -700,6 +803,42 @@ Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+-------------------------------------
+PAGE-TURN TENSION (the secret weapon of great picture books)
+-------------------------------------
+The physical page turn is a dramatic device. Use it.
+
+- At least 3 spreads must end with a LINE THAT PULLS THE READER FORWARD — a question, an incomplete action, a sound without a source, a "but then..." moment. The parent should WANT to turn the page.
+- The best page-turn lines are short and unresolved:
+  - "She reached inside and found —" (what??)
+  - "The door was open." (what's behind it?)
+  - "Something moved." (what was it?)
+  - "But the sound wasn't coming from the forest." (then where?)
+- Place page-turn hooks at the END of spreads 2, 4, 6, and/or 8 (the rising-action spreads).
+- Spread 12 is the ULTIMATE page-turn: it must create maximum anticipation for the final spread.
+- Do NOT put page-turn hooks on every spread — the contrast between resolved and unresolved spreads creates rhythm.
+- The right page of a spread is the last thing read before the turn. If you want suspense, put the hook on the right page.
+
+-------------------------------------
+OPENING SPREAD (CRITICAL — the first spread determines whether a parent keeps reading)
+-------------------------------------
+- NEVER open with the child waking up, opening their eyes, or getting out of bed (unless bedtime theme specifically requires the routine).
+- NEVER open with "One day..." / "Once upon a time..." / "It was a [adjective] morning..." / "The day began..."
+- The first spread must drop the reader into a MOMENT — mid-action, mid-sensation, mid-observation.
+- The opening line must contain a specific, concrete image that could only belong to THIS story.
+
+GOOD OPENINGS (for calibration — do NOT copy):
+- "The compass needle spun. Not north. Not south. It pointed at the wall."
+- "Streamers hung from every doorknob. The house smelled like frosting and secrets."
+- "The house creaked its old-wood song. Something in the attic was counting."
+- "A single bubble rose from the drain. Then another. Then a hundred."
+
+BAD OPENINGS (REJECT these patterns):
+- "One sunny morning, [child] woke up to find..."
+- "[Child] opened her eyes and saw something amazing."
+- "It was a beautiful day in [setting]."
+- "Once upon a time, there was a [adjective] child named [name]."
 
 TIME OF DAY (IMPORTANT): The story does NOT need to follow a morning-to-night arc. The time of day must serve the story's emotional logic — not a default bedtime template. An adventure can begin at 2pm and end at sunset. A birthday can unfold entirely in the golden afternoon. A space story might begin and end at midnight. Choose the time that makes this specific story feel most alive. Only bedtime-themed books should default to evening/night.
 
@@ -853,7 +992,7 @@ OUTPUT FORMAT (PLAIN TEXT — NOT JSON)
 -------------------------------------
 Write the story in this exact format. Do NOT output JSON.
 
-TITLE: [your title]
+TITLE: [your title — see TITLE RULES below]
 
 DEDICATION: [dedication text]
 
@@ -871,7 +1010,15 @@ Rules:
 - Write exactly 13 spreads.
 - Each spread has Left and Right. At least one must have text — no spread may have both null.
 - Do NOT include illustration descriptions, JSON, or metadata.
-- Focus entirely on the story text and its quality.`;
+- Focus entirely on the story text and its quality.
+
+TITLE RULES (CRITICAL):
+- The title MUST include the child's name: "{name}" or a possessive form ("{name}'s").
+- The title must reference something SPECIFIC to THIS story — the quest, the setting, the repeated phrase, or the favorite object. NOT a generic concept.
+- Keep it short: 3-8 words maximum.
+- GOOD titles: "{name} and the Map That Remembered", "{name}'s Midnight Garden", "The Day {name} Found the Stars"
+- BAD titles: "{name}'s Adventure", "{name}'s Special Day", "A Magical Journey", "The Brave Little Child"
+- If the title could apply to ANY child's book, it's too generic. Rewrite it.`;
 
 // ── Structure Brief (for JSON conversion + illustration prompts) ──
 

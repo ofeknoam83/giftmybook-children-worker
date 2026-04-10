@@ -53,7 +53,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const { planStory, validateStoryText } = require('../../services/storyPlanner');
+const { planStory, validateStoryText, combinedCritic, planGraphicNovel } = require('../../services/storyPlanner');
 
 describe('planStory', () => {
   const childDetails = {
@@ -305,5 +305,1061 @@ describe('validateStoryText', () => {
     };
     const { issues } = validateStoryText(plan, 30);
     expect(issues.some(i => i.type === 'visual_spreads')).toBe(true);
+  });
+
+  test.each([
+    ['One day the adventure began'],
+    ['Once upon a time there was a girl'],
+    ['She woke up and stretched her arms'],
+    ['It was a beautiful morning in the park'],
+    ['The morning was bright and full of promise'],
+    ['The day had finally arrived'],
+  ])('flags opening cliche: %s', (openingText) => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i === 0 ? openingText : 'The wind carried a scent.' },
+        right: { text: null },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'opening_cliche' && i.spread === 1)).toBe(true);
+  });
+
+  test('does not flag a strong opening', () => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i === 0 ? 'Maya pressed her nose against the spaceship glass.' : 'The wind carried a scent.' },
+        right: { text: null },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'opening_cliche')).toBe(false);
+  });
+});
+
+describe('combinedCritic', () => {
+  test('applies improved spreads without throwing', async () => {
+    const storyPlan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Left ${i + 1}` },
+        right: { text: `Right ${i + 1}` },
+      })),
+    };
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [],
+              improved_spreads: Array.from({ length: 12 }, (_, i) => ({
+                spread: i + 1,
+                left: `Improved left ${i + 1}`,
+                right: `Improved right ${i + 1}`,
+              })),
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 200, completion_tokens: 300 },
+      }),
+    }));
+
+    const result = await combinedCritic(storyPlan, {});
+    expect(result.entries[0].left.text).toBe('Improved left 1');
+    expect(result.entries[0].right.text).toBe('Improved right 1');
+    expect(result.entries[11].left.text).toBe('Improved left 12');
+  });
+
+  test('propagates scores to _combinedCriticScores', async () => {
+    const storyPlan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Left ${i + 1}` },
+        right: { text: `Right ${i + 1}` },
+      })),
+    };
+
+    const mockScores = { rhythm: 8, emotional_arc: 7, memorable_line: 9, language_quality: 8 };
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [],
+              scores: mockScores,
+              improved_spreads: [],
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 200, completion_tokens: 300 },
+      }),
+    }));
+
+    const result = await combinedCritic(storyPlan, {});
+    expect(result._combinedCriticScores).toEqual(mockScores);
+  });
+
+  test('sets _combinedCriticScores to null when scores absent', async () => {
+    const storyPlan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Left ${i + 1}` },
+        right: { text: `Right ${i + 1}` },
+      })),
+    };
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [],
+              improved_spreads: [],
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 200, completion_tokens: 300 },
+      }),
+    }));
+
+    const result = await combinedCritic(storyPlan, {});
+    expect(result._combinedCriticScores).toBeNull();
+  });
+});
+
+describe('planGraphicNovel robustness', () => {
+  test('handles trailing text after JSON object during GN planning', async () => {
+    let callNum = 0;
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const pages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+        },
+        {
+          panelNumber: 2,
+          panelType: i === 20 || i === 23 ? 'splash' : 'reaction',
+          dialogue: '',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: i === 20 || i === 23 ? 'splash' : '3equal',
+        },
+      ],
+    }));
+    let openAiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      const urlStr = String(url);
+      if (!urlStr.includes('api.openai.com')) {
+        // Gemini calls (enrichCustomDetails, etc.) — return passthrough
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: '"no references"' }] }, finishReason: 'STOP' }],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 },
+          }),
+        };
+      }
+
+      openAiCalls++;
+      if (openAiCalls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a silver explorer backpack',
+                  fear: 'crossing drifting asteroid stones',
+                  setting: 'a luminous chain of tiny planets',
+                  storySeed: 'Isabella carries a fallen star seed to the Sky Orchard.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (openAiCalls === 2) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Moon Orchard',
+                  sceneBlueprints: Array.from({ length: 7 }, (_, i) => ({
+                    sceneNumber: i + 1,
+                    sceneTitle: `Scene ${i + 1}`,
+                    pageCountTarget: i < 3 ? 4 : 3,
+                  })),
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      // Call 3: first chunk (scenes 1-2) with trailing text after JSON
+      if (openAiCalls === 3) {
+        const chunkPages = pages.slice(0, 8);
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: `${JSON.stringify({ title: 'Isabella and the Moon Orchard', pages: chunkPages })}\nDONE`,
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      // Remaining chunk calls: call 4→chunk2, call 5→chunk3, etc.
+      const chunkMap = { 4: pages.slice(8, 15), 5: pages.slice(15, 18), 6: pages.slice(18, 21), 7: pages.slice(21, 24) };
+      const chunkPages = chunkMap[openAiCalls] || pages.slice(0, 3);
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Moon Orchard',
+                pages: chunkPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    const childDetails = {
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    };
+
+    const result = await planGraphicNovel(childDetails, 'adventure', '', { bookContext: { log: jest.fn(), touchActivity: jest.fn() } });
+    expect(result.pages.length).toBeGreaterThanOrEqual(10);
+    expect(result.scenes.length).toBeGreaterThanOrEqual(1);
+  }, 15000);
+
+  test('falls back to Gemini when GPT returns malformed chunk JSON', async () => {
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+        },
+        {
+          panelNumber: 2,
+          panelType: i === 20 || i === 23 ? 'splash' : 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: i === 20 || i === 23 ? 'splash' : '3equal',
+        },
+      ],
+    }));
+    const chunkSlices = [
+      validPages.slice(0, 8),
+      validPages.slice(8, 15),
+      validPages.slice(15, 18),
+      validPages.slice(18, 21),
+      validPages.slice(21, 24),
+    ];
+
+    let openAiCalls = 0;
+    let geminiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      if (String(url).includes('api.openai.com')) {
+        openAiCalls++;
+        if (openAiCalls === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    favorite_object: 'a star-map notebook',
+                    fear: 'crossing a broken starlight bridge',
+                    setting: 'a chain of tiny planets',
+                    storySeed: 'Isabella journeys to relight a beacon.',
+                  }),
+                },
+                finish_reason: 'stop',
+              }],
+              usage: { prompt_tokens: 100, completion_tokens: 100 },
+            }),
+          };
+        }
+
+        if (openAiCalls === 2) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    title: 'Isabella and the Lantern Planet',
+                    sceneBlueprints: Array.from({ length: 7 }, (_, i) => ({
+                      sceneNumber: i + 1,
+                      sceneTitle: `Scene ${i + 1}`,
+                      pageCountTarget: i < 3 ? 4 : 3,
+                    })),
+                  }),
+                },
+                finish_reason: 'stop',
+              }],
+              usage: { prompt_tokens: 100, completion_tokens: 100 },
+            }),
+          };
+        }
+
+        // Call 3: first chunk returns malformed JSON → triggers Gemini fallback
+        if (openAiCalls === 3) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  content: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1,"sceneTitle":"Broken',
+                },
+                finish_reason: 'stop',
+              }],
+              usage: { prompt_tokens: 100, completion_tokens: 100 },
+            }),
+          };
+        }
+
+        // Remaining chunk calls succeed (call 4→chunk2, call 5→chunk3, etc.)
+        const chunkPages = chunkSlices[openAiCalls - 3] || validPages.slice(0, 3);
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  pages: chunkPages,
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      geminiCalls++;
+      // Gemini fallback returns valid chunk-1 pages
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  pages: chunkSlices[0],
+                }),
+              }],
+            },
+            finishReason: 'STOP',
+          }],
+          usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+        }),
+      };
+    });
+
+    const childDetails = {
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    };
+
+    const result = await planGraphicNovel(childDetails, 'adventure', '', { bookContext: { log: jest.fn(), touchActivity: jest.fn() } });
+    expect(result.pages.length).toBeGreaterThanOrEqual(10);
+    expect(result.scenes.length).toBeGreaterThanOrEqual(1);
+    expect(geminiCalls).toBeGreaterThan(0);
+  }, 15000);
+
+  test('falls back to chunked GN planning when full-plan JSON is unsalvageable', async () => {
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+        },
+        {
+          panelNumber: 2,
+          panelType: i === 20 || i === 23 ? 'splash' : 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: i === 20 || i === 23 ? 'splash' : '3equal',
+        },
+      ],
+    }));
+
+    let openAiCalls = 0;
+    let geminiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      if (!String(url).includes('api.openai.com')) {
+        geminiCalls++;
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{
+              content: {
+                parts: [{
+                  text: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1,"sceneTitle":"Broken',
+                }],
+              },
+              finishReason: 'STOP',
+            }],
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+          }),
+        };
+      }
+      openAiCalls++;
+
+      if (openAiCalls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a star-map notebook',
+                  fear: 'crossing a broken starlight bridge',
+                  setting: 'a chain of tiny planets',
+                  storySeed: 'Isabella journeys to relight a beacon.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (openAiCalls === 2) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  sceneBlueprints: [
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                  ],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      if (openAiCalls === 3) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1,"sceneTitle":"Broken',
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      const chunkSlices = [
+        validPages.slice(0, 8).map((page) => ({ ...page, sceneNumber: 1, sceneTitle: 'Wrong Scene' })),
+        validPages.slice(8, 15).map((page) => ({ ...page, sceneNumber: 1, sceneTitle: 'Wrong Scene' })),
+        validPages.slice(15, 18).map((page) => ({ ...page, sceneNumber: 1, sceneTitle: 'Wrong Scene' })),
+        validPages.slice(18, 21).map((page, index) => ({
+          ...page,
+          sceneNumber: 1,
+          sceneTitle: 'Wrong Scene',
+          layoutTemplate: index === 0 ? 'fullBleedSplash' : page.layoutTemplate,
+          panels: (page.panels || []).map((panel) => ({
+            ...panel,
+            panelType: 'reaction',
+            pageLayout: index === 0 ? 'splash' : '3equal',
+          })),
+        })),
+        validPages.slice(21, 24).map((page, index) => ({
+          ...page,
+          sceneNumber: 1,
+          sceneTitle: 'Wrong Scene',
+          layoutTemplate: index === 0 ? 'fullBleedSplash' : page.layoutTemplate,
+          panels: (page.panels || []).map((panel) => ({
+            ...panel,
+            panelType: 'reaction',
+            pageLayout: index === 0 ? 'splash' : '3equal',
+          })),
+        })),
+      ];
+
+      if (openAiCalls >= 4 && openAiCalls <= 8) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  pages: chunkSlices[openAiCalls - 4],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Lantern Planet',
+                pages: validPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    const childDetails = {
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    };
+
+    const result = await planGraphicNovel(childDetails, 'adventure', '', {});
+    expect(result.pages.length).toBeGreaterThanOrEqual(10);
+    expect(result.scenes.length).toBeGreaterThanOrEqual(1);
+    expect(openAiCalls).toBeGreaterThanOrEqual(8);
+    expect(geminiCalls).toBeGreaterThan(0);
+  }, 15000);
+
+  test('logs chunk progress during chunked GN planning', async () => {
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: i === 18 || i === 21 ? 'fullBleedSplash' : 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+          pageLayout: i === 18 || i === 21 ? 'splash' : '3equal',
+        },
+        {
+          panelNumber: 2,
+          panelType: 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: '3equal',
+        },
+      ],
+    }));
+    const chunkSlices = [
+      validPages.slice(0, 8),
+      validPages.slice(8, 15),
+      validPages.slice(15, 18),
+      validPages.slice(18, 21),
+      validPages.slice(21, 24),
+    ];
+
+    let openAiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      if (!String(url).includes('api.openai.com')) {
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{
+              content: { parts: [{ text: '{"broken":' }] },
+              finishReason: 'STOP',
+            }],
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+          }),
+        };
+      }
+
+      openAiCalls++;
+      if (openAiCalls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a star-map notebook',
+                  fear: 'crossing a broken starlight bridge',
+                  setting: 'a chain of tiny planets',
+                  storySeed: 'Isabella journeys to relight a beacon.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+      if (openAiCalls === 2) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  sceneBlueprints: [
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                  ],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+      if (openAiCalls === 3) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: { content: '{"title":"Isabella and the Lantern Planet","pages":[{"pageNumber":1' },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        };
+      }
+
+      const chunkPages = chunkSlices[openAiCalls - 4] || validPages;
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Lantern Planet',
+                pages: chunkPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    const bookContext = { log: jest.fn() };
+    const result = await planGraphicNovel({
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    }, 'adventure', '', { bookContext });
+
+    expect(result.pages.length).toBeGreaterThanOrEqual(10);
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Starting chunked graphic novel planning', expect.objectContaining({
+      chunkCount: 5,
+    }));
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Planning graphic novel chunk', expect.objectContaining({
+      scenes: '1, 2',
+      attempt: 1,
+    }));
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Graphic novel chunk planned', expect.objectContaining({
+      scenes: '7',
+    }));
+  }, 15000);
+
+  test('uses chunked planner directly without full-plan attempt', async () => {
+    const sceneNumbers = [
+      1, 1, 1, 1,
+      2, 2, 2, 2,
+      3, 3, 3, 3,
+      4, 4, 4,
+      5, 5, 5,
+      6, 6, 6,
+      7, 7, 7,
+    ];
+    const validPages = Array.from({ length: 24 }, (_, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: sceneNumbers[i],
+      sceneTitle: `Scene ${sceneNumbers[i]}`,
+      pagePurpose: 'Advance the story',
+      pageTurnIntent: 'question',
+      dominantBeat: 'A strong beat',
+      layoutTemplate: i === 18 || i === 21 ? 'fullBleedSplash' : 'conversationGrid',
+      panelCount: 2,
+      panels: [
+        {
+          panelNumber: 1,
+          panelType: 'dialogue',
+          dialogue: 'Hello there.',
+          balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
+          captions: [],
+          imagePrompt: 'Panel one prompt',
+          pageLayout: i === 18 || i === 21 ? 'splash' : '3equal',
+        },
+        {
+          panelNumber: 2,
+          panelType: 'reaction',
+          caption: 'A quiet beat.',
+          captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }],
+          balloons: [],
+          imagePrompt: 'Panel two prompt',
+          pageLayout: '3equal',
+        },
+      ],
+    }));
+    const chunkSlices = [
+      validPages.slice(0, 8),
+      validPages.slice(8, 15),
+      validPages.slice(15, 18),
+      validPages.slice(18, 21),
+      validPages.slice(21, 24),
+    ];
+
+    let openAiCalls = 0;
+    global.fetch = jest.fn((url) => {
+      if (!String(url).includes('api.openai.com')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            candidates: [{
+              content: { parts: [{ text: '{"broken":' }] },
+              finishReason: 'STOP',
+            }],
+            usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 100 },
+          }),
+        });
+      }
+
+      openAiCalls++;
+      // Call 1: brainstormStorySeed
+      if (openAiCalls === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  favorite_object: 'a star-map notebook',
+                  fear: 'crossing a broken starlight bridge',
+                  setting: 'a chain of tiny planets',
+                  storySeed: 'Isabella journeys to relight a beacon.',
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        });
+      }
+      // Call 2: story bible
+      if (openAiCalls === 2) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  title: 'Isabella and the Lantern Planet',
+                  sceneBlueprints: [
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                  ],
+                }),
+              },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 100, completion_tokens: 100 },
+          }),
+        });
+      }
+      // Calls 3+: chunk plans (no full-plan attempt)
+      const chunkPages = chunkSlices[openAiCalls - 3] || validPages;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                title: 'Isabella and the Lantern Planet',
+                pages: chunkPages,
+              }),
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      });
+    });
+
+    const bookContext = { log: jest.fn(), touchActivity: jest.fn() };
+    const result = await planGraphicNovel({
+      name: 'Isabella',
+      age: 10,
+      gender: 'female',
+      interests: ['space'],
+    }, 'adventure', '', { bookContext });
+
+    expect(result.pages.length).toBeGreaterThanOrEqual(10);
+    // Verify chunked planning was used: seed(1) + bible(1) + 5 chunks + critic(1) = 8 GPT calls
+    const gptCalls = global.fetch.mock.calls.filter(c => String(c[0]).includes('api.openai.com'));
+    expect(gptCalls.length).toBeGreaterThanOrEqual(7);
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Starting chunked graphic novel planning', expect.any(Object));
+  }, 15000);
+});
+
+// ── Mother's Day theme-specific prompt tests ──
+describe('buildStoryPlannerSystem — mothers_day theme', () => {
+  const { buildStoryPlannerSystem } = require('../../prompts/pictureBook');
+
+  test('without additionalCoverCharacters: Mom is explicitly required in illustrations', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'mothers_day');
+    expect(system).toMatch(/Mom.*MUST appear in illustration prompts/i);
+    expect(system).not.toMatch(/NEVER depict family members/i);
+  });
+
+  test('without additionalCoverCharacters: other family members are still blocked', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'mothers_day');
+    expect(system).toMatch(/siblings.*grandparents.*dad.*must NOT appear in illustrations/i);
+  });
+
+  test('with additionalCoverCharacters: Mom is still required alongside detected secondary character', () => {
+    const momDesc = 'A woman with brown hair and blue eyes';
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, momDesc, 'mothers_day');
+    expect(system).toMatch(/Mom.*MUST appear in illustration prompts/i);
+    expect(system).toContain(momDesc);
+    // Should not contain the bare "no family" rule
+    expect(system).not.toMatch(/NEVER depict family members/i);
+    // Should not have language that blocks Mom (old contradictory phrasing)
+    expect(system).not.toMatch(/Do NOT invent other family members beyond what is listed above/i);
+    // Should use the unambiguous combined-override phrasing
+    expect(system).toMatch(/Only Mom and the secondary character/i);
+  });
+
+  test('non-mothers_day with additionalCoverCharacters: standard secondary character rule applies', () => {
+    const desc = 'A tall man with dark hair';
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, desc, 'adventure');
+    expect(system).toContain(desc);
+    expect(system).toMatch(/Do NOT invent other family members beyond what is listed above/i);
+    // Mom should NOT be mentioned as a required character
+    expect(system).not.toMatch(/Mom.*MUST appear/i);
+  });
+
+  test('non-mothers_day without additionalCoverCharacters: standard no-family rule applies', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'adventure');
+    expect(system).toMatch(/NEVER depict family members/i);
+  });
+});
+
+describe('generateStoryText (writer system prompt) — mothers_day theme', () => {
+  const capturedPrompts = [];
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    capturedPrompts.length = 0;
+    global.fetch = jest.fn(async (url, opts) => {
+      const body = JSON.parse(opts?.body || '{}');
+      if (body.messages) {
+        capturedPrompts.push(body.messages);
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Once upon a time there was a child.' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        }),
+      };
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function getSystemPrompt() {
+    const messages = capturedPrompts.find(m => m && m[0]?.role === 'system');
+    return messages?.[0]?.content || '';
+  }
+
+  test('without additionalCoverCharacters: Mom override is injected', async () => {
+    const { generateStoryText } = require('../../services/storyPlanner');
+    if (!generateStoryText) return; // skip if not exported
+    const childDetails = { name: 'Lily', age: 5, gender: 'female', interests: ['flowers'] };
+    await generateStoryText(childDetails, 'mothers_day', '', null, {
+      apiKeys: { OPENAI_API_KEY: 'test-key' },
+      costTracker: { add: jest.fn(), getSummary: () => ({}) },
+    }).catch(() => {});
+    const sys = getSystemPrompt();
+    if (sys) {
+      expect(sys).toMatch(/MOTHER'S DAY OVERRIDE/i);
+    }
+  });
+
+  test('with additionalCoverCharacters: both Mom override and secondary character override are present', async () => {
+    const { generateStoryText } = require('../../services/storyPlanner');
+    if (!generateStoryText) return; // skip if not exported
+    const childDetails = { name: 'Lily', age: 5, gender: 'female', interests: ['flowers'] };
+    const momDesc = 'A woman with curly red hair';
+    await generateStoryText(childDetails, 'mothers_day', '', null, {
+      apiKeys: { OPENAI_API_KEY: 'test-key' },
+      additionalCoverCharacters: momDesc,
+      costTracker: { add: jest.fn(), getSummary: () => ({}) },
+    }).catch(() => {});
+    const sys = getSystemPrompt();
+    if (sys) {
+      expect(sys).toMatch(/MOTHER'S DAY OVERRIDE/i);
+      expect(sys).toMatch(/COVER PHOTO OVERRIDE/i);
+      expect(sys).toContain(momDesc);
+    }
   });
 });
