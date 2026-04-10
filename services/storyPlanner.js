@@ -687,17 +687,25 @@ ${beatStructure}
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
 
-${additionalCoverCharacters
-  ? `SECONDARY CHARACTERS (from the uploaded photo):
+${theme === 'mothers_day'
+  ? (additionalCoverCharacters
+    ? `MOTHER'S DAY — MOM IN ILLUSTRATIONS + SECONDARY CHARACTERS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time.
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+    : `MOTHER'S DAY — MOM IN ILLUSTRATIONS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`)
+  : (additionalCoverCharacters
+    ? `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
 Do NOT invent other family members beyond what is listed above.`
-  : (theme === 'mothers_day'
-    ? `MOTHER'S DAY — MOM IN ILLUSTRATIONS:
-Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
-When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
-Describe Mom warmly and consistently each time. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`
     : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
 Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`)}
 
@@ -1000,11 +1008,14 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
 
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
 
+  // Always allow/require Mom for Mother's Day stories, even if a secondary person was detected.
+  if (theme === 'mothers_day') {
+    systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+  }
+
   // Override the "no family in illustrations" rule when secondary characters are detected
   if (additionalCoverCharacters) {
     systemPrompt += `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene.`;
-  } else if (theme === 'mothers_day') {
-    systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
   }
 
   if (approvedTitle) {

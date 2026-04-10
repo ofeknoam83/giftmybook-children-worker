@@ -112,8 +112,50 @@ function buildStoryPlannerSystem(vars, additionalCoverCharacters = null, theme =
     brief = buildV2Brief(vars);
   }
 
-  // Override the family member rule when secondary characters are detected in the photo
-  if (additionalCoverCharacters) {
+  // Override the family member rule based on theme and secondary character detection
+  if (theme === 'mothers_day') {
+    if (additionalCoverCharacters) {
+      // Both Mom AND a detected secondary person are allowed in illustrations
+      const combinedOverride = `MOTHER'S DAY — MOM AS VISIBLE CHARACTER + SECONDARY CHARACTERS:
+Mom is a co-protagonist in this story. She MUST appear in illustration prompts for at least 6 of 13 spreads.
+When writing spread_image_prompt fields that include Mom, describe her presence explicitly:
+- Her position relative to the child (kneeling beside, standing behind, sitting together)
+- Her gesture or action (hugging, pointing, laughing, holding hands)
+- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled woman with gentle eyes")
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`;
+
+      brief = brief.replace(
+        /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+        combinedOverride + '\n'
+      );
+      brief = brief.replace(
+        /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+        `- Mom and the secondary character(s) listed above MAY appear in illustration prompts. Describe each consistently every time. Do NOT invent other family members not listed.`
+      );
+    } else {
+      // For Mother's Day, Mom is a co-protagonist even without a photo reference
+      const motherOverride = `MOTHER'S DAY — MOM AS VISIBLE CHARACTER:
+Mom is a co-protagonist in this story. She MUST appear in illustration prompts for at least 6 of 13 spreads.
+When writing spread_image_prompt fields that include Mom, describe her presence explicitly:
+- Her position relative to the child (kneeling beside, standing behind, sitting together)
+- Her gesture or action (hugging, pointing, laughing, holding hands)
+- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled woman with gentle eyes")
+If a specific Mom appearance description becomes available from the cover, it will override these generic descriptions at illustration time.
+Other family members (siblings, grandparents, dad) still follow the standard rule — text only, never illustrated.`;
+
+      brief = brief.replace(
+        /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+        motherOverride + '\n'
+      );
+      brief = brief.replace(
+        /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+        `- Mom MAY appear in illustration prompts for this Mother's Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.`
+      );
+    }
+  } else if (additionalCoverCharacters) {
+    // Non-mothers_day: override for secondary characters detected in the photo
     const familyOverride = `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
 ${additionalCoverCharacters}
@@ -129,25 +171,6 @@ Do NOT invent other family members beyond what is listed above.`;
     brief = brief.replace(
       /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
       `- The secondary character(s) listed above MAY appear in illustration prompts. Describe them consistently every time. Do NOT invent other family members not listed.`
-    );
-  } else if (theme === 'mothers_day') {
-    // For Mother's Day, Mom is a co-protagonist even without a photo reference
-    const motherOverride = `MOTHER'S DAY — MOM AS VISIBLE CHARACTER:
-Mom is a co-protagonist in this story. She MUST appear in illustration prompts for at least 6 of 13 spreads.
-When writing spread_image_prompt fields that include Mom, describe her presence explicitly:
-- Her position relative to the child (kneeling beside, standing behind, sitting together)
-- Her gesture or action (hugging, pointing, laughing, holding hands)
-- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled woman with gentle eyes")
-If a specific Mom appearance description becomes available from the cover, it will override these generic descriptions at illustration time.
-Other family members (siblings, grandparents, dad) still follow the standard rule — text only, never illustrated.`;
-
-    brief = brief.replace(
-      /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
-      motherOverride + '\n'
-    );
-    brief = brief.replace(
-      /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
-      `- Mom MAY appear in illustration prompts for this Mother's Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.`
     );
   }
 
