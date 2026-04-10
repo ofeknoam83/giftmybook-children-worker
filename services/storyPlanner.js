@@ -1905,11 +1905,11 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   return chapterPlan;
 }
 
-function parseJsonObjectFromText(text) {
+function parseJsonObjectFromText(text, finishReason) {
   const raw = String(text || '').trim();
   if (!raw) throw new Error('Empty JSON response');
   try {
-    return parseJsonPlan(raw, 'unknown');
+    return parseJsonPlan(raw, finishReason || 'unknown');
   } catch (err) {
     throw err;
   }
@@ -2098,7 +2098,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
         temperature: 0.65,
-        maxTokens: 9000,
+        maxTokens: 16000,
         jsonMode: true,
         timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
         requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
@@ -2110,12 +2110,28 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
         {
           costTracker,
           temperature: 0.65,
-          maxTokens: 9000,
+          maxTokens: 16000,
           bookContext,
           timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
           requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
         }
       );
+      // Guard against truncation producing valid JSON with no usable content
+      const chunkPageCount = Array.isArray(parsedChunk.pages) ? parsedChunk.pages.length : 0;
+      const chunkSceneCount = Array.isArray(parsedChunk.scenes) ? parsedChunk.scenes.length : 0;
+      if (chunkPageCount === 0 && chunkSceneCount === 0) {
+        bookContext?.log('warn', 'Chunk parse returned no pages and no scenes', {
+          scenes: chunkSceneLabel,
+          attempt,
+          finishReason: resp.finishReason,
+          outputTokens: resp.outputTokens,
+          parsedKeys: Object.keys(parsedChunk),
+        });
+        throw new Error(
+          `Chunk for scenes ${chunkSceneLabel} produced 0 pages and 0 scenes` +
+          ` (finishReason=${resp.finishReason}, outputTokens=${resp.outputTokens})`
+        );
+      }
       const stampedChunk = stampGraphicNovelChunkPages(parsedChunk, chunkSpec);
       let chunkPlan = legacyGraphicNovelScenesToPages(stampedChunk, childDetails);
       chunkPlan = normalizeGraphicNovelPlan(chunkPlan, { fallbackTitle: storyBible.title || approvedTitle });
@@ -2203,7 +2219,7 @@ async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {})
       openaiApiKey: apiKeys?.OPENAI_API_KEY,
       costTracker,
       temperature: 0.45,
-      maxTokens: 14000,
+      maxTokens: 24000,
       jsonMode: true,
       timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
       requestLabel: 'Graphic novel repair pass',
@@ -2216,7 +2232,7 @@ async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {})
     {
       costTracker,
       temperature: 0.45,
-      maxTokens: 14000,
+      maxTokens: 24000,
       bookContext,
       timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
       requestLabel: 'Graphic novel repair pass',
@@ -2228,7 +2244,25 @@ async function repairGraphicNovelPlan(plan, storyBible, childDetails, opts = {})
 
 async function parseStructuredJsonWithFallback(resp, systemPrompt, userPrompt, opts = {}) {
   try {
-    return parseJsonObjectFromText(resp.text);
+    const parsed = parseJsonObjectFromText(resp.text, resp.finishReason);
+
+    // Detect truncation: valid JSON but empty content due to token limit
+    if (resp.finishReason === 'MAX_TOKENS') {
+      const pageCount = Array.isArray(parsed.pages) ? parsed.pages.length : 0;
+      const sceneCount = Array.isArray(parsed.scenes) ? parsed.scenes.length : 0;
+      opts.bookContext?.log('warn', 'LLM response hit MAX_TOKENS — output may be truncated', {
+        finishReason: resp.finishReason,
+        model: resp.model,
+        outputTokens: resp.outputTokens,
+        parsedPages: pageCount,
+        parsedScenes: sceneCount,
+      });
+      if (pageCount === 0 && sceneCount === 0) {
+        throw new Error('LLM hit token limit (MAX_TOKENS) and produced no pages or scenes — likely truncated');
+      }
+    }
+
+    return parsed;
   } catch (parseErr) {
     if (resp?.model !== 'gpt-5.4') throw parseErr;
     opts.bookContext?.log('warn', 'GPT returned malformed JSON for graphic novel stage, retrying with Gemini', {
@@ -2244,7 +2278,7 @@ async function parseStructuredJsonWithFallback(resp, systemPrompt, userPrompt, o
     if (opts.costTracker) {
       opts.costTracker.addTextUsage(GEMINI_MODEL, geminiResp.inputTokens, geminiResp.outputTokens);
     }
-    return parseJsonObjectFromText(geminiResp.text);
+    return parseJsonObjectFromText(geminiResp.text, geminiResp.finishReason);
   }
 }
 
@@ -2421,7 +2455,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       openaiApiKey: apiKeys?.OPENAI_API_KEY,
       costTracker,
       temperature: 0.8,
-      maxTokens: 16384,
+      maxTokens: 32000,
       jsonMode: true,
       timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
       requestLabel: 'Graphic novel full-plan fast path',
@@ -2429,7 +2463,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     const parsedPlan = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
       costTracker,
       temperature: 0.8,
-      maxTokens: 16384,
+      maxTokens: 32000,
       bookContext,
       timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
       requestLabel: 'Graphic novel full-plan fast path',
@@ -2480,7 +2514,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       openaiApiKey: apiKeys?.OPENAI_API_KEY,
       costTracker,
       temperature: 0.5,
-      maxTokens: 14000,
+      maxTokens: 24000,
       jsonMode: true,
       timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
       requestLabel: 'Graphic novel critic pass',
@@ -2492,7 +2526,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       {
         costTracker,
         temperature: 0.5,
-        maxTokens: 14000,
+        maxTokens: 24000,
         bookContext,
         timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
         requestLabel: 'Graphic novel critic pass',
