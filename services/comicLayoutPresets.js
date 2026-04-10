@@ -3,7 +3,7 @@
 const BLEED_PT = 9;
 const OUTER_SAFE_PT = 27;
 const INNER_SAFE_PT = 36;
-const PANEL_GUTTER_PT = 10;
+const PANEL_GUTTER_PT = 12;
 
 function createRect(x, y, w, h) {
   return { x, y, w, h };

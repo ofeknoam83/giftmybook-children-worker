@@ -31,7 +31,9 @@ Design constraints:
 - Dialogue-heavy pages should prefer stable grids.
 - Action pages should privilege hierarchy and negative space.
 - Keep text load per panel low enough to fit professional lettering.
-- Default style is cinematic 3D Pixar-like, but prompts must describe readable comics staging rather than film-frame clutter.
+- Default style is cinematic 3D Pixar-like with volumetric lighting, rim lights, subsurface skin scattering, and rich saturated colors.
+- Image prompts must describe readable comics staging, dramatic 3D lighting, and clear focal points rather than film-frame clutter.
+- Every image prompt should include lighting and color palette direction for cinematic 3D rendering quality.
 
 For each page output production metadata, not vague prose.`;
 
