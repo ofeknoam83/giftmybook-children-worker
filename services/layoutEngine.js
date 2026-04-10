@@ -1405,9 +1405,93 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     pdfDoc.addPage([PAGE_W, PAGE_H]);
   }
 
-  // useObjectStreams: false avoids pdf-lib accumulating large compressed
-  // object streams that can exceed V8 string limits with 60-80+ images
-  return Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+  console.log(`[layoutEngine] Graphic novel PDF ready to save: ${pdfDoc.getPageCount()} pages`);
+  try {
+    return Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+  } catch (saveErr) {
+    if (!saveErr.message.includes('Invalid string length')) throw saveErr;
+
+    // pdf-lib hit V8 string limit — rebuild with quality 80 (still 300 DPI)
+    console.warn(`[layoutEngine] PDF save failed (${saveErr.message}), retrying at quality 80`);
+    const retryDoc = await PDFDocument.create();
+    retryDoc.registerFontkit(fontkit);
+
+    const retryFonts = {};
+    retryFonts.bodyFont = await retryDoc.embedFont(StandardFonts.Helvetica);
+    retryFonts.sfxFont = await retryDoc.embedFont(StandardFonts.HelveticaBold);
+    retryFonts.captionFont = retryFonts.bodyFont;
+    retryFonts.titleFont = retryFonts.sfxFont;
+    retryFonts.accentFont = retryFonts.bodyFont;
+    retryFonts.dialogueFont = retryFonts.sfxFont;
+    try { if (fs.existsSync(FONT_PATHS.bubblegum)) retryFonts.titleFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum)); } catch (_) {}
+    try { if (fs.existsSync(FONT_PATHS.playfairItalic)) retryFonts.accentFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic)); } catch (_) {}
+    try { const cb = getComicFont(); if (cb) retryFonts.dialogueFont = await retryDoc.embedFont(cb); } catch (_) {}
+
+    // Re-download panel images from GCS (originals were freed during first attempt)
+    const { downloadBuffer: dlBuf } = require('./gcsStorage');
+    for (const page of srcPages) {
+      for (const panel of page.panels || []) {
+        if (!panel.imageBuffer && panel.illustrationUrl) {
+          try { panel.imageBuffer = await dlBuf(panel.illustrationUrl); }
+          catch (_) { panel.imageBuffer = null; }
+        }
+      }
+    }
+
+    // Title page (simplified)
+    const tp = retryDoc.addPage([PAGE_W, PAGE_H]);
+    tp.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+    const titleLines = wrapText(title, retryFonts.titleFont, 32, PAGE_W - 100);
+    let ty = PAGE_H / 2 + 70;
+    for (const line of titleLines) {
+      const w = retryFonts.titleFont.widthOfTextAtSize(line, 32);
+      tp.drawText(line, { x: (PAGE_W - w) / 2, y: ty, size: 32, font: retryFonts.titleFont, color: rgb(0.08, 0.08, 0.12) });
+      ty -= 40;
+    }
+
+    // Story pages at quality 80
+    for (let i = 0; i < plan.pages.length; i++) {
+      const pageData = plan.pages[i];
+      const bp = blueprints[i];
+      if (!bp) continue;
+      const pg = retryDoc.addPage([PAGE_W, PAGE_H]);
+      pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+
+      for (let pi = 0; pi < bp.panelBlueprints.length; pi++) {
+        const panelBp = bp.panelBlueprints[pi];
+        const panel = pageData.panels[pi];
+        if (!panel) continue;
+        const rect = panelBp.rect;
+        pg.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(1, 1, 1) });
+        if (panel.imageBuffer) {
+          try {
+            const tw = Math.round(rect.w / 72 * 300);
+            const th = Math.round(rect.h / 72 * 300);
+            const resized = await sharp(panel.imageBuffer)
+              .resize(tw, th, { fit: 'cover' })
+              .jpeg({ quality: 80 })
+              .toBuffer();
+            panel.imageBuffer = null;
+            const img = await retryDoc.embedJpg(resized);
+            pg.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
+          } catch (_) {
+            pg.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
+          }
+        }
+        // Panel border
+        const bw = 2.5, bc = rgb(0.08, 0.08, 0.12);
+        pg.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: bw, color: bc });
+        pg.drawRectangle({ x: rect.x, y: rect.y + rect.h - bw, width: rect.w, height: bw, color: bc });
+        pg.drawRectangle({ x: rect.x, y: rect.y, width: bw, height: rect.h, color: bc });
+        pg.drawRectangle({ x: rect.x + rect.w - bw, y: rect.y, width: bw, height: rect.h, color: bc });
+        renderPanelLettering(pg, panel, panelBp, retryFonts);
+      }
+    }
+
+    while (retryDoc.getPageCount() % 2 !== 0) retryDoc.addPage([PAGE_W, PAGE_H]);
+    console.log(`[layoutEngine] Retry PDF saving: ${retryDoc.getPageCount()} pages at quality 80`);
+    return Buffer.from(await retryDoc.save({ useObjectStreams: false }));
+  }
 }
 
 module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS };
