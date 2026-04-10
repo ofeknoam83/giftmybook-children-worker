@@ -782,7 +782,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
   const isSpread = opts.isSpread || false;
   const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, { skipTextEmbed: opts.skipTextEmbed, coverArtStyle: opts.coverArtStyle, isSpread, spreadIndex: opts.spreadIndex, totalSpreads: opts.totalSpreads || 13, childAge: opts.childAge, promptInjection: opts.promptInjection, fontStyle: opts.fontStyle, additionalCoverCharacters: opts.additionalCoverCharacters || null, characterAnchor: opts.characterAnchor || null, bookFormat: opts.bookFormat || null });
-  const aspectRatio = isSpread ? '16:9' : '1:1';
+  // Support explicit aspect ratio override (for graphic novel panels)
+  const aspectRatio = opts.aspectRatio || (isSpread ? '16:9' : '1:1');
 
   console.log(`[illustrationGenerator] === Illustration for book ${bookId || 'unknown'}, spread ${spreadIndex !== undefined ? spreadIndex + 1 : '?'} ===`);
   console.log(`[illustrationGenerator] Prompt length: ${fullPrompt.length} chars`);

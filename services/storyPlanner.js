@@ -1668,6 +1668,7 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
 async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   const { apiKeys, costTracker, approvedTitle, parentBookTitle, parentStoryContent, bookContext } = opts;
   const { GRAPHIC_NOVEL_SYSTEM, GRAPHIC_NOVEL_USER } = require('../prompts/graphicNovel');
+  const { getTemplate } = require('./gnPageTemplates');
   const artStyle = opts.artStyle || childDetails.artStyle || childDetails.art_style || 'cinematic_3d';
 
   // Enrich custom details for pop culture references
@@ -1713,7 +1714,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
         temperature: 0.7,
-        maxTokens: 18000,
+        maxTokens: 32000,
         jsonMode: true,
       });
       const text = resp.text || '';
@@ -1721,10 +1722,18 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       const jsonMatch = stripped.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       plan = JSON.parse(jsonMatch[0]);
-      if (!plan.title || !Array.isArray(plan.beats) || plan.beats.length < 30) {
-        throw new Error(`Invalid plan: ${plan.beats?.length} beats, need at least 30`);
+
+      // Validate page-level format (new) or beats format (legacy fallback)
+      if (plan.pages && Array.isArray(plan.pages) && plan.pages.length >= 20) {
+        bookContext?.log('info', 'Graphic novel plan (page-level) created', { title: plan.title, pages: plan.pages.length });
+      } else if (plan.beats && Array.isArray(plan.beats) && plan.beats.length >= 30) {
+        // Legacy beats format — auto-convert to pages
+        bookContext?.log('info', 'Graphic novel plan (legacy beats) — converting to pages', { beats: plan.beats.length });
+        plan.pages = convertBeatsToPages(plan.beats);
+      } else {
+        const count = plan.pages?.length || plan.beats?.length || 0;
+        throw new Error(`Invalid plan: ${count} pages/beats, need at least 20 pages or 30 beats`);
       }
-      bookContext?.log('info', 'Graphic novel plan created', { title: plan.title, beats: plan.beats.length });
       break;
     } catch (e) {
       bookContext?.log('warn', `Graphic novel plan attempt ${attempt} failed: ${e.message}`);
@@ -1737,23 +1746,102 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   plan.isGraphicNovel = true;
   plan.artStyle = artStyle;
 
-  // Normalize beats
-  plan.beats = plan.beats.map((beat, i) => ({
-    n: beat.n || i + 1,
-    scene: beat.scene || Math.ceil((i + 1) / 7),
-    type: beat.type || 'story',
-    caption: beat.caption || '',
-    dialogue: beat.dialogue || '',
-    speaker: beat.speaker || 'left',
-    image: beat.image || '',
-    illustrationUrl: null,
-    imageBuffer: null,
-  }));
+  // Normalize pages — ensure valid templates and panel structure
+  plan.pages = plan.pages.map((page, pageIdx) => {
+    const template = getTemplate(page.layout);
+    const panels = (page.panels || []).slice(0, template.panelCount);
 
-  // Backward compat: expose as allPanels for existing server.js code
-  plan.allPanels = plan.beats;
+    // Pad panels if LLM returned fewer than template expects
+    while (panels.length < template.panelCount) {
+      panels.push({
+        panelIndex: panels.length,
+        image: '',
+        dialogue: [],
+        caption: '',
+        sfx: '',
+      });
+    }
+
+    return {
+      pageNum: page.pageNum || pageIdx + 1,
+      act: page.act || Math.ceil((pageIdx + 1) / 8),
+      layout: template.name,
+      panels: panels.map((panel, panelIdx) => ({
+        panelIndex: panelIdx,
+        image: panel.image || '',
+        dialogue: Array.isArray(panel.dialogue) ? panel.dialogue.map(d => ({
+          speaker: d.speaker || '',
+          position: d.position || 'left',
+          text: d.text || '',
+          type: d.type || 'speech',
+        })) : [],
+        caption: panel.caption || '',
+        sfx: panel.sfx || '',
+        // Assign aspect ratio from template geometry
+        aspect: template.panels[panelIdx]?.aspect || '1:1',
+        illustrationUrl: null,
+        imageBuffer: null,
+      })),
+    };
+  });
+
+  // Build flat allPanels list for illustration generation loop
+  plan.allPanels = [];
+  for (const page of plan.pages) {
+    for (const panel of page.panels) {
+      plan.allPanels.push(panel);
+    }
+  }
 
   return plan;
+}
+
+/**
+ * Convert legacy flat beats array to page-level structure.
+ * Groups beats into pages of 3-4 panels with GRID_2x2 or GRID_3ROW templates.
+ */
+function convertBeatsToPages(beats) {
+  const pages = [];
+  let i = 0;
+  let pageNum = 1;
+  while (i < beats.length) {
+    const beat = beats[i];
+    // Splash beats get their own page
+    if (beat.type === 'splash') {
+      pages.push({
+        pageNum: pageNum++,
+        act: Math.ceil(pageNum / 8),
+        layout: 'SPLASH',
+        panels: [{
+          panelIndex: 0,
+          image: beat.image || '',
+          dialogue: beat.dialogue ? [{ speaker: '', position: beat.speaker || 'left', text: beat.dialogue, type: 'speech' }] : [],
+          caption: beat.caption || '',
+          sfx: '',
+        }],
+      });
+      i++;
+    } else {
+      // Group 3 or 4 beats into a page
+      const groupSize = (i + 4 <= beats.length) ? 4 : Math.min(3, beats.length - i);
+      const layout = groupSize === 4 ? 'GRID_2x2' : 'GRID_3ROW';
+      const group = beats.slice(i, i + groupSize);
+      pages.push({
+        pageNum: pageNum++,
+        act: Math.ceil(pageNum / 8),
+        layout,
+        panels: group.map((b, idx) => ({
+          panelIndex: idx,
+          image: b.image || '',
+          dialogue: b.dialogue ? [{ speaker: '', position: b.speaker || 'left', text: b.dialogue, type: 'speech' }] : [],
+          caption: b.caption || '',
+          sfx: '',
+        })),
+      });
+      i += groupSize;
+    }
+  }
+  return pages;
 }
 
 module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, planGraphicNovel };

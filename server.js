@@ -1373,15 +1373,14 @@ Format your answer with each label on its own line followed by a colon and the a
         entriesWithIllustrations = [];
         spreadEntries = [];
       } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
-        // ── Graphic novel: Generate comic panel illustrations ──
-        // Expect 36-48 panels (7 scenes x 5-7 each). Each panel = one image gen call,
-        // so cost and latency scale linearly with panel count.
-        bookContext.log('info', `Generating ${storyPlan.allPanels?.length || 0} graphic novel panels`);
+        // ── Graphic novel V2: Generate per-panel illustrations with correct aspect ratios ──
+        const allPanels = storyPlan.allPanels || [];
+        bookContext.log('info', `Generating ${allPanels.length} graphic novel panel illustrations across ${storyPlan.pages?.length || 0} pages`);
         if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating graphic novel panels...', logs: bookContext.logs });
+          reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: `Generating ${allPanels.length} graphic novel panels...`, logs: bookContext.logs });
         }
 
-        // Build global style prefix for consistent art across all beats
+        // Build global style prefix for consistent art across all panels
         const charDesc = storyPlan.characterAnchor || storyPlan.characterDescription || '';
         const GLOBAL_STYLE_PREFIX = `High-end 3D animated film quality (Pixar/DreamWorks standard). ` +
           (charDesc ? `The main character: ${charDesc}. ` : '') +
@@ -1389,29 +1388,32 @@ Format your answer with each label on its own line followed by a colon and the a
           `depth of field background blur, film-quality shadows. ` +
           `NOT watercolor. NOT 2D flat illustration. NOT cartoon sketch.`;
 
-        // Secondary character consistency for graphic novel beats
+        // Secondary character consistency for graphic novel panels
         const gnSecondaryChars = storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null;
         if (gnSecondaryChars) {
           storyPlan.secondaryCharacterDescription = gnSecondaryChars;
           bookContext.log('info', 'Secondary character consistency enabled for graphic novel', { chars: String(gnSecondaryChars).slice(0, 120) });
         }
 
-        const allPanels = storyPlan.allPanels || storyPlan.beats || [];
-        for (let i = 0; i < allPanels.length; i++) {
-          const beat = allPanels[i];
-          bookContext.log('info', `Generating beat ${i + 1}/${allPanels.length} (scene ${beat.scene || beat.sceneNumber})`);
+        // Parallelize panel generation: 3 concurrent with pLimit
+        const gnLimit = pLimit(3);
+        let panelsDone = 0;
 
-          const beatImagePrompt = beat.image || beat.imagePrompt || '';
-          const safeArea = beat.type !== 'splash'
-            ? ' COMPOSITION: leave bottom 20% of image as simple background (floor, sky, wall, or empty space) — text placed there.'
-            : '';
+        const panelPromises = allPanels.map((panel, i) => gnLimit(async () => {
+          bookContext.checkAbort();
+          const panelImagePrompt = panel.image || '';
+          if (!panelImagePrompt) {
+            bookContext.log('warn', `Panel ${i + 1} has no image prompt — skipping`);
+            panel.illustrationUrl = null;
+            return;
+          }
 
           let secondaryCharInjection = '';
           if (gnSecondaryChars) {
             secondaryCharInjection = ` SECONDARY CHARACTER CONSISTENCY: ${gnSecondaryChars}. Same secondary character must appear identically in all panels.`;
           }
 
-          const finalPrompt = [GLOBAL_STYLE_PREFIX, beatImagePrompt, safeArea, secondaryCharInjection].filter(Boolean).join(' ');
+          const finalPrompt = [GLOBAL_STYLE_PREFIX, panelImagePrompt].filter(Boolean).join(' ');
 
           try {
             const illustUrl = await generateIllustration(
@@ -1430,25 +1432,34 @@ Format your answer with each label on its own line followed by a colon and the a
                 childName,
                 childAge: parseInt(childDetails.age) || 10,
                 isSpread: false,
+                aspectRatio: panel.aspect || '1:1',
                 spreadIndex: i,
                 totalSpreads: allPanels.length,
                 skipTextEmbed: true,
                 pageText: '',
                 additionalCoverCharacters: gnSecondaryChars,
                 bookFormat: 'GRAPHIC_NOVEL',
-                promptInjection: `Full-page illustration for a graphic novel. No text, no speech bubbles, no captions in the image itself.${secondaryCharInjection}`,
+                promptInjection: `Single panel illustration for a graphic novel. Fill the ENTIRE frame edge-to-edge with the scene. No borders, no text, no speech bubbles, no captions in the image itself.${secondaryCharInjection}`,
                 artStyle: style,
               }
             );
-            beat.illustrationUrl = typeof illustUrl === 'string' ? illustUrl : null;
-            bookContext.log('info', `Beat ${i + 1} done`);
+            panel.illustrationUrl = typeof illustUrl === 'string' ? illustUrl : null;
+            panelsDone++;
+            if (panelsDone % 10 === 0 && progressCallbackUrl) {
+              const pct = 0.40 + (panelsDone / allPanels.length) * 0.35;
+              reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: pct, message: `Generated ${panelsDone}/${allPanels.length} panels...`, logs: bookContext.logs });
+            }
+            bookContext.log('info', `Panel ${i + 1}/${allPanels.length} done`);
             bookContext.touchActivity();
           } catch (e) {
-            bookContext.log('warn', `Beat ${i + 1} failed: ${e.message}`);
-            beat.illustrationUrl = null;
+            bookContext.log('warn', `Panel ${i + 1} failed: ${e.message}`);
+            panel.illustrationUrl = null;
             bookContext.touchActivity();
           }
-        }
+        }));
+
+        await Promise.all(panelPromises);
+        bookContext.log('info', `Graphic novel illustration generation complete: ${panelsDone}/${allPanels.length} panels`);
         entriesWithIllustrations = [];
         spreadEntries = [];
       } else {
@@ -1555,19 +1566,22 @@ Format your answer with each label on its own line followed by a colon and the a
 
         previewImageUrls = storyPlan.chapters.map(ch => ch.illustrationUrl).filter(Boolean);
       } else if (isGraphicNovel || storyPlan.isGraphicNovel) {
-        // ── Graphic novel PDF assembly ──
+        // ── Graphic novel V2 PDF assembly (page-level, multi-panel) ──
         const { buildGraphicNovelPdf } = require('./services/layoutEngine');
 
-        // Download beat illustration buffers
-        const gnBeats = storyPlan.beats || storyPlan.allPanels || [];
-        for (const beat of gnBeats) {
-          if (beat.illustrationUrl) {
-            try { beat.imageBuffer = await downloadWithRetry(beat.illustrationUrl, `beat-${beat.n || beat.scene}`); }
-            catch (e) { beat.imageBuffer = null; }
+        // Download panel illustration buffers into each panel object
+        const gnPages = storyPlan.pages || [];
+        const allPanelsFlat = storyPlan.allPanels || [];
+        bookContext.log('info', `Downloading ${allPanelsFlat.length} panel illustration buffers for graphic novel PDF`);
+
+        for (const panel of allPanelsFlat) {
+          if (panel.illustrationUrl) {
+            try { panel.imageBuffer = await downloadWithRetry(panel.illustrationUrl, `panel-${panel.panelIndex}`); }
+            catch (e) { panel.imageBuffer = null; }
           }
         }
 
-        interiorPdf = await buildGraphicNovelPdf(gnBeats, {
+        interiorPdf = await buildGraphicNovelPdf(gnPages, {
           title: storyPlan.title || bookTitle,
           subtitle: storyPlan.tagline || '',
           childName: childDetails.name,
@@ -1575,8 +1589,8 @@ Format your answer with each label on its own line followed by a colon and the a
           dedication,
         });
 
-        previewImageUrls = gnBeats.map(p => p.illustrationUrl).filter(Boolean);
-        spreadEntries = gnBeats.map((p, i) => ({ type: 'panel', index: i, illustrationUrl: p.illustrationUrl }));
+        previewImageUrls = allPanelsFlat.map(p => p.illustrationUrl).filter(Boolean);
+        spreadEntries = allPanelsFlat.map((p, i) => ({ type: 'panel', index: i, illustrationUrl: p.illustrationUrl }));
       } else {
         // ── Standard picture/early reader PDF assembly ──
         bookContext.log('info', 'Downloading illustration buffers for PDF');
@@ -1724,9 +1738,9 @@ Format your answer with each label on its own line followed by a colon and the a
         // Calculate actual interior page count for spine width
         let pageCount;
         if (isGraphicNovel || storyPlan.isGraphicNovel) {
-          // Graphic novel: title + dedication + scene pages (panel-count driven) + end page
-          const panelCount = (storyPlan.allPanels || []).length;
-          pageCount = 2 + Math.ceil(panelCount / 2) + 1;
+          // Graphic novel V2: title + dedication + story pages + end page
+          const storyPageCount = (storyPlan.pages || []).length;
+          pageCount = 2 + storyPageCount + 1;
           pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
         } else if (isChapterBook || storyPlan.isChapterBook) {
           // Chapter book: estimate from chapters (title + dedication + 5*(title page + ~3 text pages) + end page)
