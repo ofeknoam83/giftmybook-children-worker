@@ -74,4 +74,75 @@ describe('buildGraphicNovelPdf', () => {
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(4);
     expect(pdfDoc.getPageCount() % 2).toBe(0);
   });
+
+  test('renders thought, shout and whisper balloon types without throwing', async () => {
+    const panelBuf = await makePanelBuffer({ r: 180, g: 210, b: 240 });
+
+    const pages = [
+      {
+        pageNumber: 1,
+        sceneNumber: 1,
+        sceneTitle: 'Balloon Types',
+        pagePurpose: 'Test all balloon variants',
+        pageTurnIntent: 'question',
+        dominantBeat: 'Testing',
+        layoutTemplate: 'threeEqual',
+        panelCount: 3,
+        textDensity: 'medium',
+        colorScript: {},
+        panels: [
+          {
+            panelNumber: 1,
+            panelType: 'dialogue',
+            action: 'Character thinks.',
+            caption: '',
+            dialogue: 'I wonder what happens next...',
+            balloons: [{ text: 'I wonder what happens next...', order: 1, anchor: 'left', type: 'thought' }],
+            captions: [],
+            imageBuffer: panelBuf,
+            safeTextZones: ['top-right'],
+            textFreeZone: 'top-right',
+          },
+          {
+            panelNumber: 2,
+            panelType: 'action',
+            action: 'Character shouts.',
+            caption: '',
+            dialogue: 'Watch out!',
+            balloons: [{ text: 'Watch out!', order: 1, anchor: 'right', type: 'shout' }],
+            captions: [],
+            imageBuffer: panelBuf,
+            safeTextZones: ['top-left'],
+            textFreeZone: 'top-left',
+          },
+          {
+            panelNumber: 3,
+            panelType: 'dialogue',
+            action: 'Character whispers.',
+            caption: '',
+            dialogue: 'Can you keep a secret?',
+            balloons: [{ text: 'Can you keep a secret?', order: 1, anchor: 'left', type: 'whisper' }],
+            captions: [],
+            imageBuffer: panelBuf,
+            safeTextZones: ['top-right'],
+            textFreeZone: 'top-right',
+          },
+        ],
+      },
+    ];
+
+    const pdfBuffer = await buildGraphicNovelPdf([], {
+      title: 'Balloon Type Test',
+      childName: 'Tester',
+      tagline: '',
+      pages,
+      scenes: [{ number: 1, sceneTitle: 'Balloon Types', panels: pages[0].panels }],
+    });
+
+    expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
+    expect(pdfBuffer.length).toBeGreaterThan(1000);
+
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(4);
+  });
 });

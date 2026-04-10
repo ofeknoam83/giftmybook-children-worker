@@ -142,7 +142,7 @@ const ART_STYLE_CONFIG = {
   },
   graphic_novel_cinematic: {
     prefix: 'Cinematic 3D middle-grade graphic novel panel illustration,',
-    suffix: 'Pixar-like 3D animation adapted for comics, clean silhouettes, readable facial acting, simplified backgrounds in small panels, graphic value separation, controlled depth of field, premium cinematic lighting, print-friendly color contrast, consistent character materials, polished sequential-art storytelling',
+    suffix: 'Pixar-like 3D CGI animation adapted for sequential art, photorealistic subsurface skin scattering, volumetric cinematic lighting with dramatic rim lights, rich saturated color palette, emotionally expressive characters with readable facial acting, clean graphic silhouettes, simplified backgrounds in small panels with full environments in establishing shots, controlled depth of field, Disney-Pixar production quality, print-optimized color contrast, warm golden-hour atmosphere, premium sequential-art storytelling',
   },
 };
 
@@ -233,7 +233,9 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
   parts.push('COMIC ART DIRECTION RULES:');
   parts.push('- prioritize silhouette clarity and facial readability');
   parts.push('- simplify backgrounds in small or dialogue-heavy panels');
-  parts.push('- use cinematic Pixar-like lighting adapted for print and small-panel readability');
+  parts.push('- use dramatic 3D cinematic lighting with volumetric light shafts and rim lights for depth');
+  parts.push('- render characters with Pixar-quality subsurface skin scattering and expressive eyes');
+  parts.push('- use rich saturated colors with clear value separation for print readability');
   parts.push('- avoid heavy bokeh, clutter, muddy shadows, or film-frame noise');
   parts.push('- keep one clear focal point');
   parts.push('- preserve continuity with previous panels and references');

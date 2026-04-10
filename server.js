@@ -1739,6 +1739,16 @@ Format your answer with each label on its own line followed by a colon and the a
             catch (e) { panel.imageBuffer = null; }
           }
         }
+        // Sync imageBuffers to nested page panels (allPanels are spread copies, not references)
+        let flatIdx = 0;
+        for (const page of storyPlan.pages || []) {
+          for (const panel of page.panels || []) {
+            if (allPanels[flatIdx]) {
+              panel.imageBuffer = allPanels[flatIdx].imageBuffer || null;
+            }
+            flatIdx++;
+          }
+        }
 
         const pageBlueprints = buildGraphicNovelBlueprints(storyPlan.pages || [], 450, 666);
         const qaReport = validateGraphicNovelPagesForRender(storyPlan, pageBlueprints);
