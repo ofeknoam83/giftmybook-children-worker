@@ -24,6 +24,8 @@ process.on('SIGTERM', async () => {
     console.warn(`[PROCESS] SIGTERM: ${inFlight.length} in-flight book(s): ${inFlight.join(', ')}`);
     for (const bookId of inFlight) {
       const ctx = activeBooks.get(bookId);
+      // Abort in-progress LLM calls so the generation fails fast
+      ctx?.abortController?.abort();
       if (ctx?.progressCallbackUrl) {
         const { reportProgressForce } = require('./services/progressReporter');
         reportProgressForce(ctx.progressCallbackUrl, {
@@ -162,7 +164,7 @@ global.touchActivity = function (bookId) {
  * @param {string} bookId
  * @returns {{ bookId: string, lastActivity: number, abortController: AbortController, abortSignal: AbortSignal }}
  */
-function createBookContext(bookId) {
+function createBookContext(bookId, opts = {}) {
   const abortController = new AbortController();
   const context = {
     bookId,
@@ -170,6 +172,8 @@ function createBookContext(bookId) {
     abortController,
     lastActivity: Date.now(),
     reject: null,
+    progressCallbackUrl: opts.progressCallbackUrl || null,
+    callbackUrl: opts.callbackUrl || null,
     logs: [],
     log(level, msg, data) {
       const entry = { ts: new Date().toISOString(), level, msg, data };
@@ -685,7 +689,7 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
   res.status(202).json({ success: true, status: 'processing', bookId, style });
 
   // Process in background
-  const bookContext = createBookContext(bookId);
+  const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
   bookContext.log('info', `Style variant generation started`, { style, bookId });
 
   const heartbeatInterval = setInterval(() => {
@@ -913,7 +917,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   console.log(`[server] /generate-book: bookId=${bookId}, child=${childName}, format=${format}, style=${style}`);
 
-  const bookContext = createBookContext(bookId);
+  const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
 
   // Respond 202 immediately, process in background
   res.status(202).json({ success: true, status: 'processing', bookId });
