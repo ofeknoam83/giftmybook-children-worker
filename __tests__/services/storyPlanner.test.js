@@ -484,9 +484,22 @@ describe('planGraphicNovel robustness', () => {
         },
       ],
     }));
-    global.fetch = jest.fn(async () => {
-      callNum++;
-      if (callNum === 1) {
+    let openAiCalls = 0;
+    global.fetch = jest.fn(async (url) => {
+      const urlStr = String(url);
+      if (!urlStr.includes('api.openai.com')) {
+        // Gemini calls (enrichCustomDetails, etc.) — return passthrough
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: '"no references"' }] }, finishReason: 'STOP' }],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 },
+          }),
+        };
+      }
+
+      openAiCalls++;
+      if (openAiCalls === 1) {
         return {
           ok: true,
           json: async () => ({
@@ -506,7 +519,7 @@ describe('planGraphicNovel robustness', () => {
         };
       }
 
-      if (callNum === 2) {
+      if (openAiCalls === 2) {
         return {
           ok: true,
           json: async () => ({
@@ -528,13 +541,15 @@ describe('planGraphicNovel robustness', () => {
         };
       }
 
-      if (callNum === 3) {
+      // Call 3: first chunk (scenes 1-2) with trailing text after JSON
+      if (openAiCalls === 3) {
+        const chunkPages = pages.slice(0, 8);
         return {
           ok: true,
           json: async () => ({
             choices: [{
               message: {
-                content: `${JSON.stringify({ title: 'Isabella and the Moon Orchard', pages })}\nDONE`,
+                content: `${JSON.stringify({ title: 'Isabella and the Moon Orchard', pages: chunkPages })}\nDONE`,
               },
               finish_reason: 'stop',
             }],
@@ -543,6 +558,9 @@ describe('planGraphicNovel robustness', () => {
         };
       }
 
+      // Remaining chunk calls: call 4→chunk2, call 5→chunk3, etc.
+      const chunkMap = { 4: pages.slice(8, 15), 5: pages.slice(15, 18), 6: pages.slice(18, 21), 7: pages.slice(21, 24) };
+      const chunkPages = chunkMap[openAiCalls] || pages.slice(0, 3);
       return {
         ok: true,
         json: async () => ({
@@ -550,20 +568,7 @@ describe('planGraphicNovel robustness', () => {
             message: {
               content: JSON.stringify({
                 title: 'Isabella and the Moon Orchard',
-                pages: Array.from({ length: 24 }, (_, i) => ({
-                  pageNumber: i + 1,
-                  sceneNumber: sceneNumbers[i],
-                  sceneTitle: `Scene ${sceneNumbers[i]}`,
-                  pagePurpose: 'Advance the story',
-                  pageTurnIntent: 'question',
-                  dominantBeat: 'A strong beat',
-                  layoutTemplate: 'conversationGrid',
-                  panelCount: 2,
-                  panels: [
-                    { panelNumber: 1, panelType: 'dialogue', dialogue: 'Hello there.', balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }], imagePrompt: 'Panel one prompt' },
-                    { panelNumber: 2, panelType: i === 20 || i === 23 ? 'splash' : 'reaction', caption: 'A quiet beat.', captions: [{ text: 'A quiet beat.', placement: 'top-band', type: 'narration' }], imagePrompt: 'Panel two prompt', pageLayout: i === 20 || i === 23 ? 'splash' : '3equal' },
-                  ],
-                })),
+                pages: chunkPages,
               }),
             },
             finish_reason: 'stop',
@@ -580,12 +585,12 @@ describe('planGraphicNovel robustness', () => {
       interests: ['space'],
     };
 
-    const result = await planGraphicNovel(childDetails, 'adventure', '', {});
+    const result = await planGraphicNovel(childDetails, 'adventure', '', { bookContext: { log: jest.fn(), touchActivity: jest.fn() } });
     expect(result.pages.length).toBeGreaterThanOrEqual(24);
     expect(result.scenes.length).toBe(7);
   }, 15000);
 
-  test('falls back to Gemini when GPT returns malformed planner JSON', async () => {
+  test('falls back to Gemini when GPT returns malformed chunk JSON', async () => {
     const sceneNumbers = [
       1, 1, 1, 1,
       2, 2, 2, 2,
@@ -624,6 +629,13 @@ describe('planGraphicNovel robustness', () => {
         },
       ],
     }));
+    const chunkSlices = [
+      validPages.slice(0, 8),
+      validPages.slice(8, 15),
+      validPages.slice(15, 18),
+      validPages.slice(18, 21),
+      validPages.slice(21, 24),
+    ];
 
     let openAiCalls = 0;
     let geminiCalls = 0;
@@ -672,6 +684,7 @@ describe('planGraphicNovel robustness', () => {
           };
         }
 
+        // Call 3: first chunk returns malformed JSON → triggers Gemini fallback
         if (openAiCalls === 3) {
           return {
             ok: true,
@@ -687,6 +700,8 @@ describe('planGraphicNovel robustness', () => {
           };
         }
 
+        // Remaining chunk calls succeed (call 4→chunk2, call 5→chunk3, etc.)
+        const chunkPages = chunkSlices[openAiCalls - 3] || validPages.slice(0, 3);
         return {
           ok: true,
           json: async () => ({
@@ -694,7 +709,7 @@ describe('planGraphicNovel robustness', () => {
               message: {
                 content: JSON.stringify({
                   title: 'Isabella and the Lantern Planet',
-                  pages: validPages,
+                  pages: chunkPages,
                 }),
               },
               finish_reason: 'stop',
@@ -705,6 +720,7 @@ describe('planGraphicNovel robustness', () => {
       }
 
       geminiCalls++;
+      // Gemini fallback returns valid chunk-1 pages
       return {
         ok: true,
         json: async () => ({
@@ -713,7 +729,7 @@ describe('planGraphicNovel robustness', () => {
               parts: [{
                 text: JSON.stringify({
                   title: 'Isabella and the Lantern Planet',
-                  pages: validPages,
+                  pages: chunkSlices[0],
                 }),
               }],
             },
@@ -731,7 +747,7 @@ describe('planGraphicNovel robustness', () => {
       interests: ['space'],
     };
 
-    const result = await planGraphicNovel(childDetails, 'adventure', '', {});
+    const result = await planGraphicNovel(childDetails, 'adventure', '', { bookContext: { log: jest.fn(), touchActivity: jest.fn() } });
     expect(result.pages.length).toBe(24);
     expect(result.scenes.length).toBe(7);
     expect(geminiCalls).toBeGreaterThan(0);
@@ -1098,8 +1114,7 @@ describe('planGraphicNovel robustness', () => {
     }));
   }, 15000);
 
-  test('times out a stuck full-plan request and falls back to chunks', async () => {
-    jest.useFakeTimers();
+  test('uses chunked planner directly without full-plan attempt', async () => {
     const sceneNumbers = [
       1, 1, 1, 1,
       2, 2, 2, 2,
@@ -1148,10 +1163,8 @@ describe('planGraphicNovel robustness', () => {
     ];
 
     let openAiCalls = 0;
-    let geminiCalls = 0;
-    global.fetch = jest.fn((url, init = {}) => {
+    global.fetch = jest.fn((url) => {
       if (!String(url).includes('api.openai.com')) {
-        geminiCalls++;
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -1165,6 +1178,7 @@ describe('planGraphicNovel robustness', () => {
       }
 
       openAiCalls++;
+      // Call 1: brainstormStorySeed
       if (openAiCalls === 1) {
         return Promise.resolve({
           ok: true,
@@ -1184,6 +1198,7 @@ describe('planGraphicNovel robustness', () => {
           }),
         });
       }
+      // Call 2: story bible
       if (openAiCalls === 2) {
         return Promise.resolve({
           ok: true,
@@ -1209,13 +1224,8 @@ describe('planGraphicNovel robustness', () => {
           }),
         });
       }
-      if (openAiCalls === 3) {
-        return new Promise((_, reject) => {
-          init.signal.addEventListener('abort', () => reject(new Error('aborted')));
-        });
-      }
-
-      const chunkPages = chunkSlices[openAiCalls - 4] || validPages;
+      // Calls 3+: chunk plans (no full-plan attempt)
+      const chunkPages = chunkSlices[openAiCalls - 3] || validPages;
       return Promise.resolve({
         ok: true,
         json: async () => ({
@@ -1233,22 +1243,18 @@ describe('planGraphicNovel robustness', () => {
       });
     });
 
-    const bookContext = { log: jest.fn() };
-    const promise = planGraphicNovel({
+    const bookContext = { log: jest.fn(), touchActivity: jest.fn() };
+    const result = await planGraphicNovel({
       name: 'Isabella',
       age: 10,
       gender: 'female',
       interests: ['space'],
     }, 'adventure', '', { bookContext });
 
-    await jest.advanceTimersByTimeAsync(360000);
-    const result = await promise;
-
     expect(result.pages.length).toBe(24);
-    expect(geminiCalls).toBeGreaterThan(0);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('GPT 5.4 failed, falling back to Gemini: Graphic novel full-plan fast path timed out after 360000ms'));
-    expect(bookContext.log).toHaveBeenCalledWith('warn', 'Switching to chunked scene planner');
-
-    jest.useRealTimers();
+    // Verify chunked planning was used: seed(1) + bible(1) + 5 chunks + critic(1) = 8 GPT calls
+    const gptCalls = global.fetch.mock.calls.filter(c => String(c[0]).includes('api.openai.com'));
+    expect(gptCalls.length).toBeGreaterThanOrEqual(7);
+    expect(bookContext.log).toHaveBeenCalledWith('info', 'Starting chunked graphic novel planning', expect.any(Object));
   }, 15000);
 });

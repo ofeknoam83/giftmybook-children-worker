@@ -2484,77 +2484,22 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     }
   }
 
-  const userPrompt = GRAPHIC_NOVEL_PLANNER_USER(
+  // Go straight to chunked planner — more reliable than generating
+  // the entire 24-32 page plan in a single LLM call, which consistently
+  // hits token limits, connection timeouts, or produces malformed JSON.
+  let plan = await planGraphicNovelByChunks(
     childDetails,
     theme,
     enrichedCustomDetails,
     seed,
-    compactGraphicNovelStoryBible(storyBible)
-  ) + parentStorySection + titleInstruction;
-
-  let plan;
-  try {
-    const resp = await callLLM(GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
-      openaiApiKey: apiKeys?.OPENAI_API_KEY,
+    storyBible,
+    {
+      apiKeys,
       costTracker,
-      temperature: 0.8,
-      maxTokens: 32000,
-      jsonMode: true,
-      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
-      requestLabel: 'Graphic novel full-plan fast path',
-    });
-    const parsedPlan = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_PLANNER_SYSTEM, userPrompt, {
-      costTracker,
-      temperature: 0.8,
-      maxTokens: 32000,
+      approvedTitle,
       bookContext,
-      timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
-      requestLabel: 'Graphic novel full-plan fast path',
-    });
-    bookContext?.touchActivity?.();
-    plan = legacyGraphicNovelScenesToPages(parsedPlan, childDetails);
-    plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
-    const structure = summarizeGraphicNovelStructure(plan);
-    if (structure.issues.length > 0) {
-      // Skip repair if the plan is completely empty — nothing to repair
-      if (structure.pageCount === 0 && structure.sceneCount === 0) {
-        bookContext?.log('warn', 'Full plan returned empty — skipping repair, will use chunked planner');
-        throw new Error(`Empty plan: 0 pages, 0 scenes`);
-      }
-      try {
-        plan = await repairGraphicNovelPlan(plan, storyBible, childDetails, {
-          apiKeys,
-          costTracker,
-          bookContext,
-        });
-        bookContext?.touchActivity?.();
-        plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
-      } catch (repairErr) {
-        bookContext?.log('warn', `Graphic novel plan repair failed: ${repairErr.message}`);
-      }
     }
-    const repairedStructure = summarizeGraphicNovelStructure(plan);
-    if (!plan.title || repairedStructure.issues.length > 0) {
-      throw new Error(`Invalid plan: ${plan.pages?.length || 0} pages`);
-    }
-  } catch (e) {
-    bookContext?.touchActivity?.();
-    bookContext?.log('warn', `Graphic novel full-plan fast path failed: ${e.message}`);
-    bookContext?.log('warn', 'Switching to chunked scene planner');
-    plan = await planGraphicNovelByChunks(
-      childDetails,
-      theme,
-      enrichedCustomDetails,
-      seed,
-      storyBible,
-      {
-        apiKeys,
-        costTracker,
-        approvedTitle,
-        bookContext,
-      }
-    );
-  }
+  );
 
   let improvedPlan = plan;
   try {
@@ -2581,8 +2526,20 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       }
     );
     bookContext?.touchActivity?.();
-    improvedPlan = legacyGraphicNovelScenesToPages(parsedCriticPlan, childDetails);
-    improvedPlan = normalizeGraphicNovelPlan(improvedPlan, { fallbackTitle: plan.title });
+    const criticCandidate = normalizeGraphicNovelPlan(
+      legacyGraphicNovelScenesToPages(parsedCriticPlan, childDetails),
+      { fallbackTitle: plan.title }
+    );
+    // Only accept critic output if it preserves the plan structure
+    if (criticCandidate.pages.length >= 20 && criticCandidate.pages.length <= 36
+        && criticCandidate.scenes.length >= 5) {
+      improvedPlan = criticCandidate;
+    } else {
+      bookContext?.log('warn', 'Critic output rejected — structure degraded', {
+        criticPages: criticCandidate.pages.length,
+        originalPages: plan.pages.length,
+      });
+    }
   } catch (criticErr) {
     bookContext?.touchActivity?.();
     bookContext?.log('warn', `Graphic novel critic failed — using original plan: ${criticErr.message}`);
