@@ -16,7 +16,8 @@ const VALID_PANEL_TYPES = new Set(['establishing', 'action', 'dialogue', 'closeu
 const VALID_BALLOON_TYPES = new Set(['speech', 'shout', 'whisper', 'thought']);
 const VALID_CAPTION_TYPES = new Set(['narration', 'location_time', 'internal_monologue']);
 const VALID_SPEAKER_POSITIONS = new Set(['left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']);
-const VALID_TEXT_DENSITY = new Set(['silent', 'light', 'medium']);
+const VALID_TEXT_DENSITY = new Set(['silent', 'light', 'medium', 'heavy']);
+const VALID_INTERSTITIAL_TYPES = new Set(['scene_opener', 'internal_monologue', 'letter_or_diary', 'narrator_aside']);
 
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -151,25 +152,45 @@ function normalizeGraphicNovelPlan(rawPlan, opts = {}) {
     const rawPage = pages[pageIndex] || {};
     const pageNumber = Number.isFinite(rawPage.pageNumber) ? rawPage.pageNumber : pageIndex + 1;
     const sceneNumber = Number.isFinite(rawPage.sceneNumber) ? rawPage.sceneNumber : 1;
-    const layoutTemplate = inferLayoutTemplate(rawPage);
-    const normalizedPage = {
-      pageNumber,
-      sceneNumber,
-      sceneTitle: rawPage.sceneTitle || `Scene ${sceneNumber}`,
-      pagePurpose: rawPage.pagePurpose || '',
-      pageTurnIntent: rawPage.pageTurnIntent || 'question',
-      dominantBeat: rawPage.dominantBeat || '',
-      layoutTemplate,
-      pageLayout: inferPageLayout(rawPage),
-      panelCount: 0,
-      textDensity: VALID_TEXT_DENSITY.has(rawPage.textDensity) ? rawPage.textDensity : 'medium',
-      colorScript: rawPage.colorScript || {},
-      fullPagePrompt: typeof rawPage.fullPagePrompt === 'string' ? rawPage.fullPagePrompt.trim() : '',
-      illustrationUrl: rawPage.illustrationUrl || null,
-      panels: [],
-    };
-    normalizedPage.panels = normalizeArray(rawPage.panels).map((panel, panelIndex) => normalizePanel(panel, normalizedPage, panelIndex));
-    normalizedPage.panelCount = normalizedPage.panels.length || Math.max(1, rawPage.panelCount || 0);
+    const pageType = rawPage.pageType === 'text_interstitial' ? 'text_interstitial' : 'illustrated';
+
+    let normalizedPage;
+    if (pageType === 'text_interstitial') {
+      normalizedPage = {
+        pageNumber,
+        pageType,
+        sceneNumber,
+        sceneTitle: rawPage.sceneTitle || `Scene ${sceneNumber}`,
+        interstitialType: VALID_INTERSTITIAL_TYPES.has(rawPage.interstitialType) ? rawPage.interstitialType : 'scene_opener',
+        heading: typeof rawPage.heading === 'string' ? rawPage.heading.trim() : '',
+        subheading: typeof rawPage.subheading === 'string' ? rawPage.subheading.trim() : '',
+        bodyText: typeof rawPage.bodyText === 'string' ? rawPage.bodyText.trim() : '',
+        mood: typeof rawPage.mood === 'string' ? rawPage.mood.trim() : '',
+        panels: [],
+        panelCount: 0,
+      };
+    } else {
+      const layoutTemplate = inferLayoutTemplate(rawPage);
+      normalizedPage = {
+        pageNumber,
+        pageType,
+        sceneNumber,
+        sceneTitle: rawPage.sceneTitle || `Scene ${sceneNumber}`,
+        pagePurpose: rawPage.pagePurpose || '',
+        pageTurnIntent: rawPage.pageTurnIntent || 'question',
+        dominantBeat: rawPage.dominantBeat || '',
+        layoutTemplate,
+        pageLayout: inferPageLayout(rawPage),
+        panelCount: 0,
+        textDensity: VALID_TEXT_DENSITY.has(rawPage.textDensity) ? rawPage.textDensity : 'medium',
+        colorScript: rawPage.colorScript || {},
+        fullPagePrompt: typeof rawPage.fullPagePrompt === 'string' ? rawPage.fullPagePrompt.trim() : '',
+        illustrationUrl: rawPage.illustrationUrl || null,
+        panels: [],
+      };
+      normalizedPage.panels = normalizeArray(rawPage.panels).map((panel, panelIndex) => normalizePanel(panel, normalizedPage, panelIndex));
+      normalizedPage.panelCount = normalizedPage.panels.length || Math.max(1, rawPage.panelCount || 0);
+    }
 
     const scene = scenesMap.get(sceneNumber) || {
       number: sceneNumber,
@@ -178,7 +199,7 @@ function normalizeGraphicNovelPlan(rawPlan, opts = {}) {
       panels: [],
     };
     scene.pages.push(normalizedPage.pageNumber);
-    scene.panels.push(...normalizedPage.panels);
+    if (normalizedPage.panels) scene.panels.push(...normalizedPage.panels);
     scenesMap.set(sceneNumber, scene);
     normalizedPages.push(normalizedPage);
   }
@@ -208,12 +229,21 @@ function summarizeGraphicNovelIssues(plan, blueprint = null) {
   const pages = normalizeArray(plan.pages);
   const allPanels = normalizeArray(plan.allPanels);
 
-  if (pages.length < 24 || pages.length > 32) {
-    issues.push({ type: 'page_count', severity: 'warn', message: `Expected 24-32 pages, got ${pages.length}.` });
+  if (pages.length < 48 || pages.length > 80) {
+    issues.push({ type: 'page_count', severity: 'warn', message: `Expected 48-80 pages, got ${pages.length}.` });
   }
   const splashCount = allPanels.filter((panel) => panel.panelType === 'splash').length;
-  if (splashCount !== 2) {
-    issues.push({ type: 'splash_count', severity: 'warn', message: `Expected exactly 2 splash panels, got ${splashCount}.` });
+  if (splashCount < 2 || splashCount > 5) {
+    issues.push({ type: 'splash_count', severity: 'warn', message: `Expected 2-5 splash panels, got ${splashCount}.` });
+  }
+  const interstitialCount = pages.filter((page) => page.pageType === 'text_interstitial').length;
+  if (interstitialCount < 5) {
+    issues.push({ type: 'low_interstitial_count', severity: 'warn', message: `Expected at least 5 text_interstitial pages, got ${interstitialCount}.` });
+  }
+  for (const page of pages.filter((p) => p.pageType === 'text_interstitial')) {
+    if (!page.bodyText) {
+      issues.push({ type: 'empty_interstitial', severity: 'warn', message: `Text interstitial page ${page.pageNumber} has no bodyText.` });
+    }
   }
   let silentPanels = 0;
   let repeatedLayoutRun = 1;
@@ -222,7 +252,7 @@ function summarizeGraphicNovelIssues(plan, blueprint = null) {
     if (!page.dominantBeat) {
       issues.push({ type: 'missing_dominant_beat', severity: 'warn', message: `Page ${page.pageNumber} is missing a dominant beat.` });
     }
-    if (!page.fullPagePrompt) {
+    if (page.pageType !== 'text_interstitial' && !page.fullPagePrompt) {
       issues.push({ type: 'missing_full_page_prompt', severity: 'warn', message: `Page ${page.pageNumber} is missing a fullPagePrompt.` });
     }
     if (page.layoutTemplate === pages[i - 1]?.layoutTemplate) repeatedLayoutRun += 1;
@@ -236,7 +266,7 @@ function summarizeGraphicNovelIssues(plan, blueprint = null) {
   }
   if (allPanels.length > 0) {
     const silentPct = silentPanels / allPanels.length;
-    if (silentPct < 0.2) {
+    if (silentPct < 0.1) {
       issues.push({ type: 'silent_panel_ratio', severity: 'warn', message: `Silent panel ratio is ${Math.round(silentPct * 100)}%.` });
     }
   }

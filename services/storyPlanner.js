@@ -16,8 +16,8 @@ const { enrichCustomDetails } = require('./customDetailsEnricher');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
-const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 360000;
-const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 180000;
+const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 480000;
+const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 240000;
 
 // ── W1: Beat structure per spread ──
 const BEAT_STRUCTURE = `BEAT STRUCTURE — each spread has a PURPOSE:
@@ -2234,7 +2234,7 @@ function buildGraphicNovelChunkSpecs(storyBible) {
       if (!scenes.length) return null;
       return {
         scenes,
-        expectedPages: scenes.reduce((sum, scene) => sum + Math.max(2, Number(scene.pageCountTarget) || 0), 0),
+        expectedPages: scenes.reduce((sum, scene) => sum + Math.max(4, Number(scene.pageCountTarget) || 0), 0),
       };
     })
     .filter(Boolean);
@@ -2298,14 +2298,18 @@ function summarizeGraphicNovelChunkStructure(plan, chunkSpec) {
   const expectedSplashes = (chunkSpec?.scenes || []).filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7).length;
   const issues = [];
 
-  if (pages.length !== expectedPages) issues.push(`pages=${pages.length} (need ${expectedPages})`);
-  if (pages.some((page) => !Array.isArray(page.panels) || page.panels.length === 0)) issues.push('contains empty pages');
+  // Allow some flexibility — accept chunks within 40% of expected count
+  const minAcceptable = Math.max(2, Math.floor(expectedPages * 0.6));
+  if (pages.length < minAcceptable) issues.push(`pages=${pages.length} (need at least ${minAcceptable})`);
+  // Check illustrated pages have panels (text interstitials don't need them)
+  const emptyIllustrated = pages.filter((page) => page.pageType !== 'text_interstitial' && (!Array.isArray(page.panels) || page.panels.length === 0));
+  if (emptyIllustrated.length > 0) issues.push(`${emptyIllustrated.length} illustrated pages have no panels`);
   if (expectedSplashes > 0) {
     const splashCount = pages.filter((page) => {
       if (page.layoutTemplate === 'fullBleedSplash' || page.pageLayout === 'splash') return true;
       return (page.panels || []).some((panel) => panel.panelType === 'splash' || panel.pageLayout === 'splash');
     }).length;
-    if (splashCount !== expectedSplashes) issues.push(`splashPages=${splashCount} (need ${expectedSplashes})`);
+    if (splashCount < 1) issues.push(`splashPages=${splashCount} (need at least 1)`);
   }
 
   return { issues };
@@ -2346,7 +2350,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
         temperature: 0.65,
-        maxTokens: 16000,
+        maxTokens: 24000,
         jsonMode: true,
         timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
         requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
@@ -2358,7 +2362,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
         {
           costTracker,
           temperature: 0.65,
-          maxTokens: 16000,
+          maxTokens: 24000,
           bookContext,
           timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
           requestLabel: `Graphic novel chunk ${chunkSceneLabel} attempt ${attempt}`,
@@ -2665,7 +2669,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         openaiApiKey: apiKeys?.OPENAI_API_KEY,
         costTracker,
         temperature: 0.75,
-        maxTokens: 6000,
+        maxTokens: 8000,
         jsonMode: true,
         timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
         requestLabel: `Graphic novel story bible attempt ${attempt}`,
@@ -2673,7 +2677,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       storyBible = await parseStructuredJsonWithFallback(resp, GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM, storyBiblePrompt, {
         costTracker,
         temperature: 0.75,
-        maxTokens: 6000,
+        maxTokens: 8000,
         bookContext,
         timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
         requestLabel: `Graphic novel story bible attempt ${attempt}`,

@@ -650,25 +650,27 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
     resolvedChildPhotoUrl, characterRefBase64, characterRefMime,
   } = opts;
   const pages = storyPlan.pages || [];
-  const totalPages = pages.length;
+  // Only generate illustrations for illustrated pages, not text interstitials
+  const illustratedPages = pages.filter(p => p.pageType !== 'text_interstitial');
+  const totalIllustrated = illustratedPages.length;
   let completed = 0;
 
   // Count pages already generated from a prior checkpoint
-  const resumedCount = pages.filter(p => p.illustrationUrl).length;
+  const resumedCount = illustratedPages.filter(p => p.illustrationUrl).length;
   if (resumedCount > 0) {
-    bookContext.log('info', `Resuming graphic novel pages — ${resumedCount}/${totalPages} already generated`);
+    bookContext.log('info', `Resuming graphic novel pages — ${resumedCount}/${totalIllustrated} already generated`);
   }
 
   // Collect previous page illustration URLs for style continuity
-  function collectPrevPageUrls(pageIndex) {
+  function collectPrevPageUrls(currentIdx) {
     const refs = [];
-    for (let i = pageIndex - 1; i >= 0 && refs.length < 4; i--) {
-      if (pages[i]?.illustrationUrl) refs.push(pages[i].illustrationUrl);
+    for (let i = currentIdx - 1; i >= 0 && refs.length < 4; i--) {
+      if (illustratedPages[i]?.illustrationUrl) refs.push(illustratedPages[i].illustrationUrl);
     }
     return refs;
   }
 
-  for (const page of pages) {
+  for (const page of illustratedPages) {
     bookContext.checkAbort();
 
     // Skip pages that already have illustrations from a prior run
@@ -677,7 +679,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
       continue;
     }
 
-    bookContext.log('info', `Generating page ${completed + 1}/${totalPages}`, {
+    bookContext.log('info', `Generating page ${completed + 1}/${totalIllustrated}`, {
       pageNumber: page.pageNumber,
       sceneNumber: page.sceneNumber,
       layoutTemplate: page.layoutTemplate,
@@ -809,9 +811,9 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
       reportProgress(progressCallbackUrl, {
         bookId,
         stage: 'illustration',
-        progress: 0.40 + (0.35 * completed / Math.max(1, totalPages)),
-        message: `Generating graphic novel page ${completed} of ${totalPages}...`,
-        previewUrls: pages.map((p) => p.illustrationUrl).filter(Boolean).slice(-8),
+        progress: 0.40 + (0.35 * completed / Math.max(1, totalIllustrated)),
+        message: `Generating graphic novel page ${completed} of ${totalIllustrated}...`,
+        previewUrls: illustratedPages.map((p) => p.illustrationUrl).filter(Boolean).slice(-8),
         logs: bookContext.logs,
       });
     }

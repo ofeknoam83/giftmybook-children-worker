@@ -2,12 +2,12 @@
 
 const GRAPHIC_NOVEL_PLANNER_SYSTEM = `You are a world-class middle-grade graphic novel showrunner, comics editor, storyboard artist, letterer, and production designer.
 
-You are planning a shelf-quality graphic novel for readers ages 9-12. Think like a premium publisher: every page needs clear reading flow, controlled pacing, distinct emotional beats, and art-direction metadata.
+You are planning a shelf-quality graphic novel for readers ages 9-12. Think like a premium publisher — this must read like a REAL BOOK with character depth, emotional complexity, humor, and a story that keeps kids turning pages.
 
 Return JSON only.
 
 CRITICAL — fullPagePrompt:
-For each page you MUST write a "fullPagePrompt" field. This is a detailed natural-language description of the COMPLETE comic book page as a single image. An AI image generator will receive this prompt and render the entire page — panels, borders, speech bubbles with text, captions, sound effects — all in one image.
+For each ILLUSTRATED page you MUST write a "fullPagePrompt" field. This is a detailed natural-language description of the COMPLETE comic book page as a single image. An AI image generator will receive this prompt and render the entire page — panels, borders, speech bubbles with text, captions, sound effects — all in one image.
 
 The fullPagePrompt must describe:
 1. Panel layout and spatial arrangement (e.g. "3 panels: one wide strip across the top, two equal panels side by side below").
@@ -16,34 +16,49 @@ The fullPagePrompt must describe:
 4. Art direction — color palette, lighting mood, atmosphere.
 
 fullPagePrompt text rules:
-- Speech bubbles: max 8 words per bubble. Prefer 3-6 words.
-- Caption boxes: max 15 words per caption.
+- Speech bubbles: max 20 words per bubble. Prefer 5-15 words. Dialogue should be sharp, witty, and character-revealing.
+- Caption/narration boxes: max 30 words per caption. Use them for atmosphere, foreshadowing, and emotional insight.
 - Sound effects: 1-2 words, all caps.
-- These limits are critical — AI image models render short text reliably but fail on long text.
 - Specify bubble type when not standard speech: "(shout bubble)", "(thought bubble)", "(whisper bubble)".
 - Specify caption style: "(narration caption)", "(location caption)", "(internal monologue caption)".
 
+TEXT-RICH INTERSTITIAL PAGES:
+In addition to illustrated pages, you MUST include text_interstitial pages — prose-style pages with beautiful typography and NO illustration. These deepen the story without requiring image generation.
+- Use "pageType": "text_interstitial" for these pages.
+- Include at least 7 text_interstitial pages across the book (roughly one per scene, plus extras at key moments).
+- Types: "scene_opener" (chapter title + atmospheric prose), "internal_monologue" (character's inner thoughts), "letter_or_diary" (in-world document), "narrator_aside" (backstory or reflection).
+- Each interstitial should have 40-100 words of beautifully written prose.
+
+WRITING QUALITY — this is a book, not a storyboard:
+- Write dialogue that REVEALS CHARACTER — not just advances plot. Each line should sound like ONLY that character could say it.
+- Use subtext — characters should sometimes say one thing while meaning another.
+- Include humor — wit, banter, comic timing. Middle-grade readers love funny, relatable characters.
+- Every scene should have at least one moment of genuine emotional resonance — not just action.
+- Narration captions are your novelist's voice. Use them for atmosphere, foreshadowing, and emotional insight — never to describe what the art already shows.
+- The protagonist must have a clear internal arc: what they want, what they need, how they change.
+- Supporting characters should feel three-dimensional — they have their own goals, fears, and humor.
+
 Editorial principles:
-- Clarity beats density.
+- Clarity beats density, but substance beats emptiness.
 - Default to 2-3 panels per page, with 1-4 total panels on most pages.
 - Every page needs one dominant beat.
 - Every page must have an intentional page-turn function: setup, reveal, joke, dread, question, release, or wonder.
 - Readers must always know where to look next.
-- Dialogue must be concise and actable.
-- Let the art carry at least 20-30% of the book through silent or near-silent panels.
+- Let the art carry 10-15% of the book through silent or near-silent panels — but most pages should have meaningful dialogue or narration.
+- Aim for an average of 40-60 words per illustrated page across the whole book.
 
 Story structure:
 - Exactly 7 scenes.
-- Scene 1: ordinary world and want.
-- Scene 2: disruption and pull into the story.
-- Scene 3: complication and failed first approach.
-- Scene 4: midpoint shift and new strategy.
-- Scene 5: escalation and internal doubt.
-- Scene 6: climax and decisive choice.
-- Scene 7: resolution and emotional landing.
+- Scene 1: ordinary world and want — establish the protagonist's personality, relationships, and desire.
+- Scene 2: disruption and pull into the story — the inciting incident that changes everything.
+- Scene 3: complication and failed first approach — things don't go as planned; reveal character flaws.
+- Scene 4: midpoint shift and new strategy — a revelation changes the protagonist's understanding.
+- Scene 5: escalation and internal doubt — stakes rise; protagonist confronts their fear or flaw.
+- Scene 6: climax and decisive choice — the protagonist makes a choice that defines who they are.
+- Scene 7: resolution and emotional landing — consequences, growth, and satisfying closure.
 
 Design constraints:
-- Two splash pages exactly: one in scene 6 and one in scene 7.
+- 3-4 splash pages total spread across scenes 5, 6, and 7 for maximum dramatic impact.
 - Scene openers should establish place before relying on close-ups.
 - Dialogue-heavy pages should prefer stable grids.
 - Action pages should privilege hierarchy and negative space.
@@ -54,19 +69,27 @@ For each page output production metadata, not vague prose.`;
 
 const GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM = `You are creating the story bible for a premium middle-grade graphic novel. Return JSON only.
 
-You are not writing pages yet. Instead, define the story engine:
-- title
-- tagline
-- logline
-- cast with voice notes
-- world bible
+You are not writing pages yet. Instead, define the story engine — the deep structural DNA of a book that will captivate readers ages 9-12.
+
+This story bible must produce a story with REAL DEPTH:
+- Characters with inner conflicts, wants vs. needs, flaws, and growth arcs
+- At least one subplot (friendship, family, self-discovery) alongside the main plot
+- A clear thematic thread that deepens across scenes
+- Tonal variety — humor, tension, wonder, and heart woven together
+- Distinctive character voices — each character sounds unmistakably different
+
+Define:
+- title, tagline, logline
+- cast with voice notes, inner conflicts, and character arcs
+- world bible with rich setting details
 - color script by scene
-- scene arc
+- scene arc with turning points
+- subplots and thematic thread
 - recurring motifs
 - emotional rhythm
 - how the child personalization appears naturally
 
-Keep the book commercial, emotionally clear, and page-turnable for ages 9-12.`;
+Keep the book commercial, emotionally complex, and page-turnable for ages 9-12.`;
 
 function GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, customDetails, seed) {
   const { name, age, gender } = childDetails;
@@ -85,54 +108,71 @@ Return a JSON object with this shape:
 {
   "title": "Must include ${name}'s name",
   "tagline": "Back-cover quality line",
-  "logline": "1-2 sentence premise",
+  "logline": "2-3 sentence premise that hooks a reader",
   "narrativeMode": "close third person present",
   "audiencePromise": "What the reader gets emotionally and visually",
+  "thematicThread": "The core theme that deepens across the book (e.g. 'true courage means being afraid and choosing to act anyway')",
+  "subplots": [
+    {
+      "name": "subplot name",
+      "description": "1-2 sentences describing the B-story",
+      "characters": ["character ids involved"],
+      "resolution": "how it resolves"
+    }
+  ],
   "cast": [
     {
       "id": "hero",
       "name": "${name}",
       "role": "protagonist",
-      "voiceGuide": "short description of speech rhythm and attitude",
+      "voiceGuide": "detailed speech rhythm, vocabulary level, attitude, catchphrases",
       "visualAnchor": "2-3 reusable visual identifiers",
-      "actingNotes": "facial and body-language notes the illustrator should keep consistent"
+      "actingNotes": "facial and body-language notes for consistency",
+      "innerConflict": "what the character struggles with internally",
+      "wantVsNeed": "what they think they want vs. what they actually need",
+      "flaw": "a specific character flaw that creates obstacles",
+      "growthArc": "how they change from scene 1 to scene 7"
     }
   ],
   "worldBible": {
-    "setting": "core world description",
-    "locationAnchors": ["3-6 recurring location anchors"],
-    "propAnchors": ["3-8 recurring prop anchors"],
-    "styleNorthStar": "How the visuals should feel"
+    "setting": "rich, detailed world description",
+    "locationAnchors": ["3-6 recurring locations with atmospheric detail"],
+    "propAnchors": ["3-8 recurring props with story significance"],
+    "styleNorthStar": "How the visuals should feel — mood, atmosphere, aesthetic"
   },
   "sceneColorScript": [
     {
       "sceneNumber": 1,
-      "dominantPalette": "one sentence",
-      "contrastStrategy": "one sentence"
+      "dominantPalette": "detailed color description",
+      "contrastStrategy": "how light and shadow work in this scene"
     }
   ],
-  "recurringMotifs": ["2-5 motifs"],
+  "recurringMotifs": ["2-5 visual/thematic motifs that gain meaning across the story"],
   "sceneBlueprints": [
     {
       "sceneNumber": 1,
-      "sceneTitle": "short title",
-      "purpose": "narrative purpose",
+      "sceneTitle": "evocative title",
+      "purpose": "narrative purpose — what this scene accomplishes for the story",
       "turningPoint": "what changes by the end of scene",
-      "pageCountTarget": 4,
-      "dominantEmotion": "emotion",
-      "pageTurnIntent": "what the final page turn of the scene should do"
+      "pageCountTarget": 8,
+      "dominantEmotion": "primary emotional tone",
+      "pageTurnIntent": "what the final page turn of the scene should do",
+      "subplotBeat": "how the subplot advances in this scene"
     }
   ]
 }
 
 Rules:
 - Exactly 7 sceneBlueprints.
-- The sum of all pageCountTarget values must be between 24 and 32.
-- Total target length should imply roughly 24-32 pages.
+- The sum of all pageCountTarget values must be between 48 and 64.
+- Each scene should target 6-10 pages.
 - The protagonist must drive the resolution.
 - Personalization must feel story-native, not pasted on.
-- Avoid babyish tone. Use middle-grade wit, emotional clarity, and adventure.
-- Keep the cast small and production-friendly.`;
+- Avoid babyish tone. Use middle-grade wit, emotional complexity, and real stakes.
+- Characters must have genuine inner conflicts and growth arcs.
+- The story should have at least one subplot that enriches the main plot.
+- Keep the cast small (3-5 characters) but three-dimensional.
+- Every character should sound distinct in dialogue — different vocabulary, rhythm, attitude.`;
 }
 
 function GRAPHIC_NOVEL_PLANNER_USER(childDetails, theme, customDetails, seed, storyBible) {
@@ -156,6 +196,7 @@ Return a JSON object:
   "pages": [
     {
       "pageNumber": 1,
+      "pageType": "illustrated",
       "sceneNumber": 1,
       "sceneTitle": "scene title",
       "pagePurpose": "what this page is doing dramatically",
@@ -163,13 +204,13 @@ Return a JSON object:
       "dominantBeat": "the one beat that should dominate the page",
       "layoutTemplate": "cinematicTopStrip|heroTopTwoBottom|twoTierEqual|conversationGrid|fourGrid|fullBleedSplash",
       "panelCount": 3,
-      "textDensity": "silent|light|medium",
+      "textDensity": "silent|light|medium|heavy",
       "colorScript": {
         "paletteId": "short id",
         "dominantHue": "e.g. ember orange",
         "contrastMode": "brightFacesDarkGround|coolWideWarmFaces|graphicHighContrast"
       },
-      "fullPagePrompt": "A detailed natural-language description of the COMPLETE comic page as a single image. Describe the panel layout, what happens in each panel, ALL speech bubbles with exact text, ALL captions with exact text, ALL sound effects. This will be sent directly to an image-generation AI to render the entire page in one shot. Example: 'A comic book page with 3 panels. Top panel (wide): Wide shot of a sparkling crystal cavern. ${name} stands center, red backpack visible, looking up in awe. Golden light streams through ceiling cracks. A narration caption in the top-left reads: \"The caverns had been sealed for ages.\" Bottom-left panel: Medium close-up of ${name}, eyes wide. Speech bubble: \"Incredible...\" Bottom-right panel: Close-up of a glowing crystal. A tiny fairy peeks out. Sound effect \"SHIMMER\" in sparkly lettering near the crystal.'",
+      "fullPagePrompt": "A detailed natural-language description of the COMPLETE comic page as a single image. Describe the panel layout, what happens in each panel, ALL speech bubbles with exact text (up to 20 words each), ALL captions with exact text (up to 30 words each), ALL sound effects. Write dialogue that reveals character and feels natural. Include lighting and color direction.",
       "panels": [
         {
           "sceneNumber": 1,
@@ -185,14 +226,14 @@ Return a JSON object:
             {
               "type": "speech|shout|whisper|thought",
               "speaker": "${name}",
-              "text": "max 8 words",
+              "text": "natural dialogue up to 20 words",
               "order": 1
             }
           ],
           "captions": [
             {
               "type": "narration|location_time|internal_monologue",
-              "text": "max 15 words"
+              "text": "up to 30 words of atmospheric narration"
             }
           ],
           "sfx": [
@@ -203,58 +244,77 @@ Return a JSON object:
           ]
         }
       ]
+    },
+    {
+      "pageNumber": 2,
+      "pageType": "text_interstitial",
+      "sceneNumber": 1,
+      "sceneTitle": "scene title",
+      "interstitialType": "scene_opener|internal_monologue|letter_or_diary|narrator_aside",
+      "heading": "CHAPTER ONE",
+      "subheading": "The scene title",
+      "bodyText": "40-100 words of beautifully written prose. This is your chance to write like a novelist — atmospheric, emotionally resonant, character-revealing. Use this for backstory, internal thoughts, world-building, or poetic transitions that deepen the story beyond what comics panels can show."
     }
   ]
 }
 
 Rules:
-- Build 24-32 story pages total.
-- The pages array itself must contain 24-32 fully written page objects.
+- Build 48-64 total pages (illustrated + text_interstitial combined).
+- At least 40 illustrated pages and at least 7 text_interstitial pages.
 - Exactly 7 scenes.
-- Exactly 2 splash pages total: one in scene 6 and one in scene 7.
-- Default to 2-3 panels per page.
+- 3-4 splash pages total, spread across scenes 5, 6, and 7.
+- Default to 2-3 panels per illustrated page.
 - Use 4-panel pages sparingly.
-- At least 20% of panels should have no balloons.
+- 10-15% of panels can be silent — but most panels should have meaningful text.
 - The last page of each scene should create a clear page-turn impulse.
 - Adjacent panels must not repeat the same shot/camera combination.
-- Dialogue must sound distinct per character.
-- Preserve the story bible.
+- Dialogue must sound distinct per character — each voice is unmistakable.
+- Write dialogue with subtext, humor, and emotional depth.
+- Narration should be atmospheric and insightful, not redundant with the art.
+- Each scene should open with a text_interstitial scene_opener page.
+- Include internal_monologue or narrator_aside interstitials at key emotional turning points.
+- Preserve the story bible — honor character arcs, subplots, and thematic thread.
 - Weave the child personalization in naturally so a parent can see it immediately.
 - Returning one page per scene is invalid.
 - Returning only an outline, scene summaries, or page stubs is invalid.
-- Every page object must include a non-empty panels array.
-- Every non-splash page should usually contain 2 or 3 panels.
-- CRITICAL: Every page object MUST include a non-empty fullPagePrompt string.
+- Every illustrated page must include a non-empty panels array.
+- Every illustrated page MUST include a non-empty fullPagePrompt string.
 - The fullPagePrompt must include ALL text verbatim — every speech bubble, caption, and sound effect.
-- Keep speech bubble text to max 8 words. Keep caption text to max 15 words.
-- Describe panel layout spatially in the fullPagePrompt (top/bottom/left/right) so the image model composes correctly.`;
+- Describe panel layout spatially in the fullPagePrompt (top/bottom/left/right).
+- text_interstitial pages do NOT need panels or fullPagePrompt — they need heading, subheading, and bodyText.`;
 }
 
 const GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM = `You are planning a subset of pages for a premium middle-grade graphic novel.
 
 Return JSON only.
 
-You are not planning the whole book in one pass. You are planning only the requested scenes/pages, but they must feel like part of the same professionally designed graphic novel.
+You are not planning the whole book in one pass. You are planning only the requested scenes/pages, but they must feel like part of the same professionally designed graphic novel with REAL STORY DEPTH.
 
-CRITICAL — fullPagePrompt:
-Every page MUST include a "fullPagePrompt" field — a detailed natural-language description of the COMPLETE comic book page as a single image. An AI image generator will render the entire page from this prompt: panels, borders, speech bubbles with text, captions, sound effects — everything in one image.
+CRITICAL — fullPagePrompt (illustrated pages only):
+Every illustrated page MUST include a "fullPagePrompt" field — a detailed natural-language description of the COMPLETE comic book page as a single image. An AI image generator will render the entire page from this prompt: panels, borders, speech bubbles with text, captions, sound effects — everything in one image.
 
 The fullPagePrompt must describe:
-1. Panel layout and spatial arrangement (e.g. "3 panels: one wide strip across the top, two equal panels below").
+1. Panel layout and spatial arrangement.
 2. What happens visually in each panel — characters, action, setting, lighting, expressions.
-3. ALL text content VERBATIM — every speech bubble (with speaker and bubble type), every caption box (with style), every sound effect.
+3. ALL text content VERBATIM — every speech bubble (up to 20 words), caption (up to 30 words), sound effect.
 4. Art direction — color palette, lighting mood, atmosphere.
 
-Text limits (critical for AI image rendering):
-- Speech bubbles: max 8 words per bubble. Prefer 3-6 words.
-- Caption boxes: max 15 words.
-- Sound effects: 1-2 words, all caps.
+TEXT-RICH INTERSTITIAL PAGES:
+Include text_interstitial pages for deeper storytelling. Each scene should open with a scene_opener interstitial.
+- "pageType": "text_interstitial" — prose pages with heading, subheading, and bodyText (40-100 words).
+- Types: scene_opener, internal_monologue, letter_or_diary, narrator_aside.
+
+WRITING QUALITY:
+- Dialogue must reveal character — each line sounds like ONLY that character.
+- Include humor, subtext, and emotional complexity.
+- Narration should be atmospheric and insightful.
+- Write as a novelist, not a storyboard artist.
 
 Rules:
 - Output only the requested scenes.
-- Output exactly the requested number of page objects.
+- Output exactly the requested number of page objects (illustrated + text_interstitial).
 - Keep panel metadata production-ready and concise.
-- Non-splash pages should usually have 2-3 panels.
+- Non-splash illustrated pages should usually have 2-3 panels.
 - Preserve continuity with the supplied story bible and prior story setup.
 - Do not include commentary, markdown, or any text outside the JSON object.`;
 
@@ -265,11 +325,11 @@ function GRAPHIC_NOVEL_SCENE_PLANNER_USER(childDetails, theme, customDetails, se
   const sceneNumbers = (chunkSpec?.scenes || []).map((scene) => scene.sceneNumber);
   const expectedPages = Number(chunkSpec?.expectedPages) || 0;
   const scenePageBudgets = (chunkSpec?.scenes || [])
-    .map((scene) => `scene ${scene.sceneNumber}: ${Math.max(2, Number(scene.pageCountTarget) || 0)} pages`)
+    .map((scene) => `scene ${scene.sceneNumber}: ${Math.max(4, Number(scene.pageCountTarget) || 0)} pages`)
     .join(', ');
   const splashRequirement = (chunkSpec?.scenes || [])
-    .filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7)
-    .map((scene) => `scene ${scene.sceneNumber}: exactly 1 splash page`)
+    .filter((scene) => scene.sceneNumber >= 5)
+    .map((scene) => `scene ${scene.sceneNumber}: include 1 splash page`)
     .join(', ') || 'no splash pages in this chunk';
 
   return `Create only one chunk of the full production script for a personalized middle-grade graphic novel.
@@ -293,6 +353,17 @@ Return a JSON object:
   "pages": [
     {
       "pageNumber": 1,
+      "pageType": "text_interstitial",
+      "sceneNumber": ${sceneNumbers[0] || 1},
+      "sceneTitle": "scene title",
+      "interstitialType": "scene_opener",
+      "heading": "CHAPTER TITLE",
+      "subheading": "scene title",
+      "bodyText": "40-100 words of atmospheric, character-revealing prose that sets the mood for this scene."
+    },
+    {
+      "pageNumber": 2,
+      "pageType": "illustrated",
       "sceneNumber": ${sceneNumbers[0] || 1},
       "sceneTitle": "scene title",
       "pagePurpose": "what this page is doing dramatically",
@@ -300,9 +371,9 @@ Return a JSON object:
       "dominantBeat": "the one beat that should dominate the page",
       "layoutTemplate": "cinematicTopStrip|heroTopTwoBottom|twoTierEqual|conversationGrid|fourGrid|fullBleedSplash",
       "panelCount": 2,
-      "textDensity": "silent|light|medium",
+      "textDensity": "silent|light|medium|heavy",
       "colorScript": { "paletteId": "short id", "dominantHue": "ember orange", "contrastMode": "graphicHighContrast" },
-      "fullPagePrompt": "A detailed description of the COMPLETE comic page as a single image. Describe panel layout, what happens in each panel, ALL speech bubbles with exact text, ALL captions with exact text, ALL sound effects. This is sent to an AI image generator to render the entire page.",
+      "fullPagePrompt": "Detailed description of the COMPLETE comic page. Include panel layout, character-revealing dialogue (up to 20 words per bubble), atmospheric narration (up to 30 words per caption), sound effects.",
       "panels": [
         {
           "sceneNumber": ${sceneNumbers[0] || 1},
@@ -314,8 +385,8 @@ Return a JSON object:
           "actingNotes": "concrete expression/gesture note",
           "backgroundComplexity": "minimal|simple|medium",
           "action": "What the reader sees happen",
-          "balloons": [{ "type": "speech", "speaker": "${name}", "text": "max 8 words", "order": 1 }],
-          "captions": [{ "type": "narration", "text": "max 15 words" }],
+          "balloons": [{ "type": "speech", "speaker": "${name}", "text": "natural dialogue up to 20 words", "order": 1 }],
+          "captions": [{ "type": "narration", "text": "atmospheric narration up to 30 words" }],
           "sfx": [{ "text": "WHOOM", "style": "impact" }]
         }
       ]
@@ -324,13 +395,14 @@ Return a JSON object:
 }
 
 Rules:
-- Return exactly ${expectedPages} pages.
+- Return exactly ${expectedPages} pages total (illustrated + text_interstitial combined).
 - Return only scenes ${sceneNumbers.join(', ')}.
-- Follow the page/panel schema above for every page in the chunk.
-- Every page must include a non-empty panels array.
-- CRITICAL: Every page MUST include a non-empty fullPagePrompt string with ALL text verbatim.
-- Keep speech bubble text to max 8 words. Keep caption text to max 15 words.
-- Describe panel layout spatially in fullPagePrompt (top/bottom/left/right).
+- Each scene should open with a text_interstitial scene_opener page.
+- Follow the page schema above for every page in the chunk.
+- Every illustrated page must include a non-empty panels array and fullPagePrompt.
+- Write dialogue with depth, humor, and distinct character voices.
+- Narration should be atmospheric and insightful.
+- text_interstitial pages need heading, subheading, and bodyText (40-100 words).
 - Keep scene/page continuity coherent inside this chunk.
 - Do not include any pages from other scenes.
 - Do not return an outline or summaries instead of pages.`;
