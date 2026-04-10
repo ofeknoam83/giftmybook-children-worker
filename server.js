@@ -1268,7 +1268,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                   v2Vars: { ...v2Vars, retryTemperature: 0.9 },
                   additionalCoverCharacters: detectedSecondaryCharacters || null,
                 });
-                const retryPolished = await polishStory(retryPlan, { apiKeys, costTracker, theme });
+                const retryPolished = await polishStory(retryPlan, { apiKeys, costTracker, theme, validationIssues: retryPlan._validationIssues });
                 // Use whichever version scored higher
                 const retryScores = retryPolished._criticScores || {};
                 const retryValues = Object.values(retryScores).filter(v => typeof v === 'number');

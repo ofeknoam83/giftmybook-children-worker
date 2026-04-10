@@ -645,14 +645,21 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
         if (inner && typeof inner === 'object' && inner.favorite_object) retrySeed = inner;
       }
       if (retrySeed && retrySeed.favorite_object) {
-        const retryValidation = validateSeedQuality(retrySeed, theme, age);
+        const flaggedFields = new Set(seedValidation.issues.map(i => i.field).filter(Boolean));
+        const mergedRetrySeed = { ...seed };
+        for (const field of flaggedFields) {
+          if (Object.prototype.hasOwnProperty.call(retrySeed, field)) {
+            mergedRetrySeed[field] = retrySeed[field];
+          }
+        }
+        const retryValidation = validateSeedQuality(mergedRetrySeed, theme, age);
         if (retryValidation.valid || retryValidation.issues.length < seedValidation.issues.length) {
           console.log(`[storyPlanner] Seed retry improved quality (${seedValidation.issues.length} -> ${retryValidation.issues.length} issues)`);
-          if (!retrySeed.emotional_core) retrySeed.emotional_core = '';
-          if (!retrySeed.repeated_phrase) retrySeed.repeated_phrase = '';
-          if (!Array.isArray(retrySeed.phrase_arc)) retrySeed.phrase_arc = [];
-          if (!Array.isArray(retrySeed.beats)) retrySeed.beats = [];
-          return retrySeed;
+          if (!mergedRetrySeed.emotional_core) mergedRetrySeed.emotional_core = '';
+          if (!mergedRetrySeed.repeated_phrase) mergedRetrySeed.repeated_phrase = '';
+          if (!Array.isArray(mergedRetrySeed.phrase_arc)) mergedRetrySeed.phrase_arc = [];
+          if (!Array.isArray(mergedRetrySeed.beats)) mergedRetrySeed.beats = [];
+          return mergedRetrySeed;
         }
         console.log(`[storyPlanner] Seed retry did not improve — keeping original`);
       }

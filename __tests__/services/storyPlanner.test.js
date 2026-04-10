@@ -306,6 +306,39 @@ describe('validateStoryText', () => {
     const { issues } = validateStoryText(plan, 30);
     expect(issues.some(i => i.type === 'visual_spreads')).toBe(true);
   });
+
+  test.each([
+    ['One day the adventure began', 'One day...'],
+    ['Once upon a time there was a girl', 'Once upon a time'],
+    ['She woke up and stretched her arms', 'woke up'],
+    ['It was a beautiful morning in the park', 'It was a beautiful...'],
+    ['The morning was bright and full of promise', 'The morning was...'],
+    ['The day had finally arrived', 'The day had finally'],
+  ])('flags opening cliche: %s', (openingText) => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i === 0 ? openingText : 'The wind carried a scent.' },
+        right: { text: null },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'opening_cliche' && i.spread === 1)).toBe(true);
+  });
+
+  test('does not flag a strong opening', () => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i === 0 ? 'Maya pressed her nose against the spaceship glass.' : 'The wind carried a scent.' },
+        right: { text: null },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'opening_cliche')).toBe(false);
+  });
 });
 
 describe('combinedCritic', () => {
@@ -343,6 +376,69 @@ describe('combinedCritic', () => {
     expect(result.entries[0].left.text).toBe('Improved left 1');
     expect(result.entries[0].right.text).toBe('Improved right 1');
     expect(result.entries[11].left.text).toBe('Improved left 12');
+  });
+
+  test('propagates scores to _combinedCriticScores', async () => {
+    const storyPlan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Left ${i + 1}` },
+        right: { text: `Right ${i + 1}` },
+      })),
+    };
+
+    const mockScores = { rhythm: 8, emotional_arc: 7, memorable_line: 9, language_quality: 8 };
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [],
+              scores: mockScores,
+              improved_spreads: [],
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 200, completion_tokens: 300 },
+      }),
+    }));
+
+    const result = await combinedCritic(storyPlan, {});
+    expect(result._combinedCriticScores).toEqual(mockScores);
+  });
+
+  test('sets _combinedCriticScores to null when scores absent', async () => {
+    const storyPlan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: `Left ${i + 1}` },
+        right: { text: `Right ${i + 1}` },
+      })),
+    };
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [],
+              improved_spreads: [],
+            }),
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 200, completion_tokens: 300 },
+      }),
+    }));
+
+    const result = await combinedCritic(storyPlan, {});
+    expect(result._combinedCriticScores).toBeNull();
   });
 });
 
