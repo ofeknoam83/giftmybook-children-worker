@@ -1153,17 +1153,18 @@ async function drawGraphicNovelPanelImage(pdfDoc, page, panel, blueprint) {
     page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
   } else {
     try {
-      // Use 200 DPI (not 300) to keep total PDF size under V8 string limits
-      // when assembling 60-80 panel graphic novels. 200 DPI is excellent for print.
-      const targetW = Math.round(rect.w / 72 * 200);
-      const targetH = Math.round(rect.h / 72 * 200);
+      const targetW = Math.round(rect.w / 72 * 300);
+      const targetH = Math.round(rect.h / 72 * 300);
       const resized = await sharp(panel.imageBuffer)
         .resize(targetW, targetH, { fit: 'cover' })
-        .jpeg({ quality: 82 })
+        .jpeg({ quality: 90 })
         .toBuffer();
+      // Free the original download buffer — only the resized JPEG is needed
+      panel.imageBuffer = null;
       const img = await pdfDoc.embedJpg(resized);
       page.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
-    } catch (_) {
+    } catch (embedErr) {
+      console.warn(`[layoutEngine] Panel embed failed: ${embedErr.message}`);
       page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
     }
   }
@@ -1404,7 +1405,9 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     pdfDoc.addPage([PAGE_W, PAGE_H]);
   }
 
-  return Buffer.from(await pdfDoc.save());
+  // useObjectStreams: false avoids pdf-lib accumulating large compressed
+  // object streams that can exceed V8 string limits with 60-80+ images
+  return Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
 }
 
 module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS };
