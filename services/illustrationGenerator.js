@@ -253,8 +253,106 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
   return parts.join('\n');
 }
 
+/**
+ * Build a full-page comic prompt for graphic novels.
+ * Instead of generating individual panels, this creates a prompt for the ENTIRE page
+ * including panels, borders, speech bubbles with text, captions, and sound effects.
+ * The AI image model renders everything in one shot.
+ *
+ * @param {string} fullPagePrompt - LLM-written page composition description (from story planner)
+ * @param {string} artStyle - Art style key
+ * @param {string} childName - Protagonist name
+ * @param {object} opts - Character/world details and art direction
+ * @returns {string} Complete prompt for full-page generation
+ */
+function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
+  const requestedStyle = artStyle === 'cinematic_3d' || artStyle === 'pixar_premium'
+    ? 'graphic_novel_cinematic'
+    : artStyle;
+  const styleConfig = ART_STYLE_CONFIG[requestedStyle] || ART_STYLE_CONFIG.graphic_novel_cinematic;
+  const parts = [];
+
+  // Page-level framing
+  parts.push('Create a complete, print-ready comic book page for a premium middle-grade graphic novel.');
+  parts.push('This is ONE FULL PAGE of a graphic novel. Render the ENTIRE page as a single image including:');
+  parts.push('- Panel borders (dark ink lines) and white gutters between panels');
+  parts.push('- All character art with consistent appearance');
+  parts.push('- Speech bubbles with the EXACT dialogue text written inside them');
+  parts.push('- Caption/narration boxes with the EXACT text written inside them');
+  parts.push('- Sound effects as stylized comic lettering');
+  parts.push('- The page should have slim white margins around the outer edges');
+  parts.push('');
+
+  // Character identity
+  if (childName) {
+    parts.push(`PRIMARY HERO: ${childName}.`);
+  }
+  if (opts.characterDescription) {
+    parts.push(`LOCKED HERO APPEARANCE: ${opts.characterDescription}`);
+  }
+  if (opts.characterAnchor) {
+    parts.push(`CHARACTER ANCHOR LOCK: ${opts.characterAnchor}`);
+  }
+  if (opts.characterOutfit) {
+    parts.push(`OUTFIT LOCK: ${opts.characterOutfit}`);
+  }
+  if (opts.additionalCoverCharacters) {
+    parts.push(`ALLOWED SUPPORTING CHARACTERS: ${opts.additionalCoverCharacters}`);
+  }
+  if (opts.recurringElement) {
+    parts.push(`RECURRING MOTIF: ${opts.recurringElement}`);
+  }
+  if (opts.keyObjects) {
+    parts.push(`LOCKED RECURRING PROPS: ${opts.keyObjects}`);
+  }
+
+  // Hair negatives to prevent hallucinated accessories
+  if (opts.characterDescription) {
+    const negatives = buildHairNegatives(opts.characterDescription);
+    if (negatives) parts.push(negatives);
+  }
+
+  parts.push('');
+  parts.push('=== PAGE COMPOSITION ===');
+  parts.push(fullPagePrompt);
+  parts.push('');
+
+  // Comic typography rules
+  parts.push('LETTERING RULES:');
+  parts.push('- Speech bubbles: white oval/round with dark outline and a pointed tail toward the speaker');
+  parts.push('- Shout bubbles: jagged/starburst shape with bold uppercase text');
+  parts.push('- Thought bubbles: cloud shape with small circle trail leading to thinker');
+  parts.push('- Whisper bubbles: dashed outline, smaller italic text');
+  parts.push('- Narration captions: rectangular box with dark/navy background and white text');
+  parts.push('- Location captions: rectangular box with light cream background and dark text');
+  parts.push('- Internal monologue captions: rectangular box with yellow background');
+  parts.push('- Sound effects: bold stylized comic lettering integrated into the art');
+  parts.push('- All text MUST be clearly legible and spelled correctly');
+  parts.push('- Reading order flows top-to-bottom, left-to-right');
+  parts.push('');
+
+  // Art direction
+  parts.push('ART DIRECTION:');
+  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  if (opts.colorScript) {
+    const cs = typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript);
+    parts.push(`COLOR SCRIPT: ${cs}`);
+  }
+  parts.push('- Cinematic 3D lighting with volumetric light shafts and rim lights for depth');
+  parts.push('- Pixar-quality character rendering with subsurface skin scattering');
+  parts.push('- Clean panel borders, professional comic book page layout');
+  parts.push('- Print-ready quality with clear value separation and saturated colors');
+  parts.push('- Preserve continuity with previous pages and character references');
+  parts.push('');
+  parts.push('ASPECT RATIO: 2:3 (vertical/portrait page)');
+  parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
+
+  return parts.join('\n');
+}
+
 function determineAspectRatio(opts = {}) {
   if (opts.aspectRatio) return opts.aspectRatio;
+  if (opts.comicPageMode) return '2:3';
   if (!opts.comicMode) return opts.isSpread ? '16:9' : '1:1';
   if (opts.layoutTemplate === 'fullBleedSplash' || opts.panelType === 'splash') return '3:4';
   if (opts.panelType === 'establishing' || opts.layoutTemplate === 'cinematicTopStrip') return '16:9';
@@ -402,6 +500,22 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
  * @returns {string} Complete prompt
  */
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  if (opts.comicPageMode) {
+    return buildComicPagePrompt(
+      sceneDescription,  // In comicPageMode, sceneDescription IS the fullPagePrompt
+      artStyle,
+      childName,
+      {
+        characterDescription,
+        characterAnchor: opts.characterAnchor,
+        characterOutfit,
+        additionalCoverCharacters: opts.additionalCoverCharacters,
+        recurringElement,
+        keyObjects,
+        colorScript: opts.colorScript,
+      }
+    );
+  }
   if (opts.comicMode) {
     return buildComicPanelPrompt(
       sceneDescription,
@@ -1117,4 +1231,4 @@ Respond with ONLY valid JSON:
   return { consistent: true, issues: [] };
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };
+module.exports = { generateIllustration, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };

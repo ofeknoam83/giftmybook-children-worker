@@ -164,6 +164,8 @@ function normalizeGraphicNovelPlan(rawPlan, opts = {}) {
       panelCount: 0,
       textDensity: VALID_TEXT_DENSITY.has(rawPage.textDensity) ? rawPage.textDensity : 'medium',
       colorScript: rawPage.colorScript || {},
+      fullPagePrompt: typeof rawPage.fullPagePrompt === 'string' ? rawPage.fullPagePrompt.trim() : '',
+      illustrationUrl: rawPage.illustrationUrl || null,
       panels: [],
     };
     normalizedPage.panels = normalizeArray(rawPage.panels).map((panel, panelIndex) => normalizePanel(panel, normalizedPage, panelIndex));
@@ -219,6 +221,9 @@ function summarizeGraphicNovelIssues(plan, blueprint = null) {
     const page = pages[i];
     if (!page.dominantBeat) {
       issues.push({ type: 'missing_dominant_beat', severity: 'warn', message: `Page ${page.pageNumber} is missing a dominant beat.` });
+    }
+    if (!page.fullPagePrompt) {
+      issues.push({ type: 'missing_full_page_prompt', severity: 'warn', message: `Page ${page.pageNumber} is missing a fullPagePrompt.` });
     }
     if (page.layoutTemplate === pages[i - 1]?.layoutTemplate) repeatedLayoutRun += 1;
     else repeatedLayoutRun = 1;

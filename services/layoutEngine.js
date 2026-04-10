@@ -33,9 +33,8 @@ const { execFile } = require('child_process');
 const os = require('os');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
-const { buildGraphicNovelBlueprints, BLEED_PT } = require('./comicLayoutPresets');
-const { renderPanelLettering } = require('./comicLetterer');
-const { normalizeGraphicNovelPlan, validateGraphicNovelPagesForRender } = require('./graphicNovelQa');
+// comicLayoutPresets and comicLetterer are no longer used — graphic novel pages
+// are now rendered as full-page AI-generated images with text baked in.
 
 /**
  * Upscale an image buffer 4x using ImageMagick Lanczos + unsharp.
@@ -1177,120 +1176,66 @@ async function drawGraphicNovelPanelImage(pdfDoc, page, panel, blueprint) {
   page.drawRectangle({ x: rect.x + rect.w - bw, y: rect.y, width: bw, height: rect.h, color: borderColor }); // right
 }
 
-async function renderGraphicNovelStoryPage(pdfDoc, pageData, blueprint, fonts, pageW, pageH) {
+/**
+ * Render a single graphic novel story page by embedding the full-page AI-generated image.
+ * The image includes panels, borders, speech bubbles, captions, and SFX — all baked in.
+ */
+async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
   const page = pdfDoc.addPage([pageW, pageH]);
-  // White page background — clean gutters show through between panels
-  page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(1, 1, 1) });
 
-  // Scene header band
-  const sceneLabel = `SCENE ${pageData.sceneNumber}  \u2014  ${String(pageData.sceneTitle || '').toUpperCase()}`;
-  const bandH = 18;
-  const bandY = pageH - BLEED_PT - bandH;
-  page.drawRectangle({ x: BLEED_PT, y: bandY, width: pageW - BLEED_PT * 2, height: bandH, color: rgb(0.08, 0.08, 0.12) });
-  // Gold accent line below the band
-  page.drawRectangle({ x: BLEED_PT, y: bandY - 0.8, width: pageW - BLEED_PT * 2, height: 0.8, color: rgb(0.765, 0.549, 0.180) });
-  const sceneLabelWidth = fonts.dialogueFont.widthOfTextAtSize(sceneLabel, 9);
-  page.drawText(sceneLabel, {
-    x: Math.max(BLEED_PT + 20, (pageW - sceneLabelWidth) / 2),
-    y: bandY + 4,
-    size: 9,
-    font: fonts.dialogueFont,
-    color: rgb(1, 1, 1),
-  });
-
-  for (let i = 0; i < blueprint.panelBlueprints.length; i++) {
-    const panelBlueprint = blueprint.panelBlueprints[i];
-    const panel = pageData.panels[i];
-    await drawGraphicNovelPanelImage(pdfDoc, page, panel, panelBlueprint);
-    renderPanelLettering(page, panel, panelBlueprint, fonts);
+  if (!pageData.imageBuffer) {
+    // Placeholder if image is missing
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.88, 0.90, 0.93) });
+    return;
   }
 
-  const pageNumberText = `${pageData.pageNumber}`;
-  const pageNumberWidth = fonts.captionFont.widthOfTextAtSize(pageNumberText, 8);
-  page.drawText(pageNumberText, {
-    x: (pageW - pageNumberWidth) / 2,
-    y: BLEED_PT / 2,
-    size: 8,
-    font: fonts.captionFont,
-    color: rgb(0.60, 0.60, 0.65),
-  });
+  try {
+    // Embed full-page image at 300 DPI
+    const targetW = Math.round(pageW / 72 * 300);
+    const targetH = Math.round(pageH / 72 * 300);
+    const resized = await sharp(pageData.imageBuffer)
+      .resize(targetW, targetH, { fit: 'cover' })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+    pageData.imageBuffer = null; // Free original buffer
+    const img = await pdfDoc.embedJpg(resized);
+    page.drawImage(img, { x: 0, y: 0, width: pageW, height: pageH });
+  } catch (embedErr) {
+    console.warn(`[layoutEngine] Page embed failed: ${embedErr.message}`);
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.88, 0.90, 0.93) });
+  }
 }
 
 /**
- * Build a premium print-ready graphic novel PDF with bleed-safe pages and vector lettering.
- * @param {Array<object>} panelsOrPages - flat panels array (legacy) or unused when opts.pages is provided
- * @param {object} opts - { title, childName, tagline, dedication, year, scenes, pages }
- *   opts.pages is the preferred input; when omitted, panelsOrPages is grouped into pages via groupPanelsIntoPages.
+ * Build a print-ready graphic novel PDF with full-page AI-generated images.
+ * Each story page is a single full-page image (panels, text, bubbles all baked in).
+ * @param {Array} _unused - Legacy parameter, no longer used
+ * @param {object} opts - { title, childName, tagline, dedication, year, pages }
  */
-async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
+async function buildGraphicNovelPdf(_unused, opts = {}) {
   const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
 
   const PAGE_W = 450;  // 6.25" with bleed
   const PAGE_H = 666;  // 9.25" with bleed
 
-  let srcPages;
-  if (Array.isArray(opts.pages) && opts.pages.length) {
-    srcPages = opts.pages;
-  } else if (Array.isArray(panelsOrPages) && panelsOrPages.length) {
-    // Legacy flat-panels path: group panels into page objects
-    srcPages = groupPanelsIntoPages(panelsOrPages).map((group, i) => ({
-      pageNumber: i + 1,
-      sceneNumber: 1,
-      layoutTemplate: group.layout,
-      panels: group.panels,
-    }));
-  } else {
-    srcPages = Array.isArray(panelsOrPages) ? [] : (panelsOrPages.pages || []);
-  }
-  // Strip imageBuffers before normalizeGraphicNovelPlan's JSON.stringify deep-clone.
-  // Both pages[*].panels and scenes[*].panels share the same objects, so strip from both.
-  const stripBuffers = (panels) => (panels || []).map(({ imageBuffer, ...rest }) => rest);
-  const planInput = {
-    title,
-    tagline,
-    pages: srcPages.map(page => ({ ...page, panels: stripBuffers(page.panels) })),
-    scenes: (opts.scenes || []).map(scene => ({ ...scene, panels: stripBuffers(scene.panels) })),
-  };
-  const plan = normalizeGraphicNovelPlan(planInput, { fallbackTitle: title });
-
-  // Re-attach imageBuffers lost during JSON deep-clone in normalizeGraphicNovelPlan
-  for (let pi = 0; pi < plan.pages.length && pi < srcPages.length; pi++) {
-    const srcPanels = srcPages[pi].panels || [];
-    const dstPanels = plan.pages[pi].panels || [];
-    for (let pa = 0; pa < dstPanels.length && pa < srcPanels.length; pa++) {
-      if (srcPanels[pa].imageBuffer) {
-        dstPanels[pa].imageBuffer = srcPanels[pa].imageBuffer;
-      }
-    }
-  }
-
-  const blueprints = buildGraphicNovelBlueprints(plan.pages, PAGE_W, PAGE_H);
-  const renderQa = validateGraphicNovelPagesForRender(plan, blueprints);
+  const srcPages = Array.isArray(opts.pages) ? opts.pages : [];
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   pdfDoc.setTitle(title);
   pdfDoc.setAuthor('GiftMyBook');
 
+  // Fonts only needed for title/dedication/end pages (story pages are full images)
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   let bubblegum = helvBold;
   let playfairItalic = helv;
-  let comicFont = helvBold;
   try {
     if (fs.existsSync(FONT_PATHS.bubblegum)) bubblegum = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum));
     if (fs.existsSync(FONT_PATHS.playfairItalic)) playfairItalic = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic));
   } catch (_) {}
-  // Use Comic Neue Bold for dialogue — proper comic lettering font
-  try {
-    const comicBytes = getComicFont();
-    if (comicBytes) comicFont = await pdfDoc.embedFont(comicBytes);
-  } catch (_) {}
 
   const fonts = {
-    dialogueFont: comicFont,
-    captionFont: helv,
-    sfxFont: helvBold,
     titleFont: bubblegum || helvBold,
     bodyFont: helv,
     accentFont: playfairItalic || helv,
@@ -1301,9 +1246,7 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   const inkColor = rgb(0.08, 0.08, 0.12);
   function drawDecorativeBorder(p, pw, ph) {
     const inset = 30;
-    // Outer dark border
     p.drawRectangle({ x: inset, y: inset, width: pw - inset * 2, height: ph - inset * 2, borderColor: inkColor, borderWidth: 2 });
-    // Inner gold border
     p.drawRectangle({ x: inset + 6, y: inset + 6, width: pw - (inset + 6) * 2, height: ph - (inset + 6) * 2, borderColor: goldColor, borderWidth: 1 });
   }
   function drawGoldRule(p, y, pw, w) {
@@ -1311,7 +1254,6 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     p.drawRectangle({ x: (pw - ruleW) / 2, y, width: ruleW, height: 1.2, color: goldColor });
   }
   function drawGoldDiamond(p, x, y, size) {
-    // Small diamond shape using 4 lines
     const s = size || 4;
     p.drawLine({ start: { x: x - s, y }, end: { x, y: y + s }, thickness: 1.2, color: goldColor });
     p.drawLine({ start: { x, y: y + s }, end: { x: x + s, y }, thickness: 1.2, color: goldColor });
@@ -1325,7 +1267,6 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
     drawDecorativeBorder(p, PAGE_W, PAGE_H);
 
-    // Decorative diamonds above title
     const diamondY = PAGE_H / 2 + 110;
     drawGoldDiamond(p, PAGE_W / 2 - 20, diamondY, 3);
     drawGoldDiamond(p, PAGE_W / 2, diamondY, 4);
@@ -1339,7 +1280,6 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
       y -= 40;
     }
 
-    // Gold rule between title and tagline
     drawGoldRule(p, y + 10, PAGE_W, 100);
 
     if (tagline) {
@@ -1363,7 +1303,6 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   if (dedication) {
     const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
     p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.99, 0.98, 0.96) });
-    // Subtle gold frame
     const inset = 40;
     p.drawRectangle({ x: inset, y: inset, width: PAGE_W - inset * 2, height: PAGE_H - inset * 2, borderColor: goldColor, borderWidth: 0.8, color: undefined });
 
@@ -1376,13 +1315,12 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     }
   }
 
-  let embeddedPanels = 0;
-  for (let i = 0; i < plan.pages.length; i++) {
-    await renderGraphicNovelStoryPage(pdfDoc, plan.pages[i], blueprints[i], fonts, PAGE_W, PAGE_H);
-    embeddedPanels += (plan.pages[i].panels || []).length;
-    if ((i + 1) % 10 === 0 || i === plan.pages.length - 1) {
+  // Story pages — each is a full-page AI-generated image
+  for (let i = 0; i < srcPages.length; i++) {
+    await renderGraphicNovelStoryPage(pdfDoc, srcPages[i], PAGE_W, PAGE_H);
+    if ((i + 1) % 10 === 0 || i === srcPages.length - 1) {
       const mem = process.memoryUsage();
-      console.log(`[layoutEngine] Rendered page ${i + 1}/${plan.pages.length} (${embeddedPanels} panels, heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB)`);
+      console.log(`[layoutEngine] Rendered page ${i + 1}/${srcPages.length} (heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB)`);
     }
   }
 
@@ -1402,7 +1340,6 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
     const subWidth = fonts.accentFont.widthOfTextAtSize(sub, 12);
     p.drawText(sub, { x: (PAGE_W - subWidth) / 2, y: PAGE_H / 2 - 28, size: 12, font: fonts.accentFont, color: goldColor });
 
-    // Decorative diamonds
     drawGoldDiamond(p, PAGE_W / 2 - 20, PAGE_H / 2 - 56, 3);
     drawGoldDiamond(p, PAGE_W / 2, PAGE_H / 2 - 56, 4);
     drawGoldDiamond(p, PAGE_W / 2 + 20, PAGE_H / 2 - 56, 3);
@@ -1429,73 +1366,51 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
 
     const retryFonts = {};
     retryFonts.bodyFont = await retryDoc.embedFont(StandardFonts.Helvetica);
-    retryFonts.sfxFont = await retryDoc.embedFont(StandardFonts.HelveticaBold);
-    retryFonts.captionFont = retryFonts.bodyFont;
-    retryFonts.titleFont = retryFonts.sfxFont;
+    retryFonts.titleFont = await retryDoc.embedFont(StandardFonts.HelveticaBold);
     retryFonts.accentFont = retryFonts.bodyFont;
-    retryFonts.dialogueFont = retryFonts.sfxFont;
     try { if (fs.existsSync(FONT_PATHS.bubblegum)) retryFonts.titleFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum)); } catch (_) {}
     try { if (fs.existsSync(FONT_PATHS.playfairItalic)) retryFonts.accentFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic)); } catch (_) {}
-    try { const cb = getComicFont(); if (cb) retryFonts.dialogueFont = await retryDoc.embedFont(cb); } catch (_) {}
 
-    // Re-download panel images from GCS (originals were freed during first attempt)
+    // Re-download page images from GCS (originals were freed during first attempt)
     const { downloadBuffer: dlBuf } = require('./gcsStorage');
     for (const page of srcPages) {
-      for (const panel of page.panels || []) {
-        if (!panel.imageBuffer && panel.illustrationUrl) {
-          try { panel.imageBuffer = await dlBuf(panel.illustrationUrl); }
-          catch (_) { panel.imageBuffer = null; }
-        }
+      if (!page.imageBuffer && page.illustrationUrl) {
+        try { page.imageBuffer = await dlBuf(page.illustrationUrl); }
+        catch (_) { page.imageBuffer = null; }
       }
     }
 
     // Title page (simplified)
     const tp = retryDoc.addPage([PAGE_W, PAGE_H]);
     tp.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
-    const titleLines = wrapText(title, retryFonts.titleFont, 32, PAGE_W - 100);
-    let ty = PAGE_H / 2 + 70;
-    for (const line of titleLines) {
+    const titleLines2 = wrapText(title, retryFonts.titleFont, 32, PAGE_W - 100);
+    let ty2 = PAGE_H / 2 + 70;
+    for (const line of titleLines2) {
       const w = retryFonts.titleFont.widthOfTextAtSize(line, 32);
-      tp.drawText(line, { x: (PAGE_W - w) / 2, y: ty, size: 32, font: retryFonts.titleFont, color: rgb(0.08, 0.08, 0.12) });
-      ty -= 40;
+      tp.drawText(line, { x: (PAGE_W - w) / 2, y: ty2, size: 32, font: retryFonts.titleFont, color: rgb(0.08, 0.08, 0.12) });
+      ty2 -= 40;
     }
 
-    // Story pages at quality 80
-    for (let i = 0; i < plan.pages.length; i++) {
-      const pageData = plan.pages[i];
-      const bp = blueprints[i];
-      if (!bp) continue;
+    // Story pages at quality 80 — full-page images
+    for (let i = 0; i < srcPages.length; i++) {
+      const pageData = srcPages[i];
       const pg = retryDoc.addPage([PAGE_W, PAGE_H]);
-      pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
-
-      for (let pi = 0; pi < bp.panelBlueprints.length; pi++) {
-        const panelBp = bp.panelBlueprints[pi];
-        const panel = pageData.panels[pi];
-        if (!panel) continue;
-        const rect = panelBp.rect;
-        pg.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(1, 1, 1) });
-        if (panel.imageBuffer) {
-          try {
-            const tw = Math.round(rect.w / 72 * 300);
-            const th = Math.round(rect.h / 72 * 300);
-            const resized = await sharp(panel.imageBuffer)
-              .resize(tw, th, { fit: 'cover' })
-              .jpeg({ quality: 80 })
-              .toBuffer();
-            panel.imageBuffer = null;
-            const img = await retryDoc.embedJpg(resized);
-            pg.drawImage(img, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
-          } catch (_) {
-            pg.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: rgb(0.88, 0.90, 0.93) });
-          }
+      if (pageData.imageBuffer) {
+        try {
+          const tw = Math.round(PAGE_W / 72 * 300);
+          const th = Math.round(PAGE_H / 72 * 300);
+          const resized = await sharp(pageData.imageBuffer)
+            .resize(tw, th, { fit: 'cover' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          pageData.imageBuffer = null;
+          const img = await retryDoc.embedJpg(resized);
+          pg.drawImage(img, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+        } catch (_) {
+          pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.88, 0.90, 0.93) });
         }
-        // Panel border
-        const bw = 2.5, bc = rgb(0.08, 0.08, 0.12);
-        pg.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: bw, color: bc });
-        pg.drawRectangle({ x: rect.x, y: rect.y + rect.h - bw, width: rect.w, height: bw, color: bc });
-        pg.drawRectangle({ x: rect.x, y: rect.y, width: bw, height: rect.h, color: bc });
-        pg.drawRectangle({ x: rect.x + rect.w - bw, y: rect.y, width: bw, height: rect.h, color: bc });
-        renderPanelLettering(pg, panel, panelBp, retryFonts);
+      } else {
+        pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.88, 0.90, 0.93) });
       }
     }
 
