@@ -2410,12 +2410,11 @@ async function polishGraphicNovelChunk(chunkPlan, chunkIndex, totalChunks, story
   try {
     bookContext?.log('info', `Polishing graphic novel chunk ${chunkIndex + 1}/${totalChunks}`);
     const polishPrompt = GRAPHIC_NOVEL_POLISH_USER(chunkPlan, chunkIndex, totalChunks, storyBible);
-    const resp = await callLLM(GRAPHIC_NOVEL_POLISH_SYSTEM, polishPrompt, {
-      openaiApiKey: apiKeys?.OPENAI_API_KEY,
-      costTracker,
+    // Use Gemini directly for polish — GPT consistently fails to produce valid JSON
+    // for large rewrite tasks. Gemini handles big JSON output more reliably.
+    const resp = await callGeminiText(GRAPHIC_NOVEL_POLISH_SYSTEM, polishPrompt, {
       temperature: 0.5,
-      maxTokens: 32000,
-      jsonMode: true,
+      maxOutputTokens: 32000,
       timeoutMs: GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS,
       requestLabel: `Graphic novel polish chunk ${chunkIndex + 1}`,
     });
