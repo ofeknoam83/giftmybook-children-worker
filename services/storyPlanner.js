@@ -477,8 +477,15 @@ Return a JSON object with these fields:
 
 5. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
 
-6. repeated_phrase: A short phrase (2-6 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
-   The phrase MUST be poetic and sensory — specific and unexpected, never generic motivation. REJECT: "ready to fly", "you've got this", "believe in yourself", "anything is possible". REQUIRE: phrases that carry a physical sensation or unexpected image — "the dark has a sound now", "round enough to jump", "her name in the wind", "still here, still mine". If your phrase could appear on a motivational poster, discard it and try again.
+6. repeated_phrase: A short phrase (2-8 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
+   The phrase MUST be poetic and sensory — specific and unexpected, never generic motivation. REJECT: "ready to fly", "you've got this", "believe in yourself", "anything is possible", "shine bright", "dream big", "you are enough". REQUIRE: phrases that carry a physical sensation or unexpected image. If your phrase could appear on a motivational poster, discard it and try again.
+   Theme-specific examples of GOOD phrases (for calibration — do NOT copy these):
+   - Adventure: "the map remembers", "boots on stone", "one bridge left", "the trail hums back"
+   - Bedtime: "the dark has a sound now", "still here, still mine", "the blanket knows", "hush is a color"
+   - Birthday: "this cake, this day", "the room is singing", "candles counting down", "frosting on her chin"
+   - Space/Underwater: "bubbles know the way", "salt on her tongue", "the stars are listening", "deep enough to echo"
+   - Emotional: "my hands are shaking still", "the knot unwound", "smaller than it was", "the weight has a name now"
+   - Nature/Friendship: "the roots remember", "your hand in mine", "the river kept going", "bark under her nails"
 
 7. phrase_arc: Three short descriptions of how the phrase evolves:
    - early: how it feels the first time
@@ -602,7 +609,109 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   if (seed.emotional_core) console.log(`[storyPlanner] Emotional core: "${seed.emotional_core}"`);
   if (seed.repeated_phrase) console.log(`[storyPlanner] Repeated phrase: "${seed.repeated_phrase}"`);
   if (seed.beats.length) console.log(`[storyPlanner] Beat sheet: ${seed.beats.length} beats`);
+
+  // Validate seed quality and retry once if issues found
+  const seedValidation = validateSeedQuality(seed, theme, age);
+  if (!seedValidation.valid) {
+    console.log(`[storyPlanner] Seed validation failed: ${seedValidation.issues.map(i => `${i.field}:${i.reason}`).join(', ')} — retrying`);
+    const issueDescriptions = seedValidation.issues.map(i => {
+      if (i.reason === 'generic_motivational') return `- repeated_phrase: "${seed.repeated_phrase}" sounds like a motivational poster. Generate a phrase with a physical sensation or concrete image — something that could NOT appear on a greeting card.`;
+      if (i.reason === 'too_generic') return `- setting: "${seed.setting}" is too vague. Make the setting vivid and specific — one sentence with color, texture, or atmosphere.`;
+      if (i.reason === 'default_fear_for_non_bedtime') return `- fear: "the dark" is the default fear. Choose a fear that fits the ${theme} theme specifically.`;
+      if (i.reason === 'wrong_length') return `- repeated_phrase: "${seed.repeated_phrase}" is the wrong length (must be 2-8 words).`;
+      return `- ${i.field}: ${i.reason}`;
+    });
+
+    try {
+      const retryPrompt = userPrompt + `\n\nYour previous response had these quality issues:\n${issueDescriptions.join('\n')}\n\nReturn the COMPLETE corrected JSON with ALL fields (favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats). Fix ONLY the flagged fields — keep everything else the same.`;
+      const retryResponse = await callLLM(systemPrompt, retryPrompt, {
+        openaiApiKey: openaiKey,
+        maxTokens: 1500,
+        temperature: 0.95,
+        jsonMode: true,
+        costTracker,
+      });
+      let retryContent = retryResponse.text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+      let retrySeed;
+      try {
+        retrySeed = JSON.parse(retryContent);
+      } catch (_) {
+        const stripped = retryContent.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+        retrySeed = JSON.parse(stripped);
+      }
+      // Unwrap nested responses
+      if (retrySeed && !retrySeed.favorite_object && typeof retrySeed === 'object') {
+        const inner = retrySeed.storySeed || retrySeed.data || retrySeed.seed || Object.values(retrySeed)[0];
+        if (inner && typeof inner === 'object' && inner.favorite_object) retrySeed = inner;
+      }
+      if (retrySeed && retrySeed.favorite_object) {
+        const retryValidation = validateSeedQuality(retrySeed, theme, age);
+        if (retryValidation.valid || retryValidation.issues.length < seedValidation.issues.length) {
+          console.log(`[storyPlanner] Seed retry improved quality (${seedValidation.issues.length} -> ${retryValidation.issues.length} issues)`);
+          if (!retrySeed.emotional_core) retrySeed.emotional_core = '';
+          if (!retrySeed.repeated_phrase) retrySeed.repeated_phrase = '';
+          if (!Array.isArray(retrySeed.phrase_arc)) retrySeed.phrase_arc = [];
+          if (!Array.isArray(retrySeed.beats)) retrySeed.beats = [];
+          return retrySeed;
+        }
+        console.log(`[storyPlanner] Seed retry did not improve — keeping original`);
+      }
+    } catch (retryErr) {
+      console.warn(`[storyPlanner] Seed retry failed: ${retryErr.message} — keeping original`);
+    }
+  }
+
   return seed;
+}
+
+/**
+ * Validate the quality of a brainstormed story seed.
+ * Returns { valid: boolean, issues: Array<{ field, reason }> }
+ */
+function validateSeedQuality(seed, theme, age) {
+  const issues = [];
+
+  // Generic repeated phrase detection — reject motivational poster patterns
+  const GENERIC_PHRASE_PATTERNS = [
+    /\b(?:ready to|you(?:'ve| have) got|believe in|anything is|you can|never give|follow your|dream big|shine bright|be brave|stay strong)\b/i,
+    /\b(?:the magic|is possible|inside you|in your heart|makes you special|you are enough|world is yours)\b/i,
+    /\b(?:reach for|shoot for|aim for)\s+(?:the stars|the sky|the moon)\b/i,
+  ];
+  if (seed.repeated_phrase) {
+    for (const pattern of GENERIC_PHRASE_PATTERNS) {
+      if (pattern.test(seed.repeated_phrase)) {
+        issues.push({ field: 'repeated_phrase', reason: 'generic_motivational' });
+        break;
+      }
+    }
+    const wordCount = seed.repeated_phrase.trim().split(/\s+/).length;
+    if (wordCount < 2 || wordCount > 8) {
+      issues.push({ field: 'repeated_phrase', reason: 'wrong_length' });
+    }
+  }
+
+  // Generic setting detection
+  const GENERIC_SETTINGS = [
+    /^a\s+magic(?:al)?\s+(?:forest|place|world|land|kingdom)$/i,
+    /^a\s+beautiful\s/i,
+    /^a\s+wonderful\s/i,
+    /^a\s+special\s+place$/i,
+  ];
+  if (seed.setting) {
+    for (const pattern of GENERIC_SETTINGS) {
+      if (pattern.test(seed.setting.trim())) {
+        issues.push({ field: 'setting', reason: 'too_generic' });
+        break;
+      }
+    }
+  }
+
+  // "the dark" as fear for non-bedtime themes
+  if (seed.fear && /^the dark$/i.test(seed.fear.trim()) && theme !== 'bedtime') {
+    issues.push({ field: 'fear', reason: 'default_fear_for_non_bedtime' });
+  }
+
+  return { valid: issues.length === 0, issues };
 }
 
 // ── Two-Phase Pipeline ──
@@ -685,16 +794,17 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   console.log(`[storyPlanner] Phase 1: Generating story text (free-form, no JSON)...`);
   const start = Date.now();
 
+  const textTemperature = v2Vars?.retryTemperature || 0.85;
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 4000,
-    temperature: 0.85,
+    temperature: textTemperature,
     jsonMode: false,
     costTracker,
   });
 
   const ms = Date.now() - start;
-  console.log(`[storyPlanner] Phase 1 complete in ${ms}ms (${response.model}, ${response.outputTokens} tokens)`);
+  console.log(`[storyPlanner] Phase 1 complete in ${ms}ms (${response.model}, temp=${textTemperature}, ${response.outputTokens} tokens)`);
 
   return response.text;
 }
@@ -798,6 +908,27 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
 
   if (spreads.length < 10) {
     issues.push({ type: 'spread_count', message: `Only ${spreads.length} spreads (need 10-13)` });
+  }
+
+  // Check spread 1 for opening cliches
+  const firstSpread = spreads.find(s => s.spread === 1);
+  if (firstSpread) {
+    const openingText = [firstSpread.left?.text, firstSpread.right?.text].filter(Boolean).join(' ');
+    const OPENING_CLICHE_PATTERNS = [
+      /^one\s+(?:day|morning|evening|night|sunny|beautiful)/i,
+      /^once\s+upon\s+a\s+time/i,
+      /opened\s+(?:her|his|their)\s+eyes/i,
+      /^it\s+was\s+a\s+(?:beautiful|sunny|warm|cold|rainy|quiet|special)/i,
+      /\bwoke\s+up\b/i,
+      /^the\s+(?:morning|day|sun)\s+(?:was|began|started|came)/i,
+      /^the\s+day\s+(?:had|finally)/i,
+    ];
+    for (const pattern of OPENING_CLICHE_PATTERNS) {
+      if (pattern.test(openingText)) {
+        issues.push({ spread: 1, type: 'opening_cliche', message: `Generic opening: "${openingText.slice(0, 80)}..."` });
+        break;
+      }
+    }
   }
 
   const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread'].includes(i.type));
@@ -1092,6 +1223,8 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
         console.log(`  - [${issue.type}] ${issue.spread ? `spread ${issue.spread}: ` : ''}${issue.message}`);
       }
     }
+    // Attach validation issues for downstream critic passes
+    plan._validationIssues = validation.issues;
 
     const totalMs = Date.now() - pipelineStart;
     console.log(`[storyPlanner] Two-phase pipeline complete in ${totalMs}ms`);
@@ -1350,7 +1483,7 @@ If not, keep refining internally before output.`;
  * @returns {Promise<object>} Polished story plan with same structure
  */
 async function polishStory(storyPlan, opts = {}) {
-  const { costTracker, apiKeys, theme } = opts;
+  const { costTracker, apiKeys, theme, validationIssues } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   // Build a compact representation of just the text to rewrite
@@ -1366,7 +1499,21 @@ async function polishStory(storyPlan, opts = {}) {
     systemPrompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- Do NOT soften the ending into a whisper or sleepy tone.\n- The final spread (spread 13) is the birthday cake/candles moment — the emotional climax the whole story earned.\n- The ending should feel warm, joyful, and celebratory — not quiet.\n- "Ending Quality" score should reward a triumphant, emotionally resonant birthday ending.\n- The ENDING UPGRADE rule does NOT apply — do not make the ending softer or more poetic. Make it warmer and more joyful if needed.`;
   }
 
-  const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}`;
+  // Build user prompt with optional validation warnings
+  let validationWarnings = '';
+  if (validationIssues && validationIssues.length > 0) {
+    const warnings = validationIssues.map(i => {
+      if (i.type === 'opening_cliche') return `⚠️ SPREAD 1 HAS A GENERIC OPENING. The first spread MUST be rewritten to drop the reader into a specific moment — not "one day" or "woke up". This is the highest priority fix.`;
+      if (i.type === 'word_count') return `⚠️ Spread ${i.spread}: ${i.message}. CUT this spread ruthlessly — trust the illustration.`;
+      if (i.type === 'emotion_telling') return `⚠️ Spread ${i.spread}: emotion telling detected (${i.message}). Replace with action or sensation.`;
+      return null;
+    }).filter(Boolean);
+    if (warnings.length > 0) {
+      validationWarnings = `\n\nPRE-IDENTIFIED ISSUES (fix these FIRST):\n${warnings.join('\n')}`;
+    }
+  }
+
+  const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}${validationWarnings}`;
 
   console.log(`[storyPlanner] Starting self-critic + rewrite pass (${spreads.length} spreads, theme: ${theme || 'default'})...`);
   const polishStart = Date.now();
@@ -1374,7 +1521,7 @@ async function polishStory(storyPlan, opts = {}) {
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 10000,
-    temperature: 0.5,
+    temperature: 0.6,
     jsonMode: true,
     costTracker,
   });
@@ -1513,6 +1660,12 @@ RULES FOR ALL REWRITES
 
 Return JSON:
 {
+  "scores": {
+    "rhythm": <1-10>,
+    "emotional_arc": <1-10>,
+    "memorable_line": <1-10>,
+    "language_quality": <1-10>
+  },
   "issues": [
     { "spread": 1, "area": "rhythm|arc|memorable|language", "line": "exact quote", "reason": "brief description" }
   ],
@@ -1521,6 +1674,7 @@ Return JSON:
   ]
 }
 
+- scores: Rate the story AFTER your improvements on each of your 4 areas (1-10). Be strict — score 7+ only if genuinely strong.
 - Return ALL spreads in improved_spreads (unchanged spreads returned as-is)
 - If left or right was null, keep it null
 - issues array may be empty if the story is already strong`;
@@ -1599,6 +1753,10 @@ async function combinedCritic(storyPlan, opts = {}) {
     }
   }
 
+  if (result.scores) {
+    console.log(`[storyPlanner] Combined critic scores: ${JSON.stringify(result.scores)}`);
+  }
+
   if (result.issues && result.issues.length > 0) {
     console.log(`[storyPlanner] Combined critic found ${result.issues.length} issues:`);
     const byArea = {};
@@ -1613,7 +1771,9 @@ async function combinedCritic(storyPlan, opts = {}) {
     console.log('[storyPlanner] Combined critic: no issues found — story is strong');
   }
 
-  return applyImprovedSpreads(storyPlan, result.improved_spreads || []);
+  const improved = applyImprovedSpreads(storyPlan, result.improved_spreads || []);
+  improved._combinedCriticScores = result.scores || null;
+  return improved;
 }
 
 /**

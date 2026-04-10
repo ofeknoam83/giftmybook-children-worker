@@ -1237,6 +1237,57 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
 
         // ── Self-Critic + Auto-Rewrite pass ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting self-critic (8-category scoring + rewrite)');
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating story quality...', logs: bookContext.logs });
+        }
+        try {
+          const polishStart = Date.now();
+          storyPlan = await polishStory(storyPlan, { apiKeys, costTracker, theme, validationIssues: storyPlan._validationIssues });
+          const polishMs = Date.now() - polishStart;
+          bookContext.log('info', 'Self-critic complete', { ms: polishMs, scores: storyPlan._criticScores, issueCount: storyPlan._criticIssueCount });
+          bookContext.touchActivity();
+
+          // Quality gate: retry writing once if scores are too low
+          if (storyPlan._criticScores) {
+            const scores = storyPlan._criticScores;
+            const scoreValues = Object.values(scores).filter(v => typeof v === 'number');
+            const avgScore = scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length : 10;
+            const minScore = scoreValues.length > 0 ? Math.min(...scoreValues) : 10;
+            if (avgScore < 6.0 || minScore < 4) {
+              bookContext.log('info', `Quality gate triggered: avg=${avgScore.toFixed(1)}, min=${minScore} — retrying story generation`);
+              if (progressCallbackUrl) {
+                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.21, message: 'Improving story — rewriting...', logs: bookContext.logs });
+              }
+              try {
+                const retryPlan = await planStory(childDetails, theme || 'adventure', format, plannerCustomDetails, {
+                  apiKeys,
+                  costTracker,
+                  approvedTitle,
+                  v2Vars: { ...v2Vars, retryTemperature: 0.9 },
+                  additionalCoverCharacters: detectedSecondaryCharacters || null,
+                });
+                const retryPolished = await polishStory(retryPlan, { apiKeys, costTracker, theme });
+                // Use whichever version scored higher
+                const retryScores = retryPolished._criticScores || {};
+                const retryValues = Object.values(retryScores).filter(v => typeof v === 'number');
+                const retryAvg = retryValues.length > 0 ? retryValues.reduce((a, b) => a + b, 0) / retryValues.length : 0;
+                if (retryAvg > avgScore) {
+                  bookContext.log('info', `Quality gate retry succeeded: new avg=${retryAvg.toFixed(1)} > old avg=${avgScore.toFixed(1)} — using retry version`);
+                  storyPlan = retryPolished;
+                } else {
+                  bookContext.log('info', `Quality gate retry did not improve: new avg=${retryAvg.toFixed(1)} <= old avg=${avgScore.toFixed(1)} — keeping original`);
+                }
+              } catch (retryErr) {
+                bookContext.log('warn', `Quality gate retry failed: ${retryErr.message} — keeping original`);
+              }
+            }
+          }
+        } catch (polishErr) {
+          bookContext.log('warn', `Self-critic failed — continuing with original text: ${polishErr.message}`);
+        }
+
         // ── Combined critic: rhythm + arc + memorable line + language quality ──
         bookContext.checkAbort();
         bookContext.log('info', 'Starting combined critic (rhythm, arc, language)');

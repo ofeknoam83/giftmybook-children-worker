@@ -291,6 +291,26 @@ Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
 
+-------------------------------------
+OPENING SPREAD (CRITICAL — the first spread determines whether a parent keeps reading)
+-------------------------------------
+- NEVER open with the child waking up, opening their eyes, or getting out of bed (unless bedtime theme specifically requires the routine).
+- NEVER open with "One day..." / "Once upon a time..." / "It was a [adjective] morning..." / "The day began..."
+- The first spread must drop the reader into a MOMENT — mid-action, mid-sensation, mid-observation.
+- The opening line must contain a specific, concrete image that could only belong to THIS story.
+
+GOOD OPENINGS (for calibration — do NOT copy):
+- "The compass needle spun. Not north. Not south. It pointed at the wall."
+- "Streamers hung from every doorknob. The house smelled like frosting and secrets."
+- "The house creaked its old-wood song. Something in the attic was counting."
+- "A single bubble rose from the drain. Then another. Then a hundred."
+
+BAD OPENINGS (REJECT these patterns):
+- "One sunny morning, [child] woke up to find..."
+- "[Child] opened her eyes and saw something amazing."
+- "It was a beautiful day in [setting]."
+- "Once upon a time, there was a [adjective] child named [name]."
+
 TIME OF DAY (IMPORTANT): The story does NOT need to follow a morning-to-night arc. The time of day must serve the story's emotional logic — not a default bedtime template. An adventure can begin at 2pm and end at sunset. A birthday can unfold entirely in the golden afternoon. A space story might begin and end at midnight. Choose the time that makes this specific story feel most alive. Only bedtime-themed books should default to evening/night.
 
 -------------------------------------
@@ -700,6 +720,26 @@ Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+-------------------------------------
+OPENING SPREAD (CRITICAL — the first spread determines whether a parent keeps reading)
+-------------------------------------
+- NEVER open with the child waking up, opening their eyes, or getting out of bed (unless bedtime theme specifically requires the routine).
+- NEVER open with "One day..." / "Once upon a time..." / "It was a [adjective] morning..." / "The day began..."
+- The first spread must drop the reader into a MOMENT — mid-action, mid-sensation, mid-observation.
+- The opening line must contain a specific, concrete image that could only belong to THIS story.
+
+GOOD OPENINGS (for calibration — do NOT copy):
+- "The compass needle spun. Not north. Not south. It pointed at the wall."
+- "Streamers hung from every doorknob. The house smelled like frosting and secrets."
+- "The house creaked its old-wood song. Something in the attic was counting."
+- "A single bubble rose from the drain. Then another. Then a hundred."
+
+BAD OPENINGS (REJECT these patterns):
+- "One sunny morning, [child] woke up to find..."
+- "[Child] opened her eyes and saw something amazing."
+- "It was a beautiful day in [setting]."
+- "Once upon a time, there was a [adjective] child named [name]."
 
 TIME OF DAY (IMPORTANT): The story does NOT need to follow a morning-to-night arc. The time of day must serve the story's emotional logic — not a default bedtime template. An adventure can begin at 2pm and end at sunset. A birthday can unfold entirely in the golden afternoon. A space story might begin and end at midnight. Choose the time that makes this specific story feel most alive. Only bedtime-themed books should default to evening/night.
 
