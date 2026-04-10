@@ -2098,6 +2098,9 @@ Format your answer with each label on its own line followed by a colon and the a
           storyPlan.renderQa = qaReport;
         }
 
+        // Free allPanels imageBuffers — page panels already have copies
+        for (const panel of allPanels) { panel.imageBuffer = null; }
+
         interiorPdf = await buildGraphicNovelPdf(allPanels, {
           title: storyPlan.title || bookTitle,
           childName: childDetails.name,
