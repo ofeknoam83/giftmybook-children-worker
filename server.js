@@ -564,10 +564,23 @@ async function generateGraphicNovelPanels(storyPlan, childDetails, style, opts) 
   let completed = 0;
   const allPanels = storyPlan.allPanels || [];
 
+  // Count panels already generated from a prior checkpoint
+  const resumedCount = allPanels.filter(p => p.illustrationUrl).length;
+  if (resumedCount > 0) {
+    bookContext.log('info', `Resuming graphic novel panels — ${resumedCount}/${totalPanels} already generated`);
+  }
+
   for (const page of storyPlan.pages || []) {
     for (const panel of page.panels || []) {
       const flatIndex = completed;
       bookContext.checkAbort();
+
+      // Skip panels that already have illustrations from a prior run
+      if (panel.illustrationUrl) {
+        completed++;
+        continue;
+      }
+
       bookContext.log('info', `Generating panel ${completed + 1}/${totalPanels}`, {
         pageNumber: page.pageNumber,
         sceneNumber: page.sceneNumber,
@@ -1136,13 +1149,15 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
       let storyPlan;
-      if (checkpoint?.storyPlan && (Array.isArray(checkpoint.storyPlan.entries) || Array.isArray(checkpoint.storyPlan.chapters))) {
+      if (checkpoint?.storyPlan && (Array.isArray(checkpoint.storyPlan.entries) || Array.isArray(checkpoint.storyPlan.chapters) || Array.isArray(checkpoint.storyPlan.pages))) {
         // checkpoint — resume
         storyPlan = checkpoint.storyPlan;
-        const itemCount = storyPlan.isChapterBook
-          ? (storyPlan.chapters || []).length
-          : (storyPlan.entries || []).filter(e => e.type === 'spread').length;
-        bookContext.log('info', 'Resumed story plan from checkpoint', { items: itemCount, title: storyPlan.title, isChapterBook: !!storyPlan.isChapterBook });
+        const itemCount = storyPlan.isGraphicNovel
+          ? (storyPlan.pages || []).length
+          : storyPlan.isChapterBook
+            ? (storyPlan.chapters || []).length
+            : (storyPlan.entries || []).filter(e => e.type === 'spread').length;
+        bookContext.log('info', 'Resumed story plan from checkpoint', { items: itemCount, title: storyPlan.title, isChapterBook: !!storyPlan.isChapterBook, isGraphicNovel: !!storyPlan.isGraphicNovel });
       } else if (isChapterBook) {
         // ── Chapter book planning (T4 format, ages 9-12) ──
         bookContext.checkAbort();
