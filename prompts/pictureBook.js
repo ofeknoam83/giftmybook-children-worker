@@ -218,7 +218,7 @@ Generate the COMPLETE story as a JSON object with this structure:`;
 
   return prompt + `
 {
-  "title": "The book title",
+  "title": "The book title (MUST include the child's name and reference something specific to THIS story — see TITLE RULES)",
   "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
   "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",${secondaryCharField}
   "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
@@ -243,7 +243,8 @@ IMPORTANT:
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.
 - Do NOT specify art medium or style in image prompts — that is handled separately by the illustration engine.
 - Follow ALL rules from the system brief (age tier, pacing, dialogue, etc.).
-- No newlines inside string values. Use apostrophes directly in strings (no escaping needed).`;
+- No newlines inside string values. Use apostrophes directly in strings (no escaping needed).
+- TITLE RULES: The title MUST include the child's name and reference something specific to THIS story (the quest, setting, repeated phrase, or favorite object). 3-8 words max. REJECT generic titles like "[Name]'s Adventure" or "A Magical Journey" — the title must be ownable to THIS child and THIS story.`;
 }
 
 // ── Two-phase prompt builders (split text generation from JSON structuring) ──
