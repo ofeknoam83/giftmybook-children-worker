@@ -103,6 +103,7 @@ const FONT_PATHS = {
   playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
   kalam:          path.join(FONT_DIR, 'Kalam-Regular.ttf'),
+  comicNeue:      path.join(FONT_DIR, 'ComicNeue-Bold.ttf'),
 };
 
 // ── Text helpers ──────────────────────────────────────────────────────────────
@@ -817,23 +818,14 @@ async function buildChapterBookPdf(chapters, opts = {}) {
 
 // ── Comic font cache (for graphic novel speech bubbles & captions) ────────────
 let comicFontBytes = null;
-async function getComicFont() {
+function getComicFont() {
   if (comicFontBytes) return comicFontBytes;
-  // Comic Neue Bold — readable comic lettering font (OFL license, Google Fonts)
-  const urls = [
-    'https://github.com/google/fonts/raw/main/ofl/comicneue/ComicNeue-Bold.ttf',
-    'https://github.com/google/fonts/raw/main/ofl/bangers/Bangers-Regular.ttf',
-  ];
-  for (const url of urls) {
-    try {
-      const resp = await fetch(url);
-      if (resp.ok) {
-        comicFontBytes = Buffer.from(await resp.arrayBuffer());
-        return comicFontBytes;
-      }
-    } catch (_) { /* try next */ }
+  // Comic Neue Bold — bundled in fonts/ directory (OFL license)
+  if (fs.existsSync(FONT_PATHS.comicNeue)) {
+    comicFontBytes = fs.readFileSync(FONT_PATHS.comicNeue);
+    return comicFontBytes;
   }
-  throw new Error('Failed to download comic font');
+  return null;
 }
 
 /**
@@ -1223,8 +1215,9 @@ async function renderGraphicNovelStoryPage(pdfDoc, pageData, blueprint, fonts, p
 
 /**
  * Build a premium print-ready graphic novel PDF with bleed-safe pages and vector lettering.
- * @param {Array<object>} panelsOrPages - legacy allPanels array or page-aware plan pages
+ * @param {Array<object>} panelsOrPages - flat panels array (legacy) or unused when opts.pages is provided
  * @param {object} opts - { title, childName, tagline, dedication, year, scenes, pages }
+ *   opts.pages is the preferred input; when omitted, panelsOrPages is grouped into pages via groupPanelsIntoPages.
  */
 async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
@@ -1232,13 +1225,24 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   const PAGE_W = 450;  // 6.25" with bleed
   const PAGE_H = 666;  // 9.25" with bleed
 
-  const planInput = Array.isArray(opts.pages) && opts.pages.length
-    ? { title, tagline, pages: opts.pages, scenes: opts.scenes || [] }
-    : { title, tagline, pages: Array.isArray(panelsOrPages) ? [] : (panelsOrPages.pages || []), scenes: opts.scenes || [], allPanels: Array.isArray(panelsOrPages) ? panelsOrPages : [] };
+  let srcPages;
+  if (Array.isArray(opts.pages) && opts.pages.length) {
+    srcPages = opts.pages;
+  } else if (Array.isArray(panelsOrPages) && panelsOrPages.length) {
+    // Legacy flat-panels path: group panels into page objects
+    srcPages = groupPanelsIntoPages(panelsOrPages).map((group, i) => ({
+      pageNumber: i + 1,
+      sceneNumber: 1,
+      layoutTemplate: group.layout,
+      panels: group.panels,
+    }));
+  } else {
+    srcPages = Array.isArray(panelsOrPages) ? [] : (panelsOrPages.pages || []);
+  }
+  const planInput = { title, tagline, pages: srcPages, scenes: opts.scenes || [] };
   const plan = normalizeGraphicNovelPlan(planInput, { fallbackTitle: title });
 
   // Re-attach imageBuffers lost during JSON deep-clone in normalizeGraphicNovelPlan
-  const srcPages = opts.pages || [];
   for (let pi = 0; pi < plan.pages.length && pi < srcPages.length; pi++) {
     const srcPanels = srcPages[pi].panels || [];
     const dstPanels = plan.pages[pi].panels || [];
@@ -1268,7 +1272,7 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   } catch (_) {}
   // Use Comic Neue Bold for dialogue — proper comic lettering font
   try {
-    const comicBytes = await getComicFont();
+    const comicBytes = getComicFont();
     if (comicBytes) comicFont = await pdfDoc.embedFont(comicBytes);
   } catch (_) {}
 
@@ -1287,16 +1291,16 @@ async function buildGraphicNovelPdf(panelsOrPages, opts = {}) {
   function drawDecorativeBorder(p, pw, ph) {
     const inset = 30;
     // Outer dark border
-    p.drawRectangle({ x: inset, y: inset, width: pw - inset * 2, height: ph - inset * 2, borderColor: inkColor, borderWidth: 2, color: undefined });
+    p.drawRectangle({ x: inset, y: inset, width: pw - inset * 2, height: ph - inset * 2, borderColor: inkColor, borderWidth: 2 });
     // Inner gold border
-    p.drawRectangle({ x: inset + 6, y: inset + 6, width: pw - (inset + 6) * 2, height: ph - (inset + 6) * 2, borderColor: goldColor, borderWidth: 1, color: undefined });
+    p.drawRectangle({ x: inset + 6, y: inset + 6, width: pw - (inset + 6) * 2, height: ph - (inset + 6) * 2, borderColor: goldColor, borderWidth: 1 });
   }
   function drawGoldRule(p, y, pw, w) {
     const ruleW = w || 80;
     p.drawRectangle({ x: (pw - ruleW) / 2, y, width: ruleW, height: 1.2, color: goldColor });
   }
   function drawGoldDiamond(p, x, y, size) {
-    // Small diamond shape using 4 triangles (lines forming a diamond)
+    // Small diamond shape using 4 lines
     const s = size || 4;
     p.drawLine({ start: { x: x - s, y }, end: { x, y: y + s }, thickness: 1.2, color: goldColor });
     p.drawLine({ start: { x, y: y + s }, end: { x: x + s, y }, thickness: 1.2, color: goldColor });

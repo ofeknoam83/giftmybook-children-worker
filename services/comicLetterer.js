@@ -53,11 +53,9 @@ function drawFilledTail(page, from, to, fillColor, borderColor) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-  const ux = dx / length;
-  const uy = dy / length;
   const spread = 6;
-  const perpX = -uy * spread;
-  const perpY = ux * spread;
+  const perpX = -(dy / length) * spread;
+  const perpY = (dx / length) * spread;
   const base1 = { x: from.x + perpX, y: from.y + perpY };
   const base2 = { x: from.x - perpX, y: from.y - perpY };
   // Fill the tail triangle with closely-spaced lines
@@ -78,7 +76,6 @@ function drawFilledTail(page, from, to, fillColor, borderColor) {
 function drawThoughtTrail(page, from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
   const sizes = [5, 3.5, 2.2];
   for (let i = 0; i < sizes.length; i++) {
     const t = 0.25 + (i * 0.25);
@@ -304,9 +301,9 @@ function drawCaption(page, caption, safeRect, fonts, idx) {
       y -= fontSize * 1.3;
     }
   } else {
-    // Narration — dark blue bg with gold top border
+    // Narration — dark blue bg with gold bottom border
     page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: rect.h, color: COLORS.captionBg, borderColor: COLORS.captionBg, borderWidth: 0.3 });
-    page.drawRectangle({ x: rect.x, y: rect.y + rect.h - 1.5, width: rect.w, height: 1.5, color: COLORS.captionBorder });
+    page.drawRectangle({ x: rect.x, y: rect.y, width: rect.w, height: 1.5, color: COLORS.captionBorder });
     const lines = wrapText(caption.text, font, fontSize, rect.w - padX * 2).slice(0, 2);
     let y = rect.y + rect.h - padY - fontSize;
     for (const line of lines) {
