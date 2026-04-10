@@ -1177,6 +1177,143 @@ async function drawGraphicNovelPanelImage(pdfDoc, page, panel, blueprint) {
 }
 
 /**
+ * Render a text-rich interstitial page (scene opener, internal monologue, letter/diary, narrator aside).
+ * These are programmatic pages with beautiful typography — no AI-generated image needed.
+ */
+function renderTextInterstitialPage(pdfDoc, pageData, fonts, pageW, pageH) {
+  const page = pdfDoc.addPage([pageW, pageH]);
+  const type = pageData.interstitialType || 'scene_opener';
+  const goldColor = rgb(0.765, 0.549, 0.180);
+  const inkColor = rgb(0.08, 0.08, 0.12);
+  const subtleGray = rgb(0.45, 0.45, 0.50);
+  const margin = 60;
+  const textWidth = pageW - margin * 2;
+
+  if (type === 'letter_or_diary') {
+    // Parchment-style background with handwritten feel
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.96, 0.94, 0.88) });
+    // Subtle border
+    const inset = 36;
+    page.drawRectangle({ x: inset, y: inset, width: pageW - inset * 2, height: pageH - inset * 2, borderColor: rgb(0.80, 0.73, 0.62), borderWidth: 0.8 });
+
+    // Heading (if provided)
+    if (pageData.heading) {
+      const headFont = fonts.accentFont || fonts.bodyFont;
+      const headLines = wrapText(pageData.heading, headFont, 16, textWidth);
+      let y = pageH - margin - 40;
+      for (const line of headLines) {
+        const w = headFont.widthOfTextAtSize(line, 16);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: 16, font: headFont, color: inkColor });
+        y -= 24;
+      }
+    }
+
+    // Body text in handwritten-style font
+    if (pageData.bodyText) {
+      const bodyFont = fonts.handwrittenFont || fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 13, textWidth - 20);
+      let y = pageH / 2 + (bodyLines.length * 10);
+      for (const line of bodyLines) {
+        page.drawText(line, { x: margin + 10, y, size: 13, font: bodyFont, color: rgb(0.20, 0.18, 0.15) });
+        y -= 20;
+      }
+    }
+  } else if (type === 'internal_monologue') {
+    // Moody, contemplative page
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.95, 0.95, 0.97) });
+
+    // Gold left accent bar
+    page.drawRectangle({ x: margin - 8, y: pageH / 2 - 80, width: 3, height: 160, color: goldColor });
+
+    // Body text in italic
+    if (pageData.bodyText) {
+      const bodyFont = fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 13, textWidth - 30);
+      let y = pageH / 2 + (bodyLines.length * 10);
+      for (const line of bodyLines) {
+        page.drawText(line, { x: margin + 10, y, size: 13, font: bodyFont, color: rgb(0.15, 0.15, 0.20) });
+        y -= 21;
+      }
+    }
+
+    // Attribution (character name)
+    if (pageData.heading) {
+      const attrFont = fonts.bodyFont;
+      const attrText = `\u2014 ${pageData.heading}`;
+      const attrW = attrFont.widthOfTextAtSize(attrText, 10);
+      page.drawText(attrText, { x: pageW - margin - attrW, y: pageH / 2 - 100, size: 10, font: attrFont, color: subtleGray });
+    }
+  } else if (type === 'narrator_aside') {
+    // Clean, centered prose
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.98, 0.97, 0.95) });
+
+    // Decorative diamond ornament
+    const cx = pageW / 2;
+    const ornY = pageH / 2 + 100;
+    page.drawLine({ start: { x: cx - 4, y: ornY }, end: { x: cx, y: ornY + 4 }, thickness: 1, color: goldColor });
+    page.drawLine({ start: { x: cx, y: ornY + 4 }, end: { x: cx + 4, y: ornY }, thickness: 1, color: goldColor });
+    page.drawLine({ start: { x: cx + 4, y: ornY }, end: { x: cx, y: ornY - 4 }, thickness: 1, color: goldColor });
+    page.drawLine({ start: { x: cx, y: ornY - 4 }, end: { x: cx - 4, y: ornY }, thickness: 1, color: goldColor });
+
+    // Body text centered
+    if (pageData.bodyText) {
+      const bodyFont = fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 13, textWidth - 40);
+      let y = ornY - 30;
+      for (const line of bodyLines) {
+        const w = bodyFont.widthOfTextAtSize(line, 13);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: 13, font: bodyFont, color: rgb(0.15, 0.15, 0.20) });
+        y -= 21;
+      }
+    }
+  } else {
+    // scene_opener (default) — chapter title + atmospheric prose
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: pageH, color: rgb(0.97, 0.96, 0.94) });
+
+    // Decorative border
+    const inset = 30;
+    page.drawRectangle({ x: inset, y: inset, width: pageW - inset * 2, height: pageH - inset * 2, borderColor: inkColor, borderWidth: 1.5 });
+    page.drawRectangle({ x: inset + 5, y: inset + 5, width: pageW - (inset + 5) * 2, height: pageH - (inset + 5) * 2, borderColor: goldColor, borderWidth: 0.8 });
+
+    // Chapter heading
+    if (pageData.heading) {
+      const headFont = fonts.titleFont || fonts.bodyFont;
+      const headSize = 28;
+      const headLines = wrapText(pageData.heading, headFont, headSize, textWidth);
+      let y = pageH / 2 + 80;
+      for (const line of headLines) {
+        const w = headFont.widthOfTextAtSize(line, headSize);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: headSize, font: headFont, color: inkColor });
+        y -= 36;
+      }
+
+      // Gold rule
+      const ruleY = y + 14;
+      page.drawRectangle({ x: (pageW - 80) / 2, y: ruleY, width: 80, height: 1.2, color: goldColor });
+
+      // Subheading
+      if (pageData.subheading) {
+        const subFont = fonts.accentFont || fonts.bodyFont;
+        const subW = subFont.widthOfTextAtSize(pageData.subheading, 14);
+        page.drawText(pageData.subheading, { x: (pageW - subW) / 2, y: ruleY - 24, size: 14, font: subFont, color: subtleGray });
+      }
+    }
+
+    // Body text
+    if (pageData.bodyText) {
+      const bodyFont = fonts.accentFont || fonts.bodyFont;
+      const bodyLines = wrapText(pageData.bodyText, bodyFont, 12, textWidth - 20);
+      let y = pageH / 2 - 50;
+      for (const line of bodyLines) {
+        const w = bodyFont.widthOfTextAtSize(line, 12);
+        page.drawText(line, { x: (pageW - w) / 2, y, size: 12, font: bodyFont, color: rgb(0.20, 0.20, 0.25) });
+        y -= 19;
+      }
+    }
+  }
+}
+
+/**
  * Render a single graphic novel story page by embedding the full-page AI-generated image.
  * The image includes panels, borders, speech bubbles, captions, and SFX — all baked in.
  */
@@ -1225,20 +1362,23 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
   pdfDoc.setTitle(title);
   pdfDoc.setAuthor('GiftMyBook');
 
-  // Fonts only needed for title/dedication/end pages (story pages are full images)
+  // Fonts for title/dedication/end pages and text interstitial pages
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   let bubblegum = helvBold;
   let playfairItalic = helv;
+  let kalam = helv;
   try {
     if (fs.existsSync(FONT_PATHS.bubblegum)) bubblegum = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum));
     if (fs.existsSync(FONT_PATHS.playfairItalic)) playfairItalic = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic));
+    if (fs.existsSync(FONT_PATHS.kalam)) kalam = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.kalam));
   } catch (_) {}
 
   const fonts = {
     titleFont: bubblegum || helvBold,
     bodyFont: helv,
     accentFont: playfairItalic || helv,
+    handwrittenFont: kalam || helv,
   };
 
   // ── Helper: decorative double-line border ──
@@ -1315,9 +1455,13 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
     }
   }
 
-  // Story pages — each is a full-page AI-generated image
+  // Story pages — illustrated pages are full-page AI images, text interstitials are programmatic
   for (let i = 0; i < srcPages.length; i++) {
-    await renderGraphicNovelStoryPage(pdfDoc, srcPages[i], PAGE_W, PAGE_H);
+    if (srcPages[i].pageType === 'text_interstitial') {
+      renderTextInterstitialPage(pdfDoc, srcPages[i], fonts, PAGE_W, PAGE_H);
+    } else {
+      await renderGraphicNovelStoryPage(pdfDoc, srcPages[i], PAGE_W, PAGE_H);
+    }
     if ((i + 1) % 10 === 0 || i === srcPages.length - 1) {
       const mem = process.memoryUsage();
       console.log(`[layoutEngine] Rendered page ${i + 1}/${srcPages.length} (heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB)`);
