@@ -121,8 +121,15 @@ const THEME_RULES = {
 
 // ── W4: Dialogue minimum rule ──
 const DIALOGUE_RULE = `DIALOGUE RULE: At least 4 of the 13 spreads MUST contain character dialogue in quotation marks.
-Children love reading dialogue aloud. The child speaks, reacts, exclaims.
-Mix narration and dialogue naturally — never have more than 3 consecutive spreads without dialogue.`;
+Children love reading dialogue aloud. Mix narration and dialogue naturally — never have more than 3 consecutive spreads without dialogue.
+
+DIALOGUE QUALITY (CRITICAL — bad dialogue kills a book):
+- The child's voice must sound REAL: short sentences, concrete words, unexpected observations. Children don't say "What a beautiful day!" — they say "That cloud looks like a shoe."
+- Let the child be FUNNY in dialogue. Kids say surprising things: "I think the moon follows me." / "Do worms have dreams?" / "That's not how birds work." These moments make a book feel alive.
+- Dialogue must DO something: reveal character, create humor, advance the plot, or surprise the reader. If dialogue just states what the reader already knows ("Look, a castle!"), cut it.
+- The child's voice must be DISTINCT from the narrator's voice. If you can't tell who's speaking without quotation marks, the dialogue is too flat.
+- Fictional characters (animals, creatures, objects) can have personality in dialogue too: a grumpy map, a nervous star, a door that asks riddles. Give non-child characters a distinct voice — formal, overly polite, hilariously literal.
+- ONE great line of dialogue is worth more than four dutiful ones. Aim for at least one line the parent will remember.`;
 
 // ── W5: Age-aware vocabulary ──
 function ageVocabularyRules(age) {
@@ -134,13 +141,15 @@ function ageVocabularyRules(age) {
 }
 
 // ── W6: Rhythmic prose rule ──
-const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents:
-- Vary sentence length: short punchy sentences followed by flowing ones
-- Use near-rhymes and alliteration where natural (never forced)
-- End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud
-- Create a pattern within each spread: description → action → emotion → surprise
-- The LAST LINE of spread 13 must be the most beautiful sentence in the entire book
-- At least ONE line in the story must be memorable enough that a parent would quote it at dinner`;
+const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents. Every line must sound good in someone's mouth:
+- Vary sentence length: short punchy sentences followed by flowing ones. A three-word sentence after a long one hits like a drum. "The forest opened up before her, canopy dripping with gold and shadow and the last light of afternoon. She stepped through."
+- Write for the EAR: "She stepped inside" has energy (short vowel, hard consonant). "She walked into the room" is flat (soft consonants, no surprise). Choose words that feel good to say. Prefer verbs with texture: crept, tumbled, slid, pressed, clung, drifted.
+- NEAR-RHYME over forced rhyme: "The wind was gone. The leaves held still." has music without rhyming. Internal echoes (gone/long, still/hill) create a feeling of pattern without the cage of end-rhymes. Use alliteration where natural — never stack it.
+- End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud — a sentence you'd want to repeat. Not a summary. An image.
+- ONE-WORD or TWO-WORD sentences are powerful when earned: "Silence." / "Not yet." / "Almost." Use sparingly — max 2 per story.
+- The LAST LINE of spread 13 must be the most beautiful sentence in the entire book. It should feel inevitable — like the only possible ending. A parent should want to read it twice.
+- At least ONE line in the story must be memorable enough that a parent would quote it at dinner — not because it's wise, but because it's perfectly said.
+- PACING WITHIN SPREADS: The left page sets up. The right page lands. Don't put all the energy on one side. The page turn between left and right is a breath; the page turn between spreads is a heartbeat.`;
 
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
@@ -1817,7 +1826,7 @@ async function polishStory(storyPlan, opts = {}) {
 
 const COMBINED_CRITIC_SYSTEM = `You are a world-class children's book editor. You review the story in ONE pass and fix everything at once.
 
-Your job covers four areas. Evaluate ALL of them, then produce ONE set of improved spreads.
+Your job covers six areas. Evaluate ALL of them, then produce ONE set of improved spreads.
 
 ─────────────────────────────────────────
 1. RHYTHM & READ-ALOUD (highest priority)
@@ -1828,6 +1837,7 @@ Read every line aloud in your head. Fix any line that:
 - Has words over 3 syllables (unless a name or meaningful invented word)
 - Violates the 8–14 syllable preference per sentence
 - Contains a forced or strained rhyme that bends the meaning
+- Sounds flat when spoken — prefer words with texture and energy ("crept" over "walked", "pressed" over "put")
 
 Rules for rhythm fixes:
 - Keep fixes shorter or equal length to the original
@@ -1842,7 +1852,7 @@ Rules for rhythm fixes:
 Check:
 - ESCALATION: Each spread slightly increases curiosity, movement, or wonder through the middle
 - DOUBT MOMENT: There is a clear moment of uncertainty or tension in spreads 5–8
-- ENDING: The final 2 spreads feel like a whisper — soft, resolved, dream-like (not a conclusion)
+- ENDING: The final 2 spreads feel emotionally resolved — energy matches the theme
 
 Fix weak spreads. Do NOT add new characters, events, or settings.
 
@@ -1852,6 +1862,7 @@ Fix weak spreads. Do NOT add new characters, events, or settings.
 Ensure at least ONE line exists that a parent would want to repeat to their child outside the book.
 It should be specific to THIS child and THIS story — not generic.
 If no such line exists, create one naturally within the existing story structure.
+A memorable line is NOT a wise statement — it's a perfectly observed image or feeling: "The dark had a sound now. Not a growl. A hum."
 
 ─────────────────────────────────────────
 4. LANGUAGE QUALITY
@@ -1860,6 +1871,26 @@ If no such line exists, create one naturally within the existing story structure
 - Replace any emotion-telling: "she felt scared", "he was happy" → show through action/sensation
 - Sharpen one word per spread if a more specific/sensory word fits better
 - Only reduce or maintain word count — never increase
+
+─────────────────────────────────────────
+5. HUMOR & DELIGHT
+─────────────────────────────────────────
+Check for at least 2 genuinely funny or delightful moments in the story (spreads 2-10).
+Not token jokes — real humor that a child would laugh at and a parent would smile at:
+- Does the child say or do something unexpected and funny?
+- Is there a running gag, a recurring absurd detail, or a creature/object with personality?
+- Is there at least one moment of comic timing (setup then surprise)?
+If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation, a sound effect at the wrong moment. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.
+
+─────────────────────────────────────────
+6. ANTI-KITSCHY CHECK
+─────────────────────────────────────────
+Flag and fix any lines that feel like greeting cards, motivational posters, or generic sentiment:
+- "The real treasure was..." / "Love is the strongest..." / "You are special just the way you are" / "With love, anything is possible" / "The magic was inside them all along"
+- Any ending where the character announces what they learned or explains the story's moral
+- Any vague emotional summary: "and the child felt warm and happy and loved"
+- Any line that could appear in ANY children's book — replace with something only THIS story could say
+Replace kitschy lines with specific, concrete images that earn the same emotion: "She pressed her nose against the window. The stars were still there." beats "She felt grateful for the beautiful night."
 
 ─────────────────────────────────────────
 RULES FOR ALL REWRITES
@@ -1875,17 +1906,19 @@ Return JSON:
     "rhythm": <1-10>,
     "emotional_arc": <1-10>,
     "memorable_line": <1-10>,
-    "language_quality": <1-10>
+    "language_quality": <1-10>,
+    "humor": <1-10>,
+    "anti_kitschy": <1-10>
   },
   "issues": [
-    { "spread": 1, "area": "rhythm|arc|memorable|language", "line": "exact quote", "reason": "brief description" }
+    { "spread": 1, "area": "rhythm|arc|memorable|language|humor|kitschy", "line": "exact quote", "reason": "brief description" }
   ],
   "improved_spreads": [
     { "spread": 1, "left": "...", "right": "..." }
   ]
 }
 
-- scores: Rate the story AFTER your improvements on each of your 4 areas (1-10). Be strict — score 7+ only if genuinely strong.
+- scores: Rate the story AFTER your improvements on each of your 6 areas (1-10). Be strict — score 7+ only if genuinely strong.
 - Return ALL spreads in improved_spreads (unchanged spreads returned as-is)
 - If left or right was null, keep it null
 - issues array may be empty if the story is already strong`;

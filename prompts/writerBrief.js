@@ -238,13 +238,21 @@ TEXT LENGTH (CRITICAL):
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-Write with the qualities of master children's authors:
+Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
 
-- Simple but precise language. Every word earns its place.
-- No cliches. No filler sentences.
-- Respect the child's intelligence — never talk down.
-- Emotion is implied, never explained.
-- Dialogue feels natural, curious, and childlike — not functional.
+- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
+- Every sentence earns its place. If you can cut it and the story still works, cut it.
+- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
+- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
+- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+
+ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
+- REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
+- REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
+- REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
+- The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
 RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
@@ -254,17 +262,23 @@ RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
   A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
 - Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
+- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. "The dark had a sound now" is musical. "It was dark and there was a sound" is dead. Choose words that feel good in the mouth.
 
 TONE:
-- Warm, intimate, slightly poetic.
-- Calm but emotionally alive.
-- Avoid moralizing or explicit lessons.
+- Warm but never sentimental. Intimate but never syrupy.
+- Emotionally alive — every spread should make the reader feel something specific (curiosity, tenderness, surprise, delight, wonder), not vaguely "nice."
+- Avoid moralizing or explicit lessons. If the story has a "message," it should be invisible — felt, not stated.
+- Funny and tender should coexist. The funniest children's books are also the most moving. Humor is not the opposite of depth — it's the vehicle.
 
-HUMOR & DELIGHT (CRITICAL — the best children's books make kids laugh):
-- Include at least ONE moment of humor or playful surprise per story (spreads 3-8).
-- Humor sources: an unexpected sound, an object misbehaving, a creature doing something absurd, the child's own silly mistake, a funny physical moment (slipping, a hat flying off, a sneeze at the wrong time).
+HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
+- At least 2-3 genuinely funny moments per story, not just one token joke. Humor should be woven through the story, not bolted on.
+- COMIC TIMING: The funniest moments use the page turn. Setup on one spread, punchline revealed on the next. A long sentence followed by one deadpan word. A serious buildup that breaks with something absurd.
+- RUNNING GAGS: Introduce something funny early (a squeaky boot, a stubborn hat, a creature that keeps appearing at the wrong moment) and let it recur 2-3 times, escalating each time. The third appearance should be the biggest payoff.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise. Children are naturally funny — let the character be, too. "That's not how birds work," she said to the cloud.
+- ABSURDIST LOGIC: Children love things that break rules — a fish in a tree, a door that opens to the wrong room, a sandwich that talks back. Play with the world's logic.
+- SURPRISE over SLAPSTICK: A quiet unexpected detail is funnier than a pratfall. "The dragon sneezed. Confetti came out." beats "The dragon slipped on a banana peel."
 - Humor should emerge from character and situation — never from mockery, meanness, or bathroom jokes.
-- A well-placed funny moment INCREASES emotional impact later — the contrast makes tender moments land harder.
+- CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
 - For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
 
 SOUND WORDS & ONOMATOPOEIA (read-aloud magic):
@@ -711,13 +725,21 @@ TEXT LENGTH (CRITICAL):
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-Write with the qualities of master children's authors:
+Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
 
-- Simple but precise language. Every word earns its place.
-- No cliches. No filler sentences.
-- Respect the child's intelligence — never talk down.
-- Emotion is implied, never explained.
-- Dialogue feels natural, curious, and childlike — not functional.
+- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
+- Every sentence earns its place. If you can cut it and the story still works, cut it.
+- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
+- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
+- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+
+ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
+- REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
+- REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
+- REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
+- The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
 RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
@@ -727,17 +749,23 @@ RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
 - RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
   A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
 - Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
+- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. "The dark had a sound now" is musical. "It was dark and there was a sound" is dead. Choose words that feel good in the mouth.
 
 TONE:
-- Warm, intimate, slightly poetic.
-- Calm but emotionally alive.
-- Avoid moralizing or explicit lessons.
+- Warm but never sentimental. Intimate but never syrupy.
+- Emotionally alive — every spread should make the reader feel something specific (curiosity, tenderness, surprise, delight, wonder), not vaguely "nice."
+- Avoid moralizing or explicit lessons. If the story has a "message," it should be invisible — felt, not stated.
+- Funny and tender should coexist. The funniest children's books are also the most moving. Humor is not the opposite of depth — it's the vehicle.
 
-HUMOR & DELIGHT (CRITICAL — the best children's books make kids laugh):
-- Include at least ONE moment of humor or playful surprise per story (spreads 3-8).
-- Humor sources: an unexpected sound, an object misbehaving, a creature doing something absurd, the child's own silly mistake, a funny physical moment (slipping, a hat flying off, a sneeze at the wrong time).
+HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
+- At least 2-3 genuinely funny moments per story, not just one token joke. Humor should be woven through the story, not bolted on.
+- COMIC TIMING: The funniest moments use the page turn. Setup on one spread, punchline revealed on the next. A long sentence followed by one deadpan word. A serious buildup that breaks with something absurd.
+- RUNNING GAGS: Introduce something funny early (a squeaky boot, a stubborn hat, a creature that keeps appearing at the wrong moment) and let it recur 2-3 times, escalating each time. The third appearance should be the biggest payoff.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise. Children are naturally funny — let the character be, too. "That's not how birds work," she said to the cloud.
+- ABSURDIST LOGIC: Children love things that break rules — a fish in a tree, a door that opens to the wrong room, a sandwich that talks back. Play with the world's logic.
+- SURPRISE over SLAPSTICK: A quiet unexpected detail is funnier than a pratfall. "The dragon sneezed. Confetti came out." beats "The dragon slipped on a banana peel."
 - Humor should emerge from character and situation — never from mockery, meanness, or bathroom jokes.
-- A well-placed funny moment INCREASES emotional impact later — the contrast makes tender moments land harder.
+- CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
 - For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
 
 SOUND WORDS & ONOMATOPOEIA (read-aloud magic):
