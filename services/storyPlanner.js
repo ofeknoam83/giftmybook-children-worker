@@ -595,6 +595,21 @@ function getThemeBeatStructure(theme, age) {
    - Spread 12: Going home — one quiet line.
    - Spread 13: At the window or doorstep, something the friend gave them in hand. The world is full.`;
 
+    case 'mothers_day':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
+   MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
+   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm, tender, and deeply personal. The story builds from everyday moments to a heartfelt expression of love.
+   - Spread 1: A morning moment — the child wakes up and sees or hears Mom doing something familiar and loving (making breakfast, humming a song, opening curtains). Mom is VISIBLE in this spread.
+   - Spread 2: A special shared ritual — something only this child and Mom do together (a walk, a game, reading, cooking). Mom is VISIBLE.
+   - Spreads 3-4: Memories of things Mom does — comforting when scared, cheering at a game, teaching something new. At least one spread shows Mom VISIBLE alongside the child.
+   - Spread 5: A moment the child realizes how much Mom does — the house is full of Mom's love in small details (a packed lunch, a tucked blanket, a note in a pocket).
+   - Spread 6: THE HINGE — a quiet, tender moment. The child sees Mom tired, or working hard, or giving without asking for anything back. The child's heart swells. Mom is VISIBLE.
+   - Spreads 7-8: The child decides to do something special for Mom — making a gift, picking flowers, preparing a surprise, drawing a picture. The child's love takes action.
+   - Spreads 9-10: The surprise unfolds — the child presents their gift or gesture. Mom's reaction is pure joy. Mom is VISIBLE, receiving the child's love.
+   - Spread 11: A warm shared moment — Mom and child together, the gift between them, the world soft and golden. Mom is VISIBLE.
+   - Spread 12: A quiet embrace — one tender line. Mom holds the child close. Mom is VISIBLE.
+   - Spread 13: The final image — Mom and child together in a warm, loving embrace or side by side. The child whispers or says "I love you." Mom is VISIBLE. This is the emotional peak — make it land.`;
+
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
    QUEST RULE: This is an adventure story. The child's specific goal MUST be named in spread 1 — concrete, visual, and achievable. "Go on an adventure" is not a quest. A quest has a specific target: an object to find, a place to reach, a creature to help, a mystery to solve. The entire story builds toward this goal. Spread 13 resolves it with success.
@@ -669,8 +684,13 @@ The uploaded photo contains more than one person. The following secondary charac
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
 Do NOT invent other family members beyond what is listed above.`
-  : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
-Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`}
+  : (theme === 'mothers_day'
+    ? `MOTHER'S DAY — MOM IN ILLUSTRATIONS:
+Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
+Describe Mom warmly and consistently each time. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`
+    : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
+Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`)}
 
 Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
@@ -974,6 +994,8 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   // Override the "no family in illustrations" rule when secondary characters are detected
   if (additionalCoverCharacters) {
     systemPrompt += `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene.`;
+  } else if (theme === 'mothers_day') {
+    systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
   }
 
   if (approvedTitle) {
@@ -1143,7 +1165,7 @@ async function planStorySingleCall(childDetails, theme, bookFormat, customDetail
       setting: '',
       dedication: `For ${childDetails.name || childDetails.childName || 'the child'}`,
     };
-    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters);
+    systemPrompt = buildStoryPlannerSystem(briefVars, additionalCoverCharacters, theme);
     userPrompt = pbUserPrompt(childDetails, theme, customDetails, v2Vars, additionalCoverCharacters);
   } else {
     systemPrompt = ER_SYSTEM;

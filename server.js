@@ -1757,9 +1757,13 @@ Format your answer with each label on its own line followed by a colon and the a
 
       // ── C4: For mothers_day/fathers_day — use approved cover as parent character reference ──
       let parentCoverRefBase64 = null;
-      if ((theme === 'mothers_day' || theme === 'fathers_day') && approvedCoverUrl && storyPlan.additionalCoverCharacters) {
+      if ((theme === 'mothers_day' || theme === 'fathers_day') && approvedCoverUrl) {
         try {
-          bookContext.log('info', 'Downloading approved cover as parent character reference');
+          if (storyPlan.additionalCoverCharacters) {
+            bookContext.log('info', 'Downloading approved cover as parent character reference');
+          } else {
+            bookContext.log('info', 'Downloading approved cover as parent character reference (fallback — no secondary characters detected, but theme requires parent)');
+          }
           const coverResp = await fetch(approvedCoverUrl);
           if (coverResp.ok) {
             const coverBuf = Buffer.from(await coverResp.arrayBuffer());
@@ -2153,6 +2157,8 @@ Format your answer with each label on its own line followed by a colon and the a
               apiKeys, costTracker: upsellCostTracker,
               characterDescription: storyPlan?.characterDescription || null,
               characterAnchor: storyPlan?.characterAnchor || null,
+              theme: theme || null,
+              additionalCoverCharacters: storyPlan?.additionalCoverCharacters || null,
             }).catch(e => {
               console.warn(`[server] Upsell covers background error: ${e.message}`);
               return [];

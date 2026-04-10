@@ -488,7 +488,12 @@ function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyl
 
   parts.push(`REFERENCE IMAGE RULES: The attached image is ONLY a character-likeness reference for ${childName}. Use it ONLY to match ${childName}'s face, hair, skin tone, and build. Do NOT copy the composition, background, props, color palette, title treatment, typography, framing, or overall visual style of the reference image. The output must be a completely NEW illustration.`);
 
-  parts.push(`GENDER (AUTHORITATIVE): ${childName} is a ${genderWord}. ${childGender === 'male' ? 'Depict a boy.' : childGender === 'female' ? 'Depict a girl.' : 'Depict a young child without inventing gendered cues not present in the reference.'} If the reference image shows multiple people, ONLY depict ${childName} — the main child matching this stated gender. Do NOT include siblings or secondary figures from the reference.`);
+  if (identity.theme === 'mothers_day' && identity.additionalCoverCharacters) {
+    parts.push(`GENDER (AUTHORITATIVE): ${childName} is a ${genderWord}. ${childGender === 'male' ? 'Depict a boy.' : childGender === 'female' ? 'Depict a girl.' : 'Depict a young child without inventing gendered cues not present in the reference.'}`);
+    parts.push(`MOTHER'S DAY COVER: This is a Mother's Day book. The cover MUST show BOTH ${childName} AND Mom together. Mom's appearance: ${identity.additionalCoverCharacters}. Show a warm, loving moment between child and mother — holding hands, hugging, or side by side. Mom must look consistent with the reference photo.`);
+  } else {
+    parts.push(`GENDER (AUTHORITATIVE): ${childName} is a ${genderWord}. ${childGender === 'male' ? 'Depict a boy.' : childGender === 'female' ? 'Depict a girl.' : 'Depict a young child without inventing gendered cues not present in the reference.'} If the reference image shows multiple people, ONLY depict ${childName} — the main child matching this stated gender. Do NOT include siblings or secondary figures from the reference.`);
+  }
 
   if (identity.characterDescription) {
     parts.push(`CHARACTER APPEARANCE LOCK: ${identity.characterDescription}`);
@@ -595,6 +600,8 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
   const identity = {
     characterDescription: opts.characterDescription || null,
     characterAnchor: opts.characterAnchor || null,
+    theme: opts.theme || null,
+    additionalCoverCharacters: opts.additionalCoverCharacters || null,
   };
 
   console.log(`[coverGenerator] Generating upsell covers for ${childName}...`);
