@@ -406,6 +406,79 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
         }
       }
 
+      // ── C5: Post-generation consistency check ──
+      const refBase64ForCheck = characterRefSheetBase64 || cachedPhotoBase64;
+      if (imageUrl && refBase64ForCheck) {
+        try {
+          const { checkCharacterConsistency } = require('./services/illustrationGenerator');
+          let genBase64 = null;
+          if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+            try {
+              const checkResp = await fetch(imageUrl);
+              if (checkResp.ok) {
+                genBase64 = Buffer.from(await checkResp.arrayBuffer()).toString('base64');
+              }
+            } catch {}
+          }
+          if (genBase64) {
+            const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor);
+            if (!consistency.consistent) {
+              bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
+              // Retry ONCE with corrective prompt
+              try {
+                const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}`;
+                const correctedPrompt = correctionNote + '\n\n' + prompt;
+                bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
+
+                const entry = results[idx];
+                const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
+                const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
+                const photoRefForRetry = (mentionsParent && parentCoverRefBase64)
+                  ? parentCoverRefBase64
+                  : (characterRefSheetBase64 || cachedPhotoBase64);
+                const photoMimeForRetry = (mentionsParent && parentCoverRefBase64)
+                  ? 'image/jpeg'
+                  : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
+
+                const retryResult = await generateIllustration(correctedPrompt, characterRef, style, {
+                  apiKeys,
+                  costTracker,
+                  bookId,
+                  childName: childDetails.name,
+                  characterOutfit: storyPlan.characterOutfit || '',
+                  characterDescription: storyPlan.characterDescription || '',
+                  characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
+                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                  recurringElement: storyPlan.recurringElement || '',
+                  keyObjects: storyPlan.keyObjects || '',
+                  coverArtStyle: storyPlan.coverArtStyle || '',
+                  childPhotoUrl: resolvedChildPhotoUrl,
+                  _cachedPhotoBase64: photoRefForRetry,
+                  _cachedPhotoMime: photoMimeForRetry,
+                  spreadIndex: idx,
+                  totalSpreads: entries.filter(e => e.type === 'spread').length,
+                  childAge: childDetails.age || childDetails.childAge,
+                  pageText: job.pageText || '',
+                  isSpread: job.isSpread || false,
+                  deadlineMs: 200000,
+                  abortSignal: bookContext.abortController.signal,
+                });
+                if (retryResult) {
+                  imageUrl = retryResult;
+                  bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded`);
+                }
+              } catch (retryErr) {
+                bookContext.log('warn', `Consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
+              }
+            } else {
+              bookContext.log('info', `Spread ${idx + 1} character consistency OK`);
+            }
+          }
+        } catch (checkErr) {
+          bookContext.log('warn', `Consistency check error for spread ${idx + 1}`, { error: checkErr.message });
+        }
+      }
+
       results[idx][field] = imageUrl;
       completedCount++;
 
@@ -644,6 +717,91 @@ async function generateGraphicNovelPanels(storyPlan, childDetails, style, opts) 
         );
       } catch (panelErr) {
         bookContext.log('warn', `Panel ${completed + 1} generation failed`, { error: panelErr.message });
+      }
+
+      // ── C5: Post-generation consistency check (graphic novel) ──
+      if (illustrationUrl && characterRefBase64) {
+        try {
+          const { checkCharacterConsistency } = require('./services/illustrationGenerator');
+          let genBase64 = null;
+          if (typeof illustrationUrl === 'string' && illustrationUrl.startsWith('http')) {
+            try {
+              const checkResp = await fetch(illustrationUrl);
+              if (checkResp.ok) {
+                genBase64 = Buffer.from(await checkResp.arrayBuffer()).toString('base64');
+              }
+            } catch {}
+          }
+          if (genBase64) {
+            const consistency = await checkCharacterConsistency(genBase64, characterRefBase64, storyPlan.characterAnchor);
+            if (!consistency.consistent) {
+              bookContext.log('warn', `Panel ${completed + 1} character inconsistency detected`, { issues: consistency.issues });
+              // Retry ONCE with corrective prompt
+              try {
+                const originalPanelPrompt = panel.imagePrompt || panel.action || `Graphic novel panel ${completed + 1}`;
+                const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}`;
+                const correctedPrompt = correctionNote + '\n\n' + originalPanelPrompt;
+                bookContext.log('info', `Retrying panel ${completed + 1} with consistency correction`);
+
+                const retryResult = await generateIllustration(
+                  correctedPrompt,
+                  null,
+                  storyPlan.coverArtStyle || style,
+                  {
+                    apiKeys,
+                    costTracker,
+                    bookId,
+                    bookContext,
+                    childName: childDetails.name,
+                    childAge: parseInt(childDetails.age, 10) || 10,
+                    childPhotoUrl: resolvedChildPhotoUrl,
+                    _cachedPhotoBase64: characterRefBase64,
+                    _cachedPhotoMime: characterRefMime,
+                    characterDescription: storyPlan.characterDescription || '',
+                    characterAnchor: storyPlan.characterAnchor || null,
+                    characterOutfit: storyPlan.characterOutfit || '',
+                    recurringElement: storyPlan.recurringElement || '',
+                    keyObjects: storyPlan.keyObjects || '',
+                    additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                    coverArtStyle: storyPlan.coverArtStyle || '',
+                    spreadIndex: flatIndex,
+                    totalSpreads: totalPanels,
+                    skipTextEmbed: true,
+                    pageText: `${panel.caption || ''} ${panel.dialogue || ''}`.trim(),
+                    promptInjection: promptContext,
+                    prevIllustrationUrls,
+                    comicMode: true,
+                    panelType: panel.panelType,
+                    shot: panel.shot,
+                    cameraAngle: panel.cameraAngle,
+                    actingNotes: panel.actingNotes,
+                    backgroundComplexity: panel.backgroundComplexity,
+                    textFreeZone: panel.textFreeZone,
+                    safeTextZones: panel.safeTextZones,
+                    balloons: panel.balloons,
+                    captions: panel.captions,
+                    sfx: panel.sfx,
+                    layoutTemplate: page.layoutTemplate,
+                    pageLayout: panel.pageLayout,
+                    colorScript: page.colorScript,
+                    abortSignal: bookContext.abortController.signal,
+                    deadlineMs: 180000,
+                  }
+                );
+                if (retryResult) {
+                  illustrationUrl = retryResult;
+                  bookContext.log('info', `Panel ${completed + 1} consistency retry succeeded`);
+                }
+              } catch (retryErr) {
+                bookContext.log('warn', `Consistency retry failed for panel ${completed + 1}`, { error: retryErr.message });
+              }
+            } else {
+              bookContext.log('info', `Panel ${completed + 1} character consistency OK`);
+            }
+          }
+        } catch (checkErr) {
+          bookContext.log('warn', `Consistency check error for panel ${completed + 1}`, { error: checkErr.message });
+        }
       }
 
       panel.illustrationUrl = illustrationUrl || null;
@@ -1679,8 +1837,74 @@ Format your answer with each label on its own line followed by a colon and the a
               }
             );
             // generateIllustration returns a GCS URL string directly
-            const illustUrl = typeof illus === 'string' ? illus : null;
+            let illustUrl = typeof illus === 'string' ? illus : null;
             chapter.imageBuffer = null; // will be downloaded later from the URL
+
+            // ── C5: Post-generation consistency check (chapter book) ──
+            const chapterRefBase64 = characterRefSheetBase64 || characterRefBase64;
+            if (illustUrl && chapterRefBase64) {
+              try {
+                const { checkCharacterConsistency } = require('./services/illustrationGenerator');
+                let genBase64 = null;
+                try {
+                  const checkResp = await fetch(illustUrl);
+                  if (checkResp.ok) {
+                    genBase64 = Buffer.from(await checkResp.arrayBuffer()).toString('base64');
+                  }
+                } catch {}
+                if (genBase64) {
+                  const consistency = await checkCharacterConsistency(genBase64, chapterRefBase64, storyPlan.characterAnchor);
+                  if (!consistency.consistent) {
+                    bookContext.log('warn', `Chapter ${i + 1} character inconsistency detected`, { issues: consistency.issues });
+                    try {
+                      const originalChapterPrompt = chapter.imagePrompt || `A scene from chapter ${i + 1}: ${chapter.synopsis}`;
+                      const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}`;
+                      const correctedPrompt = correctionNote + '\n\n' + originalChapterPrompt;
+                      bookContext.log('info', `Retrying chapter ${i + 1} with consistency correction`);
+                      const retryResult = await generateIllustration(
+                        correctedPrompt,
+                        null,
+                        storyPlan.coverArtStyle || style,
+                        {
+                          apiKeys, costTracker, bookId, bookContext,
+                          resolvedChildPhotoUrl: characterRef || resolvedChildPhotoUrl,
+                          _cachedPhotoBase64: characterRefBase64,
+                          _cachedPhotoMime: characterRefMime,
+                          characterRef: characterRefBase64,
+                          characterDescription: storyPlan.characterDescription,
+                          characterAnchor: storyPlan.characterAnchor,
+                          characterOutfit: storyPlan.characterOutfit,
+                          recurringElement: storyPlan.recurringElement,
+                          keyObjects: storyPlan.keyObjects,
+                          coverArtStyle: storyPlan.coverArtStyle,
+                          childName,
+                          childAge: parseInt(childDetails.age) || 10,
+                          isSpread: false,
+                          spreadIndex: i,
+                          totalSpreads: 5,
+                          skipTextEmbed: true,
+                          promptInjection: 'PORTRAIT FORMAT: This is a 2:3 portrait illustration for a chapter book. Tall, not wide.',
+                          pageText: '',
+                          additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                          artStyle: style,
+                        }
+                      );
+                      if (retryResult && typeof retryResult === 'string') {
+                        illustUrl = retryResult;
+                        bookContext.log('info', `Chapter ${i + 1} consistency retry succeeded`);
+                      }
+                    } catch (retryErr) {
+                      bookContext.log('warn', `Consistency retry failed for chapter ${i + 1}`, { error: retryErr.message });
+                    }
+                  } else {
+                    bookContext.log('info', `Chapter ${i + 1} character consistency OK`);
+                  }
+                }
+              } catch (checkErr) {
+                bookContext.log('warn', `Consistency check error for chapter ${i + 1}`, { error: checkErr.message });
+              }
+            }
+
             chapter.illustrationUrl = illustUrl;
             bookContext.log('info', `Chapter ${i + 1} illustration done`);
             bookContext.touchActivity();

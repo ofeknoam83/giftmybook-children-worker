@@ -1064,4 +1064,57 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   throw new Error('No illustration generated after all attempts');
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64 };
+/**
+ * Quick Gemini Flash check: does the generated illustration match the character reference?
+ * Returns { consistent: boolean, issues: string[] }
+ */
+async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor) {
+  if (!generatedImageBase64 || !referenceImageBase64) return { consistent: true, issues: [] };
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return { consistent: true, issues: [] };
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: `Compare these two images. Image 1 is the REFERENCE (correct appearance). Image 2 is the GENERATED illustration.
+
+Does the child in Image 2 match Image 1 on ALL of these:
+1. HAIR: Same style, length, color, accessories? (yes/no)
+2. SKIN: Same tone? (yes/no)
+3. FACE: Similar structure, nose, eyes? (yes/no)
+4. OUTFIT: Same clothing? (yes/no)
+
+${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
+
+Respond with ONLY valid JSON:
+{"consistent": true} or {"consistent": false, "issues": ["hair is longer", "skin is lighter"]}` },
+            { inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } },
+            { inline_data: { mime_type: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
+          ]}],
+          generationConfig: { maxOutputTokens: 150, temperature: 0.1 },
+        }),
+      }
+    );
+
+    if (!resp.ok) return { consistent: true, issues: [] };
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      const result = JSON.parse(match[0]);
+      return { consistent: !!result.consistent, issues: result.issues || [] };
+    }
+  } catch (e) {
+    console.warn('[illustrationGenerator] Consistency check failed:', e.message);
+  }
+  return { consistent: true, issues: [] };
+}
+
+module.exports = { generateIllustration, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };
