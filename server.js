@@ -1334,9 +1334,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           );
           preGeneratedCoverBuffer = coverBuf;
 
-          // Use 256px cover for vision analysis (needs detail for style extraction)
+          // Use 512px cover for vision analysis (needs detail for facial feature extraction)
           const coverForVision = await sharp(coverBuf)
-            .resize(256, 256, { fit: 'cover' })
+            .resize(512, 512, { fit: 'cover' })
             .jpeg({ quality: 80 })
             .toBuffer();
           const coverForVisionBase64 = coverForVision.toString('base64');
@@ -1349,7 +1349,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           characterRefMime = 'image/jpeg';
           bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, visionBytes: coverForVision.length, refBytes: resizedCover.length, ms: Date.now() - stage6Start });
 
-          // Extract character appearance + art style from cover using Gemini vision (256px)
+          // Extract character appearance + art style from cover using Gemini vision (512px)
           try {
             const { getNextApiKey } = require('./services/illustrationGenerator');
             const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
@@ -1382,7 +1382,7 @@ Describe the exact art style: medium (watercolor/digital/gouache/etc), color pal
 You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: exactly.` },
                     { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
                   ]}],
-                  generationConfig: { maxOutputTokens: 1000, temperature: 0.2 },
+                  generationConfig: { maxOutputTokens: 2000, temperature: 0.2 },
                 }),
                 signal: bookContext.abortController.signal,
               }
@@ -1397,22 +1397,22 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                 const styleMatch = extractedDesc.match(/STYLE[:\s]+([\s\S]*?)$/i);
                 if (charMatch?.[1]?.trim()) {
                   storyPlan.characterDescription = charMatch[1].trim();
-                  bookContext.log('info', 'Character appearance extracted from cover', { description: charMatch[1].trim().slice(0, 100) });
+                  bookContext.log('info', 'Character appearance extracted from cover', { description: charMatch[1].trim().slice(0, 300) });
                 } else {
                   storyPlan.characterDescription = extractedDesc;
-                  bookContext.log('info', 'Character appearance extracted (unstructured)', { description: extractedDesc.slice(0, 100) });
+                  bookContext.log('info', 'Character appearance extracted (unstructured)', { description: extractedDesc.slice(0, 300) });
                 }
                 // Store additional cover characters (Grammy, siblings, etc.) for illustration allowlist
                 const addlRaw = addlMatch?.[1]?.trim();
                 if (addlRaw && addlRaw.toUpperCase() !== 'NONE' && addlRaw.length > 4) {
                   storyPlan.additionalCoverCharacters = addlRaw;
-                  bookContext.log('info', 'Additional cover characters detected', { characters: addlRaw.slice(0, 150) });
+                  bookContext.log('info', 'Additional cover characters detected', { characters: addlRaw.slice(0, 300) });
                 } else {
                   storyPlan.additionalCoverCharacters = null;
                 }
                 if (styleMatch?.[1]?.trim()) {
                   storyPlan.coverArtStyle = styleMatch[1].trim();
-                  bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 150) });
+                  bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 300) });
                 } else {
                   bookContext.log('info', 'Cover art style not extracted — using cinematic_3d default');
                 }
@@ -1466,7 +1466,7 @@ Format your answer with each label on its own line followed by a colon and the a
                   continue;
                 }
                 storyPlan.characterAnchor = anchorText;
-                bookContext.log('info', 'Character anchor extracted', { attempt: anchorAttempt, anchor: anchorText.slice(0, 200) });
+                bookContext.log('info', 'Character anchor extracted', { attempt: anchorAttempt, anchor: anchorText.slice(0, 300) });
                 // Persist to DB immediately
                 if (progressCallbackUrl) {
                   const entriesSummary = Array.isArray(storyPlan.entries)
