@@ -266,86 +266,73 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
  * @returns {string} Complete prompt for full-page generation
  */
 function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
-  // Use the requested art style directly — don't override to graphic_novel_cinematic.
-  // This ensures graphic novels have the same Pixar visual style as other children's books.
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
+  // Use graphic_novel_cinematic for comic pages — it's tailored for sequential art with Pixar quality
+  const styleConfig = ART_STYLE_CONFIG.graphic_novel_cinematic || ART_STYLE_CONFIG.cinematic_3d || ART_STYLE_CONFIG.pixar_premium;
   const parts = [];
 
-  // Page-level framing
-  parts.push('Create a complete, print-ready comic book page for a premium middle-grade graphic novel.');
-  parts.push('This is ONE FULL PAGE of a graphic novel. Render the ENTIRE page as a single image including:');
-  parts.push('- Panel borders (dark ink lines) and white gutters between panels');
-  parts.push('- All character art with consistent appearance');
-  parts.push('- Speech bubbles with the EXACT dialogue text written inside them');
-  parts.push('- Caption/narration boxes with the EXACT text written inside them');
-  parts.push('- Sound effects as stylized comic lettering');
-  parts.push('- The page should have slim white margins around the outer edges');
+  // ── PRIORITY 1: What this image IS (comic page, not a single illustration) ──
+  parts.push('⚠️ OUTPUT FORMAT — THIS IS A COMIC BOOK PAGE, NOT A SINGLE ILLUSTRATION:');
+  parts.push('Render a complete COMIC BOOK PAGE with multiple PANELS arranged in a grid layout.');
+  parts.push('The output must look like a page ripped from a premium Pixar-style graphic novel:');
+  parts.push('- Multiple panels separated by dark ink borders and white gutters');
+  parts.push('- White speech bubbles with dark outlines and pointed tails toward speakers');
+  parts.push('- Caption boxes with text inside them');
+  parts.push('- Sound effects as bold stylized lettering');
+  parts.push('- White margins around the outer page edges');
+  parts.push('This is NOT a single scene. It is a MULTI-PANEL COMIC PAGE with SEQUENTIAL STORYTELLING.');
   parts.push('');
 
-  // Character identity
-  if (childName) {
-    parts.push(`PRIMARY HERO: ${childName}.`);
-  }
-  if (opts.characterDescription) {
-    parts.push(`LOCKED HERO APPEARANCE: ${opts.characterDescription}`);
-  }
-  if (opts.characterAnchor) {
-    parts.push(`CHARACTER ANCHOR LOCK: ${opts.characterAnchor}`);
-  }
-  if (opts.characterOutfit) {
-    parts.push(`OUTFIT LOCK: ${opts.characterOutfit}`);
-  }
-  if (opts.additionalCoverCharacters) {
-    parts.push(`ALLOWED SUPPORTING CHARACTERS: ${opts.additionalCoverCharacters}`);
-  }
-  if (opts.recurringElement) {
-    parts.push(`RECURRING MOTIF: ${opts.recurringElement}`);
-  }
-  if (opts.keyObjects) {
-    parts.push(`LOCKED RECURRING PROPS: ${opts.keyObjects}`);
-  }
-
-  // Hair negatives to prevent hallucinated accessories
-  if (opts.characterDescription) {
-    const negatives = buildHairNegatives(opts.characterDescription);
-    if (negatives) parts.push(negatives);
-  }
-
-  parts.push('');
-  parts.push('=== PAGE COMPOSITION ===');
+  // ── PRIORITY 2: The page composition (what to draw) ──
+  parts.push('=== PAGE COMPOSITION (follow this exactly) ===');
   parts.push(fullPagePrompt);
   parts.push('');
 
-  // Comic typography rules — Gemini renders ALL text into the image
-  parts.push('LETTERING RULES (CRITICAL — you MUST render all text):');
-  parts.push('- Speech bubbles: white oval/round with dark outline and a pointed tail toward the speaker. Write the EXACT dialogue text inside.');
-  parts.push('- Shout bubbles: jagged/starburst shape with bold uppercase text inside.');
-  parts.push('- Thought bubbles: cloud shape with small circle trail leading to thinker. Write the thought text inside.');
-  parts.push('- Whisper bubbles: dashed outline, smaller italic text inside.');
-  parts.push('- Narration captions: rectangular box with dark/navy background and white text inside.');
-  parts.push('- Location captions: rectangular box with light cream background and dark text inside.');
-  parts.push('- Internal monologue captions: rectangular box with yellow/warm background.');
-  parts.push('- Sound effects: bold stylized comic lettering integrated into the art.');
-  parts.push('- All text MUST be clearly legible, correctly spelled, and large enough to read at print size.');
-  parts.push('- Reading order flows top-to-bottom, left-to-right.');
-  parts.push('- TEXT IS MANDATORY: If the page description includes dialogue, captions, or SFX, you MUST render them as visible text in the image. A page with missing text will be rejected.');
+  // ── PRIORITY 3: Text rendering (CRITICAL) ──
+  parts.push('=== TEXT & LETTERING (MANDATORY — pages without text will be REJECTED) ===');
+  parts.push('You MUST render ALL text described above as visible, legible text in the image:');
+  parts.push('• SPEECH BUBBLES: White oval/round bubbles with 1-2pt dark outline and a pointed tail toward the speaker. The EXACT dialogue text must be written inside in clean, readable black lettering.');
+  parts.push('• THOUGHT BUBBLES: Cloud/puffy shape with small circles trailing to the thinker. Thought text inside.');
+  parts.push('• SHOUT BUBBLES: Jagged/starburst spiky shape. Bold uppercase text inside.');
+  parts.push('• CAPTION BOXES: Rectangular boxes. Narration = dark navy background with white text. Location = cream background with dark text.');
+  parts.push('• SOUND EFFECTS: Large bold stylized comic lettering integrated into the action (e.g. "BOOM", "CRASH", "WHOOSH").');
+  parts.push('• Text must be LARGE ENOUGH to read when printed at 6×9 inches. Minimum apparent font size: 8pt equivalent.');
+  parts.push('• Reading order: top-to-bottom, left-to-right within each panel.');
+  parts.push('• Every speech bubble, caption, and SFX mentioned in the page composition MUST appear as rendered text.');
   parts.push('');
 
-  // Art direction
-  parts.push('ART DIRECTION:');
-  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  // ── PRIORITY 4: Art style ──
+  parts.push('=== ART STYLE ===');
+  parts.push(`${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push('Premium 3D Pixar/DreamWorks animation quality adapted for comic book sequential art.');
+  parts.push('Volumetric cinematic lighting, subsurface skin scattering, rich saturated colors, dramatic depth of field.');
+  parts.push('Characters must be emotionally expressive with clear facial acting readable at small panel sizes.');
   if (opts.colorScript) {
     const cs = typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript);
-    parts.push(`COLOR SCRIPT: ${cs}`);
+    parts.push(`Color direction: ${cs}`);
   }
-  parts.push('- Cinematic 3D lighting with volumetric light shafts and rim lights for depth');
-  parts.push('- Pixar-quality character rendering with subsurface skin scattering');
-  parts.push('- Clean panel borders, professional comic book page layout');
-  parts.push('- Print-ready quality with clear value separation and saturated colors');
-  parts.push('- Preserve continuity with previous pages and character references');
   parts.push('');
-  parts.push('ASPECT RATIO: 2:3 (vertical/portrait page)');
-  parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
+
+  // ── PRIORITY 5: Character identity (condensed) ──
+  const charParts = [];
+  if (childName) charParts.push(`Hero: ${childName}.`);
+  if (opts.characterDescription) charParts.push(`Appearance: ${opts.characterDescription}`);
+  if (opts.characterOutfit) charParts.push(`Outfit (same every page): ${opts.characterOutfit}`);
+  if (opts.characterAnchor) charParts.push(`Anchor lock: ${opts.characterAnchor}`);
+  if (opts.additionalCoverCharacters) charParts.push(`Supporting characters: ${opts.additionalCoverCharacters}`);
+  if (opts.recurringElement) charParts.push(`Recurring motif: ${opts.recurringElement}`);
+  if (opts.keyObjects) charParts.push(`Recurring props: ${opts.keyObjects}`);
+  if (opts.characterDescription) {
+    const negatives = buildHairNegatives(opts.characterDescription);
+    if (negatives) charParts.push(negatives);
+  }
+  if (charParts.length > 0) {
+    parts.push('=== CHARACTER IDENTITY (maintain consistency) ===');
+    parts.push(charParts.join('\n'));
+    parts.push('');
+  }
+
+  parts.push('ASPECT RATIO: 2:3 (vertical/portrait page).');
+  parts.push('Wholesome, family-friendly, premium sequential art. Print-ready quality.');
 
   return parts.join('\n');
 }
