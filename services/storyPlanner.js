@@ -116,10 +116,12 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
+  const { timeoutMs, requestLabel, ...geminiGenConfig } = genConfig || {};
+
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-    generationConfig: genConfig,
+    generationConfig: geminiGenConfig,
   };
 
   let resp;
@@ -132,8 +134,8 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         },
-        genConfig.timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
-        genConfig.requestLabel || `Gemini request attempt ${attempt}`
+        timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+        requestLabel || `Gemini request attempt ${attempt}`
       );
       break;
     } catch (fetchErr) {
@@ -1954,6 +1956,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
       if (structure.issues.length > 0) {
         throw new Error(`Invalid chunk: ${structure.issues.join(', ')}`);
       }
+      bookContext?.touchActivity?.();
       bookContext?.log('info', 'Graphic novel chunk planned', {
         scenes: chunkSceneLabel,
         pages: chunkPlan.pages.length,
@@ -2227,8 +2230,10 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         requestLabel: `Graphic novel story bible attempt ${attempt}`,
       });
       if (!storyBible.title) throw new Error('Story bible missing title');
+      bookContext?.touchActivity?.();
       break;
     } catch (e) {
+      bookContext?.touchActivity?.();
       bookContext?.log('warn', `Graphic novel story bible attempt ${attempt} failed: ${e.message}`);
       if (attempt === 3) throw e;
       await new Promise((r) => setTimeout(r, 1500 * attempt));
@@ -2262,6 +2267,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       timeoutMs: GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS,
       requestLabel: 'Graphic novel full-plan fast path',
     });
+    bookContext?.touchActivity?.();
     plan = legacyGraphicNovelScenesToPages(parsedPlan, childDetails);
     plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
     const structure = summarizeGraphicNovelStructure(plan);
@@ -2272,6 +2278,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
           costTracker,
           bookContext,
         });
+        bookContext?.touchActivity?.();
         plan = normalizeGraphicNovelPlan(plan, { fallbackTitle: storyBible.title || approvedTitle });
       } catch (repairErr) {
         bookContext?.log('warn', `Graphic novel plan repair failed: ${repairErr.message}`);
@@ -2282,6 +2289,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       throw new Error(`Invalid plan: ${plan.pages?.length || 0} pages`);
     }
   } catch (e) {
+    bookContext?.touchActivity?.();
     bookContext?.log('warn', `Graphic novel full-plan fast path failed: ${e.message}`);
     bookContext?.log('warn', 'Switching to chunked scene planner');
     plan = await planGraphicNovelByChunks(
@@ -2323,9 +2331,11 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
         requestLabel: 'Graphic novel critic pass',
       }
     );
+    bookContext?.touchActivity?.();
     improvedPlan = legacyGraphicNovelScenesToPages(parsedCriticPlan, childDetails);
     improvedPlan = normalizeGraphicNovelPlan(improvedPlan, { fallbackTitle: plan.title });
   } catch (criticErr) {
+    bookContext?.touchActivity?.();
     bookContext?.log('warn', `Graphic novel critic failed — using original plan: ${criticErr.message}`);
   }
 
