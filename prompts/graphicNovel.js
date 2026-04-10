@@ -29,14 +29,77 @@ In addition to illustrated pages, you MUST include text_interstitial pages — p
 - Types: "scene_opener" (chapter title + atmospheric prose), "internal_monologue" (character's inner thoughts), "letter_or_diary" (in-world document), "narrator_aside" (backstory or reflection).
 - Each interstitial should have 40-100 words of beautifully written prose.
 
-WRITING QUALITY — this is a book, not a storyboard:
-- Write dialogue that REVEALS CHARACTER — not just advances plot. Each line should sound like ONLY that character could say it.
-- Use subtext — characters should sometimes say one thing while meaning another.
-- Include humor — wit, banter, comic timing. Middle-grade readers love funny, relatable characters.
-- Every scene should have at least one moment of genuine emotional resonance — not just action.
-- Narration captions are your novelist's voice. Use them for atmosphere, foreshadowing, and emotional insight — never to describe what the art already shows.
-- The protagonist must have a clear internal arc: what they want, what they need, how they change.
-- Supporting characters should feel three-dimensional — they have their own goals, fears, and humor.
+WRITING QUALITY — 9 MANDATORY PRINCIPLES:
+
+1. EMOTIONAL CLOSENESS (most important):
+   Reduce distant narration. Increase direct feeling. Add character thoughts and simple spoken lines.
+   BAD: "Isabella felt uncertainty in the vast landscape."
+   GOOD: Speech bubble from Isabella: "My hands won't stop shaking."
+   BAD: "The cave was dark and scary."
+   GOOD: Thought bubble: "I can't see anything. I can't see anything."
+   Always choose the version that puts the reader INSIDE the character's body, not watching from outside.
+
+2. PANEL PURPOSE RULE (mandatory):
+   Every panel must do exactly ONE clear job:
+   - Action (something happens physically)
+   - Emotion (a face, a reaction, a feeling lands)
+   - Discovery (something new is revealed)
+   - Tension (danger, uncertainty, a question hangs)
+   - Payoff (a joke lands, a fear is conquered, a promise is kept)
+   If a panel doesn't clearly serve one of these five purposes, rewrite it or merge it with another.
+
+3. DIALOGUE OVER NARRATION:
+   At least 60% of all text should be dialogue or thought bubbles — NOT narration captions.
+   Convert narration into character speech whenever possible. Narration should ONLY be used for:
+   - Time/place transitions ("Three hours later...")
+   - Information the art cannot convey
+   - Brief atmospheric moments
+   Narration must NEVER describe what the art already shows.
+
+4. PACING ESCALATION:
+   The emotional register must escalate clearly across scenes:
+   - Scene 1-2: curious, hopeful, slightly unsure
+   - Scene 3-4: confused, making mistakes, struggling
+   - Scene 5: afraid but still pushing forward
+   - Scene 6: all-in, decisive courage despite fear
+   - Scene 7: calm confidence, earned warmth
+   Each section must FEEL emotionally different from the one before it.
+
+5. COMPANION PRESENCE (critical):
+   If the story has a companion character (pet, sidekick, magical creature):
+   - They must appear in at least 50% of illustrated pages
+   - They must REACT visually or emotionally in key panels (not just stand there)
+   - They must provide comfort, humor, or grounding
+   - They are not decoration — they are the protagonist's emotional anchor
+
+6. VISUAL STORYTELLING:
+   Write with the illustrator in mind. Describe what must be SHOWN, not told.
+   - Add small visual actions: hands gripping, feet sliding, eyes widening, objects dropping
+   - Replace abstract emotions with physical manifestations
+   - Avoid "she felt brave" — show her stepping forward with clenched fists
+   - Every fullPagePrompt should contain at least one specific physical detail per panel
+
+7. KEY MOMENTS UPGRADE:
+   Four moments must feel BIG, cinematic, and emotionally powerful:
+   - First step into danger (scene 2-3)
+   - Moment of doubt / lowest point (scene 5)
+   - Turning point decision (scene 6)
+   - Final success / emotional landing (scene 7)
+   For these moments: use splash pages or hero panels, fewer words, stronger visuals, maximum emotional impact.
+
+8. LANGUAGE SIMPLIFICATION:
+   - No metaphors a 10-year-old wouldn't instantly understand
+   - Replace literary flourishes with sensory, concrete language
+   - Keep beauty, remove complexity
+   - Every sentence should hit like a punch — short, clear, felt
+   BAD: "The luminescent aurora cascaded across the celestial expanse"
+   GOOD: "The sky exploded with color — green and purple and gold, all swirling together"
+
+9. CONSISTENCY:
+   - Character names must be consistent throughout
+   - Tone must not randomly shift (no sudden formality in casual scenes)
+   - Visual continuity: if a character picks up an object, they should still have it in the next panel
+   - Logic: events must follow cause and effect
 
 Editorial principles:
 - Clarity beats density, but substance beats emptiness.
@@ -44,7 +107,7 @@ Editorial principles:
 - Every page needs one dominant beat.
 - Every page must have an intentional page-turn function: setup, reveal, joke, dread, question, release, or wonder.
 - Readers must always know where to look next.
-- Let the art carry 10-15% of the book through silent or near-silent panels — but most pages should have meaningful dialogue or narration.
+- 10-15% of pages can be silent or near-silent — but most should have meaningful dialogue.
 - Aim for an average of 40-60 words per illustrated page across the whole book.
 
 Story structure:
@@ -128,6 +191,7 @@ Return a JSON object with this shape:
       "voiceGuide": "detailed speech rhythm, vocabulary level, attitude, catchphrases",
       "visualAnchor": "2-3 reusable visual identifiers",
       "actingNotes": "facial and body-language notes for consistency",
+      "companionBehavior": "(for companion role only) specific behavioral patterns — how they react under stress, provide comfort, add humor, ground the protagonist. Must appear in 50%+ of illustrated pages.",
       "innerConflict": "what the character struggles with internally",
       "wantVsNeed": "what they think they want vs. what they actually need",
       "flaw": "a specific character flaw that creates obstacles",
@@ -156,6 +220,7 @@ Return a JSON object with this shape:
       "turningPoint": "what changes by the end of scene",
       "pageCountTarget": 8,
       "dominantEmotion": "primary emotional tone",
+      "emotionalRegister": "the specific emotional state the protagonist is in during this scene (e.g. 'curious but cautious', 'afraid but pushing through', 'calm earned confidence')",
       "pageTurnIntent": "what the final page turn of the scene should do",
       "subplotBeat": "how the subplot advances in this scene"
     }
@@ -304,11 +369,16 @@ Include text_interstitial pages for deeper storytelling. Each scene should open 
 - "pageType": "text_interstitial" — prose pages with heading, subheading, and bodyText (40-100 words).
 - Types: scene_opener, internal_monologue, letter_or_diary, narrator_aside.
 
-WRITING QUALITY:
-- Dialogue must reveal character — each line sounds like ONLY that character.
-- Include humor, subtext, and emotional complexity.
-- Narration should be atmospheric and insightful.
-- Write as a novelist, not a storyboard artist.
+WRITING QUALITY — apply these 9 rules:
+1. EMOTIONAL CLOSENESS: Direct feeling over distant narration. "My hands won't stop shaking" beats "She felt afraid."
+2. PANEL PURPOSE: Every panel = one job (Action, Emotion, Discovery, Tension, or Payoff). No vague panels.
+3. DIALOGUE OVER NARRATION: 60%+ of text should be dialogue/thought bubbles. Narration only for what art can't show.
+4. PACING: Match the emotional register to the scene position (early=curious, middle=struggling, late=brave, end=confident).
+5. COMPANION: The companion reacts, comforts, and adds humor — present in 50%+ of illustrated pages.
+6. VISUAL STORYTELLING: Concrete physical details (hands, eyes, objects) over abstract descriptions.
+7. KEY MOMENTS: First danger, doubt, turning point, and success must feel CINEMATIC and BIG.
+8. LANGUAGE: Sensory and concrete. No metaphors a 10-year-old wouldn't get instantly.
+9. CONSISTENCY: Names, tone, logic, and visual continuity must be airtight.
 
 Rules:
 - Output only the requested scenes.

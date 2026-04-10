@@ -266,10 +266,9 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
  * @returns {string} Complete prompt for full-page generation
  */
 function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
-  const requestedStyle = artStyle === 'cinematic_3d' || artStyle === 'pixar_premium'
-    ? 'graphic_novel_cinematic'
-    : artStyle;
-  const styleConfig = ART_STYLE_CONFIG[requestedStyle] || ART_STYLE_CONFIG.graphic_novel_cinematic;
+  // Use the requested art style directly — don't override to graphic_novel_cinematic.
+  // This ensures graphic novels have the same Pixar visual style as other children's books.
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
   const parts = [];
 
   // Page-level framing
