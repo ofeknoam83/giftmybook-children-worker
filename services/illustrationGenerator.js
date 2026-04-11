@@ -266,8 +266,8 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
  * @returns {string} Complete prompt for full-page generation
  */
 function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
-  // Use graphic_novel_cinematic for comic pages — it's tailored for sequential art with Pixar quality
-  const styleConfig = ART_STYLE_CONFIG.graphic_novel_cinematic || ART_STYLE_CONFIG.cinematic_3d || ART_STYLE_CONFIG.pixar_premium;
+  // Use the same Pixar/cinematic style as regular children's books — the user wants premium 3D, not a flat comic style
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.cinematic_3d || ART_STYLE_CONFIG.pixar_premium;
   const parts = [];
 
   // ── PRIORITY 1: What this image IS (comic page, not a single illustration) ──
@@ -300,12 +300,12 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   parts.push('• Every speech bubble, caption, and SFX mentioned in the page composition MUST appear as rendered text.');
   parts.push('');
 
-  // ── PRIORITY 4: Art style ──
+  // ── PRIORITY 4: Art style (same premium Pixar 3D as children's books) ──
   parts.push('=== ART STYLE ===');
   parts.push(`${styleConfig.prefix} ${styleConfig.suffix}`);
-  parts.push('Premium 3D Pixar/DreamWorks animation quality adapted for comic book sequential art.');
-  parts.push('Volumetric cinematic lighting, subsurface skin scattering, rich saturated colors, dramatic depth of field.');
-  parts.push('Characters must be emotionally expressive with clear facial acting readable at small panel sizes.');
+  parts.push('The art in each panel must be PREMIUM 3D CINEMATIC PIXAR QUALITY — the same lush, photorealistic 3D CGI render style used in Pixar and DreamWorks animated films.');
+  parts.push('Volumetric cinematic lighting with warm golden tones, subsurface skin scattering, rich saturated colors, dreamy depth-of-field bokeh backgrounds.');
+  parts.push('Characters must be emotionally expressive with soft, appealing Pixar-style faces.');
   if (opts.colorScript) {
     const cs = typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript);
     parts.push(`Color direction: ${cs}`);
@@ -1019,6 +1019,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     characterAnchor: opts.characterAnchor || null,
     bookFormat: opts.bookFormat || null,
     comicMode: opts.comicMode || false,
+    comicPageMode: opts.comicPageMode || false,
     panelType: opts.panelType || '',
     shot: opts.shot || '',
     cameraAngle: opts.cameraAngle || '',
