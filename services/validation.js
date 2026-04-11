@@ -204,8 +204,14 @@ function validateFinalizeBookRequest(body) {
   if (!body.bookId || typeof body.bookId !== 'string') {
     errors.push('bookId is required');
   }
-  if (!Array.isArray(body.spreads) || body.spreads.length === 0) {
-    errors.push('spreads is required and must be a non-empty array');
+  if (body.bookFormat === 'GRAPHIC_NOVEL') {
+    if (!Array.isArray(body.pages) || body.pages.length === 0) {
+      errors.push('pages is required and must be a non-empty array for graphic novels');
+    }
+  } else {
+    if (!Array.isArray(body.spreads) || body.spreads.length === 0) {
+      errors.push('spreads is required and must be a non-empty array');
+    }
   }
   return { valid: errors.length === 0, errors };
 }
