@@ -1596,8 +1596,16 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                 const addlMatch = extractedDesc.match(/ADDITIONAL_CHARACTERS[:\s]+([\s\S]*?)(?=\nSTYLE[:\s]|$)/i);
                 const styleMatch = extractedDesc.match(/STYLE[:\s]+([\s\S]*?)$/i);
                 if (charMatch?.[1]?.trim()) {
-                  storyPlan.characterDescription = charMatch[1].trim();
-                  bookContext.log('info', 'Character appearance extracted from cover', { description: charMatch[1].trim().slice(0, 300) });
+                  const charDesc = charMatch[1].trim();
+                  const charDescLower = charDesc.toLowerCase();
+                  // Guard: if Gemini describes an adult instead of a child, discard
+                  if (charDescLower.includes('adult male') || charDescLower.includes('adult female') || charDescLower.includes('not a child') || charDescLower.includes('beard and mustache')) {
+                    bookContext.log('warn', 'Character description describes an adult, not a child — discarding', { description: charDesc.slice(0, 200) });
+                    storyPlan.characterDescription = null;
+                  } else {
+                    storyPlan.characterDescription = charDesc;
+                    bookContext.log('info', 'Character appearance extracted from cover', { description: charDesc.slice(0, 300) });
+                  }
                 } else {
                   storyPlan.characterDescription = extractedDesc;
                   bookContext.log('info', 'Character appearance extracted (unstructured)', { description: extractedDesc.slice(0, 300) });
@@ -1664,6 +1672,14 @@ Format your answer with each label on its own line followed by a colon and the a
                   bookContext.log('warn', `Character anchor attempt ${anchorAttempt} returned empty/short response`, { length: anchorText?.length || 0 });
                   if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
                   continue;
+                }
+                // Guard: if Gemini says "not a child" or "adult male/female", the photo
+                // subject isn't a child — discard the anchor to avoid prompt contradictions
+                const anchorLower = anchorText.toLowerCase();
+                if (anchorLower.includes('not a child') || anchorLower.includes('adult male') || anchorLower.includes('adult female') || anchorLower.includes('not a kid')) {
+                  bookContext.log('warn', 'Character anchor describes an adult, not a child — discarding to avoid prompt contradiction', { anchor: anchorText.slice(0, 200) });
+                  storyPlan.characterAnchor = null;
+                  break;
                 }
                 storyPlan.characterAnchor = anchorText;
                 bookContext.log('info', 'Character anchor extracted', { attempt: anchorAttempt, anchor: anchorText.slice(0, 300) });
