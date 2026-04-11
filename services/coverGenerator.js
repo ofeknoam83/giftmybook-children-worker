@@ -45,11 +45,12 @@ function softenColor(color, amount = 0.5) {
  * Generate back cover illustration using Gemini, matching the front cover style.
  *
  * @param {Buffer} frontCoverBuffer - Front cover image
- * @param {object} opts - { title, childName, synopsis, heartfeltNote, bookFrom }
+ * @param {object} opts - { title, childName, synopsis, heartfeltNote, bookFrom, bookFormat }
  * @returns {Promise<Buffer|null>} Back cover image buffer, or null on failure
  */
 async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
-  const { title, childName, synopsis, heartfeltNote, bookFrom, costTracker } = opts;
+  const { title, childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat } = opts;
+  const isSquare = (bookFormat || '').toLowerCase() === 'picture_book';
 
   // Resize front cover to use as style reference
   const refBuffer = await sharp(frontCoverBuffer)
@@ -94,7 +95,7 @@ TEXT RULES:
 - Text should feel integrated into the illustration, not overlaid
 - The overall feel should be warm, cozy, and premium
 
-FORMAT: Square image, 1:1 aspect ratio.`;
+FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide'}.`;
 
   const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -205,11 +206,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     frontCoverBuffer = opts.preGeneratedCoverBuffer;
   } else {
     const artStyle = opts.artStyle || 'pixar_premium';
+    const aspectHint = isPictureBook
+      ? 'Square image, 1:1 aspect ratio.'
+      : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
     const coverScene = `A beautiful ${artStyle} children's book cover illustration. `
       + `The main character is a ${childDetails.childAge || childDetails.age || 5}-year-old child named ${childDetails.childName || childDetails.name}. `
       + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
       + `The child should be centered, looking happy and confident. `
-      + `Background should be thematic and whimsical.`;
+      + `Background should be thematic and whimsical. `
+      + aspectHint;
 
     try {
       const imageUrl = await generateIllustration(
@@ -253,6 +258,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       heartfeltNote,
       bookFrom,
       costTracker: opts.costTracker,
+      bookFormat,
     });
   }
 
@@ -275,7 +281,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const targetPx = Math.round(backWidth / 72 * 300);
       const targetHPx = Math.round(totalHeight / 72 * 300);
       const resized = await sharp(backCoverBuffer)
-        .resize(targetPx, targetHPx, { fit: 'cover' })
+        .resize(targetPx, targetHPx, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
@@ -374,7 +380,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const targetWidthPx = Math.round(frontWidth / 72 * 300);
       const targetHeightPx = Math.round(totalHeight / 72 * 300);
       const resized = await sharp(frontCoverBuffer)
-        .resize(targetWidthPx, targetHeightPx, { fit: 'cover' })
+        .resize(targetWidthPx, targetHeightPx, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
