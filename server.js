@@ -2062,6 +2062,57 @@ Format your answer with each label on its own line followed by a colon and the a
           }
         }
 
+        // ── Upsell covers: generate 4 styles BEFORE interior PDF so they can be baked in ──
+        let gnUpsellCovers = [];
+        if (preGeneratedCoverBuffer) {
+          try {
+            bookContext.log('info', 'Generating upsell covers for graphic novel (4 styles)...');
+            const upsellCostTracker = new CostTracker();
+            const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
+              apiKeys, costTracker: upsellCostTracker,
+              characterDescription: storyPlan?.characterDescription || null,
+              characterAnchor: storyPlan?.characterAnchor || null,
+              theme: theme || null,
+              momDescription: (theme === 'mothers_day' && storyPlan?.momDescription) ? storyPlan.momDescription : null,
+            }).catch(e => {
+              console.warn(`[server] Upsell covers background error: ${e.message}`);
+              return [];
+            });
+            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 4 * 60 * 1000));
+            const result = await Promise.race([upsellPromise, timeoutPromise]);
+            costTracker.addFromSummary(upsellCostTracker.getSummary());
+            if (result === null) {
+              bookContext.log('warn', 'Upsell cover generation timed out after 4 min — continuing without upsell spread');
+            } else {
+              gnUpsellCovers = result;
+              bookContext.log('info', `Upsell covers ready: ${gnUpsellCovers.length}/4 (upsell cost: $${upsellCostTracker.getSummary().totalCost.toFixed(4)})`);
+            }
+          } catch (upsellErr) {
+            bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
+          }
+        }
+
+        // Download upsell cover image buffers from GCS
+        let gnValidUpsell = [];
+        if (gnUpsellCovers.length > 0) {
+          const upsellEntries = await Promise.all(
+            gnUpsellCovers.map(async (uc) => {
+              try {
+                const buf = await downloadBuffer(uc.gcsPath);
+                return { ...uc, coverBuffer: buf };
+              } catch (e) {
+                console.warn(`[server] Could not download upsell buffer ${uc.gcsPath}: ${e.message}`);
+                return { ...uc, coverBuffer: null };
+              }
+            })
+          );
+          gnValidUpsell = upsellEntries.filter(u => u.coverBuffer);
+          if (gnValidUpsell.length > 0) {
+            bookContext.log('info', `Upsell covers downloaded for graphic novel (${gnValidUpsell.length} covers)`);
+          }
+        }
+        upsellCoversWithBuffers = gnValidUpsell;
+
         interiorPdf = await buildGraphicNovelPdf([], {
           title: storyPlan.title || bookTitle,
           childName: childDetails.name,
@@ -2070,6 +2121,8 @@ Format your answer with each label on its own line followed by a colon and the a
           dedication,
           year: new Date().getFullYear(),
           pages: storyPlan.pages || [],
+          upsellCovers: gnValidUpsell,
+          bookId,
         });
 
         previewImageUrls = (storyPlan.pages || []).map(p => p.illustrationUrl).filter(Boolean);

@@ -1347,10 +1347,10 @@ async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
  * Build a print-ready graphic novel PDF with full-page AI-generated images.
  * Each story page is a single full-page image (panels, text, bubbles all baked in by Gemini).
  * @param {Array} _unused - Legacy parameter, no longer used
- * @param {object} opts - { title, childName, tagline, dedication, year, pages }
+ * @param {object} opts - { title, childName, tagline, dedication, year, pages, upsellCovers, bookId }
  */
 async function buildGraphicNovelPdf(_unused, opts = {}) {
-  const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear() } = opts;
+  const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear(), upsellCovers, bookId } = opts;
 
   const PAGE_W = 450;  // 6.25" with bleed
   const PAGE_H = 666;  // 9.25" with bleed
@@ -1366,10 +1366,12 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   let bubblegum = helvBold;
+  let playfair = helv;
   let playfairItalic = helv;
   let kalam = helv;
   try {
     if (fs.existsSync(FONT_PATHS.bubblegum)) bubblegum = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum));
+    if (fs.existsSync(FONT_PATHS.playfair)) playfair = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.playfair));
     if (fs.existsSync(FONT_PATHS.playfairItalic)) playfairItalic = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic));
     if (fs.existsSync(FONT_PATHS.kalam)) kalam = await pdfDoc.embedFont(fs.readFileSync(FONT_PATHS.kalam));
   } catch (_) {}
@@ -1466,6 +1468,12 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
       const mem = process.memoryUsage();
       console.log(`[layoutEngine] Rendered page ${i + 1}/${srcPages.length} (heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB)`);
     }
+  }
+
+  // ── Upsell spread (QR covers) ──
+  if (upsellCovers && upsellCovers.length > 0) {
+    const upsellFonts = { playfair, playfairItalic, helv, helvB: helvBold };
+    await buildUpsellSpread(pdfDoc, PAGE_W, PAGE_H, upsellFonts, { upsellCovers, childName, bookId });
   }
 
   // End page
