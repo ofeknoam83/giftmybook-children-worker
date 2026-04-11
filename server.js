@@ -1042,6 +1042,17 @@ app.post('/generate-book', authenticate, async (req, res) => {
     if (childAnecdotes.funny_thing) anecdoteParts.push(`Funny thing they do: ${childAnecdotes.funny_thing}`);
     if (childAnecdotes.favorite_food) anecdoteParts.push(`Favorite food: ${childAnecdotes.favorite_food}`);
     if (childAnecdotes.other_detail) anecdoteParts.push(`Other detail: ${childAnecdotes.other_detail}`);
+    // Theme-specific fields
+    if (childAnecdotes.calls_mom) anecdoteParts.push(`Child calls mom: ${childAnecdotes.calls_mom}`);
+    if (childAnecdotes.mom_name) anecdoteParts.push(`Mom's name: ${childAnecdotes.mom_name}`);
+    if (childAnecdotes.calls_dad) anecdoteParts.push(`Child calls dad: ${childAnecdotes.calls_dad}`);
+    if (childAnecdotes.dad_name) anecdoteParts.push(`Dad's name: ${childAnecdotes.dad_name}`);
+    if (childAnecdotes.meaningful_moment) anecdoteParts.push(`Meaningful moment: ${childAnecdotes.meaningful_moment}`);
+    if (childAnecdotes.moms_favorite_moment) anecdoteParts.push(`Mom's favorite moment: ${childAnecdotes.moms_favorite_moment}`);
+    if (childAnecdotes.favorite_cake_flavor) anecdoteParts.push(`Favorite cake flavor: ${childAnecdotes.favorite_cake_flavor}`);
+    if (childAnecdotes.favorite_toys) anecdoteParts.push(`Favorite toys: ${childAnecdotes.favorite_toys}`);
+    if (childAnecdotes.birth_date) anecdoteParts.push(`Birth date: ${childAnecdotes.birth_date}`);
+    if (childAnecdotes.anything_else) anecdoteParts.push(`Additional details: ${childAnecdotes.anything_else}`);
   }
   const enrichedCustomDetails = anecdoteParts.length > 0
     ? [customDetails, ...anecdoteParts].filter(Boolean).join('\n')
