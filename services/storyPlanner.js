@@ -2654,7 +2654,7 @@ function legacyGraphicNovelScenesToPages(plan, childDetails = {}) {
 }
 
 async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
-  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
+  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent, additionalCoverCharacters } = opts;
   const {
     GRAPHIC_NOVEL_PLANNER_SYSTEM,
     GRAPHIC_NOVEL_STORY_BIBLE_SYSTEM,
@@ -2669,7 +2669,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   let enrichedCustomDetails;
   try {
     const [seedResult, enrichedResult] = await Promise.all([
-      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme })
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters })
         .catch(e => {
           bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
           return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
@@ -2702,7 +2702,19 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
     : '';
 
-  const storyBiblePrompt = GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
+  // Family member constraint for graphic novel story bible
+  let familyConstraint = '';
+  if (theme === 'mothers_day') {
+    familyConstraint = additionalCoverCharacters
+      ? `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+  } else if (additionalCoverCharacters) {
+    familyConstraint = `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene. Do NOT invent other family members beyond what is listed above.`;
+  } else {
+    familyConstraint = `\n\nILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:\nStory text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design scenes so they center the child visually. Family presence should be implied (a warm light, a voice, a hand at the edge of frame) — never a full face or body.`;
+  }
+
+  const storyBiblePrompt = GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction + familyConstraint;
 
   let storyBible;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -2773,6 +2785,9 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   plan.characterOutfit = seed.characterOutfit || null;
   plan.recurringElement = seed.favorite_object || null;
   plan.keyObjects = seed.keyObjects || null;
+  if (additionalCoverCharacters) {
+    plan.additionalCoverCharacters = additionalCoverCharacters;
+  }
 
   bookContext?.log('info', 'Graphic novel plan created', {
     title: plan.title,

@@ -1360,6 +1360,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         storyPlan = await planGraphicNovel(childDetails, theme || 'adventure', plannerCustomDetails, {
           apiKeys, costTracker, approvedTitle, bookContext,
           parentBookTitle, parentStoryContent,
+          additionalCoverCharacters: detectedSecondaryCharacters || null,
         });
         storyPlan.isGraphicNovel = true;
         bookContext.touchActivity();

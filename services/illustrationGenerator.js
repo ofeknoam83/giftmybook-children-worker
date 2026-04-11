@@ -198,6 +198,9 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
   }
   if (opts.additionalCoverCharacters) {
     parts.push(`ALLOWED SUPPORTING CHARACTERS ONLY: ${opts.additionalCoverCharacters}`);
+    parts.push('SECONDARY CHARACTER CONSISTENCY: Same hair, skin tone, build, and features on every panel. Match the uploaded reference photo exactly.');
+  } else {
+    parts.push('NO FAMILY MEMBERS: Do NOT draw the child\'s parents, siblings, or grandparents. Only fictional characters (aliens, creatures, villains, etc.) may interact with the child.');
   }
   if (recurringElement) {
     parts.push(`RECURRING MOTIF: ${recurringElement}`);
@@ -318,7 +321,6 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   if (opts.characterDescription) charParts.push(`Appearance: ${opts.characterDescription}`);
   if (opts.characterOutfit) charParts.push(`Outfit (same every page): ${opts.characterOutfit}`);
   if (opts.characterAnchor) charParts.push(`Anchor lock: ${opts.characterAnchor}`);
-  if (opts.additionalCoverCharacters) charParts.push(`Supporting characters: ${opts.additionalCoverCharacters}`);
   if (opts.recurringElement) charParts.push(`Recurring motif: ${opts.recurringElement}`);
   if (opts.keyObjects) charParts.push(`Recurring props: ${opts.keyObjects}`);
   if (opts.characterDescription) {
@@ -328,6 +330,27 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   if (charParts.length > 0) {
     parts.push('=== CHARACTER IDENTITY (maintain consistency) ===');
     parts.push(charParts.join('\n'));
+    parts.push('');
+  }
+
+  // ── PRIORITY 6: Family member rules ──
+  if (opts.additionalCoverCharacters) {
+    parts.push('=== ALLOWED SECONDARY CHARACTERS ===');
+    parts.push(`The following characters appear on the book cover and MAY appear in panels. Draw them as described — do NOT invent new relatives or characters not listed here:`);
+    parts.push(opts.additionalCoverCharacters);
+    parts.push(`IMPORTANT: Only the characters listed above are allowed. Do NOT add any other family members, parents, siblings, or relatives beyond what is listed.`);
+    parts.push('SECONDARY CHARACTER CONSISTENCY LOCK:');
+    parts.push('- Same hair color, style, and length on every page');
+    parts.push('- Same skin tone and facial features on every page');
+    parts.push('- Same approximate age and build on every page');
+    parts.push('- Do NOT change their ethnicity, hair, or skin tone between pages');
+    parts.push('- Match their appearance to the uploaded reference photo');
+    parts.push('');
+  } else {
+    parts.push('=== NO FAMILY MEMBERS IN PANELS ===');
+    parts.push('Do NOT draw the child\'s parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately.');
+    parts.push('The child may interact with fictional characters (shopkeepers, aliens, talking animals, magical creatures, villains) but NEVER with family members.');
+    parts.push('If a parent or relative is mentioned in dialogue, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body.');
     parts.push('');
   }
 
