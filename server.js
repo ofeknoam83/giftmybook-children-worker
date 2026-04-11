@@ -2765,27 +2765,15 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  const { bookId, title, spreads, coverData, bookFormat, childName, bookFrom, dedication, heartfeltNote, upsellCovers, apiKeys } = req.body;
+  const { bookId, title, spreads, pages, coverData, bookFormat, childName, bookFrom, dedication, heartfeltNote, tagline, upsellCovers, apiKeys } = req.body;
+  const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
   // Build dedication from heartfeltNote + bookFrom (same logic as main generation flow)
   const resolvedDedication = dedication || (heartfeltNote ? (bookFrom ? `From ${bookFrom}:\n${heartfeltNote}` : heartfeltNote) : (bookFrom ? `From ${bookFrom}` : `For ${childName || 'the child'}`));
 
-  console.log(`[server] /finalize-book: bookId=${bookId}, spreads=${spreads.length}`);
+  console.log(`[server] /finalize-book: bookId=${bookId}, format=${bookFormat || 'picture_book'}, ${isGraphicNovel ? `pages=${(pages || []).length}` : `spreads=${(spreads || []).length}`}`);
   const bookContext = createBookContext(bookId);
 
   try {
-    // Download all spread images
-    const spreadsWithBuffers = [];
-    for (const spread of spreads) {
-      let imageBuffer = null;
-      if (spread.imageUrl) {
-        try { imageBuffer = await downloadBuffer(spread.imageUrl); } catch(e) {
-          console.warn(`[finalize-book] Could not download spread image: ${e.message}`);
-        }
-      }
-      spreadsWithBuffers.push({ ...spread, spreadIllustrationBuffer: imageBuffer });
-      bookContext.touchActivity();
-    }
-
     // Download upsell cover buffers if provided
     let resolvedUpsellCovers = [];
     if (Array.isArray(upsellCovers) && upsellCovers.length > 0) {
@@ -2814,16 +2802,57 @@ app.post('/finalize-book', authenticate, async (req, res) => {
       resolvedUpsellCovers = resolvedUpsellCovers.filter(u => u.coverBuffer);
     }
 
-    // Assemble final PDF
-    const pdfBuffer = await assemblePdf(spreadsWithBuffers, bookFormat || 'picture_book', {
-      title: title || 'My Story',
-      childName: childName || '',
-      bookFrom: bookFrom || '',
-      dedication: resolvedDedication,
-      year: new Date().getFullYear(),
-      bookId,
-      upsellCovers: resolvedUpsellCovers,
-    });
+    let pdfBuffer;
+    if (isGraphicNovel) {
+      // ── Graphic novel: download page images and build with buildGraphicNovelPdf ──
+      const { buildGraphicNovelPdf } = require('./services/layoutEngine');
+
+      const pagesWithBuffers = [];
+      for (const page of pages) {
+        let imageBuffer = null;
+        if (page.imageUrl) {
+          try { imageBuffer = await downloadBuffer(page.imageUrl); } catch (e) {
+            console.warn(`[finalize-book] Could not download page image: ${e.message}`);
+          }
+        }
+        pagesWithBuffers.push({ ...page, imageBuffer });
+        bookContext.touchActivity();
+      }
+
+      pdfBuffer = await buildGraphicNovelPdf([], {
+        title: title || 'My Story',
+        childName: childName || '',
+        tagline: tagline || '',
+        dedication: resolvedDedication,
+        year: new Date().getFullYear(),
+        pages: pagesWithBuffers,
+        upsellCovers: resolvedUpsellCovers,
+        bookId,
+      });
+    } else {
+      // ── Standard picture/early-reader: spread-based PDF assembly ──
+      const spreadsWithBuffers = [];
+      for (const spread of spreads) {
+        let imageBuffer = null;
+        if (spread.imageUrl) {
+          try { imageBuffer = await downloadBuffer(spread.imageUrl); } catch(e) {
+            console.warn(`[finalize-book] Could not download spread image: ${e.message}`);
+          }
+        }
+        spreadsWithBuffers.push({ ...spread, spreadIllustrationBuffer: imageBuffer });
+        bookContext.touchActivity();
+      }
+
+      pdfBuffer = await assemblePdf(spreadsWithBuffers, bookFormat || 'picture_book', {
+        title: title || 'My Story',
+        childName: childName || '',
+        bookFrom: bookFrom || '',
+        dedication: resolvedDedication,
+        year: new Date().getFullYear(),
+        bookId,
+        upsellCovers: resolvedUpsellCovers,
+      });
+    }
     bookContext.touchActivity();
 
     // Upload to GCS
