@@ -82,9 +82,9 @@ WRITING QUALITY — 9 MANDATORY PRINCIPLES:
 7. KEY MOMENTS UPGRADE:
    Four moments must feel BIG, cinematic, and emotionally powerful:
    - First step into danger (scene 2-3)
-   - Moment of doubt / lowest point (scene 5)
-   - Turning point decision (scene 6)
-   - Final success / emotional landing (scene 7)
+   - Moment of doubt / lowest point (scene 5-6)
+   - Turning point decision (scene 7-8)
+   - Final success / emotional landing (scene 9)
    For these moments: use splash pages or hero panels, fewer words, stronger visuals, maximum emotional impact.
 
 8. LANGUAGE SIMPLIFICATION:
@@ -111,17 +111,19 @@ Editorial principles:
 - Aim for an average of 40-60 words per illustrated page across the whole book.
 
 Story structure:
-- Exactly 7 scenes.
+- Exactly 9 scenes.
 - Scene 1: ordinary world and want — establish the protagonist's personality, relationships, and desire.
 - Scene 2: disruption and pull into the story — the inciting incident that changes everything.
 - Scene 3: complication and failed first approach — things don't go as planned; reveal character flaws.
 - Scene 4: midpoint shift and new strategy — a revelation changes the protagonist's understanding.
-- Scene 5: escalation and internal doubt — stakes rise; protagonist confronts their fear or flaw.
-- Scene 6: climax and decisive choice — the protagonist makes a choice that defines who they are.
-- Scene 7: resolution and emotional landing — consequences, growth, and satisfying closure.
+- Scene 5: deepening stakes — new obstacles emerge; alliances are tested.
+- Scene 6: escalation and internal doubt — stakes rise; protagonist confronts their fear or flaw.
+- Scene 7: dark night of the soul — lowest point; everything seems lost.
+- Scene 8: climax and decisive choice — the protagonist makes a choice that defines who they are.
+- Scene 9: resolution and emotional landing — consequences, growth, and satisfying closure.
 
 Design constraints:
-- 3-4 splash pages total spread across scenes 5, 6, and 7 for maximum dramatic impact.
+- 4-5 splash pages total spread across scenes 6, 7, 8, and 9 for maximum dramatic impact.
 - Scene openers should establish place before relying on close-ups.
 - Dialogue-heavy pages should prefer stable grids.
 - Action pages should privilege hierarchy and negative space.
@@ -195,7 +197,7 @@ Return a JSON object with this shape:
       "innerConflict": "what the character struggles with internally",
       "wantVsNeed": "what they think they want vs. what they actually need",
       "flaw": "a specific character flaw that creates obstacles",
-      "growthArc": "how they change from scene 1 to scene 7"
+      "growthArc": "how they change from scene 1 to scene 9"
     }
   ],
   "worldBible": {
@@ -228,9 +230,9 @@ Return a JSON object with this shape:
 }
 
 Rules:
-- Exactly 7 sceneBlueprints.
-- The sum of all pageCountTarget values must be between 48 and 64.
-- Each scene should target 6-10 pages.
+- Exactly 9 sceneBlueprints.
+- The sum of all pageCountTarget values must be between 76 and 88.
+- Each scene should target 7-11 pages.
 - The protagonist must drive the resolution.
 - Personalization must feel story-native, not pasted on.
 - Avoid babyish tone. Use middle-grade wit, emotional complexity, and real stakes.
@@ -324,10 +326,10 @@ Return a JSON object:
 }
 
 Rules:
-- Build 48-64 total pages (illustrated + text_interstitial combined).
-- At least 40 illustrated pages and at least 7 text_interstitial pages.
-- Exactly 7 scenes.
-- 3-4 splash pages total, spread across scenes 5, 6, and 7.
+- Build 76-88 total pages (illustrated + text_interstitial combined).
+- At least 60 illustrated pages and at least 10 text_interstitial pages.
+- Exactly 9 scenes.
+- 4-5 splash pages total, spread across scenes 6, 7, 8, and 9.
 - Default to 2-3 panels per illustrated page.
 - Use 4-panel pages sparingly.
 - 10-15% of panels can be silent — but most panels should have meaningful text.

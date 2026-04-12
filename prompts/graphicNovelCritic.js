@@ -16,9 +16,9 @@ Your job:
 You may rewrite page and panel metadata, but do not change the core story arc, title, or personalization.
 
 Hard rules:
-- keep exactly 7 scenes
-- keep 24-32 story pages
-- keep exactly 2 splash pages total
+- keep exactly 9 scenes
+- keep 76-88 story pages
+- keep 4-5 splash pages total
 - keep most pages at 2-3 panels
 - keep panel text load printable
 - preserve distinct character voices`;
@@ -45,9 +45,9 @@ Return JSON only.
 Your job is to take an existing plan that is too short, too outline-like, or structurally invalid and expand/fix it into a full production-ready plan.
 
 Hard requirements:
-- exactly 7 scenes
-- 24-32 fully realized story pages
-- exactly 2 splash pages total
+- exactly 9 scenes
+- 76-88 fully realized story pages
+- 4-5 splash pages total
 - every page must include a panels array
 - non-splash pages should usually have 2-3 panels
 - preserve title, child personalization, cast, and core story arc

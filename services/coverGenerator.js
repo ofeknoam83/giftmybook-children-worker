@@ -270,10 +270,25 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+  const backWidth = edgeBleed + trimWidth;
+  const spineX = backWidth;
+
+  // ═══════════════════════════════════════
+  // SPINE BACKGROUND (drawn first as underlay)
+  // ═══════════════════════════════════════
+  // Extend spine color 0.5" (36pt) onto both covers for trimming variance (Lulu recommendation).
+  // Drawn before cover images so it acts as a safety underlay — if trimming is slightly off,
+  // the spine color shows through instead of a white gap.
+  const spineColorOverlap = 36; // 0.5 inches = 36 points
+  page.drawRectangle({
+    x: spineX - spineColorOverlap, y: 0,
+    width: spineWidth + (2 * spineColorOverlap), height: totalHeight,
+    color: rgb(spineBgColor.r, spineBgColor.g, spineBgColor.b),
+  });
+
   // ═══════════════════════════════════════
   // BACK COVER (left side)
   // ═══════════════════════════════════════
-  const backWidth = edgeBleed + trimWidth;
 
   if (backCoverBuffer) {
     // Use Gemini-generated back cover illustration
@@ -333,31 +348,34 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   }
 
   // ═══════════════════════════════════════
-  // SPINE (+ hinge areas for hardcover)
+  // SPINE TEXT (drawn after covers so text is on top)
   // ═══════════════════════════════════════
-  const spineX = backWidth;
-
-  // Fill spine zone with spine color
-  page.drawRectangle({
-    x: spineX, y: 0,
-    width: spineWidth, height: totalHeight,
-    color: rgb(spineBgColor.r, spineBgColor.g, spineBgColor.b),
-  });
-
   // Lulu recommends: no spine text for books under 80 pages
-  if (pageCount >= 80 && spineWidth >= 18 && title) {
-    const spineFontSize = Math.min(8, spineWidth * 0.55);
-    const spineTextWidth = boldFont.widthOfTextAtSize(title, spineFontSize);
-    const textX = spineX + spineWidth / 2 + spineFontSize * 0.35;
-    const textY = totalHeight / 2 + spineTextWidth / 2;
-    page.drawText(title, {
-      x: textX,
-      y: textY,
-      size: spineFontSize,
-      font: boldFont,
-      color: rgb(0.2, 0.18, 0.15),
-      rotate: degrees(-90),
-    });
+  // Lower spineWidth threshold to 14pt — at 80 pages paperback spine is ~17pt
+  if (pageCount >= 80 && spineWidth >= 14 && title) {
+    // Font size with Lulu safety margins (0.125" = 9pt from each edge)
+    const safetyMargin = 9; // 0.125" in points (Lulu recommendation)
+    const availableWidth = spineWidth - (2 * safetyMargin);
+    const spineFontSize = Math.min(8, Math.max(5, availableWidth * 0.7));
+
+    // Only render text if there's enough room for a readable font
+    if (availableWidth > 4) {
+      // Truncate title to 42 chars max (Lulu hardcover limit)
+      const spineTitle = title.length > 42 ? title.substring(0, 39) + '...' : title;
+      const spineTextWidth = boldFont.widthOfTextAtSize(spineTitle, spineFontSize);
+      // Center text horizontally within the spine
+      const textX = spineX + spineWidth / 2 + spineFontSize * 0.35;
+      // Center text vertically — account for text width since it's rotated -90°
+      const textY = totalHeight / 2 + spineTextWidth / 2;
+      page.drawText(spineTitle, {
+        x: textX,
+        y: textY,
+        size: spineFontSize,
+        font: boldFont,
+        color: rgb(0.2, 0.18, 0.15),
+        rotate: degrees(-90),
+      });
+    }
   }
 
   // ═══════════════════════════════════════
