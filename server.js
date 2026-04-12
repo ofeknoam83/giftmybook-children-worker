@@ -1193,9 +1193,18 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
       const resolvedChildPhotoUrl = childPhotoUrl;
 
-      // Detect secondary characters (e.g. a parent) in the uploaded photo
+      // Use user-confirmed character identifications if available, otherwise auto-detect
       let detectedSecondaryCharacters = null;
-      if (cachedPhotoBase64) {
+      if (req.body.confirmedCharacters && Array.isArray(req.body.confirmedCharacters)) {
+        const confirmed = req.body.confirmedCharacters;
+        const secondary = confirmed.filter(c => c.role !== 'main_child' && c.role !== 'exclude');
+        if (secondary.length > 0) {
+          detectedSecondaryCharacters = secondary
+            .map(c => `${c.label || c.role}: ${c.description || 'appearance from uploaded photo'}`)
+            .join('\n');
+        }
+        bookContext.log('info', 'Using user-confirmed character identifications', { count: secondary.length });
+      } else if (cachedPhotoBase64) {
         try {
           const { getNextApiKey } = require('./services/illustrationGenerator');
           const photoAnalysisKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
@@ -1643,18 +1652,18 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       contents: [{ role: 'user', parts: [
-                        { text: `Look at the main child character in this image. Answer these questions about their physical appearance with SPECIFIC, PRECISE answers — no vague descriptions.
+                        { text: `Look at the main child in this photograph. Answer these questions about their physical appearance with SPECIFIC, PRECISE answers — no vague descriptions. This is a REAL PHOTOGRAPH, not an illustration.
 
 ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
-SKIN_TONE: Describe the exact skin tone in 3-5 words (e.g. "light golden beige", "deep warm brown", "fair with pink undertones")
+SKIN_TONE: Describe the exact skin tone using a specific shade name and undertone (e.g. "deep brown with warm golden undertones", "fair peach with cool pink undertones", "medium olive with warm yellow undertones"). Be precise enough that an illustrator could match this exactly.
 EYE_SHAPE: Describe the eye shape specifically (e.g. "monolid", "almond-shaped with epicanthal fold", "large round", "hooded almond", "wide set round")
 EYE_COLOR: What color are the eyes?
 HAIR_COLOR: Exact hair color
 HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
 HAIR_LENGTH: Short / medium / long / very long
 
-Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency.` },
-                        { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
+Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency across an entire book.` },
+                        { inline_data: { mime_type: cachedPhotoMime || 'image/jpeg', data: cachedPhotoBase64 } },
                       ]}],
                       generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
                     }),

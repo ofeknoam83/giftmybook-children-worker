@@ -167,6 +167,7 @@ function validateGenerateBookRequest(body) {
     emotionalSituation: sanitizeForPrompt(body.emotionalSituation || '', 2000),
     emotionalParentGoal: body.emotionalParentGoal || null,
     copingResourceHint: sanitizeForPrompt(body.copingResourceHint || '', 500),
+    confirmedCharacters: Array.isArray(body.confirmedCharacters) ? body.confirmedCharacters : null,
   };
 
   return { valid: true, errors: [], sanitized };

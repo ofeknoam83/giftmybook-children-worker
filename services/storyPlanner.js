@@ -134,8 +134,8 @@ DIALOGUE QUALITY (CRITICAL — bad dialogue kills a book):
 // ── W5: Age-aware vocabulary ──
 function ageVocabularyRules(age) {
   const n = parseInt(age) || 5;
-  if (n <= 3) return `VOCABULARY (age ${n}): MAX 8 words per sentence. Use only common toddler words. Simple, repetitive, rhythmic patterns. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
-  if (n <= 5) return `VOCABULARY (age ${n}): MAX 12 words per sentence. Simple but richer vocabulary. Occasional compound sentences. Gentle descriptive words. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
+  if (n <= 3) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, SIMPLICITY OVERRIDES all other style rules including poetic language. MAX 8 words per sentence. Use only common toddler words a ${n}-year-old hears daily. Simple, repetitive, rhythmic patterns. No metaphors, no poetic imagery, no words above 2 syllables. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
+  if (n <= 5) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, simple language is MORE important than poetic beauty. MAX 12 words per sentence. Every word must be in the child's active vocabulary. No words above 2 syllables unless a name. Simple but concrete vocabulary. Gentle descriptive words a ${n}-year-old already knows. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
   if (n <= 8) return `VOCABULARY (age ${n}): MAX 18 words per sentence. Full children's vocabulary. Metaphors and similes welcome. Complex sentences OK. Example: "She felt like a brave explorer discovering a hidden world that no one had ever seen before."`;
   return `VOCABULARY (age ${n}): Young adult vocabulary. Longer sentences fine. Nuanced emotion. Subtext and irony allowed.`;
 }
@@ -969,7 +969,9 @@ function parseStoryText(text) {
   });
 
   if (!title || spreads.length < 8) return null;
-  return { title, dedication, spreads };
+  const result = { title, dedication, spreads };
+  sanitizeAllStoryText(result);
+  return result;
 }
 
 /**
@@ -1243,6 +1245,42 @@ function sanitizeJsonStrings(raw) {
   return out;
 }
 
+/**
+ * Strip em-dashes and en-dashes from story text, replacing with
+ * periods or commas so printed children's books use simple punctuation.
+ */
+function sanitizeStoryText(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .replace(/\s*\u2014\s*/g, '. ')   // em-dash → period + space
+    .replace(/\s*\u2013\s*/g, ', ')   // en-dash → comma + space
+    .replace(/\.\s*\./g, '.')         // collapse double periods
+    .replace(/,\s*\./g, '.')          // collapse comma-period
+    .trim();
+}
+
+/**
+ * Apply sanitizeStoryText to all text fields in a parsed story plan.
+ */
+function sanitizeAllStoryText(plan) {
+  if (!plan) return plan;
+  if (plan.title) plan.title = sanitizeStoryText(plan.title);
+  if (Array.isArray(plan.entries)) {
+    for (const entry of plan.entries) {
+      if (entry.left?.text) entry.left.text = sanitizeStoryText(entry.left.text);
+      if (entry.right?.text) entry.right.text = sanitizeStoryText(entry.right.text);
+      if (entry.text) entry.text = sanitizeStoryText(entry.text);
+    }
+  }
+  if (Array.isArray(plan.spreads)) {
+    for (const spread of plan.spreads) {
+      if (spread.left) spread.left = sanitizeStoryText(spread.left);
+      if (spread.right) spread.right = sanitizeStoryText(spread.right);
+    }
+  }
+  return plan;
+}
+
 function parseJsonPlan(content, finishReason) {
   if (!content) {
     throw new Error(`Empty response from story planner (finish_reason: ${finishReason})`);
@@ -1375,6 +1413,10 @@ function normalizePlan(parsed, childDetails, opts = {}) {
 
   console.log(`[storyPlanner] Plan complete: "${title}" with ${spreads.length} spreads, ${entries.length} total entries`);
   if (plan.characterOutfit) console.log(`[storyPlanner] Character outfit: ${plan.characterOutfit}`);
+
+  // Strip em-dashes and en-dashes from all story text for clean children's book typography
+  sanitizeAllStoryText(plan);
+
   return plan;
 }
 

@@ -25,12 +25,13 @@ const AGE_TIERS = {
     arc: 'no arc. Distribute sensory observations evenly across spreads.',
     phaseTwo: null,
     rhymeLevel: 'mandatory couplets — write EVERY spread as two rhyming lines. Format: Line 1 (sets up the image), Line 2 (rhymes and closes). Example: "The stars come out one by one. / Goodnight moon, goodnight sun." Use exact end-rhymes or strong near-rhymes. If you cannot find a natural rhyme, rewrite Line 1 until Line 2 rhymes naturally. No prose. Couplets only.',
+    soundWordsRule: 'Include 3-4 sound words across the story. At this age, sound words ARE the story. Splash, pop, shhhh, boom. They can stand alone as full spreads.',
   },
   2: {
     tier: 2,
     label: 'Classic Picture Book',
     range: [3, 5],
-    vocabulary: 'conversational, concrete. No words above 2 syllables unless a name.',
+    vocabulary: 'conversational, concrete. No words above 2 syllables unless a name. Write the way a loving parent speaks to a 3-year-old. Simple sentence structures: subject-verb, subject-verb-object. No dependent clauses. No metaphors unless they use concrete familiar objects.',
     maxWordsPerSpread: 25,
     sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
@@ -42,6 +43,7 @@ const AGE_TIERS = {
     arc: 'full story arc applies.',
     phaseTwo: 10,
     rhymeLevel: 'moderate — roughly half the spreads should contain a rhyme or near-rhyme. Mix rhyming couplets with prose. The repeated phrase should rhyme or have a strong rhythmic beat. At age 3, children still love the musicality of rhyme.',
+    soundWordsRule: 'Include 2-3 sound words across the story. Place them at natural moments (a door creaking, boots crunching). Do NOT use more than 3 total. NEVER include a sound word on more than 2 out of 13 spreads.',
   },
   3: {
     tier: 3,
@@ -59,6 +61,7 @@ const AGE_TIERS = {
     arc: 'arc may include a false resolution before true resolution.',
     phaseTwo: 10,
     rhymeLevel: 'light — occasional internal rhymes or near-rhymes for flavor. Story prose dominates. A couplet here and there, not a pattern.',
+    soundWordsRule: 'Sound words are optional. If you include them, use at most 1-2 across the entire story. At this age, the prose carries the weight. Do NOT scatter onomatopoeia across multiple spreads.',
   },
   4: {
     tier: 4,
@@ -76,6 +79,7 @@ const AGE_TIERS = {
     arc: 'arc may include a secondary character with their own want.',
     phaseTwo: 10,
     rhymeLevel: 'subtle — only where it emerges naturally from the prose. Slant rhymes and internal echoes preferred over end-rhymes.',
+    soundWordsRule: 'Do NOT include standalone onomatopoeia. At this age, sound words feel juvenile. Only use a sound word if it serves a specific literary purpose (e.g., a character imitating something). Zero sound words is the ideal.',
   },
 };
 
@@ -206,14 +210,16 @@ INPUTS
 -------------------------------------
 WRITING QUALITY OVERRIDES (MANDATORY)
 -------------------------------------
-- POETIC LANGUAGE (FIRST PRIORITY): Every sentence must earn its place poetically. If you could replace it with a more ordinary sentence without losing meaning, it is not good enough. Reach for the unexpected image. "She held Momo closer" is better than "She was scared." "The fog pressed back" is better than "It was foggy outside." Ask yourself: could a flat writer have written this sentence? If yes — rewrite it.
+{poeticRule}
 
 - Never state emotions directly (no: "she was scared", "he felt happy").
   Always show emotion through action, sensory detail, or environment.
 
-- DIALECT & SPELLING — use {dialect} throughout:
+- PUNCTUATION (CRITICAL): Do NOT use em-dashes (\u2014) or en-dashes (\u2013) anywhere in the story text. Use commas, periods, or ellipses instead. Children\u2019s books use simple punctuation only. If you would write "She held Momo closer \u2014 one ear still warm" write instead "She held Momo closer. One ear still warm" or "She held Momo closer, one ear still warm."
+
+- DIALECT & SPELLING \u2014 use {dialect} throughout:
   {dialectRule}
-  Never mix dialects. Every single word — story text, dedication, any labels — must be consistent.
+  Never mix dialects. Every single word in the story text, dedication, and any labels must be consistent.
 
 - Every spread must contain a small tension, question, or imbalance.
 
@@ -281,12 +287,8 @@ HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
 - CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
 - For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
 
-SOUND WORDS & ONOMATOPOEIA (read-aloud magic):
-- Include at least 2-3 sound words across the story. Children love hearing and repeating these.
-- Examples: splash, whoosh, creak, thump, buzz, crunch, pop, drip-drip-drip, shhhh, click, boom, rustle, squeak.
-- Sound words should appear at natural story moments — a door creaking, boots crunching, water splashing, wind whooshing.
-- Sound words can stand alone as short sentences for dramatic effect: "Creak." or "Drip. Drip. Drip."
-- Do NOT overuse them — 2-3 well-placed sounds are more effective than sounds on every spread.
+SOUND WORDS & ONOMATOPOEIA (age-appropriate):
+{soundWordsRule}
 
 - BIRTHDAY THEME EXCEPTION: Birthday books must feel like a celebration from spread 1. Warmth, joy, and excitement are the emotional baseline — not tension. The reader should feel like they are invited to a wonderful party, not reading a story about a problem to solve. The "every spread needs tension" rule does NOT apply — spreads 1-5 and 7-13 should be purely celebratory.
 
@@ -456,12 +458,12 @@ These examples show the level of writing you must match or exceed.
 Do NOT copy these — they are for tone and quality calibration only.
 
 EXAMPLE A (setup — emotion shown through action, not told):
-Left: "The house creaked its old-wood song. Luna pulled Momo closer — one ear still warm from breakfast."
+Left: "The house creaked its old-wood song. Luna pulled Momo closer, one ear still warm from breakfast."
 Right: null
 
 EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
 Left: "She pressed her palm against the window. The fog pressed back."
-Right: "Hush now, little seed, she whispered — but her voice wobbled."
+Right: "Hush now, little seed, she whispered. But her voice wobbled."
 
 EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
 Left: null
@@ -469,27 +471,27 @@ Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught 
 
 EXAMPLE D (ending spread — whisper, not conclusion):
 Left: null
-Right: "The last Number Num clicked into place. One, two, three — all the way to ten. She let out a breath she didn't know she'd been holding. The blanket pulled itself up around her chin."
+Right: "The last Number Num clicked into place. One, two, three... all the way to ten. She let out a breath she didn't know she'd been holding. The blanket pulled itself up around her chin."
 
-Notice: No "and she fell asleep" — the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
+Notice: No "and she fell asleep"; the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
 
 EXAMPLE E (refrain spread — phrase at its middle stage):
 Left: "The path forked into three. She held Barnaby tighter."
 Right: "Grammy's warmth is always with you, she whispered to herself. This time it came out more like a question."
 
-Notice: The refrain appears naturally in dialogue. "More like a question" shows it's still evolving — not yet resolved.
+Notice: The refrain appears naturally in dialogue. "More like a question" shows it's still evolving, not yet resolved.
 
 EXAMPLE G (resolution spread — child causes the turning point):
 Left: "She didn't wait for the dark to move."
 Right: "She walked into it."
 
-Notice: Two sentences. Five words on the right. The child acts — the story turns. No explanation.
+Notice: Two sentences. Five words on the right. The child acts, the story turns. No explanation.
 
 EXAMPLE H (tension spread — specific sensory detail, not vague fear):
 Left: "A sound. Not the house. Not the wind."
-Right: "She pressed her ear against the door and heard — counting. One, two, three."
+Right: "She pressed her ear against the door and heard... counting. One, two, three."
 
-Notice: Short sentences create rhythm and suspense. The fear becomes specific. The child investigates — not paralyzed.
+Notice: Short sentences create rhythm and suspense. The fear becomes specific. The child investigates, not paralyzed.
 
 Notice what makes these work:
 - No emotion-telling ("she felt scared") — only action and sensation
@@ -683,7 +685,9 @@ STYLE RULES:
 - Prefer concrete, visual words (blanket, moon, steps, glow)
 - Avoid abstract phrases and vague words ("magical", "special", "nice", "wonderful")
 
-3.5 DIALECT & SPELLING — use {dialect} throughout:
+3.5 PUNCTUATION (CRITICAL): Do NOT use em-dashes (\u2014) or en-dashes (\u2013) anywhere in the story text. Use commas, periods, or ellipses instead. Children\u2019s books use simple punctuation only.
+
+3.6 DIALECT & SPELLING \u2014 use {dialect} throughout:
 {dialectRule}
 Never mix dialects. Every single word in the story must be consistent with the locale above.
 
@@ -768,12 +772,8 @@ HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
 - CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
 - For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
 
-SOUND WORDS & ONOMATOPOEIA (read-aloud magic):
-- Include at least 2-3 sound words across the story. Children love hearing and repeating these.
-- Examples: splash, whoosh, creak, thump, buzz, crunch, pop, drip-drip-drip, shhhh, click, boom, rustle, squeak.
-- Sound words should appear at natural story moments — a door creaking, boots crunching, water splashing, wind whooshing.
-- Sound words can stand alone as short sentences for dramatic effect: "Creak." or "Drip. Drip. Drip."
-- Do NOT overuse them — 2-3 well-placed sounds are more effective than sounds on every spread.
+SOUND WORDS & ONOMATOPOEIA (age-appropriate):
+{soundWordsRule}
 
 - BIRTHDAY THEME EXCEPTION: Birthday books must feel like a celebration from spread 1. Warmth, joy, and excitement are the emotional baseline — not tension. The reader should feel like they are invited to a wonderful party, not reading a story about a problem to solve. The "every spread needs tension" rule does NOT apply — spreads 1-5 and 7-13 should be purely celebratory.
 
@@ -931,12 +931,12 @@ These examples show the level of writing you must match or exceed.
 Do NOT copy these — they are for tone and quality calibration only.
 
 EXAMPLE A (setup — emotion shown through action, not told):
-Left: "The house creaked its old-wood song. Luna pulled Momo closer — one ear still warm from breakfast."
+Left: "The house creaked its old-wood song. Luna pulled Momo closer, one ear still warm from breakfast."
 Right: null
 
 EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
 Left: "She pressed her palm against the window. The fog pressed back."
-Right: "Hush now, little seed, she whispered — but her voice wobbled."
+Right: "Hush now, little seed, she whispered. But her voice wobbled."
 
 EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
 Left: null
@@ -1136,6 +1136,12 @@ function buildV2Brief(vars) {
   const { name, favorite_object, fear, setting, dedication } = vars;
   const age = Number(vars.age) || 5;
   const { config } = getAgeTier(age);
+
+  // Age-conditional poetic vs simplicity rule
+  const poeticRule = config.tier <= 2
+    ? `- SIMPLICITY (FIRST PRIORITY): Every sentence must be clear, concrete, and immediately understandable to a ${age}-year-old. Use the smallest words that carry meaning. "She hugged Momo tight" is perfect. "She gathered Momo into the crook of her arm" is too complex for this age. Poetic images are welcome ONLY if they use words a ${age}-year-old already knows. If a sentence is beautiful but a ${age}-year-old would not understand it, simplify it. Use words from the child's daily life. "The moon slept behind a cloud" is fine. "The vespertine haze unfurled" is not.`
+    : `- POETIC LANGUAGE (FIRST PRIORITY): Every sentence must earn its place poetically. If you could replace it with a more ordinary sentence without losing meaning, it is not good enough. Reach for the unexpected image. "She held Momo closer" is better than "She was scared." "The fog pressed back" is better than "It was foggy outside." Ask yourself: could a flat writer have written this sentence? If yes, rewrite it.`;
+
   let brief = V2_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
   brief = brief.replace(/\{age\}/g, String(age));
@@ -1146,6 +1152,8 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{gifterFrom\}/g, buildGifterFromValue(vars));
   brief = brief.replace(/\{maxWordsPerSpread\}/g, String(config.maxWordsPerSpread || 30));
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
+  brief = brief.replace(/\{poeticRule\}/g, poeticRule);
+  brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
   return brief;
 }
 
@@ -1192,6 +1200,7 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   brief = brief.replace(/\{dialect\}/g, dialect);
   brief = brief.replace(/\{dialectRule\}/g, dialectRule);
+  brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
   return brief;
 }
 

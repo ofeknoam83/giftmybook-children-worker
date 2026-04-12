@@ -247,7 +247,7 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
   }
 
   if (v2Vars.isMultipleGifters && v2Vars.gifterNames?.length > 1) {
-    prompt += `\n\nMULTIPLE GIFTERS (TEXT ONLY): This book is from ${v2Vars.gifterNames.join(' and ')}. If one appears in the story text, BOTH must appear at least once. This applies to text only — do NOT add them to illustration prompts.`;
+    prompt += `\n\nMULTIPLE GIFTERS (TEXT ONLY): This book is from ${v2Vars.gifterNames.join(' and ')}. You MAY mention them naturally in the story text (e.g., a voice from the doorway, a tucked-in moment), but do NOT force their names into the narrative if it feels unnatural. It is better for gifter names to appear only on the dedication page than to appear awkwardly in the story. This applies to text only — do NOT add them to illustration prompts.`;
   }
 
   prompt += `
