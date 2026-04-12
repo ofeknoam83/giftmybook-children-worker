@@ -2080,7 +2080,7 @@ async function combinedCritic(storyPlan, opts = {}) {
  * Returns an object with title + 5 chapters (each with chapterTitle, synopsis, imagePrompt, text).
  */
 async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
-  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent } = opts;
+  const { apiKeys, costTracker, approvedTitle, bookContext, parentBookTitle, parentStoryContent, additionalCoverCharacters } = opts;
   const { CHAPTER_PLANNER_SYSTEM, CHAPTER_PLANNER_USER, CHAPTER_WRITER_SYSTEM, CHAPTER_WRITER_USER } = require('../prompts/chapterBook');
 
   // Step 1: Brainstorm seed + enrich custom details in parallel
@@ -2088,7 +2088,7 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   let enrichedCustomDetails;
   try {
     const [seedResult, enrichedResult] = await Promise.all([
-      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme })
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters })
         .catch(err => {
           bookContext?.log('warn', 'Chapter book seed brainstorm failed, using defaults', { error: err.message });
           return { repeated_phrase: 'one step at a time', favorite_object: customDetails || 'a compass', setting: 'the neighborhood', fear: 'failing' };
@@ -2121,9 +2121,21 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
     ? `\n\nIMPORTANT: The book title MUST be exactly: "${parentBookTitle}". Do not invent a new title.`
     : '';
 
+  // Family member constraint for chapter book illustrations
+  let familyConstraint = '';
+  if (theme === 'mothers_day') {
+    familyConstraint = additionalCoverCharacters
+      ? `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+  } else if (additionalCoverCharacters) {
+    familyConstraint = `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene. Do NOT invent other family members beyond what is listed above.`;
+  } else {
+    familyConstraint = `\n\nILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:\nStory text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design scenes so they center the child visually.`;
+  }
+
   // Step 2: Plan chapter structure
   bookContext?.log('info', 'Planning chapter structure');
-  const planUserPrompt = CHAPTER_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction;
+  const planUserPrompt = CHAPTER_PLANNER_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction + familyConstraint;
 
   let chapterPlan;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -2193,6 +2205,9 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   chapterPlan.characterOutfit = seed.characterOutfit || null;
   chapterPlan.recurringElement = seed.favorite_object || null;
   chapterPlan.keyObjects = seed.keyObjects || null;
+  if (additionalCoverCharacters) {
+    chapterPlan.additionalCoverCharacters = additionalCoverCharacters;
+  }
 
   return chapterPlan;
 }

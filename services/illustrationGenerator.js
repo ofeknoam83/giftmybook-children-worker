@@ -319,7 +319,6 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   const charParts = [];
   if (childName) charParts.push(`Hero: ${childName}.`);
   if (opts.characterDescription) charParts.push(`Appearance: ${opts.characterDescription}`);
-  if (opts.characterOutfit) charParts.push(`Outfit (same every page): ${opts.characterOutfit}`);
   if (opts.characterAnchor) charParts.push(`Anchor lock: ${opts.characterAnchor}`);
   if (opts.recurringElement) charParts.push(`Recurring motif: ${opts.recurringElement}`);
   if (opts.keyObjects) charParts.push(`Recurring props: ${opts.keyObjects}`);
@@ -332,6 +331,24 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
     parts.push(charParts.join('\n'));
     parts.push('');
   }
+
+  // ── OUTFIT LOCK (ported from buildCharacterPrompt for full consistency) ──
+  if (opts.characterOutfit) {
+    parts.push('=== OUTFIT LOCK (CRITICAL) ===');
+    parts.push(`The child MUST wear EXACTLY this outfit on EVERY panel of EVERY page — no exceptions: ${opts.characterOutfit}`);
+    parts.push('COLOR VERIFICATION: Before finishing, verify EACH garment\'s color matches the outfit description. A red shirt must be RED, not maroon, not pink, not orange.');
+    parts.push('FORBIDDEN OUTFIT CHANGES: Do NOT add, remove, or swap ANY clothing item — not for swimming, sleeping, rain, sports, or any activity.');
+    parts.push('Do NOT add accessories, hats, capes, helmets, or costumes that are not in the outfit description.');
+    parts.push('The outfit must be pixel-for-pixel identical across all panels.');
+    parts.push('');
+  }
+
+  // ── TEXT CONSISTENCY RULES ──
+  parts.push('=== TEXT CONSISTENCY ===');
+  parts.push('Font style and size must be consistent across all pages.');
+  parts.push('Text should not exceed 35% of the page width.');
+  parts.push('Use only embedded text — no overlays.');
+  parts.push('');
 
   // ── PRIORITY 6: Family member rules ──
   if (opts.additionalCoverCharacters) {
@@ -351,6 +368,13 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
     parts.push('Do NOT draw the child\'s parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately.');
     parts.push('The child may interact with fictional characters (shopkeepers, aliens, talking animals, magical creatures, villains) but NEVER with family members.');
     parts.push('If a parent or relative is mentioned in dialogue, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body.');
+    parts.push('');
+  }
+
+  // ── First-page reference image for outfit/style/text consistency ──
+  if (opts.firstPageRefBase64) {
+    parts.push('=== FIRST PAGE REFERENCE ===');
+    parts.push('REFERENCE PAGE (first page): Match the outfit rendering, color palette, art style, text placement, and font from this reference page exactly.');
     parts.push('');
   }
 
@@ -523,6 +547,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
         recurringElement,
         keyObjects,
         colorScript: opts.colorScript,
+        firstPageRefBase64: opts.firstPageRefBase64,
       }
     );
   }
