@@ -1675,22 +1675,22 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
                     const previousOutfit = storyPlan.characterOutfit || '';
                     // Merge: start with cover-extracted parts, then append non-visible parts from story planner
                     let mergedOutfit = coverParts.join(', ');
-                    const hasBottom = bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1]);
-                    const hasShoes = shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1]);
+                    let hasBottom = bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1]);
+                    let hasShoes = shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1]);
                     if ((!hasBottom || !hasShoes) && previousOutfit) {
                       // Extract bottom/shoes from story planner's outfit to fill gaps
-                      const plannerLower = previousOutfit.toLowerCase();
-                      // Split story planner outfit into parts and find bottom/shoe items
                       const plannerItems = previousOutfit.split(/,\s*/);
                       for (const item of plannerItems) {
                         const itemLower = item.toLowerCase().trim();
                         if (!hasBottom && /\b(pants|jeans|shorts|skirt|leggings|trousers|joggers|overalls)\b/.test(itemLower)) {
                           mergedOutfit += ', ' + item.trim();
-                          hasBottom || bookContext.log('info', 'Merged bottom garment from story planner', { item: item.trim() });
+                          bookContext.log('info', 'Merged bottom garment from story planner', { item: item.trim() });
+                          hasBottom = true;
                         }
                         if (!hasShoes && /\b(shoes|sneakers|boots|sandals|slippers|loafers|flats)\b/.test(itemLower)) {
                           mergedOutfit += ', ' + item.trim();
-                          hasShoes || bookContext.log('info', 'Merged shoes from story planner', { item: item.trim() });
+                          bookContext.log('info', 'Merged shoes from story planner', { item: item.trim() });
+                          hasShoes = true;
                         }
                       }
                     }
