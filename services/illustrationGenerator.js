@@ -571,6 +571,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (characterOutfit) {
     parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
   }
+  if (opts.firstSpreadRefBase64) {
+    parts.push('OUTFIT STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look in the book\'s art style. Match the outfit rendering — same garments, same colors, same style — in this illustration.');
+  }
   if (recurringElement) {
     parts.push(`RECURRING OBJECT: ${recurringElement}`);
   }
@@ -891,6 +894,12 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     }
   }
 
+  // Add first spread as outfit style reference for subsequent spreads
+  if (opts.firstSpreadRefBase64) {
+    parts.push({ text: 'OUTFIT STYLE REFERENCE — FIRST SPREAD: This is the first illustration from this book. The child\'s outfit in THIS image is the correct rendered version. Match it exactly.' });
+    parts.push({ inline_data: { mimeType: 'image/jpeg', data: opts.firstSpreadRefBase64 } });
+  }
+
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig,
@@ -1078,6 +1087,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     colorScript: opts.colorScript || null,
     aspectRatioHint: opts.aspectRatioHint || '',
     aspectRatio: opts.aspectRatio || '',
+    firstSpreadRefBase64: opts.firstSpreadRefBase64 || null,
   });
   const aspectRatio = determineAspectRatio({ ...opts, isSpread });
 
@@ -1145,7 +1155,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         // Send the original uploaded photo as ethnicity/skin tone ground truth for ALL spreads, not just the first
         const originalPhotoBase64 = opts._cachedPhotoBase64 || null;
         const originalPhotoMime = opts._cachedPhotoMime || 'image/jpeg';
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime, firstSpreadRefBase64: opts.firstSpreadRefBase64 || null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
@@ -1244,7 +1254,7 @@ Respond with ONLY valid JSON:
             { inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } },
             { inline_data: { mime_type: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
           ]}],
-          generationConfig: { maxOutputTokens: 150, temperature: 0.1 },
+          generationConfig: { maxOutputTokens: 1024, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
         }),
       }
     );
