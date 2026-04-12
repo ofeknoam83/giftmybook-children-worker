@@ -245,15 +245,7 @@ TEXT LENGTH (CRITICAL):
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
-
-- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
-- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
-- Every sentence earns its place. If you can cut it and the story still works, cut it.
-- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
-- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
-- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
-- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+{authorialVoice}
 
 ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
@@ -261,15 +253,7 @@ ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
 - The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
-RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
-- Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
-- Syllable target: 8–14 syllables per sentence. Vary length for natural breathing points.
-- Every spread must contain at least one short sentence (5 words or fewer) for rhythm contrast.
-- Avoid: tongue twisters, three-word noun stacks, words over 3 syllables (except names/invented words).
-- RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
-  A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
-- Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
-- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. "The dark had a sound now" is musical. "It was dark and there was a sound" is dead. Choose words that feel good in the mouth.
+{rhythmGuide}
 
 TONE:
 - Warm but never sentimental. Intimate but never syrupy.
@@ -330,7 +314,7 @@ The physical page turn is a dramatic device. Use it.
 
 - At least 3 spreads must end with a LINE THAT PULLS THE READER FORWARD — a question, an incomplete action, a sound without a source, a "but then..." moment. The parent should WANT to turn the page.
 - The best page-turn lines are short and unresolved:
-  - "She reached inside and found —" (what??)
+  - "She reached inside and found..." (what??)
   - "The door was open." (what's behind it?)
   - "Something moved." (what was it?)
   - "But the sound wasn't coming from the forest." (then where?)
@@ -451,77 +435,7 @@ early → playful
 middle → guiding
 end → calming / closing
 
--------------------------------------
-EXEMPLAR SPREADS (TARGET QUALITY)
--------------------------------------
-
-These examples show the level of writing you must match or exceed.
-Do NOT copy these — they are for tone and quality calibration only.
-
-EXAMPLE A (setup — emotion shown through action, not told):
-Left: "The house creaked its old-wood song. Luna pulled Momo closer, one ear still warm from breakfast."
-Right: null
-
-EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
-Left: "She pressed her palm against the window. The fog pressed back."
-Right: "Hush now, little seed, she whispered. But her voice wobbled."
-
-EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
-Left: null
-Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught the last sliver of moon."
-
-EXAMPLE D (ending spread — whisper, not conclusion):
-Left: null
-Right: "The last Number Num clicked into place. One, two, three... all the way to ten. She let out a breath she didn't know she'd been holding. The blanket pulled itself up around her chin."
-
-Notice: No "and she fell asleep"; the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
-
-EXAMPLE E (refrain spread — phrase at its middle stage):
-Left: "The path forked into three. She held Barnaby tighter."
-Right: "Grammy's warmth is always with you, she whispered to herself. This time it came out more like a question."
-
-Notice: The refrain appears naturally in dialogue. "More like a question" shows it's still evolving, not yet resolved.
-
-EXAMPLE G (resolution spread — child causes the turning point):
-Left: "She didn't wait for the dark to move."
-Right: "She walked into it."
-
-Notice: Two sentences. Five words on the right. The child acts, the story turns. No explanation.
-
-EXAMPLE H (tension spread — specific sensory detail, not vague fear):
-Left: "A sound. Not the house. Not the wind."
-Right: "She pressed her ear against the door and heard... counting. One, two, three."
-
-Notice: Short sentences create rhythm and suspense. The fear becomes specific. The child investigates, not paralyzed.
-
-Notice what makes these work:
-- No emotion-telling ("she felt scared") — only action and sensation
-- Every sentence is specific and unreplaceable
-- Rhythm varies (long then short)
-- The repeated phrase appears naturally and evolves
-- Silence (null pages) creates breathing room
-
-CONTRAST EXAMPLES (what to avoid vs. what to write):
-
-BAD (flat, functional):
-Left: "Zara walked through the dark forest. She was scared but kept going."
-Right: "She held her lantern up to see better."
-
-GOOD (poetic, sensory, unexpected):
-Left: "The forest held its breath. Zara's lantern made one small circle of warmth."
-Right: "She stepped into it anyway."
-
----
-
-BAD (flat, transition):
-Left: "They ran up the hill quickly."
-Right: "At the top they could see everything."
-
-GOOD (poetic, earned):
-Left: "Her legs burned. The hill didn't care."
-Right: "Then — the whole sky."
-
-Notice: the GOOD versions show emotion through action, use surprising specificity, trust silence, and make every word carry weight.
+{exemplars}
 
 -------------------------------------
 ILLUSTRATION PROMPTS
@@ -730,15 +644,7 @@ TEXT LENGTH (CRITICAL):
 -------------------------------------
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
-Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
-
-- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
-- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
-- Every sentence earns its place. If you can cut it and the story still works, cut it.
-- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
-- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
-- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
-- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+{authorialVoice}
 
 ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
@@ -746,15 +652,7 @@ ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
 - The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
-RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
-- Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
-- Syllable target: 8–14 syllables per sentence. Vary length for natural breathing points.
-- Every spread must contain at least one short sentence (5 words or fewer) for rhythm contrast.
-- Avoid: tongue twisters, three-word noun stacks, words over 3 syllables (except names/invented words).
-- RHYME LEVEL FOR THIS AGE ({age}): {rhymeLevel}
-  A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
-- Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
-- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. "The dark had a sound now" is musical. "It was dark and there was a sound" is dead. Choose words that feel good in the mouth.
+{rhythmGuide}
 
 TONE:
 - Warm but never sentimental. Intimate but never syrupy.
@@ -812,7 +710,7 @@ The physical page turn is a dramatic device. Use it.
 
 - At least 3 spreads must end with a LINE THAT PULLS THE READER FORWARD — a question, an incomplete action, a sound without a source, a "but then..." moment. The parent should WANT to turn the page.
 - The best page-turn lines are short and unresolved:
-  - "She reached inside and found —" (what??)
+  - "She reached inside and found..." (what??)
   - "The door was open." (what's behind it?)
   - "Something moved." (what was it?)
   - "But the sound wasn't coming from the forest." (then where?)
@@ -968,7 +866,7 @@ Right: "At the top they could see everything."
 
 GOOD (poetic, earned):
 Left: "Her legs burned. The hill didn't care."
-Right: "Then — the whole sky."
+Right: "Then. The whole sky."
 
 Notice: the GOOD versions show emotion through action, use surprising specificity, trust silence, and make every word carry weight.
 
@@ -1129,7 +1027,10 @@ function buildGifterFromValue(vars) {
     const bookFrom = vars.gifterNames.join(' and ');
     return `${bookFrom} (multiple people: ${vars.gifterNames.join(' and ')})\n\nMULTIPLE GIFTERS RULE (TEXT ONLY — illustrations are NOT affected by this rule):\nThis book is a gift from BOTH ${vars.gifterNames[0]} AND ${vars.gifterNames[1]}.\nIf either person is mentioned in the story text (speaking, acting, calling the child's name, being referenced), the OTHER must ALSO be mentioned in the story text at least once.\nBoth gifters must feel equally present in the narrative — not one as the main character and the other forgotten.\nThis applies to TEXT ONLY. Do NOT add family members to illustration prompts — the illustration rules are separate.`;
   }
-  if (vars.gifterNames && vars.gifterNames.length === 1) return vars.gifterNames[0];
+  if (vars.gifterNames && vars.gifterNames.length === 1) {
+    const gifterName = vars.gifterNames[0];
+    return `${gifterName}\n\nGIFTER NAME RULE: "${gifterName}" is the person giving this book as a gift. Their name belongs ONLY on the dedication page. Do NOT mention "${gifterName}" in the story text unless they are a named character in the child's daily life (e.g., "Mom", "Dad", "Grandma"). Random first names appearing in story text without introduction confuses readers.`;
+  }
   return '';
 }
 
@@ -1156,6 +1057,16 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{poeticRule\}/g, poeticRule);
   brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
 
+  // Replace age-conditional content sections
+  brief = brief.replace(/\{authorialVoice\}/g, getAuthorialVoice(config.tier, age));
+  brief = brief.replace(/\{rhythmGuide\}/g, getRhythmGuide(config.tier, age));
+  brief = brief.replace(/\{exemplars\}/g, getExemplars(config.tier));
+
+  // Replace dialect placeholders (same logic as buildWritingBrief)
+  const { dialect, dialectRule } = getDialectVars(vars.countryCode);
+  brief = brief.replace(/\{dialect\}/g, dialect);
+  brief = brief.replace(/\{dialectRule\}/g, dialectRule);
+
   // Inject Tier 2 vocabulary enforcement block
   if (config.tier === 2) {
     const tier2Block = `
@@ -1177,6 +1088,188 @@ TIER 2 VOCABULARY ENFORCEMENT (ages 3-5):
  * @param {{ name: string, age: number, favorite_object: string, fear: string, setting: string, dedication: string }} vars
  * @returns {string}
  */
+
+// ── Age-conditional content for brief templates ────────────────────────────
+
+function getAuthorialVoice(tier, age) {
+  if (tier <= 2) {
+    return `Write like the best picture book authors for young children — Carle, Brown, Boynton, Klassen:
+
+- Simple but deep. Use small, familiar words to say big things. "The moon hid behind a cloud" is perfect. "The vespertine haze unfurled" is not. A ${age}-year-old must understand every word on the first read. An adult should feel something unexpected from the simplicity.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
+- Every sentence earns its place. If you can cut it and the story still works, cut it.
+- No cliches. No filler. No greeting-card language.
+- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She put Momo down and walked away" is alive.
+- Dialogue must sound like a real ${age}-year-old — short, concrete, more questions than statements.`;
+  }
+  return `Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
+
+- Simple but deep. Use small words to say big things. "The tree gave and gave and gave" says more about love than any explanation. A 5-year-old should understand every word; an adult should feel something unexpected.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
+- Every sentence earns its place. If you can cut it and the story still works, cut it.
+- No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
+- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
+- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.`;
+}
+
+function getRhythmGuide(tier, age) {
+  if (tier <= 2) {
+    return `RHYTHM & RHYME (CRITICAL — this book is read aloud to a very young child):
+- Pattern over poetry. The best picture books for this age use REPETITION as their rhythm engine: "Goodnight room. Goodnight moon. Goodnight cow jumping over the moon." is beautiful because of its pattern, not its vocabulary.
+- Each spread should have a natural breathing cadence — read it aloud: does it rock like a lullaby? Does it bounce like a game? If it just sits flat, rewrite.
+- Alternate long and short sentences: "The wind blew. It pushed the leaves around and around the yard." Long-short creates music.
+- The repeated phrase is your RHYTHMIC ANCHOR. It should feel natural to say aloud, like a refrain in a song.
+- Avoid: flat chains of same-length declarative sentences ("She walked. She looked. She saw."). Vary the rhythm.
+- Every word must feel good in the MOUTH. "Crunch" is satisfying. "Utilized" is not. Choose mouth-feel words over eye-pleasing words.
+- Avoid: tongue twisters, three-word noun stacks, words a ${age}-year-old would not know.
+- RHYME LEVEL FOR THIS AGE (${age}): {rhymeLevel}
+  A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.`;
+  }
+  return `RHYTHM & RHYME (CRITICAL — read-aloud quality is non-negotiable):
+- Read each line aloud in your head before finalizing. If it stumbles, rewrite it.
+- Vary sentence rhythm intentionally: a long image sentence followed by a 3-word punch. Prose should breathe.
+- Every spread must contain at least one short sentence (5 words or fewer) for rhythm contrast.
+- Avoid: tongue twisters, three-word noun stacks, words over 3 syllables (except names/invented words).
+- RHYME LEVEL FOR THIS AGE (${age}): {rhymeLevel}
+  A near-rhyme or internal rhyme always beats a strained end-rhyme. If a rhyme bends the meaning, drop it.
+- Use gentle repetition for emotional effect — the repeated phrase is a rhythmic anchor.
+- Write for the EAR, not the eye. "She stepped inside" has rhythm. "She walked into the room" is flat. Choose words that feel good in the mouth.`;
+}
+
+function getExemplars(tier) {
+  if (tier <= 2) {
+    return `-------------------------------------
+EXEMPLAR SPREADS (TARGET QUALITY — ages 0-5)
+-------------------------------------
+
+These examples show the level of writing you must match or exceed.
+Do NOT copy these — they are for tone and quality calibration only.
+
+EXAMPLE A (setup — emotion shown through action, not told):
+Left: "The house made a sound. Creak, creak. Luna held Momo tight."
+Right: null
+
+EXAMPLE B (turning point — sensory, minimal):
+Left: "She put her hand on the glass. It was cold and wet."
+Right: "Shh, she said. But her voice was small."
+
+EXAMPLE C (resolution — simple, warm, phrase transformed):
+Left: null
+Right: "Now the dark was soft. Like a blanket. Momo's eyes still shone."
+
+EXAMPLE D (ending spread — action shows it, never told):
+Left: null
+Right: "One, two, three... all the way to ten. She let out a big breath. The blanket came up to her chin."
+
+EXAMPLE E (child causes the turning point):
+Left: "She did not wait."
+Right: "She walked right in."
+
+Notice: Two sentences. Five words on the right. The child acts, the story turns.
+
+EXAMPLE F (tension — specific, not vague):
+Left: "A sound. Not the house. Not the wind."
+Right: "She put her ear on the door. She heard... counting. One, two, three."
+
+Notice what makes these work:
+- Every word a young child already knows
+- Rhythm comes from SHORT-LONG patterns and repetition, not fancy vocabulary
+- No emotion-telling ("she felt scared") — only action and sensation
+- Every sentence is specific and unreplaceable
+- Silence (null pages) creates breathing room
+
+CONTRAST EXAMPLES (what to avoid vs. what to write):
+
+BAD (too complex for this age):
+Left: "Zara traversed the shadowy forest. Trepidation filled her heart but determination kept her moving."
+Right: "She raised her luminous lantern to illuminate the path."
+
+GOOD (simple, sensory, alive):
+Left: "The trees were big and dark. Luna's lantern made one small circle of light."
+Right: "She walked into it anyway."
+
+---
+
+BAD (flat, no rhythm):
+Left: "They ran up the hill quickly."
+Right: "At the top they could see everything."
+
+GOOD (rhythm through contrast):
+Left: "Up, up, up. Her legs were tired."
+Right: "Then. The whole sky."
+
+Notice: the GOOD versions use words a young child knows, show emotion through action, and make every word carry weight.`;
+  }
+  return `-------------------------------------
+EXEMPLAR SPREADS (TARGET QUALITY)
+-------------------------------------
+
+These examples show the level of writing you must match or exceed.
+Do NOT copy these — they are for tone and quality calibration only.
+
+EXAMPLE A (setup — emotion shown through action, not told):
+Left: "The house creaked its old-wood song. Luna pulled Momo closer, one ear still warm from breakfast."
+Right: null
+
+EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
+Left: "She pressed her palm against the window. The fog pressed back."
+Right: "Hush now, little seed, she whispered. But her voice wobbled."
+
+EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
+Left: null
+Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught the last sliver of moon."
+
+EXAMPLE D (ending spread — whisper, not conclusion):
+Left: null
+Right: "The last Number Num clicked into place. One, two, three... all the way to ten. She let out a breath she didn't know she'd been holding. The blanket pulled itself up around her chin."
+
+Notice: No "and she fell asleep"; the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
+
+EXAMPLE E (refrain spread — phrase at its middle stage):
+Left: "The path forked into three. She held Barnaby tighter."
+Right: "Grammy's warmth is always with you, she whispered to herself. This time it came out more like a question."
+
+EXAMPLE G (resolution spread — child causes the turning point):
+Left: "She didn't wait for the dark to move."
+Right: "She walked into it."
+
+Notice: Two sentences. Five words on the right. The child acts, the story turns. No explanation.
+
+EXAMPLE H (tension spread — specific sensory detail, not vague fear):
+Left: "A sound. Not the house. Not the wind."
+Right: "She pressed her ear against the door and heard... counting. One, two, three."
+
+Notice what makes these work:
+- No emotion-telling ("she felt scared") — only action and sensation
+- Every sentence is specific and unreplaceable
+- Rhythm varies (long then short)
+- The repeated phrase appears naturally and evolves
+- Silence (null pages) creates breathing room
+
+CONTRAST EXAMPLES (what to avoid vs. what to write):
+
+BAD (flat, functional):
+Left: "Zara walked through the dark forest. She was scared but kept going."
+Right: "She held her lantern up to see better."
+
+GOOD (poetic, sensory, unexpected):
+Left: "The forest held its breath. Zara's lantern made one small circle of warmth."
+Right: "She stepped into it anyway."
+
+---
+
+BAD (flat, transition):
+Left: "They ran up the hill quickly."
+Right: "At the top they could see everything."
+
+GOOD (poetic, earned):
+Left: "Her legs burned. The hill didn't care."
+Right: "Then. The whole sky."
+
+Notice: the GOOD versions show emotion through action, use surprising specificity, trust silence, and make every word carry weight.`;
+}
 
 // ── Dialect helper ──────────────────────────────────────────────────────────
 const BRITISH_COUNTRIES = new Set([
@@ -1216,6 +1309,12 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{dialect\}/g, dialect);
   brief = brief.replace(/\{dialectRule\}/g, dialectRule);
   brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
+
+  // Replace age-conditional content sections
+  brief = brief.replace(/\{authorialVoice\}/g, getAuthorialVoice(config.tier, age));
+  brief = brief.replace(/\{rhythmGuide\}/g, getRhythmGuide(config.tier, age));
+  brief = brief.replace(/\{exemplars\}/g, getExemplars(config.tier));
+
   return brief;
 }
 
