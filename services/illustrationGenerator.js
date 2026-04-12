@@ -502,6 +502,84 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
 }
 
 /**
+ * Two-pass text addition: takes a generated scene image (no text) and adds
+ * the page text using a second Gemini call with the font specimen reference.
+ *
+ * @param {Buffer} sceneBuffer - The scene illustration without text
+ * @param {string} pageText - Text to render in the image
+ * @param {object} fontSpecimenRef - { base64, mimeType } of the font specimen
+ * @param {object} [opts] - { isSpread, abortSignal, aspectRatio }
+ * @returns {Promise<Buffer>} Image buffer with text added
+ */
+async function addTextToIllustration(sceneBuffer, pageText, fontSpecimenRef, opts = {}) {
+  const apiKey = getNextApiKey();
+  if (!apiKey) throw new Error('No API key for text pass');
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+  const textPlacementRule = opts.isSpread
+    ? 'Place all text in ONE compact block in the upper-left or upper-right area. The text block must not be wider than 30% of the image width.'
+    : 'Place the text in the top or bottom portion of the image, where the background is simplest.';
+
+  const parts = [
+    { text: `ADD TEXT TO THIS ILLUSTRATION — this is a children's book page that needs story text added.
+
+TEXT TO RENDER (VERBATIM — copy character-for-character):
+"${pageText}"
+
+RULES:
+- Copy the text above VERBATIM — no extra words, no missing words, no paraphrasing
+- Do NOT repeat any word or render the text block twice — ONE placement only
+- DUPLICATE TEXT FORBIDDEN: The text appears in exactly ONE place. A duplicate text block is an automatic rejection.
+- Match the font style shown in the FONT REFERENCE image EXACTLY — same letter shapes, weight, roundness, spacing
+- ${textPlacementRule}
+- TEXT PLACEMENT — MARGINS (CRITICAL): ALL text must be at least 25% from top/bottom edges and 12% from left/right edges
+- Text should appear naturally integrated — never in a box, bubble, banner, or caption
+- Ensure high contrast between text and background
+- Do NOT modify the illustration itself — keep the scene, characters, composition, and colors IDENTICAL
+- ONLY add the text — nothing else changes in the image` },
+    { text: 'SCENE ILLUSTRATION (add text to this — do NOT change the artwork):' },
+    { inline_data: { mimeType: 'image/png', data: sceneBuffer.toString('base64') } },
+  ];
+
+  // Add font specimen reference
+  if (fontSpecimenRef && fontSpecimenRef.base64) {
+    parts.push({ text: 'FONT REFERENCE — Match this EXACT font style for the text:' });
+    parts.push({ inline_data: { mimeType: fontSpecimenRef.mimeType || 'image/png', data: fontSpecimenRef.base64 } });
+  }
+
+  const generationConfig = { responseModalities: ['TEXT', 'IMAGE'] };
+  if (opts.aspectRatio) {
+    generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
+  }
+
+  const body = {
+    contents: [{ role: 'user', parts }],
+    generationConfig,
+  };
+
+  const start = Date.now();
+  const resp = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, 120000, opts.abortSignal);
+
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '');
+    throw new Error(`Text pass API error ${resp.status}: ${errBody.slice(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+  if (!imagePart) throw new Error('No image in text pass response');
+
+  const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
+  console.log(`[illustrationGenerator] Text pass completed (${Date.now() - start}ms, ${imgBuf.length} bytes)`);
+  return imgBuf;
+}
+
+/**
  * Build a structured illustration prompt with character identity anchoring.
  *
  * @param {string} sceneDescription - Scene to illustrate
@@ -713,6 +791,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`- If ANYTHING about the child doesn't match the reference, it is WRONG`);
   parts.push(`- Character consistency is MORE IMPORTANT than artistic creativity or scene composition`);
 
+  // ── Scene context from previous spreads (visual continuity) ──
+  const previousScenes = opts.previousScenes || [];
+  if (previousScenes.length > 0) {
+    parts.push('');
+    parts.push('PREVIOUS SCENES (for visual continuity — maintain environment details if the story is in the same or similar location):');
+    for (const ps of previousScenes) {
+      parts.push(`  Spread ${ps.spread}: ${ps.scene}`);
+    }
+    parts.push('If the current scene shares a location with a previous spread, maintain the same environment colors, furniture, landscape features, and architectural details. If the story moved to a new location, maintain the same overall atmosphere and visual quality.');
+  }
+
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
 
@@ -860,15 +949,28 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     parts.push({ inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } });
   }
 
-  // Add all style reference images (multiple supported)
+  // Add style & continuity reference images (multiple supported, labeled by role)
   const styleRefs = Array.isArray(opts.prevIllustrationRefs) && opts.prevIllustrationRefs.length > 0
     ? opts.prevIllustrationRefs
     : (opts.prevIllustrationBase64 ? [{ base64: opts.prevIllustrationBase64, mimeType: opts.prevIllustrationMime || 'image/jpeg' }] : []);
   if (styleRefs.length > 0) {
-    parts.push({ text: `STYLE REFERENCE${styleRefs.length > 1 ? 'S' : ''} ONLY (${styleRefs.length} image${styleRefs.length > 1 ? 's' : ''}) — these are previous spreads from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of these reference images — do NOT reproduce or imitate the composition. IGNORE any text visible in these references. Only the rendering style transfers:` });
-    for (const ref of styleRefs) {
-      parts.push({ inline_data: { mimeType: ref.mimeType || 'image/jpeg', data: ref.base64 } });
+    // Label references by role: first = spread 1 (style anchor), last = previous spread (local continuity)
+    if (styleRefs.length === 1) {
+      parts.push({ text: `BOOK CONTINUITY REFERENCE — this is a previous spread from the same book. Match the art style, color palette, lighting mood, character rendering quality, AND the visual world (recurring environment colors, atmosphere, level of detail). The NEW illustration must depict a DIFFERENT scene and moment, but it should feel like a page from the SAME book — same visual universe, same warmth, same level of whimsy. Do NOT copy the composition or layout. IGNORE any text visible in this reference.` });
+      parts.push({ inline_data: { mimeType: styleRefs[0].mimeType || 'image/jpeg', data: styleRefs[0].base64 } });
+    } else {
+      // First ref = spread 1 (style anchor), second ref = previous spread (local continuity)
+      parts.push({ text: `STYLE ANCHOR (Spread 1) — this is the FIRST interior illustration of the book. It defines the art style, color palette, rendering quality, and visual world for the entire book. Match these exactly:` });
+      parts.push({ inline_data: { mimeType: styleRefs[0].mimeType || 'image/jpeg', data: styleRefs[0].base64 } });
+      parts.push({ text: `LOCAL CONTINUITY (Previous Spread) — this is the spread immediately before the one you are generating. Use it to maintain smooth visual flow: if the story is in the same location, match the environment details (wall colors, furniture, landscape features). If the story moved to a new location, maintain the same atmosphere and lighting quality. IGNORE any text visible in this reference.` });
+      parts.push({ inline_data: { mimeType: styleRefs[1].mimeType || 'image/jpeg', data: styleRefs[1].base64 } });
     }
+  }
+
+  // Add font specimen reference for text-embedded illustrations
+  if (opts.fontSpecimenRef && opts.fontSpecimenRef.base64) {
+    parts.push({ text: `FONT REFERENCE — This image shows the EXACT font (Bubblegum Sans) to use for all text rendered in this illustration. Match the letter shapes, weight, roundness, and spacing precisely. Every page of this book must use this identical font:` });
+    parts.push({ inline_data: { mimeType: opts.fontSpecimenRef.mimeType || 'image/png', data: opts.fontSpecimenRef.base64 } });
   }
 
   const body = {
@@ -877,7 +979,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   };
 
   const epStart = Date.now();
-  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference${opts.prevIllustrationBase64 ? ' + prev illustration' : ''}...`);
+  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference${styleRefs.length ? ` + ${styleRefs.length} style ref(s)` : ''}${opts.fontSpecimenRef ? ' + font specimen' : ''}...`);
   try {
     const resp = await fetchWithTimeout(url, {
       method: 'POST',
@@ -1058,6 +1160,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     colorScript: opts.colorScript || null,
     aspectRatioHint: opts.aspectRatioHint || '',
     aspectRatio: opts.aspectRatio || '',
+    previousScenes: opts.previousScenes || [],
   });
   const aspectRatio = determineAspectRatio({ ...opts, isSpread });
 
@@ -1102,6 +1205,18 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const prevIllustrationBase64 = prevIllustrationRefs[0]?.base64 || null;
   const prevIllustrationMime = prevIllustrationRefs[0]?.mimeType || 'image/jpeg';
 
+  // Load font specimen for text-embedded illustrations
+  let fontSpecimenRef = null;
+  const hasEmbeddedText = opts.pageText && !opts.skipTextEmbed;
+  if (hasEmbeddedText) {
+    try {
+      const { getFontSpecimen } = require('./fontSpecimen');
+      fontSpecimenRef = await getFontSpecimen();
+    } catch (e) {
+      console.warn(`[illustrationGenerator] Font specimen not available: ${e.message}`);
+    }
+  }
+
   // Build prompt variants for NSFW fallback
   const promptVariants = [
     { label: 'original', prompt: fullPrompt },
@@ -1125,7 +1240,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         // Send the original uploaded photo as ethnicity/skin tone ground truth for ALL spreads, not just the first
         const originalPhotoBase64 = opts._cachedPhotoBase64 || null;
         const originalPhotoMime = opts._cachedPhotoMime || 'image/jpeg';
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime, fontSpecimenRef });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;

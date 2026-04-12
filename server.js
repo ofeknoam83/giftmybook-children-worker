@@ -334,20 +334,39 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           } else {
             bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
           }
-          // Find the most recent completed illustration as style reference
-          // For spread 1 (idx=0): no prev illustration yet — use cover as style hint (already used as character ref)
-          // For spread 2 (idx=1): use spread 1 once available
-          let prevIllustrationUrl = null;
+          // ── Multi-reference pipeline: collect spread 1 + previous spread as style refs ──
+          // Spread 1 anchors the interior art style; previous spread provides local continuity.
+          // The cover is already sent separately as the character reference photo.
+          const prevIllustrationUrls = [];
+          // Always include spread 1 (interior style anchor) — except when we ARE spread 1
+          if (idx > 0) {
+            const spread1Url = results[0]?.spreadIllustrationUrl || results[0]?.illustrationUrl;
+            if (spread1Url) prevIllustrationUrls.push(spread1Url);
+          }
+          // Include most recent completed spread (local continuity)
           for (let pi = idx - 1; pi >= 0; pi--) {
             const prev = results[pi];
             const prevUrl = prev?.spreadIllustrationUrl || prev?.illustrationUrl;
-            if (prevUrl) { prevIllustrationUrl = prevUrl; break; }
+            if (prevUrl) {
+              // Don't duplicate spread 1 if it's also the previous spread
+              if (!prevIllustrationUrls.includes(prevUrl)) {
+                prevIllustrationUrls.push(prevUrl);
+              }
+              break;
+            }
           }
-          // For spread 1 specifically: if no cover has been generated yet,
-          // use the approved cover itself as the style anchor (in addition to being the character ref)
-          // This is already handled via characterRefBase64 — no change needed here.
-          // BUT: add a style establishment note to spread 1's prompt injection via spreadIndex check
           const isFirstSpread = (idx === 0);
+
+          // ── Scene context carry-forward: pass previous spreads' scene descriptions ──
+          const previousScenes = [];
+          const allSpreads = entries.filter(e => e.type === 'spread');
+          for (let si = Math.max(0, idx - 2); si < idx; si++) {
+            const prevEntry = allSpreads[si];
+            if (prevEntry) {
+              const sceneDesc = prevEntry.spread_image_prompt || prevEntry.left?.image_prompt || '';
+              if (sceneDesc) previousScenes.push({ spread: si + 1, scene: sceneDesc.slice(0, 300) });
+            }
+          }
 
           // C1/C4: Determine best photo reference for this spread
           const entry = results[idx];
@@ -382,7 +401,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             isSpread: job.isSpread || false,
             deadlineMs: 200000,
             abortSignal: bookContext.abortController.signal,
-            prevIllustrationUrl,
+            prevIllustrationUrls,
+            previousScenes,
             promptInjection: isFirstSpread
               ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
               : '',
@@ -1815,6 +1835,30 @@ Format your answer with each label on its own line followed by a colon and the a
             lastSpread.spread_image_prompt = `${childNameStr} leaning toward a birthday cake with ${candleDesc}, cheeks puffed, about to blow out the candles. Warm golden candlelight illuminates their face from below. Soft confetti and party decorations in the background.${favoriteClause} The room glows with warmth, joy, and celebration. Close-up emotional moment.`;
             bookContext.log('info', 'Birthday: replaced last spread illustration prompt with locked cake/candles scene');
           }
+        }
+      }
+
+      // Stage 3.5: Generate Visual Story Bible (locked visual reference for illustration continuity)
+      let visualBible = null;
+      if (!isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
+        try {
+          const { generateVisualBible, buildBibleContext } = require('./services/visualBible');
+          bookContext.log('info', 'Generating Visual Story Bible');
+          visualBible = await generateVisualBible(storyPlan, childDetails, { costTracker, bookContext });
+          if (visualBible) {
+            // Prepend bible context to each spread's illustration prompt
+            const spreads = (storyPlan.entries || []).filter(e => e.type === 'spread');
+            for (let i = 0; i < spreads.length; i++) {
+              const bibleCtx = buildBibleContext(visualBible, i);
+              if (bibleCtx && spreads[i].spread_image_prompt) {
+                spreads[i].spread_image_prompt = bibleCtx + '\nSCENE: ' + spreads[i].spread_image_prompt;
+              }
+            }
+            storyPlan.visualBible = visualBible;
+            bookContext.log('info', 'Visual Story Bible applied to all spread prompts');
+          }
+        } catch (bibleErr) {
+          bookContext.log('warn', 'Visual Story Bible failed (non-blocking)', { error: bibleErr.message });
         }
       }
 
