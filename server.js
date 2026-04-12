@@ -1658,23 +1658,51 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
                   bookContext.log('info', 'Cover art style not extracted — using cinematic_3d default');
                 }
                 // Override characterOutfit from cover image (takes priority over story planner's guess)
+                // For partially visible outfits (e.g. cover shows only upper body), merge:
+                // use cover-extracted values for visible parts, keep story planner's for non-visible parts.
                 const outfitRaw = outfitMatch?.[1]?.trim();
                 if (outfitRaw && outfitRaw.length > 10) {
                   const topPart = outfitRaw.match(/TOP[:\s]+(.+)/i);
                   const bottomPart = outfitRaw.match(/BOTTOM[:\s]+(.+)/i);
                   const shoesPart = outfitRaw.match(/SHOES[:\s]+(.+)/i);
                   const accessoriesPart = outfitRaw.match(/ACCESSORIES[:\s]+(.+)/i);
-                  const outfitParts = [];
-                  if (topPart?.[1]?.trim() && !/not visible/i.test(topPart[1])) outfitParts.push(topPart[1].trim());
-                  if (bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1])) outfitParts.push(bottomPart[1].trim());
-                  if (shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1])) outfitParts.push(shoesPart[1].trim());
-                  if (accessoriesPart?.[1]?.trim() && !/not visible|^none$/i.test(accessoriesPart[1])) outfitParts.push(accessoriesPart[1].trim());
-                  if (outfitParts.length > 0) {
-                    const previousOutfit = storyPlan.characterOutfit;
-                    storyPlan.characterOutfit = outfitParts.join(', ');
+                  const coverParts = [];
+                  if (topPart?.[1]?.trim() && !/not visible/i.test(topPart[1])) coverParts.push(topPart[1].trim());
+                  if (bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1])) coverParts.push(bottomPart[1].trim());
+                  if (shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1])) coverParts.push(shoesPart[1].trim());
+                  if (accessoriesPart?.[1]?.trim() && !/not visible|^none$/i.test(accessoriesPart[1])) coverParts.push(accessoriesPart[1].trim());
+                  if (coverParts.length > 0) {
+                    const previousOutfit = storyPlan.characterOutfit || '';
+                    // Merge: start with cover-extracted parts, then append non-visible parts from story planner
+                    let mergedOutfit = coverParts.join(', ');
+                    let hasBottom = bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1]);
+                    let hasShoes = shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1]);
+                    if ((!hasBottom || !hasShoes) && previousOutfit) {
+                      // Extract bottom/shoes from story planner's outfit to fill gaps
+                      const plannerItems = previousOutfit.split(/,\s*/);
+                      for (const item of plannerItems) {
+                        const itemLower = item.toLowerCase().trim();
+                        if (!hasBottom && /\b(pants|jeans|shorts|skirt|leggings|trousers|joggers|overalls)\b/.test(itemLower)) {
+                          mergedOutfit += ', ' + item.trim();
+                          bookContext.log('info', 'Merged bottom garment from story planner', { item: item.trim() });
+                          hasBottom = true;
+                        }
+                        if (!hasShoes && /\b(shoes|sneakers|boots|sandals|slippers|loafers|flats)\b/.test(itemLower)) {
+                          mergedOutfit += ', ' + item.trim();
+                          bookContext.log('info', 'Merged shoes from story planner', { item: item.trim() });
+                          hasShoes = true;
+                        }
+                      }
+                    }
+                    // Append "no additional accessories" if cover showed none, to prevent invented items
+                    const hasAccessories = accessoriesPart?.[1]?.trim() && !/not visible|^none$/i.test(accessoriesPart[1]);
+                    if (!hasAccessories) {
+                      mergedOutfit += ', no additional accessories';
+                    }
+                    storyPlan.characterOutfit = mergedOutfit;
                     bookContext.log('info', 'Character outfit extracted from cover (overriding story planner)', {
                       coverOutfit: storyPlan.characterOutfit.slice(0, 300),
-                      previousOutfit: (previousOutfit || '').slice(0, 300),
+                      previousOutfit: previousOutfit.slice(0, 300),
                     });
                   } else {
                     bookContext.log('info', 'Outfit section parsed but no visible garments — keeping story planner outfit');
