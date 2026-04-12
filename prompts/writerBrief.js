@@ -31,7 +31,8 @@ const AGE_TIERS = {
     tier: 2,
     label: 'Classic Picture Book',
     range: [3, 5],
-    vocabulary: 'conversational, concrete. No words above 2 syllables unless a name. Write the way a loving parent speaks to a 3-year-old. Simple sentence structures: subject-verb, subject-verb-object. No dependent clauses. No metaphors unless they use concrete familiar objects.',
+    vocabulary: 'single-syllable and common two-syllable words only. Write the way you talk to a 3-year-old — "big", "soft", "run", "hug", not "glistening", "magnificent", "whimsical". No adjective stacking (one adjective per noun max). Simple sentence structures: subject-verb, subject-verb-object. No dependent clauses. No metaphors unless they use concrete familiar objects.',
+    maxWordsPerSentence: 8,
     maxWordsPerSpread: 25,
     sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
@@ -61,7 +62,7 @@ const AGE_TIERS = {
     arc: 'arc may include a false resolution before true resolution.',
     phaseTwo: 10,
     rhymeLevel: 'light — occasional internal rhymes or near-rhymes for flavor. Story prose dominates. A couplet here and there, not a pattern.',
-    soundWordsRule: 'Sound words are optional. If you include them, use at most 1-2 across the entire story. At this age, the prose carries the weight. Do NOT scatter onomatopoeia across multiple spreads.',
+    soundWordsRule: 'Sound words: maximum 1 across the entire story, and only if it serves a specific scene purpose (a door creaking at a tense moment). Never decorative. If in doubt, use zero.',
   },
   4: {
     tier: 4,
@@ -79,7 +80,7 @@ const AGE_TIERS = {
     arc: 'arc may include a secondary character with their own want.',
     phaseTwo: 10,
     rhymeLevel: 'subtle — only where it emerges naturally from the prose. Slant rhymes and internal echoes preferred over end-rhymes.',
-    soundWordsRule: 'Do NOT include standalone onomatopoeia. At this age, sound words feel juvenile. Only use a sound word if it serves a specific literary purpose (e.g., a character imitating something). Zero sound words is the ideal.',
+    soundWordsRule: 'ZERO onomatopoeia. No sound words whatsoever — no bang, crash, whoosh, splash, creak. At this age they feel juvenile and break the literary voice. Describe sounds with prose: "the door groaned open" not "CREEEAK." This rule has no exceptions.',
   },
 };
 
@@ -1154,6 +1155,20 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   brief = brief.replace(/\{poeticRule\}/g, poeticRule);
   brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
+
+  // Inject Tier 2 vocabulary enforcement block
+  if (config.tier === 2) {
+    const tier2Block = `
+
+TIER 2 VOCABULARY ENFORCEMENT (ages 3-5):
+- BANNED WORDS: glistening, magnificent, whimsical, ethereal, luminous, iridescent, cascade, eloquent, radiant, resplendent, shimmer, glimmer, beckon, twilight, celestial, melodic, enchanting, mesmerizing, serene, tranquil, mystical, majestic, flutter, sparkle, twinkle, danced, pranced, nestled, murmured, whispered (use "said" or "called"), tumbled, scurried, slumbered, wandered, embraced
+- Test every sentence: could a 3-year-old say this sentence back to you? If not, simplify.
+- Max sentence length: 8 words. Break longer sentences into two.
+- No poetic inversions ("Down the hill rolled the ball" → "The ball rolled down the hill")
+- No compound adjectives ("star-covered blanket" → "blanket with stars")`;
+    brief += tier2Block;
+  }
+
   return brief;
 }
 

@@ -247,7 +247,7 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
   }
 
   if (v2Vars.isMultipleGifters && v2Vars.gifterNames?.length > 1) {
-    prompt += `\n\nMULTIPLE GIFTERS (TEXT ONLY): This book is from ${v2Vars.gifterNames.join(' and ')}. You MAY mention them naturally in the story text (e.g., a voice from the doorway, a tucked-in moment), but do NOT force their names into the narrative if it feels unnatural. It is better for gifter names to appear only on the dedication page than to appear awkwardly in the story. This applies to text only — do NOT add them to illustration prompts.`;
+    prompt += `\n\nMULTIPLE GIFTERS — DEDICATION PAGE ONLY:\nThis book is a gift from ${v2Vars.gifterNames.join(' and ')}.\nTheir names belong ONLY on the dedication page: "${dedication}"\nDo NOT mention gifter names in the story text unless they are also named characters in the child's daily life (e.g., "Mom", "Dad", "Grandma Sara"). Random first names appearing in the story without context confuses readers.\nDo NOT add gifters to illustration prompts.`;
   }
 
   prompt += `
@@ -261,7 +261,7 @@ Generate the COMPLETE story as a JSON object with this structure:`;
   return prompt + `
 {
   "title": "The book title (MUST include the child's name and reference something specific to THIS story — see TITLE RULES)",
-  "characterOutfit": "exact outfit the child wears in EVERY spread (garment type, color, patterns, shoes, accessories)",
+  "characterOutfit": "EXACT outfit the child wears in EVERY spread with NO changes. Must include ALL of: (1) top garment type + exact color + any pattern/logo, (2) bottom garment type + exact color, (3) shoe type + exact color, (4) any accessories or 'none'. Example: 'red short-sleeve t-shirt with a small yellow star on the chest, blue denim shorts, white canvas sneakers with green laces, no hat, no accessories'. This outfit is LOCKED — it must not change on any spread.",
   "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",${secondaryCharField}
   "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
   "keyObjects": "other objects that recur across spreads, with exact visual details",

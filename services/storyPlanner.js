@@ -1254,8 +1254,10 @@ function sanitizeStoryText(text) {
   return text
     .replace(/\s*\u2014\s*/g, '. ')   // em-dash → period + space
     .replace(/\s*\u2013\s*/g, ', ')   // en-dash → comma + space
-    .replace(/\.\s*\./g, '.')         // collapse double periods
-    .replace(/,\s*\./g, '.')          // collapse comma-period
+    .replace(/\.(\s*\.)+/g, '.')      // collapse multiple periods
+    .replace(/,\s*\./g, '.')          // fix ", ." → "."
+    .replace(/\.\s*,/g, '.')          // fix ". ," → "."
+    .replace(/\s{2,}/g, ' ')          // collapse double spaces
     .trim();
 }
 

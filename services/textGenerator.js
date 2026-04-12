@@ -9,6 +9,22 @@ const { TEXT_GENERATOR_SYSTEM: PB_TEXT_SYSTEM, VOCABULARY_CHECK_PROMPT } = requi
 const { TEXT_GENERATOR_SYSTEM: ER_TEXT_SYSTEM } = require('../prompts/earlyReader');
 const gemini = require('./gemini');
 
+/**
+ * Remove em-dashes, en-dashes, and normalize punctuation for children's books.
+ * Applied to all generated story text as a post-processing step.
+ */
+function sanitizePunctuation(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .replace(/\s*\u2014\s*/g, '. ')   // em-dash → period + space
+    .replace(/\s*\u2013\s*/g, ', ')   // en-dash → comma + space
+    .replace(/\.(\s*\.)+/g, '.')      // collapse multiple periods
+    .replace(/,\s*\./g, '.')          // fix ", ." → "."
+    .replace(/\.\s*,/g, '.')          // fix ". ," → "."
+    .replace(/\s{2,}/g, ' ')          // collapse double spaces
+    .trim();
+}
+
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -129,6 +145,9 @@ Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words.
   // Strip any markdown formatting the model might add
   text = text.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/\*/g, '').trim();
 
+  // Sanitize dashes and normalize punctuation for children's books
+  text = sanitizePunctuation(text);
+
   // Vocabulary check via Gemini (fast + cheap)
   try {
     const vocabResult = await checkVocabulary(text, rules.ageGroup, opts.apiKeys, costTracker);
@@ -202,4 +221,4 @@ async function checkVocabulary(text, ageGroup, apiKeys, costTracker) {
   return null;
 }
 
-module.exports = { generateSpreadText };
+module.exports = { generateSpreadText, sanitizePunctuation };
