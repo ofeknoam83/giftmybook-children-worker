@@ -1592,6 +1592,36 @@ function repairTruncatedJson(str) {
   }
 }
 
+// ── Age-Tier Preamble for Critics ──
+
+const TIER_2_BANNED_WORDS = 'glistening, magnificent, whimsical, ethereal, luminous, iridescent, cascade, eloquent, radiant, resplendent, shimmer, glimmer, beckon, twilight, celestial, melodic, enchanting, mesmerizing, serene, tranquil, mystical, majestic, flutter, sparkle, twinkle, danced, pranced, nestled, murmured, whispered, tumbled, scurried, slumbered, wandered, embraced';
+
+function buildAgeTierPreamble(tier, config, age) {
+  let preamble = `\n\n─────────────────────────────────────────
+AGE TIER CONSTRAINTS (CRITICAL — must respect these in ALL rewrites)
+─────────────────────────────────────────
+Age: ${age} | Tier: ${tier} (${config.label})
+Vocabulary: ${config.vocabulary}
+Max words per spread: ${config.maxWordsPerSpread || 30}
+Sound words rule: ${config.soundWordsRule}`;
+
+  if (config.maxWordsPerSentence) {
+    preamble += `\nMax words per sentence: ${config.maxWordsPerSentence}`;
+  }
+
+  if (tier <= 2) {
+    preamble += `\n
+SIMPLICITY OVERRIDE (Tier ${tier}):
+- SIMPLICITY always overrides literary quality for this age group.
+- Do NOT upgrade simple words to poetic words. "Walked" is fine. "Crept" may not be in their vocabulary.
+- Do NOT add metaphors, poetic inversions, or multi-clause sentences.
+- Test: could a ${age}-year-old say this sentence back to you? If not, simplify it.
+- BANNED WORDS: ${TIER_2_BANNED_WORDS}`;
+  }
+
+  return preamble;
+}
+
 // ── Self-Critic + Auto-Rewrite prompt ──
 
 const SELF_CRITIC_SYSTEM = `CHILDREN'S BOOK — SELF-CRITIC + AUTO-REWRITE
@@ -1758,7 +1788,7 @@ If not, keep refining internally before output.`;
  * @returns {Promise<object>} Polished story plan with same structure
  */
 async function polishStory(storyPlan, opts = {}) {
-  const { costTracker, apiKeys, theme, validationIssues } = opts;
+  const { costTracker, apiKeys, theme, validationIssues, childAge } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   // Build a compact representation of just the text to rewrite
@@ -1770,6 +1800,11 @@ async function polishStory(storyPlan, opts = {}) {
   }));
 
   let systemPrompt = SELF_CRITIC_SYSTEM;
+
+  // Inject age-tier constraints so the critic respects age-appropriate language
+  const { tier: ageTier, config: ageConfig } = getAgeTier(childAge || 5);
+  systemPrompt += buildAgeTierPreamble(ageTier, ageConfig, childAge || 5);
+
   if (theme === 'birthday') {
     systemPrompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- Do NOT soften the ending into a whisper or sleepy tone.\n- The final spread (spread 13) is the birthday cake/candles moment — the emotional climax the whole story earned.\n- The ending should feel warm, joyful, and celebratory — not quiet.\n- "Ending Quality" score should reward a triumphant, emotionally resonant birthday ending.\n- The ENDING UPGRADE rule does NOT apply — do not make the ending softer or more poetic. Make it warmer and more joyful if needed.`;
   }
@@ -1869,37 +1904,94 @@ async function polishStory(storyPlan, opts = {}) {
 
   console.log(`[storyPlanner] Self-critic pass: ${changedCount} page texts improved out of ${spreads.length * 2} pages`);
 
-  return {
+  const polished = {
     ...storyPlan,
     entries: updatedEntries,
     _criticScores: result.scores || null,
     _criticIssueCount: (result.issues || []).length,
   };
+
+  // Sanitize em-dashes/en-dashes that the critic may have reintroduced
+  sanitizeAllStoryText(polished);
+
+  return polished;
 }
 
 // ── Rhythm & Simplicity Critic ──
 
-const COMBINED_CRITIC_SYSTEM = `You are a world-class children's book editor. You review the story in ONE pass and fix everything at once.
+function buildCombinedCriticSystem(childAge) {
+  const { tier, config } = getAgeTier(childAge || 5);
+  const isYoung = tier <= 2;
+
+  // Age-conditional rhythm section
+  const rhythmSection = isYoung
+    ? `Read every line aloud in your head. Fix any line that:
+- Stumbles, feels clunky, or is hard to say smoothly
+- Has consecutive hard consonants creating tongue twisters
+- Uses words a ${childAge || 3}-year-old would not know
+- Sounds flat when spoken — but do NOT replace simple words with complex "textured" words. "Walked" is fine for this age. "Crept" may not be in their vocabulary.
+
+Rules for rhythm fixes:
+- Pattern over poetry. The best picture books for young children use REPETITION as their rhythm engine. Does the text rock like a lullaby or bounce like a game? If it just sits flat, rewrite.
+- Alternate long and short sentences for natural breathing cadence.
+- Keep fixes shorter or equal length to the original
+- Every spread must have at least one short sentence (5 words or fewer) for contrast
+- Near-rhymes and internal rhymes are welcome but never forced
+- Every word must feel good in the MOUTH. Choose mouth-feel words over eye-pleasing words.
+- Do NOT upgrade simple vocabulary to "sharper" or more literary alternatives`
+    : `Read every line aloud in your head. Fix any line that:
+- Stumbles, feels clunky, or is hard to say smoothly
+- Has consecutive hard consonants creating tongue twisters
+- Has words over 3 syllables (unless a name or meaningful invented word)
+- Contains a forced or strained rhyme that bends the meaning
+- Sounds flat when spoken — prefer words with texture and energy ("crept" over "walked", "pressed" over "put")
+
+Rules for rhythm fixes:
+- Keep fixes shorter or equal length to the original
+- Vary sentence rhythm intentionally: a long image sentence followed by a 3-word punch. Prose should breathe.
+- Every spread must have at least one short sentence (5 words or fewer) for contrast
+- Near-rhymes and internal rhymes are always better than strained end-rhymes
+- If a rhyme feels forced, drop it — the story always wins over the sound`;
+
+  // Age-conditional memorable line exemplar
+  const memorableLineExemplar = isYoung
+    ? 'A memorable line uses small words to say big things: "The moon hid. Then it came back." or "She held Momo tight. Two ears. One heart."'
+    : 'A memorable line is NOT a wise statement — it\'s a perfectly observed image or feeling: "The dark had a sound now. Not a growl. A hum."';
+
+  // Age-conditional language quality section
+  const languageQuality = isYoung
+    ? `- Replace any generic filler words: "very", "nice", "special", "magical", "wonderful", "beautiful" used as descriptors
+- Replace any emotion-telling: "she felt scared", "he was happy" — show through action/sensation
+- Do NOT replace simple words with "sharper" literary alternatives. "Walked" is fine. "Crept" may not be in a ${childAge || 3}-year-old's vocabulary.
+- Only reduce or maintain word count — never increase
+- BANNED WORDS: ${TIER_2_BANNED_WORDS}`
+    : `- Replace any generic filler words: "very", "nice", "special", "magical", "wonderful", "beautiful" used as descriptors
+- Replace any emotion-telling: "she felt scared", "he was happy" — show through action/sensation
+- Sharpen one word per spread if a more specific/sensory word fits better
+- Only reduce or maintain word count — never increase`;
+
+  // Age-conditional humor section
+  let humorSection = `Check for at least 2 genuinely funny or delightful moments in the story (spreads 2-10).
+Not token jokes — real humor that a child would laugh at and a parent would smile at:
+- Does the child say or do something unexpected and funny?
+- Is there a running gag, a recurring absurd detail, or a creature/object with personality?
+- Is there at least one moment of comic timing (setup then surprise)?
+If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.`;
+
+  if (tier >= 4) {
+    humorSection += '\nIMPORTANT: Do NOT add onomatopoeia or sound words. At this age (9-12) they feel juvenile and break the literary voice. Describe sounds with prose instead.';
+  } else if (tier === 3) {
+    humorSection += '\nSOUND WORDS: Maximum 1 across the entire story. Do not add any if one already exists. Never decorative.';
+  }
+
+  return `You are a world-class children's book editor. You review the story in ONE pass and fix everything at once.
 
 Your job covers six areas. Evaluate ALL of them, then produce ONE set of improved spreads.
 
 ─────────────────────────────────────────
 1. RHYTHM & READ-ALOUD (highest priority)
 ─────────────────────────────────────────
-Read every line aloud in your head. Fix any line that:
-- Stumbles, feels clunky, or is hard to say smoothly
-- Has consecutive hard consonants creating tongue twisters
-- Has words over 3 syllables (unless a name or meaningful invented word)
-- Violates the 8–14 syllable preference per sentence
-- Contains a forced or strained rhyme that bends the meaning
-- Sounds flat when spoken — prefer words with texture and energy ("crept" over "walked", "pressed" over "put")
-
-Rules for rhythm fixes:
-- Keep fixes shorter or equal length to the original
-- Maintain 8–14 syllables per sentence
-- Every spread must have at least one short sentence (≤5 words) for contrast
-- Near-rhymes and internal rhymes are always better than strained end-rhymes
-- If a rhyme feels forced, drop it — the story always wins over the sound
+${rhythmSection}
 
 ─────────────────────────────────────────
 2. EMOTIONAL ARC
@@ -1917,25 +2009,17 @@ Fix weak spreads. Do NOT add new characters, events, or settings.
 Ensure at least ONE line exists that a parent would want to repeat to their child outside the book.
 It should be specific to THIS child and THIS story — not generic.
 If no such line exists, create one naturally within the existing story structure.
-A memorable line is NOT a wise statement — it's a perfectly observed image or feeling: "The dark had a sound now. Not a growl. A hum."
+${memorableLineExemplar}
 
 ─────────────────────────────────────────
 4. LANGUAGE QUALITY
 ─────────────────────────────────────────
-- Replace any generic filler words: "very", "nice", "special", "magical", "wonderful", "beautiful" used as descriptors
-- Replace any emotion-telling: "she felt scared", "he was happy" → show through action/sensation
-- Sharpen one word per spread if a more specific/sensory word fits better
-- Only reduce or maintain word count — never increase
+${languageQuality}
 
 ─────────────────────────────────────────
 5. HUMOR & DELIGHT
 ─────────────────────────────────────────
-Check for at least 2 genuinely funny or delightful moments in the story (spreads 2-10).
-Not token jokes — real humor that a child would laugh at and a parent would smile at:
-- Does the child say or do something unexpected and funny?
-- Is there a running gag, a recurring absurd detail, or a creature/object with personality?
-- Is there at least one moment of comic timing (setup then surprise)?
-If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation, a sound effect at the wrong moment. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.
+${humorSection}
 
 ─────────────────────────────────────────
 6. ANTI-KITSCHY CHECK
@@ -1977,6 +2061,7 @@ Return JSON:
 - Return ALL spreads in improved_spreads (unchanged spreads returned as-is)
 - If left or right was null, keep it null
 - issues array may be empty if the story is already strong`;
+}
 
 function applyImprovedSpreads(storyPlan, improvedSpreads) {
   const spreads = storyPlan.entries.filter((entry) => entry.type === 'spread');
@@ -2012,7 +2097,7 @@ function applyImprovedSpreads(storyPlan, improvedSpreads) {
  * Replaces the three separate rhythm/arc/polish critics.
  */
 async function combinedCritic(storyPlan, opts = {}) {
-  const { costTracker, apiKeys, theme } = opts;
+  const { costTracker, apiKeys, theme, childAge } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const spreads = storyPlan.entries.filter(e => e.type === 'spread');
@@ -2022,7 +2107,7 @@ async function combinedCritic(storyPlan, opts = {}) {
     right: s.right?.text || null,
   }));
 
-  let systemPrompt = COMBINED_CRITIC_SYSTEM;
+  let systemPrompt = buildCombinedCriticSystem(childAge);
   if (theme === 'birthday') {
     systemPrompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- The rule "spreads 12-13 must feel like settling into sleep — soft, not triumphant" does NOT apply.\n- Spread 12 should be a held-breath moment — silent anticipation, the room hushing before the cake.\n- Spread 13 is the birthday cake/candles climax — warm, joyful, celebratory. This is the emotional payoff the whole story earned.\n- Do NOT soften or quiet the ending. Preserve its warmth and joy.\n- The emotional arc should PEAK at spread 13, not wind down.`;
   }
@@ -2071,6 +2156,10 @@ async function combinedCritic(storyPlan, opts = {}) {
   }
 
   const improved = applyImprovedSpreads(storyPlan, result.improved_spreads || []);
+
+  // Sanitize em-dashes/en-dashes that the critic may have reintroduced
+  sanitizeAllStoryText(improved);
+
   improved._combinedCriticScores = result.scores || null;
   return improved;
 }

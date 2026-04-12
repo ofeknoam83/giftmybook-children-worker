@@ -248,6 +248,8 @@ This is an ADVENTURE book. The story MUST be a physical journey through at least
 
   if (v2Vars.isMultipleGifters && v2Vars.gifterNames?.length > 1) {
     prompt += `\n\nMULTIPLE GIFTERS — DEDICATION PAGE ONLY:\nThis book is a gift from ${v2Vars.gifterNames.join(' and ')}.\nTheir names belong ONLY on the dedication page: "${dedication}"\nDo NOT mention gifter names in the story text unless they are also named characters in the child's daily life (e.g., "Mom", "Dad", "Grandma Sara"). Random first names appearing in the story without context confuses readers.\nDo NOT add gifters to illustration prompts.`;
+  } else if (!v2Vars.isMultipleGifters && v2Vars.gifterNames?.length === 1) {
+    prompt += `\n\nSINGLE GIFTER — DEDICATION PAGE ONLY:\nThis book is a gift from ${v2Vars.gifterNames[0]}.\nTheir name belongs ONLY on the dedication page: "${dedication}"\nDo NOT mention this gifter's name in the story text unless they are also a named character in the child's daily life (e.g., "Mom", "Dad", "Grandma Sara"). Random first names appearing in the story without context confuses readers.`;
   }
 
   prompt += `

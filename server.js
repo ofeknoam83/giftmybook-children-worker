@@ -1466,7 +1466,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
         try {
           const polishStart = Date.now();
-          storyPlan = await polishStory(storyPlan, { apiKeys, costTracker, theme, validationIssues: storyPlan._validationIssues });
+          storyPlan = await polishStory(storyPlan, { apiKeys, costTracker, theme, validationIssues: storyPlan._validationIssues, childAge: childDetails.age });
           const polishMs = Date.now() - polishStart;
           bookContext.log('info', 'Self-critic complete', { ms: polishMs, scores: storyPlan._criticScores, issueCount: storyPlan._criticIssueCount });
           bookContext.touchActivity();
@@ -1490,7 +1490,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                   v2Vars: { ...v2Vars, retryTemperature: 0.9 },
                   additionalCoverCharacters: detectedSecondaryCharacters || null,
                 });
-                const retryPolished = await polishStory(retryPlan, { apiKeys, costTracker, theme, validationIssues: retryPlan._validationIssues });
+                const retryPolished = await polishStory(retryPlan, { apiKeys, costTracker, theme, validationIssues: retryPlan._validationIssues, childAge: childDetails.age });
                 // Use whichever version scored higher
                 const retryScores = retryPolished._criticScores || {};
                 const retryValues = Object.values(retryScores).filter(v => typeof v === 'number');
@@ -1518,7 +1518,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
         try {
           const criticStart = Date.now();
-          storyPlan = await combinedCritic(storyPlan, { apiKeys, costTracker, theme });
+          storyPlan = await combinedCritic(storyPlan, { apiKeys, costTracker, theme, childAge: childDetails.age });
           bookContext.log('info', 'Combined critic complete', { ms: Date.now() - criticStart });
           bookContext.touchActivity();
           // Save polished content to DB
