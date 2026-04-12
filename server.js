@@ -428,7 +428,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
               // Retry ONCE with corrective prompt
               try {
-                const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}`;
+                const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}${storyPlan.characterOutfit ? '\nREQUIRED OUTFIT (MUST match exactly): ' + storyPlan.characterOutfit : ''}`;
                 const correctedPrompt = correctionNote + '\n\n' + prompt;
                 bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
 
@@ -759,7 +759,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
             // Retry ONCE with corrective prompt
             try {
               const originalPrompt = page.fullPagePrompt || `Graphic novel page ${completed + 1}`;
-              const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}`;
+              const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}${storyPlan.characterOutfit ? '\nREQUIRED OUTFIT (MUST match exactly): ' + storyPlan.characterOutfit : ''}`;
               const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
               bookContext.log('info', `Retrying page ${completed + 1} with consistency correction`);
 
@@ -1585,7 +1585,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Analyze this children's book cover image and respond with exactly three labeled sections.
+                    { text: `Analyze this children's book cover image and respond with exactly four labeled sections.
 
 CHARACTER:
 Describe the MAIN child character in this exact format:
@@ -1597,6 +1597,13 @@ NOTABLE: [any distinguishing features]
 
 If you cannot determine a field from the image, write "not visible".
 
+OUTFIT:
+Describe the MAIN child's clothing EXACTLY as visible in the image:
+TOP: [garment type, exact color, any patterns/logos/details, sleeve length, neckline, or "not visible"]
+BOTTOM: [garment type, exact color, or "not visible"]
+SHOES: [type, exact color, or "not visible"]
+ACCESSORIES: [list any visible accessories like hats, bows, bags, or "none"]
+
 ADDITIONAL_CHARACTERS:
 List any OTHER characters visible on the cover besides the main child. For each one write:
 - [relationship if apparent, e.g. grandmother/elderly woman/adult man]: [brief appearance description — hair, skin, clothing, distinguishing features]. If no other characters are present, write: NONE.
@@ -1604,10 +1611,10 @@ List any OTHER characters visible on the cover besides the main child. For each 
 STYLE:
 Describe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.
 
-You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: exactly.` },
+You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, and STYLE: exactly.` },
                     { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
                   ]}],
-                  generationConfig: { maxOutputTokens: 2000, temperature: 0.2 },
+                  generationConfig: { maxOutputTokens: 2500, temperature: 0.2 },
                 }),
                 signal: bookContext.abortController.signal,
               }
@@ -1616,8 +1623,9 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
               const visionData = await visionResp.json();
               const extractedDesc = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
               if (extractedDesc && extractedDesc.length > 20) {
-                // Parse CHARACTER, ADDITIONAL_CHARACTERS, and STYLE sections
-                const charMatch = extractedDesc.match(/CHARACTER[:\s]+([\s\S]*?)(?=\nADDITIONAL_CHARACTERS[:\s]|\nSTYLE[:\s]|$)/i);
+                // Parse CHARACTER, OUTFIT, ADDITIONAL_CHARACTERS, and STYLE sections
+                const charMatch = extractedDesc.match(/CHARACTER[:\s]+([\s\S]*?)(?=\nOUTFIT[:\s]|\nADDITIONAL_CHARACTERS[:\s]|\nSTYLE[:\s]|$)/i);
+                const outfitMatch = extractedDesc.match(/OUTFIT[:\s]+([\s\S]*?)(?=\nADDITIONAL_CHARACTERS[:\s]|\nSTYLE[:\s]|$)/i);
                 const addlMatch = extractedDesc.match(/ADDITIONAL_CHARACTERS[:\s]+([\s\S]*?)(?=\nSTYLE[:\s]|$)/i);
                 const styleMatch = extractedDesc.match(/STYLE[:\s]+([\s\S]*?)$/i);
                 if (charMatch?.[1]?.trim()) {
@@ -1648,6 +1656,31 @@ You MUST start the sections with CHARACTER:, ADDITIONAL_CHARACTERS:, and STYLE: 
                   bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 300) });
                 } else {
                   bookContext.log('info', 'Cover art style not extracted — using cinematic_3d default');
+                }
+                // Override characterOutfit from cover image (takes priority over story planner's guess)
+                const outfitRaw = outfitMatch?.[1]?.trim();
+                if (outfitRaw && outfitRaw.length > 10) {
+                  const topPart = outfitRaw.match(/TOP[:\s]+(.+)/i);
+                  const bottomPart = outfitRaw.match(/BOTTOM[:\s]+(.+)/i);
+                  const shoesPart = outfitRaw.match(/SHOES[:\s]+(.+)/i);
+                  const accessoriesPart = outfitRaw.match(/ACCESSORIES[:\s]+(.+)/i);
+                  const outfitParts = [];
+                  if (topPart?.[1]?.trim() && !/not visible/i.test(topPart[1])) outfitParts.push(topPart[1].trim());
+                  if (bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1])) outfitParts.push(bottomPart[1].trim());
+                  if (shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1])) outfitParts.push(shoesPart[1].trim());
+                  if (accessoriesPart?.[1]?.trim() && !/not visible|^none$/i.test(accessoriesPart[1])) outfitParts.push(accessoriesPart[1].trim());
+                  if (outfitParts.length > 0) {
+                    const previousOutfit = storyPlan.characterOutfit;
+                    storyPlan.characterOutfit = outfitParts.join(', ');
+                    bookContext.log('info', 'Character outfit extracted from cover (overriding story planner)', {
+                      coverOutfit: storyPlan.characterOutfit.slice(0, 300),
+                      previousOutfit: (previousOutfit || '').slice(0, 300),
+                    });
+                  } else {
+                    bookContext.log('info', 'Outfit section parsed but no visible garments — keeping story planner outfit');
+                  }
+                } else {
+                  bookContext.log('info', 'Outfit not extracted from cover — keeping story planner outfit');
                 }
               }
             }
@@ -1901,7 +1934,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     bookContext.log('warn', `Chapter ${i + 1} character inconsistency detected`, { issues: consistency.issues });
                     try {
                       const originalChapterPrompt = chapter.imagePrompt || `A scene from chapter ${i + 1}: ${chapter.synopsis}`;
-                      const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}`;
+                      const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}${storyPlan.characterOutfit ? '\nREQUIRED OUTFIT (MUST match exactly): ' + storyPlan.characterOutfit : ''}`;
                       const correctedPrompt = correctionNote + '\n\n' + originalChapterPrompt;
                       bookContext.log('info', `Retrying chapter ${i + 1} with consistency correction`);
                       const retryResult = await generateIllustration(

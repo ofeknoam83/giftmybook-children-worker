@@ -572,7 +572,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
   }
   if (opts.firstSpreadRefBase64) {
-    parts.push('OUTFIT STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look in the book\'s art style. Match the outfit rendering — same garments, same colors, same style — in this illustration.');
+    parts.push('OUTFIT & TEXT STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look AND how text should be rendered in this book\'s art style. Match the outfit rendering — same garments, same colors, same style. Match the text rendering — same font, same size, same color, same placement style — in this illustration.');
   }
   if (recurringElement) {
     parts.push(`RECURRING OBJECT: ${recurringElement}`);
@@ -796,7 +796,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
       : '- FONT: Use Bubblegum Sans exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Bubblegum Sans only, consistently throughout.';
     parts.push(fontInstruction);
-    parts.push('- FONT CONSISTENCY (CRITICAL): Use the EXACT same font style, font size, and text color across ALL illustrations in this book. Use a clean, rounded, child-friendly sans-serif font. The font size should be large enough for children to read — approximately 18-24pt equivalent. Text color should be dark (black or very dark gray) for maximum readability.');
+    parts.push('- FONT CONSISTENCY (CRITICAL): Use the EXACT same font style, font size, and text color across ALL illustrations in this book. Use a clean, rounded, child-friendly sans-serif font. The font size should be large enough for children to read — approximately 22pt equivalent — match the exact size used on the first spread. Text color should be dark (black or very dark gray) for maximum readability.');
     parts.push('- The text rendering style (font, size, color, line spacing) must be IDENTICAL on every page — as if the same typesetter set every page.');
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): This image will be cropped ~7% from every edge when printed. To survive this crop, ALL text must be at least 25% away from the top edge, 25% away from the bottom edge, and 12% away from the left and right edges. Text within 25% of any edge WILL BE CROPPED OFF in the final book. If in doubt, move the text further toward the center of the image.');
     parts.push('- TEXT LAYOUT — WIDTH LIMIT (CRITICAL): Story text must occupy NO MORE than 35% of the page width. Place text in a narrow sidebar-style column on the left or right side of the illustration, leaving at least 65% of the width for the artwork. If the text is long, wrap it into more lines to keep the column narrow. NEVER stretch text across the full width of the image.');
@@ -825,6 +825,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Bubblegum Sans'} — the same font used on every other page of this book. \u2713`);
+  parts.push(`TEXT SIZE CONSISTENCY: the text size matches the first spread exactly — same point size on every page. \u2713`);
   parts.push(`12. TEXT MARGINS: text is at least 25% from top/bottom edges and 12% from left/right edges — it will survive print cropping. \u2713`);
   if (isSpread) {
     parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 30% of the image width. \u2713`);
@@ -900,7 +901,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
 
   // Add first spread as outfit style reference for subsequent spreads
   if (opts.firstSpreadRefBase64) {
-    parts.push({ text: 'OUTFIT STYLE REFERENCE — FIRST SPREAD: This is the first illustration from this book. The child\'s outfit in THIS image is the correct rendered version. Match it exactly.' });
+    parts.push({ text: 'OUTFIT & TEXT STYLE REFERENCE — FIRST SPREAD: This is the first illustration from this book. The child\'s outfit in THIS image is the correct rendered version. Match it exactly. The text font, size, color, and placement style in THIS image is the standard for the entire book. Match it exactly.' });
     parts.push({ inline_data: { mimeType: 'image/jpeg', data: opts.firstSpreadRefBase64 } });
   }
 
