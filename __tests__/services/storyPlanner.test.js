@@ -527,10 +527,10 @@ describe('planGraphicNovel robustness', () => {
               message: {
                 content: JSON.stringify({
                   title: 'Isabella and the Moon Orchard',
-                  sceneBlueprints: Array.from({ length: 7 }, (_, i) => ({
+                  sceneBlueprints: Array.from({ length: 9 }, (_, i) => ({
                     sceneNumber: i + 1,
                     sceneTitle: `Scene ${i + 1}`,
-                    pageCountTarget: i < 3 ? 4 : 3,
+                    pageCountTarget: i < 4 ? 9 : 8,
                   })),
                 }),
               },
@@ -844,13 +844,15 @@ describe('planGraphicNovel robustness', () => {
                 content: JSON.stringify({
                   title: 'Isabella and the Lantern Planet',
                   sceneBlueprints: [
-                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
-                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
-                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
-                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
-                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
-                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
-                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 9 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 9 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 9 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 9 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 8 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 8 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 8 },
+                    { sceneNumber: 8, sceneTitle: 'Scene 8', pageCountTarget: 8 },
+                    { sceneNumber: 9, sceneTitle: 'Scene 9', pageCountTarget: 8 },
                   ],
                 }),
               },
@@ -955,22 +957,24 @@ describe('planGraphicNovel robustness', () => {
 
   test('logs chunk progress during chunked GN planning', async () => {
     const sceneNumbers = [
-      1, 1, 1, 1,
-      2, 2, 2, 2,
-      3, 3, 3, 3,
-      4, 4, 4,
-      5, 5, 5,
-      6, 6, 6,
-      7, 7, 7,
+      1, 1, 1, 1, 1, 1, 1, 1, 1,
+      2, 2, 2, 2, 2, 2, 2, 2, 2,
+      3, 3, 3, 3, 3, 3, 3, 3, 3,
+      4, 4, 4, 4, 4, 4, 4, 4, 4,
+      5, 5, 5, 5, 5, 5, 5, 5,
+      6, 6, 6, 6, 6, 6, 6, 6,
+      7, 7, 7, 7, 7, 7, 7, 7,
+      8, 8, 8, 8, 8, 8, 8, 8,
+      9, 9, 9, 9, 9, 9, 9, 9,
     ];
-    const validPages = Array.from({ length: 24 }, (_, i) => ({
+    const validPages = Array.from({ length: 76 }, (_, i) => ({
       pageNumber: i + 1,
       sceneNumber: sceneNumbers[i],
       sceneTitle: `Scene ${sceneNumbers[i]}`,
       pagePurpose: 'Advance the story',
       pageTurnIntent: 'question',
       dominantBeat: 'A strong beat',
-      layoutTemplate: i === 18 || i === 21 ? 'fullBleedSplash' : 'conversationGrid',
+      layoutTemplate: i === 54 || i === 62 || i === 68 || i === 72 ? 'fullBleedSplash' : 'conversationGrid',
       panelCount: 2,
       panels: [
         {
@@ -980,7 +984,7 @@ describe('planGraphicNovel robustness', () => {
           balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
           captions: [],
           imagePrompt: 'Panel one prompt',
-          pageLayout: i === 18 || i === 21 ? 'splash' : '3equal',
+          pageLayout: i === 54 || i === 62 || i === 68 || i === 72 ? 'splash' : '3equal',
         },
         {
           panelNumber: 2,
@@ -994,11 +998,11 @@ describe('planGraphicNovel robustness', () => {
       ],
     }));
     const chunkSlices = [
-      validPages.slice(0, 8),
-      validPages.slice(8, 15),
-      validPages.slice(15, 18),
-      validPages.slice(18, 21),
-      validPages.slice(21, 24),
+      validPages.slice(0, 18),
+      validPages.slice(18, 36),
+      validPages.slice(36, 52),
+      validPages.slice(52, 68),
+      validPages.slice(68, 76),
     ];
 
     let openAiCalls = 0;
@@ -1045,13 +1049,15 @@ describe('planGraphicNovel robustness', () => {
                 content: JSON.stringify({
                   title: 'Isabella and the Lantern Planet',
                   sceneBlueprints: [
-                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
-                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
-                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
-                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
-                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
-                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
-                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 9 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 9 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 9 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 9 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 8 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 8 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 8 },
+                    { sceneNumber: 8, sceneTitle: 'Scene 8', pageCountTarget: 8 },
+                    { sceneNumber: 9, sceneTitle: 'Scene 9', pageCountTarget: 8 },
                   ],
                 }),
               },
@@ -1109,28 +1115,30 @@ describe('planGraphicNovel robustness', () => {
       attempt: 1,
     }));
     expect(bookContext.log).toHaveBeenCalledWith('info', 'Graphic novel chunk planned', expect.objectContaining({
-      scenes: '7',
+      scenes: '9',
     }));
   }, 15000);
 
   test('uses chunked planner directly without full-plan attempt', async () => {
     const sceneNumbers = [
-      1, 1, 1, 1,
-      2, 2, 2, 2,
-      3, 3, 3, 3,
-      4, 4, 4,
-      5, 5, 5,
-      6, 6, 6,
-      7, 7, 7,
+      1, 1, 1, 1, 1, 1, 1, 1, 1,
+      2, 2, 2, 2, 2, 2, 2, 2, 2,
+      3, 3, 3, 3, 3, 3, 3, 3, 3,
+      4, 4, 4, 4, 4, 4, 4, 4, 4,
+      5, 5, 5, 5, 5, 5, 5, 5,
+      6, 6, 6, 6, 6, 6, 6, 6,
+      7, 7, 7, 7, 7, 7, 7, 7,
+      8, 8, 8, 8, 8, 8, 8, 8,
+      9, 9, 9, 9, 9, 9, 9, 9,
     ];
-    const validPages = Array.from({ length: 24 }, (_, i) => ({
+    const validPages = Array.from({ length: 76 }, (_, i) => ({
       pageNumber: i + 1,
       sceneNumber: sceneNumbers[i],
       sceneTitle: `Scene ${sceneNumbers[i]}`,
       pagePurpose: 'Advance the story',
       pageTurnIntent: 'question',
       dominantBeat: 'A strong beat',
-      layoutTemplate: i === 18 || i === 21 ? 'fullBleedSplash' : 'conversationGrid',
+      layoutTemplate: i === 54 || i === 62 || i === 68 || i === 72 ? 'fullBleedSplash' : 'conversationGrid',
       panelCount: 2,
       panels: [
         {
@@ -1140,7 +1148,7 @@ describe('planGraphicNovel robustness', () => {
           balloons: [{ text: 'Hello there.', order: 1, anchor: 'left' }],
           captions: [],
           imagePrompt: 'Panel one prompt',
-          pageLayout: i === 18 || i === 21 ? 'splash' : '3equal',
+          pageLayout: i === 54 || i === 62 || i === 68 || i === 72 ? 'splash' : '3equal',
         },
         {
           panelNumber: 2,
@@ -1154,11 +1162,11 @@ describe('planGraphicNovel robustness', () => {
       ],
     }));
     const chunkSlices = [
-      validPages.slice(0, 8),
-      validPages.slice(8, 15),
-      validPages.slice(15, 18),
-      validPages.slice(18, 21),
-      validPages.slice(21, 24),
+      validPages.slice(0, 18),
+      validPages.slice(18, 36),
+      validPages.slice(36, 52),
+      validPages.slice(52, 68),
+      validPages.slice(68, 76),
     ];
 
     let openAiCalls = 0;
@@ -1207,13 +1215,15 @@ describe('planGraphicNovel robustness', () => {
                 content: JSON.stringify({
                   title: 'Isabella and the Lantern Planet',
                   sceneBlueprints: [
-                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 4 },
-                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 4 },
-                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 4 },
-                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 3 },
-                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 3 },
-                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 3 },
-                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 3 },
+                    { sceneNumber: 1, sceneTitle: 'Scene 1', pageCountTarget: 9 },
+                    { sceneNumber: 2, sceneTitle: 'Scene 2', pageCountTarget: 9 },
+                    { sceneNumber: 3, sceneTitle: 'Scene 3', pageCountTarget: 9 },
+                    { sceneNumber: 4, sceneTitle: 'Scene 4', pageCountTarget: 9 },
+                    { sceneNumber: 5, sceneTitle: 'Scene 5', pageCountTarget: 8 },
+                    { sceneNumber: 6, sceneTitle: 'Scene 6', pageCountTarget: 8 },
+                    { sceneNumber: 7, sceneTitle: 'Scene 7', pageCountTarget: 8 },
+                    { sceneNumber: 8, sceneTitle: 'Scene 8', pageCountTarget: 8 },
+                    { sceneNumber: 9, sceneTitle: 'Scene 9', pageCountTarget: 8 },
                   ],
                 }),
               },

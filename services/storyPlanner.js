@@ -2264,9 +2264,9 @@ function summarizeGraphicNovelStructure(plan) {
     ? plan.allPanels.filter((panel) => panel.panelType === 'splash').length
     : 0;
   const issues = [];
-  if (pageCount < 24 || pageCount > 32) issues.push(`pages=${pageCount} (need 24-32)`);
-  if (sceneCount !== 7) issues.push(`scenes=${sceneCount} (need 7)`);
-  if (splashCount !== 2) issues.push(`splashPanels=${splashCount} (need 2)`);
+  if (pageCount < 76 || pageCount > 100) issues.push(`pages=${pageCount} (need 76-100)`);
+  if (sceneCount !== 9) issues.push(`scenes=${sceneCount} (need 9)`);
+  if (splashCount < 4 || splashCount > 5) issues.push(`splashPanels=${splashCount} (need 4-5)`);
   if (panelCount < Math.max(24, pageCount)) issues.push(`panels=${panelCount} looks too low for a graphic novel`);
   const emptyPages = (plan?.pages || []).filter((page) => !Array.isArray(page.panels) || page.panels.length === 0).length;
   if (emptyPages > 0) issues.push(`emptyPages=${emptyPages}`);
@@ -2282,9 +2282,9 @@ function buildGraphicNovelChunkSpecs(storyBible) {
   const groups = [
     [1, 2],
     [3, 4],
-    [5],
-    [6],
-    [7],
+    [5, 6],
+    [7, 8],
+    [9],
   ];
 
   return groups
@@ -2354,7 +2354,7 @@ function stampGraphicNovelChunkPages(rawPlan, chunkSpec) {
 function summarizeGraphicNovelChunkStructure(plan, chunkSpec) {
   const pages = Array.isArray(plan?.pages) ? plan.pages : [];
   const expectedPages = Number(chunkSpec?.expectedPages) || 0;
-  const expectedSplashes = (chunkSpec?.scenes || []).filter((scene) => scene.sceneNumber === 6 || scene.sceneNumber === 7).length;
+  const expectedSplashes = (chunkSpec?.scenes || []).filter((scene) => scene.sceneNumber >= 6 && scene.sceneNumber <= 9).length;
   const issues = [];
 
   // Allow flexibility — accept chunks with at least 3 pages or 40% of expected, whichever is lower
@@ -2807,7 +2807,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   }
 
   // Go straight to chunked planner — more reliable than generating
-  // the entire 24-32 page plan in a single LLM call, which consistently
+  // the entire 76-88 page plan in a single LLM call, which consistently
   // hits token limits, connection timeouts, or produces malformed JSON.
   let plan = await planGraphicNovelByChunks(
     childDetails,

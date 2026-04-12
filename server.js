@@ -2401,10 +2401,10 @@ Format your answer with each label on its own line followed by a colon and the a
         // Calculate actual interior page count for spine width
         let pageCount;
         if (isGraphicNovel || storyPlan.isGraphicNovel) {
-          // Graphic novel: title + dedication + scene pages (panel-count driven) + end page
-          const panelCount = (storyPlan.allPanels || []).length;
-          pageCount = 2 + Math.ceil(panelCount / 2) + 1;
-          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
+          // Graphic novel: title + dedication + all story pages (illustrated + text_interstitial) + end page
+          const storyPages = (storyPlan.pages || []).length;
+          pageCount = 2 + storyPages + 1;
+          pageCount = Math.max(80, pageCount % 2 === 0 ? pageCount : pageCount + 1);
         } else if (isChapterBook || storyPlan.isChapterBook) {
           // Chapter book: estimate from chapters (title + dedication + 5*(title page + ~3 text pages) + end page)
           pageCount = 2 + storyPlan.chapters.length * 4 + 1;
