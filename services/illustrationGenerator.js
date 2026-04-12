@@ -600,11 +600,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(``);
 
   if (characterOutfit) {
-    parts.push(`5. OUTFIT LOCK: The child MUST wear EXACTLY this outfit in EVERY illustration — no substitutions, no additions, no removals, no seasonal variations: ${characterOutfit}`);
+    parts.push(`5. OUTFIT LOCK (CRITICAL): The child MUST wear EXACTLY this outfit — verify EACH item: ${characterOutfit}`);
+    parts.push(`   COLOR VERIFICATION: Before finishing, check EACH garment's color matches the description above. A red shirt must be RED, not maroon, not pink, not orange. A blue jacket must be BLUE, not teal, not purple.`);
     parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
-    // Change 19: Outfit additions forbidden
-    parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described. Any addition is a violation of this rule.`);
-    parts.push(`OUTFIT LOCK (CRITICAL): In THIS illustration, the child is wearing EXACTLY the outfit described above — every garment, color, pattern, and accessory. Do NOT change any item. Do NOT add or remove layers based on the scene's weather or activity. The outfit must be PIXEL-FOR-PIXEL IDENTICAL to every other illustration in this book.`);
+    parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described.`);
+    parts.push(`   In THIS illustration, the child is wearing EXACTLY the outfit described above — every garment, color, pattern, and accessory. Do NOT change any item. Do NOT add or remove layers based on the scene's weather or activity. The outfit must be PIXEL-FOR-PIXEL IDENTICAL to every other illustration in this book.`);
     parts.push(``);
   }
 
@@ -1122,9 +1122,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         // For spread 0 (first illustration): pass both the original uploaded photo AND the cover
         // The original photo is the ground truth for ethnicity/skin tone/eye shape
         // The cover shows the rendered art style the character should match
-        const isFirstIllustration = opts.spreadIndex === 0;
-        const originalPhotoBase64 = isFirstIllustration ? (opts._cachedPhotoBase64 || null) : null;
-        const originalPhotoMime = isFirstIllustration ? (opts._cachedPhotoMime || 'image/jpeg') : null;
+        // Send the original uploaded photo as ethnicity/skin tone ground truth for ALL spreads, not just the first
+        const originalPhotoBase64 = opts._cachedPhotoBase64 || null;
+        const originalPhotoMime = opts._cachedPhotoMime || 'image/jpeg';
         imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime });
       } else {
         const elapsed = Date.now() - totalStart;
@@ -1193,7 +1193,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
  * Quick Gemini Flash check: does the generated illustration match the character reference?
  * Returns { consistent: boolean, issues: string[] }
  */
-async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor) {
+async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor, characterOutfit) {
   if (!generatedImageBase64 || !referenceImageBase64) return { consistent: true, issues: [] };
 
   const apiKey = getNextApiKey();
@@ -1210,15 +1210,17 @@ async function checkCharacterConsistency(generatedImageBase64, referenceImageBas
             { text: `Compare these two images. Image 1 is the REFERENCE (correct appearance). Image 2 is the GENERATED illustration.
 
 Does the child in Image 2 match Image 1 on ALL of these:
-1. HAIR: Same style, length, color, accessories? (yes/no)
-2. SKIN: Same tone? (yes/no)
-3. FACE: Similar structure, nose, eyes? (yes/no)
-4. OUTFIT: Same clothing? (yes/no)
+1. HAIR: Same style, length, color, accessories? (yes/no + detail if no)
+2. SKIN: Same tone? (yes/no + detail if no)
+3. FACE: Similar structure, nose, eyes? (yes/no + detail if no)
+4. OUTFIT: Same clothing garments, colors, and patterns? List EACH garment you see and compare. (yes/no + detail if no)
+5. OUTFIT COLOR: Are the exact colors of each garment matching? (yes/no + detail if no)
 
 ${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
+${characterOutfit ? `Expected outfit: ${characterOutfit}` : ''}
 
 Respond with ONLY valid JSON:
-{"consistent": true} or {"consistent": false, "issues": ["hair is longer", "skin is lighter"]}` },
+{"consistent": true} or {"consistent": false, "issues": ["hair is longer", "shirt is blue instead of red"]}` },
             { inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } },
             { inline_data: { mime_type: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
           ]}],

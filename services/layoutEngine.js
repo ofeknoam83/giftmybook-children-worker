@@ -283,6 +283,11 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
     fromLabel = bookFrom;
   }
 
+  // Ensure dedication page never shows a bare "From X:" with no body text
+  if (!bodyText.trim() && fromLabel) {
+    bodyText = 'Made with love, just for you.';
+  }
+
   const FROM_SZ  = 18;
   const RULE_GAP = 12;
   const availH   = ph - SAFE * 2;
@@ -321,7 +326,7 @@ function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {
   y = Math.min(y, ph - SAFE);
 
   if (fromLabel) {
-    drawCentered(p, `From ${fromLabel}`, dedFont, FROM_SZ, y, C.brownMid);
+    drawCentered(p, `With love from ${fromLabel}`, dedFont, FROM_SZ, y, C.brownMid);
     y -= FROM_SZ + RULE_GAP;
     goldRule(p, y, 80);
     y -= RULE_GAP + 1.2 + DED_LH;
