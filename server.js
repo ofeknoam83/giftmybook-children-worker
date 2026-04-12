@@ -677,6 +677,9 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
     bookContext.log('info', `Resuming graphic novel pages — ${resumedCount}/${totalIllustrated} already generated`);
   }
 
+  // First page reference for outfit/style/text consistency across GN pages
+  let firstPageRefBase64 = null;
+
   // Collect previous page illustration URLs for style continuity
   function collectPrevPageUrls(currentIdx) {
     const refs = [];
@@ -733,10 +736,27 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
           prevIllustrationUrls,
           abortSignal: bookContext.abortController.signal,
           deadlineMs: 180000,
+          firstPageRefBase64: firstPageRefBase64 || null,
+          promptInjection: completed === 0
+            ? 'STYLE ESTABLISHMENT: This is the FIRST page of the graphic novel. The art style, color palette, lighting mood, character rendering, and text style you establish HERE will be the reference for ALL subsequent pages. Commit to a specific, rich, consistent style. '
+            : '',
         }
       );
     } catch (pageErr) {
       bookContext.log('warn', `Page ${completed + 1} generation failed`, { error: pageErr.message });
+    }
+
+    // Save first page image as outfit/style reference for subsequent pages
+    if (completed === 0 && illustrationUrl && !firstPageRefBase64) {
+      try {
+        const fpResp = await fetch(illustrationUrl);
+        if (fpResp.ok) {
+          firstPageRefBase64 = Buffer.from(await fpResp.arrayBuffer()).toString('base64');
+          bookContext.log('info', 'Saved first GN page as style reference');
+        }
+      } catch (e) {
+        bookContext.log('warn', 'Failed to save first GN page as style reference', { error: e.message });
+      }
     }
 
     // ── Post-generation consistency check ──
@@ -792,6 +812,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
                   prevIllustrationUrls,
                   abortSignal: bookContext.abortController.signal,
                   deadlineMs: 180000,
+                  firstPageRefBase64: firstPageRefBase64 || null,
                 }
               );
               if (retryResult) {
@@ -1354,6 +1375,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookContext,
           parentBookTitle,
           parentStoryContent,
+          additionalCoverCharacters: detectedSecondaryCharacters || null,
         });
         storyPlan.isChapterBook = true;
         bookContext.touchActivity();
@@ -2398,7 +2420,13 @@ Format your answer with each label on its own line followed by a colon and the a
         // Build synopsis from story plan for back cover
         let synopsis;
         if (isGraphicNovel || storyPlan.isGraphicNovel) {
-          synopsis = storyPlan.tagline
+          synopsis = storyPlan.synopsis
+            || storyPlan.storyBible?.logline
+            || storyPlan.storyBible?.audiencePromise
+            || (Array.isArray(storyPlan.storyBible?.sceneBlueprints) && storyPlan.storyBible.sceneBlueprints.length >= 2
+              ? storyPlan.storyBible.sceneBlueprints.slice(0, 3).map(s => s.purpose || s.sceneTitle || '').filter(Boolean).join(' ')
+              : null)
+            || storyPlan.tagline
             || `A personalized graphic novel for ${childDetails.name}`;
         } else if (isChapterBook || storyPlan.isChapterBook) {
           synopsis = storyPlan.chapters.slice(0, 2).map(ch => ch.synopsis).join(' ')

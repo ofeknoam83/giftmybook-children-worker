@@ -206,15 +206,26 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     frontCoverBuffer = opts.preGeneratedCoverBuffer;
   } else {
     const artStyle = opts.artStyle || 'pixar_premium';
+    const isGraphicNovel = (bookFormat || '').toUpperCase() === 'GRAPHIC_NOVEL';
     const aspectHint = isPictureBook
       ? 'Square image, 1:1 aspect ratio.'
       : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
-    const coverScene = `A beautiful ${artStyle} children's book cover illustration. `
-      + `The main character is a ${childDetails.childAge || childDetails.age || 5}-year-old child named ${childDetails.childName || childDetails.name}. `
-      + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
-      + `The child should be centered, looking happy and confident. `
-      + `Background should be thematic and whimsical. `
-      + aspectHint;
+    const childAge = childDetails.childAge || childDetails.age || 5;
+    const childName = childDetails.childName || childDetails.name;
+    const coverScene = isGraphicNovel
+      ? `A dramatic graphic novel cover illustration in a cinematic ${artStyle} style. `
+        + `The main character is a ${childAge}-year-old child named ${childName}. `
+        + `The scene should feel dynamic and action-oriented — suggesting an epic adventure. `
+        + `The child should be prominently featured in a heroic or dramatic pose. `
+        + `Background should be thematic with bold, graphic elements and dramatic lighting. `
+        + `Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide. `
+        + `Style: graphic novel / comic book cover aesthetic with strong composition.`
+      : `A beautiful ${artStyle} children's book cover illustration. `
+        + `The main character is a ${childAge}-year-old child named ${childName}. `
+        + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
+        + `The child should be centered, looking happy and confident. `
+        + `Background should be thematic and whimsical. `
+        + aspectHint;
 
     try {
       const imageUrl = await generateIllustration(
