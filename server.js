@@ -305,6 +305,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   }
 
   const illustrationLimit = pLimit(1); // Sequential
+  let firstSpreadBase64 = null;
 
   const illustrationPromises = illustratableEntries.map((job) =>
     illustrationLimit(async () => {
@@ -386,6 +387,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             promptInjection: isFirstSpread
               ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
               : '',
+            firstSpreadRefBase64: firstSpreadBase64 || null,
           });
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)
@@ -421,7 +423,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             } catch {}
           }
           if (genBase64) {
-            const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor);
+            const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
             if (!consistency.consistent) {
               bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
               // Retry ONCE with corrective prompt
@@ -462,6 +464,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                   isSpread: job.isSpread || false,
                   deadlineMs: 200000,
                   abortSignal: bookContext.abortController.signal,
+                  firstSpreadRefBase64: firstSpreadBase64 || null,
                 });
                 if (retryResult) {
                   imageUrl = retryResult;
@@ -476,6 +479,19 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           }
         } catch (checkErr) {
           bookContext.log('warn', `Consistency check error for spread ${idx + 1}`, { error: checkErr.message });
+        }
+      }
+
+      // Save first spread image as outfit style reference for subsequent spreads
+      if (idx === 0 && imageUrl && !firstSpreadBase64) {
+        try {
+          const fsResp = await fetch(imageUrl);
+          if (fsResp.ok) {
+            firstSpreadBase64 = Buffer.from(await fsResp.arrayBuffer()).toString('base64');
+            bookContext.log('info', 'Saved first spread as outfit style reference');
+          }
+        } catch (e) {
+          bookContext.log('warn', 'Failed to save first spread as outfit reference', { error: e.message });
         }
       }
 
@@ -737,7 +753,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
           } catch {}
         }
         if (genBase64) {
-          const consistency = await checkCharacterConsistency(genBase64, characterRefBase64, storyPlan.characterAnchor);
+          const consistency = await checkCharacterConsistency(genBase64, characterRefBase64, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
           if (!consistency.consistent) {
             bookContext.log('warn', `Page ${completed + 1} character inconsistency detected`, { issues: consistency.issues });
             // Retry ONCE with corrective prompt
@@ -1880,7 +1896,7 @@ Format your answer with each label on its own line followed by a colon and the a
                   }
                 } catch {}
                 if (genBase64) {
-                  const consistency = await checkCharacterConsistency(genBase64, chapterRefBase64, storyPlan.characterAnchor);
+                  const consistency = await checkCharacterConsistency(genBase64, chapterRefBase64, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
                   if (!consistency.consistent) {
                     bookContext.log('warn', `Chapter ${i + 1} character inconsistency detected`, { issues: consistency.issues });
                     try {
