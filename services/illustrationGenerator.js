@@ -628,6 +628,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
     parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described.`);
     parts.push(`   In THIS illustration, the child is wearing EXACTLY the outfit described above — every garment, color, pattern, and accessory. Do NOT change any item. Do NOT add or remove layers based on the scene's weather or activity. The outfit must be PIXEL-FOR-PIXEL IDENTICAL to every other illustration in this book.`);
+    parts.push(`   FORBIDDEN OUTFIT CHANGES: Even if the story describes water, swimming, sleeping, rain, mud, snow, sports, cooking, or any other activity — the child wears the EXACT same outfit. Never adapt clothing to the scene. Never add rain gear, swimwear, sleepwear, costumes, aprons, helmets, or any activity-specific clothing. Never remove shoes, socks, or any garment. The outfit is UNCHANGEABLE regardless of context.`);
     parts.push(``);
   }
 
@@ -795,13 +796,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
       : '- FONT: Use Bubblegum Sans exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Bubblegum Sans only, consistently throughout.';
     parts.push(fontInstruction);
+    parts.push('- FONT CONSISTENCY (CRITICAL): Use the EXACT same font style, font size, and text color across ALL illustrations in this book. Use a clean, rounded, child-friendly sans-serif font. The font size should be large enough for children to read — approximately 18-24pt equivalent. Text color should be dark (black or very dark gray) for maximum readability.');
+    parts.push('- The text rendering style (font, size, color, line spacing) must be IDENTICAL on every page — as if the same typesetter set every page.');
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): This image will be cropped ~7% from every edge when printed. To survive this crop, ALL text must be at least 25% away from the top edge, 25% away from the bottom edge, and 12% away from the left and right edges. Text within 25% of any edge WILL BE CROPPED OFF in the final book. If in doubt, move the text further toward the center of the image.');
+    parts.push('- TEXT LAYOUT — WIDTH LIMIT (CRITICAL): Story text must occupy NO MORE than 35% of the page width. Place text in a narrow sidebar-style column on the left or right side of the illustration, leaving at least 65% of the width for the artwork. If the text is long, wrap it into more lines to keep the column narrow. NEVER stretch text across the full width of the image.');
     if (isSpread) {
       parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 30% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
     }
     parts.push('- Place the text in the top or bottom portion of the image, where the background is simplest/softest');
-    parts.push('- Text should appear naturally integrated into the scene — never in a box, bubble, banner, or caption');
-    parts.push('- Ensure high contrast between text and background (use a subtle semi-transparent band if needed)');
+    parts.push('- TEXT INTEGRATION: Text must be embedded directly into the illustration composition — placed in a dedicated text area (white or cream margin, or a clear area within the scene). NEVER place text as an overlay on top of the illustration with a semi-transparent or colored background box. The text area should be part of the page layout design, not a floating box over artwork.');
+    parts.push('- FORBIDDEN: Semi-transparent text boxes, text banners overlaid on the illustration, text with background highlights placed over the artwork. Text must sit in its own clean space within the page layout.');
     parts.push('- Text color should contrast with its immediate background for readability');
     parts.push('- Do NOT place text over the character\'s face or the main action');
   }
