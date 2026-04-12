@@ -346,7 +346,7 @@ Describe this child's physical appearance for an illustrator who will draw them 
 - Hair: color, texture, length, and exact style (e.g., "short curly dark brown hair with no accessories", "straight blonde hair in two pigtails with pink elastics"). IMPORTANT: If the child has any hair accessories (headbands, bows, ribbons, clips, elastics, barrettes), describe them exactly. If the child has NO hair accessories, explicitly state "no hair accessories."
 - Eyes: color and shape (if visible)
 - Face shape: round, oval, etc.
-- Skin tone: general, using artistic terms (e.g., warm beige, deep brown, light peach)
+- Skin tone: be VERY specific and precise using artistic terms. This is the most critical detail for maintaining the child's identity. Use compound descriptors: "rich deep brown with warm undertones", "light olive with golden undertones", "fair peachy-pink with freckles", "warm medium brown with reddish undertones". Never just say "brown" or "light" — always include depth + warmth/coolness + any visible undertones.
 - Expression: what expression they have (smiling, curious, thoughtful)
 - Clothing: simple description of what they are wearing
 - General vibe: energetic, calm, playful, shy, etc.

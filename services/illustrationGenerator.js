@@ -556,6 +556,26 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   const parts = [];
 
+  // ── Character consistency prefix (Fix 5b + 6b) ──
+  // Prepend character appearance, outfit, and recurring element to EVERY prompt
+  // so the model never relies on "memory" from prior turns.
+  if (opts.characterAnchor) {
+    parts.push(`CHARACTER SKIN TONE & FEATURES (from uploaded photo — NEVER alter):`);
+    parts.push(opts.characterAnchor);
+    parts.push(`CRITICAL: The child's skin tone, hair color, and facial features must match the description above in EVERY illustration. Do not lighten, darken, or alter the child's appearance. Racial and ethnic features must be preserved exactly.`);
+    parts.push(``);
+  }
+  if (characterDescription) {
+    parts.push(`CHARACTER APPEARANCE: ${characterDescription}`);
+  }
+  if (characterOutfit) {
+    parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
+  }
+  if (recurringElement) {
+    parts.push(`RECURRING OBJECT: ${recurringElement}`);
+  }
+  parts.push(``);
+
   // C2: CHARACTER description is the VERY FIRST block in the prompt
   parts.push(`DRAW THIS EXACT CHILD — match the reference photo precisely:`);
   if (opts.characterAnchor) {
