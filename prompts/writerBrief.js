@@ -182,6 +182,41 @@ function getEmotionalAgeTier(age) {
   return       { tier: 'E4', config: EMOTIONAL_AGE_TIERS.E4 };
 }
 
+// ── Style Modes ──
+
+const STYLE_MODES = {
+  sparse: {
+    label: 'Sparse & Precise',
+    description: 'Sendak/Jeffers style. Short sentences. Maximum economy. Trust silence. The unsaid carries the weight.',
+    writingBias: 'Use the fewest possible words. Prefer fragments over full sentences. Silence (null pages) is a tool. Cut anything the illustration can carry.',
+    criticBias: 'Do not add words. Do not expand. Only tighten.',
+  },
+  playful: {
+    label: 'Playful & Absurd',
+    description: 'Willems/Dahl style. Deadpan humor. Absurd logic. The narrator winks at the reader. The world has silly rules.',
+    writingBias: 'Lean into comic timing. Use the page turn for punchlines. The narrator has opinions. Objects have personality. At least 3 funny moments.',
+    criticBias: 'Protect humor. Do not make funny lines "smoother" or "more literary." Rough edges are features.',
+  },
+  lyrical: {
+    label: 'Lyrical & Musical',
+    description: 'Donaldson/Dr. Seuss style. Strong rhythm. Rhyming couplets. The story sings. Read-aloud quality is everything.',
+    writingBias: 'Prioritize rhythm and rhyme. Every line should feel good in the mouth. Musical flow > narrative complexity.',
+    criticBias: 'Protect rhythm above all. Do not break a rhyming pattern to add a "stronger" verb.',
+  },
+  tender: {
+    label: 'Tender & Meditative',
+    description: 'Klassen/Portis style. Quiet. Observational. Gentle pacing. The story breathes. Emotion through stillness.',
+    writingBias: 'Slow pacing is intentional. Small moments > big events. The story does not need to rush. Sensory detail over action.',
+    criticBias: 'Do not add tension where calm is the point. Do not speed up pacing. Stillness is a feature.',
+  },
+  mischievous: {
+    label: 'Mischievous & Energetic',
+    description: 'Barnett/Oliver Jeffers style. Kinetic energy. Rules being broken. The child is slightly naughty. The world is surprising.',
+    writingBias: 'The child acts first, thinks later. Things go slightly wrong. Energy builds. The narrator is amused.',
+    criticBias: 'Protect energy. Do not smooth chaos into calm. The slight messiness is the charm.',
+  },
+};
+
 // ── V3 Brief Template (Author-Level) ──
 
 const V2_BRIEF_TEMPLATE = `CHILDREN'S BEDTIME BOOK GENERATION — V3 (AUTHOR-LEVEL)
@@ -258,15 +293,42 @@ Choose ONE voice for the entire story and commit to it:
 
 The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
 
-RULE OF THREE (STRUCTURAL POWER):
-The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+STYLE MODE BIAS:
+{style_mode_bias}
+
+ADVANCED TECHNIQUE BUDGET:
+Your brainstorm selected these techniques: {techniques}. Execute ONLY these with full commitment.
+Do NOT try to include all techniques — a story that does 2 things brilliantly
+beats a story that does 5 things mechanically.
+
+IF you selected "rule_of_three":
+RULE OF THREE — Three attempts, three encounters, three obstacles. The third breaks the pattern.
 - Repetition 1: Establish the pattern. The reader learns the rules.
 - Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
 - Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+Example (Gruffalo): Three animals warn the mouse, then the Gruffalo actually appears (inversion).
 
-Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion). Then the pattern reverses — three animals flee from the mouse.
+IF you selected "surprise":
+SURPRISE — One genuinely unexpected moment: character subversion, situation twist, perspective shift, or emotional surprise.
+The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course."
 
-Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+IF you selected "humor":
+HUMOR THROUGH STRUCTURE — Comic timing, running gags, deadpan delivery.
+- COMIC TIMING: Setup on one spread, punchline revealed on the next.
+- RUNNING GAGS: Introduce something funny early and let it recur 2-3 times, escalating.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise.
+- For bedtime themes: humor should be gentle and cozy. For adventure themes: humor can be bigger.
+
+IF you selected "page_turn_hooks":
+PAGE-TURN HOOKS — Use the physical page turn as a dramatic device.
+- At least 3 spreads must end with a line that pulls the reader forward.
+- Place hooks at the END of spreads 2, 4, 6, and/or 8 (the rising-action spreads).
+
+IF you selected "lyrical_repetition":
+LYRICAL REPETITION — A repeated phrase or structure that creates rhythm and evolves.
+- The phrase appears at least 3 times, shifting in meaning each time.
+
+After choosing, commit fully. Half-measures are worse than not including the technique at all.
 
 VERB POWER (MANDATORY):
 The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
@@ -277,16 +339,6 @@ The verb carries action AND emotion in one word. Never use a weak verb + adverb 
 - "fell down" → "tumbled" or "crashed"
 
 Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
-
-SURPRISE (AT LEAST ONE PER STORY):
-At least one moment must genuinely surprise the reader. Types of surprise:
-- Character subversion: a character does the OPPOSITE of what's expected
-- Situation twist: the problem turns out to be different from what everyone thought
-- Perspective shift: seeing something familiar from an unexpected angle
-- Scale surprise: something very big or very small appears in an unexpected context
-- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
-
-The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course." Set it up earlier without making it obvious.
 
 EMOTIONAL RESTRAINT:
 Trust the reader to feel the emotion. Do NOT amplify or explain.
@@ -312,17 +364,6 @@ TONE:
 - Emotionally alive — every spread should make the reader feel something specific (curiosity, tenderness, surprise, delight, wonder), not vaguely "nice."
 - Avoid moralizing or explicit lessons. If the story has a "message," it should be invisible — felt, not stated.
 - Funny and tender should coexist. The funniest children's books are also the most moving. Humor is not the opposite of depth — it's the vehicle.
-
-HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
-- At least 2-3 genuinely funny moments per story, not just one token joke. Humor should be woven through the story, not bolted on.
-- COMIC TIMING: The funniest moments use the page turn. Setup on one spread, punchline revealed on the next. A long sentence followed by one deadpan word. A serious buildup that breaks with something absurd.
-- RUNNING GAGS: Introduce something funny early (a squeaky boot, a stubborn hat, a creature that keeps appearing at the wrong moment) and let it recur 2-3 times, escalating each time. The third appearance should be the biggest payoff.
-- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise. Children are naturally funny — let the character be, too. "That's not how birds work," she said to the cloud.
-- ABSURDIST LOGIC: Children love things that break rules — a fish in a tree, a door that opens to the wrong room, a sandwich that talks back. Play with the world's logic.
-- SURPRISE over SLAPSTICK: A quiet unexpected detail is funnier than a pratfall. "The dragon sneezed. Confetti came out." beats "The dragon slipped on a banana peel."
-- Humor should emerge from character and situation — never from mockery, meanness, or bathroom jokes.
-- CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
-- For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
 
 SOUND WORDS & ONOMATOPOEIA (age-appropriate):
 {soundWordsRule}
@@ -712,15 +753,42 @@ Choose ONE voice for the entire story and commit to it:
 
 The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
 
-RULE OF THREE (STRUCTURAL POWER):
-The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+STYLE MODE BIAS:
+{style_mode_bias}
+
+ADVANCED TECHNIQUE BUDGET:
+Your brainstorm selected these techniques: {techniques}. Execute ONLY these with full commitment.
+Do NOT try to include all techniques — a story that does 2 things brilliantly
+beats a story that does 5 things mechanically.
+
+IF you selected "rule_of_three":
+RULE OF THREE — Three attempts, three encounters, three obstacles. The third breaks the pattern.
 - Repetition 1: Establish the pattern. The reader learns the rules.
 - Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
 - Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+Example (Gruffalo): Three animals warn the mouse, then the Gruffalo actually appears (inversion).
 
-Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion). Then the pattern reverses — three animals flee from the mouse.
+IF you selected "surprise":
+SURPRISE — One genuinely unexpected moment: character subversion, situation twist, perspective shift, or emotional surprise.
+The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course."
 
-Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+IF you selected "humor":
+HUMOR THROUGH STRUCTURE — Comic timing, running gags, deadpan delivery.
+- COMIC TIMING: Setup on one spread, punchline revealed on the next.
+- RUNNING GAGS: Introduce something funny early and let it recur 2-3 times, escalating.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise.
+- For bedtime themes: humor should be gentle and cozy. For adventure themes: humor can be bigger.
+
+IF you selected "page_turn_hooks":
+PAGE-TURN HOOKS — Use the physical page turn as a dramatic device.
+- At least 3 spreads must end with a line that pulls the reader forward.
+- Place hooks at the END of spreads 2, 4, 6, and/or 8 (the rising-action spreads).
+
+IF you selected "lyrical_repetition":
+LYRICAL REPETITION — A repeated phrase or structure that creates rhythm and evolves.
+- The phrase appears at least 3 times, shifting in meaning each time.
+
+After choosing, commit fully. Half-measures are worse than not including the technique at all.
 
 VERB POWER (MANDATORY):
 The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
@@ -731,16 +799,6 @@ The verb carries action AND emotion in one word. Never use a weak verb + adverb 
 - "fell down" → "tumbled" or "crashed"
 
 Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
-
-SURPRISE (AT LEAST ONE PER STORY):
-At least one moment must genuinely surprise the reader. Types of surprise:
-- Character subversion: a character does the OPPOSITE of what's expected
-- Situation twist: the problem turns out to be different from what everyone thought
-- Perspective shift: seeing something familiar from an unexpected angle
-- Scale surprise: something very big or very small appears in an unexpected context
-- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
-
-The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course." Set it up earlier without making it obvious.
 
 EMOTIONAL RESTRAINT:
 Trust the reader to feel the emotion. Do NOT amplify or explain.
@@ -764,15 +822,42 @@ Choose ONE voice for the entire story and commit to it:
 
 The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
 
-RULE OF THREE (STRUCTURAL POWER):
-The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+STYLE MODE BIAS:
+{style_mode_bias}
+
+ADVANCED TECHNIQUE BUDGET:
+Your brainstorm selected these techniques: {techniques}. Execute ONLY these with full commitment.
+Do NOT try to include all techniques — a story that does 2 things brilliantly
+beats a story that does 5 things mechanically.
+
+IF you selected "rule_of_three":
+RULE OF THREE — Three attempts, three encounters, three obstacles. The third breaks the pattern.
 - Repetition 1: Establish the pattern. The reader learns the rules.
 - Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
 - Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+Example (Gruffalo): Three animals warn the mouse, then the Gruffalo actually appears (inversion).
 
-Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion). Then the pattern reverses — three animals flee from the mouse.
+IF you selected "surprise":
+SURPRISE — One genuinely unexpected moment: character subversion, situation twist, perspective shift, or emotional surprise.
+The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course."
 
-Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+IF you selected "humor":
+HUMOR THROUGH STRUCTURE — Comic timing, running gags, deadpan delivery.
+- COMIC TIMING: Setup on one spread, punchline revealed on the next.
+- RUNNING GAGS: Introduce something funny early and let it recur 2-3 times, escalating.
+- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise.
+- For bedtime themes: humor should be gentle and cozy. For adventure themes: humor can be bigger.
+
+IF you selected "page_turn_hooks":
+PAGE-TURN HOOKS — Use the physical page turn as a dramatic device.
+- At least 3 spreads must end with a line that pulls the reader forward.
+- Place hooks at the END of spreads 2, 4, 6, and/or 8 (the rising-action spreads).
+
+IF you selected "lyrical_repetition":
+LYRICAL REPETITION — A repeated phrase or structure that creates rhythm and evolves.
+- The phrase appears at least 3 times, shifting in meaning each time.
+
+After choosing, commit fully. Half-measures are worse than not including the technique at all.
 
 VERB POWER (MANDATORY):
 The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
@@ -783,16 +868,6 @@ The verb carries action AND emotion in one word. Never use a weak verb + adverb 
 - "fell down" → "tumbled" or "crashed"
 
 Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
-
-SURPRISE (AT LEAST ONE PER STORY):
-At least one moment must genuinely surprise the reader. Types of surprise:
-- Character subversion: a character does the OPPOSITE of what's expected
-- Situation twist: the problem turns out to be different from what everyone thought
-- Perspective shift: seeing something familiar from an unexpected angle
-- Scale surprise: something very big or very small appears in an unexpected context
-- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
-
-The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course." Set it up earlier without making it obvious.
 
 EMOTIONAL RESTRAINT:
 Trust the reader to feel the emotion. Do NOT amplify or explain.
@@ -818,17 +893,6 @@ TONE:
 - Emotionally alive — every spread should make the reader feel something specific (curiosity, tenderness, surprise, delight, wonder), not vaguely "nice."
 - Avoid moralizing or explicit lessons. If the story has a "message," it should be invisible — felt, not stated.
 - Funny and tender should coexist. The funniest children's books are also the most moving. Humor is not the opposite of depth — it's the vehicle.
-
-HUMOR & DELIGHT (CRITICAL — the best children's books make kids LAUGH):
-- At least 2-3 genuinely funny moments per story, not just one token joke. Humor should be woven through the story, not bolted on.
-- COMIC TIMING: The funniest moments use the page turn. Setup on one spread, punchline revealed on the next. A long sentence followed by one deadpan word. A serious buildup that breaks with something absurd.
-- RUNNING GAGS: Introduce something funny early (a squeaky boot, a stubborn hat, a creature that keeps appearing at the wrong moment) and let it recur 2-3 times, escalating each time. The third appearance should be the biggest payoff.
-- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise. Children are naturally funny — let the character be, too. "That's not how birds work," she said to the cloud.
-- ABSURDIST LOGIC: Children love things that break rules — a fish in a tree, a door that opens to the wrong room, a sandwich that talks back. Play with the world's logic.
-- SURPRISE over SLAPSTICK: A quiet unexpected detail is funnier than a pratfall. "The dragon sneezed. Confetti came out." beats "The dragon slipped on a banana peel."
-- Humor should emerge from character and situation — never from mockery, meanness, or bathroom jokes.
-- CONTRAST IS EVERYTHING: A well-placed funny moment makes the tender moments land 10x harder. Put humor near emotional peaks so the reader's heart is open.
-- For bedtime themes: humor should be gentle and cozy (a yawn so big it startles the cat, a sock that won't stay on). For adventure themes: humor can be bigger (a bridge that giggles when crossed, a map that argues back).
 
 SOUND WORDS & ONOMATOPOEIA (age-appropriate):
 {soundWordsRule}
@@ -1215,6 +1279,13 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{rhymeLevel\}/g, config.rhymeLevel || '');
   brief = brief.replace(/\{poeticRule\}/g, poeticRule);
   brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
+
+  // Replace style mode and technique budget placeholders
+  const styleMode = vars.style_mode || 'playful';
+  const styleModeConfig = STYLE_MODES[styleMode] || STYLE_MODES.playful;
+  brief = brief.replace(/\{style_mode_bias\}/g, styleModeConfig.writingBias);
+  const techniques = Array.isArray(vars.techniques) ? vars.techniques.join(', ') : (vars.techniques || 'rule_of_three, humor');
+  brief = brief.replace(/\{techniques\}/g, techniques);
 
   // Replace age-conditional content sections
   brief = brief.replace(/\{authorialVoice\}/g, getAuthorialVoice(config.tier, age));
@@ -1653,6 +1724,13 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{dialectRule\}/g, dialectRule);
   brief = brief.replace(/\{soundWordsRule\}/g, config.soundWordsRule || 'Include 2-3 sound words across the story. Do NOT overuse them.');
 
+  // Replace style mode and technique budget placeholders
+  const wmStyleMode = vars.style_mode || 'playful';
+  const wmStyleConfig = STYLE_MODES[wmStyleMode] || STYLE_MODES.playful;
+  brief = brief.replace(/\{style_mode_bias\}/g, wmStyleConfig.writingBias);
+  const wmTechniques = Array.isArray(vars.techniques) ? vars.techniques.join(', ') : (vars.techniques || 'rule_of_three, humor');
+  brief = brief.replace(/\{techniques\}/g, wmTechniques);
+
   // Replace age-conditional content sections
   brief = brief.replace(/\{authorialVoice\}/g, getAuthorialVoice(config.tier, age));
   brief = brief.replace(/\{rhythmGuide\}/g, getRhythmGuide(config.tier, age));
@@ -1734,4 +1812,5 @@ module.exports = {
   AGE_PROFILES,
   AGE_TIERS,
   EMOTIONAL_AGE_TIERS,
+  STYLE_MODES,
 };

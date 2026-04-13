@@ -54,7 +54,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarlyReader, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarlyReader, masterCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
@@ -1340,6 +1340,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         emotionalTier: emotionalTierInfo ? emotionalTierInfo.tier : undefined,
         gifterNames,
         isMultipleGifters,
+        style_mode: storySeed.style_mode || 'playful',
+        techniques: storySeed.techniques || ['rule_of_three', 'humor'],
       };
 
       // Append story seed to custom details so the planner has the full creative direction
@@ -1458,29 +1460,36 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
 
-        // ── Self-Critic + Auto-Rewrite pass ──
+        // ── Master Critic (consolidated single pass) ──
         bookContext.checkAbort();
-        bookContext.log('info', 'Starting self-critic (8-category scoring + rewrite)');
+        bookContext.log('info', 'Starting master critic (12-criteria scoring + rewrite)');
         if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating story quality...', logs: bookContext.logs });
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating and polishing story...', logs: bookContext.logs });
         }
         try {
-          const polishStart = Date.now();
-          storyPlan = await polishStory(storyPlan, { apiKeys, costTracker, theme, validationIssues: storyPlan._validationIssues, childAge: childDetails.age });
-          const polishMs = Date.now() - polishStart;
-          bookContext.log('info', 'Self-critic complete', { ms: polishMs, scores: storyPlan._criticScores, issueCount: storyPlan._criticIssueCount });
+          const criticStart = Date.now();
+          storyPlan = await masterCritic(storyPlan, {
+            apiKeys,
+            costTracker,
+            theme,
+            childAge: childDetails.age,
+            format,
+            style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
+            techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
+          });
+          const criticMs = Date.now() - criticStart;
+          bookContext.log('info', 'Master critic complete', { ms: criticMs, scores: storyPlan._masterCriticScores, issueCount: storyPlan._masterCriticIssueCount });
           bookContext.touchActivity();
 
-          // Quality gate: retry writing once if scores are too low
-          if (storyPlan._criticScores) {
-            const scores = storyPlan._criticScores;
+          // Quality gate: retry writing once if masterCritic avg < 5.0
+          if (storyPlan._masterCriticScores) {
+            const scores = storyPlan._masterCriticScores;
             const scoreValues = Object.values(scores).filter(v => typeof v === 'number');
             const avgScore = scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length : 10;
-            const minScore = scoreValues.length > 0 ? Math.min(...scoreValues) : 10;
-            if (avgScore < 6.0 || minScore < 4) {
-              bookContext.log('info', `Quality gate triggered: avg=${avgScore.toFixed(1)}, min=${minScore} — retrying story generation`);
+            if (avgScore < 5.0) {
+              bookContext.log('info', `Quality gate triggered: avg=${avgScore.toFixed(1)} — retrying story generation + re-critic`);
               if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.21, message: 'Improving story — rewriting...', logs: bookContext.logs });
+                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.22, message: 'Improving story — rewriting...', logs: bookContext.logs });
               }
               try {
                 const retryPlan = await planStory(childDetails, theme || 'adventure', format, plannerCustomDetails, {
@@ -1490,14 +1499,21 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                   v2Vars: { ...v2Vars, retryTemperature: 0.9 },
                   additionalCoverCharacters: detectedSecondaryCharacters || null,
                 });
-                const retryPolished = await polishStory(retryPlan, { apiKeys, costTracker, theme, validationIssues: retryPlan._validationIssues, childAge: childDetails.age });
-                // Use whichever version scored higher
-                const retryScores = retryPolished._criticScores || {};
+                const retryCritic = await masterCritic(retryPlan, {
+                  apiKeys,
+                  costTracker,
+                  theme,
+                  childAge: childDetails.age,
+                  format,
+                  style_mode: v2Vars?.style_mode || retryPlan._styleMode || 'playful',
+                  techniques: v2Vars?.techniques || retryPlan._techniques || ['rule_of_three', 'humor'],
+                });
+                const retryScores = retryCritic._masterCriticScores || {};
                 const retryValues = Object.values(retryScores).filter(v => typeof v === 'number');
                 const retryAvg = retryValues.length > 0 ? retryValues.reduce((a, b) => a + b, 0) / retryValues.length : 0;
                 if (retryAvg > avgScore) {
                   bookContext.log('info', `Quality gate retry succeeded: new avg=${retryAvg.toFixed(1)} > old avg=${avgScore.toFixed(1)} — using retry version`);
-                  storyPlan = retryPolished;
+                  storyPlan = retryCritic;
                 } else {
                   bookContext.log('info', `Quality gate retry did not improve: new avg=${retryAvg.toFixed(1)} <= old avg=${avgScore.toFixed(1)} — keeping original`);
                 }
@@ -1506,21 +1522,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
               }
             }
           }
-        } catch (polishErr) {
-          bookContext.log('warn', `Self-critic failed — continuing with original text: ${polishErr.message}`);
-        }
 
-        // ── Combined critic: rhythm + arc + memorable line + language quality ──
-        bookContext.checkAbort();
-        bookContext.log('info', 'Starting combined critic (rhythm, arc, language)');
-        if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.22, message: 'Refining story quality...', logs: bookContext.logs });
-        }
-        try {
-          const criticStart = Date.now();
-          storyPlan = await combinedCritic(storyPlan, { apiKeys, costTracker, theme, childAge: childDetails.age });
-          bookContext.log('info', 'Combined critic complete', { ms: Date.now() - criticStart });
-          bookContext.touchActivity();
           // Save polished content to DB
           if (progressCallbackUrl) {
             const polishedContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
@@ -1528,30 +1530,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           }
           await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
         } catch (criticErr) {
-          bookContext.log('warn', `Combined critic failed — using original text: ${criticErr.message}`);
-        }
-
-        // ── Early reader critic pass (lightweight, single pass) ──
-        if (format !== 'picture_book') {
-          bookContext.checkAbort();
-          bookContext.log('info', 'Starting early reader critic pass');
-          if (progressCallbackUrl) {
-            reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.23, message: 'Polishing early reader text...', logs: bookContext.logs });
-          }
-          try {
-            const erCriticStart = Date.now();
-            storyPlan = await polishEarlyReader(storyPlan, { apiKeys, costTracker });
-            bookContext.log('info', 'Early reader critic complete', { ms: Date.now() - erCriticStart, scores: storyPlan._earlyReaderCriticScores, weakPages: storyPlan._earlyReaderWeakPages });
-            bookContext.touchActivity();
-            // Save polished content to DB
-            if (progressCallbackUrl) {
-              const polishedContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
-              reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContent, logs: bookContext.logs }).catch(() => {});
-            }
-            await saveCheckpoint(bookId, { bookId, completedStage: 'early_reader_polish', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
-          } catch (erCriticErr) {
-            bookContext.log('warn', `Early reader critic failed — using original text: ${erCriticErr.message}`);
-          }
+          bookContext.log('warn', `Master critic failed — continuing with original text: ${criticErr.message}`);
         }
       }
 
@@ -1574,42 +1553,30 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookContext.log('info', 'Story critic result', { total: criticResult.total, approved: criticResult.approved, feedback: (criticResult.feedback || '').slice(0, 200) });
 
           if (!criticResult.approved) {
-            bookContext.log('warn', 'Story below quality threshold — triggering critic retry', { score: criticResult.total, weakest: criticResult.weakestSpreads });
+            bookContext.log('warn', 'Story below quality threshold — triggering masterCritic retry', { score: criticResult.total, weakest: criticResult.weakestSpreads });
             try {
               if (progressCallbackUrl) {
                 reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.27, message: 'Improving story based on critic feedback...', logs: bookContext.logs });
               }
 
-              // Feed critic feedback + weakest spreads into polishStory for a targeted rewrite
-              const criticFeedbackIssues = [];
-              if (criticResult.feedback) {
-                criticFeedbackIssues.push({ type: 'critic_feedback', message: criticResult.feedback });
-              }
-              if (criticResult.weakestSpreads && criticResult.weakestSpreads.length > 0) {
-                for (const spreadNum of criticResult.weakestSpreads) {
-                  criticFeedbackIssues.push({ type: 'weak_spread', spread: spreadNum, message: `Critic flagged spread ${spreadNum} as weak — rewrite for stronger impact` });
-                }
-              }
-
-              const retryPolished = await polishStory(storyPlan, {
+              // Re-run masterCritic on the current version
+              const retryCritic = await masterCritic(storyPlan, {
                 apiKeys,
                 costTracker,
                 theme,
-                validationIssues: criticFeedbackIssues,
                 childAge: childDetails.age || childDetails.childAge,
+                format,
+                style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
+                techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
               });
-              bookContext.log('info', 'Critic retry: polishStory complete', { scores: retryPolished._criticScores });
-
-              // Re-run combinedCritic on the polished version
-              const retryCombined = await combinedCritic(retryPolished, { apiKeys, costTracker, theme, childAge: childDetails.age || childDetails.childAge });
-              bookContext.log('info', 'Critic retry: combinedCritic complete');
+              bookContext.log('info', 'Critic retry: masterCritic complete', { scores: retryCritic._masterCriticScores });
 
               // Re-run criticStory on the improved version
-              const retryResult = await criticStory(retryCombined.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
+              const retryResult = await criticStory(retryCritic.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
               bookContext.log('info', 'Critic retry: second critic result', { total: retryResult.total, approved: retryResult.approved });
 
               // Accept the retried version regardless of second score (don't loop more than once)
-              storyPlan = retryCombined;
+              storyPlan = retryCritic;
               bookContext.log('info', `Critic retry complete — using retried version (score: ${retryResult.total}, approved: ${retryResult.approved})`);
             } catch (criticRetryErr) {
               bookContext.log('warn', `Critic retry failed — keeping original: ${criticRetryErr.message}`);
