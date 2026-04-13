@@ -54,7 +54,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
+const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarlyReader, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration } = require('./services/illustrationGenerator');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
@@ -1529,6 +1529,29 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
         } catch (criticErr) {
           bookContext.log('warn', `Combined critic failed — using original text: ${criticErr.message}`);
+        }
+
+        // ── Early reader critic pass (lightweight, single pass) ──
+        if (format !== 'picture_book') {
+          bookContext.checkAbort();
+          bookContext.log('info', 'Starting early reader critic pass');
+          if (progressCallbackUrl) {
+            reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.23, message: 'Polishing early reader text...', logs: bookContext.logs });
+          }
+          try {
+            const erCriticStart = Date.now();
+            storyPlan = await polishEarlyReader(storyPlan, { apiKeys, costTracker });
+            bookContext.log('info', 'Early reader critic complete', { ms: Date.now() - erCriticStart, scores: storyPlan._earlyReaderCriticScores, weakPages: storyPlan._earlyReaderWeakPages });
+            bookContext.touchActivity();
+            // Save polished content to DB
+            if (progressCallbackUrl) {
+              const polishedContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
+              reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContent, logs: bookContext.logs }).catch(() => {});
+            }
+            await saveCheckpoint(bookId, { bookId, completedStage: 'early_reader_polish', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
+          } catch (erCriticErr) {
+            bookContext.log('warn', `Early reader critic failed — using original text: ${erCriticErr.message}`);
+          }
         }
       }
 
