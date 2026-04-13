@@ -4,16 +4,16 @@
  * Graphic novel page layout templates.
  *
  * Each template defines panel positions within the page's live area.
- * Page size: 504×720pt (7"×10"). Margins: 36pt (0.5") all sides.
- * Live area: 432×648pt. Gutters between panels: 10pt.
+ * Page size: 495×756pt (6.875"×10.5" with bleed). Margins: 36pt (0.5") all sides.
+ * Live area: 423×684pt. Gutters between panels: 10pt.
  *
  * Coordinates are in PDF space (origin bottom-left).
  * Panel {x, y, w, h} = bottom-left corner of panel in page coords.
  * aspect = closest Gemini-supported aspect ratio for image generation.
  */
 
-const PAGE_W = 504;
-const PAGE_H = 720;
+const PAGE_W = 495;  // 6.875" = 6.625" + 2×0.125" bleed (Lulu comic spec)
+const PAGE_H = 756;  // 10.50" = 10.25" + 2×0.125" bleed (Lulu comic spec)
 const MARGIN = 36;
 const GUTTER = 10;
 

@@ -1357,8 +1357,8 @@ async function renderGraphicNovelStoryPage(pdfDoc, pageData, pageW, pageH) {
 async function buildGraphicNovelPdf(_unused, opts = {}) {
   const { title = 'My Graphic Novel', childName = '', tagline = '', dedication = '', year = new Date().getFullYear(), upsellCovers, bookId } = opts;
 
-  const PAGE_W = 450;  // 6.25" with bleed
-  const PAGE_H = 666;  // 9.25" with bleed
+  const PAGE_W = 495;  // 6.875" = 6.625" + 2×0.125" bleed (Lulu comic spec)
+  const PAGE_H = 756;  // 10.50" = 10.25" + 2×0.125" bleed (Lulu comic spec)
 
   const srcPages = Array.isArray(opts.pages) ? opts.pages : [];
 
