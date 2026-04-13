@@ -2295,7 +2295,9 @@ ${storyForCritic}`;
   }
 
   return chapterPlan;
+}
 
+/**
  * Lightweight critic + polish pass for early reader stories.
  * Evaluates show-don't-tell, anti-kitschy, page-turn tension, rhyming,
  * economy, voice consistency, and surprise. If total score is below
