@@ -170,7 +170,7 @@ async function criticStory(storyEntries, customDetails, theme, childAge, opts = 
     .filter(Boolean)
     .join('\n---\n');
 
-  const systemPrompt = `You are a children's book editor. Score this story honestly.`;
+  const systemPrompt = `You are a children's book editor. Score this story on 4 criteria not covered by the main critic.`;
 
   const userPrompt = `CHILD AGE: ${childAge || 'unknown'}
 THEME: ${theme || 'general'}
@@ -181,25 +181,20 @@ ${storyText.slice(0, 4000)}
 
 Score each criterion 1-10:
 1. PERSONALIZATION: Does the story use the child's specific details (name, interests, food, etc.)?
-2. EMOTIONAL ARC: Is there a clear beginning → tension → resolution? Does emotion come from SPECIFIC images and actions (not vague sentiments)?
-3. MEMORABLE LINE: Is there at least one line beautiful enough to quote — not because it's wise, but because it's perfectly said?
-4. NO FILLER: Does every spread advance the story? Are there any greeting-card lines ("love is the strongest magic", "you are special just the way you are") that should be cut?
-5. DIALOGUE: Is there natural, engaging, surprising character dialogue? Does the child sound like a real child (concrete, curious, sometimes funny)?
-6. THEME FIT: Does the ending match the theme (birthday=celebratory, bedtime=peaceful, mothers_day=heartfelt)?
-7. HUMOR: Are there at least 2 genuinely funny or delightful moments? Does humor emerge naturally from character and situation (not forced)?
-8. ANTI-KITSCHY: Is the story free of generic sentiment? Score LOW if the story uses cliches like "the real treasure was inside you", "with love anything is possible", or ends with the character explaining what they learned. Score HIGH if the story earns its emotion through concrete, specific images.
-9. SURPRISE: Does the story contain at least one genuinely unexpected moment — a character subversion, situation twist, perspective shift, or emotional surprise? The surprise should feel EARNED, not random. Score LOW if the story is entirely predictable. Score HIGH if there's a moment where the reader thinks "I didn't see that coming, but of course."
+2. DIALOGUE: Is there natural, engaging, surprising character dialogue? Does the child sound like a real child (concrete, curious, sometimes funny)?
+3. THEME FIT: Does the ending match the theme (birthday=celebratory, bedtime=peaceful, mothers_day=heartfelt)?
+4. NO FILLER: Does every spread advance the story? Are there any greeting-card lines that should be cut?
 
 Return JSON only:
 {
-  "scores": { "personalization": 8, "arc": 7, "memorable": 6, "no_filler": 8, "dialogue": 5, "theme": 9, "humor": 6, "anti_kitschy": 7, "surprise": 7 },
-  "total": 63,
+  "scores": { "personalization": 8, "dialogue": 5, "theme_fit": 9, "no_filler": 8 },
+  "total": 30,
   "approved": true,
   "weakestSpreads": [3, 7],
   "feedback": "Spread 3 feels generic — add a specific detail about the child's interests. Spread 7 lacks dialogue."
 }
 
-approved = true if total >= 54 (out of 90). weakestSpreads = spread numbers that need improvement.`;
+approved = true if total >= 24 (out of 40). weakestSpreads = spread numbers that need improvement.`;
 
   try {
     const resp = await callLLM(systemPrompt, userPrompt, {

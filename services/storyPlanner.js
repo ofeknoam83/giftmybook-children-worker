@@ -711,7 +711,31 @@ Story text MAY mention family members by name. However, family members must NEVE
 
 Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
-You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats.`;
+STYLE MODE SELECTION:
+Before generating the seed, select a style mode for this story. Consider the theme, the child's age, and the emotional need.
+
+Modes:
+- "sparse": Sendak/Jeffers. Short sentences. Maximum economy. Trust silence.
+- "playful": Willems/Dahl. Deadpan humor. Absurd logic. The narrator winks.
+- "lyrical": Donaldson/Seuss. Strong rhythm. Rhyming couplets. The story sings.
+- "tender": Klassen/Portis. Quiet. Observational. Gentle pacing. Emotion through stillness.
+- "mischievous": Barnett/Jeffers. Kinetic energy. Rules broken. Slightly naughty child.
+
+Choose the mode that best fits THIS specific story.
+
+TECHNIQUE BUDGET:
+Select 2-3 advanced techniques to execute with conviction. Do NOT select all of them.
+
+Pick from:
+A. "rule_of_three" — Three attempts/encounters/obstacles. The third breaks the pattern.
+B. "surprise" — One genuinely unexpected moment.
+C. "humor" — Comic timing, running gags, deadpan delivery.
+D. "page_turn_hooks" — Use the physical page turn as a dramatic device.
+E. "lyrical_repetition" — A repeated structure that creates rhythm and evolves.
+
+Output these in your JSON: "style_mode": "sparse|playful|lyrical|tender|mischievous", "techniques": ["rule_of_three", "humor"]
+
+You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats, style_mode, techniques.`;
 
   const genderLabel = gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : (gender && gender !== 'neutral' && gender !== 'not specified' ? gender : '');
 
@@ -784,6 +808,8 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
         repeated_phrase: extractField('repeated_phrase') || '',
         phrase_arc: [],
         beats: [],
+        style_mode: extractField('style_mode') || 'playful',
+        techniques: ['rule_of_three', 'humor'],
       };
     }
   }
@@ -800,7 +826,7 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   // Validate we got usable values
   if (!seed || (!seed.favorite_object && !seed.fear && !seed.setting)) {
     console.warn(`[storyPlanner] Story seed has no usable fields. Parsed: ${JSON.stringify(seed).slice(0, 300)}`);
-    return { favorite_object: getAgeAppropriateFallbackObject(age), fear: 'the dark', setting: 'a magical place', storySeed: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [] };
+    return { favorite_object: getAgeAppropriateFallbackObject(age), fear: 'the dark', setting: 'a magical place', storySeed: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [], style_mode: 'playful', techniques: ['rule_of_three', 'humor'] };
   }
 
   if (!seed.emotional_core) seed.emotional_core = '';
@@ -808,10 +834,24 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   if (!Array.isArray(seed.phrase_arc)) seed.phrase_arc = [];
   if (!Array.isArray(seed.beats)) seed.beats = [];
 
+  // Extract style mode and techniques
+  const VALID_STYLE_MODES = ['sparse', 'playful', 'lyrical', 'tender', 'mischievous'];
+  if (!seed.style_mode || !VALID_STYLE_MODES.includes(seed.style_mode)) {
+    seed.style_mode = 'playful';
+  }
+  const VALID_TECHNIQUES = ['rule_of_three', 'surprise', 'humor', 'page_turn_hooks', 'lyrical_repetition'];
+  if (!Array.isArray(seed.techniques) || seed.techniques.length === 0) {
+    seed.techniques = ['rule_of_three', 'humor'];
+  } else {
+    seed.techniques = seed.techniques.filter(t => VALID_TECHNIQUES.includes(t));
+    if (seed.techniques.length === 0) seed.techniques = ['rule_of_three', 'humor'];
+  }
+
   console.log(`[storyPlanner] Story seed: object="${seed.favorite_object}", fear="${seed.fear}", setting="${seed.setting}"`);
   if (seed.emotional_core) console.log(`[storyPlanner] Emotional core: "${seed.emotional_core}"`);
   if (seed.repeated_phrase) console.log(`[storyPlanner] Repeated phrase: "${seed.repeated_phrase}"`);
   if (seed.beats.length) console.log(`[storyPlanner] Beat sheet: ${seed.beats.length} beats`);
+  console.log(`[storyPlanner] Style mode: ${seed.style_mode}, Techniques: ${seed.techniques.join(', ')}`);
 
   // Validate seed quality and retry once if issues found
   const seedValidation = validateSeedQuality(seed, theme, age);
@@ -979,7 +1019,7 @@ function parseStoryText(text) {
  * Returns raw text output from the LLM.
  */
 async function generateStoryText(childDetails, theme, customDetails, opts = {}) {
-  const { costTracker, apiKeys, approvedTitle, v2Vars, additionalCoverCharacters } = opts;
+  const { costTracker, apiKeys, approvedTitle, v2Vars, additionalCoverCharacters, style_mode, techniques } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const childAge = childDetails.age || childDetails.childAge || 5;
@@ -990,6 +1030,9 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     fear: 'the dark',
     setting: '',
   };
+  // Inject style_mode and techniques into briefVars for the writing brief
+  if (style_mode) briefVars.style_mode = style_mode;
+  if (techniques) briefVars.techniques = techniques;
 
   let systemPrompt = buildStoryWriterSystem(briefVars, theme);
 
@@ -1452,15 +1495,23 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   if (!isPictureBook) {
     const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-    return normalizePlan(parsed, childDetails, opts);
+    const plan = normalizePlan(parsed, childDetails, opts);
+    // Carry style_mode and techniques from v2Vars
+    if (v2Vars?.style_mode) plan._styleMode = v2Vars.style_mode;
+    if (v2Vars?.techniques) plan._techniques = v2Vars.techniques;
+    return plan;
   }
 
   // ── Two-phase pipeline for picture books ──
   const pipelineStart = Date.now();
 
   try {
-    // Phase 1: Generate story text freely
-    const storyText = await generateStoryText(childDetails, theme, enrichedCustomDetails, opts);
+    // Phase 1: Generate story text freely (pass style_mode + techniques)
+    const storyText = await generateStoryText(childDetails, theme, enrichedCustomDetails, {
+      ...opts,
+      style_mode: v2Vars?.style_mode,
+      techniques: v2Vars?.techniques,
+    });
 
     // Try to parse the free-form text
     const parsedText = parseStoryText(storyText);
@@ -1500,6 +1551,9 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
     // Attach validation issues for downstream critic passes
     plan._validationIssues = validation.issues;
+    // Carry style_mode and techniques
+    if (v2Vars?.style_mode) plan._styleMode = v2Vars.style_mode;
+    if (v2Vars?.techniques) plan._techniques = v2Vars.techniques;
 
     const totalMs = Date.now() - pipelineStart;
     console.log(`[storyPlanner] Two-phase pipeline complete in ${totalMs}ms`);
@@ -2416,6 +2470,330 @@ async function polishEarlyReader(storyPlan, opts = {}) {
   return polished;
 }
 
+// ── Master Critic (consolidated from polishStory + combinedCritic + polishEarlyReader) ──
+
+const { STYLE_MODES } = require('../prompts/writerBrief');
+
+/**
+ * Build the master critic system prompt.
+ * @param {{ tier: number, childAge: number, theme: string, format: string, style_mode: string, techniques: string[] }} opts
+ * @returns {string}
+ */
+function buildMasterCriticSystem(opts = {}) {
+  const { tier, childAge, theme, format, style_mode, techniques } = opts;
+  const { config: ageConfig } = getAgeTier(childAge || 5);
+  const ageTier = tier || ageConfig.tier;
+  const styleModeConfig = STYLE_MODES[style_mode] || STYLE_MODES.playful;
+  const techList = Array.isArray(techniques) ? techniques : ['rule_of_three', 'humor'];
+  const isER = format === 'early_reader' || ageTier >= 3;
+  const isPB = format === 'picture_book' || ageTier <= 2;
+
+  // Format-conditional criterion
+  let formatSpecificCriterion;
+  if (isPB || isER) {
+    formatSpecificCriterion = `12. PAGE-TURN TENSION: Do at least 3 spreads end with a line that pulls the reader forward? Is the physical page turn used as a dramatic device?`;
+  } else {
+    formatSpecificCriterion = `12. SURPRISE: Does the story contain at least one genuinely unexpected moment?`;
+  }
+
+  // Technique awareness
+  const techniqueSection = techList.length > 0
+    ? `\nTECHNIQUES SELECTED: ${techList.join(', ')}
+Only evaluate technique execution for these chosen techniques. Do NOT penalize the story for not including techniques it did not choose.`
+    : '';
+
+  let prompt = `CHILDREN'S BOOK — MASTER CRITIC + REWRITE
+
+You are a world-class children's book editor performing a single comprehensive evaluation and rewrite pass.
+
+STYLE MODE: ${style_mode || 'playful'} (${styleModeConfig.label})
+STYLE CRITIC BIAS: ${styleModeConfig.criticBias}
+${techniqueSection}
+
+─────────────────────────────────────────
+PRESERVATION RULE (CRITICAL)
+─────────────────────────────────────────
+Before rewriting, identify:
+- The single strongest LINE in the story (most memorable, most specific, most resonant)
+- The single strongest MOMENT (the spread where everything clicks)
+- The single strongest IMAGE (the most vivid, illustratable, specific visual)
+
+Output these in your response as "preserve" (see output format below).
+
+THEN when rewriting:
+- Do NOT change any spread listed in "preserve" unless it has a critical structural flaw
+- If you must change a preserved spread, explain why in the issues array
+- "Making it smoother" or "improving language" is NOT a valid reason to change a preserved element
+
+─────────────────────────────────────────
+EDGE ACCEPTANCE (IMPORTANT)
+─────────────────────────────────────────
+Great children's books have rough edges. Where the Wild Things Are is strange. The Giving Tree is asymmetrical. Goodnight Moon lists random objects.
+
+Do NOT remove or smooth over:
+- Unusual word choices that are coherent and specific
+- Slightly strange or surreal moments that serve the story's internal logic
+- Asymmetric structures (not every spread needs the same rhythm)
+- Unexpected tonal shifts that feel intentional
+- Invented words or phrases that fit the story's world
+
+The goal is a story with CHARACTER, not a story with zero flaws.
+A story that is slightly weird but deeply felt > a story that is perfectly polished but forgettable.
+
+Ask yourself: "Would removing this make the story better, or just safer?"
+If just safer — leave it.
+
+─────────────────────────────────────────
+EVALUATION CRITERIA (12 total — score each 1-10)
+─────────────────────────────────────────
+
+1. EMOTIONAL WRITING: Is emotion shown (not told)? Any "she felt / she was scared" → penalty.
+2. LANGUAGE QUALITY & RHYTHM: Are there generic phrases? Is the prose musical? Rhyming couplets, near-rhymes, internal rhymes woven throughout?
+3. IMAGERY: Are visuals specific and vivid? Or vague and common?
+4. AUTHORIAL VOICE: Does it feel like a real author? Or like AI-generated text?
+5. CHILD AGENCY: Does the child actively drive the story?
+6. PHRASE TRANSFORMATION: Does the repeated element evolve meaningfully?
+7. ENDING QUALITY: Does the ending match the theme's energy? (adventure=warm+joyful, bedtime=soft, birthday=celebratory)
+8. MEMORABLE LINE: Is there at least one line a parent would want to repeat outside the book?
+9. VERB POWER & RESTRAINT: Are verbs strong and specific? Does the story trust the reader to feel emotion without amplifying?
+10. HUMOR & DELIGHT: Are there genuinely funny or delightful moments? Does humor emerge from character and situation?
+11. ANTI-KITSCHY: Is the story free of generic sentiment, greeting-card language, and moralizing endings?
+${formatSpecificCriterion}
+
+SCORING DISCIPLINE:
+Do NOT give any category above 7 if ANY of these are present:
+- Emotion telling ("felt", "was scared", "was happy")
+- Generic filler ("very", "nice", "special", "magical", "wonderful", "beautiful")
+- A sentence that could appear unchanged in a different children's book
+
+─────────────────────────────────────────
+REWRITE PROTOCOL
+─────────────────────────────────────────
+
+STEP 1 — FIX (mandatory):
+Fix these issues — they are objectively broken:
+- Emotion-telling ("she felt scared") → replace with action/sensation
+- Generic filler words ("very", "nice", "special", "magical")
+- Kitschy/greeting-card phrases
+- Structural issues (contradictions, confused timeline, missing character)
+- Word count violations (spread exceeding age-tier maximum)
+- Weak verb + adverb combos → single strong verb
+- Duplicate consecutive words
+
+STEP 2 — ENHANCE (only if clearly needed):
+Only make these changes if the improvement is OBVIOUS and SIGNIFICANT:
+- Tighten a flabby sentence (but don't touch one that works)
+- Improve a flat ending
+- Add rhythm to a line that stumbles when read aloud
+
+RULE: If you are unsure whether a change improves the line — leave it.
+The writer's voice has value. Do not sand it smooth.
+
+─────────────────────────────────────────
+RULES FOR ALL REWRITES
+─────────────────────────────────────────
+- Do NOT change: plot, structure, characters, spread count, left/right assignments, null pages
+- Quality bar: only return a rewrite if it is clearly better than the original
+- The ending must feel emotionally resolved — energy matches the theme
+- For bedtime books: soft and settling
+- For adventure/birthday/science/space: warm and joyful, NOT sleepy`;
+
+  // Inject age-tier constraints
+  prompt += buildAgeTierPreamble(ageTier, ageConfig, childAge || 5);
+
+  // Birthday theme exception
+  if (theme === 'birthday') {
+    prompt += `\n\n⚠️ BIRTHDAY THEME EXCEPTION:\nThis is a BIRTHDAY story. The ending rules are DIFFERENT:\n- Do NOT soften the ending into a whisper or sleepy tone.\n- The final spread is the birthday cake/candles moment — the emotional climax.\n- The ending should feel warm, joyful, and celebratory — not quiet.\n- Do NOT make the ending softer or more poetic. Make it warmer and more joyful if needed.`;
+  }
+
+  prompt += `
+
+─────────────────────────────────────────
+OUTPUT FORMAT (JSON)
+─────────────────────────────────────────
+
+Return a JSON object with exactly this structure:
+{
+  "preserve": {
+    "strongest_line": { "spread": 7, "text": "exact quote" },
+    "strongest_moment": { "spread": 12, "reason": "why" },
+    "strongest_image": { "spread": 10, "reason": "why" }
+  },
+  "scores": {
+    "emotional_writing": 8,
+    "language_rhythm": 7,
+    "imagery": 8,
+    "authorial_voice": 7,
+    "child_agency": 8,
+    "phrase_transformation": 6,
+    "ending_quality": 7,
+    "memorable_line": 8,
+    "verb_power_restraint": 7,
+    "humor_delight": 6,
+    "anti_kitschy": 8,
+    "format_specific": 7
+  },
+  "issues": [
+    { "spread": 3, "line": "exact quote", "type": "fix|enhance", "reason": "description" }
+  ],
+  "improved_spreads": [
+    { "spread": 1, "left": "...", "right": "..." }
+  ]
+}
+
+Rules for improved_spreads:
+- Return ALL spreads (same count as input)
+- If a spread needed no changes, return its text unchanged
+- If left or right was null in the input, keep it null
+- Mark each issue as "fix" (objectively broken) or "enhance" (optional improvement)`;
+
+  return prompt;
+}
+
+/**
+ * Master critic — single consolidated critic pass replacing polishStory + combinedCritic + polishEarlyReader.
+ * Evaluates 12 criteria, preserves strongest lines, respects style mode, and rewrites.
+ *
+ * @param {object} storyPlan - { title, entries: [...] }
+ * @param {object} [opts] - { apiKeys, costTracker, theme, childAge, format, style_mode, techniques }
+ * @returns {Promise<object>} Polished story plan with same structure
+ */
+async function masterCritic(storyPlan, opts = {}) {
+  const { costTracker, apiKeys, theme, childAge, format, style_mode, techniques } = opts;
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+  const textMap = spreads.map(s => ({
+    spread: s.spread,
+    left: s.left?.text || null,
+    right: s.right?.text || null,
+  }));
+
+  const { tier: ageTier } = getAgeTier(childAge || 5);
+  const systemPrompt = buildMasterCriticSystem({
+    tier: ageTier,
+    childAge: childAge || 5,
+    theme,
+    format,
+    style_mode: style_mode || 'playful',
+    techniques: techniques || ['rule_of_three', 'humor'],
+  });
+
+  const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}`;
+
+  console.log(`[storyPlanner] Starting master critic (${spreads.length} spreads, theme: ${theme || 'default'}, style: ${style_mode || 'playful'})...`);
+  const criticStart = Date.now();
+
+  const response = await callLLM(systemPrompt, userPrompt, {
+    openaiApiKey: openaiKey,
+    maxTokens: 10000,
+    temperature: 0.5,
+    jsonMode: true,
+    costTracker,
+    requestLabel: 'masterCritic',
+  });
+
+  const criticMs = Date.now() - criticStart;
+  console.log(`[storyPlanner] Master critic completed in ${criticMs}ms (${response.model}, ${response.outputTokens} tokens)`);
+
+  let content = response.text;
+  content = content.replace(/\\'/g, "'");
+  content = content.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+
+  let result;
+  try {
+    result = JSON.parse(content);
+  } catch (parseErr) {
+    const stripped = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    try {
+      result = JSON.parse(stripped);
+    } catch (_) {
+      // Try repairing truncated JSON
+      const repaired = repairTruncatedJson(content);
+      if (repaired) {
+        console.warn(`[storyPlanner] Master critic JSON repaired from truncated response`);
+        result = repaired;
+      } else {
+        console.warn(`[storyPlanner] Master critic JSON parse failed: ${parseErr.message} — using original text`);
+        return storyPlan;
+      }
+    }
+  }
+
+  // Log scores
+  if (result.scores) {
+    const scores = result.scores;
+    const values = Object.values(scores).filter(v => typeof v === 'number');
+    const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    console.log(`[storyPlanner] Master critic scores: ${JSON.stringify(scores)} (avg: ${avg.toFixed(1)})`);
+  }
+
+  // Log preservation
+  if (result.preserve) {
+    const p = result.preserve;
+    if (p.strongest_line) console.log(`[storyPlanner] Preserved line (spread ${p.strongest_line.spread}): "${(p.strongest_line.text || '').slice(0, 80)}"`);
+    if (p.strongest_moment) console.log(`[storyPlanner] Preserved moment (spread ${p.strongest_moment.spread}): ${p.strongest_moment.reason}`);
+  }
+
+  // Log issues
+  if (result.issues && result.issues.length > 0) {
+    const fixCount = result.issues.filter(i => i.type === 'fix').length;
+    const enhanceCount = result.issues.filter(i => i.type === 'enhance').length;
+    console.log(`[storyPlanner] Master critic found ${result.issues.length} issues (${fixCount} fixes, ${enhanceCount} enhancements)`);
+    for (const issue of result.issues.slice(0, 5)) {
+      console.log(`  - [${issue.type}] spread ${issue.spread}: "${(issue.line || '').slice(0, 60)}"`);
+    }
+  }
+
+  // Extract the improved spreads
+  const polishedArray = result.improved_spreads || result.spreads || result.entries || [];
+  if (!Array.isArray(polishedArray)) {
+    console.warn(`[storyPlanner] Master critic returned no improved_spreads array — using original text`);
+    storyPlan._masterCriticScores = result.scores || null;
+    return storyPlan;
+  }
+
+  if (polishedArray.length !== spreads.length) {
+    console.warn(`[storyPlanner] Master critic returned ${polishedArray.length} spreads, expected ${spreads.length} — using original text`);
+    storyPlan._masterCriticScores = result.scores || null;
+    return storyPlan;
+  }
+
+  // Apply improved text back into the story plan entries
+  let changedCount = 0;
+  const updatedEntries = storyPlan.entries.map(entry => {
+    if (entry.type !== 'spread') return entry;
+    const match = polishedArray.find(p => p.spread === entry.spread);
+    if (!match) return entry;
+
+    const updated = { ...entry };
+    if (match.left !== undefined && entry.left) {
+      if (match.left !== entry.left.text) changedCount++;
+      updated.left = { ...entry.left, text: match.left };
+    }
+    if (match.right !== undefined && entry.right) {
+      if (match.right !== entry.right.text) changedCount++;
+      updated.right = { ...entry.right, text: match.right };
+    }
+    return updated;
+  });
+
+  console.log(`[storyPlanner] Master critic: ${changedCount} page texts improved out of ${spreads.length * 2} pages`);
+
+  const polished = {
+    ...storyPlan,
+    entries: updatedEntries,
+    _masterCriticScores: result.scores || null,
+    _masterCriticPreserve: result.preserve || null,
+    _masterCriticIssueCount: (result.issues || []).length,
+  };
+
+  // Sanitize em-dashes/en-dashes that the critic may have reintroduced
+  sanitizeAllStoryText(polished);
+
+  return polished;
+}
+
 /**
  * Plan and write a full chapter book (T4 format for ages 9-12).
  * Returns an object with title + 5 chapters (each with chapterTitle, synopsis, imagePrompt, text).
@@ -3202,4 +3580,4 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   return plan;
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, polishEarlyReader, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, polishChapterBook, planGraphicNovel };
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, polishEarlyReader, masterCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, polishChapterBook, planGraphicNovel };
