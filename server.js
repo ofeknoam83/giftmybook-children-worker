@@ -428,7 +428,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
               // Retry ONCE with corrective prompt
               try {
-                const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}${storyPlan.characterOutfit ? '\nREQUIRED OUTFIT (MUST match exactly): ' + storyPlan.characterOutfit : ''}`;
+                const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
                 const correctedPrompt = correctionNote + '\n\n' + prompt;
                 bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
 
@@ -779,7 +779,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
             // Retry ONCE with corrective prompt
             try {
               const originalPrompt = page.fullPagePrompt || `Graphic novel page ${completed + 1}`;
-              const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}${storyPlan.characterOutfit ? '\nREQUIRED OUTFIT (MUST match exactly): ' + storyPlan.characterOutfit : ''}`;
+              const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
               const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
               bookContext.log('info', `Retrying page ${completed + 1} with consistency correction`);
 
@@ -1655,7 +1655,8 @@ Describe the MAIN child's clothing EXACTLY as visible in the image:
 TOP: [garment type, exact color, any patterns/logos/details, sleeve length, neckline, or "not visible"]
 BOTTOM: [garment type, exact color, or "not visible"]
 SHOES: [type, exact color, or "not visible"]
-ACCESSORIES: [list any visible accessories like hats, bows, bags, or "none"]
+CLOTHING_ACCESSORIES: [items WORN on the body: hats, bows, hair ties, glasses, jewelry, scarves, capes, belts — or "none"]
+HELD_ITEMS: [anything the character is HOLDING or interacting with: toys, devices, weapons, wands, books, tools — or "none". These are scene props, NOT part of the outfit]
 
 ADDITIONAL_CHARACTERS:
 List any OTHER characters visible on the cover besides the main child. For each one write:
@@ -1718,7 +1719,8 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
                   const topPart = outfitRaw.match(/TOP[:\s]+(.+)/i);
                   const bottomPart = outfitRaw.match(/BOTTOM[:\s]+(.+)/i);
                   const shoesPart = outfitRaw.match(/SHOES[:\s]+(.+)/i);
-                  const accessoriesPart = outfitRaw.match(/ACCESSORIES[:\s]+(.+)/i);
+                  const accessoriesPart = outfitRaw.match(/CLOTHING_ACCESSORIES[:\s]+(.+)/i);
+                  // Intentionally ignore HELD_ITEMS — they are scene-specific props, not outfit
                   const coverParts = [];
                   if (topPart?.[1]?.trim() && !/not visible/i.test(topPart[1])) coverParts.push(topPart[1].trim());
                   if (bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1])) coverParts.push(bottomPart[1].trim());
@@ -2015,7 +2017,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     bookContext.log('warn', `Chapter ${i + 1} character inconsistency detected`, { issues: consistency.issues });
                     try {
                       const originalChapterPrompt = chapter.imagePrompt || `A scene from chapter ${i + 1}: ${chapter.synopsis}`;
-                      const correctionNote = `CRITICAL CORRECTION: The previous illustration had character inconsistencies: ${consistency.issues.join(', ')}. Fix these EXACTLY — match the reference photo precisely. ${storyPlan.characterAnchor || ''}${storyPlan.characterOutfit ? '\nREQUIRED OUTFIT (MUST match exactly): ' + storyPlan.characterOutfit : ''}`;
+                      const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
                       const correctedPrompt = correctionNote + '\n\n' + originalChapterPrompt;
                       bookContext.log('info', `Retrying chapter ${i + 1} with consistency correction`);
                       const retryResult = await generateIllustration(
