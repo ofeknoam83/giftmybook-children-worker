@@ -2174,6 +2174,100 @@ async function combinedCritic(storyPlan, opts = {}) {
 }
 
 /**
+ * Self-critic / polish pass for a completed chapter book.
+ * Sends all 5 chapters to the LLM for evaluation against 8 craft criteria.
+ * If the total score is below the threshold (48/80), uses the rewritten version.
+ * Returns the (possibly improved) chapter book.
+ */
+async function polishChapterBook(chapterPlan, childDetails, opts = {}) {
+  const { apiKeys, costTracker, bookContext } = opts;
+  const { CHAPTER_BOOK_CRITIC_SYSTEM } = require('../prompts/chapterBook');
+
+  const SCORE_THRESHOLD = 48; // out of 80 — below this, apply the polished version
+
+  // Build the full story text for the critic
+  const storyForCritic = chapterPlan.chapters.map((ch, i) => {
+    return `--- CHAPTER ${i + 1}: "${ch.chapterTitle}" ---\n${ch.text}`;
+  }).join('\n\n');
+
+  const userPrompt = `Here is a complete 5-chapter book titled "${chapterPlan.title}" for ${childDetails.name}, age ${childDetails.age}.
+
+Evaluate and polish this story:
+
+${storyForCritic}`;
+
+  bookContext?.log('info', 'Running chapter book critic/polish pass');
+
+  let criticResult;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await callLLM(CHAPTER_BOOK_CRITIC_SYSTEM, userPrompt, {
+        openaiApiKey: apiKeys?.OPENAI_API_KEY,
+        costTracker,
+        temperature: 0.7,
+        maxTokens: 16000,
+        jsonMode: true,
+        requestLabel: 'chapter-book-critic',
+      });
+
+      const text = resp.text || '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in critic response');
+      criticResult = JSON.parse(jsonMatch[0]);
+
+      // Validate the critic response has the expected shape
+      if (!criticResult.scores || !criticResult.total_score || !Array.isArray(criticResult.polished_chapters)) {
+        throw new Error('Critic response missing required fields');
+      }
+      if (criticResult.polished_chapters.length < 5) {
+        throw new Error(`Critic returned ${criticResult.polished_chapters.length} chapters, expected 5`);
+      }
+      break;
+    } catch (err) {
+      bookContext?.log('warn', `Chapter book critic attempt ${attempt} failed: ${err.message}`);
+      if (attempt === 3) {
+        bookContext?.log('warn', 'Chapter book critic failed after 3 attempts, keeping original');
+        return chapterPlan;
+      }
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
+  }
+
+  const totalScore = criticResult.total_score;
+  bookContext?.log('info', 'Chapter book critic scores', {
+    total: totalScore,
+    threshold: SCORE_THRESHOLD,
+    weakestChapter: criticResult.weakest_chapter,
+    scores: criticResult.scores,
+  });
+
+  // Store critic scores on the plan for downstream logging
+  chapterPlan._chapterCriticScores = criticResult.scores;
+  chapterPlan._chapterCriticTotal = totalScore;
+
+  if (totalScore >= SCORE_THRESHOLD) {
+    bookContext?.log('info', `Chapter book scored ${totalScore}/80 (>= ${SCORE_THRESHOLD}), keeping original`);
+    return chapterPlan;
+  }
+
+  // Apply polished chapters
+  bookContext?.log('info', `Chapter book scored ${totalScore}/80 (< ${SCORE_THRESHOLD}), applying polished version`);
+  for (const polished of criticResult.polished_chapters) {
+    const idx = polished.number - 1;
+    if (idx >= 0 && idx < chapterPlan.chapters.length && polished.text) {
+      // Only apply if the polished text is substantial (not a stub or error)
+      if (polished.text.length >= 500) {
+        chapterPlan.chapters[idx].text = polished.text.trim();
+      } else {
+        bookContext?.log('warn', `Polished chapter ${polished.number} too short (${polished.text.length} chars), keeping original`);
+      }
+    }
+  }
+
+  return chapterPlan;
+}
+
+/**
  * Plan and write a full chapter book (T4 format for ages 9-12).
  * Returns an object with title + 5 chapters (each with chapterTitle, synopsis, imagePrompt, text).
  */
@@ -2296,6 +2390,9 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
       }
     }
   }
+
+  // Step 4: Self-critic / polish pass (all 5 chapters evaluated together)
+  await polishChapterBook(chapterPlan, childDetails, { apiKeys, costTracker, bookContext });
 
   // Carry forward character details from seed
   chapterPlan.characterDescription = seed.characterDescription || null;
@@ -2956,4 +3053,4 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   return plan;
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, planGraphicNovel };
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, polishChapterBook, planGraphicNovel };
