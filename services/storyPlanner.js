@@ -1819,6 +1819,8 @@ async function polishStory(storyPlan, opts = {}) {
       if (i.type === 'opening_cliche') return `⚠️ SPREAD 1 HAS A GENERIC OPENING. The first spread MUST be rewritten to drop the reader into a specific moment — not "one day" or "woke up". This is the highest priority fix.`;
       if (i.type === 'word_count') return `⚠️ Spread ${i.spread}: ${i.message}. CUT this spread ruthlessly — trust the illustration.`;
       if (i.type === 'emotion_telling') return `⚠️ Spread ${i.spread}: emotion telling detected (${i.message}). Replace with action or sensation.`;
+      if (i.type === 'critic_feedback') return `⚠️ CRITIC FEEDBACK: ${i.message}`;
+      if (i.type === 'weak_spread') return `⚠️ Spread ${i.spread}: ${i.message}`;
       return null;
     }).filter(Boolean);
     if (warnings.length > 0) {

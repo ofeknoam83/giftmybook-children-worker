@@ -1557,7 +1557,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       // V2: Text is already in the story plan — no separate text generation needed.
 
-      // ── W3 + W7: Quality gates (log-only) — check custom details usage and story quality ──
+      // ── W3 + W7: Quality gates — check custom details usage and story quality ──
       if (!isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
         try {
           const { checkCustomDetailsUsage, criticStory } = require('./services/qualityGates');
@@ -1567,15 +1567,53 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookContext.log('info', 'Custom details usage check', { score: detailsCheck.score, missing: detailsCheck.missingCritical });
           if (detailsCheck.missingCritical && detailsCheck.missingCritical.length > 0 && detailsCheck.score < 5) {
             bookContext.log('warn', 'Story missing critical custom details', { missing: detailsCheck.missingCritical, score: detailsCheck.score });
-            // TODO: could regenerate weak spreads here in future
           }
 
-          // W7: Story critic
+          // W7: Story critic (blocking — triggers retry on failure)
           const criticResult = await criticStory(storyPlan.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
           bookContext.log('info', 'Story critic result', { total: criticResult.total, approved: criticResult.approved, feedback: (criticResult.feedback || '').slice(0, 200) });
+
           if (!criticResult.approved) {
-            bookContext.log('warn', 'Story below quality threshold', { score: criticResult.total, weakest: criticResult.weakestSpreads });
-            // TODO: could regenerate weakest spreads here in future
+            bookContext.log('warn', 'Story below quality threshold — triggering critic retry', { score: criticResult.total, weakest: criticResult.weakestSpreads });
+            try {
+              if (progressCallbackUrl) {
+                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.27, message: 'Improving story based on critic feedback...', logs: bookContext.logs });
+              }
+
+              // Feed critic feedback + weakest spreads into polishStory for a targeted rewrite
+              const criticFeedbackIssues = [];
+              if (criticResult.feedback) {
+                criticFeedbackIssues.push({ type: 'critic_feedback', message: criticResult.feedback });
+              }
+              if (criticResult.weakestSpreads && criticResult.weakestSpreads.length > 0) {
+                for (const spreadNum of criticResult.weakestSpreads) {
+                  criticFeedbackIssues.push({ type: 'weak_spread', spread: spreadNum, message: `Critic flagged spread ${spreadNum} as weak — rewrite for stronger impact` });
+                }
+              }
+
+              const retryPolished = await polishStory(storyPlan, {
+                apiKeys,
+                costTracker,
+                theme,
+                validationIssues: criticFeedbackIssues,
+                childAge: childDetails.age || childDetails.childAge,
+              });
+              bookContext.log('info', 'Critic retry: polishStory complete', { scores: retryPolished._criticScores });
+
+              // Re-run combinedCritic on the polished version
+              const retryCombined = await combinedCritic(retryPolished, { apiKeys, costTracker, theme, childAge: childDetails.age || childDetails.childAge });
+              bookContext.log('info', 'Critic retry: combinedCritic complete');
+
+              // Re-run criticStory on the improved version
+              const retryResult = await criticStory(retryCombined.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
+              bookContext.log('info', 'Critic retry: second critic result', { total: retryResult.total, approved: retryResult.approved });
+
+              // Accept the retried version regardless of second score (don't loop more than once)
+              storyPlan = retryCombined;
+              bookContext.log('info', `Critic retry complete — using retried version (score: ${retryResult.total}, approved: ${retryResult.approved})`);
+            } catch (criticRetryErr) {
+              bookContext.log('warn', `Critic retry failed — keeping original: ${criticRetryErr.message}`);
+            }
           }
         } catch (qgErr) {
           bookContext.log('warn', 'Quality gates failed (non-blocking)', { error: qgErr.message });

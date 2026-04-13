@@ -1150,128 +1150,156 @@ EXEMPLAR SPREADS (TARGET QUALITY — ages 0-5)
 These examples show the level of writing you must match or exceed.
 Do NOT copy these — they are for tone and quality calibration only.
 
-EXAMPLE A (setup — emotion shown through action, not told):
-Left: "The house made a sound. Creak, creak. Luna held Momo tight."
+Each MEDIOCRE vs EXCELLENT pair teaches ONE principle. Study what makes the excellent version work.
+
+─── PAIR 1: ECONOMY — Maximum impact in minimum words (Sendak-level) ───
+
+MEDIOCRE:
+Left: "Luna was feeling very scared of the dark room. She held her teddy bear close to her chest and wished she could be brave enough to go inside."
+Right: "But she knew she had to try because her mommy had always told her she was a brave girl."
+
+EXCELLENT:
+Left: "The room was dark. Luna held Bear."
+Right: "She went in."
+
+WHY IT WORKS: Three sentences. Eleven words on the left. Three on the right. The child ACTS — we see courage instead of being told about it. Every word a toddler knows. No feelings described, only shown.
+
+─── PAIR 2: NATURAL RHYME THAT ADVANCES STORY (Donaldson-level) ───
+
+MEDIOCRE:
+Left: "The fox said hello and waved with glee, come play with me under this tree! We'll laugh and sing and dance all day, in every possible wonderful way!"
 Right: null
 
-EXAMPLE B (turning point — sensory, minimal):
-Left: "She put her hand on the glass. It was cold and wet."
-Right: "Shh, she said. But her voice was small."
+EXCELLENT:
+Left: "Fox said, Come in, the water is fine. Hen said, No thank you. Fox said, Sit down, the table is set. Hen said, Not yet."
+Right: null
 
-EXAMPLE C (resolution — simple, warm, phrase transformed):
-Left: null
-Right: "Now the dark was soft. Like a blanket. Momo's eyes still shone."
+WHY IT WORKS: The rhyme (fine/mine implied, set/yet) serves the story — each exchange builds tension. The hen's refusals escalate. Rhyme is a vehicle for plot, not decoration. No wasted words on describing emotions.
 
-EXAMPLE D (ending spread — action shows it, never told):
-Left: null
-Right: "One, two, three... all the way to ten. She let out a big breath. The blanket came up to her chin."
+─── PAIR 3: HUMOR THROUGH SUBVERSION (Dahl-level) ───
 
-EXAMPLE E (child causes the turning point):
-Left: "She did not wait."
-Right: "She walked right in."
+MEDIOCRE:
+Left: "Then the silliest thing happened! The cake fell right on the dog's head! Everyone laughed and laughed because it was so very funny."
+Right: "What a silly dog, said Mama, giggling with delight."
 
-Notice: Two sentences. Five words on the right. The child acts, the story turns.
+EXCELLENT:
+Left: "The cake landed on the dog. The dog did not mind. The dog ate the cake."
+Right: "All of it. Even the candles."
 
-EXAMPLE F (tension — specific, not vague):
-Left: "A sound. Not the house. Not the wind."
-Right: "She put her ear on the door. She heard... counting. One, two, three."
+WHY IT WORKS: The humor isn't announced ("silliest thing!") — it lands because the sentences are deadpan. "Even the candles" is the surprise. Short sentences build comic timing. The child laughs because of WHAT happened, not because they're told it's funny.
 
-Notice what makes these work:
-- Every word a young child already knows
-- Rhythm comes from SHORT-LONG patterns and repetition, not fancy vocabulary
-- No emotion-telling ("she felt scared") — only action and sensation
-- Every sentence is specific and unreplaceable
-- Silence (null pages) creates breathing room
+─── PAIR 4: EMOTIONAL RESTRAINT (Jeffers-level) ───
 
-CONTRAST EXAMPLES (what to avoid vs. what to write):
+MEDIOCRE:
+Left: "Grandpa loved her so, so much. She felt warm and safe in his big strong arms. She knew everything would always be okay because Grandpa was there."
+Right: "I love you to the moon and stars, whispered Grandpa with happy tears in his eyes."
 
-BAD (too complex for this age):
-Left: "Zara traversed the shadowy forest. Trepidation filled her heart but determination kept her moving."
-Right: "She raised her luminous lantern to illuminate the path."
+EXCELLENT:
+Left: "Grandpa's chair had a dent. Just his shape."
+Right: "She climbed in. It still fit."
 
-GOOD (simple, sensory, alive):
-Left: "The trees were big and dark. Luna's lantern made one small circle of light."
-Right: "She walked into it anyway."
+WHY IT WORKS: The emotion is enormous but nothing is stated. "It still fit" carries loss, comfort, and love in three words. A child understands the feeling without a single emotion-word. The specific detail (dent in the chair) does ALL the work.
 
----
+─── PAIR 5: DISTINCT NARRATIVE VOICE (Willems-level) ───
 
-BAD (flat, no rhythm):
-Left: "They ran up the hill quickly."
-Right: "At the top they could see everything."
+MEDIOCRE:
+Left: "One sunny morning, little Bear woke up and decided today would be a very special day full of adventures and fun."
+Right: "He put on his hat and went outside to see what he could find."
 
-GOOD (rhythm through contrast):
-Left: "Up, up, up. Her legs were tired."
-Right: "Then. The whole sky."
+EXCELLENT:
+Left: "Bear had a hat. It was a good hat."
+Right: "He went out. The hat came too."
 
-Notice: the GOOD versions use words a young child knows, show emotion through action, and make every word carry weight.`;
+WHY IT WORKS: The narrator has a VOICE — matter-of-fact, wry, specific. "The hat came too" treats the hat as a character. The child hears a PERSON telling this story, not a machine. No "sunny morning" or "special day" filler.
+
+-------------------------------------
+WHAT THESE TEACH:
+- Every word must earn its place. If you can cut it, cut it.
+- Rhythm comes from SHORT-LONG patterns and repetition, not fancy vocabulary.
+- Show emotion through OBJECTS and ACTIONS, never through feeling-words.
+- Humor lands through deadpan delivery and surprise, not exclamation marks.
+- The narrator has a personality. Every sentence sounds like the same person.
+- Silence (null pages) creates breathing room — use it.
+- A child should understand every single word.`;
   }
   return `-------------------------------------
-EXEMPLAR SPREADS (TARGET QUALITY)
+EXEMPLAR SPREADS (TARGET QUALITY — ages 6+)
 -------------------------------------
 
 These examples show the level of writing you must match or exceed.
 Do NOT copy these — they are for tone and quality calibration only.
 
-EXAMPLE A (setup — emotion shown through action, not told):
+Each MEDIOCRE vs EXCELLENT pair teaches ONE principle. Study what makes the excellent version work.
+
+─── PAIR 1: ECONOMY — Maximum impact in minimum words (Sendak-level) ───
+
+MEDIOCRE:
+Left: "The old house stood at the end of the long, winding lane, its windows dark and mysterious. Luna felt a shiver run down her spine as she clutched Momo to her chest, wondering what secrets lay inside."
+Right: "Despite her fear, she gathered all her courage and took a deep, steadying breath before approaching the creaking front door."
+
+EXCELLENT:
 Left: "The house creaked its old-wood song. Luna pulled Momo closer, one ear still warm from breakfast."
 Right: null
 
-EXAMPLE B (turning point — sensory, minimal, repeated phrase appears):
-Left: "She pressed her palm against the window. The fog pressed back."
-Right: "Hush now, little seed, she whispered. But her voice wobbled."
+WHY IT WORKS: Two sentences. One specific sensory detail ("one ear still warm from breakfast") tells us everything — she just left safety. The house "creaked its old-wood song" gives it personality without adjective pileup. No feelings named. Silence on the right lets the image breathe.
 
-EXAMPLE C (resolution — poetic, whisper-like, phrase transformed):
-Left: null
-Right: "The dark had a sound now. Not a growl. A hum. Momo's button eyes caught the last sliver of moon."
+─── PAIR 2: NATURAL RHYME THAT ADVANCES STORY (Donaldson-level) ───
 
-EXAMPLE D (ending spread — whisper, not conclusion):
-Left: null
-Right: "The last Number Num clicked into place. One, two, three... all the way to ten. She let out a breath she didn't know she'd been holding. The blanket pulled itself up around her chin."
+MEDIOCRE:
+Left: "The magical forest was shining so bright, with stars and with moonbeams all glowing with light. The creatures were dancing with joy everywhere, with wonder and magic just floating through air!"
+Right: null
 
-Notice: No "and she fell asleep"; the action shows it. The held breath released = relief. The blanket "pulled itself" = magical calm.
+EXCELLENT:
+Left: "She followed the path where the wild roses grow, past the tree with the swing and the creek running slow."
+Right: "But then the path split. And the roses stopped growing. And the creek — the creek had no way of knowing which way the girl went."
 
-EXAMPLE E (refrain spread — phrase at its middle stage):
-Left: "The path forked into three. She held Barnaby tighter."
-Right: "Grammy's warmth is always with you, she whispered to herself. This time it came out more like a question."
+WHY IT WORKS: The rhyme (grow/slow) sets a lull — then the rhythm BREAKS when the danger starts. The creek "had no way of knowing" personifies without cliché. Rhyme lulls the reader, then prose jolts them awake. The form matches the feeling.
 
-EXAMPLE G (resolution spread — child causes the turning point):
-Left: "She didn't wait for the dark to move."
-Right: "She walked into it."
+─── PAIR 3: HUMOR THROUGH SUBVERSION (Dahl-level) ───
 
-Notice: Two sentences. Five words on the right. The child acts, the story turns. No explanation.
+MEDIOCRE:
+Left: "Professor Wigglesworth was a very funny and eccentric inventor who always made silly mistakes. One day he accidentally turned his mustache purple, which made everyone laugh!"
+Right: "Oh dear me, he chuckled, looking at himself in the mirror. How delightfully absurd!"
 
-EXAMPLE H (tension spread — specific sensory detail, not vague fear):
-Left: "A sound. Not the house. Not the wind."
-Right: "She pressed her ear against the door and heard... counting. One, two, three."
+EXCELLENT:
+Left: "The professor had invented a machine to make toast. It made toast perfectly. It also made toast constantly. It could not be stopped."
+Right: "By Tuesday, the toast was three feet deep in the kitchen. The professor ate breakfast in the garden. He did not mention the machine."
 
-Notice what makes these work:
-- No emotion-telling ("she felt scared") — only action and sensation
-- Every sentence is specific and unreplaceable
-- Rhythm varies (long then short)
-- The repeated phrase appears naturally and evolves
-- Silence (null pages) creates breathing room
+WHY IT WORKS: The humor escalates through deadpan repetition. "He did not mention the machine" is funnier than any exclamation because it subverts — we expect panic, we get denial. The comedy is structural (escalation + understatement), not decorative.
 
-CONTRAST EXAMPLES (what to avoid vs. what to write):
+─── PAIR 4: EMOTIONAL RESTRAINT — Trust the reader (Jeffers-level) ───
 
-BAD (flat, functional):
-Left: "Zara walked through the dark forest. She was scared but kept going."
-Right: "She held her lantern up to see better."
+MEDIOCRE:
+Left: "Since Grandma had gone away, everything felt empty and sad. The garden that Grandma loved so much was now overgrown and lonely, just like the hole in Maya's heart."
+Right: "She missed Grandma terribly. Sometimes she would cry and wish Grandma could come back and hold her one more time."
 
-GOOD (poetic, sensory, unexpected):
-Left: "The forest held its breath. Zara's lantern made one small circle of warmth."
-Right: "She stepped into it anyway."
+EXCELLENT:
+Left: "The garden had grown strange without her. Tomatoes fat as fists, nobody picking them."
+Right: "Maya pulled one off. Still warm from the sun. She wiped it on her shirt the way Grammy showed her."
 
----
+WHY IT WORKS: Loss is never named. "Nobody picking them" carries the absence. "The way Grammy showed her" connects past and present through a gesture, not a speech. The warm tomato is sensory and specific — it makes the reader FEEL instead of being told to feel.
 
-BAD (flat, transition):
-Left: "They ran up the hill quickly."
-Right: "At the top they could see everything."
+─── PAIR 5: DISTINCT NARRATIVE VOICE (Willems-level) ───
 
-GOOD (poetic, earned):
-Left: "Her legs burned. The hill didn't care."
-Right: "Then. The whole sky."
+MEDIOCRE:
+Left: "It was a bright and beautiful Saturday morning when everything changed for our young hero. Little did she know that an extraordinary adventure was about to begin!"
+Right: "She put on her favourite coat and stepped outside, completely unaware of the amazing things that awaited her."
 
-Notice: the GOOD versions show emotion through action, use surprising specificity, trust silence, and make every word carry weight.`;
+EXCELLENT:
+Left: "Here is the thing about Saturday: it starts slow. Too slow. Unbearably, spectacularly slow."
+Right: "And then it doesn't."
+
+WHY IT WORKS: The narrator has a VOICE — conspiratorial, building anticipation. The rule of three ("slow, too slow, unbearably spectacularly slow") escalates, then "And then it doesn't" detonates in four words. The reader hears a PERSON, not a template. The foreshadowing is earned through rhythm, not announced with "little did she know."
+
+-------------------------------------
+WHAT THESE TEACH:
+- Every sentence must earn its place. If you can cut it, cut it.
+- Emotion lives in OBJECTS and GESTURES, never in feeling-words.
+- Humor comes from structure (escalation + subversion), not from announcing that something is funny.
+- Rhythm is a tool: vary sentence length, then break the pattern at the turn.
+- The narrator has a personality — wry, breathless, conspiratorial, or gentle. Pick one and commit.
+- Silence (null pages) creates breathing room and lets images do their work.
+- Rhyme should serve the story, not decorate it. Break the form when the story demands it.`;
 }
 
 // ── Dialect helper ──────────────────────────────────────────────────────────
