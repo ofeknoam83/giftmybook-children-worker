@@ -24,8 +24,8 @@ const AGE_TIERS = {
     pacing: 'every spread is already calm. No phasing required.',
     arc: 'no arc. Distribute sensory observations evenly across spreads.',
     phaseTwo: null,
-    rhymeLevel: 'mandatory couplets — write EVERY spread as two rhyming lines. Format: Line 1 (sets up the image), Line 2 (rhymes and closes). Example: "The stars come out one by one. / Goodnight moon, goodnight sun." Use exact end-rhymes or strong near-rhymes. If you cannot find a natural rhyme, rewrite Line 1 until Line 2 rhymes naturally. No prose. Couplets only.',
-    soundWordsRule: 'Include 3-4 sound words across the story. At this age, sound words ARE the story. Splash, pop, shhhh, boom. They can stand alone as full spreads.',
+    rhymeLevel: 'mandatory couplets — write EVERY spread as two rhyming lines using AABB rhyme scheme. Format: Line 1 (sets up the image), Line 2 (rhymes and closes). Example: "The stars come out one by one. / Goodnight moon, goodnight sun." Use exact end-rhymes or strong near-rhymes. If you cannot find a natural rhyme, rewrite Line 1 until Line 2 rhymes naturally. No prose. Couplets only. The story should have a musical, rhythmic quality — think Dr. Seuss or Julia Donaldson. Prioritize natural-sounding rhymes over forced ones.',
+    soundWordsRule: 'LIMIT onomatopoeia to at most 1-2 per spread. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Include at most 2 sound words across the entire story. Describe actions through vivid imagery and movement rather than sound effects. Avoid excessive references to sounds — show, don\'t tell through noise.',
   },
   2: {
     tier: 2,
@@ -43,8 +43,8 @@ const AGE_TIERS = {
     pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure/birthday/science ends warm and triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling. NEVER deflate the energy on non-bedtime themes.',
     arc: 'full story arc applies.',
     phaseTwo: 10,
-    rhymeLevel: 'moderate — roughly half the spreads should contain a rhyme or near-rhyme. Mix rhyming couplets with prose. The repeated phrase should rhyme or have a strong rhythmic beat. At age 3, children still love the musicality of rhyme.',
-    soundWordsRule: 'Include 2-3 sound words across the story. Place them at natural moments (a door creaking, boots crunching). Do NOT use more than 3 total. NEVER include a sound word on more than 2 out of 13 spreads.',
+    rhymeLevel: 'strong — use rhyming couplets or AABB rhyme schemes throughout. Every spread should contain at least one rhyming pair. Mix rhyming couplets with short prose bridges where needed. The repeated phrase should rhyme or have a strong rhythmic beat. At age 3-5, children love the musicality of rhyme — think Dr. Seuss or Julia Donaldson. The story should have a musical, rhythmic quality that makes it irresistible to read aloud. Prioritize natural-sounding rhymes over forced ones — a near-rhyme that flows is better than a perfect rhyme that stumbles.',
+    soundWordsRule: 'LIMIT onomatopoeia to at most 1-2 across the entire story. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Place them only at genuinely pivotal moments. Describe actions through vivid imagery and movement rather than sound effects. Avoid excessive references to sounds — show, don\'t tell through noise. NEVER include a sound word on more than 1 out of 13 spreads.',
   },
   3: {
     tier: 3,
@@ -61,8 +61,8 @@ const AGE_TIERS = {
     pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure/birthday/science ends warm and triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling. NEVER deflate the energy on non-bedtime themes.',
     arc: 'arc may include a false resolution before true resolution.',
     phaseTwo: 10,
-    rhymeLevel: 'light — occasional internal rhymes or near-rhymes for flavor. Story prose dominates. A couplet here and there, not a pattern.',
-    soundWordsRule: 'Sound words: maximum 1 across the entire story, and only if it serves a specific scene purpose (a door creaking at a tense moment). Never decorative. If in doubt, use zero.',
+    rhymeLevel: 'moderate — use rhyming couplets or AABB rhyme schemes in roughly half the spreads. Every spread should aim for at least one rhyming pair or strong near-rhyme. Story prose dominates but is enriched with rhythmic, musical passages. Think Julia Donaldson\'s early readers — prose with a lyrical backbone. Prioritize natural-sounding rhymes over forced ones.',
+    soundWordsRule: 'LIMIT onomatopoeia: maximum 1 across the entire story, and only if it serves a specific scene purpose. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than sound effects. Avoid excessive references to sounds — show, don\'t tell through noise. If in doubt, use zero.',
   },
   4: {
     tier: 4,
@@ -79,7 +79,7 @@ const AGE_TIERS = {
     pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure ends triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling.',
     arc: 'arc may include a secondary character with their own want.',
     phaseTwo: 10,
-    rhymeLevel: 'subtle — only where it emerges naturally from the prose. Slant rhymes and internal echoes preferred over end-rhymes.',
+    rhymeLevel: 'light rhythmic prose — weave in occasional rhyming couplets, internal rhymes, and near-rhymes for musicality. Slant rhymes and internal echoes add rhythm without forcing a pattern. Include at least 2-3 rhyming passages across the story. The prose should have a rhythmic quality that rewards reading aloud. Prioritize natural-sounding rhymes over forced ones.',
     soundWordsRule: 'ZERO onomatopoeia. No sound words whatsoever — no bang, crash, whoosh, splash, creak. At this age they feel juvenile and break the literary voice. Describe sounds with prose: "the door groaned open" not "CREEEAK." This rule has no exceptions.',
   },
 };
@@ -589,10 +589,13 @@ STYLE RULES:
 - Avoid: words over 3 syllables unless it is a character name or a meaningful invented sound.
 - Every spread must have at least ONE short sentence of 5 words or fewer for rhythm contrast.
 
-2. RHYME (EARNED, NOT FORCED)
+2. RHYME (MUSICAL AND RHYTHMIC — think Dr. Seuss or Julia Donaldson)
 - {rhymeLevel}
+- Use rhyming couplets or AABB rhyme schemes where the tier calls for it.
+- Every spread should aim for at least one rhyming pair (exact or near-rhyme).
+- The story should have a musical, rhythmic quality that makes it a joy to read aloud.
 - A near-rhyme or internal rhyme is always better than a strained end-rhyme.
-- If a rhyme would bend the meaning or feel like a coincidence, drop it entirely.
+- Prioritize natural-sounding rhymes over forced ones — if a rhyme bends the meaning, drop it.
 - Rhymes that feel inevitable are the goal — the reader should feel the rhyme before they hear it.
 
 3. LANGUAGE LEVEL

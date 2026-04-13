@@ -16,6 +16,7 @@ WRITING QUALITY:
 - Use irony, subtext, humor appropriate for age 9-12
 - Chapter endings must make the reader want to turn the page
 - At least one line in the story must be memorable enough that a child would repeat it
+- RHYTHMIC PROSE: Include occasional rhyming passages, internal rhymes, and near-rhymes for musicality. At least 2-3 rhyming moments per chapter — weave them into descriptions, dialogue, or memorable lines. The prose should have a rhythmic quality that rewards reading aloud. Prioritize natural-sounding rhymes over forced ones.
 
 STRUCTURE:
 - Chapter 1: Normal world + want + flaw established + the call to adventure
@@ -80,6 +81,7 @@ PROSE QUALITY STANDARDS:
 - Every paragraph should either reveal character, advance plot, or create atmosphere — ideally all three
 - Avoid: adverb-heavy writing, filter words ("she saw that...", "he felt that..."), passive voice
 - Use: specific sensory detail, concrete nouns, active verbs
+- RHYTHMIC PROSE: Weave in occasional rhyming passages, internal rhymes, slant rhymes, and near-rhymes throughout. The prose should have a rhythmic, musical quality. Prioritize natural-sounding rhymes over forced ones.
 
 LENGTH: 600-900 words of prose. No headers, no chapter number — just the prose.`;
 }

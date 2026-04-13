@@ -221,6 +221,7 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
   }
   parts.push(`LAYOUT CONTEXT: This panel belongs to the "${layoutHint}" page template. Compose for clear reading order and leave intentional open space for lettering.`);
   parts.push(`TEXT SAFE SPACE: preserve clean negative space in the ${textFreeZone} zone. Do not place faces, mouths, or the main action there.`);
+  parts.push('CRITICAL TEXT WIDTH RULE: When text is overlaid later, it MUST occupy no more than 35% of the page width. This is a hard limit. Ensure the reserved text zone is narrow (no wider than 35% of the image width).');
 
   if (balloons.length) {
     parts.push(`LETTERING PLAN: ${balloons.length} speech balloons will be overlaid later. Keep the ${textFreeZone} zone uncluttered for them.`);
@@ -297,7 +298,7 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   parts.push('• THOUGHT BUBBLES: Cloud/puffy shape with small circles trailing to the thinker. Thought text inside.');
   parts.push('• SHOUT BUBBLES: Jagged/starburst spiky shape. Bold uppercase text inside.');
   parts.push('• CAPTION BOXES: Rectangular boxes. Narration = dark navy background with white text. Location = cream background with dark text.');
-  parts.push('• SOUND EFFECTS: Large bold stylized comic lettering integrated into the action (e.g. "BOOM", "CRASH", "WHOOSH").');
+  parts.push('• SOUND EFFECTS: LIMIT to at most 1-2 per page. Use large bold stylized comic lettering only for genuinely impactful moments. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than excessive sound effects.');
   parts.push('• Text must be LARGE ENOUGH to read when printed at 6×9 inches. Minimum apparent font size: 8pt equivalent.');
   parts.push('• Reading order: top-to-bottom, left-to-right within each panel.');
   parts.push('• Every speech bubble, caption, and SFX mentioned in the page composition MUST appear as rendered text.');
@@ -346,7 +347,7 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   // ── TEXT CONSISTENCY RULES ──
   parts.push('=== TEXT CONSISTENCY ===');
   parts.push('Font style and size must be consistent across all pages.');
-  parts.push('Text should not exceed 35% of the page width.');
+  parts.push('CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Verify text width before finalizing.');
   parts.push('Use only embedded text — no overlays.');
   parts.push('');
 
@@ -824,7 +825,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- FONT CONSISTENCY (CRITICAL): Use the EXACT same font style, font size, and text color across ALL illustrations in this book. Use a clean, rounded, child-friendly sans-serif font. The font size should be large enough for children to read — approximately 22pt equivalent — match the exact size used on the first spread. Text color should be dark (black or very dark gray) for maximum readability.');
     parts.push('- The text rendering style (font, size, color, line spacing) must be IDENTICAL on every page — as if the same typesetter set every page.');
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): This image will be cropped ~7% from every edge when printed. To survive this crop, ALL text must be at least 25% away from the top edge, 25% away from the bottom edge, and 12% away from the left and right edges. Text within 25% of any edge WILL BE CROPPED OFF in the final book. If in doubt, move the text further toward the center of the image.');
-    parts.push('- TEXT LAYOUT — WIDTH LIMIT (CRITICAL): Story text must occupy NO MORE than 35% of the page width. Place text in a narrow sidebar-style column on the left or right side of the illustration, leaving at least 65% of the width for the artwork. If the text is long, wrap it into more lines to keep the column narrow. NEVER stretch text across the full width of the image.');
+    parts.push('- CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Place text in a narrow sidebar-style column on the left or right side of the illustration, leaving at least 65% of the width for the artwork. If the text is long, wrap it into more lines to keep the column narrow. NEVER stretch text across the full width of the image. Verify text width before finalizing.');
     if (isSpread) {
       parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 30% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
     }
@@ -852,6 +853,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Bubblegum Sans'} — the same font used on every other page of this book. \u2713`);
   parts.push(`TEXT SIZE CONSISTENCY: the text size matches the first spread exactly — same point size on every page. \u2713`);
   parts.push(`12. TEXT MARGINS: text is at least 25% from top/bottom edges and 12% from left/right edges — it will survive print cropping. \u2713`);
+  parts.push(`12b. TEXT WIDTH: text block occupies NO MORE than 35% of the page width — this is a hard limit, pages exceeding 35% text width will be REJECTED. \u2713`);
   if (isSpread) {
     parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 30% of the image width. \u2713`);
     parts.push(`14. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
@@ -1275,6 +1277,7 @@ Does the child in Image 2 match Image 1 on ALL of these:
 3. FACE: Similar structure, nose, eyes? (yes/no + detail if no)
 4. OUTFIT: Same clothing garments, colors, and patterns? List EACH garment you see and compare. (yes/no + detail if no)
 5. OUTFIT COLOR: Are the exact colors of each garment matching? (yes/no + detail if no)
+6. TEXT WIDTH: If text is visible in Image 2, does it occupy no more than 35% of the page width? Text wider than 35% of the page is a rejection. (yes/no/no_text + detail if no)
 
 ${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
 ${characterOutfit ? `Expected outfit: ${characterOutfit}` : ''}
