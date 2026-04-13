@@ -2928,7 +2928,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  const { bookId, title, spreads, pages, coverData, bookFormat, childName, bookFrom, dedication, heartfeltNote, tagline, upsellCovers, apiKeys } = req.body;
+  const { bookId, title, spreads, pages, coverData, bookFormat, childName, bookFrom, dedication, heartfeltNote, tagline, upsellCovers, apiKeys, coverImageUrl, childDetails } = req.body;
   const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
   // Build dedication from heartfeltNote + bookFrom (same logic as main generation flow)
   const resolvedDedication = dedication || (heartfeltNote ? (bookFrom ? `From ${bookFrom}:\n${heartfeltNote}` : heartfeltNote) : (bookFrom ? `From ${bookFrom}` : `For ${childName || 'the child'}`));
@@ -2963,6 +2963,31 @@ app.post('/finalize-book', authenticate, async (req, res) => {
         }
       }));
       resolvedUpsellCovers = resolvedUpsellCovers.filter(u => u.coverBuffer);
+    }
+
+    // Generate upsell covers on-the-fly if none provided but cover image available
+    if (resolvedUpsellCovers.length === 0 && coverImageUrl) {
+      try {
+        console.log(`[finalize-book] No upsell covers provided — generating from cover image for ${bookId}`);
+        const coverBuffer = await downloadBuffer(coverImageUrl);
+        const details = childDetails || { name: childName, age: 5, gender: 'neutral' };
+        const generated = await generateUpsellCovers(bookId, details, coverBuffer, title || 'My Story', {});
+        if (generated && generated.length > 0) {
+          const entries = await Promise.all(generated.map(async uc => {
+            try {
+              const buf = await downloadBuffer(uc.gcsPath);
+              return { ...uc, coverBuffer: buf };
+            } catch (e) {
+              console.warn(`[finalize-book] Could not download generated upsell cover ${uc.index}: ${e.message}`);
+              return { ...uc, coverBuffer: null };
+            }
+          }));
+          resolvedUpsellCovers = entries.filter(u => u.coverBuffer);
+          console.log(`[finalize-book] Generated ${resolvedUpsellCovers.length} upsell covers for ${bookId}`);
+        }
+      } catch (upsellGenErr) {
+        console.warn(`[finalize-book] Upsell cover generation failed (non-blocking): ${upsellGenErr.message}`);
+      }
     }
 
     let pdfBuffer;
