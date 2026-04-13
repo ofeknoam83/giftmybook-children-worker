@@ -10,7 +10,7 @@
 
 const { buildStoryPlannerSystem, STORY_PLANNER_USER: pbUserPrompt } = require('../prompts/pictureBook');
 const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, STORY_STRUCTURER_USER } = require('../prompts/pictureBook');
-const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt } = require('../prompts/earlyReader');
+const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt, EARLY_READER_CRITIC_SYSTEM } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
 
@@ -2265,6 +2265,123 @@ ${storyForCritic}`;
   }
 
   return chapterPlan;
+
+ * Lightweight critic + polish pass for early reader stories.
+ * Evaluates show-don't-tell, anti-kitschy, page-turn tension, rhyming,
+ * economy, voice consistency, and surprise. If total score is below
+ * threshold, uses the rewritten version; otherwise keeps original.
+ *
+ * @param {object} storyPlan - { title, entries: [...] }
+ * @param {object} [opts] - { apiKeys, costTracker }
+ * @returns {Promise<object>} Polished story plan with same structure
+ */
+async function polishEarlyReader(storyPlan, opts = {}) {
+  const { costTracker, apiKeys } = opts;
+  const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
+  const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+  const textMap = spreads.map(s => ({
+    spread: s.spread,
+    left: s.left?.text || null,
+    right: s.right?.text || null,
+  }));
+
+  console.log(`[storyPlanner] Starting early reader critic pass (${spreads.length} spreads)...`);
+  const start = Date.now();
+
+  const response = await callLLM(EARLY_READER_CRITIC_SYSTEM, JSON.stringify(textMap), {
+    openaiApiKey: openaiKey,
+    maxTokens: 10000,
+    temperature: 0.4,
+    jsonMode: true,
+    costTracker,
+  });
+
+  console.log(`[storyPlanner] Early reader critic completed in ${Date.now() - start}ms (${response.model}, ${response.outputTokens} tokens)`);
+
+  let result;
+  try {
+    let content = response.text.replace(/['']/g, "'").replace(/[""]/g, '"');
+    result = JSON.parse(content);
+  } catch (e) {
+    const stripped = response.text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    try { result = JSON.parse(stripped); } catch (_) {
+      console.warn('[storyPlanner] Early reader critic JSON parse failed — using original');
+      return storyPlan;
+    }
+  }
+
+  // Log scores
+  if (result.scores) {
+    const scores = result.scores;
+    const values = Object.values(scores).filter(v => typeof v === 'number');
+    const total = values.reduce((a, b) => a + b, 0);
+    console.log(`[storyPlanner] Early reader critic scores: ${JSON.stringify(scores)} (total: ${total}/70)`);
+  }
+
+  // Log weak pages
+  if (result.weakPages && result.weakPages.length > 0) {
+    console.log(`[storyPlanner] Early reader critic weakest pages:`);
+    for (const wp of result.weakPages.slice(0, 3)) {
+      console.log(`  - Spread ${wp.spread}: ${wp.reason}`);
+    }
+  }
+
+  // Decide whether to use rewritten version based on score threshold
+  const SCORE_THRESHOLD = 42; // 42/70 = average of 6/10 per criterion
+  const scores = result.scores || {};
+  const scoreValues = Object.values(scores).filter(v => typeof v === 'number');
+  const totalScore = scoreValues.reduce((a, b) => a + b, 0);
+
+  const rewrittenArray = result.rewrittenStory || [];
+  if (!Array.isArray(rewrittenArray) || rewrittenArray.length === 0) {
+    console.warn('[storyPlanner] Early reader critic returned no rewrittenStory — using original');
+    storyPlan._earlyReaderCriticScores = scores;
+    return storyPlan;
+  }
+
+  if (rewrittenArray.length !== spreads.length) {
+    console.warn(`[storyPlanner] Early reader critic returned ${rewrittenArray.length} spreads, expected ${spreads.length} — using original`);
+    storyPlan._earlyReaderCriticScores = scores;
+    return storyPlan;
+  }
+
+  if (totalScore >= SCORE_THRESHOLD) {
+    console.log(`[storyPlanner] Early reader critic: total ${totalScore}/70 >= threshold ${SCORE_THRESHOLD} — keeping original`);
+    storyPlan._earlyReaderCriticScores = scores;
+    return storyPlan;
+  }
+
+  console.log(`[storyPlanner] Early reader critic: total ${totalScore}/70 < threshold ${SCORE_THRESHOLD} — applying rewrites`);
+
+  // Apply rewritten text back into story plan
+  let changedCount = 0;
+  const updatedEntries = storyPlan.entries.map(entry => {
+    if (entry.type !== 'spread') return entry;
+    const match = rewrittenArray.find(p => p.spread === entry.spread);
+    if (!match) return entry;
+
+    const updated = { ...entry };
+    if (match.left !== undefined && match.left !== null && entry.left) {
+      if (match.left !== entry.left.text) changedCount++;
+      updated.left = { ...entry.left, text: match.left };
+    }
+    return updated;
+  });
+
+  console.log(`[storyPlanner] Early reader critic: ${changedCount} pages improved out of ${spreads.length}`);
+
+  const polished = {
+    ...storyPlan,
+    entries: updatedEntries,
+    _earlyReaderCriticScores: scores,
+    _earlyReaderWeakPages: (result.weakPages || []).length,
+  };
+
+  // Sanitize em-dashes/en-dashes that the critic may have reintroduced
+  sanitizeAllStoryText(polished);
+
+  return polished;
 }
 
 /**
@@ -3053,4 +3170,4 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   return plan;
 }
 
-module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, polishChapterBook, planGraphicNovel };
+module.exports = { planStory, polishStory, brainstormStorySeed, validateStoryText, combinedCritic, polishEarlyReader, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook, polishChapterBook, planGraphicNovel };
