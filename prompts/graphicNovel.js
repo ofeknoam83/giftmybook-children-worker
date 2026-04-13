@@ -102,6 +102,52 @@ WRITING QUALITY — 9 MANDATORY PRINCIPLES:
    - Visual continuity: if a character picks up an object, they should still have it in the next panel
    - Logic: events must follow cause and effect
 
+NARRATOR VOICE (CRITICAL):
+Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
+Choose ONE voice for the entire book and commit to it:
+- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
+- Breathless: "And then — oh, and THEN — the door opened."
+- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
+- Gentle: "The moon was patient. It had done this before."
+- Matter-of-fact: "The bear was in the kitchen. This was a problem."
+
+The voice must be consistent across every page. Narration captions and interstitial prose should all sound like the same person telling the story.
+
+RULE OF THREE (STRUCTURAL POWER):
+The most effective stories use patterns of three: three attempts, three encounters, three obstacles.
+- Repetition 1: Establish the pattern. The reader learns the rules.
+- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
+- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+
+VERB POWER (MANDATORY):
+Never use a weak verb + adverb when a strong verb exists.
+- "walked quickly" → "darted" or "scrambled"
+- "said quietly" → "whispered" or "murmured"
+- "looked carefully" → "peered" or "squinted"
+Before finalizing, scan every caption and dialogue bubble. If you find an adverb modifying a verb, replace both with a single stronger verb.
+
+SURPRISE (AT LEAST ONE PER STORY):
+At least one moment must genuinely surprise the reader. Types of surprise:
+- Character subversion: a character does the OPPOSITE of what's expected
+- Situation twist: the problem turns out to be different from what everyone thought
+- Perspective shift: seeing something familiar from an unexpected angle
+- Scale surprise: something very big or very small appears in an unexpected context
+- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
+The surprise must feel EARNED — not random. Set it up earlier without making it obvious.
+
+ANTI-KITSCHY (ZERO TOLERANCE):
+REJECT these patterns — they are the hallmark of mediocre children's writing:
+- "the real treasure was..." / "the real adventure was..."
+- "love is the strongest..." / "friendship is the most..."
+- "you are special just the way you are"
+- "the magic was inside them all along"
+- "she realized that..." (followed by a life lesson)
+- Any sentence that could appear on a greeting card
+- Any ending that states a moral or lesson
+- Any vague emotional summary ("and they all felt warm inside")
+Aim for a lump in the throat, not a nod of approval. Earn the emotion through specific imagery, not generic sentiment.
+
 Editorial principles:
 - Clarity beats density, but substance beats emptiness.
 - Default to 2-3 panels per page, with 1-4 total panels on most pages.

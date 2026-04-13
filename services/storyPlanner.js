@@ -1687,6 +1687,17 @@ Score each category from 1-10:
 - Score 5: A line exists but is generic ("everything will be okay")
 - Score 8-10: The line is specific to THIS story, poetic, and feels like it belongs to this child
 
+9. Verb Power
+- Are verbs strong and specific? ("darted" not "walked quickly", "whispered" not "said quietly")
+- Any weak verb + adverb combo is a penalty
+- Score 8+: Every verb carries action AND emotion in a single word
+
+10. Emotional Restraint
+- Does the story trust the reader to feel the emotion?
+- Are emotional moments understated rather than amplified?
+- Penalty for: "a tear rolled down her cheek", "she had never been so happy", explaining emotions after showing them
+- The most powerful moments use the FEWEST words
+
 SCORING DISCIPLINE (CRITICAL):
 Do NOT give any category a score above 7 if ANY of these are present in the story:
 - A phrase with "felt", "was scared", "was happy", "seemed excited" (emotion telling)
@@ -1707,6 +1718,8 @@ List ALL lines that violate:
 - Weak imagery
 - Overused similes ("felt like", "like a...")
 - Flat or unnecessary sentences
+- Weak verb + adverb combos (e.g. "walked slowly", "said quietly", "ran fast") — replace with a single strong verb ("crept", "whispered", "bolted")
+- Emotional over-explanation — if the emotion is already clear from context, the extra sentence weakens it. Trust the reader.
 - Duplicate consecutive words (e.g. "round round", "the the", "and and") — any word repeated back-to-back is an error
 - Single gifter appearing while co-gifter is absent: if the book is from multiple people (e.g., "Mom and Dad") and one is mentioned but the other is not
 
@@ -1757,7 +1770,9 @@ Return a JSON object with exactly this structure:
     "child_agency": <1-10>,
     "transformation": <1-10>,
     "ending_quality": <1-10>,
-    "memorable_line": <1-10>
+    "memorable_line": <1-10>,
+    "verb_power": <1-10>,
+    "emotional_restraint": <1-10>
   },
   "issues": [
     { "line": "<exact quote>", "reason": "<violation type>" }
@@ -2041,6 +2056,19 @@ Flag and fix any lines that feel like greeting cards, motivational posters, or g
 - Any vague emotional summary: "and the child felt warm and happy and loved"
 - Any line that could appear in ANY children's book — replace with something only THIS story could say
 Replace kitschy lines with specific, concrete images that earn the same emotion: "She pressed her nose against the window. The stars were still there." beats "She felt grateful for the beautiful night."
+
+─────────────────────────────────────────
+7. VERB POWER & EMOTIONAL RESTRAINT
+─────────────────────────────────────────
+VERB POWER: Scan every sentence for weak verb + adverb combos. Replace with a single strong verb:
+- "walked slowly" → "crept" / "said loudly" → "bellowed" / "ran fast" → "bolted"
+
+EMOTIONAL RESTRAINT: Trust the reader to feel the emotion. Do NOT amplify or explain.
+- After a sad moment, do NOT add "and a tear rolled down her cheek." The situation is enough.
+- After a triumph, do NOT add "she had never been so happy." Show the action.
+- The most powerful emotional moments use the FEWEST words.
+- When in doubt, CUT the emotional sentence. If the emotion is clear from context, the extra sentence weakens it.
+UNDERSTATEMENT > OVERSTATEMENT. Always.
 
 ─────────────────────────────────────────
 RULES FOR ALL REWRITES
