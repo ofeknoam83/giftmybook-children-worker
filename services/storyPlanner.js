@@ -144,7 +144,7 @@ function ageVocabularyRules(age) {
 const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents. Every line must sound good in someone's mouth:
 - Vary sentence length: short punchy sentences followed by flowing ones. A three-word sentence after a long one hits like a drum. "The forest opened up before her, canopy dripping with gold and shadow and the last light of afternoon. She stepped through."
 - Write for the EAR: "She stepped inside" has energy (short vowel, hard consonant). "She walked into the room" is flat (soft consonants, no surprise). Choose words that feel good to say. Prefer verbs with texture: crept, tumbled, slid, pressed, clung, drifted.
-- NEAR-RHYME over forced rhyme: "The wind was gone. The leaves held still." has music without rhyming. Internal echoes (gone/long, still/hill) create a feeling of pattern without the cage of end-rhymes. Use alliteration where natural — never stack it.
+- RHYME FOR MUSICALITY: Use rhyming couplets and AABB rhyme schemes throughout — every spread should aim for at least one rhyming pair. Think Dr. Seuss or Julia Donaldson. When exact rhymes would feel forced, use near-rhymes: "The wind was gone. The leaves held still." Internal echoes (gone/long, still/hill) create a feeling of pattern. Prioritize natural-sounding rhymes over forced ones. Use alliteration where natural — never stack it.
 - End each spread with a sentence that feels COMPLETE and SATISFYING to say out loud — a sentence you'd want to repeat. Not a summary. An image.
 - ONE-WORD or TWO-WORD sentences are powerful when earned: "Silence." / "Not yet." / "Almost." Use sparingly — max 2 per story.
 - The LAST LINE of spread 13 must be the most beautiful sentence in the entire book. It should feel inevitable — like the only possible ending. A parent should want to read it twice.
@@ -1656,9 +1656,12 @@ Score each category from 1-10:
 2. Language Quality & Musicality
 - Any generic phrases?
 - Any replaceable sentences?
-- Are there natural rhymes, near-rhymes, or internal rhymes woven in?
-  (Not forced AABB — subtle, musical touches that make lines satisfying to read aloud.)
-  Where a natural rhyme opportunity exists, use it. Where it would feel forced, skip it.
+- Are there rhyming couplets, near-rhymes, or internal rhymes woven throughout?
+  The story should have a musical, rhythmic quality — think Dr. Seuss or Julia Donaldson.
+  Use AABB rhyme schemes or rhyming couplets where they flow naturally.
+  Every spread should aim for at least one rhyming pair.
+  Where a natural rhyme opportunity exists, use it. Where it would feel forced, use a near-rhyme instead.
+  Prioritize natural-sounding rhymes over forced ones.
 
 3. Imagery
 - Are visuals specific and vivid?
@@ -1936,8 +1939,11 @@ Rules for rhythm fixes:
 - Alternate long and short sentences for natural breathing cadence.
 - Keep fixes shorter or equal length to the original
 - Every spread must have at least one short sentence (5 words or fewer) for contrast
-- Near-rhymes and internal rhymes are welcome but never forced
+- Use rhyming couplets or AABB rhyme schemes throughout — every spread should aim for at least one rhyming pair
+- Near-rhymes and internal rhymes are welcome when exact rhymes would feel forced
+- The story should have a musical, rhythmic quality — think Dr. Seuss or Julia Donaldson
 - Every word must feel good in the MOUTH. Choose mouth-feel words over eye-pleasing words.
+- Prioritize natural-sounding rhymes over forced ones
 - Do NOT upgrade simple vocabulary to "sharper" or more literary alternatives`
     : `Read every line aloud in your head. Fix any line that:
 - Stumbles, feels clunky, or is hard to say smoothly
@@ -1950,8 +1956,10 @@ Rules for rhythm fixes:
 - Keep fixes shorter or equal length to the original
 - Vary sentence rhythm intentionally: a long image sentence followed by a 3-word punch. Prose should breathe.
 - Every spread must have at least one short sentence (5 words or fewer) for contrast
+- Use rhyming couplets and AABB rhyme schemes where they flow naturally — aim for at least one rhyming pair per spread
 - Near-rhymes and internal rhymes are always better than strained end-rhymes
-- If a rhyme feels forced, drop it — the story always wins over the sound`;
+- The story should have a musical, rhythmic quality — think Dr. Seuss or Julia Donaldson
+- Prioritize natural-sounding rhymes over forced ones — if a rhyme feels forced, use a near-rhyme instead`;
 
   // Age-conditional memorable line exemplar
   const memorableLineExemplar = isYoung
@@ -1976,7 +1984,8 @@ Not token jokes — real humor that a child would laugh at and a parent would sm
 - Does the child say or do something unexpected and funny?
 - Is there a running gag, a recurring absurd detail, or a creature/object with personality?
 - Is there at least one moment of comic timing (setup then surprise)?
-If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.`;
+If humor is weak or missing, look for natural places to add it: a creature doing something absurd, the child's favorite object misbehaving, a deadpan observation. Humor makes tender moments land harder — it's not separate from emotion, it's fuel for it.
+ONOMATOPOEIA LIMIT: LIMIT onomatopoeia to at most 1-2 per spread across the entire story. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than sound effects. Avoid excessive references to sounds — show, don't tell through noise.`;
 
   if (tier >= 4) {
     humorSection += '\nIMPORTANT: Do NOT add onomatopoeia or sound words. At this age (9-12) they feel juvenile and break the literary voice. Describe sounds with prose instead.';

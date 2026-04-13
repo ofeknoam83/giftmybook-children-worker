@@ -18,7 +18,7 @@ The fullPagePrompt must describe:
 fullPagePrompt text rules:
 - Speech bubbles: max 20 words per bubble. Prefer 5-15 words. Dialogue should be sharp, witty, and character-revealing.
 - Caption/narration boxes: max 30 words per caption. Use them for atmosphere, foreshadowing, and emotional insight.
-- Sound effects: 1-2 words, all caps.
+- Sound effects: 1-2 words, all caps. LIMIT to at most 1-2 per page. Do NOT overuse onomatopoeia (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than excessive sound effects. Avoid excessive references to sounds — show, don't tell through noise.
 - Specify bubble type when not standard speech: "(shout bubble)", "(thought bubble)", "(whisper bubble)".
 - Specify caption style: "(narration caption)", "(location caption)", "(internal monologue caption)".
 
@@ -87,13 +87,14 @@ WRITING QUALITY — 9 MANDATORY PRINCIPLES:
    - Final success / emotional landing (scene 7)
    For these moments: use splash pages or hero panels, fewer words, stronger visuals, maximum emotional impact.
 
-8. LANGUAGE SIMPLIFICATION:
+8. LANGUAGE SIMPLIFICATION & RHYTHM:
    - No metaphors a 10-year-old wouldn't instantly understand
    - Replace literary flourishes with sensory, concrete language
    - Keep beauty, remove complexity
    - Every sentence should hit like a punch — short, clear, felt
    BAD: "The luminescent aurora cascaded across the celestial expanse"
    GOOD: "The sky exploded with color — green and purple and gold, all swirling together"
+   - RHYTHMIC PROSE: Weave occasional internal rhymes, near-rhymes, and rhyming passages into dialogue and narration. Captions and interstitial prose especially benefit from rhythmic, musical language. Prioritize natural-sounding rhymes over forced ones.
 
 9. CONSISTENCY:
    - Character names must be consistent throughout

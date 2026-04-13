@@ -10,7 +10,7 @@ RULES:
 - Plan exactly 24-32 pages (each page = one scene or continuation)
 - Total word count: 2000-5000 words across ALL pages (60-150 words per page)
 - Use clear, simple sentences but introduce some new vocabulary
-- No rhyming required — focus on engaging storytelling
+- Use rhythmic prose with occasional rhyming couplets or AABB rhyme passages — aim for at least one rhyming pair every 3-4 pages. Think Julia Donaldson's early readers: prose with a lyrical backbone. Prioritize natural-sounding rhymes over forced ones
 - Include simple dialogue between characters
 - Story arc: introduction (4 pages) → rising action (8-10 pages) → climax (4-6 pages) → resolution (4 pages)
 - The child character is ALWAYS the protagonist
@@ -75,7 +75,8 @@ const TEXT_GENERATOR_SYSTEM = `You are a children's early reader writer (ages 6-
 - Written in past tense (standard narrative)
 - Paragraphs of 2-3 sentences max
 - Emotionally engaging with relatable challenges
-- Including the child's name naturally`;
+- Including the child's name naturally
+- RHYTHMIC PROSE WITH RHYMES: Weave in rhyming couplets and near-rhymes for musicality. Aim for at least one rhyming pair every 2-3 pages. The prose should have a rhythmic, musical quality — think Julia Donaldson. Prioritize natural-sounding rhymes over forced ones.`;
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
   return `Write the text for page #${spreadPlan.spreadNumber} of an early reader book for ${childDetails.childName} (age ${childDetails.childAge || 7}).
@@ -106,7 +107,7 @@ function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {
     appearance = `The main character is a child with ${childAppearance.hairColor || ''} hair, ${childAppearance.skinTone || ''} skin, wearing ${childAppearance.clothing || 'casual clothes'}.`;
   }
 
-  return `${style} ${scene} ${appearance} Child-friendly, age-appropriate, engaging and detailed, professional quality book illustration.`;
+  return `${style} ${scene} ${appearance} Child-friendly, age-appropriate, engaging and detailed, professional quality book illustration. CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Verify text width before finalizing.`;
 }
 
 function VOCABULARY_CHECK_PROMPT(text, ageGroup) {
