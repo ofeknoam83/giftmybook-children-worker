@@ -13,6 +13,7 @@ const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, S
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt, EARLY_READER_CRITIC_SYSTEM } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
+const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
@@ -1019,7 +1020,7 @@ function parseStoryText(text) {
  * Returns raw text output from the LLM.
  */
 async function generateStoryText(childDetails, theme, customDetails, opts = {}) {
-  const { costTracker, apiKeys, approvedTitle, v2Vars, additionalCoverCharacters, style_mode, techniques } = opts;
+  const { costTracker, apiKeys, approvedTitle, v2Vars, additionalCoverCharacters, style_mode, techniques, narrativePatterns } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const childAge = childDetails.age || childDetails.childAge || 5;
@@ -1050,6 +1051,12 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   systemPrompt += '\n\n' + ageVocabularyRules(childDetails.childAge || childDetails.age);
   // W6: Rhythmic prose
   systemPrompt += '\n\n' + RHYTHM_RULE;
+
+  // Narrative patterns (structural guides for the writer)
+  const writerPatternBlock = formatPatternsForWriter(narrativePatterns);
+  if (writerPatternBlock) {
+    systemPrompt += '\n\n' + writerPatternBlock;
+  }
 
   let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
 
@@ -1482,14 +1489,27 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   const { costTracker, approvedTitle, v2Vars } = opts;
   const isPictureBook = bookFormat === 'picture_book';
 
-  // Enrich custom details with pop culture annotations
+  // Enrich custom details + select narrative patterns in parallel
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
-  const enrichedCustomDetails = await enrichCustomDetails(
-    customDetails,
-    childDetails.name || childDetails.childName,
-    childDetails.age || childDetails.childAge,
-    interests
-  );
+  const childAge = childDetails.age || childDetails.childAge || 5;
+  const [enrichedCustomDetails, narrativePatterns] = await Promise.all([
+    enrichCustomDetails(
+      customDetails,
+      childDetails.name || childDetails.childName,
+      childAge,
+      interests
+    ),
+    selectNarrativePatterns({
+      story_type: bookFormat,
+      age: childAge,
+      goal: v2Vars?.emotional_core || theme,
+      setting: v2Vars?.setting || '',
+      tone: v2Vars?.style_mode || 'playful',
+    }, { costTracker, apiKeys: opts.apiKeys }).catch(err => {
+      console.warn(`[storyPlanner] Narrative pattern selection failed — continuing without: ${err.message}`);
+      return null;
+    }),
+  ]);
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
 
@@ -1499,6 +1519,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     // Carry style_mode and techniques from v2Vars
     if (v2Vars?.style_mode) plan._styleMode = v2Vars.style_mode;
     if (v2Vars?.techniques) plan._techniques = v2Vars.techniques;
+    if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
     return plan;
   }
 
@@ -1506,11 +1527,12 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
   const pipelineStart = Date.now();
 
   try {
-    // Phase 1: Generate story text freely (pass style_mode + techniques)
+    // Phase 1: Generate story text freely (pass style_mode + techniques + narrative patterns)
     const storyText = await generateStoryText(childDetails, theme, enrichedCustomDetails, {
       ...opts,
       style_mode: v2Vars?.style_mode,
       techniques: v2Vars?.techniques,
+      narrativePatterns,
     });
 
     // Try to parse the free-form text
@@ -1540,7 +1562,6 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
 
     // Validate the text quality programmatically
-    const childAge = childDetails.age || childDetails.childAge || 5;
     const { config } = getAgeTier(childAge);
     const validation = validateStoryText(plan, config.maxWordsPerSpread);
     if (validation.issues.length > 0) {
@@ -1551,9 +1572,10 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
     // Attach validation issues for downstream critic passes
     plan._validationIssues = validation.issues;
-    // Carry style_mode and techniques
+    // Carry style_mode, techniques, and narrative patterns
     if (v2Vars?.style_mode) plan._styleMode = v2Vars.style_mode;
     if (v2Vars?.techniques) plan._techniques = v2Vars.techniques;
+    if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
 
     const totalMs = Date.now() - pipelineStart;
     console.log(`[storyPlanner] Two-phase pipeline complete in ${totalMs}ms`);
@@ -1564,6 +1586,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     try {
       const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
       const plan = normalizePlan(parsed, childDetails, opts);
+      if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
       return plan;
@@ -1576,6 +1599,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
         apiKeys: null, // forces Gemini path
       });
       const plan = normalizePlan(parsed, childDetails, opts);
+      if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Gemini-only fallback complete in ${totalMs}ms`);
       return plan;
@@ -2660,6 +2684,7 @@ Rules for improved_spreads:
  */
 async function masterCritic(storyPlan, opts = {}) {
   const { costTracker, apiKeys, theme, childAge, format, style_mode, techniques } = opts;
+  const narrativePatterns = opts.narrativePatterns || storyPlan._narrativePatterns || null;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const spreads = storyPlan.entries.filter(e => e.type === 'spread');
@@ -2670,7 +2695,7 @@ async function masterCritic(storyPlan, opts = {}) {
   }));
 
   const { tier: ageTier } = getAgeTier(childAge || 5);
-  const systemPrompt = buildMasterCriticSystem({
+  let systemPrompt = buildMasterCriticSystem({
     tier: ageTier,
     childAge: childAge || 5,
     theme,
@@ -2678,6 +2703,12 @@ async function masterCritic(storyPlan, opts = {}) {
     style_mode: style_mode || 'playful',
     techniques: techniques || ['rule_of_three', 'humor'],
   });
+
+  // Inject narrative pattern awareness for the critic
+  const criticPatternBlock = formatPatternsForCritic(narrativePatterns);
+  if (criticPatternBlock) {
+    systemPrompt += '\n\n' + criticPatternBlock;
+  }
 
   const userPrompt = `Here is the story to evaluate and improve (${spreads.length} spreads):\n\n${JSON.stringify(textMap)}`;
 
@@ -3097,6 +3128,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
     costTracker,
     approvedTitle,
     bookContext,
+    narrativePatterns,
   } = opts;
   const {
     GRAPHIC_NOVEL_SCENE_PLANNER_SYSTEM,
@@ -3105,6 +3137,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
   const { normalizeGraphicNovelPlan } = require('./graphicNovelQa');
 
   const chunkBible = buildGraphicNovelStoryBibleChunk(storyBible, chunkSpec);
+  const chunkPatternBlock = formatPatternsForChunks(narrativePatterns);
   const chunkPrompt = GRAPHIC_NOVEL_SCENE_PLANNER_USER(
     childDetails,
     theme,
@@ -3112,7 +3145,7 @@ async function planGraphicNovelChunk(childDetails, theme, customDetails, seed, s
     seed,
     chunkBible,
     chunkSpec
-  );
+  ) + chunkPatternBlock;
   const chunkSceneLabel = (chunkSpec.scenes || []).map((scene) => scene.sceneNumber).join(', ');
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -3445,25 +3478,39 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   const { GRAPHIC_NOVEL_CRITIC_SYSTEM, GRAPHIC_NOVEL_CRITIC_USER } = require('../prompts/graphicNovelCritic');
   const { normalizeGraphicNovelPlan, summarizeGraphicNovelIssues } = require('./graphicNovelQa');
 
-  // Brainstorm seed + enrich custom details in parallel
+  // Brainstorm seed + enrich custom details + select narrative patterns in parallel
   let seed;
   let enrichedCustomDetails;
+  let narrativePatterns;
+  const gnChildAge = childDetails.childAge || childDetails.age || 8;
   try {
-    const [seedResult, enrichedResult] = await Promise.all([
+    const [seedResult, enrichedResult, patternsResult] = await Promise.all([
       brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters })
         .catch(e => {
           bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
           return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
         }),
-      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, childDetails.childAge || childDetails.age,
+      enrichCustomDetails(customDetails, childDetails.childName || childDetails.name, gnChildAge,
         (childDetails.childInterests || childDetails.interests || []).filter(Boolean)),
+      selectNarrativePatterns({
+        story_type: 'graphic_novel',
+        age: gnChildAge,
+        goal: theme,
+        setting: '',
+        tone: 'playful',
+      }, { costTracker, apiKeys }).catch(err => {
+        bookContext?.log('warn', 'Graphic novel narrative pattern selection failed', { error: err.message });
+        return null;
+      }),
     ]);
     seed = seedResult;
     enrichedCustomDetails = enrichedResult;
+    narrativePatterns = patternsResult;
   } catch (e) {
     bookContext?.log('warn', 'Graphic novel seed/enrich failed', { error: e.message });
     seed = { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };
     enrichedCustomDetails = customDetails || '';
+    narrativePatterns = null;
   }
 
   // Build parent story section if a parent picture book was provided
@@ -3495,7 +3542,9 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
     familyConstraint = `\n\nILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:\nStory text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design scenes so they center the child visually. Family presence should be implied (a warm light, a voice, a hand at the edge of frame) — never a full face or body.`;
   }
 
-  const storyBiblePrompt = GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction + familyConstraint;
+  // Inject narrative pattern awareness into story bible prompt
+  const storyBiblePatternBlock = formatPatternsForStoryBible(narrativePatterns);
+  const storyBiblePrompt = GRAPHIC_NOVEL_STORY_BIBLE_USER(childDetails, theme, enrichedCustomDetails, seed) + parentStorySection + titleInstruction + familyConstraint + storyBiblePatternBlock;
 
   let storyBible;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -3542,6 +3591,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
       costTracker,
       approvedTitle,
       bookContext,
+      narrativePatterns,
     }
   );
 
@@ -3550,6 +3600,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   // of dead time. The chunked planner already validates each chunk independently.
 
   plan.storyBible = storyBible;
+  if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
   plan.storyBlueprint = storyBible.sceneBlueprints || [];
   plan.title = approvedTitle || plan.title || storyBible.title;
   plan.isGraphicNovel = true;

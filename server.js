@@ -1476,6 +1476,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             format,
             style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
             techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
+            narrativePatterns: storyPlan._narrativePatterns || null,
           });
           const criticMs = Date.now() - criticStart;
           bookContext.log('info', 'Master critic complete', { ms: criticMs, scores: storyPlan._masterCriticScores, issueCount: storyPlan._masterCriticIssueCount });
@@ -1507,6 +1508,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                   format,
                   style_mode: v2Vars?.style_mode || retryPlan._styleMode || 'playful',
                   techniques: v2Vars?.techniques || retryPlan._techniques || ['rule_of_three', 'humor'],
+                  narrativePatterns: retryPlan._narrativePatterns || null,
                 });
                 const retryScores = retryCritic._masterCriticScores || {};
                 const retryValues = Object.values(retryScores).filter(v => typeof v === 'number');
@@ -1568,6 +1570,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 format,
                 style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
                 techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
+                narrativePatterns: storyPlan._narrativePatterns || null,
               });
               bookContext.log('info', 'Critic retry: masterCritic complete', { scores: retryCritic._masterCriticScores });
 

@@ -6,6 +6,7 @@ const RATES = {
   // Text models (per 1M tokens)
   'gpt-5.4': { input: 2.50, output: 15.00 },
   'gpt-5.4-mini': { input: 0.15, output: 0.60 },
+  'gpt-4.1-mini': { input: 0.40, output: 1.60 },
   'gemini-2.5-flash': { input: 0.30, output: 2.50 },
   'gemini-3-flash-preview': { input: 0.30, output: 2.50 },
   // Image models (per image)
