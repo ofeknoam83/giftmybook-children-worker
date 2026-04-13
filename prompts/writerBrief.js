@@ -1376,7 +1376,85 @@ WHAT THESE TEACH:
 - Humor lands through deadpan delivery and surprise, not exclamation marks.
 - The narrator has a personality. Every sentence sounds like the same person.
 - Silence (null pages) creates breathing room — use it.
-- A child should understand every single word.`;
+- A child should understand every single word.
+
+-------------------------------------
+FULL-STORY EXEMPLAR (TARGET QUALITY, complete 13-spread arc)
+-------------------------------------
+
+The pairs above teach individual principles. This complete story shows how they work TOGETHER across a full arc.
+
+Study how the repeated phrase evolves, where humor lands, where page-turn hooks pull the reader forward, and how the ending earns its emotion without stating it. Do NOT copy this story. Use it for structural and quality calibration only.
+
+Child "Mila", age 4, loves her stuffed fox "Runo", fear = the wind, setting = the garden, bedtime book from Mom.
+
+TITLE: Mila and the Wind's Pocket
+
+DEDICATION: For Mila, who holds on tight.
+
+SPREAD 1:
+Left: "The wind came looking for trouble. It rattled the gate, flipped the welcome mat, and blew one sock clean off the line."
+Right: null
+
+SPREAD 2:
+Left: null
+Right: "Mila grabbed Runo by the tail. Hold on tight, she whispered. Runo did not hold on tight. Runo was a stuffed fox."
+
+SPREAD 3:
+Left: "The garden path twisted past the big tree, past the wobbly fence, past the snails having a meeting."
+Right: "The snails did not look up."
+
+SPREAD 4:
+Left: "Mila's hat lifted. Not a lot. Just enough."
+Right: null
+
+SPREAD 5:
+Left: null
+Right: "She chased it past the roses, past the rake, past the frog who sat on the frog-sitting rock. Gone."
+
+SPREAD 6:
+Left: "A feather landed on her nose. Then the wind took that, too."
+Right: "Hold on tight, she told the feather. But the feather had other plans."
+
+SPREAD 7:
+Left: "And then."
+Right: "Runo lifted off her arm. One ear. Then the other. Then all of him, tumbling into the grey sky."
+
+SPREAD 8:
+Left: "Mila stood very still. The garden was quiet now. Even the snails looked up."
+Right: null
+
+SPREAD 9:
+Left: null
+Right: "She climbed the wobbly fence. She crawled under the big tree. She followed the lost things. One sock. One hat. One feather."
+
+SPREAD 10:
+Left: "Behind the garden wall, the wind had built a nest. Mila's hat. Three leaves. And there, face-down in the clover... one stuffed fox."
+Right: null
+
+SPREAD 11:
+Left: null
+Right: "She picked him up. Still soft. Still warm from her arm."
+
+SPREAD 12:
+Left: "The wind pushed once more. Gentle this time."
+Right: "Hold on tight, whispered Mila. And this time, she meant it a different way."
+
+SPREAD 13:
+Left: "They walked home slow. The gate stayed open behind them."
+Right: null
+
+WHY THIS WORKS (study these structural patterns):
+- OPENING: Drops into a moment (wind causing mischief). No "one day." The wind is characterized in the first sentence.
+- ARC: Setup (1-2), Exploration (3-5), Loss (6-7), Stillness (8), Quest (9), Discovery (10), Reunion (11-12), Home (13). Clean emotional arc with a turning point at Spread 8.
+- PHRASE EVOLUTION: "Hold on tight" appears three times. Spread 2: playful (said to a stuffed toy, then undercut with humor). Spread 6: desperate (losing things one by one). Spread 12: tender (she means holding on to what matters, not gripping). Same words, three different emotions.
+- RULE OF THREE: Wind takes hat (4-5), feather (6), Runo (7). Each loss escalates. The third is the one that matters.
+- HUMOR: "Runo did not hold on tight. Runo was a stuffed fox." (deadpan subversion). "The snails did not look up." (absurd aside). The frog on the "frog-sitting rock" (naming the mundane). Comedy through observation, never announced.
+- PAGE-TURN HOOKS: Spread 2 ends with a joke that makes you curious. Spread 4 ("Just enough") makes you ask "enough for what?" Spread 6 ("other plans") pulls forward. Spread 7 ("And then." on the left) is a devastating page turn.
+- EMOTIONAL RESTRAINT: Runo's loss is never called sad. "Even the snails looked up" carries the weight. The reunion is "Still soft. Still warm from her arm," physical sensation instead of feelings.
+- ENDING: Echoes the opening (the gate), but now it stays open. She walks home "slow" (not "slowly"). No lesson, no moral, no summary. The gate image closes the circle.
+- WORD ECONOMY: No spread exceeds 25 words. Every word earns its place.
+- SENSORY SPECIFICITY: Grey sky, clover, warm arm. The reader sees and feels the story, never told what to feel.`;
   }
   return `-------------------------------------
 EXEMPLAR SPREADS (TARGET QUALITY — ages 6+)
@@ -1455,7 +1533,85 @@ WHAT THESE TEACH:
 - Rhythm is a tool: vary sentence length, then break the pattern at the turn.
 - The narrator has a personality — wry, breathless, conspiratorial, or gentle. Pick one and commit.
 - Silence (null pages) creates breathing room and lets images do their work.
-- Rhyme should serve the story, not decorate it. Break the form when the story demands it.`;
+- Rhyme should serve the story, not decorate it. Break the form when the story demands it.
+
+-------------------------------------
+FULL-STORY EXEMPLAR (TARGET QUALITY, complete 13-spread arc)
+-------------------------------------
+
+The pairs above teach individual principles. This complete story shows how they work TOGETHER across a full arc.
+
+Study how the repeated phrase evolves, where humor lands, where page-turn hooks pull the reader forward, and how the ending earns its emotion without stating it. Do NOT copy this story. Use it for structural and quality calibration only.
+
+Child "Jonah", age 7, loves his compass, fear = getting lost, setting = the hill behind his house, theme = adventure, from Dad.
+
+TITLE: Jonah and the Compass That Forgot
+
+DEDICATION: For Jonah, who always finds the way.
+
+SPREAD 1:
+Left: "The compass had belonged to someone before Jonah. He didn't know who. It was heavy for its size, and the needle never quite settled. It trembled, like it was trying to remember."
+Right: null
+
+SPREAD 2:
+Left: null
+Right: "North is that way, Jonah told the dog. The dog went south. The compass agreed with the dog."
+
+SPREAD 3:
+Left: "The hill behind the house had no name. Jonah had tried to give it one, but nothing stuck. Too-Far Hill. Almost Hill. The Hill Where the Fence Ends."
+Right: "Today the fence ended, and Jonah kept going."
+
+SPREAD 4:
+Left: "The compass said north. The path went north. Then the path turned into a marsh, and the marsh turned into the kind of mud that eats shoes."
+Right: null
+
+SPREAD 5:
+Left: "He tried east. East was full of thorns and one very loud crow that did not want company."
+Right: "He tried west. West was a cliff. Not a big cliff, but big enough."
+
+SPREAD 6:
+Left: null
+Right: "The compass needle spun. Slow, then fast, then slow again. Jonah shook it. The needle kept spinning."
+
+SPREAD 7:
+Left: "He sat on a rock. The rock was cold and shaped like a mistake."
+Right: "Below him: the marsh. Behind him: the thorns. Above him: nothing useful."
+
+SPREAD 8:
+Left: "North is that way, he said again. But quieter. And he wasn't sure anymore which way he was pointing."
+Right: null
+
+SPREAD 9:
+Left: null
+Right: "The dog appeared. It had mud on its ears and a look of great personal satisfaction. It sat beside Jonah and leaned in. The kind of lean that means I know where I am, even if you don't."
+
+SPREAD 10:
+Left: "Jonah closed the compass. He looked at the hill. Really looked. The light sat differently here. Lower. Warmer. The grass bent one direction, like everything on this hill leaned toward the same place."
+Right: null
+
+SPREAD 11:
+Left: "He followed the lean of the grass. Past the crow, who had calmed down. Past the marsh, which had shrunk somehow. Down the hill, where the fence began again."
+Right: null
+
+SPREAD 12:
+Left: null
+Right: "The house. The kitchen light, already on. The shape of his dad in the window, not waving. Just there."
+
+SPREAD 13:
+Left: "Jonah opened the compass one more time. The needle pointed behind him. Back up the hill, back toward the place he'd been."
+Right: "North is that way, he said. And smiled. Because now he knew: north wasn't a direction. It was wherever you'd already been brave."
+
+WHY THIS WORKS (study these structural patterns):
+- OPENING: Mid-moment. The compass's history is hinted, not explained. "It trembled, like it was trying to remember" personifies the object and establishes its emotional role.
+- ARC: Setup (1-2), Journey begins (3-4), Three failures (4-5-6), Low point (7-8), Help arrives (9), Seeing differently (10), Return (11-12), Meaning (13). Classic quest structure with a twist at the end.
+- PHRASE EVOLUTION: "North is that way" appears three times. Spread 2: confident, almost bossy (immediately undercut by the dog). Spread 8: "quieter. And he wasn't sure anymore." The certainty cracks. Spread 13: redefines north entirely, not a direction but a measure of courage. The phrase transforms from geographic to emotional.
+- RULE OF THREE: Marsh (4), thorns (5), cliff (5). Three directions, three failures. The pattern breaks when the compass itself fails (6).
+- HUMOR: The dog going south while the compass agrees (Spread 2). "The Hill Where the Fence Ends," naming attempts that don't stick (Spread 3). The crow "did not want company" (Spread 5). The rock "shaped like a mistake" (Spread 7). The dog's "look of great personal satisfaction" (Spread 9). Wry, observational, character-driven.
+- PAGE-TURN HOOKS: Spread 3 ("Jonah kept going"), where? Spread 6 (compass breaking), now what? Spread 8 (lost and unsure), what changes? Spread 12 (dad in the window), what does Jonah do?
+- EMOTIONAL RESTRAINT: The dad appears in Spread 12 as "The shape of his dad in the window, not waving. Just there." No hug scene. No "I was worried." The stillness says everything. The parent reading this feels it.
+- PARENT LAYER: "Not waving. Just there." is for the parent. The child reads an adventure. The parent reads the ache of watching your kid come home safe.
+- SURPRISE: The compass doesn't lead him home. It points BACK to where he was lost (Spread 13). The tool that was supposed to guide him turns out to be pointing at his own bravery, not at safety.
+- ENDING: Not a lesson announced. The last line could border on explicit, but it's earned. Twelve spreads of physical, specific experience give "brave" a meaning the reader felt, not just heard. The smile is the only emotion shown.`;
 }
 
 // ── Dialect helper ──────────────────────────────────────────────────────────
