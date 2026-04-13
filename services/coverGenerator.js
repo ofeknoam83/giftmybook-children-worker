@@ -161,8 +161,18 @@ FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 asp
  */
 async function generateCover(title, childDetails, characterRefUrl, bookFormat, opts = {}) {
   const isPictureBook = (bookFormat || '').toLowerCase() === 'picture_book';
-  const trimWidth = isPictureBook ? 612 : 432;
-  const trimHeight = isPictureBook ? 612 : 648;
+  const isGraphicNovel = (bookFormat || '').toUpperCase() === 'GRAPHIC_NOVEL';
+  let trimWidth, trimHeight;
+  if (isPictureBook) {
+    trimWidth = 612;  // 8.5"
+    trimHeight = 612; // 8.5"
+  } else if (isGraphicNovel) {
+    trimWidth = 477;  // 6.625" × 72
+    trimHeight = 738; // 10.25" × 72
+  } else {
+    trimWidth = 432;  // 6" (early reader, chapter book)
+    trimHeight = 648; // 9"
+  }
   const bleed = 9; // 0.125" Lulu standard
 
   const pageCount = opts.pageCount || 32;
@@ -206,7 +216,6 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     frontCoverBuffer = opts.preGeneratedCoverBuffer;
   } else {
     const artStyle = opts.artStyle || 'pixar_premium';
-    const isGraphicNovel = (bookFormat || '').toUpperCase() === 'GRAPHIC_NOVEL';
     const aspectHint = isPictureBook
       ? 'Square image, 1:1 aspect ratio.'
       : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
