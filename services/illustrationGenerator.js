@@ -1271,19 +1271,27 @@ async function checkCharacterConsistency(generatedImageBase64, referenceImageBas
           contents: [{ role: 'user', parts: [
             { text: `Compare these two images. Image 1 is the REFERENCE (correct appearance). Image 2 is the GENERATED illustration.
 
-Does the child in Image 2 match Image 1 on ALL of these:
-1. HAIR: Same style, length, color, accessories? (yes/no + detail if no)
-2. SKIN: Same tone? (yes/no + detail if no)
-3. FACE: Similar structure, nose, eyes? (yes/no + detail if no)
-4. OUTFIT: Same clothing garments, colors, and patterns? List EACH garment you see and compare. (yes/no + detail if no)
-5. OUTFIT COLOR: Are the exact colors of each garment matching? (yes/no + detail if no)
-6. TEXT WIDTH: If text is visible in Image 2, does it occupy no more than 35% of the page width? Text wider than 35% of the page is a rejection. (yes/no/no_text + detail if no)
+Check ONLY these critical dimensions — ignore everything else:
+
+1. ETHNICITY/SKIN: Is the child the same ethnicity with a similar skin tone? Minor lighting-based shade differences are acceptable.
+2. HAIR: Same general style (e.g., pigtails, braids, short) and color? Minor accessory differences (different beads, slightly different ties) are acceptable.
+3. CORE GARMENTS: Same main clothing items (top, bottom, shoes) with similar colors? Minor detail differences (button count, pocket placement, exact trim pattern) are acceptable.
+4. FACE: Similar facial structure and features?
+
+DO NOT FLAG any of these — they are expected variations:
+- Items the character is holding (these change per scene)
+- Left/right mirroring (common in AI-generated images)
+- Minor color shade differences due to scene lighting
+- Accessories that are scene-specific (backpack design, cape presence)
+- Whether specific small details like patches or badges are visible
+- Text width or text-related issues (checked separately)
 
 ${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
 ${characterOutfit ? `Expected outfit: ${characterOutfit}` : ''}
 
 Respond with ONLY valid JSON:
-{"consistent": true} or {"consistent": false, "issues": ["hair is longer", "shirt is blue instead of red"]}` },
+{"consistent": true} or {"consistent": false, "issues": ["skin tone is significantly different", "hair is completely different style"]}
+Only return consistent:false if the character would be unrecognizable or clearly a different person. Minor variations are acceptable.` },
             { inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } },
             { inline_data: { mime_type: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
           ]}],
