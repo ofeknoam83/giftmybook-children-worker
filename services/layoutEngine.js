@@ -614,7 +614,7 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
  * @returns {Promise<Buffer>} PDF buffer
  */
 async function buildChapterBookPdf(chapters, opts = {}) {
-  const { title = 'My Story', childName = '', bookFrom = '', dedication = '', year = new Date().getFullYear() } = opts;
+  const { title = 'My Story', childName = '', bookFrom = '', dedication = '', year = new Date().getFullYear(), upsellCovers, bookId } = opts;
 
   // 6×9" in points (no bleed for chapter book interior — Lulu handles trim)
   const PW = 6 * 72;  // 432pt
@@ -810,6 +810,12 @@ async function buildChapterBookPdf(chapters, opts = {}) {
     const childLabel = `A story for ${childName || 'you'}`;
     const childW = bodyFont.widthOfTextAtSize(childLabel, 12);
     p.drawText(childLabel, { x: (PW - childW) / 2, y: PH / 2 - 30, size: 12, font: italicFont, color: GRAY });
+  }
+
+  // ── Upsell spread ──
+  if (upsellCovers && upsellCovers.length > 0) {
+    const upsellFonts = { playfair, playfairItalic, helv, helvB };
+    await buildUpsellSpread(pdfDoc, PW, PH, upsellFonts, { upsellCovers, childName, bookId });
   }
 
   // Pad to even page count for binding
@@ -1527,6 +1533,8 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
     retryFonts.accentFont = retryFonts.bodyFont;
     try { if (fs.existsSync(FONT_PATHS.bubblegum)) retryFonts.titleFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.bubblegum)); } catch (_) {}
     try { if (fs.existsSync(FONT_PATHS.playfairItalic)) retryFonts.accentFont = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.playfairItalic)); } catch (_) {}
+    let retryPlayfair = retryFonts.bodyFont;
+    try { if (fs.existsSync(FONT_PATHS.playfair)) retryPlayfair = await retryDoc.embedFont(fs.readFileSync(FONT_PATHS.playfair)); } catch (_) {}
 
     // Re-download page images from GCS (originals were freed during first attempt)
     const { downloadBuffer: dlBuf } = require('./gcsStorage');
@@ -1569,6 +1577,37 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
       } else {
         pg.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.88, 0.90, 0.93) });
       }
+    }
+
+    // ── Upsell spread (retry, best-effort) ──
+    if (upsellCovers && upsellCovers.length > 0) {
+      try {
+        const retryHelvBold = await retryDoc.embedFont(StandardFonts.HelveticaBold);
+        const retryUpsellFonts = {
+          playfair: retryPlayfair,
+          playfairItalic: retryFonts.accentFont,
+          helv: retryFonts.bodyFont,
+          helvB: retryHelvBold,
+        };
+        await buildUpsellSpread(retryDoc, PAGE_W, PAGE_H, retryUpsellFonts, { upsellCovers, childName, bookId });
+      } catch (upsellErr) {
+        console.warn(`[layoutEngine] Retry upsell spread failed: ${upsellErr.message}`);
+      }
+    }
+
+    // ── "The End" page (retry) ──
+    {
+      const ep = retryDoc.addPage([PAGE_W, PAGE_H]);
+      ep.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+      const endFont = retryFonts.accentFont;
+      const endW = endFont.widthOfTextAtSize('The End', 36);
+      ep.drawText('The End', { x: (PAGE_W - endW) / 2, y: PAGE_H / 2 + 14, size: 36, font: endFont, color: rgb(0.08, 0.08, 0.12) });
+      const sub = `${childName}'s story`;
+      const subW = endFont.widthOfTextAtSize(sub, 12);
+      ep.drawText(sub, { x: (PAGE_W - subW) / 2, y: PAGE_H / 2 - 28, size: 12, font: endFont, color: rgb(0.765, 0.549, 0.180) });
+      const brand = `${year} \u00B7 GiftMyBook`;
+      const brandWidth = retryFonts.bodyFont.widthOfTextAtSize(brand, 8);
+      ep.drawText(brand, { x: (PAGE_W - brandWidth) / 2, y: 40, size: 8, font: retryFonts.bodyFont, color: rgb(0.55, 0.55, 0.60) });
     }
 
     while (retryDoc.getPageCount() % 2 !== 0) retryDoc.addPage([PAGE_W, PAGE_H]);
