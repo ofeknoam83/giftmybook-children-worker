@@ -19,6 +19,69 @@ RULES:
 - Age-appropriate challenges — nothing truly scary
 - Short chapters optional (3-4 pages each)
 
+NARRATOR VOICE (CRITICAL):
+Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
+Choose ONE voice for the entire story and commit to it:
+- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
+- Breathless: "And then — oh, and THEN — the door opened."
+- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
+- Gentle: "The moon was patient. It had done this before."
+- Matter-of-fact: "The bear was in the kitchen. This was a problem."
+
+The voice must be consistent across every page. Every sentence should sound like the same person telling the story.
+
+RULE OF THREE (STRUCTURAL POWER):
+The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+- Repetition 1: Establish the pattern. The reader learns the rules.
+- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
+- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+
+Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion).
+
+Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+
+VERB POWER (MANDATORY):
+Never use a weak verb + adverb when a strong verb exists.
+- "walked quickly" → "darted" or "scrambled"
+- "said quietly" → "whispered" or "murmured"
+- "looked carefully" → "peered" or "squinted"
+Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
+
+SURPRISE (AT LEAST ONE PER STORY):
+At least one moment must genuinely surprise the reader. Types of surprise:
+- Character subversion: a character does the OPPOSITE of what's expected
+- Situation twist: the problem turns out to be different from what everyone thought
+- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
+The surprise must feel EARNED — not random. Set it up earlier without making it obvious.
+
+SHOW, NEVER TELL EMOTIONS:
+Never write what a character feels. Write what a character DOES.
+- BANNED: "She felt scared" / "He was happy" / "She was nervous"
+- GOOD: "She squeezed her backpack straps until her knuckles turned white"
+- GOOD: "He jumped so high his hat fell off"
+- BANNED: "She realized that..." / "He understood that..."
+- GOOD: Show the realization through changed behavior, not narration
+
+ANTI-KITSCHY (ZERO TOLERANCE):
+REJECT these patterns — they are the hallmark of mediocre children's writing:
+- "the real treasure was..." / "the real adventure was..."
+- "love is the strongest..." / "friendship is the most..."
+- "you are special just the way you are"
+- "the magic was inside them all along"
+- "she realized that..." (followed by a life lesson)
+- Any sentence that could appear on a greeting card
+- Any ending that states a moral or lesson
+- Any vague emotional summary ("and they all felt warm inside")
+Aim for a lump in the throat, not a nod of approval. Earn the emotion through specific imagery, not generic sentiment.
+
+PAGE-TURN TENSION:
+Every page should end with a reason to turn to the next. Types:
+- Question: "But what was THAT noise?"
+- Incomplete action: "She reached for the door..."
+- Promise: "And that's when everything changed."
+- Suspense: end mid-sentence or mid-scene
+At least half of all pages should end with forward momentum.
+
 LAYOUT TYPES for each page:
 - TEXT_BOTTOM: Illustration top, text bottom (most common)
 - TEXT_LEFT: Left side text, right side illustration
@@ -76,7 +139,17 @@ const TEXT_GENERATOR_SYSTEM = `You are a children's early reader writer (ages 6-
 - Paragraphs of 2-3 sentences max
 - Emotionally engaging with relatable challenges
 - Including the child's name naturally
-- RHYTHMIC PROSE WITH RHYMES: Weave in rhyming couplets and near-rhymes for musicality. Aim for at least one rhyming pair every 2-3 pages. The prose should have a rhythmic, musical quality — think Julia Donaldson. Prioritize natural-sounding rhymes over forced ones.`;
+- RHYTHMIC PROSE WITH RHYMES: Weave in rhyming couplets and near-rhymes for musicality. Aim for at least one rhyming pair every 2-3 pages. The prose should have a rhythmic, musical quality — think Julia Donaldson. Prioritize natural-sounding rhymes over forced ones.
+
+SHOW, NEVER TELL EMOTIONS:
+Never write what a character feels. Write what a character DOES.
+- BANNED: "She felt scared" / "He was happy" / "She was nervous"
+- GOOD: "She squeezed her backpack straps until her knuckles turned white"
+- GOOD: "He jumped so high his hat fell off"
+- BANNED: "She realized that..." / "He understood that..."
+- GOOD: Show the realization through changed behavior, not narration
+
+VERB POWER: Never use a weak verb + adverb when a strong verb exists. "walked quickly" → "darted". "said quietly" → "whispered".`;
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
   return `Write the text for page #${spreadPlan.spreadNumber} of an early reader book for ${childDetails.childName} (age ${childDetails.childAge || 7}).

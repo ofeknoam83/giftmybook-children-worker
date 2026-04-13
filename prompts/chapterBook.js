@@ -18,6 +18,60 @@ WRITING QUALITY:
 - At least one line in the story must be memorable enough that a child would repeat it
 - RHYTHMIC PROSE: Include occasional rhyming passages, internal rhymes, and near-rhymes for musicality. At least 2-3 rhyming moments per chapter — weave them into descriptions, dialogue, or memorable lines. The prose should have a rhythmic quality that rewards reading aloud. Prioritize natural-sounding rhymes over forced ones.
 
+NARRATOR VOICE (CRITICAL):
+Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
+Choose ONE voice for the entire book and commit to it:
+- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
+- Breathless: "And then — oh, and THEN — the door opened."
+- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
+- Gentle: "The moon was patient. It had done this before."
+- Matter-of-fact: "The bear was in the kitchen. This was a problem."
+
+The voice must be consistent across every chapter. Every sentence should sound like the same person telling the story.
+
+RULE OF THREE (STRUCTURAL POWER):
+The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+- Repetition 1: Establish the pattern. The reader learns the rules.
+- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
+- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+
+SURPRISE (AT LEAST ONE PER STORY):
+At least one moment must genuinely surprise the reader. Types of surprise:
+- Character subversion: a character does the OPPOSITE of what's expected
+- Situation twist: the problem turns out to be different from what everyone thought
+- Perspective shift: seeing something familiar from an unexpected angle
+- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
+The surprise must feel EARNED — not random. Set it up earlier without making it obvious.
+
+SHOW, NEVER TELL EMOTIONS:
+Never write what a character feels. Write what a character DOES.
+- BANNED: "She felt scared" / "He was happy" / "She was nervous"
+- GOOD: "She squeezed her backpack straps until her knuckles turned white"
+- GOOD: "He jumped so high his hat fell off"
+- BANNED: "She realized that..." / "He understood that..."
+- GOOD: Show the realization through changed behavior, not narration
+
+ANTI-KITSCHY (ZERO TOLERANCE):
+REJECT these patterns — they are the hallmark of mediocre children's writing:
+- "the real treasure was..." / "the real adventure was..."
+- "love is the strongest..." / "friendship is the most..."
+- "you are special just the way you are"
+- "the magic was inside them all along"
+- "she realized that..." (followed by a life lesson)
+- Any sentence that could appear on a greeting card
+- Any ending that states a moral or lesson
+- Any vague emotional summary ("and they all felt warm inside")
+Aim for a lump in the throat, not a nod of approval. Earn the emotion through specific imagery, not generic sentiment.
+
+CHAPTER ENDINGS (CRITICAL):
+Every chapter MUST end with the reader unable to stop. Techniques:
+- Cliffhanger: mid-action cut
+- Revelation: new information that changes everything
+- Question: the character faces a choice
+- Dread: something bad is clearly about to happen
+A reader who puts the book down at a chapter break means you failed.
+
 STRUCTURE:
 - Chapter 1: Normal world + want + flaw established + the call to adventure
 - Chapter 2: First attempt + early win + complication emerges
@@ -82,6 +136,33 @@ PROSE QUALITY STANDARDS:
 - Avoid: adverb-heavy writing, filter words ("she saw that...", "he felt that..."), passive voice
 - Use: specific sensory detail, concrete nouns, active verbs
 - RHYTHMIC PROSE: Weave in occasional rhyming passages, internal rhymes, slant rhymes, and near-rhymes throughout. The prose should have a rhythmic, musical quality. Prioritize natural-sounding rhymes over forced ones.
+
+VERB POWER (MANDATORY):
+The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
+- "walked quickly" → "darted" or "scrambled"
+- "said quietly" → "whispered" or "murmured"
+- "looked carefully" → "peered" or "squinted"
+Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
+
+SHOW, NEVER TELL EMOTIONS:
+Never write what a character feels. Write what a character DOES.
+- BANNED: "She felt scared" / "He was happy" / "She was nervous"
+- GOOD: "She squeezed her backpack straps until her knuckles turned white"
+- BANNED: "She realized that..." / "He understood that..."
+- GOOD: Show the realization through changed behavior, not narration
+
+ANTI-KITSCHY (ZERO TOLERANCE):
+REJECT these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "the magic was inside them all along", any sentence that could appear on a greeting card, any ending that states a moral. Earn the emotion through specific imagery, not generic sentiment.
+
+SURPRISE: At least one moment per chapter should genuinely surprise the reader — a character subversion, situation twist, or emotional surprise. Set it up earlier without making it obvious.
+
+CHAPTER ENDINGS (CRITICAL):
+Every chapter MUST end with the reader unable to stop. Techniques:
+- Cliffhanger: mid-action cut
+- Revelation: new information that changes everything
+- Question: the character faces a choice
+- Dread: something bad is clearly about to happen
+A reader who puts the book down at a chapter break means you failed.
 
 LENGTH: 600-900 words of prose. No headers, no chapter number — just the prose.`;
 }

@@ -247,6 +247,58 @@ AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
 {authorialVoice}
 
+NARRATOR VOICE (CRITICAL):
+Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
+Choose ONE voice for the entire story and commit to it:
+- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
+- Breathless: "And then — oh, and THEN — the door opened."
+- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
+- Gentle: "The moon was patient. It had done this before."
+- Matter-of-fact: "The bear was in the kitchen. This was a problem."
+
+The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
+
+RULE OF THREE (STRUCTURAL POWER):
+The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+- Repetition 1: Establish the pattern. The reader learns the rules.
+- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
+- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+
+Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion). Then the pattern reverses — three animals flee from the mouse.
+
+Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+
+VERB POWER (MANDATORY):
+The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
+- "walked quickly" → "darted" or "scrambled"
+- "said quietly" → "whispered" or "murmured"
+- "looked carefully" → "peered" or "squinted"
+- "ran fast" → "bolted" or "tore"
+- "fell down" → "tumbled" or "crashed"
+
+Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
+
+SURPRISE (AT LEAST ONE PER STORY):
+At least one moment must genuinely surprise the reader. Types of surprise:
+- Character subversion: a character does the OPPOSITE of what's expected
+- Situation twist: the problem turns out to be different from what everyone thought
+- Perspective shift: seeing something familiar from an unexpected angle
+- Scale surprise: something very big or very small appears in an unexpected context
+- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
+
+The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course." Set it up earlier without making it obvious.
+
+EMOTIONAL RESTRAINT:
+Trust the reader to feel the emotion. Do NOT amplify or explain.
+- After a sad moment, do NOT add "and a tear rolled down her cheek." The situation is enough.
+- After a triumph, do NOT add "she had never been so happy." Show the action.
+- The most powerful emotional moments in children's literature use the FEWEST words.
+  - Sendak: "And it was still hot." (10 words. Max returning home. The whole book lands in this sentence.)
+  - Jeffers: "So he took him home." (Six words. The entire emotional resolution.)
+- When in doubt, CUT the emotional sentence. If the emotion is clear from context, the extra sentence weakens it.
+
+UNDERSTATEMENT > OVERSTATEMENT. Always.
+
 ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
 - REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
@@ -648,6 +700,110 @@ TEXT LENGTH (CRITICAL):
 AUTHORIAL VOICE (MANDATORY)
 -------------------------------------
 {authorialVoice}
+
+NARRATOR VOICE (CRITICAL):
+Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
+Choose ONE voice for the entire story and commit to it:
+- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
+- Breathless: "And then — oh, and THEN — the door opened."
+- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
+- Gentle: "The moon was patient. It had done this before."
+- Matter-of-fact: "The bear was in the kitchen. This was a problem."
+
+The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
+
+RULE OF THREE (STRUCTURAL POWER):
+The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+- Repetition 1: Establish the pattern. The reader learns the rules.
+- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
+- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+
+Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion). Then the pattern reverses — three animals flee from the mouse.
+
+Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+
+VERB POWER (MANDATORY):
+The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
+- "walked quickly" → "darted" or "scrambled"
+- "said quietly" → "whispered" or "murmured"
+- "looked carefully" → "peered" or "squinted"
+- "ran fast" → "bolted" or "tore"
+- "fell down" → "tumbled" or "crashed"
+
+Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
+
+SURPRISE (AT LEAST ONE PER STORY):
+At least one moment must genuinely surprise the reader. Types of surprise:
+- Character subversion: a character does the OPPOSITE of what's expected
+- Situation twist: the problem turns out to be different from what everyone thought
+- Perspective shift: seeing something familiar from an unexpected angle
+- Scale surprise: something very big or very small appears in an unexpected context
+- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
+
+The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course." Set it up earlier without making it obvious.
+
+EMOTIONAL RESTRAINT:
+Trust the reader to feel the emotion. Do NOT amplify or explain.
+- After a sad moment, do NOT add "and a tear rolled down her cheek." The situation is enough.
+- After a triumph, do NOT add "she had never been so happy." Show the action.
+- The most powerful emotional moments in children's literature use the FEWEST words.
+  - Sendak: "And it was still hot." (10 words. Max returning home. The whole book lands in this sentence.)
+  - Jeffers: "So he took him home." (Six words. The entire emotional resolution.)
+- When in doubt, CUT the emotional sentence. If the emotion is clear from context, the extra sentence weakens it.
+
+UNDERSTATEMENT > OVERSTATEMENT. Always.
+
+NARRATOR VOICE (CRITICAL):
+Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
+Choose ONE voice for the entire story and commit to it:
+- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
+- Breathless: "And then — oh, and THEN — the door opened."
+- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
+- Gentle: "The moon was patient. It had done this before."
+- Matter-of-fact: "The bear was in the kitchen. This was a problem."
+
+The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
+
+RULE OF THREE (STRUCTURAL POWER):
+The most effective children's stories use patterns of three: three attempts, three encounters, three obstacles.
+- Repetition 1: Establish the pattern. The reader learns the rules.
+- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
+- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
+
+Example (Gruffalo): Three animals warn the mouse about the Gruffalo in the same pattern → the Gruffalo actually appears (inversion). Then the pattern reverses — three animals flee from the mouse.
+
+Your story MUST contain at least one "rule of three" sequence. The third repetition must break or subvert the pattern.
+
+VERB POWER (MANDATORY):
+The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
+- "walked quickly" → "darted" or "scrambled"
+- "said quietly" → "whispered" or "murmured"
+- "looked carefully" → "peered" or "squinted"
+- "ran fast" → "bolted" or "tore"
+- "fell down" → "tumbled" or "crashed"
+
+Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
+
+SURPRISE (AT LEAST ONE PER STORY):
+At least one moment must genuinely surprise the reader. Types of surprise:
+- Character subversion: a character does the OPPOSITE of what's expected
+- Situation twist: the problem turns out to be different from what everyone thought
+- Perspective shift: seeing something familiar from an unexpected angle
+- Scale surprise: something very big or very small appears in an unexpected context
+- Emotional surprise: a scary moment becomes funny, or a funny moment becomes tender
+
+The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course." Set it up earlier without making it obvious.
+
+EMOTIONAL RESTRAINT:
+Trust the reader to feel the emotion. Do NOT amplify or explain.
+- After a sad moment, do NOT add "and a tear rolled down her cheek." The situation is enough.
+- After a triumph, do NOT add "she had never been so happy." Show the action.
+- The most powerful emotional moments in children's literature use the FEWEST words.
+  - Sendak: "And it was still hot." (10 words. Max returning home. The whole book lands in this sentence.)
+  - Jeffers: "So he took him home." (Six words. The entire emotional resolution.)
+- When in doubt, CUT the emotional sentence. If the emotion is clear from context, the extra sentence weakens it.
+
+UNDERSTATEMENT > OVERSTATEMENT. Always.
 
 ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".

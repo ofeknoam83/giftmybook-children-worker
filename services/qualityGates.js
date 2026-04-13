@@ -188,7 +188,7 @@ Score each criterion 1-10:
 6. THEME FIT: Does the ending match the theme (birthday=celebratory, bedtime=peaceful, mothers_day=heartfelt)?
 7. HUMOR: Are there at least 2 genuinely funny or delightful moments? Does humor emerge naturally from character and situation (not forced)?
 8. ANTI-KITSCHY: Is the story free of generic sentiment? Score LOW if the story uses cliches like "the real treasure was inside you", "with love anything is possible", or ends with the character explaining what they learned. Score HIGH if the story earns its emotion through concrete, specific images.
-9. SURPRISE: Is there at least one genuinely unexpected moment — a character doing the opposite of what's expected, an object used in a surprising way, or a plot turn that makes the reader think "I didn't see that coming"? Score LOW if every beat is predictable. Score HIGH if there's a real twist or subversion.
+9. SURPRISE: Does the story contain at least one genuinely unexpected moment — a character subversion, situation twist, perspective shift, or emotional surprise? The surprise should feel EARNED, not random. Score LOW if the story is entirely predictable. Score HIGH if there's a moment where the reader thinks "I didn't see that coming, but of course."
 
 Return JSON only:
 {
