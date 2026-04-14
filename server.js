@@ -1787,8 +1787,8 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
 
 ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
 SKIN_TONE: Describe the exact skin tone using a specific shade name and undertone (e.g. "deep brown with warm golden undertones", "fair peach with cool pink undertones", "medium olive with warm yellow undertones"). Be precise enough that an illustrator could match this exactly.
-EYE_SHAPE: Describe the eye shape specifically (e.g. "monolid", "almond-shaped with epicanthal fold", "large round", "hooded almond", "wide set round")
-EYE_COLOR: What color are the eyes?
+EYE_SHAPE: Describe the eye shape specifically (e.g. "monolid", "almond-shaped with epicanthal fold", "large round", "hooded almond", "wide set round"). IMPORTANT: If the child's eyes are closed, squinting, or not fully visible in the photo, describe the eye SHAPE as if they were open (e.g. based on ethnicity and facial structure). A single photo captures a transient moment — always describe the eyes as open.
+EYE_COLOR: What color are the eyes? If the eyes are closed or not visible, make your best estimate based on ethnicity and other features.
 HAIR_COLOR: Exact hair color
 HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
 HAIR_LENGTH: Short / medium / long / very long
