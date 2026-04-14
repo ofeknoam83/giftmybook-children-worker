@@ -588,7 +588,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (opts.characterAnchor) {
     parts.push(`CHARACTER SKIN TONE & FEATURES (from uploaded photo — NEVER alter):`);
     parts.push(opts.characterAnchor);
-    parts.push(`CRITICAL: The child's skin tone, hair color, and facial features must match the description above in EVERY illustration. Do not lighten, darken, or alter the child's appearance. Racial and ethnic features must be preserved exactly.`);
+    parts.push(`CRITICAL: The child's skin tone, hair color, and facial features must match the description above in EVERY illustration. Do not lighten, darken, or alter the child's appearance. Racial and ethnic features must be preserved exactly. The child's eyes must ALWAYS be drawn OPEN and expressive — never closed or squinting, even if the reference photo shows closed eyes.`);
     parts.push(``);
   }
   if (characterDescription) {
@@ -682,6 +682,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`   - SKIN TONE: The exact skin tone above must be matched in every spread — do NOT lighten, darken, or shift`);
     parts.push(`   - EYE SHAPE: The eye shape above must be reproduced exactly — pay special attention to monolid vs almond vs round`);
     parts.push(`   - EYE COLOR: Match exactly — do not substitute`);
+    parts.push(`   - EYES MUST BE OPEN: The character's eyes must ALWAYS be drawn open and expressive. Even if the reference photo shows closed, squinting, or half-closed eyes (e.g. laughing, sleeping, squinting in sunlight), draw the character with open, bright, lively eyes. A photo captures one moment — the illustrations should show the child alert and engaged.`);
     parts.push(`   - HAIR: Color, texture, and length must match exactly — no variations`);
     parts.push(`   If the reference photo shows an East Asian child, ALL illustrations must show an East Asian child.`);
     parts.push(`   If the reference shows a Black child, ALL illustrations must show a Black child.`);
@@ -906,7 +907,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
 
   if (opts.originalPhotoBase64) {
     // Spread 1: original photo first (real-world ground truth for ethnicity, skin tone, eye shape)
-    parts.push({ text: 'CHARACTER REFERENCE — REAL PHOTO (ground truth): This is the actual photograph of the child. Use this as the definitive reference for: ethnicity, skin tone, eye shape, eye color, and facial features. These characteristics are LOCKED and must be reproduced exactly.' });
+    parts.push({ text: 'CHARACTER REFERENCE — REAL PHOTO (ground truth): This is the actual photograph of the child. Use this as the definitive reference for: ethnicity, skin tone, eye shape, eye color, and facial features. These characteristics are LOCKED and must be reproduced exactly. IMPORTANT: If the child\'s eyes appear closed or squinting in this photo, IGNORE the eye state — always draw the child with open, bright, expressive eyes.' });
     parts.push({ inline_data: { mimeType: opts.originalPhotoMime || 'image/jpeg', data: opts.originalPhotoBase64 } });
     parts.push({ text: 'CHARACTER REFERENCE — BOOK COVER (rendered style): This is the approved book cover showing the same child in the book\'s art style. Use this as reference for: art style, rendering quality, hair depiction, outfit, and how the character looks in this specific illustration style. Combine both references — the real photo\'s ethnicity/features with the cover\'s art style.' });
     parts.push({ inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } });
@@ -1285,6 +1286,7 @@ DO NOT FLAG any of these — they are expected variations:
 - Accessories that are scene-specific (backpack design, cape presence)
 - Whether specific small details like patches or badges are visible
 - Text width or text-related issues (checked separately)
+- Eye open/closed state: if the reference shows closed or squinting eyes but the illustration shows open eyes, this is CORRECT and expected — do NOT flag it as inconsistent
 
 ${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
 ${characterOutfit ? `Expected outfit: ${characterOutfit}` : ''}
