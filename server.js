@@ -351,13 +351,12 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           const isFirstSpread = (idx === 0);
 
           // C1/C4: Determine best photo reference for this spread
-          const entry = results[idx];
-          const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
-          const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
-          const photoRefForSpread = (mentionsParent && parentCoverRefBase64)
+          // When a secondary character exists and we have the cover as reference,
+          // always include it so the illustration model sees the parent's real appearance.
+          const photoRefForSpread = parentCoverRefBase64
             ? parentCoverRefBase64  // use cover showing both child+parent
             : (characterRefSheetBase64 || cachedPhotoBase64);
-          const photoMimeForSpread = (mentionsParent && parentCoverRefBase64)
+          const photoMimeForSpread = parentCoverRefBase64
             ? 'image/jpeg'
             : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
 
@@ -1913,10 +1912,10 @@ Format your answer with each label on its own line followed by a colon and the a
         }
       }
 
-      // ── C4: For mothers_day/fathers_day — use approved cover as parent character reference ──
-      // Only fetch when the cover actually contains the parent (secondary character detected).
+      // ── C4: Use approved cover as secondary character visual reference ──
+      // Fetch whenever the cover contains a secondary character, regardless of theme.
       let parentCoverRefBase64 = null;
-      if ((theme === 'mothers_day' || theme === 'fathers_day') && approvedCoverUrl && storyPlan.additionalCoverCharacters) {
+      if (approvedCoverUrl && storyPlan.additionalCoverCharacters) {
         try {
           bookContext.log('info', 'Downloading approved cover as parent character reference');
           const coverResp = await fetch(approvedCoverUrl);
