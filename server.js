@@ -2356,7 +2356,7 @@ Format your answer with each label on its own line followed by a colon and the a
               message: `Quality check: ${qaResult.score}% (${qaResult.passed ? 'passed' : 'needs improvement'})`,
               qaScore: qaResult.score,
               qaPassed: qaResult.passed,
-              qaIssues: JSON.stringify(qaResult.issues),
+              qaIssues: qaResult.issues,
               logs: bookContext.logs,
             });
           }
