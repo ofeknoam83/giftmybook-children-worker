@@ -1682,10 +1682,18 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     }
     console.log(`[storyPlanner] Parsed ${parsedText.spreads.length} spreads from free-form text, title: "${parsedText.title}"`);
 
-    // Phase 2: Structure into JSON with illustration prompts
+    // Phase 2: Structure into JSON with illustration prompts (with 1 retry on parse failure)
     const referenceContext = { interests, enrichedCustomDetails };
-    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, theme, beats: v2Vars?.beats, referenceContext });
-    const parsed = parseJsonPlan(jsonContent);
+    let parsed;
+    const phase2Opts = { ...opts, theme, beats: v2Vars?.beats, referenceContext };
+    try {
+      const jsonContent = await structureStoryPlan(storyText, childDetails, phase2Opts);
+      parsed = parseJsonPlan(jsonContent);
+    } catch (phase2Err) {
+      console.warn(`[storyPlanner] Phase 2 JSON parse failed: ${phase2Err.message} — retrying Phase 2`);
+      const retryJsonContent = await structureStoryPlan(storyText, childDetails, phase2Opts);
+      parsed = parseJsonPlan(retryJsonContent); // let this throw if it fails again
+    }
 
     // Override title if customer approved one
     if (approvedTitle) parsed.title = approvedTitle;
