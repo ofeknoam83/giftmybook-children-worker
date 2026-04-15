@@ -411,77 +411,180 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
         }
       }
 
-      // ── C5: Post-generation consistency check ──
+      // ── C5: Post-generation visual QA checks ──
+      // Download generated image once for all checks
+      let genBase64 = null;
+      if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+        try {
+          const checkResp = await fetch(imageUrl);
+          if (checkResp.ok) {
+            genBase64 = Buffer.from(await checkResp.arrayBuffer()).toString('base64');
+          }
+        } catch {}
+      }
+
+      // Helper: build retry options for corrective re-generation
+      const buildRetryOpts = () => {
+        const entry = results[idx];
+        const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
+        const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
+        const photoRefForRetry = (mentionsParent && parentCoverRefBase64)
+          ? parentCoverRefBase64
+          : (characterRefSheetBase64 || cachedPhotoBase64);
+        const photoMimeForRetry = (mentionsParent && parentCoverRefBase64)
+          ? 'image/jpeg'
+          : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
+        return {
+          apiKeys,
+          costTracker,
+          bookId,
+          childName: childDetails.name,
+          characterOutfit: storyPlan.characterOutfit || '',
+          characterDescription: storyPlan.characterDescription || '',
+          characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
+          additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+          recurringElement: storyPlan.recurringElement || '',
+          keyObjects: storyPlan.keyObjects || '',
+          coverArtStyle: storyPlan.coverArtStyle || '',
+          childPhotoUrl: resolvedChildPhotoUrl,
+          _cachedPhotoBase64: photoRefForRetry,
+          _cachedPhotoMime: photoMimeForRetry,
+          spreadIndex: idx,
+          totalSpreads: entries.filter(e => e.type === 'spread').length,
+          childAge: childDetails.age || childDetails.childAge,
+          pageText: job.pageText || '',
+          isSpread: job.isSpread || false,
+          deadlineMs: 200000,
+          abortSignal: bookContext.abortController.signal,
+          firstSpreadRefBase64: firstSpreadBase64 || null,
+        };
+      };
+
+      // Check 1: Character consistency (existing)
       const refBase64ForCheck = characterRefSheetBase64 || cachedPhotoBase64;
-      if (imageUrl && refBase64ForCheck) {
+      if (genBase64 && refBase64ForCheck) {
         try {
           const { checkCharacterConsistency } = require('./services/illustrationGenerator');
-          let genBase64 = null;
-          if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+          const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
+          if (!consistency.consistent) {
+            bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
             try {
-              const checkResp = await fetch(imageUrl);
-              if (checkResp.ok) {
-                genBase64 = Buffer.from(await checkResp.arrayBuffer()).toString('base64');
+              const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
+              const correctedPrompt = correctionNote + '\n\n' + prompt;
+              bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
+              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+              if (retryResult) {
+                imageUrl = retryResult;
+                genBase64 = null; // re-download for subsequent checks
+                try {
+                  const reResp = await fetch(imageUrl);
+                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
+                } catch {}
+                bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded`);
               }
-            } catch {}
-          }
-          if (genBase64) {
-            const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
-            if (!consistency.consistent) {
-              bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
-              // Retry ONCE with corrective prompt
-              try {
-                const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
-                const correctedPrompt = correctionNote + '\n\n' + prompt;
-                bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
-
-                const entry = results[idx];
-                const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
-                const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
-                const photoRefForRetry = (mentionsParent && parentCoverRefBase64)
-                  ? parentCoverRefBase64
-                  : (characterRefSheetBase64 || cachedPhotoBase64);
-                const photoMimeForRetry = (mentionsParent && parentCoverRefBase64)
-                  ? 'image/jpeg'
-                  : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
-
-                const retryResult = await generateIllustration(correctedPrompt, characterRef, style, {
-                  apiKeys,
-                  costTracker,
-                  bookId,
-                  childName: childDetails.name,
-                  characterOutfit: storyPlan.characterOutfit || '',
-                  characterDescription: storyPlan.characterDescription || '',
-                  characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
-                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-                  recurringElement: storyPlan.recurringElement || '',
-                  keyObjects: storyPlan.keyObjects || '',
-                  coverArtStyle: storyPlan.coverArtStyle || '',
-                  childPhotoUrl: resolvedChildPhotoUrl,
-                  _cachedPhotoBase64: photoRefForRetry,
-                  _cachedPhotoMime: photoMimeForRetry,
-                  spreadIndex: idx,
-                  totalSpreads: entries.filter(e => e.type === 'spread').length,
-                  childAge: childDetails.age || childDetails.childAge,
-                  pageText: job.pageText || '',
-                  isSpread: job.isSpread || false,
-                  deadlineMs: 200000,
-                  abortSignal: bookContext.abortController.signal,
-                  firstSpreadRefBase64: firstSpreadBase64 || null,
-                });
-                if (retryResult) {
-                  imageUrl = retryResult;
-                  bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded`);
-                }
-              } catch (retryErr) {
-                bookContext.log('warn', `Consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
-              }
-            } else {
-              bookContext.log('info', `Spread ${idx + 1} character consistency OK`);
+            } catch (retryErr) {
+              bookContext.log('warn', `Consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
             }
+          } else {
+            bookContext.log('info', `Spread ${idx + 1} character consistency OK`);
           }
         } catch (checkErr) {
           bookContext.log('warn', `Consistency check error for spread ${idx + 1}`, { error: checkErr.message });
+        }
+      }
+
+      // Check 2: Character count — detect duplicated characters
+      if (genBase64) {
+        try {
+          const { checkCharacterCount } = require('./services/illustrationGenerator');
+          const entry = results[idx];
+          const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
+          const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
+          const expectedCharacters = { childCount: 1, adultCount: mentionsParent ? 1 : 0 };
+          const countResult = await checkCharacterCount(genBase64, expectedCharacters);
+          if (!countResult.passed) {
+            bookContext.log('warn', `Spread ${idx + 1} character count mismatch`, { message: countResult.message });
+            try {
+              const correctionNote = `CRITICAL: The previous image showed the wrong number of characters. ${countResult.message}. Generate with EXACTLY ${expectedCharacters.childCount} child(ren) and ${expectedCharacters.adultCount} adult(s).`;
+              const correctedPrompt = correctionNote + '\n\n' + prompt;
+              bookContext.log('info', `Retrying spread ${idx + 1} with character count correction`);
+              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+              if (retryResult) {
+                imageUrl = retryResult;
+                genBase64 = null;
+                try {
+                  const reResp = await fetch(imageUrl);
+                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
+                } catch {}
+                bookContext.log('info', `Spread ${idx + 1} character count retry succeeded`);
+              }
+            } catch (retryErr) {
+              bookContext.log('warn', `Character count retry failed for spread ${idx + 1}`, { error: retryErr.message });
+            }
+          } else {
+            bookContext.log('info', `Spread ${idx + 1} character count OK`);
+          }
+        } catch (checkErr) {
+          bookContext.log('warn', `Character count check error for spread ${idx + 1}`, { error: checkErr.message });
+        }
+      }
+
+      // Check 3: Text overlay detection — flag text on opaque boxes
+      if (genBase64 && job.pageText) {
+        try {
+          const { checkTextPresentation } = require('./services/illustrationGenerator');
+          const overlayResult = await checkTextPresentation(genBase64);
+          if (!overlayResult.passed) {
+            bookContext.log('warn', `Spread ${idx + 1} text overlay detected`, { description: overlayResult.description });
+            try {
+              const correctionNote = `CRITICAL: The previous image had text on an opaque background box. Re-generate with text embedded directly into a clean area of the illustration — NO background boxes, NO overlays, NO banners behind the text.`;
+              const correctedPrompt = correctionNote + '\n\n' + prompt;
+              bookContext.log('info', `Retrying spread ${idx + 1} with text overlay correction`);
+              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+              if (retryResult) {
+                imageUrl = retryResult;
+                genBase64 = null;
+                try {
+                  const reResp = await fetch(imageUrl);
+                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
+                } catch {}
+                bookContext.log('info', `Spread ${idx + 1} text overlay retry succeeded`);
+              }
+            } catch (retryErr) {
+              bookContext.log('warn', `Text overlay retry failed for spread ${idx + 1}`, { error: retryErr.message });
+            }
+          } else {
+            bookContext.log('info', `Spread ${idx + 1} text presentation OK`);
+          }
+        } catch (checkErr) {
+          bookContext.log('warn', `Text presentation check error for spread ${idx + 1}`, { error: checkErr.message });
+        }
+      }
+
+      // Check 4: Font consistency — compare against first spread reference
+      if (genBase64 && idx > 0 && firstSpreadBase64 && job.pageText) {
+        try {
+          const { checkFontConsistency } = require('./services/illustrationGenerator');
+          const fontResult = await checkFontConsistency(genBase64, firstSpreadBase64);
+          if (!fontResult.passed) {
+            bookContext.log('warn', `Spread ${idx + 1} font inconsistency detected`, { issues: fontResult.issues });
+            try {
+              const correctionNote = `CRITICAL: The text font does not match the first spread. Issues: ${(fontResult.issues || []).join(', ')}. Look at the first spread reference image carefully and match the EXACT font style, size, and color.`;
+              const correctedPrompt = correctionNote + '\n\n' + prompt;
+              bookContext.log('info', `Retrying spread ${idx + 1} with font consistency correction`);
+              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+              if (retryResult) {
+                imageUrl = retryResult;
+                bookContext.log('info', `Spread ${idx + 1} font consistency retry succeeded`);
+              }
+            } catch (retryErr) {
+              bookContext.log('warn', `Font consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
+            }
+          } else {
+            bookContext.log('info', `Spread ${idx + 1} font consistency OK`);
+          }
+        } catch (checkErr) {
+          bookContext.log('warn', `Font consistency check error for spread ${idx + 1}`, { error: checkErr.message });
         }
       }
 
