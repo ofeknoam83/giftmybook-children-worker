@@ -155,8 +155,47 @@ Other family members (siblings, grandparents, dad) still follow the standard rul
         `- Mom MAY appear in illustration prompts for this Mother's Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.`
       );
     }
+  } else if (theme === 'fathers_day') {
+    if (additionalCoverCharacters) {
+      const combinedOverride = `FATHER'S DAY — DAD AS VISIBLE CHARACTER + SECONDARY CHARACTERS:
+Dad is a co-protagonist in this story. He MUST appear in illustration prompts for at least 6 of 13 spreads.
+When writing spread_image_prompt fields that include Dad, describe his presence explicitly:
+- His position relative to the child (kneeling beside, standing behind, sitting together)
+- His gesture or action (hugging, pointing, laughing, holding hands, carrying)
+- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled man with kind eyes")
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`;
+
+      brief = brief.replace(
+        /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+        combinedOverride + '\n'
+      );
+      brief = brief.replace(
+        /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+        `- Dad and the secondary character(s) listed above MAY appear in illustration prompts. Describe each consistently every time. Do NOT invent other family members not listed.`
+      );
+    } else {
+      const fatherOverride = `FATHER'S DAY — DAD AS VISIBLE CHARACTER:
+Dad is a co-protagonist in this story. He MUST appear in illustration prompts for at least 6 of 13 spreads.
+When writing spread_image_prompt fields that include Dad, describe his presence explicitly:
+- His position relative to the child (kneeling beside, standing behind, sitting together)
+- His gesture or action (hugging, pointing, laughing, holding hands, carrying)
+- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled man with kind eyes")
+If a specific Dad appearance description becomes available from the cover, it will override these generic descriptions at illustration time.
+Other family members (siblings, grandparents, mom) still follow the standard rule — text only, never illustrated.`;
+
+      brief = brief.replace(
+        /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
+        fatherOverride + '\n'
+      );
+      brief = brief.replace(
+        /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+        `- Dad MAY appear in illustration prompts for this Father's Day book. Describe him warmly and consistently. Other family members (siblings, grandparents, mom) must NOT appear in illustrations.`
+      );
+    }
   } else if (additionalCoverCharacters) {
-    // Non-mothers_day: override for secondary characters detected in the photo
+    // Non-parent-theme: override for secondary characters detected in the photo
     const familyOverride = `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
 ${additionalCoverCharacters}
@@ -327,6 +366,8 @@ function getThemeContext(theme) {
       return `\n\nTHEME CONTEXT — FRIENDSHIP:\nThis is a friendship story. The child meets a new friend (could be an animal, a magical creature, or another child). The friendship is tested and deepened through a shared adventure or challenge. Ends with the bond confirmed.`;
     case 'mothers_day':
       return `\n\nTHEME CONTEXT — MOTHER'S DAY:\nThis is a love letter from a child to their mother. Mom is a NAMED, VISIBLE co-protagonist — she appears alongside the child in at least 6 of 13 spreads. The story is told from the child's perspective: gratitude, love, and a desire to show Mom how special she is. The arc moves from everyday shared moments to a heartfelt gesture of love. Mom must be described consistently in every illustration prompt where she appears. The ending is warm, tender, and emotionally resonant — it should make a mother cry happy tears.\n\nMOM IN ILLUSTRATIONS (CRITICAL): Mom is allowed — and required — in illustration prompts for this theme. Describe her presence explicitly when she appears (position, gesture, expression). If a specific appearance description is available from the cover, use it consistently. If not, describe her generically but warmly (e.g. "Mom, a warm-smiled woman with gentle eyes"). Do NOT apply the "never depict family members" rule to Mom in this theme.`;
+    case 'fathers_day':
+      return `\n\nTHEME CONTEXT — FATHER'S DAY:\nThis is a love letter from a child to their father. Dad is a NAMED, VISIBLE co-protagonist — he appears alongside the child in at least 6 of 13 spreads. The story is told from the child's perspective: gratitude, love, and admiration for Dad. The arc moves from everyday shared moments (playing, building, exploring) to a heartfelt gesture of love. Dad must be described consistently in every illustration prompt where he appears. The ending is warm, tender, and emotionally resonant — it should make a father's eyes water.\n\nDAD IN ILLUSTRATIONS (CRITICAL): Dad is allowed — and required — in illustration prompts for this theme. Describe his presence explicitly when he appears (position, gesture, expression). If a specific appearance description is available from the cover, use it consistently. If not, describe him generically but warmly (e.g. "Dad, a warm-smiled man with kind eyes"). Do NOT apply the "never depict family members" rule to Dad in this theme.`;
     default:
       return '';
   }
@@ -489,6 +530,7 @@ When weaving the child's interests into the story, include at least one clearly 
     fantasy: `\n\nFANTASY THEME — QUEST ARC (CRITICAL):\nThis is a FANTASY QUEST. The child crosses into an enchanted world and must complete a quest.\n- At least 4 locations: the threshold, an enchanted forest/field, a castle/tower, the quest endpoint.\n- Victory comes from cleverness or heart, not force. The favorite object is key.`,
     nature: `\n\nNATURE THEME — DISCOVERY ARC (CRITICAL):\nThis is a NATURE DISCOVERY story.\n- At least 3 distinct natural locations with different light, sound, and life.\n- An animal or plant needs help — the child must observe carefully before acting.\n- The natural world responds to the child's care — something heals, blooms, or moves.`,
     mothers_day: `\n\nMOTHER'S DAY THEME — LOVE LETTER ARC (CRITICAL):\nThis is a MOTHER'S DAY book — a love letter from the child to Mom.\n- Mom is a NAMED, VISIBLE co-protagonist. Use the name from customDetails (calls_mom / mom_name). If not provided, use "Mommy".\n- Mom MUST appear in illustration prompts for at least 6 of 13 spreads — describe her position, gesture, and expression each time.\n- The story is told from the child's perspective of love and gratitude.\n- Arc: everyday shared moments → realization of Mom's love → child's gesture of love back → heartfelt embrace.\n- Include the meaningful_moment from customDetails as a specific scene.\n- The ending is warm, tender, deeply emotional — Mom and child together. NOT a quest ending, NOT a bedtime ending.\n- IGNORE the "never depict family members" rule for Mom. Mom is a visible character in illustrations for this theme.\n- The repeated phrase should feel tender and personal in its final appearance.\n- This book should make a mother cry happy tears.`,
+    fathers_day: `\n\nFATHER'S DAY THEME — LOVE LETTER ARC (CRITICAL):\nThis is a FATHER'S DAY book — a love letter from the child to Dad.\n- Dad is a NAMED, VISIBLE co-protagonist. Use the name from customDetails (calls_dad / dad_name). If not provided, use "Daddy".\n- Dad MUST appear in illustration prompts for at least 6 of 13 spreads — describe his position, gesture, and expression each time.\n- The story is told from the child's perspective of love and admiration.\n- Arc: everyday shared moments (playing, building, exploring) → realization of Dad's love → child's gesture of love back → heartfelt embrace.\n- Include the meaningful_moment from customDetails as a specific scene.\n- The ending is warm, tender, deeply emotional — Dad and child together. NOT a quest ending, NOT a bedtime ending.\n- IGNORE the "never depict family members" rule for Dad. Dad is a visible character in illustrations for this theme.\n- The repeated phrase should feel tender and personal in its final appearance.\n- This book should make a father's eyes water.`,
   };
 
   if (themeJourneyRules[theme]) {

@@ -1187,6 +1187,7 @@ async function structureStoryPlan(storyText, childDetails, opts = {}) {
 
   const briefVars = {
     name: childDetails.name || childDetails.childName || 'the child',
+    age: childDetails.age || childDetails.childAge || 5,
     favorite_object: v2Vars?.favorite_object || getAgeAppropriateFallbackObject(childDetails.age || childDetails.childAge),
   };
 
@@ -1324,7 +1325,7 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
-  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread'].includes(i.type));
+  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread', 'phrase_repetition'].includes(i.type));
   return { valid: blocking.length === 0, issues };
 }
 
@@ -1519,7 +1520,7 @@ function parseJsonPlan(content, finishReason) {
  * @returns {{ title: string, entries: Array<object>, characterOutfit?: string, characterDescription?: string, recurringElement?: string, keyObjects?: string }}
  */
 function normalizePlan(parsed, childDetails, opts = {}) {
-  const { approvedTitle, v2Vars } = opts;
+  const { approvedTitle, v2Vars, theme } = opts;
 
   let entries;
   if (Array.isArray(parsed)) {
@@ -1551,7 +1552,30 @@ function normalizePlan(parsed, childDetails, opts = {}) {
 
   const dedEntry = entries.find(e => e.type === 'dedication_page');
   const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;
-  const subtitle = `A bedtime story for ${childDetails.name || 'the child'}`;
+  const THEME_SUBTITLES = {
+    adventure: 'An adventure story',
+    birthday: 'A birthday story',
+    birthday_magic: 'A birthday story',
+    holiday: 'A holiday story',
+    school: 'A school story',
+    space: 'A space adventure',
+    underwater: 'An underwater adventure',
+    fantasy: 'A fantasy quest',
+    nature: 'A nature story',
+    friendship: 'A friendship story',
+    mothers_day: 'A story about love',
+    fathers_day: 'A story about love',
+    anxiety: 'A story about being brave',
+    anger: 'A story about big feelings',
+    fear: 'A story about courage',
+    grief: 'A story about remembering',
+    loneliness: 'A story about connection',
+    new_beginnings: 'A story about new beginnings',
+    self_worth: 'A story about being you',
+    family_change: 'A story about family',
+  };
+  const subtitlePrefix = (theme && THEME_SUBTITLES[theme]) || 'A bedtime story';
+  const subtitle = `${subtitlePrefix} for ${childDetails.name || 'the child'}`;
 
   entries = [
     { type: 'half_title_page', title },
@@ -1623,9 +1647,11 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
 
+  const optsWithTheme = { ...opts, theme };
+
   if (!isPictureBook) {
     const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-    const plan = normalizePlan(parsed, childDetails, opts);
+    const plan = normalizePlan(parsed, childDetails, optsWithTheme);
     // Carry style_mode and techniques from v2Vars
     if (v2Vars?.style_mode) plan._styleMode = v2Vars.style_mode;
     if (v2Vars?.techniques) plan._techniques = v2Vars.techniques;
@@ -1661,14 +1687,14 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     // Override title if customer approved one
     if (approvedTitle) parsed.title = approvedTitle;
 
-    const plan = normalizePlan(parsed, childDetails, opts);
+    const plan = normalizePlan(parsed, childDetails, optsWithTheme);
 
     // Retry with single-call if spread count is too low
     const spreadCount = plan.entries.filter(e => e.type === 'spread').length;
     if (spreadCount < 10) {
       console.warn(`[storyPlanner] Only ${spreadCount} spreads from two-phase — retrying with single-call`);
       const retryParsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-      return normalizePlan(retryParsed, childDetails, opts);
+      return normalizePlan(retryParsed, childDetails, optsWithTheme);
     }
 
     // Validate the text quality programmatically
@@ -1695,7 +1721,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     console.warn(`[storyPlanner] Two-phase pipeline failed: ${twoPhaseErr.message} — falling back to single-call`);
     try {
       const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-      const plan = normalizePlan(parsed, childDetails, opts);
+      const plan = normalizePlan(parsed, childDetails, optsWithTheme);
       if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
@@ -1708,7 +1734,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
         ...opts,
         apiKeys: null, // forces Gemini path
       });
-      const plan = normalizePlan(parsed, childDetails, opts);
+      const plan = normalizePlan(parsed, childDetails, optsWithTheme);
       if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Gemini-only fallback complete in ${totalMs}ms`);
