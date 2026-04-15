@@ -402,6 +402,19 @@ WRITING QUALITY:
 - The child's dialogue must sound like a real ${age}-year-old: short sentences, concrete words
 - The ${favoriteObject} must appear in at least 5 spreads — it is the child's anchor
 
+PERSONAL DETAIL INTEGRATION (MANDATORY):
+You are given personal details about the child and their world. Transform them into natural story elements:
+- Convert interests into SKILLS the child uses during the adventure (e.g. "loves dinosaurs" → the child recognizes a fossil that others missed)
+- Convert real places into SETTINGS or destinations on the journey
+- Convert real people into characters who HELP or INSPIRE (mentioned in text, not illustrated unless specifically allowed)
+- Convert quirks or habits into CHARACTER MOMENTS that feel true to this specific child
+
+INTEGRATION QUALITY RULES:
+- Never force a detail where it breaks the story's flow. If "loves pizza" doesn't fit a space adventure naturally, reference it once in a small, genuine moment (packing a snack) — don't build a pizza planet.
+- Each detail should serve the STORY, not just prove you read the input. Ask: "Would this detail exist in this scene if the story demanded it?" If no, find a better scene for it.
+- It is better to integrate 2-3 details beautifully than to cram all details in awkwardly.
+- The reader should feel "this story was written FOR this child" — not "these details were inserted INTO a story."
+
 WHAT MAKES THIS BOOK GREAT:
 - A parent should feel their heart rate rise at spread 6 and exhale at spread 13
 - The child protagonist should feel brave, capable, and real

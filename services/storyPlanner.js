@@ -1297,6 +1297,31 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
+  // Cross-spread phrase repetition detection
+  const phraseMap = new Map();
+  for (const s of spreads) {
+    const allText = [s.left?.text, s.right?.text].filter(Boolean).join(' ').toLowerCase();
+    const words = allText.split(/\s+/).filter(Boolean);
+    const seenInThisSpread = new Set();
+    for (let len = 3; len <= 5; len++) {
+      for (let i = 0; i <= words.length - len; i++) {
+        const phrase = words.slice(i, i + len).join(' ');
+        if (seenInThisSpread.has(phrase)) continue;
+        seenInThisSpread.add(phrase);
+        if (!phraseMap.has(phrase)) phraseMap.set(phrase, []);
+        phraseMap.get(phrase).push(s.spread);
+      }
+    }
+  }
+  for (const [phrase, spreadNums] of phraseMap) {
+    if (spreadNums.length >= 3) {
+      issues.push({
+        type: 'phrase_repetition',
+        message: `Phrase "${phrase}" repeats across ${spreadNums.length} spreads (${spreadNums.join(', ')})`,
+      });
+    }
+  }
+
   const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread'].includes(i.type));
   return { valid: blocking.length === 0, issues };
 }
@@ -2218,6 +2243,13 @@ Flag and fix any lines that feel like greeting cards, motivational posters, or g
 - Any line that could appear in ANY children's book — replace with something only THIS story could say
 Replace kitschy lines with specific, concrete images that earn the same emotion: "She pressed her nose against the window. The stars were still there." beats "She felt grateful for the beautiful night."
 
+DETAIL INTEGRATION CHECK:
+If the story includes personal details (child's interests, favorite foods, real people, real places), check:
+- Do the details feel like natural parts of the story, or do they feel inserted/shoehorned?
+- BAD: "Kyleigh loved rockets, so she put rockets on everything." (detail as label, not story element)
+- GOOD: "She squinted at the sky and counted three, four, five — 'That one's a booster,' she whispered." (detail as character behavior)
+- If a detail feels forced, either rewrite the scene so the detail emerges from the child's ACTIONS and OBSERVATIONS, or move it to a scene where it fits more naturally.
+
 ─────────────────────────────────────────
 7. VERB POWER & EMOTIONAL RESTRAINT
 ─────────────────────────────────────────
@@ -2230,6 +2262,19 @@ EMOTIONAL RESTRAINT: Trust the reader to feel the emotion. Do NOT amplify or exp
 - The most powerful emotional moments use the FEWEST words.
 - When in doubt, CUT the emotional sentence. If the emotion is clear from context, the extra sentence weakens it.
 UNDERSTATEMENT > OVERSTATEMENT. Always.
+
+─────────────────────────────────────────
+8. CROSS-SPREAD REPETITION (CRITICAL)
+─────────────────────────────────────────
+Read ALL spreads together. Flag any of these:
+- The same phrase (3+ words) appearing in 3 or more different spreads (excluding the intentional repeated/evolving phrase from the story seed)
+- The same sentence structure repeating on consecutive spreads (e.g. "She [verbed] the [noun]. Then she [verbed]." appearing on spreads 4, 5, and 6)
+- The same descriptive pattern used for different moments (e.g. "one step, two step" used for walking, climbing, AND dancing)
+- Overuse of any single adjective or verb across the story (same word on 4+ spreads)
+
+Repetitive phrasing makes the story feel mechanical and AI-generated. Each spread must use FRESH language. If a phrase repeats, rewrite it with a completely different image or structure.
+
+Exception: The story's intentional repeated phrase (from the seed) MAY appear 2-4 times — this is deliberate and should evolve in meaning. Everything else must be unique.
 
 ─────────────────────────────────────────
 RULES FOR ALL REWRITES
