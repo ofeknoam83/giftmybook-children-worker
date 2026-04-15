@@ -2275,6 +2275,235 @@ Format your answer with each label on its own line followed by a colon and the a
         }
       }
 
+      // ── Holistic QA Gate: analyze all illustrations as a set ──
+      try {
+        const { runHolisticQa } = require('./services/illustrationQa');
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting holistic illustration QA');
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'qa', progress: 0.78, message: 'Running illustration quality checks...', logs: bookContext.logs });
+        }
+
+        // Collect all generated images with their base64 data
+        const allQaImages = [];
+        if (isGraphicNovel || storyPlan.isGraphicNovel) {
+          // GN pipeline: pages stored on storyPlan.pages
+          for (const page of (storyPlan.pages || [])) {
+            if (!page.illustrationUrl) continue;
+            let imgBase64 = null;
+            try {
+              const resp = await fetch(page.illustrationUrl);
+              if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
+            } catch {}
+            if (imgBase64) {
+              const panelTexts = (page.panels || []).map(p => p.dialogue || p.caption || '').filter(Boolean).join(' ');
+              allQaImages.push({
+                index: (page.pageNumber || allQaImages.length + 1) - 1,
+                imageBase64: imgBase64,
+                imageUrl: page.illustrationUrl,
+                pageText: panelTexts,
+                sceneDescription: page.sceneTitle || '',
+              });
+            }
+          }
+        } else if (!(isChapterBook || storyPlan.isChapterBook)) {
+          // Picture book / early reader: entries with illustration URLs
+          for (let i = 0; i < (entriesWithIllustrations || []).length; i++) {
+            const entry = entriesWithIllustrations[i];
+            const illUrl = entry.spreadIllustrationUrl || entry.illustrationUrl;
+            if (!illUrl) continue;
+            let imgBase64 = null;
+            try {
+              const resp = await fetch(illUrl);
+              if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
+            } catch {}
+            if (imgBase64) {
+              const spreadText = [entry.left?.text, entry.right?.text, entry.text].filter(Boolean).join(' ');
+              allQaImages.push({
+                index: i,
+                imageBase64: imgBase64,
+                imageUrl: illUrl,
+                pageText: spreadText || '',
+                sceneDescription: entry.spread_image_prompt || '',
+              });
+            }
+          }
+        }
+
+        if (allQaImages.length >= 2) {
+          const qaContext = {
+            characterRef: characterRefBase64 || null,
+            characterAnchor: storyPlan.characterAnchor || null,
+            characterOutfit: storyPlan.characterOutfit || '',
+            artStyle: style,
+            childName: childDetails.name || childDetails.childName,
+            bookType: bookFormat,
+            storyPlan,
+            allCharacters: storyPlan.additionalCoverCharacters
+              ? [childDetails.name || 'child', storyPlan.additionalCoverCharacters]
+              : [childDetails.name || 'child'],
+          };
+
+          const qaResult = await runHolisticQa(allQaImages, qaContext);
+          bookContext.log('info', `Holistic QA complete: score=${qaResult.score}, passed=${qaResult.passed}, issues=${qaResult.issues.length}`);
+
+          // Report QA results
+          if (progressCallbackUrl) {
+            reportProgressForce(progressCallbackUrl, {
+              bookId,
+              stage: 'qa_complete',
+              progress: 0.82,
+              message: `Quality check: ${qaResult.score}% (${qaResult.passed ? 'passed' : 'needs improvement'})`,
+              qaScore: qaResult.score,
+              qaPassed: qaResult.passed,
+              qaIssues: qaResult.issues,
+              logs: bookContext.logs,
+            });
+          }
+
+          // Retry failed spreads if QA didn't pass (max 2 rounds)
+          if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
+            const MAX_QA_RETRY_ROUNDS = 2;
+            for (let round = 1; round <= MAX_QA_RETRY_ROUNDS; round++) {
+              bookContext.log('info', `QA retry round ${round}/${MAX_QA_RETRY_ROUNDS}: ${qaResult.failedSpreads.length} spreads to fix`);
+              let anyFixed = false;
+
+              for (const failed of qaResult.failedSpreads) {
+                const failedChecks = failed.checks.map(c => `${c.check}: ${(c.issues || []).join(', ')}`).join('; ');
+                bookContext.log('info', `Retrying spread ${failed.index + 1} for: ${failedChecks}`);
+
+                // Build correction prompt with specific issues
+                const correctionNote = `CRITICAL QUALITY CORRECTIONS NEEDED:\n${failed.checks.map(c =>
+                  `- ${c.check}: ${(c.issues || []).join(', ')}`
+                ).join('\n')}\nPlease fix the above issues in this illustration.`;
+
+                try {
+                  let originalPrompt = '';
+                  let retryUrl = null;
+
+                  if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                    const page = (storyPlan.pages || [])[failed.index];
+                    if (page) {
+                      originalPrompt = page.fullPagePrompt || '';
+                      const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
+                      retryUrl = await generateIllustration(correctedPrompt, null, storyPlan.coverArtStyle || style, {
+                        apiKeys, costTracker, bookId, bookContext,
+                        childName: childDetails.name,
+                        childAge: parseInt(childDetails.age, 10) || childDetails.childAge,
+                        childPhotoUrl: resolvedChildPhotoUrl,
+                        _cachedPhotoBase64: characterRefBase64,
+                        _cachedPhotoMime: characterRefMime,
+                        characterDescription: storyPlan.characterDescription || '',
+                        characterAnchor: storyPlan.characterAnchor || null,
+                        characterOutfit: storyPlan.characterOutfit || '',
+                        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                        coverArtStyle: storyPlan.coverArtStyle || '',
+                        spreadIndex: failed.index,
+                        totalSpreads: (storyPlan.pages || []).length,
+                        comicPageMode: true,
+                        abortSignal: bookContext.abortController.signal,
+                        deadlineMs: 180000,
+                      });
+                      if (retryUrl) {
+                        page.illustrationUrl = retryUrl;
+                        anyFixed = true;
+                        bookContext.log('info', `QA retry: page ${failed.index + 1} regenerated`);
+                      }
+                    }
+                  } else {
+                    const entry = entriesWithIllustrations[failed.index];
+                    if (entry) {
+                      originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
+                      const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
+                      retryUrl = await generateIllustration(correctedPrompt, characterRef, style, {
+                        apiKeys, costTracker, bookId,
+                        childName: childDetails.name,
+                        characterOutfit: storyPlan.characterOutfit || '',
+                        characterDescription: storyPlan.characterDescription || '',
+                        characterAnchor: storyPlan.characterAnchor || null,
+                        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                        recurringElement: storyPlan.recurringElement || '',
+                        keyObjects: storyPlan.keyObjects || '',
+                        coverArtStyle: storyPlan.coverArtStyle || '',
+                        childPhotoUrl: resolvedChildPhotoUrl,
+                        _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
+                        _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
+                        spreadIndex: failed.index,
+                        totalSpreads: spreadEntries.length,
+                        childAge: childDetails.age || childDetails.childAge,
+                        pageText: entry.left?.text || entry.right?.text || '',
+                        isSpread: entry.type === 'spread',
+                        deadlineMs: 200000,
+                        abortSignal: bookContext.abortController.signal,
+                      });
+                      if (retryUrl) {
+                        entry.spreadIllustrationUrl = retryUrl;
+                        anyFixed = true;
+                        bookContext.log('info', `QA retry: spread ${failed.index + 1} regenerated`);
+                      }
+                    }
+                  }
+                } catch (retryErr) {
+                  bookContext.log('warn', `QA retry failed for spread ${failed.index + 1}`, { error: retryErr.message });
+                }
+              }
+
+              if (!anyFixed) {
+                bookContext.log('info', `QA retry round ${round}: no spreads were fixed, stopping retries`);
+                break;
+              }
+
+              // Re-run QA on the fixed spreads only
+              const fixedQaImages = [];
+              for (const failed of qaResult.failedSpreads) {
+                let illUrl, imgBase64;
+                if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                  const page = (storyPlan.pages || [])[failed.index];
+                  illUrl = page?.illustrationUrl;
+                } else {
+                  const entry = entriesWithIllustrations[failed.index];
+                  illUrl = entry?.spreadIllustrationUrl || entry?.illustrationUrl;
+                }
+                if (illUrl) {
+                  try {
+                    const resp = await fetch(illUrl);
+                    if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
+                  } catch {}
+                }
+                if (imgBase64) {
+                  const origImg = allQaImages.find(q => q.index === failed.index);
+                  fixedQaImages.push({
+                    index: failed.index,
+                    imageBase64: imgBase64,
+                    imageUrl: illUrl,
+                    pageText: origImg?.pageText || '',
+                    sceneDescription: origImg?.sceneDescription || '',
+                  });
+                }
+              }
+
+              if (fixedQaImages.length > 0) {
+                const reQaResult = await runHolisticQa(fixedQaImages, qaContext);
+                bookContext.log('info', `QA re-check round ${round}: score=${reQaResult.score}, passed=${reQaResult.passed}`);
+                if (reQaResult.passed) {
+                  bookContext.log('info', 'QA re-check passed after retries');
+                  break;
+                }
+                // Update failedSpreads for next round
+                qaResult.failedSpreads = reQaResult.failedSpreads;
+              } else {
+                break;
+              }
+            }
+          }
+        } else {
+          bookContext.log('info', 'Skipping holistic QA — fewer than 2 images available');
+        }
+      } catch (qaErr) {
+        bookContext.log('warn', 'Holistic QA failed (non-blocking)', { error: qaErr.message });
+        // QA failure should never block book generation
+      }
+
       // Note: old illustrations from previous runs are NOT deleted here.
       // They have unique timestamp-based filenames and don't collide with new ones.
       // Deleting them concurrently with PDF assembly caused 404 errors.
