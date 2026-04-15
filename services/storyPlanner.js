@@ -19,6 +19,29 @@ const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneline
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
 const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 480000;
 const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 240000;
+const THEME_SUBTITLES = {
+  adventure: 'An adventure story',
+  anxiety: 'A story about being brave',
+  anger: 'A story about big feelings',
+  bedtime: 'A bedtime story',
+  birthday: 'A birthday story',
+  birthday_magic: 'A birthday story',
+  family_change: 'A story about family',
+  fantasy: 'A fantasy quest',
+  fathers_day: 'A story about love',
+  fear: 'A story about courage',
+  friendship: 'A friendship story',
+  grief: 'A story about remembering',
+  holiday: 'A holiday story',
+  loneliness: 'A story about connection',
+  mothers_day: 'A story about love',
+  nature: 'A nature story',
+  new_beginnings: 'A story about new beginnings',
+  school: 'A school story',
+  self_worth: 'A story about being you',
+  space: 'A space adventure',
+  underwater: 'An underwater adventure',
+};
 
 // ── W1: Beat structure per spread ──
 const BEAT_STRUCTURE = `BEAT STRUCTURE — each spread has a PURPOSE:
@@ -1182,11 +1205,13 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
  * Uses JSON mode for reliable parsing.
  */
 async function structureStoryPlan(storyText, childDetails, opts = {}) {
-  const { costTracker, apiKeys, v2Vars, referenceContext } = opts;
+  const { costTracker, apiKeys, v2Vars, referenceContext, theme } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const briefVars = {
     name: childDetails.name || childDetails.childName || 'the child',
+    age: childDetails.age || childDetails.childAge || 5,
+    theme,
     favorite_object: v2Vars?.favorite_object || getAgeAppropriateFallbackObject(childDetails.age || childDetails.childAge),
   };
 
@@ -1519,7 +1544,7 @@ function parseJsonPlan(content, finishReason) {
  * @returns {{ title: string, entries: Array<object>, characterOutfit?: string, characterDescription?: string, recurringElement?: string, keyObjects?: string }}
  */
 function normalizePlan(parsed, childDetails, opts = {}) {
-  const { approvedTitle, v2Vars } = opts;
+  const { approvedTitle, v2Vars, theme } = opts;
 
   let entries;
   if (Array.isArray(parsed)) {
@@ -1550,8 +1575,10 @@ function normalizePlan(parsed, childDetails, opts = {}) {
   }
 
   const dedEntry = entries.find(e => e.type === 'dedication_page');
-  const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;
-  const subtitle = `A bedtime story for ${childDetails.name || 'the child'}`;
+  const childName = childDetails.name || childDetails.childName || 'the child';
+  const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childName}`;
+  const subtitlePrefix = (theme && THEME_SUBTITLES[theme]) || 'A bedtime story';
+  const subtitle = `${subtitlePrefix} for ${childName}`;
 
   entries = [
     { type: 'half_title_page', title },
@@ -1623,9 +1650,11 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   console.log(`[storyPlanner] Planning ${bookFormat} story for ${childDetails.name}, theme: ${theme}`);
 
+  const optsWithTheme = { ...opts, theme };
+
   if (!isPictureBook) {
     const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-    const plan = normalizePlan(parsed, childDetails, opts);
+    const plan = normalizePlan(parsed, childDetails, optsWithTheme);
     // Carry style_mode and techniques from v2Vars
     if (v2Vars?.style_mode) plan._styleMode = v2Vars.style_mode;
     if (v2Vars?.techniques) plan._techniques = v2Vars.techniques;
@@ -1655,20 +1684,20 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
     // Phase 2: Structure into JSON with illustration prompts
     const referenceContext = { interests, enrichedCustomDetails };
-    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
+    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, theme, beats: v2Vars?.beats, referenceContext });
     const parsed = parseJsonPlan(jsonContent);
 
     // Override title if customer approved one
     if (approvedTitle) parsed.title = approvedTitle;
 
-    const plan = normalizePlan(parsed, childDetails, opts);
+    const plan = normalizePlan(parsed, childDetails, optsWithTheme);
 
     // Retry with single-call if spread count is too low
     const spreadCount = plan.entries.filter(e => e.type === 'spread').length;
     if (spreadCount < 10) {
       console.warn(`[storyPlanner] Only ${spreadCount} spreads from two-phase — retrying with single-call`);
       const retryParsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-      return normalizePlan(retryParsed, childDetails, opts);
+      return normalizePlan(retryParsed, childDetails, optsWithTheme);
     }
 
     // Validate the text quality programmatically
@@ -1695,7 +1724,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     console.warn(`[storyPlanner] Two-phase pipeline failed: ${twoPhaseErr.message} — falling back to single-call`);
     try {
       const parsed = await planStorySingleCall(childDetails, theme, bookFormat, enrichedCustomDetails, opts);
-      const plan = normalizePlan(parsed, childDetails, opts);
+      const plan = normalizePlan(parsed, childDetails, optsWithTheme);
       if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Fallback single-call complete in ${totalMs}ms`);
@@ -1708,7 +1737,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
         ...opts,
         apiKeys: null, // forces Gemini path
       });
-      const plan = normalizePlan(parsed, childDetails, opts);
+      const plan = normalizePlan(parsed, childDetails, optsWithTheme);
       if (narrativePatterns) plan._narrativePatterns = narrativePatterns;
       const totalMs = Date.now() - pipelineStart;
       console.log(`[storyPlanner] Gemini-only fallback complete in ${totalMs}ms`);

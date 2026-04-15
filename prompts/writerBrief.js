@@ -1258,7 +1258,7 @@ Rules:
 FINAL CHECK
 -------------------------------------
 Before outputting, verify:
-- Are there exactly 12 spreads?
+- Are there exactly 13 spreads?
 - Does characterDescription include a specific hair description (color, style, length, texture)?
 - Does characterDescription explicitly mention hair accessories or state "no hair accessories"?
 - Does characterOutfit describe a complete, specific outfit?
@@ -1772,10 +1772,24 @@ function buildWritingBrief(vars) {
  * @returns {string}
  */
 function buildStructureBrief(vars) {
-  const { name, favorite_object } = vars;
+  const { name, favorite_object, age, theme } = vars;
+  const { tier, config } = getAgeTier(age);
   let brief = STRUCTURE_BRIEF_TEMPLATE;
   brief = brief.replace(/\{name\}/g, name || 'the child');
   brief = brief.replace(/\{favorite_object\}/g, favorite_object || 'a favorite toy');
+  if (theme === 'mothers_day') {
+    brief = brief.replace(
+      /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+      '- Mom MAY appear in illustration prompts for this Mother\'s Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.'
+    );
+  } else if (theme === 'fathers_day') {
+    brief = brief.replace(
+      /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
+      '- Dad MAY appear in illustration prompts for this Father\'s Day book. Describe him warmly and consistently. Other family members (siblings, grandparents, mom) must NOT appear in illustrations.'
+    );
+  }
+  // Append age-tier guidance so the structurer produces age-appropriate output
+  brief += `\n\nAGE-TIER GUIDANCE (Tier ${tier}, age ${age || 5}):\n- Max words per spread: ${config.maxWordsPerSpread || 30}\n- Vocabulary level: ${config.vocabulary || 'age-appropriate'}\n- Preserve the text exactly as written — do NOT simplify or complicate it.`;
   return brief;
 }
 

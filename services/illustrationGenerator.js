@@ -1288,11 +1288,15 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
  * Quick Gemini Flash check: does the generated illustration match the character reference?
  * Returns { consistent: boolean, issues: string[] }
  */
-async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor, characterOutfit) {
+async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor, characterOutfit, secondaryCharacterDescription) {
   if (!generatedImageBase64 || !referenceImageBase64) return { consistent: true, issues: [] };
 
   const apiKey = getNextApiKey();
   if (!apiKey) return { consistent: true, issues: [] };
+
+  const secondaryCheck = secondaryCharacterDescription
+    ? `\n5. SECONDARY CHARACTER: If a secondary character (parent/adult) appears in the generated image, check that their hair color/style, skin tone, and general appearance match this description: ${secondaryCharacterDescription}. If the secondary character is NOT present in the generated image, skip this check.`
+    : '';
 
   try {
     const resp = await fetch(
@@ -1309,7 +1313,7 @@ Check ONLY these critical dimensions — ignore everything else:
 1. ETHNICITY/SKIN: Is the child the same ethnicity with a similar skin tone? Minor lighting-based shade differences are acceptable.
 2. HAIR: Same general style (e.g., pigtails, braids, short) and color? Minor accessory differences (different beads, slightly different ties) are acceptable.
 3. CORE GARMENTS: Same main clothing items (top, bottom, shoes) with similar colors? Minor detail differences (button count, pocket placement, exact trim pattern) are acceptable.
-4. FACE: Similar facial structure and features?
+4. FACE: Similar facial structure and features?${secondaryCheck}
 
 DO NOT FLAG any of these — they are expected variations:
 - Items the character is holding (these change per scene)
