@@ -465,7 +465,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       if (genBase64 && refBase64ForCheck) {
         try {
           const { checkCharacterConsistency } = require('./services/illustrationGenerator');
-          const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
+          const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '', storyPlan.additionalCoverCharacters || null);
           if (!consistency.consistent) {
             bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
             try {
@@ -499,8 +499,11 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           const { checkCharacterCount } = require('./services/illustrationGenerator');
           const entry = results[idx];
           const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
-          const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
-          const expectedCharacters = { childCount: 1, adultCount: mentionsParent ? 1 : 0 };
+          const spreadImagePrompt = entry.spread_image_prompt || '';
+          const searchableText = spreadText + ' ' + spreadImagePrompt;
+          const hasSecondaryCharacters = !!storyPlan.additionalCoverCharacters;
+          const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(searchableText);
+          const expectedCharacters = { childCount: 1, adultCount: (mentionsParent && hasSecondaryCharacters) ? 1 : 0 };
           const countResult = await checkCharacterCount(genBase64, expectedCharacters);
           if (!countResult.passed) {
             bookContext.log('warn', `Spread ${idx + 1} character count mismatch`, { message: countResult.message });
@@ -879,7 +882,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
           } catch {}
         }
         if (genBase64) {
-          const consistency = await checkCharacterConsistency(genBase64, characterRefBase64, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
+          const consistency = await checkCharacterConsistency(genBase64, characterRefBase64, storyPlan.characterAnchor, storyPlan.characterOutfit || '', storyPlan.additionalCoverCharacters || null);
           if (!consistency.consistent) {
             bookContext.log('warn', `Page ${completed + 1} character inconsistency detected`, { issues: consistency.issues });
             // Retry ONCE with corrective prompt
@@ -2118,7 +2121,7 @@ Format your answer with each label on its own line followed by a colon and the a
                   }
                 } catch {}
                 if (genBase64) {
-                  const consistency = await checkCharacterConsistency(genBase64, chapterRefBase64, storyPlan.characterAnchor, storyPlan.characterOutfit || '');
+                  const consistency = await checkCharacterConsistency(genBase64, chapterRefBase64, storyPlan.characterAnchor, storyPlan.characterOutfit || '', storyPlan.additionalCoverCharacters || null);
                   if (!consistency.consistent) {
                     bookContext.log('warn', `Chapter ${i + 1} character inconsistency detected`, { issues: consistency.issues });
                     try {
@@ -2337,7 +2340,7 @@ Format your answer with each label on its own line followed by a colon and the a
               characterDescription: storyPlan?.characterDescription || null,
               characterAnchor: storyPlan?.characterAnchor || null,
               theme: theme || null,
-              momDescription: (theme === 'mothers_day' && storyPlan?.momDescription) ? storyPlan.momDescription : null,
+              momDescription: (theme === 'mothers_day' && storyPlan?.additionalCoverCharacters) ? storyPlan.additionalCoverCharacters : null,
             }).catch(e => {
               console.warn(`[server] Upsell covers background error: ${e.message}`);
               return [];
@@ -2445,12 +2448,14 @@ Format your answer with each label on its own line followed by a colon and the a
           try {
             bookContext.log('info', 'Generating upsell covers (4 styles)...');
             const upsellCostTracker = new CostTracker();
+            const parentDescription = ((theme === 'mothers_day' || theme === 'fathers_day') && storyPlan?.additionalCoverCharacters)
+              ? storyPlan.additionalCoverCharacters : null;
             const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
               apiKeys, costTracker: upsellCostTracker,
               characterDescription: storyPlan?.characterDescription || null,
               characterAnchor: storyPlan?.characterAnchor || null,
               theme: theme || null,
-              momDescription: (theme === 'mothers_day' && storyPlan?.momDescription) ? storyPlan.momDescription : null,
+              momDescription: parentDescription,
             }).catch(e => {
               console.warn(`[server] Upsell covers background error: ${e.message}`);
               return [];
