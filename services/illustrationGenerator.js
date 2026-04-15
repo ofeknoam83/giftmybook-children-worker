@@ -594,6 +594,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (characterDescription) {
     parts.push(`CHARACTER APPEARANCE: ${characterDescription}`);
   }
+
+  // Name interpretation rule — prevent literal depiction of names
+  const childNameStr = opts.childName || childName || '';
+  if (childNameStr) {
+    parts.push(`\nNAME INTERPRETATION RULE (CRITICAL):\nAll character names are PROPER NOUNS referring to HUMAN characters.\n"${childNameStr}" is a HUMAN CHILD — do NOT depict as a literal ${childNameStr.toLowerCase()} (object/animal/flower/concept).`);
+    if (opts.additionalCoverCharacters) {
+      parts.push(`Any named characters in this story are HUMAN. Never depict a person as a literal object based on their name.`);
+    }
+  }
   if (characterOutfit) {
     parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
   }
@@ -630,8 +639,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`);
   parts.push(``);
   const charCountRule = opts.additionalCoverCharacters
-    ? `1. CHARACTER COUNT: The MAIN CHILD plus the additional cover characters listed below are allowed. No invented characters beyond those listed. Do NOT duplicate the child.`
-    : `1. CHARACTER COUNT: EXACTLY ONE CHILD in this image. Only one. Not two. Not a smaller version in the background. Not a reflection. Not a shadow copy. ONE CHILD TOTAL in the entire image. If you draw two children, the image will be rejected.`;
+    ? `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the main child plus the additional cover characters listed below and no others.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`
+    : `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions child + one parent → EXACTLY TWO people visible.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
   parts.push(charCountRule);
   parts.push(``);
   parts.push(`2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`);
@@ -767,6 +776,20 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   parts.push(`SCENE TO ILLUSTRATE: ${cleanScene}`);
 
+  // Shot type enforcement
+  if (opts.shotType) {
+    parts.push(`\nCOMPOSITION — SHOT TYPE: ${opts.shotType.toUpperCase()}`);
+    if (opts.shotType === 'wide') {
+      parts.push('This MUST be a WIDE SHOT. Show the full scene with characters visible head-to-toe in their environment. Do NOT crop to close-up or detail. Show the setting.');
+    } else if (opts.shotType === 'medium') {
+      parts.push('This MUST be a MEDIUM SHOT. Characters visible from approximately waist up, engaged in their activity.');
+    } else if (opts.shotType === 'close-up') {
+      parts.push('This MUST be a CLOSE-UP. Focus tightly on the character face, hands, or key detail. Fill the frame.');
+    } else if (opts.shotType === 'overhead') {
+      parts.push('This MUST be an OVERHEAD/BIRD\'S-EYE VIEW looking down on the scene from above.');
+    }
+  }
+
   // Admin prompt injection — placed immediately after scene, with high-priority framing
   if (opts.promptInjection && opts.promptInjection.trim()) {
     parts.push('');
@@ -824,13 +847,22 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
       : '- FONT: Use Bubblegum Sans exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Bubblegum Sans only, consistently throughout.';
     parts.push(fontInstruction);
     parts.push('- FONT CONSISTENCY (CRITICAL): Use the EXACT same font style, font size, and text color across ALL illustrations in this book. Use a clean, rounded, child-friendly sans-serif font. The font size should be large enough for children to read — approximately 22pt equivalent — match the exact size used on the first spread. Text color should be dark (black or very dark gray) for maximum readability.');
+    if (opts.firstSpreadRefBase64 && spreadIndex > 0) {
+      parts.push('- FONT MATCHING (CRITICAL): The FIRST ILLUSTRATION is provided as a style reference. You MUST match the EXACT text appearance from that first illustration: same font style, weight, size relative to the page, same text color treatment, same text positioning style. Your text must look like it belongs in the same book.');
+    }
     parts.push('- The text rendering style (font, size, color, line spacing) must be IDENTICAL on every page — as if the same typesetter set every page.');
     parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): This image will be cropped ~7% from every edge when printed. To survive this crop, ALL text must be at least 25% away from the top edge, 25% away from the bottom edge, and 12% away from the left and right edges. Text within 25% of any edge WILL BE CROPPED OFF in the final book. If in doubt, move the text further toward the center of the image.');
     parts.push('- CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Place text in a narrow sidebar-style column on the left or right side of the illustration, leaving at least 65% of the width for the artwork. If the text is long, wrap it into more lines to keep the column narrow. NEVER stretch text across the full width of the image. Verify text width before finalizing.');
-    if (isSpread) {
+    // Position-aware text placement based on character position
+    if (opts.characterPosition === 'left_third') {
+      parts.push('- TEXT PLACEMENT — POSITION: Place text on the RIGHT side of the image (right 30%), away from the character on the left. ONE compact text block only.');
+    } else if (opts.characterPosition === 'right_third') {
+      parts.push('- TEXT PLACEMENT — POSITION: Place text on the LEFT side of the image (left 30%), away from the character on the right. ONE compact text block only.');
+    } else if (isSpread) {
       parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 30% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
     }
     parts.push('- Place the text in the top or bottom portion of the image, where the background is simplest/softest');
+    parts.push('- FORBIDDEN: Text must NEVER overlap with any person, face, body, or key subject in the illustration');
     parts.push('- TEXT INTEGRATION: Text must be embedded directly into the illustration composition — placed in a dedicated text area (white or cream margin, or a clear area within the scene). NEVER place text as an overlay on top of the illustration with a semi-transparent or colored background box. The text area should be part of the page layout design, not a floating box over artwork.');
     parts.push('- FORBIDDEN: Semi-transparent text boxes, text banners overlaid on the illustration, text with background highlights placed over the artwork. Text must sit in its own clean space within the page layout.');
     parts.push('- Text color should contrast with its immediate background for readability');

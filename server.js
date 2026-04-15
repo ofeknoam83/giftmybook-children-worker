@@ -360,6 +360,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             ? 'image/jpeg'
             : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
 
+          // Extract shot_type and character_position from the story plan entry
+          const entryData = entries[idx] || {};
           const illustrationPromise = generateIllustration(prompt, characterRef, style, {
             apiKeys,
             costTracker,
@@ -383,6 +385,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             deadlineMs: 200000,
             abortSignal: bookContext.abortController.signal,
             prevIllustrationUrl,
+            shotType: entryData.shot_type || null,
+            characterPosition: entryData.character_position || null,
             promptInjection: isFirstSpread
               ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
               : '',
@@ -2652,7 +2656,8 @@ Format your answer with each label on its own line followed by a colon and the a
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, characterAnchor, recurringElement, keyObjects,
-    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters } = req.body;
+    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters,
+    totalSpreads, firstSpreadRefUrl } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2718,6 +2723,19 @@ Format: each label on its own line followed by a colon and the answer.` },
     }
   }
 
+  // Download first spread as base64 for outfit/font reference during regeneration
+  let firstSpreadRefBase64 = null;
+  if (firstSpreadRefUrl && spreadIndex > 0) {
+    try {
+      const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
+      const firstSpreadPhoto = await downloadPhotoAsBase64(firstSpreadRefUrl);
+      firstSpreadRefBase64 = firstSpreadPhoto.base64;
+      console.log(`[regen] Downloaded first spread ref for outfit/font consistency`);
+    } catch (e) {
+      console.log(`[regen] Could not download first spread ref: ${e.message}`);
+    }
+  }
+
   try {
     // Generate the illustration
     const result = await generateIllustration(spreadImagePrompt, null, style, {
@@ -2726,6 +2744,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       childName,
       childPhotoUrl,
       spreadIndex,
+      totalSpreads: totalSpreads || 0,
       pageText: pageText || '',
       characterOutfit,
       characterDescription,
@@ -2740,6 +2759,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       prevIllustrationUrl: prevIllustrationUrl || null,
       prevIllustrationUrls: Array.isArray(prevIllustrationUrls) && prevIllustrationUrls.length > 0 ? prevIllustrationUrls : (prevIllustrationUrl ? [prevIllustrationUrl] : []),
       _cachedPhotoBase64: cachedPhotoBase64 || null,
+      firstSpreadRefBase64,
     });
 
     if (!result) {
