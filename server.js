@@ -413,6 +413,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
 
       // ── C5: Post-generation visual QA checks ──
       // Download generated image once for all checks
+      const originalImageUrl = imageUrl; // track original to detect if QA retries changed the image
       let genBase64 = null;
       if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
         try {
@@ -578,6 +579,11 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
               if (retryResult) {
                 imageUrl = retryResult;
+                genBase64 = null;
+                try {
+                  const reResp = await fetch(imageUrl);
+                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
+                } catch {}
                 bookContext.log('info', `Spread ${idx + 1} font consistency retry succeeded`);
               }
             } catch (retryErr) {
@@ -588,6 +594,33 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           }
         } catch (checkErr) {
           bookContext.log('warn', `Font consistency check error for spread ${idx + 1}`, { error: checkErr.message });
+        }
+      }
+
+      // Final re-check: if any QA retry changed the image, verify character consistency one more time
+      if (genBase64 && refBase64ForCheck && imageUrl !== originalImageUrl) {
+        try {
+          const { checkCharacterConsistency } = require('./services/illustrationGenerator');
+          const finalCheck = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '', storyPlan.additionalCoverCharacters || null);
+          if (!finalCheck.consistent) {
+            bookContext.log('warn', `Spread ${idx + 1} post-retry consistency re-check failed`, { issues: finalCheck.issues });
+            // One last attempt with explicit correction
+            try {
+              const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${finalCheck.issues.join(', ')}`;
+              const correctedPrompt = correctionNote + '\n\n' + prompt;
+              const finalRetry = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+              if (finalRetry) {
+                imageUrl = finalRetry;
+                bookContext.log('info', `Spread ${idx + 1} final consistency retry succeeded`);
+              }
+            } catch (retryErr) {
+              bookContext.log('warn', `Final consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
+            }
+          } else {
+            bookContext.log('info', `Spread ${idx + 1} post-retry consistency re-check OK`);
+          }
+        } catch (checkErr) {
+          bookContext.log('warn', `Post-retry consistency re-check error for spread ${idx + 1}`, { error: checkErr.message });
         }
       }
 
