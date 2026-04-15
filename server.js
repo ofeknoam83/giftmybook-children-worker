@@ -2984,7 +2984,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
   try {
     const { generateColoringPages, generateOriginalColoringPages, planColoringScenes } = require('./services/coloringBookGenerator');
     const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-    const { buildColoringBookPdf } = require('./services/coloringBookLayout');
+    const { buildColoringBookPdf, buildInteriorPdf, buildCoverWrapPdf, generateCoverThumbnailPng, imageToPreviewPng } = require('./services/coloringBookLayout');
     const { uploadBuffer } = require('./services/gcsStorage');
 
     let pages;
@@ -3032,15 +3032,75 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     const successCount = pages.filter(p => p.success).length;
     console.log(`[server] Coloring page ${mode}: ${successCount}/${totalPages} succeeded`);
 
-    const pdfBuffer = await buildColoringBookPdf(pages, { title, childName, pagesOnly });
-    console.log(`[server] Coloring book PDF built: ${Math.round(pdfBuffer.length / 1024)}KB`);
+    // Pick a cover image from the first successful coloring page
+    const firstSuccessPage = pages.find(p => p.success && p.buffer);
+    const coverImageBuffer = firstSuccessPage ? firstSuccessPage.buffer : undefined;
 
-    const gcsPath = `children-jobs/${bookId}/coloring-book.pdf`;
-    const coloringBookPdfUrl = await uploadBuffer(pdfBuffer, gcsPath, 'application/pdf');
-    console.log(`[server] Coloring book PDF uploaded: ${coloringBookPdfUrl.slice(0, 80)}`);
+    // Build all PDFs in parallel
+    const [legacyPdfBuffer, interiorPdfBuffer, coverPdfBuffer] = await Promise.all([
+      buildColoringBookPdf(pages, { title, childName, pagesOnly, coverImageBuffer }),
+      pagesOnly ? null : buildInteriorPdf(pages, { title, childName }),
+      pagesOnly ? null : buildCoverWrapPdf({ title, childName, coverImageBuffer }),
+    ]);
+    console.log(`[server] Coloring book PDFs built — legacy: ${Math.round(legacyPdfBuffer.length / 1024)}KB` +
+      (interiorPdfBuffer ? `, interior: ${Math.round(interiorPdfBuffer.length / 1024)}KB` : '') +
+      (coverPdfBuffer ? `, cover: ${Math.round(coverPdfBuffer.length / 1024)}KB` : ''));
+
+    // Upload PDFs in parallel
+    const gcsBase = `children-jobs/${bookId}/coloring`;
+    const uploadPromises = [
+      uploadBuffer(legacyPdfBuffer, `${gcsBase}/legacy.pdf`, 'application/pdf'),
+    ];
+    if (interiorPdfBuffer) {
+      uploadPromises.push(uploadBuffer(interiorPdfBuffer, `${gcsBase}/interior.pdf`, 'application/pdf'));
+    }
+    if (coverPdfBuffer) {
+      uploadPromises.push(uploadBuffer(coverPdfBuffer, `${gcsBase}/cover.pdf`, 'application/pdf'));
+    }
+
+    // Generate cover thumbnail and preview PNGs
+    const pngPromises = [];
+    if (!pagesOnly && coverImageBuffer) {
+      pngPromises.push(
+        generateCoverThumbnailPng({ title, childName, coverImageBuffer })
+          .then(buf => uploadBuffer(buf, `${gcsBase}/cover-thumbnail.png`, 'image/png'))
+      );
+    }
+
+    // Pick up to 3 successful pages for previews
+    const previewPages = pages.filter(p => p.success && p.buffer).slice(0, 3);
+    for (let i = 0; i < previewPages.length; i++) {
+      pngPromises.push(
+        imageToPreviewPng(previewPages[i].buffer, 800)
+          .then(buf => uploadBuffer(buf, `${gcsBase}/preview-${i + 1}.png`, 'image/png'))
+      );
+    }
+
+    const [legacyUrl, ...restUrls] = await Promise.all(uploadPromises);
+    const interiorPdfUrl = interiorPdfBuffer ? restUrls[0] : undefined;
+    const coverPdfUrl = coverPdfBuffer ? restUrls[interiorPdfBuffer ? 1 : 0] : undefined;
+
+    const pngUrls = await Promise.all(pngPromises);
+    const coverImageUrl = (!pagesOnly && coverImageBuffer) ? pngUrls[0] : undefined;
+    const previewImageUrls = pngUrls.slice(coverImageUrl ? 1 : 0);
+
+    console.log(`[server] Coloring book uploaded — legacy: ${legacyUrl.slice(0, 80)}`);
+    if (interiorPdfUrl) console.log(`[server] Interior PDF: ${interiorPdfUrl.slice(0, 80)}`);
+    if (coverPdfUrl) console.log(`[server] Cover PDF: ${coverPdfUrl.slice(0, 80)}`);
 
     const failedErrors = pages.filter(p => !p.success).map(p => p.error).filter(Boolean);
-    res.json({ success: true, coloringBookPdfUrl, successCount, totalPages, failedErrors, mode });
+    res.json({
+      success: true,
+      coloringBookPdfUrl: legacyUrl,  // backwards compat
+      interiorPdfUrl,
+      coverPdfUrl,
+      coverImageUrl,
+      previewImageUrls,
+      successCount,
+      totalPages,
+      failedErrors,
+      mode,
+    });
   } catch (err) {
     console.error(`[server] /generate-coloring-book failed (${mode}): ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
