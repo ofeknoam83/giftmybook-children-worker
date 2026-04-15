@@ -15,12 +15,12 @@ const MAX_IMAGES_PER_REQUEST = 4;
 // ── Check weights ──
 const CHECK_WEIGHTS = {
   characterConsistency: 0.25,
-  colorPalette: 0.10,
-  fontConsistency: 0.15,
-  anatomical: 0.15,
-  textAccuracy: 0.15,
+  fontConsistency: 0.20,
+  textWidth: 0.15,
+  anatomical: 0.10,
+  textAccuracy: 0.10,
+  colorPalette: 0.05,
   artStyle: 0.05,
-  textWidth: 0.05,
   sceneAlignment: 0.05,
   contentSafety: 0.05,
 };
