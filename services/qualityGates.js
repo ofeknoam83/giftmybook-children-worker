@@ -213,4 +213,54 @@ approved = true if total >= 24 (out of 40). weakestSpreads = spread numbers that
   return { approved: true, total: 60, feedback: '' };
 }
 
-module.exports = { checkCustomDetailsUsage, criticStory };
+// ── Pronoun consistency safety net ──
+
+const { checkPronounConsistency } = require('./pronouns');
+
+/**
+ * Final safety net: scan the complete story text for wrong-gender pronouns.
+ * Run after all spreads are generated. Logs warnings but does not auto-fix
+ * (individual spread fixes happen in textGenerator.js).
+ *
+ * @param {Array} storyEntries - array of spread objects with text fields
+ * @param {string} gender - 'female', 'male', or 'neutral'
+ * @param {string} childName - for logging
+ * @returns {{ valid: boolean, totalIssues: number, spreadIssues: Array }}
+ */
+function checkStoryPronouns(storyEntries, gender, childName) {
+  if (!gender || gender === 'neutral' || gender === 'not specified') {
+    return { valid: true, totalIssues: 0, spreadIssues: [] };
+  }
+
+  if (!storyEntries || storyEntries.length === 0) {
+    return { valid: true, totalIssues: 0, spreadIssues: [] };
+  }
+
+  const spreadIssues = [];
+  let totalIssues = 0;
+
+  storyEntries.forEach((entry, idx) => {
+    const text = entry.text || [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
+    if (!text) return;
+
+    const check = checkPronounConsistency(text, gender);
+    if (!check.valid) {
+      totalIssues += check.issues.length;
+      spreadIssues.push({
+        spread: idx + 1,
+        issues: check.issues,
+      });
+    }
+  });
+
+  if (totalIssues > 0) {
+    console.log(`[pronoun-check] Story for ${childName}: ${totalIssues} wrong-gender pronoun(s) found across ${spreadIssues.length} spread(s)`);
+    spreadIssues.forEach(s => {
+      console.log(`[pronoun-check]   Spread ${s.spread}: ${s.issues.map(i => `"${i.pronoun}" near "${i.context.trim()}"`).join(', ')}`);
+    });
+  }
+
+  return { valid: totalIssues === 0, totalIssues, spreadIssues };
+}
+
+module.exports = { checkCustomDetailsUsage, criticStory, checkStoryPronouns };

@@ -8,6 +8,7 @@
 const { TEXT_GENERATOR_SYSTEM: PB_TEXT_SYSTEM, VOCABULARY_CHECK_PROMPT } = require('../prompts/pictureBook');
 const { TEXT_GENERATOR_SYSTEM: ER_TEXT_SYSTEM } = require('../prompts/earlyReader');
 const gemini = require('./gemini');
+const { getPronounInfo, buildPronounInstruction, checkPronounConsistency, simpleReplace } = require('./pronouns');
 
 /**
  * Remove em-dashes, en-dashes, and normalize punctuation for children's books.
@@ -115,12 +116,15 @@ async function generateSpreadText(spreadPlan, childDetails, bookFormat, storyCon
     .map((t, i) => `[Previous spread]: ${t}`)
     .join('\n');
 
+  const pronouns = getPronounInfo(childDetails.gender);
+  const pronounInstruction = buildPronounInstruction(childDetails.name, childDetails.gender);
+
   const userPrompt = `Story title: "${storyContext.title || 'Untitled'}"
-Child character: ${childDetails.name}, age ${childDetails.age}, ${childDetails.gender}
+Child character: ${childDetails.name}, age ${childDetails.age}, ${childDetails.gender} (ALWAYS use ${pronouns.pair} pronouns)
 Spread ${spreadPlan.spreadNumber} of ${storyContext.totalSpreads || '?'}
 Layout: ${spreadPlan.layoutType}
 Mood: ${spreadPlan.mood || 'cheerful'}
-
+${pronounInstruction ? `\n${pronounInstruction}\n` : ''}
 Scene outline: ${spreadPlan.text || spreadPlan.illustrationDescription || 'Continue the story'}
 
 ${previousContext ? `Recent story context:\n${previousContext}\n` : ''}
@@ -156,6 +160,53 @@ Write the final text for this spread. ${rules.minWords}-${rules.maxWords} words.
     }
   } catch (vocabErr) {
     console.warn(`[textGenerator] Vocabulary check failed (using original text): ${vocabErr.message}`);
+  }
+
+  // Pronoun consistency check and auto-correct
+  try {
+    const pronounCheck = checkPronounConsistency(text, childDetails.gender);
+    if (!pronounCheck.valid) {
+      console.log(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: mismatch detected — wrong pronouns: ${pronounCheck.issues.map(i => `"${i.pronoun}" near "${i.context.trim()}"`).join(', ')}`);
+
+      // Step 1: Try simple string replacement (fast, free)
+      const replaced = simpleReplace(text, childDetails.gender);
+      const recheck = checkPronounConsistency(replaced, childDetails.gender);
+
+      if (recheck.valid) {
+        console.log(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: fixed via simple replacement`);
+        text = replaced;
+      } else {
+        // Step 2: Fall back to LLM correction
+        console.log(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: simple replacement insufficient (${recheck.issues.length} issues remain), trying LLM correction`);
+        try {
+          const correctionPrompt = `Fix the pronouns in this children's book text. ${childDetails.name} is a ${childDetails.gender === 'female' ? 'girl' : 'boy'} — use ONLY ${pronouns.pair} pronouns when referring to ${childDetails.name}. Keep everything else exactly the same. Do not add, remove, or change any other words.\n\nText to fix:\n${replaced}\n\nFixed text:`;
+          const correctionResult = await callGeminiText(
+            'You are a precise text editor. Fix only the pronouns as instructed. Return only the corrected text.',
+            correctionPrompt,
+            { maxOutputTokens: 500, temperature: 0.1 }
+          );
+          if (correctionResult.text && correctionResult.text.trim()) {
+            const llmFixed = correctionResult.text.trim();
+            const finalCheck = checkPronounConsistency(llmFixed, childDetails.gender);
+            if (finalCheck.valid) {
+              console.log(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: fixed via LLM correction`);
+              text = llmFixed;
+            } else {
+              console.log(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: LLM correction still has ${finalCheck.issues.length} issues — using simple-replaced version`);
+              text = replaced;
+            }
+            if (costTracker) {
+              costTracker.addTextUsage(GEMINI_MODEL, correctionResult.inputTokens, correctionResult.outputTokens);
+            }
+          }
+        } catch (llmErr) {
+          console.warn(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: LLM correction failed (${llmErr.message}) — using simple-replaced version`);
+          text = replaced;
+        }
+      }
+    }
+  } catch (pronounErr) {
+    console.warn(`[pronoun-fix] Spread ${spreadPlan.spreadNumber}: pronoun check failed: ${pronounErr.message}`);
   }
 
   // Word count validation
