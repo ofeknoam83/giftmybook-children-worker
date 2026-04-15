@@ -357,6 +357,13 @@ ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
 - The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
 
+ANTI-REPETITION RULE (CRITICAL):
+- Do NOT reuse the same phrase, image, or sentence structure across multiple spreads.
+- Each spread must use FRESH language — if you described the child "taking a step" on one spread, use a completely different image for movement on the next.
+- The ONLY phrase that may repeat is the story's intentional evolving phrase (from the phrase_arc). Everything else must be unique.
+- If you catch yourself writing a similar construction to a previous spread, stop and rewrite from a different angle.
+- Repetitive phrasing is the #1 sign of lazy AI writing. A parent must never think "didn't I just read this?"
+
 {rhythmGuide}
 
 TONE:
@@ -885,6 +892,13 @@ ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
 - REJECT moralizing: never end with a lesson, a realization announced aloud, or a character explaining what they learned.
 - The story should make the parent FEEL something real — not just feel like they read a nice story. Aim for a lump in the throat, not a nod of approval.
+
+ANTI-REPETITION RULE (CRITICAL):
+- Do NOT reuse the same phrase, image, or sentence structure across multiple spreads.
+- Each spread must use FRESH language — if you described the child "taking a step" on one spread, use a completely different image for movement on the next.
+- The ONLY phrase that may repeat is the story's intentional evolving phrase (from the phrase_arc). Everything else must be unique.
+- If you catch yourself writing a similar construction to a previous spread, stop and rewrite from a different angle.
+- Repetitive phrasing is the #1 sign of lazy AI writing. A parent must never think "didn't I just read this?"
 
 {rhythmGuide}
 
