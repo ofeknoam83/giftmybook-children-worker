@@ -797,10 +797,12 @@ Output these in your JSON: "style_mode": "sparse|playful|lyrical|tender|mischiev
 You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats, style_mode, techniques.`;
 
   const genderLabel = gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : (gender && gender !== 'neutral' && gender !== 'not specified' ? gender : '');
+  const pronounPair = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
 
   let userPrompt = `THEME: ${theme || 'adventure'}
-Child: ${name}, age ${age}${genderLabel ? `, ${genderLabel}` : ''}
-Interests: ${interests.length ? interests.join(', ') : 'not specified'}`;
+Child: ${name}, age ${age}${genderLabel ? `, ${genderLabel}` : ''} (${pronounPair} pronouns)
+Interests: ${interests.length ? interests.join(', ') : 'not specified'}
+${gender && gender !== 'neutral' && gender !== 'not specified' ? `CRITICAL: ${name} uses ${pronounPair} pronouns. Always use the correct pronouns throughout the story.` : ''}`;
 
   if (customDetails && customDetails.trim()) {
     userPrompt += `\n\n⚠️ MANDATORY CUSTOMER DETAILS — These are real facts the parent wrote about their child. Every specific person, place, object, or quirk mentioned here MUST appear concretely in the story beats. Do not ignore or generalize any of it:\n${customDetails.trim()}`;

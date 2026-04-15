@@ -3,6 +3,7 @@
  */
 
 const { sanitizeForPrompt } = require('../services/validation');
+const { getPronounInfo, buildPronounInstruction } = require('../services/pronouns');
 
 const STORY_PLANNER_SYSTEM = `You are a children's book author writing early readers for ages 6-9.
 
@@ -92,6 +93,9 @@ Respond with ONLY valid JSON.`;
 
 function STORY_PLANNER_USER(childDetails, theme, customDetails) {
   const name = sanitizeForPrompt(childDetails.childName || '', 50);
+  const gender = childDetails.childGender || 'not specified';
+  const pronouns = getPronounInfo(gender);
+  const pronounInstruction = buildPronounInstruction(name, gender);
   const interests = (childDetails.childInterests || []).map(i => sanitizeForPrompt(i, 50)).join(', ') || 'general';
   const details = customDetails ? sanitizeForPrompt(customDetails, 500) : '';
 
@@ -99,10 +103,10 @@ function STORY_PLANNER_USER(childDetails, theme, customDetails) {
 
 Child details:
 - Age: ${childDetails.childAge || 7}
-- Gender: ${childDetails.childGender || 'not specified'}
+- Gender: ${gender} (${pronouns.pair} pronouns)
 - Interests: ${interests}
 ${details ? `- Special requests: ${details}` : ''}
-
+${pronounInstruction ? `\n${pronounInstruction}` : ''}
 Theme: ${theme}
 
 Generate a JSON response with this exact structure:
@@ -152,8 +156,13 @@ Never write what a character feels. Write what a character DOES.
 VERB POWER: Never use a weak verb + adverb when a strong verb exists. "walked quickly" → "darted". "said quietly" → "whispered".`;
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
-  return `Write the text for page #${spreadPlan.spreadNumber} of an early reader book for ${childDetails.childName} (age ${childDetails.childAge || 7}).
+  const name = childDetails.childName;
+  const gender = childDetails.childGender;
+  const pronouns = getPronounInfo(gender);
+  const pronounInstruction = buildPronounInstruction(name, gender);
 
+  return `Write the text for page #${spreadPlan.spreadNumber} of an early reader book for ${name} (age ${childDetails.childAge || 7}).
+${pronounInstruction ? `\n${pronounInstruction}\n` : ''}
 Story context so far:
 ${storyContext || 'This is the beginning of the story.'}
 
@@ -162,7 +171,7 @@ This page's plan:
 - Mood: ${spreadPlan.mood}
 - Layout: ${spreadPlan.layoutType}
 
-Write 60-150 words of early reader text. Include dialogue where natural. Return ONLY the text, nothing else.`;
+Write 60-150 words of early reader text. Use ONLY ${pronouns.pair} pronouns for ${name}. Include dialogue where natural. Return ONLY the text, nothing else.`;
 }
 
 function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {

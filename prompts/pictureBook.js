@@ -8,6 +8,7 @@
 
 const { sanitizeForPrompt } = require('../services/validation');
 const { buildV2Brief, buildWritingBrief, buildStructureBrief, buildChildContext, getAgeTier, getDialectVars, getEmotionalAgeTier } = require('./writerBrief');
+const { getPronounInfo, buildPronounInstruction } = require('../services/pronouns');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 
@@ -206,20 +207,24 @@ function STORY_PLANNER_USER(childDetails, theme, customDetails, v2Vars = {}, add
   const ACTIVE_THEMES = new Set(['adventure', 'birthday', 'holiday', 'school', 'space', 'underwater', 'fantasy']);
   const isAdventure = ACTIVE_THEMES.has(theme);
 
+  const gender = childDetails.childGender || childDetails.gender || 'not specified';
+  const pronouns = getPronounInfo(gender);
+  const pronounInstruction = buildPronounInstruction(name, gender);
+
   let prompt = `${childContext}
 
 Create a personalized bedtime picture book for ${name} (age ${age}).
 
 Child details:
 - Age: ${age} (Tier ${tier})
-- Gender: ${childDetails.childGender || childDetails.gender || 'not specified'}
+- Gender: ${gender} (${pronouns.pair} pronouns)
 - Interests: ${interests}
 - Favorite object/toy: ${favoriteObject}
 - Fear or challenge: ${fear}
 - Setting: ${setting || 'use theme to determine'}
 - Dedication: ${dedication}
 ${details ? `- Special requests / real quirks: ${details}` : ''}
-
+${pronounInstruction ? `\n${pronounInstruction}` : ''}
 Theme: ${theme || 'bedtime'}`;
 
   if (isAdventure) {
@@ -421,6 +426,9 @@ WHAT MAKES THIS BOOK GREAT:
 - Every location should be so vivid a child can draw it from memory
 - The ending should feel EARNED — not just "then they went home"
 
+PRONOUN CONSISTENCY (CRITICAL):
+When the child's gender and pronouns are specified, use ONLY the correct pronouns throughout the entire story. Never switch pronouns mid-story. Pay special attention to gender-ambiguous names — always follow the declared pronouns regardless of the name.
+
 DIALECT & SPELLING — use \${dialectInfo.dialect} throughout:
 \${dialectInfo.dialectRule}
 Never mix dialects. Every word in the story must be consistent.`;
@@ -448,20 +456,24 @@ function STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars = {}) {
   const setting = v2Vars.setting || '';
   const dedication = v2Vars.dedication || `For ${name || 'the child'}`;
 
+  const gender = childDetails.childGender || childDetails.gender || 'not specified';
+  const pronouns = getPronounInfo(gender);
+  const pronounInstruction = buildPronounInstruction(name, gender);
+
   let prompt = `${childContext}
 
 Write a personalized bedtime picture book for ${name} (age ${age}).
 
 Child details:
 - Age: ${age} (Tier ${tier})
-- Gender: ${childDetails.childGender || childDetails.gender || 'not specified'}
+- Gender: ${gender} (${pronouns.pair} pronouns)
 - Interests: ${interests}
 - Favorite object/toy: ${favoriteObject}
 - Fear or challenge: ${fear}
 - Setting: ${setting || 'use theme to determine'}
 - Dedication: ${dedication}
 ${details ? `- Special requests / real quirks: ${details}` : ''}
-
+${pronounInstruction ? `\n${pronounInstruction}` : ''}
 Theme: ${theme || 'bedtime'}
 
 When weaving the child's interests into the story, include at least one clearly recognizable mention (name, visual, or unmistakable motif) alongside any playful puns or allusions, so personalization is legible to both parents and downstream illustration systems.`;
@@ -619,8 +631,13 @@ function buildTextGeneratorSystem(age) {
 const TEXT_GENERATOR_SYSTEM = buildTextGeneratorSystem(5);
 
 function TEXT_GENERATOR_USER(spreadPlan, childDetails, storyContext) {
-  return `Write the text for spread #${spreadPlan.spreadNumber} of a picture book for ${childDetails.childName || childDetails.name} (age ${childDetails.childAge || childDetails.age || 5}).
+  const name = childDetails.childName || childDetails.name;
+  const gender = childDetails.childGender || childDetails.gender;
+  const pronouns = getPronounInfo(gender);
+  const pronounInstruction = buildPronounInstruction(name, gender);
 
+  return `Write the text for spread #${spreadPlan.spreadNumber} of a picture book for ${name} (age ${childDetails.childAge || childDetails.age || 5}).
+${pronounInstruction ? `\n${pronounInstruction}\n` : ''}
 Story context so far:
 ${storyContext || 'This is the beginning of the story.'}
 
@@ -628,7 +645,7 @@ This spread's plan:
 - Scene: ${spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || spreadPlan.spread_image_prompt}
 - Mood: ${spreadPlan.mood || 'warm'}
 
-Write the text. Return ONLY the text, nothing else.`;
+Write the text. Use ONLY ${pronouns.pair} pronouns for ${name}. Return ONLY the text, nothing else.`;
 }
 
 function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {
