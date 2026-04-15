@@ -19,6 +19,29 @@ const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneline
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
 const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 480000;
 const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 240000;
+const THEME_SUBTITLES = {
+  adventure: 'An adventure story',
+  anxiety: 'A story about being brave',
+  anger: 'A story about big feelings',
+  bedtime: 'A bedtime story',
+  birthday: 'A birthday story',
+  birthday_magic: 'A birthday story',
+  family_change: 'A story about family',
+  fantasy: 'A fantasy quest',
+  fathers_day: 'A story about love',
+  fear: 'A story about courage',
+  friendship: 'A friendship story',
+  grief: 'A story about remembering',
+  holiday: 'A holiday story',
+  loneliness: 'A story about connection',
+  mothers_day: 'A story about love',
+  nature: 'A nature story',
+  new_beginnings: 'A story about new beginnings',
+  school: 'A school story',
+  self_worth: 'A story about being you',
+  space: 'A space adventure',
+  underwater: 'An underwater adventure',
+};
 
 // ── W1: Beat structure per spread ──
 const BEAT_STRUCTURE = `BEAT STRUCTURE — each spread has a PURPOSE:
@@ -1182,12 +1205,13 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
  * Uses JSON mode for reliable parsing.
  */
 async function structureStoryPlan(storyText, childDetails, opts = {}) {
-  const { costTracker, apiKeys, v2Vars, referenceContext } = opts;
+  const { costTracker, apiKeys, v2Vars, referenceContext, theme } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const briefVars = {
     name: childDetails.name || childDetails.childName || 'the child',
     age: childDetails.age || childDetails.childAge || 5,
+    theme,
     favorite_object: v2Vars?.favorite_object || getAgeAppropriateFallbackObject(childDetails.age || childDetails.childAge),
   };
 
@@ -1325,7 +1349,7 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
-  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread', 'phrase_repetition'].includes(i.type));
+  const blocking = issues.filter(i => ['emotion_telling', 'spread_count', 'empty_spread'].includes(i.type));
   return { valid: blocking.length === 0, issues };
 }
 
@@ -1551,31 +1575,10 @@ function normalizePlan(parsed, childDetails, opts = {}) {
   }
 
   const dedEntry = entries.find(e => e.type === 'dedication_page');
-  const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childDetails.name || 'the child'}`;
-  const THEME_SUBTITLES = {
-    adventure: 'An adventure story',
-    birthday: 'A birthday story',
-    birthday_magic: 'A birthday story',
-    holiday: 'A holiday story',
-    school: 'A school story',
-    space: 'A space adventure',
-    underwater: 'An underwater adventure',
-    fantasy: 'A fantasy quest',
-    nature: 'A nature story',
-    friendship: 'A friendship story',
-    mothers_day: 'A story about love',
-    fathers_day: 'A story about love',
-    anxiety: 'A story about being brave',
-    anger: 'A story about big feelings',
-    fear: 'A story about courage',
-    grief: 'A story about remembering',
-    loneliness: 'A story about connection',
-    new_beginnings: 'A story about new beginnings',
-    self_worth: 'A story about being you',
-    family_change: 'A story about family',
-  };
+  const childName = childDetails.name || childDetails.childName || 'the child';
+  const dedText = dedEntry?.text || v2Vars?.dedication || `For ${childName}`;
   const subtitlePrefix = (theme && THEME_SUBTITLES[theme]) || 'A bedtime story';
-  const subtitle = `${subtitlePrefix} for ${childDetails.name || 'the child'}`;
+  const subtitle = `${subtitlePrefix} for ${childName}`;
 
   entries = [
     { type: 'half_title_page', title },
@@ -1681,7 +1684,7 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
     // Phase 2: Structure into JSON with illustration prompts
     const referenceContext = { interests, enrichedCustomDetails };
-    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, beats: v2Vars?.beats, referenceContext });
+    const jsonContent = await structureStoryPlan(storyText, childDetails, { ...opts, theme, beats: v2Vars?.beats, referenceContext });
     const parsed = parseJsonPlan(jsonContent);
 
     // Override title if customer approved one

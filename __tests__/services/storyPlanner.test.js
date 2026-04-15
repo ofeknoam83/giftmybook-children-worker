@@ -138,6 +138,20 @@ describe('planStory', () => {
     expect(plan.characterOutfit).toBe('red overalls with yellow boots');
     expect(plan.characterDescription).toBe('curly brown hair, freckles');
   });
+
+  test('uses childName fallback in title page subtitle', async () => {
+    global.fetch = jest.fn(async () => makeFetchResponse(validPlan));
+    const childWithOnlyChildName = {
+      childName: 'Noa',
+      age: 5,
+      gender: 'female',
+      interests: ['dinosaurs'],
+    };
+
+    const plan = await planStory(childWithOnlyChildName, 'fathers_day', 'picture_book', '');
+    const titlePage = plan.entries.find(e => e.type === 'title_page');
+    expect(titlePage.subtitle).toBe('A story about love for Noa');
+  });
 });
 
 const freeFormStoryText = `TITLE: Emma's Twilight Garden
@@ -242,6 +256,43 @@ describe('two-phase pipeline', () => {
     const plan = await planStory(childDetails, 'adventure', 'picture_book', '');
     expect(plan.title).toBe('Emma and the Magic Garden');
     expect(callNum).toBe(2);
+  });
+
+  test('threads fathers_day theme into structurer system prompt', async () => {
+    let structurerSystemPrompt = '';
+    global.fetch = jest.fn(async (_url, opts) => {
+      const body = JSON.parse(opts?.body || '{}');
+      const systemPrompt = body?.messages?.[0]?.content || '';
+      const userPrompt = body?.messages?.[1]?.content || '';
+
+      if (userPrompt.includes('Here is the story text to structure into JSON')) {
+        structurerSystemPrompt = systemPrompt;
+        return makeFetchResponse(validPlan);
+      }
+
+      if (systemPrompt.includes('OUTPUT FORMAT (PLAIN TEXT — NOT JSON)')) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: freeFormStoryText }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 800, completion_tokens: 500 },
+          }),
+        };
+      }
+
+      // Non-blocking response for auxiliary calls (e.g., optional narrative pattern selection)
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{}' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 200, completion_tokens: 100 },
+        }),
+      };
+    });
+
+    await planStory(childDetails, 'fathers_day', 'picture_book', '');
+
+    expect(structurerSystemPrompt).toMatch(/Dad MAY appear in illustration prompts for this Father's Day book/i);
   });
 });
 
@@ -1298,6 +1349,31 @@ describe('buildStoryPlannerSystem — mothers_day theme', () => {
   test('non-mothers_day without additionalCoverCharacters: standard no-family rule applies', () => {
     const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'adventure');
     expect(system).toMatch(/NEVER depict family members/i);
+  });
+});
+
+describe('buildStoryPlannerSystem — fathers_day theme', () => {
+  const { buildStoryPlannerSystem } = require('../../prompts/pictureBook');
+
+  test('without additionalCoverCharacters: Dad is explicitly required in illustrations', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'fathers_day');
+    expect(system).toMatch(/Dad.*MUST appear in illustration prompts/i);
+    expect(system).not.toMatch(/NEVER depict family members/i);
+  });
+
+  test('without additionalCoverCharacters: other family members are still blocked', () => {
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'fathers_day');
+    expect(system).toMatch(/siblings.*grandparents.*mom.*must NOT appear in illustrations/i);
+  });
+
+  test('with additionalCoverCharacters: Dad is still required alongside detected secondary character', () => {
+    const dadDesc = 'A man with short black hair and kind eyes';
+    const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, dadDesc, 'fathers_day');
+    expect(system).toMatch(/Dad.*MUST appear in illustration prompts/i);
+    expect(system).toContain(dadDesc);
+    expect(system).not.toMatch(/NEVER depict family members/i);
+    expect(system).not.toMatch(/Do NOT invent other family members beyond what is listed above/i);
+    expect(system).toMatch(/Only Dad and the secondary character/i);
   });
 });
 
