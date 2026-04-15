@@ -1349,4 +1349,158 @@ Only return consistent:false if the character would be unrecognizable or clearly
   return { consistent: true, issues: [] };
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };
+/**
+ * Count visible human characters in a generated illustration and compare against expected.
+ * Returns { passed: boolean, message: string }
+ */
+async function checkCharacterCount(imageBase64, expectedCharacters) {
+  if (!imageBase64 || !expectedCharacters) return { passed: true };
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return { passed: true };
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: `How many distinct human characters are visible in this children's book illustration?
+Count each unique person (not reflections, shadows, or background art/paintings/posters on walls).
+Return ONLY valid JSON: {"children": N, "adults": N}` },
+            { inline_data: { mime_type: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
+          ]}],
+          generationConfig: { maxOutputTokens: 256, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      }
+    );
+
+    if (!resp.ok) return { passed: true };
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      const result = JSON.parse(match[0]);
+      const actualChildren = result.children || 0;
+      const actualAdults = result.adults || 0;
+      const expectedChildren = expectedCharacters.childCount || 0;
+      const expectedAdults = expectedCharacters.adultCount || 0;
+      if (actualChildren !== expectedChildren || actualAdults !== expectedAdults) {
+        return {
+          passed: false,
+          message: `Expected ${expectedChildren} child(ren) and ${expectedAdults} adult(s), but found ${actualChildren} child(ren) and ${actualAdults} adult(s)`,
+        };
+      }
+      return { passed: true };
+    }
+  } catch (e) {
+    console.warn('[illustrationGenerator] Character count check failed:', e.message);
+  }
+  return { passed: true };
+}
+
+/**
+ * Detect if text in the illustration is placed on an opaque box/banner overlay.
+ * Returns { passed: boolean, description: string }
+ */
+async function checkTextPresentation(imageBase64) {
+  if (!imageBase64) return { passed: true };
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return { passed: true };
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: `Look at the text in this children's book illustration.
+Is the text placed on a solid-color opaque rectangle/box/banner that covers part of the artwork?
+A solid white, cream, or colored box behind the text counts as an overlay.
+Text in a dedicated margin/negative space area is fine.
+Text with a subtle shadow or outline is fine.
+Only flag solid opaque boxes that obscure the illustration.
+Return ONLY valid JSON: {"hasOpaqueOverlay": true/false, "description": "brief description"}` },
+            { inline_data: { mime_type: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
+          ]}],
+          generationConfig: { maxOutputTokens: 256, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      }
+    );
+
+    if (!resp.ok) return { passed: true };
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      const result = JSON.parse(match[0]);
+      if (result.hasOpaqueOverlay) {
+        return { passed: false, description: result.description || 'text on opaque overlay detected' };
+      }
+      return { passed: true };
+    }
+  } catch (e) {
+    console.warn('[illustrationGenerator] Text presentation check failed:', e.message);
+  }
+  return { passed: true };
+}
+
+/**
+ * Compare current spread's text font rendering against the first spread reference.
+ * Only runs for spreads after the first one (spread index > 0).
+ * Returns { passed: boolean, issues: string[] }
+ */
+async function checkFontConsistency(currentImageBase64, firstSpreadBase64) {
+  if (!currentImageBase64 || !firstSpreadBase64) return { passed: true };
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return { passed: true };
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { text: `Compare the text rendering in these two children's book illustrations.
+Image 1 is the REFERENCE (correct style). Image 2 is the one to check.
+Does Image 2 use the same: font family, font size (relative to page), font weight, text color?
+Minor variations are acceptable (AI rendering is imperfect).
+Only flag OBVIOUS differences — clearly different font, dramatically different size, different color.
+Return ONLY valid JSON: {"consistent": true/false, "issues": ["different font family", "larger font size", etc.]}` },
+            { inline_data: { mime_type: 'image/jpeg', data: typeof firstSpreadBase64 === 'string' ? firstSpreadBase64 : firstSpreadBase64.toString('base64') } },
+            { inline_data: { mime_type: 'image/jpeg', data: typeof currentImageBase64 === 'string' ? currentImageBase64 : currentImageBase64.toString('base64') } },
+          ]}],
+          generationConfig: { maxOutputTokens: 512, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      }
+    );
+
+    if (!resp.ok) return { passed: true };
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      const result = JSON.parse(match[0]);
+      if (!result.consistent) {
+        return { passed: false, issues: result.issues || [] };
+      }
+      return { passed: true };
+    }
+  } catch (e) {
+    console.warn('[illustrationGenerator] Font consistency check failed:', e.message);
+  }
+  return { passed: true };
+}
+
+module.exports = { generateIllustration, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, checkCharacterCount, checkTextPresentation, checkFontConsistency };
