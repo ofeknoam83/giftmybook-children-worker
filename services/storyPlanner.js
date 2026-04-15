@@ -130,13 +130,22 @@ DIALOGUE QUALITY (CRITICAL — bad dialogue kills a book):
 - Dialogue must DO something: reveal character, create humor, advance the plot, or surprise the reader. If dialogue just states what the reader already knows ("Look, a castle!"), cut it.
 - The child's voice must be DISTINCT from the narrator's voice. If you can't tell who's speaking without quotation marks, the dialogue is too flat.
 - Fictional characters (animals, creatures, objects) can have personality in dialogue too: a grumpy map, a nervous star, a door that asks riddles. Give non-child characters a distinct voice — formal, overly polite, hilariously literal.
-- ONE great line of dialogue is worth more than four dutiful ones. Aim for at least one line the parent will remember.`;
+- ONE great line of dialogue is worth more than four dutiful ones. Aim for at least one line the parent will remember.
+
+DIALOGUE GRAMMAR (CRITICAL):
+All dialogue MUST be grammatically correct, regardless of the character's age.
+- For toddlers/young children: use SIMPLE grammar, SHORT sentences, EASY words — but never broken grammar.
+- Write "Can I help?" not "me help?"
+- Write "I want to come too!" not "come too?"
+- Write "Look at that!" not "me see!"
+- The adult reading this aloud should never stumble over incorrect grammar.
+- Simple ≠ broken. A 2-year-old in a book says "I love you, Mama" not "me love Mama".`;
 
 // ── W5: Age-aware vocabulary ──
 function ageVocabularyRules(age) {
   const n = parseInt(age) || 5;
-  if (n <= 3) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, SIMPLICITY OVERRIDES all other style rules including poetic language. MAX 8 words per sentence. Use only common toddler words a ${n}-year-old hears daily. Simple, repetitive, rhythmic patterns. No metaphors, no poetic imagery, no words above 2 syllables. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
-  if (n <= 5) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, simple language is MORE important than poetic beauty. MAX 12 words per sentence. Every word must be in the child's active vocabulary. No words above 2 syllables unless a name. Simple but concrete vocabulary. Gentle descriptive words a ${n}-year-old already knows. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
+  if (n <= 3) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, SIMPLICITY OVERRIDES all other style rules including poetic language. MAX 8 words per sentence. Use only common toddler words a ${n}-year-old hears daily. Simple, repetitive, rhythmic patterns. No metaphors, no poetic imagery, no words above 2 syllables. Grammar must always be correct even though vocabulary is simple. No baby talk. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
+  if (n <= 5) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, simple language is MORE important than poetic beauty. MAX 12 words per sentence. Every word must be in the child's active vocabulary. No words above 2 syllables unless a name. Simple but concrete vocabulary. Gentle descriptive words a ${n}-year-old already knows. All dialogue must be grammatically correct. Simple words, proper sentence structure. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
   if (n <= 8) return `VOCABULARY (age ${n}): MAX 18 words per sentence. Full children's vocabulary. Metaphors and similes welcome. Complex sentences OK. Example: "She felt like a brave explorer discovering a hidden world that no one had ever seen before."`;
   return `VOCABULARY (age ${n}): Young adult vocabulary. Longer sentences fine. Nuanced emotion. Subtext and irony allowed.`;
 }
@@ -609,16 +618,58 @@ function getThemeBeatStructure(theme, age) {
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
    MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
    EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm, tender, and deeply personal. The story builds from everyday moments to a heartfelt expression of love.
-   - Spread 1: A morning moment — the child wakes up and sees or hears Mom doing something familiar and loving (making breakfast, humming a song, opening curtains). Mom is VISIBLE in this spread.
-   - Spread 2: A special shared ritual — something only this child and Mom do together (a walk, a game, reading, cooking). Mom is VISIBLE.
-   - Spreads 3-4: Memories of things Mom does — comforting when scared, cheering at a game, teaching something new. At least one spread shows Mom VISIBLE alongside the child.
-   - Spread 5: A moment the child realizes how much Mom does — the house is full of Mom's love in small details (a packed lunch, a tucked blanket, a note in a pocket).
-   - Spread 6: THE HINGE — a quiet, tender moment. The child sees Mom tired, or working hard, or giving without asking for anything back. The child's heart swells. Mom is VISIBLE.
-   - Spreads 7-8: The child decides to do something special for Mom — making a gift, picking flowers, preparing a surprise, drawing a picture. The child's love takes action.
-   - Spreads 9-10: The surprise unfolds — the child presents their gift or gesture. Mom's reaction is pure joy. Mom is VISIBLE, receiving the child's love.
-   - Spread 11: A warm shared moment — Mom and child together, the gift between them, the world soft and golden. Mom is VISIBLE.
-   - Spread 12: A quiet embrace — one tender line. Mom holds the child close. Mom is VISIBLE.
-   - Spread 13: The final image — Mom and child together in a warm, loving embrace or side by side. The child whispers or says "I love you." Mom is VISIBLE. This is the emotional peak — make it land.`;
+   CELEBRATION RULE: This story is a CELEBRATION, not a hero's journey. There is NO villain, NO doubt, NO loss to overcome. Every spread radiates love and warmth.
+   - Spread 1 (THE MORNING): Child wakes up excited — today is a special day for Mom. Establish the warm, loving world. Mom is VISIBLE.
+   - Spread 2 (THE PLAN): Child decides to make this day unforgettable. Reference their favorite activities together. Mom is VISIBLE.
+   - Spread 3 (TOGETHER — ACTIVITY 1): Child and Mom enjoy their first favorite shared activity. Use favorite_activities from questionnaire. Mom is VISIBLE.
+   - Spread 4 (TOGETHER — ACTIVITY 2): Another cherished shared activity or moment. Use additional questionnaire details. At least one spread shows Mom VISIBLE alongside the child.
+   - Spread 5 (THE HEART): The most meaningful moment between child and Mom. Use meaningful_moment or moms_favorite_moment. Mom is VISIBLE.
+   - Spread 6 (A SWEET SURPRISE): Child does something adorable or funny for Mom. Use funny_thing or other_detail. Mom is VISIBLE.
+   - Spread 7 (MOM'S JOY): Show Mom's happiness and what she treasures about their bond. Mom is VISIBLE, receiving the child's love.
+   - Spread 8 (FAVORITE THINGS): Weave in remaining personal details — favorite food, toys, cake flavor. Mom is VISIBLE.
+   - Spread 9 (QUIET TOGETHER): A calm, cozy moment of connection between child and Mom. Mom is VISIBLE.
+   - Spread 10 (WORDS OF LOVE): Child expresses love for Mom in their own simple, genuine words.
+   - Spread 11 (WARM GLOW): The feeling of being loved unconditionally. Mom is VISIBLE.
+   - Spread 12 (REFLECTION): What makes their bond truly special and unique. Mom holds the child close. Mom is VISIBLE.
+   - Spread 13 (THE LAST LINE): One perfect closing image of mother-child love. The most beautiful sentence in the book. Mom is VISIBLE. This is the emotional peak — make it land.`;
+
+    case 'fathers_day':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FATHER'S DAY arc:
+   DAD AS CO-PROTAGONIST RULE: Dad is a NAMED, VISIBLE character in this story. He MUST appear in the illustration prompts for at least 6 of the 13 spreads. When he appears, describe his presence explicitly (e.g. "Dad lifts the child onto his shoulders", "Dad's hand steadies the child"). His appearance must be described consistently every time he is in an illustration prompt.
+   EMOTIONAL ARC: This is a love letter from the child to their father. Every spread should feel warm, adventurous, and deeply personal. The story builds from shared adventures to a heartfelt expression of love and admiration.
+   CELEBRATION RULE: This story is a CELEBRATION, not a hero's journey. There is NO villain, NO doubt, NO loss to overcome. Every spread radiates love and bonding.
+   - Spread 1 (THE MORNING): Child is bursting with energy — today is Dad's special day. Establish the bond. Dad is VISIBLE.
+   - Spread 2 (THE ADVENTURE BEGINS): Child and Dad set off to do something they love together. Use favorite_activities. Dad is VISIBLE.
+   - Spread 3 (TOGETHER — ACTIVITY 1): First favorite shared activity in full swing. Fun, laughter, bonding. Dad is VISIBLE.
+   - Spread 4 (TOGETHER — ACTIVITY 2): Another shared activity or meaningful moment from questionnaire. Dad is VISIBLE.
+   - Spread 5 (THE HEART): The deepest moment of connection between child and Dad. Use meaningful_moment. Dad is VISIBLE.
+   - Spread 6 (DAD'S SUPERPOWER): Something Dad does that makes him the child's hero. Use other_detail or funny_thing. Dad is VISIBLE.
+   - Spread 7 (LAUGHTER): A funny or playful moment together. Use funny_thing. Dad is VISIBLE.
+   - Spread 8 (FAVORITE THINGS): Incorporate favorite food, toys, or cake flavor from questionnaire.
+   - Spread 9 (SIDE BY SIDE): A quieter bonding moment — building, reading, watching, walking together. Dad is VISIBLE.
+   - Spread 10 (PROUD MOMENT): Child expresses admiration for Dad in simple, heartfelt words.
+   - Spread 11 (WARM GLOW): The comfort and safety of Dad's love. Dad is VISIBLE.
+   - Spread 12 (REFLECTION): What makes their father-child bond unique. Dad is VISIBLE.
+   - Spread 13 (THE LAST LINE): One perfect closing image of father-child love. The most beautiful sentence. Dad is VISIBLE.`;
+
+    case 'birthday_magic':
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY MAGIC arc:
+   BIRTHDAY ENERGY RULE: This story should feel like the BEST DAY OF THE CHILD'S LIFE from the very first spread. Joy, warmth, and excitement are the emotional BASELINE — not something to be earned.
+   CELEBRATION RULE: This story is a CELEBRATION. There is NO villain, NO doubt, NO loss to overcome. Every spread radiates birthday magic.
+   BIRTHDAY SATURATION RULE: The birthday must be FELT in every single spread — balloons, streamers, friends, wrapped gifts, candles, the sound of singing, the smell of cake. Choose different birthday details for each spread so the celebration builds and accumulates.
+   - Spread 1 (BIRTHDAY MORNING): Child wakes up — it's their birthday! Pure excitement and anticipation.
+   - Spread 2 (THE CELEBRATION BEGINS): Decorations, preparations, or the first moment of birthday magic.
+   - Spread 3 (FAVORITE ACTIVITY): The birthday activity they love most. Use favorite_activities from questionnaire.
+   - Spread 4 (FRIENDS & FAMILY): People who love the child are there to celebrate. Warm togetherness.
+   - Spread 5 (THE CAKE): The birthday cake appears! Use favorite_cake_flavor. A moment of pure delight.
+   - Spread 6 (THE SURPRISE): Something unexpected and wonderful happens. Use funny_thing or other_detail.
+   - Spread 7 (PEAK JOY): The most exciting moment of the birthday. Maximum happiness.
+   - Spread 8 (FAVORITE THINGS): Incorporate favorite toys, food, or activities from questionnaire.
+   - Spread 9 (THE WISH): The birthday wish moment — candles, hope, magic.
+   - Spread 10 (GRATITUDE): Child feels grateful for everyone and everything they love.
+   - Spread 11 (WARM GLOW): The golden feeling of being celebrated and loved.
+   - Spread 12 (WINDING DOWN): The beautiful tiredness after a perfect day.
+   - Spread 13 (THE LAST LINE): One perfect closing image of birthday magic. The most beautiful sentence. The child's eyes are bright, the cake still glowing, the world still humming with celebration.`;
 
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
@@ -684,6 +735,13 @@ Return a JSON object with these fields:
    - end: how it lands
 
 ${beatStructure}
+
+STORY ARC RULE (CRITICAL):
+- The story must be built DIRECTLY from the user's questionnaire answers.
+- Every spread should reference specific details the parent provided.
+- Do NOT invent abstract conflicts, metaphorical bridges, missing-item quests, or mysterious challenges.
+- Do NOT introduce obstacles or struggles unless they come directly from the user's input.
+- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION, not a hero's journey. There is no villain, no doubt, no loss to overcome.
 
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
@@ -960,6 +1018,31 @@ function validateSeedQuality(seed, theme, age) {
   // "the dark" as fear for non-bedtime themes
   if (seed.fear && /^the dark$/i.test(seed.fear.trim()) && theme !== 'bedtime') {
     issues.push({ field: 'fear', reason: 'default_fear_for_non_bedtime' });
+  }
+
+  // Abstract conflict pattern detection for occasion themes
+  const OCCASION_THEMES = new Set(['mothers_day', 'fathers_day', 'birthday_magic']);
+  if (OCCASION_THEMES.has(theme) && Array.isArray(seed.beats)) {
+    const ABSTRACT_CONFLICT_PATTERNS = [
+      /bridge of (doubt|fear|worry)/i,
+      /something.{0,20}(missing|lost|gone)/i,
+      /doubt.{0,10}(crept|grew|whispered)/i,
+      /mysterious.{0,10}(path|door|voice|shadow)/i,
+      /quest to find/i,
+      /had to prove/i,
+      /faced a.{0,10}(challenge|obstacle|test)/i,
+      /darkness.{0,10}(fell|crept|gathered)/i,
+    ];
+    for (let i = 0; i < seed.beats.length; i++) {
+      const beat = seed.beats[i];
+      if (typeof beat !== 'string') continue;
+      for (const pattern of ABSTRACT_CONFLICT_PATTERNS) {
+        if (pattern.test(beat)) {
+          issues.push({ field: `beats[${i}]`, reason: 'abstract_conflict_in_occasion_theme' });
+          break;
+        }
+      }
+    }
   }
 
   return { valid: issues.length === 0, issues };

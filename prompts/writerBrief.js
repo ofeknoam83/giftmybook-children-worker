@@ -18,7 +18,7 @@ const AGE_TIERS = {
     sentencesPerSpread: '1-2',
     sentenceStyle: 'Subject-verb only. ("The bunny sleeps.")',
     conflict: 'none. Sensory observation only.',
-    dialogue: 'none, or single-word utterances ("Oh." / "Warm.")',
+    dialogue: 'none, or single-word utterances ("Oh." / "Warm."). Any dialogue must be grammatically correct — no baby talk.',
     imagePromptStyle: 'extreme close-up, high contrast, single subject per scene.',
     fearHandling: 'ignore. Replace with a gentle sensory discomfort (too loud, too bright) that simply fades by the final spread.',
     pacing: 'every spread is already calm. No phasing required.',
@@ -37,7 +37,7 @@ const AGE_TIERS = {
     sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
     conflict: 'present but never scary. Stakes are emotional, not physical.',
-    dialogue: '2 exchanges required. Rules: (1) Child\'s voice must sound like a real 3-5 year old — short sentences, concrete words, more questions than statements; (2) Dialogue must advance the plot or reveal character — not just describe what the child already knows; (3) The child\'s voice must sound different from the narrator\'s voice.',
+    dialogue: '2 exchanges required. Rules: (1) Child\'s voice must sound like a real 3-5 year old — short sentences, concrete words, more questions than statements; (2) Dialogue must advance the plot or reveal character — not just describe what the child already knows; (3) The child\'s voice must sound different from the narrator\'s voice; (4) All dialogue MUST be grammatically correct — simple words and short sentences, but never broken grammar or baby talk. Write "Can I help?" not "me help?".',
     imagePromptStyle: 'wide establishing shots mixed with close emotional moments.',
     fearHandling: 'use as written.',
     pacing: 'Phase 1 (spreads 1-9): emotional aliveness. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure/birthday/science ends warm and triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling. NEVER deflate the energy on non-bedtime themes.',
@@ -1157,6 +1157,18 @@ For each spread, create a spread_image_prompt that describes the visual scene.
 - Describe composition, lighting, color palette, perspective, and one texture detail.
 - Do NOT specify art medium or style — that is handled separately.
 - Show emotion through body language, environment, and light — never label it.
+
+Each spread must include a "shot_type" field with one of: "wide", "medium", "close-up", "overhead".
+- "wide": Characters visible head-to-toe in their environment. Use for scenes with movement, exploration, or setting establishment.
+- "medium": Characters visible from waist up, interacting with each other or objects. Use for conversation, activities, shared moments.
+- "close-up": Focus on face, hands, or a specific detail. Use for emotional moments, reactions, small discoveries.
+- "overhead": Bird's-eye view. Use sparingly for unique visual variety.
+Vary shot types across the book for visual interest. Do not use the same shot type for more than 2 consecutive spreads.
+
+Each spread must include a "character_position" field with one of: "left_third", "center", "right_third".
+- This indicates where the main character should be positioned in the illustration.
+- Alternate positions across spreads for visual variety.
+- Avoid placing the character in "center" for more than 2 consecutive spreads.
 - {name}'s appearance must be consistent across all prompts — SAME hair style, hair color, hair length, and clothing in every single illustration.
 - {favorite_object} must look identical every time it appears.
 - Time of day and lighting must follow story logic.
@@ -1208,7 +1220,7 @@ Return a JSON object with this structure:
   "keyObjects": "other recurring visual elements with exact descriptions",
   "entries": [
     { "type": "dedication_page", "text": "..." },
-    { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "..." },
+    { "type": "spread", "spread": 1, "left": { "text": "..." }, "right": { "text": "..." }, "spread_image_prompt": "...", "shot_type": "wide", "character_position": "left_third" },
     ...13 spreads total...
   ]
 }
@@ -1219,6 +1231,7 @@ The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 en
 Rules:
 - PRESERVE all story text EXACTLY as written in the input — do not rewrite, paraphrase, or edit.
 - Every spread MUST have text. null text is not allowed — both left and right may have text, or just one, but at least one must be non-null.
+- Every spread MUST include "shot_type" (one of: "wide", "medium", "close-up", "overhead") and "character_position" (one of: "left_third", "center", "right_third").
 - spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
 - IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point. The child MUST be positioned in the left third or right third of the scene — NOT at the center. Never describe the child as standing in the middle of the scene.
 - Do NOT specify art medium in spread_image_prompt.
