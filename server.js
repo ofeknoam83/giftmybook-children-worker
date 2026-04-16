@@ -724,6 +724,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                 spreadIndex: idx,
                 sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
                 pageText: pageText || null,
+                additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
               });
               break; // Success
             } catch (turnErr) {

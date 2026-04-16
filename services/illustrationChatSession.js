@@ -168,6 +168,10 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
     ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent font style established in the first illustration):\n${pageText}`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
+  const secondaryCharReminder = opts.additionalCoverCharacters
+    ? `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`
+    : '';
+
   const parts = [{
     text: `Generate illustration for spread ${spreadIndex + 1}:
 
@@ -176,7 +180,7 @@ ${prompt}
 ${opts.shotType ? `Shot type: ${opts.shotType}` : ''}
 
 Fill the entire canvas with the illustration — edge to edge, no blank areas.${textInstruction}
-The character must look IDENTICAL to the reference images from Turn 1 and all previous illustrations.`,
+All characters must look IDENTICAL to the reference images from Turn 1 and all previous illustrations — this applies to BOTH the child AND any secondary characters (parents/adults). Same face, hair, skin tone, AND outfit for every character.${secondaryCharReminder}`,
   }];
 
   // Send the turn and get image response
@@ -287,7 +291,13 @@ function _buildCharacterEstablishmentPrompt(session) {
   }
 
   if (opts.additionalCoverCharacters) {
-    parts.push(`\nSECONDARY CHARACTERS: ${opts.additionalCoverCharacters}`);
+    parts.push(`\nSECONDARY CHARACTERS (appearance LOCKED across all illustrations): ${opts.additionalCoverCharacters}`);
+    parts.push('SECONDARY CHARACTER OUTFIT LOCK (CRITICAL):');
+    parts.push('- The secondary character (parent/adult) must wear the EXACT SAME outfit in EVERY illustration throughout the book.');
+    parts.push('- In the FIRST illustration where this character appears, establish their outfit clearly.');
+    parts.push('- In ALL subsequent illustrations, reproduce that EXACT outfit — same garment type, same color, same style. NO changes.');
+    parts.push('- This is just as important as the child\'s outfit consistency — readers will notice if the parent\'s clothes change between pages.');
+    parts.push('- Same hair color, style, length, skin tone, facial features, and approximate age on every spread.');
   }
 
   if (opts.recurringElement) {
@@ -300,7 +310,7 @@ function _buildCharacterEstablishmentPrompt(session) {
 
   parts.push('');
   parts.push('RULES:');
-  parts.push('1. Every illustration must show the EXACT same character — same face, hair, skin tone, body proportions, outfit.');
+  parts.push('1. Every illustration must show the EXACT same characters — same face, hair, skin tone, body proportions, outfit for ALL characters (child AND any secondary characters like parents).');
   parts.push('2. Maintain the same art style throughout — same line weight, shading, color palette warmth, level of detail.');
   parts.push('3. Correct anatomy: 5 fingers per hand, 2 arms, 2 legs, proportional features.');
   parts.push('4. All content must be age-appropriate for children ages 2-8.');
