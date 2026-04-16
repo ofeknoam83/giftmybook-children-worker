@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nEvaluate the text length and compose the illustration so the text fits naturally without crossing the vertical center of the image.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text MUST be placed in the TOP 20% or BOTTOM 20% of the image — NEVER in the middle. The text must NOT cross the vertical center of the image under any circumstances. Evaluate the text length first, then compose the illustration with a clear text-free zone in either the top or bottom strip. Use a semi-transparent background strip or text shadow for readability. Maximum 7 words per line.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   let secondaryCharReminder = '';

@@ -879,14 +879,14 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
     parts.push('- Use a SMALL font size — text complements the illustration, does not dominate');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
-    parts.push('- Evaluate the text length and compose the illustration so the text fits naturally');
-    parts.push('- Text must NOT cross the vertical center of the image — keep it in the top or bottom half');
+    parts.push('- TEXT PLACEMENT (CRITICAL): The text MUST be placed in the TOP 20% or BOTTOM 20% of the image — NEVER in the middle');
+    parts.push('- The text must NOT cross the vertical center of the image under any circumstances');
     parts.push('- Keep a small padding from the top and bottom edges so text is not cut when printed');
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push('\nEvaluate the text length and compose the illustration so the text fits naturally without crossing the vertical center of the image.');
+    parts.push('\nREMINDER: Text in TOP 20% or BOTTOM 20% only. NEVER crossing the vertical center.');
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }

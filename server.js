@@ -2354,7 +2354,8 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
                 }
                 // Store additional cover characters (Grammy, siblings, etc.) for illustration allowlist
                 const addlRaw = addlMatch?.[1]?.trim();
-                if (addlRaw && addlRaw.toUpperCase() !== 'NONE' && addlRaw.length > 4) {
+                const isNone = !addlRaw || /^none[.!]?$/i.test(addlRaw.trim()) || addlRaw.trim().length <= 5;
+                if (addlRaw && !isNone) {
                   storyPlan.additionalCoverCharacters = addlRaw;
                   bookContext.log('info', 'Additional cover characters detected', { characters: addlRaw.slice(0, 300) });
                 } else {
