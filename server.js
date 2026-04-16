@@ -57,6 +57,8 @@ const { v4: uuidv4 } = require('uuid');
 const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarlyReader, masterCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
+const { ChatSessionManager } = require('./services/chatSessionManager');
+const { TextCompositor } = require('./services/textCompositor');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -483,6 +485,48 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   const illustrationLimit = pLimit(1); // Sequential
   let firstSpreadBase64 = null;
 
+  // ── Chat Session Setup ──
+  // Try to start a Gemini chat session for visual consistency across spreads.
+  // Falls back to standalone generateIllustration() calls if chat fails.
+  let chatSession = null;
+  const useChatSession = !opts.disableChatSession; // allow opting out
+  if (useChatSession) {
+    try {
+      chatSession = new ChatSessionManager();
+      const characterRefImages = [];
+      if (cachedPhotoBase64) {
+        characterRefImages.push({ base64: cachedPhotoBase64, mimeType: cachedPhotoMime || 'image/jpeg' });
+      }
+      if (parentCoverRefBase64 && parentCoverRefBase64 !== cachedPhotoBase64) {
+        characterRefImages.push({ base64: parentCoverRefBase64, mimeType: 'image/jpeg' });
+      }
+      if (characterRefSheetBase64 && characterRefSheetBase64 !== cachedPhotoBase64) {
+        characterRefImages.push({ base64: characterRefSheetBase64, mimeType: 'image/jpeg' });
+      }
+
+      const styleConfig = {
+        artStyle: style,
+        characterDescription: storyPlan.characterDescription || '',
+        characterOutfit: storyPlan.characterOutfit || '',
+        characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
+        additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+      };
+      const chatBookContext = {
+        childName: childDetails.name,
+        childAge: childDetails.age || childDetails.childAge,
+        totalSpreads: illustratableEntries.length,
+        recurringElement: storyPlan.recurringElement || '',
+        keyObjects: storyPlan.keyObjects || '',
+      };
+
+      await chatSession.startBookSession(characterRefImages, styleConfig, chatBookContext);
+      bookContext.log('info', 'Chat session started for illustration generation');
+    } catch (chatErr) {
+      bookContext.log('warn', `Chat session failed to start — falling back to standalone generation: ${chatErr.message}`);
+      chatSession = null;
+    }
+  }
+
   const illustrationPromises = illustratableEntries.map((job) =>
     illustrationLimit(async () => {
       const { idx, prompt, field } = job;
@@ -499,95 +543,122 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       }
 
       let imageUrl = null;
+      let imageBuffer = null; // Keep raw buffer for text compositing
       const illStart = Date.now();
       const outfit = storyPlan.characterOutfit || '';
       const MAX_ILL_RETRIES = 3;
       const entryLabel = `entry ${idx + 1} (${results[idx].type})`;
 
-      for (let attempt = 1; attempt <= MAX_ILL_RETRIES; attempt++) {
+      // ── Try chat session first, fall back to standalone ──
+      if (chatSession) {
         try {
-          if (attempt === 1) {
-            bookContext.log('info', `Illustration ${entryLabel} starting`, { promptLength: prompt.length, field });
-          } else {
-            bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
-          }
-          // Find the most recent completed illustration as style reference
-          // For spread 1 (idx=0): no prev illustration yet — use cover as style hint (already used as character ref)
-          // For spread 2 (idx=1): use spread 1 once available
-          let prevIllustrationUrl = null;
-          for (let pi = idx - 1; pi >= 0; pi--) {
-            const prev = results[pi];
-            const prevUrl = prev?.spreadIllustrationUrl || prev?.illustrationUrl;
-            if (prevUrl) { prevIllustrationUrl = prevUrl; break; }
-          }
-          // For spread 1 specifically: if no cover has been generated yet,
-          // use the approved cover itself as the style anchor (in addition to being the character ref)
-          // This is already handled via characterRefBase64 — no change needed here.
-          // BUT: add a style establishment note to spread 1's prompt injection via spreadIndex check
-          const isFirstSpread = (idx === 0);
-
-          // C1/C4: Determine best photo reference for this spread
-          // When a secondary character exists and we have the cover as reference,
-          // always include it so the illustration model sees the parent's real appearance.
-          const photoRefForSpread = parentCoverRefBase64
-            ? parentCoverRefBase64  // use cover showing both child+parent
-            : (characterRefSheetBase64 || cachedPhotoBase64);
-          const photoMimeForSpread = parentCoverRefBase64
-            ? 'image/jpeg'
-            : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
-
-          // Extract shot_type and character_position from the story plan entry
+          bookContext.log('info', `Illustration ${entryLabel} via chat session`);
           const entryData = entries[idx] || {};
-          const illustrationPromise = generateIllustration(prompt, characterRef, style, {
-            apiKeys,
-            costTracker,
-            bookId,
-            childName: childDetails.name,
-            characterOutfit: outfit,
-            characterDescription: storyPlan.characterDescription || '',
-            characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
-            additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-            recurringElement: storyPlan.recurringElement || '',
-            keyObjects: storyPlan.keyObjects || '',
-            coverArtStyle: storyPlan.coverArtStyle || '',
-            childPhotoUrl: resolvedChildPhotoUrl,
-            _cachedPhotoBase64: photoRefForSpread,
-            _cachedPhotoMime: photoMimeForSpread,
-            spreadIndex: idx,
-            totalSpreads: entries.filter(e => e.type === 'spread').length,
-            childAge: childDetails.age || childDetails.childAge,
-            pageText: job.pageText || '',
-            isSpread: job.isSpread || false,
-            deadlineMs: 200000,
-            abortSignal: bookContext.abortController.signal,
-            prevIllustrationUrl,
+          const textPlacement = idx % 2 === 0 ? 'bottom' : 'top';
+          const chatResult = await chatSession.generateSpread(prompt, idx, textPlacement, {
+            aspectRatio: job.isSpread ? '16:9' : '1:1',
             shotType: entryData.shot_type || null,
-            characterPosition: entryData.character_position || null,
-            promptInjection: isFirstSpread
-              ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
-              : '',
-            firstSpreadRefBase64: firstSpreadBase64 || null,
           });
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)
-          );
-          imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
+
+          imageBuffer = chatResult.imageBuffer;
+
+          if (costTracker) {
+            costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+          }
+
+          // Upload raw (no-text) illustration to GCS
+          if (bookId && imageBuffer) {
+            const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
+            const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
+            imageUrl = await uploadBuf(imageBuffer, gcsPath, 'image/png');
+          }
+
           bookContext.touchActivity();
           const memUsage = process.memoryUsage();
-          bookContext.log('info', `Illustration ${entryLabel} complete`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
-          break;
-        } catch (illustrationErr) {
-          bookContext.log('error', `Illustration ${entryLabel} attempt ${attempt} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
-          if (attempt < MAX_ILL_RETRIES) {
-            const backoff = attempt * 3000;
-            await new Promise(r => setTimeout(r, backoff));
-          } else {
-            bookContext.log('warn', `Illustration ${entryLabel} failed after ${MAX_ILL_RETRIES} attempts — skipping`);
-          }
+          bookContext.log('info', `Illustration ${entryLabel} complete (chat)`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
+        } catch (chatGenErr) {
+          bookContext.log('warn', `Chat session generation failed for ${entryLabel}: ${chatGenErr.message} — falling back to standalone`);
+          chatSession = null; // Disable chat for remaining spreads
+          imageUrl = null;
+          imageBuffer = null;
         }
       }
 
-      // ── C5: Post-generation visual QA checks ──
+      // Fallback: standalone generation (original path)
+      if (!imageUrl) {
+        for (let attempt = 1; attempt <= MAX_ILL_RETRIES; attempt++) {
+          try {
+            if (attempt === 1) {
+              bookContext.log('info', `Illustration ${entryLabel} starting (standalone)`, { promptLength: prompt.length, field });
+            } else {
+              bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
+            }
+            let prevIllustrationUrl = null;
+            for (let pi = idx - 1; pi >= 0; pi--) {
+              const prev = results[pi];
+              const prevUrl = prev?.spreadIllustrationUrl || prev?.illustrationUrl;
+              if (prevUrl) { prevIllustrationUrl = prevUrl; break; }
+            }
+            const isFirstSpread = (idx === 0);
+            const photoRefForSpread = parentCoverRefBase64
+              ? parentCoverRefBase64
+              : (characterRefSheetBase64 || cachedPhotoBase64);
+            const photoMimeForSpread = parentCoverRefBase64
+              ? 'image/jpeg'
+              : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
+            const entryData = entries[idx] || {};
+            const illustrationPromise = generateIllustration(prompt, characterRef, style, {
+              apiKeys,
+              costTracker,
+              bookId,
+              childName: childDetails.name,
+              characterOutfit: outfit,
+              characterDescription: storyPlan.characterDescription || '',
+              characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
+              additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+              recurringElement: storyPlan.recurringElement || '',
+              keyObjects: storyPlan.keyObjects || '',
+              coverArtStyle: storyPlan.coverArtStyle || '',
+              childPhotoUrl: resolvedChildPhotoUrl,
+              _cachedPhotoBase64: photoRefForSpread,
+              _cachedPhotoMime: photoMimeForSpread,
+              spreadIndex: idx,
+              totalSpreads: entries.filter(e => e.type === 'spread').length,
+              childAge: childDetails.age || childDetails.childAge,
+              pageText: '', // Never embed text — composited separately
+              isSpread: job.isSpread || false,
+              skipTextEmbed: true, // Force no-text mode
+              deadlineMs: 200000,
+              abortSignal: bookContext.abortController.signal,
+              prevIllustrationUrl,
+              shotType: entryData.shot_type || null,
+              characterPosition: entryData.character_position || null,
+              promptInjection: isFirstSpread
+                ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
+                : '',
+              firstSpreadRefBase64: firstSpreadBase64 || null,
+            });
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)
+            );
+            imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
+            bookContext.touchActivity();
+            const memUsage = process.memoryUsage();
+            bookContext.log('info', `Illustration ${entryLabel} complete (standalone)`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
+            break;
+          } catch (illustrationErr) {
+            bookContext.log('error', `Illustration ${entryLabel} attempt ${attempt} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
+            if (attempt < MAX_ILL_RETRIES) {
+              const backoff = attempt * 3000;
+              await new Promise(r => setTimeout(r, backoff));
+            } else {
+              bookContext.log('warn', `Illustration ${entryLabel} failed after ${MAX_ILL_RETRIES} attempts — skipping`);
+            }
+          }
+        }
+      } // end fallback standalone generation
+
+      // ── C5: Post-generation visual QA checks (streamlined — text checks removed) ──
       // Download generated image once for all checks
       const originalImageUrl = imageUrl; // track original to detect if QA retries changed the image
       let genBase64 = null;
@@ -629,7 +700,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           spreadIndex: idx,
           totalSpreads: entries.filter(e => e.type === 'spread').length,
           childAge: childDetails.age || childDetails.childAge,
-          pageText: job.pageText || '',
+          pageText: '', // No text in illustrations — composited separately
+          skipTextEmbed: true,
           isSpread: job.isSpread || false,
           deadlineMs: 200000,
           abortSignal: bookContext.abortController.signal,
@@ -709,69 +781,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
         }
       }
 
-      // Check 3: Text overlay detection — flag text on opaque boxes
-      if (genBase64 && job.pageText) {
-        try {
-          const { checkTextPresentation } = require('./services/illustrationGenerator');
-          const overlayResult = await checkTextPresentation(genBase64);
-          if (!overlayResult.passed) {
-            bookContext.log('warn', `Spread ${idx + 1} text overlay detected`, { description: overlayResult.description });
-            try {
-              const correctionNote = `CRITICAL: The previous image had text on an opaque background box. Re-generate with text embedded directly into a clean area of the illustration — NO background boxes, NO overlays, NO banners behind the text.`;
-              const correctedPrompt = correctionNote + '\n\n' + prompt;
-              bookContext.log('info', `Retrying spread ${idx + 1} with text overlay correction`);
-              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-              if (retryResult) {
-                imageUrl = retryResult;
-                genBase64 = null;
-                try {
-                  const reResp = await fetch(imageUrl);
-                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
-                } catch {}
-                bookContext.log('info', `Spread ${idx + 1} text overlay retry succeeded`);
-              }
-            } catch (retryErr) {
-              bookContext.log('warn', `Text overlay retry failed for spread ${idx + 1}`, { error: retryErr.message });
-            }
-          } else {
-            bookContext.log('info', `Spread ${idx + 1} text presentation OK`);
-          }
-        } catch (checkErr) {
-          bookContext.log('warn', `Text presentation check error for spread ${idx + 1}`, { error: checkErr.message });
-        }
-      }
-
-      // Check 4: Font consistency — compare against first spread reference
-      if (genBase64 && idx > 0 && firstSpreadBase64 && job.pageText) {
-        try {
-          const { checkFontConsistency } = require('./services/illustrationGenerator');
-          const fontResult = await checkFontConsistency(genBase64, firstSpreadBase64);
-          if (!fontResult.passed) {
-            bookContext.log('warn', `Spread ${idx + 1} font inconsistency detected`, { issues: fontResult.issues });
-            try {
-              const correctionNote = `CRITICAL: The text font does not match the first spread. Issues: ${(fontResult.issues || []).join(', ')}. Look at the first spread reference image carefully and match the EXACT font style, size, and color.`;
-              const correctedPrompt = correctionNote + '\n\n' + prompt;
-              bookContext.log('info', `Retrying spread ${idx + 1} with font consistency correction`);
-              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-              if (retryResult) {
-                imageUrl = retryResult;
-                genBase64 = null;
-                try {
-                  const reResp = await fetch(imageUrl);
-                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
-                } catch {}
-                bookContext.log('info', `Spread ${idx + 1} font consistency retry succeeded`);
-              }
-            } catch (retryErr) {
-              bookContext.log('warn', `Font consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
-            }
-          } else {
-            bookContext.log('info', `Spread ${idx + 1} font consistency OK`);
-          }
-        } catch (checkErr) {
-          bookContext.log('warn', `Font consistency check error for spread ${idx + 1}`, { error: checkErr.message });
-        }
-      }
+      // Checks 3 & 4 (text overlay, font consistency) REMOVED — text is composited separately
 
       // Final re-check: if any QA retry changed the image, verify character consistency one more time
       if (genBase64 && refBase64ForCheck && imageUrl !== originalImageUrl) {
@@ -843,8 +853,53 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
 
   await Promise.all(illustrationPromises);
 
-  bookContext.log('info', 'All illustrations complete', { totalMs: Date.now() - stage5Start });
-  console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
+  bookContext.log('info', 'All illustrations generated (no text)', { totalMs: Date.now() - stage5Start });
+
+  // ── Text Compositing ──
+  // Composite story text onto illustrations programmatically.
+  // This ensures perfect font consistency across all spreads.
+  const textCompositor = new TextCompositor();
+  const compositingStart = Date.now();
+  let compositedCount = 0;
+
+  for (const job of illustratableEntries) {
+    const { idx, field } = job;
+    const entry = results[idx];
+    const illUrl = entry?.[field];
+    const pageText = job.pageText || '';
+
+    if (!illUrl || !pageText.trim()) continue;
+
+    try {
+      // Download the raw illustration
+      const resp = await fetch(illUrl);
+      if (!resp.ok) continue;
+      const rawBuffer = Buffer.from(await resp.arrayBuffer());
+
+      // Get layout config for this spread
+      const layout = TextCompositor.getDefaultLayout(idx, illustratableEntries.length);
+
+      // Composite text
+      const compositedBuffer = await textCompositor.compositeText(rawBuffer, pageText, layout);
+
+      // Upload composited version
+      const compositedPath = `children-jobs/${bookId}/illustrations/${Date.now()}-text.png`;
+      const compositedUrl = await uploadBuffer(compositedBuffer, compositedPath, 'image/png');
+
+      // Store raw URL for admin comparison, use composited for the book
+      entry._rawIllustrationUrl = illUrl;
+      entry[field] = compositedUrl;
+      compositedCount++;
+
+      bookContext.log('info', `Text composited for spread ${idx + 1}`);
+    } catch (compErr) {
+      bookContext.log('warn', `Text compositing failed for spread ${idx + 1}: ${compErr.message} — using raw illustration`);
+      // Non-fatal: the illustration without text is still usable
+    }
+  }
+
+  bookContext.log('info', `Text compositing complete: ${compositedCount}/${illustratableEntries.filter(j => j.pageText?.trim()).length} spreads`, { ms: Date.now() - compositingStart });
+  console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (incl. text compositing, book ${bookId})`);
   return results;
 }
 
@@ -2537,436 +2592,102 @@ Format your answer with each label on its own line followed by a colon and the a
             });
           }
 
-          // ── 3-Tier QA Fix System ──
-          // Tier 1: Smart retry with visual anchors + check-specific corrections
-          // Tier 2: Post-processing fixes (font compositing, color adjustment)
-          // Tier 3: Multi-candidate generation for stubborn spreads
-          const qaTiers = { tier1: [], tier2: [], tier3: [] };
-
+          // ── Simple Chat-Based QA Retry (replaces 3-tier fix system) ──
+          // If QA fails, do one round of retries for failed spreads using standalone generation.
+          // Never abort — always produce a book.
           if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
-            const { detectFontSpec, fixFontOnIllustration, fixColorPalette } = require('./services/illustrationPostProcess');
-
-            // Helper: rebuild allQaImages from current illustration URLs
-            async function rebuildAllQaImages() {
-              const rebuilt = [];
-              if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                for (const page of (storyPlan.pages || [])) {
-                  if (!page.illustrationUrl) continue;
-                  let imgBase64 = null;
-                  try {
-                    const resp = await fetch(page.illustrationUrl);
-                    if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
-                  } catch {}
-                  if (imgBase64) {
-                    const panelTexts = (page.panels || []).map(p => p.dialogue || p.caption || '').filter(Boolean).join(' ');
-                    rebuilt.push({
-                      index: (page.pageNumber || rebuilt.length + 1) - 1,
-                      imageBase64: imgBase64,
-                      imageUrl: page.illustrationUrl,
-                      pageText: panelTexts,
-                      sceneDescription: page.sceneTitle || '',
-                    });
-                  }
-                }
-              } else {
-                for (let i = 0; i < (entriesWithIllustrations || []).length; i++) {
-                  const entry = entriesWithIllustrations[i];
-                  const illUrl = entry.spreadIllustrationUrl || entry.illustrationUrl;
-                  if (!illUrl) continue;
-                  let imgBase64 = null;
-                  try {
-                    const resp = await fetch(illUrl);
-                    if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
-                  } catch {}
-                  if (imgBase64) {
-                    const spreadText = [entry.left?.text, entry.right?.text, entry.text].filter(Boolean).join(' ');
-                    rebuilt.push({
-                      index: i,
-                      imageBase64: imgBase64,
-                      imageUrl: illUrl,
-                      pageText: spreadText || '',
-                      sceneDescription: entry.spread_image_prompt || '',
-                    });
-                  }
-                }
-              }
-              return rebuilt;
+            bookContext.log('info', `QA retry: ${qaResult.failedSpreads.length} spreads need improvement (score: ${qaResult.score})`);
+            if (progressCallbackUrl) {
+              reportProgress(progressCallbackUrl, {
+                bookId, stage: 'qa_fix', progress: 0.85,
+                message: `Improving ${qaResult.failedSpreads.length} illustrations...`, logs: bookContext.logs,
+              });
             }
 
-            // Helper: build generation opts for a spread/page
-            function buildRetryOpts(failed, anchorImages) {
-              if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                return {
-                  apiKeys, costTracker, bookId, bookContext,
+            const anchorImages = getTopScoringImages(allQaImages, qaResult, 2);
+
+            for (const failed of qaResult.failedSpreads) {
+              const failedCheckNames = failed.checks.map(c => c.check);
+              bookContext.log('info', `QA retry: spread ${failed.index + 1} for: ${failedCheckNames.join(', ')}`);
+
+              const origImg = allQaImages.find(q => q.index === failed.index);
+              const correctionContext = {
+                characterAnchor: storyPlan.characterAnchor || '',
+                characterOutfit: storyPlan.characterOutfit || '',
+                pageText: origImg?.pageText || '',
+                sceneDescription: origImg?.sceneDescription || '',
+              };
+              const correctionNote = buildCheckSpecificCorrection(failed.checks, correctionContext);
+
+              try {
+                let originalPrompt = '';
+                if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                  const page = (storyPlan.pages || [])[failed.index];
+                  if (page) originalPrompt = page.fullPagePrompt || '';
+                } else {
+                  const entry = entriesWithIllustrations[failed.index];
+                  if (entry) originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
+                }
+
+                const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
+
+                // Build retry opts
+                const retryOpts = {
+                  apiKeys, costTracker, bookId,
                   childName: childDetails.name,
-                  childAge: parseInt(childDetails.age, 10) || childDetails.childAge,
-                  childPhotoUrl: resolvedChildPhotoUrl,
-                  _cachedPhotoBase64: characterRefBase64,
-                  _cachedPhotoMime: characterRefMime,
+                  characterOutfit: storyPlan.characterOutfit || '',
                   characterDescription: storyPlan.characterDescription || '',
                   characterAnchor: storyPlan.characterAnchor || null,
-                  characterOutfit: storyPlan.characterOutfit || '',
                   additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                  recurringElement: storyPlan.recurringElement || '',
+                  keyObjects: storyPlan.keyObjects || '',
                   coverArtStyle: storyPlan.coverArtStyle || '',
+                  childPhotoUrl: resolvedChildPhotoUrl,
+                  _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
+                  _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
                   spreadIndex: failed.index,
-                  totalSpreads: (storyPlan.pages || []).length,
-                  comicPageMode: true,
+                  totalSpreads: spreadEntries.length,
+                  childAge: childDetails.age || childDetails.childAge,
+                  pageText: '', // No text in illustrations
+                  skipTextEmbed: true,
+                  isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
+                  deadlineMs: 200000,
                   abortSignal: bookContext.abortController.signal,
-                  deadlineMs: 180000,
-                };
-              }
-              const entry = entriesWithIllustrations[failed.index];
-              return {
-                apiKeys, costTracker, bookId,
-                childName: childDetails.name,
-                characterOutfit: storyPlan.characterOutfit || '',
-                characterDescription: storyPlan.characterDescription || '',
-                characterAnchor: storyPlan.characterAnchor || null,
-                additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                recurringElement: storyPlan.recurringElement || '',
-                keyObjects: storyPlan.keyObjects || '',
-                coverArtStyle: storyPlan.coverArtStyle || '',
-                childPhotoUrl: resolvedChildPhotoUrl,
-                _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
-                _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
-                spreadIndex: failed.index,
-                totalSpreads: spreadEntries.length,
-                childAge: childDetails.age || childDetails.childAge,
-                pageText: entry ? (entry.left?.text || entry.right?.text || '') : '',
-                isSpread: entry ? entry.type === 'spread' : false,
-                deadlineMs: 200000,
-                abortSignal: bookContext.abortController.signal,
-              };
-            }
-
-            // ════════════════════════════════════════
-            // TIER 1: Smart Retry with Visual Anchors
-            // ════════════════════════════════════════
-            const MAX_TIER1_ROUNDS = 2;
-            for (let round = 1; round <= MAX_TIER1_ROUNDS; round++) {
-              bookContext.log('info', `Tier 1 round ${round}/${MAX_TIER1_ROUNDS}: ${qaResult.failedSpreads.length} spreads to fix`);
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, {
-                  bookId, stage: 'qa_fix', progress: 0.83 + round * 0.02,
-                  message: `Fixing illustrations (round ${round})...`, logs: bookContext.logs,
-                });
-              }
-
-              const anchorImages = getTopScoringImages(allQaImages, qaResult, 2);
-              let anyFixed = false;
-
-              for (const failed of qaResult.failedSpreads) {
-                const failedCheckNames = failed.checks.map(c => c.check);
-                const failedCheckStr = failedCheckNames.join(', ');
-                bookContext.log('info', `Tier 1: retrying spread ${failed.index + 1} for: ${failedCheckStr}`);
-
-                // Get context for check-specific corrections
-                const origImg = allQaImages.find(q => q.index === failed.index);
-                const correctionContext = {
-                  characterAnchor: storyPlan.characterAnchor || '',
-                  characterOutfit: storyPlan.characterOutfit || '',
-                  pageText: origImg?.pageText || '',
-                  sceneDescription: origImg?.sceneDescription || '',
                 };
 
-                const correctionNote = buildCheckSpecificCorrection(failed.checks, correctionContext);
+                const retryUrl = await generateIllustrationWithAnchors(
+                  correctedPrompt,
+                  characterRef,
+                  style,
+                  anchorImages,
+                  retryOpts
+                );
 
-                try {
-                  let originalPrompt = '';
-                  let retryUrl = null;
-
+                if (retryUrl) {
                   if (isGraphicNovel || storyPlan.isGraphicNovel) {
                     const page = (storyPlan.pages || [])[failed.index];
-                    if (page) originalPrompt = page.fullPagePrompt || '';
+                    if (page) page.illustrationUrl = retryUrl;
                   } else {
                     const entry = entriesWithIllustrations[failed.index];
-                    if (entry) originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
+                    if (entry) entry.spreadIllustrationUrl = retryUrl;
                   }
-
-                  const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
-                  const retryOpts = buildRetryOpts(failed, anchorImages);
-                  retryUrl = await generateIllustrationWithAnchors(
-                    correctedPrompt,
-                    isGraphicNovel || storyPlan.isGraphicNovel ? null : characterRef,
-                    isGraphicNovel || storyPlan.isGraphicNovel ? (storyPlan.coverArtStyle || style) : style,
-                    anchorImages,
-                    retryOpts
-                  );
-
-                  if (retryUrl) {
-                    // Update the illustration URL
-                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                      const page = (storyPlan.pages || [])[failed.index];
-                      if (page) page.illustrationUrl = retryUrl;
-                    } else {
-                      const entry = entriesWithIllustrations[failed.index];
-                      if (entry) entry.spreadIllustrationUrl = retryUrl;
-                    }
-                    anyFixed = true;
-                    qaTiers.tier1.push({ spread: failed.index, checks: failedCheckNames, fixed: true });
-                    bookContext.log('info', `Tier 1: spread ${failed.index + 1} regenerated with anchors`);
-                  }
-                } catch (retryErr) {
-                  bookContext.log('warn', `Tier 1 retry failed for spread ${failed.index + 1}`, { error: retryErr.message });
-                  qaTiers.tier1.push({ spread: failed.index, checks: failedCheckNames, fixed: false });
+                  bookContext.log('info', `QA retry: spread ${failed.index + 1} improved`);
                 }
-              }
-
-              if (!anyFixed) {
-                bookContext.log('info', `Tier 1 round ${round}: no spreads were fixed, stopping`);
-                break;
-              }
-
-              // Re-QA ALL images (not just fixed ones) — the key improvement
-              const updatedQaImages = await rebuildAllQaImages();
-              if (updatedQaImages.length >= 2) {
-                // Update the master allQaImages for subsequent tiers
-                allQaImages.length = 0;
-                allQaImages.push(...updatedQaImages);
-
-                const reQaResult = await runHolisticQa(allQaImages, qaContext);
-                bookContext.log('info', `Tier 1 re-QA round ${round}: score=${reQaResult.score}, passed=${reQaResult.passed}`);
-                if (reQaResult.passed) {
-                  qaResult.passed = true;
-                  qaResult.score = reQaResult.score;
-                  qaResult.issues = reQaResult.issues;
-                  qaResult.failedSpreads = [];
-                  bookContext.log('info', 'Tier 1 re-QA passed — done');
-                  break;
-                }
-                qaResult.score = reQaResult.score;
-                qaResult.issues = reQaResult.issues;
-                qaResult.failedSpreads = reQaResult.failedSpreads;
-              } else {
-                break;
+              } catch (retryErr) {
+                bookContext.log('warn', `QA retry failed for spread ${failed.index + 1}: ${retryErr.message} — accepting as-is`);
               }
             }
 
-            // ════════════════════════════════════════
-            // TIER 2: Post-Processing Fixes
-            // ════════════════════════════════════════
-            if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
-              bookContext.log('info', `Tier 2: post-processing ${qaResult.failedSpreads.length} remaining failed spreads`);
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, {
-                  bookId, stage: 'qa_postprocess', progress: 0.87,
-                  message: 'Applying post-processing fixes...', logs: bookContext.logs,
-                });
-              }
-
-              // Detect font spec from the first spread (for font fix reference)
-              let fontSpec = null;
-              const firstImage = allQaImages.find(img => img.index === 0) || allQaImages[0];
-              if (firstImage?.imageBase64) {
-                try {
-                  fontSpec = await detectFontSpec(firstImage.imageBase64);
-                  if (fontSpec) bookContext.log('info', `Tier 2: detected font spec: ${JSON.stringify(fontSpec)}`);
-                } catch (e) {
-                  bookContext.log('warn', 'Tier 2: font spec detection failed', { error: e.message });
-                }
-              }
-
-              let anyPostProcessed = false;
-
-              for (const failed of qaResult.failedSpreads) {
-                const failedCheckNames = failed.checks.map(c => c.check);
-                const hasFontIssue = failedCheckNames.includes('fontConsistency') || failedCheckNames.includes('textAccuracy');
-                const hasColorIssue = failedCheckNames.includes('colorPalette');
-
-                const origImg = allQaImages.find(q => q.index === failed.index);
-                if (!origImg?.imageBase64) continue;
-
-                try {
-                  let currentBase64 = origImg.imageBase64;
-                  let wasFixed = false;
-
-                  // Font fix via compositing
-                  if (hasFontIssue && fontSpec && origImg.pageText) {
-                    bookContext.log('info', `Tier 2: attempting font fix for spread ${failed.index + 1}`);
-                    const fontResult = await fixFontOnIllustration(
-                      currentBase64,
-                      origImg.pageText,
-                      fontSpec,
-                      firstImage?.imageBase64
-                    );
-                    if (fontResult.fixed && fontResult.imageBase64) {
-                      currentBase64 = fontResult.imageBase64;
-                      wasFixed = true;
-                      bookContext.log('info', `Tier 2: font fix applied to spread ${failed.index + 1}`);
-                    }
-                  }
-
-                  // Color palette fix
-                  if (hasColorIssue) {
-                    // Find an adjacent spread as color reference
-                    const adjacentImg = allQaImages.find(q =>
-                      q.index !== failed.index && q.imageBase64 && Math.abs(q.index - failed.index) <= 2
-                    ) || firstImage;
-
-                    if (adjacentImg?.imageBase64) {
-                      bookContext.log('info', `Tier 2: attempting color fix for spread ${failed.index + 1}`);
-                      const colorResult = await fixColorPalette(currentBase64, adjacentImg.imageBase64);
-                      if (colorResult.fixed && colorResult.imageBase64) {
-                        currentBase64 = colorResult.imageBase64;
-                        wasFixed = true;
-                        bookContext.log('info', `Tier 2: color fix applied to spread ${failed.index + 1}`);
-                      }
-                    }
-                  }
-
-                  if (wasFixed) {
-                    // Upload the post-processed image
-                    const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
-                    const fixedBuffer = Buffer.from(currentBase64, 'base64');
-                    const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-pp.png`;
-                    const fixedUrl = await uploadBuf(fixedBuffer, gcsPath, 'image/png');
-
-                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                      const page = (storyPlan.pages || [])[failed.index];
-                      if (page) page.illustrationUrl = fixedUrl;
-                    } else {
-                      const entry = entriesWithIllustrations[failed.index];
-                      if (entry) entry.spreadIllustrationUrl = fixedUrl;
-                    }
-
-                    anyPostProcessed = true;
-                    qaTiers.tier2.push({
-                      spread: failed.index,
-                      checks: failedCheckNames.filter(c => c === 'fontConsistency' || c === 'textAccuracy' || c === 'colorPalette'),
-                      fixed: true,
-                    });
-                  }
-                } catch (ppErr) {
-                  bookContext.log('warn', `Tier 2 post-processing failed for spread ${failed.index + 1}`, { error: ppErr.message });
-                }
-              }
-
-              // Re-QA ALL images after post-processing
-              if (anyPostProcessed) {
-                const updatedQaImages = await rebuildAllQaImages();
-                if (updatedQaImages.length >= 2) {
-                  allQaImages.length = 0;
-                  allQaImages.push(...updatedQaImages);
-
-                  const reQaResult = await runHolisticQa(allQaImages, qaContext);
-                  bookContext.log('info', `Tier 2 re-QA: score=${reQaResult.score}, passed=${reQaResult.passed}`);
-                  if (reQaResult.passed) {
-                    qaResult.passed = true;
-                    qaResult.score = reQaResult.score;
-                    qaResult.issues = reQaResult.issues;
-                    qaResult.failedSpreads = [];
-                  } else {
-                    qaResult.score = reQaResult.score;
-                    qaResult.issues = reQaResult.issues;
-                    qaResult.failedSpreads = reQaResult.failedSpreads;
-                  }
-                }
-              }
-            }
-
-            // ════════════════════════════════════════
-            // TIER 3: Multi-Candidate Selection
-            // ════════════════════════════════════════
-            if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
-              bookContext.log('info', `Tier 3: multi-candidate generation for ${qaResult.failedSpreads.length} stubborn spreads`);
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, {
-                  bookId, stage: 'qa_candidates', progress: 0.89,
-                  message: 'Generating candidate fixes for remaining issues...', logs: bookContext.logs,
-                });
-              }
-
-              const anchorImages = getTopScoringImages(allQaImages, qaResult, 2);
-
-              for (const failed of qaResult.failedSpreads) {
-                const failedCheckNames = failed.checks.map(c => c.check);
-                bookContext.log('info', `Tier 3: generating candidates for spread ${failed.index + 1} (${failedCheckNames.join(', ')})`);
-
-                try {
-                  let originalPrompt = '';
-                  if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                    const page = (storyPlan.pages || [])[failed.index];
-                    if (page) originalPrompt = page.fullPagePrompt || '';
-                  } else {
-                    const entry = entriesWithIllustrations[failed.index];
-                    if (entry) originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
-                  }
-
-                  const origImg = allQaImages.find(q => q.index === failed.index);
-                  const correctionContext = {
-                    characterAnchor: storyPlan.characterAnchor || '',
-                    characterOutfit: storyPlan.characterOutfit || '',
-                    pageText: origImg?.pageText || '',
-                    sceneDescription: origImg?.sceneDescription || '',
-                  };
-                  const correctionNote = buildCheckSpecificCorrection(failed.checks, correctionContext);
-                  const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
-                  const retryOpts = buildRetryOpts(failed, anchorImages);
-
-                  const imageInfo = {
-                    index: failed.index,
-                    pageText: origImg?.pageText || '',
-                    sceneDescription: origImg?.sceneDescription || '',
-                  };
-
-                  const best = await generateBestCandidate(
-                    correctedPrompt,
-                    isGraphicNovel || storyPlan.isGraphicNovel ? null : characterRef,
-                    isGraphicNovel || storyPlan.isGraphicNovel ? (storyPlan.coverArtStyle || style) : style,
-                    anchorImages,
-                    retryOpts,
-                    failedCheckNames,
-                    qaContext,
-                    allQaImages,
-                    imageInfo
-                  );
-
-                  if (best.url) {
-                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                      const page = (storyPlan.pages || [])[failed.index];
-                      if (page) page.illustrationUrl = best.url;
-                    } else {
-                      const entry = entriesWithIllustrations[failed.index];
-                      if (entry) entry.spreadIllustrationUrl = best.url;
-                    }
-                    bookContext.log('info', `Tier 3: best candidate for spread ${failed.index + 1} scored ${best.score}`);
-                    qaTiers.tier3.push({ spread: failed.index, checks: failedCheckNames, bestScore: best.score });
-                  } else {
-                    bookContext.log('warn', `Tier 3: no valid candidates for spread ${failed.index + 1}`);
-                    qaTiers.tier3.push({ spread: failed.index, checks: failedCheckNames, bestScore: 0 });
-                  }
-                } catch (t3Err) {
-                  bookContext.log('warn', `Tier 3 failed for spread ${failed.index + 1}`, { error: t3Err.message });
-                  qaTiers.tier3.push({ spread: failed.index, checks: failedCheckNames, bestScore: 0 });
-                }
-              }
-
-              // Final re-QA on ALL images
-              const finalQaImages = await rebuildAllQaImages();
-              if (finalQaImages.length >= 2) {
-                allQaImages.length = 0;
-                allQaImages.push(...finalQaImages);
-
-                const finalQaResult = await runHolisticQa(allQaImages, qaContext);
-                bookContext.log('info', `Tier 3 final re-QA: score=${finalQaResult.score}, passed=${finalQaResult.passed}`);
-                qaResult.passed = finalQaResult.passed;
-                qaResult.score = finalQaResult.score;
-                qaResult.issues = finalQaResult.issues;
-                qaResult.failedSpreads = finalQaResult.failedSpreads;
-              }
-            }
-
-            // Report final QA results with tier info
+            // Report final QA results
             if (progressCallbackUrl) {
               reportProgressForce(progressCallbackUrl, {
                 bookId,
                 stage: 'qa_final',
                 progress: 0.90,
-                message: `Final quality: ${qaResult.score}% (${qaResult.passed ? 'passed' : 'best effort'})`,
+                message: `Quality: ${qaResult.score}% — proceeding with best effort`,
                 qaScore: qaResult.score,
                 qaPassed: qaResult.passed,
                 qaIssues: qaResult.issues,
-                qaTiers,
                 logs: bookContext.logs,
               });
             }
