@@ -868,20 +868,24 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (opts.embedText && pageText && pageText.trim()) {
     const embedWordCount = pageText.trim().split(/\s+/).length;
     const embedEstimatedLines = Math.ceil(embedWordCount / 7);
+    parts.push('TEXT RENDERING RULES:');
+    parts.push('- This illustration MUST include the story text rendered directly INTO the image');
+    parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
+    parts.push('- Use a SMALL font size — text complements the illustration, does not dominate');
+    parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
+    parts.push('');
+    parts.push('TEXT LAYOUT PLANNING (CRITICAL — follow this process):');
+    parts.push(`1. The text below is approximately ${embedWordCount} words (~${embedEstimatedLines} lines at small font size, ~7 words per line)`);
+    parts.push('2. DECIDE whether to place the text zone at the TOP or BOTTOM of the image — choose whichever works better for the scene composition');
+    parts.push('3. RESERVE a horizontal band for the text — the band height should match the number of lines needed, plus a small padding margin from the edge (so text is not cut when printed)');
+    parts.push('4. DESIGN the illustration to fill the REST of the image — place main characters, action, and key elements OUTSIDE the reserved text band');
+    parts.push('5. The text band and illustration can share the image canvas, but the main focal elements (characters, faces, important objects) must NOT be behind the text');
+    parts.push('6. Text must NEVER cross the vertical center line of the image — if text needs many lines, use a smaller font rather than expanding the text zone past the center');
+    parts.push('7. Keep a small margin (3-5% of image height) between the text and the top/bottom edge');
+    parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push('');
-    parts.push('TEXT LAYOUT PLANNING:');
-    parts.push(`1. This text is approximately ${embedWordCount} words (~${embedEstimatedLines} lines at small font size)`);
-    parts.push('2. Reserve a horizontal band at the top or bottom for this text');
-    parts.push('3. Design the illustration so main characters and action are NOT behind the text band');
-    parts.push('4. Text must never cross the vertical center of the image');
-    parts.push('');
-    parts.push('TEXT STYLE:');
-    parts.push('- Elegant classic serif font similar to Lora — refined, delicate');
-    parts.push('- SMALL font size — text complements, does not dominate');
-    parts.push('- White or light text with subtle dark drop shadow for readability');
-    parts.push('- Keep 3-5% padding from top/bottom edges');
+    parts.push(`\nThis text is approximately ${embedWordCount} words (~${embedEstimatedLines} lines). Plan your layout: reserve space for ${embedEstimatedLines} lines of small text at the top or bottom edge, then compose the illustration in the remaining area. Characters and key action must not be behind the text.`);
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
