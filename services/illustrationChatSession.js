@@ -172,7 +172,10 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   if (opts.additionalCoverCharacters) {
     secondaryCharReminder = `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`;
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    secondaryCharReminder = `\nPARENT WITHOUT REFERENCE IMAGE: The story references a parent but we do NOT have a reference image for them. You MUST still show the parent physically present in the scene — they are real, NOT invisible. However, since we have no reference photo, NEVER show the parent's full face (it would look different on every page). Instead show them partially: hands on the table, arms reaching out, back or side view, a shoulder and arm, kneeling with face turned away, or cropped at the frame edge so only their torso/hands are visible. The parent should feel warm and physically THERE — just with their face hidden or turned away from the viewer.`;
+    const outfitLock = opts.parentOutfit
+      ? ` PARENT OUTFIT (LOCKED — same on EVERY page): ${opts.parentOutfit}. Do NOT change the parent's clothing between pages.`
+      : ' Keep the parent\'s clothing IDENTICAL across all pages — same garment type, same colors, same style as the first illustration where they appeared.';
+    secondaryCharReminder = `\nPARENT WITHOUT REFERENCE IMAGE: The story references a parent but we do NOT have a reference image for them. You MUST still show the parent physically present in the scene — they are real, NOT invisible. However, since we have no reference photo, NEVER show the parent's full face (it would look different on every page). Instead show them partially: hands on the table, arms reaching out, back or side view, a shoulder and arm, kneeling with face turned away, or cropped at the frame edge so only their torso/hands are visible. The parent should feel warm and physically THERE — just with their face hidden or turned away from the viewer.${outfitLock}`;
   }
 
   // Reinforce art style on every spread
@@ -305,6 +308,12 @@ function _buildCharacterEstablishmentPrompt(session) {
     parts.push('- In ALL subsequent illustrations, reproduce that EXACT outfit — same garment type, same color, same style. NO changes.');
     parts.push('- This is just as important as the child\'s outfit consistency — readers will notice if the parent\'s clothes change between pages.');
     parts.push('- Same hair color, style, length, skin tone, facial features, and approximate age on every spread.');
+  } else if (opts.parentOutfit) {
+    // Parent without cover reference but with a planned outfit
+    parts.push(`\nPARENT OUTFIT (LOCKED — same on EVERY page): ${opts.parentOutfit}`);
+    parts.push('- The parent must wear this EXACT outfit in EVERY illustration — no changes between pages.');
+    parts.push('- Same hair color, style, and approximate build on every spread.');
+    parts.push('- NEVER show the parent\'s full face — show them from behind, side, or cropped so only torso/hands are visible.');
   }
 
   if (opts.recurringElement) {

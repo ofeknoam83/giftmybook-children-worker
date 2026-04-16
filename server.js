@@ -631,6 +631,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
         additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
         recurringElement: storyPlan.recurringElement || '',
         keyObjects: storyPlan.keyObjects || '',
+        parentOutfit: storyPlan.parentOutfit || null,
       });
 
       await establishCharacter(multiTurnSession);
@@ -720,6 +721,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                 pageText: pageText || null,
                 additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
                 theme: theme,
+                parentOutfit: storyPlan.parentOutfit || null,
               });
               break; // Success
             } catch (turnErr) {
@@ -2956,7 +2958,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     totalSpreads: spreadEntries.length,
                     childAge: childDetails.age || childDetails.childAge,
                     pageText: origImg?.pageText || '',
-                    embedText: useMultiTurnChat,
+                    embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true',
                     isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
                     deadlineMs: 200000,
                     abortSignal: bookContext.abortController.signal,
