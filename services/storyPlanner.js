@@ -167,9 +167,9 @@ All dialogue MUST be grammatically correct, regardless of the character's age.
 // ── W5: Age-aware vocabulary ──
 function ageVocabularyRules(age) {
   const n = parseInt(age) || 5;
-  if (n <= 3) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, SIMPLICITY OVERRIDES all other style rules including poetic language. MAX 8 words per sentence. Use only common toddler words a ${n}-year-old hears daily. Simple, repetitive, rhythmic patterns. No metaphors, no poetic imagery, no words above 2 syllables. Grammar must always be correct even though vocabulary is simple. No baby talk. Example: "Rem climbed up. Up, up, up! She saw a star. A big, bright star."`;
-  if (n <= 5) return `VOCABULARY (age ${n}): CRITICAL: For age ${n}, simple language is MORE important than poetic beauty. MAX 12 words per sentence. Every word must be in the child's active vocabulary. No words above 2 syllables unless a name. Simple but concrete vocabulary. Gentle descriptive words a ${n}-year-old already knows. All dialogue must be grammatically correct. Simple words, proper sentence structure. Example: "The garden was full of colors, and butterflies danced above the flowers."`;
-  if (n <= 8) return `VOCABULARY (age ${n}): MAX 18 words per sentence. Full children's vocabulary. Metaphors and similes welcome. Complex sentences OK. Example: "She felt like a brave explorer discovering a hidden world that no one had ever seen before."`;
+  if (n <= 3) return `VOCABULARY (age ${n}): SIMPLICITY is king. Use only common toddler words a ${n}-year-old hears daily. Simple, repetitive, rhythmic patterns. No metaphors, no words above 2 syllables. Grammar must always be correct — no baby talk. But simple does NOT mean broken. Complete, musical sentences: "The stars came out one by one. Goodnight moon, goodnight sun." NOT "Stars. Out. One."`;
+  if (n <= 5) return `VOCABULARY (age ${n}): Simple, familiar words a ${n}-year-old already knows. Two-syllable words are fine; occasional three-syllable words are fine if they sound natural when read aloud ("adventure", "tomorrow", "beautiful"). The writing should be SIMPLE but BEAUTIFUL — think Julia Donaldson, Margaret Wise Brown, Sandra Boynton. Complete, flowing sentences. Rhyming couplets that sing. Grammar must always be correct. Example: "She followed the path where the wild roses grow, past the tree with the swing and the creek running slow."`;
+  if (n <= 8) return `VOCABULARY (age ${n}): Full children's vocabulary. Metaphors and similes welcome. Varied sentence rhythm. Example: "She felt like a brave explorer discovering a hidden world that no one had ever seen before."`;
   return `VOCABULARY (age ${n}): Young adult vocabulary. Longer sentences fine. Nuanced emotion. Subtext and irony allowed.`;
 }
 
@@ -1821,7 +1821,7 @@ function repairTruncatedJson(str) {
 
 // ── Age-Tier Preamble for Critics ──
 
-const TIER_2_BANNED_WORDS = 'glistening, magnificent, whimsical, ethereal, luminous, iridescent, cascade, eloquent, radiant, resplendent, shimmer, glimmer, beckon, twilight, celestial, melodic, enchanting, mesmerizing, serene, tranquil, mystical, majestic, flutter, sparkle, twinkle, danced, pranced, nestled, murmured, whispered, tumbled, scurried, slumbered, wandered, embraced';
+const TIER_2_BANNED_WORDS = 'glistening, magnificent, whimsical, ethereal, luminous, iridescent, cascade, eloquent, radiant, resplendent, enchanting, mesmerizing, serene, tranquil, mystical, majestic, celestial, melodic, beckon, vespertine';
 
 function buildAgeTierPreamble(tier, config, age) {
   let preamble = `\n\n─────────────────────────────────────────

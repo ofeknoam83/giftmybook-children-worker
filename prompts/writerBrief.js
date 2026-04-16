@@ -14,7 +14,7 @@ const AGE_TIERS = {
     tier: 1,
     label: 'Board Book',
     range: [0, 2],
-    vocabulary: 'mostly single-syllable words with occasional gentle two-syllable words ("sleeping", "quiet", "little", "tumble"). Max 60 unique words total. The language should be simple but BEAUTIFUL — lyrical, warm, with a gentle rhythm. Think "Goodnight Moon" or "Guess How Much I Love You" — not a vocabulary flashcard.',
+    vocabulary: 'simple words a baby or toddler hears every day. One- and two-syllable words freely ("sleeping", "quiet", "little", "tumble", "morning", "blanket"). Max 60 unique words total. The language should be simple but BEAUTIFUL — lyrical, warm, with a gentle rhythm that sings when read aloud. Think "Goodnight Moon" or "Guess How Much I Love You" — not a vocabulary flashcard. Simple does NOT mean broken. Complete, musical sentences always.',
     sentencesPerSpread: '1-2',
     sentenceStyle: 'Short, complete, graceful sentences. ("The little bear curls into sleep." not just "Bear. Sleep.")',
     conflict: 'none. Sensory observation only.',
@@ -31,8 +31,7 @@ const AGE_TIERS = {
     tier: 2,
     label: 'Classic Picture Book',
     range: [3, 5],
-    vocabulary: 'common words a 3-5 year old hears and understands — up to two-syllable words freely, with the occasional three-syllable word if it sounds natural when read aloud ("adventure", "beautiful", "tomorrow"). The language should be SIMPLE but BEAUTIFUL and COHERENT — complete, flowing sentences that a parent enjoys reading aloud. Think Julia Donaldson, Oliver Jeffers, or Margaret Wise Brown — not a reading primer. No adjective stacking. One rich metaphor per story is fine if grounded in something a child knows ("the moon was a nightlight").',
-    maxWordsPerSentence: 12,
+    vocabulary: 'common words a 3-5 year old hears and understands. Two-syllable words freely; three-syllable words welcome when they sound natural read aloud ("adventure", "beautiful", "tomorrow", "butterfly", "discovery"). The language should be SIMPLE but BEAUTIFUL and COHERENT — complete, flowing sentences that a parent enjoys reading aloud. Think Julia Donaldson, Oliver Jeffers, or Margaret Wise Brown — not a reading primer. Vivid verbs are encouraged: whispered, tumbled, wandered, crept, wobbled, tiptoed. No adjective stacking. One rich metaphor per story is fine if grounded in something a child knows ("the moon was a nightlight").',
     maxWordsPerSpread: 30,
     sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
@@ -839,75 +838,6 @@ Trust the reader to feel the emotion. Do NOT amplify or explain.
 
 UNDERSTATEMENT > OVERSTATEMENT. Always.
 
-NARRATOR VOICE (CRITICAL):
-Before writing a single word, decide the narrator's personality. The narrator is NOT neutral.
-Choose ONE voice for the entire story and commit to it:
-- Conspiratorial: "Now, between you and me, this is the part where things get interesting."
-- Breathless: "And then — oh, and THEN — the door opened."
-- Wry/Amused: "Which, as everyone knows, is exactly the wrong thing to do."
-- Gentle: "The moon was patient. It had done this before."
-- Matter-of-fact: "The bear was in the kitchen. This was a problem."
-
-The voice must be consistent across every spread. Every sentence should sound like the same person telling the story. If you can swap sentences between spreads and nobody notices, the voice isn't strong enough.
-
-STYLE MODE BIAS:
-{style_mode_bias}
-
-ADVANCED TECHNIQUE BUDGET:
-Your brainstorm selected these techniques: {techniques}. Execute ONLY these with full commitment.
-Do NOT try to include all techniques — a story that does 2 things brilliantly
-beats a story that does 5 things mechanically.
-
-IF you selected "rule_of_three":
-RULE OF THREE — Three attempts, three encounters, three obstacles. The third breaks the pattern.
-- Repetition 1: Establish the pattern. The reader learns the rules.
-- Repetition 2: Vary slightly. Escalate the stakes. The reader anticipates.
-- Repetition 3: BREAK the pattern. Subvert, invert, or escalate beyond expectation.
-Example (Gruffalo): Three animals warn the mouse, then the Gruffalo actually appears (inversion).
-
-IF you selected "surprise":
-SURPRISE — One genuinely unexpected moment: character subversion, situation twist, perspective shift, or emotional surprise.
-The surprise must feel EARNED — not random. The reader should think "I didn't see that coming, but of course."
-
-IF you selected "humor":
-HUMOR THROUGH STRUCTURE — Comic timing, running gags, deadpan delivery.
-- COMIC TIMING: Setup on one spread, punchline revealed on the next.
-- RUNNING GAGS: Introduce something funny early and let it recur 2-3 times, escalating.
-- THE CHILD IS FUNNY: Let the child say or do something unexpected, observant, or accidentally wise.
-- For bedtime themes: humor should be gentle and cozy. For adventure themes: humor can be bigger.
-
-IF you selected "page_turn_hooks":
-PAGE-TURN HOOKS — Use the physical page turn as a dramatic device.
-- At least 3 spreads must end with a line that pulls the reader forward.
-- Place hooks at the END of spreads 2, 4, 6, and/or 8 (the rising-action spreads).
-
-IF you selected "lyrical_repetition":
-LYRICAL REPETITION — A repeated phrase or structure that creates rhythm and evolves.
-- The phrase appears at least 3 times, shifting in meaning each time.
-
-After choosing, commit fully. Half-measures are worse than not including the technique at all.
-
-VERB POWER (MANDATORY):
-The verb carries action AND emotion in one word. Never use a weak verb + adverb when a strong verb exists.
-- "walked quickly" → "darted" or "scrambled"
-- "said quietly" → "whispered" or "murmured"
-- "looked carefully" → "peered" or "squinted"
-- "ran fast" → "bolted" or "tore"
-- "fell down" → "tumbled" or "crashed"
-
-Before finalizing, scan every sentence. If you find an adverb modifying a verb, replace both with a single stronger verb.
-
-EMOTIONAL RESTRAINT:
-Trust the reader to feel the emotion. Do NOT amplify or explain.
-- After a sad moment, do NOT add "and a tear rolled down her cheek." The situation is enough.
-- After a triumph, do NOT add "she had never been so happy." Show the action.
-- The most powerful emotional moments in children's literature use the FEWEST words.
-  - Sendak: "And it was still hot." (10 words. Max returning home. The whole book lands in this sentence.)
-  - Jeffers: "So he took him home." (Six words. The entire emotional resolution.)
-- When in doubt, CUT the emotional sentence. If the emotion is clear from context, the extra sentence weakens it.
-
-UNDERSTATEMENT > OVERSTATEMENT. Always.
-
 ANTI-KITSCHY RULES (CRITICAL — violating these produces generic books):
 - REJECT any of these patterns: "the real treasure was...", "love is the strongest...", "you are special just the way you are", "they learned that the most important thing is...", "and they all lived happily...", "the magic was inside them all along", "home is where the heart is", "with love, anything is possible".
 - REJECT vague emotional summaries at the end: "and the child felt warm and happy and loved." Instead, show ONE specific image: "She pressed her nose against the window. The stars were still there."
@@ -1366,16 +1296,15 @@ function buildV2Brief(vars) {
   brief = brief.replace(/\{dialect\}/g, dialect);
   brief = brief.replace(/\{dialectRule\}/g, dialectRule);
 
-  // Inject Tier 2 vocabulary enforcement block
+  // Inject Tier 2 vocabulary guidance
   if (config.tier === 2) {
     const tier2Block = `
 
-TIER 2 VOCABULARY ENFORCEMENT (ages 3-5):
-- BANNED WORDS: glistening, magnificent, whimsical, ethereal, luminous, iridescent, cascade, eloquent, radiant, resplendent, shimmer, glimmer, beckon, twilight, celestial, melodic, enchanting, mesmerizing, serene, tranquil, mystical, majestic, flutter, sparkle, twinkle, danced, pranced, nestled, murmured, whispered (use "said" or "called"), tumbled, scurried, slumbered, wandered, embraced
-- Test every sentence: could a 3-year-old say this sentence back to you? If not, simplify.
-- Max sentence length: 8 words. Break longer sentences into two.
-- No poetic inversions ("Down the hill rolled the ball" → "The ball rolled down the hill")
-- No compound adjectives ("star-covered blanket" → "blanket with stars")`;
+TIER 2 VOCABULARY GUIDANCE (ages 3-5):
+- BANNED WORDS (too literary for this age): glistening, magnificent, whimsical, ethereal, luminous, iridescent, cascade, eloquent, radiant, resplendent, enchanting, mesmerizing, serene, tranquil, mystical, majestic, celestial, melodic, beckon, vespertine
+- ALLOWED and ENCOURAGED: whispered, tumbled, wandered, murmured, crept, drifted, curled, scrambled, peeked, wobbled, tiptoed — these are vivid, concrete verbs children understand and love
+- READ-ALOUD TEST: read each sentence out loud. Does it flow like a song? Would a parent enjoy saying it? If it sounds choppy or robotic, rewrite it.
+- No poetic inversions ("Down the hill rolled the ball" → "The ball rolled down the hill")`;
     brief += tier2Block;
   }
 
