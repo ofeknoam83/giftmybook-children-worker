@@ -549,6 +549,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     existingIllustrations, checkpointData, detectedSecondaryCharacters,
     characterAnchor,
     characterRefSheetBase64, parentCoverRefBase64,
+    theme,
   } = opts;
 
   // Count how many illustrations we need
@@ -1592,6 +1593,7 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
       cachedPhotoMime: characterRefMime,
       existingIllustrations: [],
       checkpointData: null,
+      theme: storyPlan.theme || null,
     });
 
     bookContext.log('info', 'All variant illustrations complete');
@@ -2772,6 +2774,7 @@ Format your answer with each label on its own line followed by a colon and the a
           characterAnchor: storyPlan.characterAnchor || null,
           characterRefSheetBase64: characterRefSheetBase64 || null,
           parentCoverRefBase64: parentCoverRefBase64 || null,
+          theme,
         });
 
         bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
