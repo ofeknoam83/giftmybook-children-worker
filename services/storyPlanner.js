@@ -2741,12 +2741,12 @@ EVALUATION CRITERIA (12 total — score each 1-10)
 ─────────────────────────────────────────
 
 1. EMOTIONAL WRITING: Is emotion shown (not told)? Any "she felt / she was scared" → penalty.
-2. LANGUAGE QUALITY & RHYTHM: Are there generic phrases? Is the prose musical? Rhyming couplets, near-rhymes, internal rhymes woven throughout?
+2. LANGUAGE QUALITY & RHYTHM: Are there generic phrases? Is the prose musical? Do ALL lines pass the read-aloud test — would a parent say each line naturally? Flag any line that sounds "written" rather than "told." For young children (ages 2-5): every line must be simple enough that the child could repeat it back.
 3. IMAGERY: Are visuals specific and vivid? Or vague and common?
-4. AUTHORIAL VOICE: Does it feel like a real author? Or like AI-generated text?
+4. AUTHORIAL VOICE & CONSISTENCY: Does the voice feel like a real author — not AI? Is the vocabulary level CONSISTENT across all spreads? Flag any spread where the language suddenly becomes more literary, complex, or poetic than the surrounding text. A "gear shift" in sophistication is a voice failure.
 5. CHILD AGENCY: Does the child actively drive the story?
-6. PHRASE TRANSFORMATION: Does the repeated element evolve meaningfully?
-7. ENDING QUALITY: Does the ending match the theme's energy? (adventure=warm+joyful, bedtime=soft, birthday=celebratory)
+6. PHRASE TRANSFORMATION & TIMING: Does the repeated element evolve meaningfully? Does it first appear by spread 2-3 (NOT later)? Does it appear at least 3 times total? Are appearances distributed across beginning, middle, and end — not clustered?
+7. ENDING QUALITY: Does the ending match the theme's energy? Is the final line CONCRETE (a specific image or action) rather than abstract/poetic? "Crumbs in my palm. For Mama." = 10. "All my love, soft and grand" = 4. Abstract poetic summaries are a critical failure for young-child books.
 8. MEMORABLE LINE: Is there at least one line a parent would want to repeat outside the book?
 9. VERB POWER & RESTRAINT: Are verbs strong and specific? Does the story trust the reader to feel emotion without amplifying?
 10. HUMOR & DELIGHT: Are there genuinely funny or delightful moments? Does humor emerge from character and situation?
@@ -2758,6 +2758,9 @@ Do NOT give any category above 7 if ANY of these are present:
 - Emotion telling ("felt", "was scared", "was happy")
 - Generic filler ("very", "nice", "special", "magical", "wonderful", "beautiful")
 - A sentence that could appear unchanged in a different children's book
+- Any spread where vocabulary suddenly jumps in complexity compared to surrounding spreads
+- The motif/repeated phrase first appearing after spread 4
+- An abstract or poetic final line when the target audience is under 6
 
 ─────────────────────────────────────────
 REWRITE PROTOCOL
@@ -2772,6 +2775,10 @@ Fix these issues — they are objectively broken:
 - Word count violations (spread exceeding age-tier maximum)
 - Weak verb + adverb combos → single strong verb
 - Duplicate consecutive words
+- Lines that sound "written" rather than "told" for ages 2-5 → simplify to natural parent-reading voice
+- Vocabulary ceiling violations (a spread using notably harder words than spread 1) → match the established level
+- Motif/repeated phrase appearing too late → move first appearance to spread 2 or 3
+- Abstract/poetic ending for young children → replace with concrete image or action
 
 STEP 2 — ENHANCE (only if clearly needed):
 Only make these changes if the improvement is OBVIOUS and SIGNIFICANT:

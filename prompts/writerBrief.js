@@ -455,11 +455,24 @@ A repeated element (word, phrase, or concept — e.g. "the dark") must:
 - End as something safe, understood, or gentle
 
 PHRASE ARC USAGE (CRITICAL):
-The brainstorm provided a phrase_arc with 3 stages. You MUST use them:
+The brainstorm provided a phrase_arc with 3 stages. You MUST use them.
+
+TIMING (NON-NEGOTIABLE):
+- The motif phrase MUST first appear by spread 2 or 3. NOT later. Early introduction = maximum impact.
+- The phrase must appear a MINIMUM of 3 times across the story (4-5 is ideal for tier 1-2 picture books).
+- Distribution: spreads 2-3 (introduce), spreads 5-7 (develop), spreads 10-12 (payoff). Never cluster all appearances at the end.
+
+MEANING EVOLUTION:
 - When the phrase appears in spreads 1-4: the surrounding action/imagery must reflect the EARLY meaning. The phrase should feel tentative, playful, or questioning.
 - When the phrase appears in spreads 5-8: the surrounding action/imagery must reflect the MIDDLE meaning. The phrase should feel braver or more purposeful.
 - When the phrase appears in spreads 10-13: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
+
 Show the evolution through what the child DOES around the phrase — not by adding explanation.
+
+MOTIF PATTERN (think "Goodnight Moon" or "We're Going on a Bear Hunt"):
+- Introduce: The child says or encounters the phrase for the first time. It's simple, maybe a question.
+- Repeat with variation: The phrase returns in a new context. The child's relationship to it shifts.
+- Emotional payoff: The phrase appears one final time. Its meaning has transformed. This should be the most emotionally resonant moment.
 
 -------------------------------------
 ENDING RULES (CRITICAL)
@@ -472,6 +485,14 @@ ENDING RULES (CRITICAL)
 - The world must feel physically and emotionally safe.
 - The {favorite_object} should be present in the final moment.
 - End with an image or feeling — NOT a lesson.
+- ENDING CONCRETENESS (CRITICAL): The final 1-2 lines must be CONCRETE — a specific image, action, or sensory detail. NEVER end with an abstract poetic summary.
+  - BAD: "all my love for Mama, soft and grand" — abstract, adult-poetic
+  - BAD: "and the world felt warm with love" — vague emotional summary
+  - BAD: "the whole day sang its gentle tune" — lyrical abstraction
+  - GOOD: "Crumbs in my palm. For Mama." — concrete, simple, devastating
+  - GOOD: "She pressed her nose against the window. The stars were still there." — specific image
+  - GOOD: "Bear was in the bed. The bed was warm." — concrete sensory detail
+  The simpler and more concrete the ending, the harder it hits. Trust the reader to feel the emotion from the image alone.
 - ENDING ILLUSTRATION — ADVENTURE/JOURNEY THEMES: If this is an adventure, science, space, underwater, fantasy, school, or nature book, the final spread illustration must show the child in the moment AFTER the climax — triumphant, still, changed — NOT in a bedroom, NOT in pajamas, NOT going to sleep. The story ends where the journey ends: on the hill, at the lab bench, under the stars, in the garden. Sleep is implied by the emotional landing, never shown.
 - ENDING ILLUSTRATION — BEDTIME/FRIENDSHIP themes only: the final spread may show the child settling in, cozy, eyes closing — but never literally sitting by a door or in a hallway. The final location must be warm and interior: a bed, a couch, a nest of pillows.
 
@@ -988,11 +1009,24 @@ A repeated element (word, phrase, or concept — e.g. "the dark") must:
 - End as something safe, understood, or gentle
 
 PHRASE ARC USAGE (CRITICAL):
-The brainstorm provided a phrase_arc with 3 stages. You MUST use them:
+The brainstorm provided a phrase_arc with 3 stages. You MUST use them.
+
+TIMING (NON-NEGOTIABLE):
+- The motif phrase MUST first appear by spread 2 or 3. NOT later. Early introduction = maximum impact.
+- The phrase must appear a MINIMUM of 3 times across the story (4-5 is ideal for tier 1-2 picture books).
+- Distribution: spreads 2-3 (introduce), spreads 5-7 (develop), spreads 10-12 (payoff). Never cluster all appearances at the end.
+
+MEANING EVOLUTION:
 - When the phrase appears in spreads 1-4: the surrounding action/imagery must reflect the EARLY meaning. The phrase should feel tentative, playful, or questioning.
 - When the phrase appears in spreads 5-8: the surrounding action/imagery must reflect the MIDDLE meaning. The phrase should feel braver or more purposeful.
 - When the phrase appears in spreads 10-13: the surrounding action/imagery must reflect the END meaning. The phrase should feel resolved, safe, or transforming.
+
 Show the evolution through what the child DOES around the phrase — not by adding explanation.
+
+MOTIF PATTERN (think "Goodnight Moon" or "We're Going on a Bear Hunt"):
+- Introduce: The child says or encounters the phrase for the first time. It's simple, maybe a question.
+- Repeat with variation: The phrase returns in a new context. The child's relationship to it shifts.
+- Emotional payoff: The phrase appears one final time. Its meaning has transformed. This should be the most emotionally resonant moment.
 
 -------------------------------------
 ENDING RULES (CRITICAL)
@@ -1005,6 +1039,14 @@ ENDING RULES (CRITICAL)
 - The world must feel physically and emotionally safe.
 - The {favorite_object} should be present in the final moment.
 - End with an image or feeling — NOT a lesson.
+- ENDING CONCRETENESS (CRITICAL): The final 1-2 lines must be CONCRETE — a specific image, action, or sensory detail. NEVER end with an abstract poetic summary.
+  - BAD: "all my love for Mama, soft and grand" — abstract, adult-poetic
+  - BAD: "and the world felt warm with love" — vague emotional summary
+  - BAD: "the whole day sang its gentle tune" — lyrical abstraction
+  - GOOD: "Crumbs in my palm. For Mama." — concrete, simple, devastating
+  - GOOD: "She pressed her nose against the window. The stars were still there." — specific image
+  - GOOD: "Bear was in the bed. The bed was warm." — concrete sensory detail
+  The simpler and more concrete the ending, the harder it hits. Trust the reader to feel the emotion from the image alone.
 - ENDING ILLUSTRATION — ADVENTURE/JOURNEY THEMES: If this is an adventure, science, space, underwater, fantasy, school, or nature book, the final spread illustration must show the child in the moment AFTER the climax — triumphant, still, changed — NOT in a bedroom, NOT in pajamas, NOT going to sleep. The story ends where the journey ends: on the hill, at the lab bench, under the stars, in the garden. Sleep is implied by the emotional landing, never shown.
 - ENDING ILLUSTRATION — BEDTIME/FRIENDSHIP themes only: the final spread may show the child settling in, cozy, eyes closing — but never literally sitting by a door or in a hallway. The final location must be warm and interior: a bed, a couch, a nest of pillows.
 
@@ -1358,7 +1400,24 @@ function getAuthorialVoice(tier, age) {
 - No cliches. No filler. No greeting-card language.
 - Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
 - Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She put Momo down and walked away" is alive.
-- Dialogue must sound like a real ${age}-year-old — short, concrete, more questions than statements.`;
+- Dialogue must sound like a real ${age}-year-old — short, concrete, more questions than statements.
+
+READ-ALOUD VOICE TEST (MANDATORY FOR THIS AGE):
+Before finalizing ANY line, ask: "Would a parent say this naturally while reading to a ${age}-year-old?"
+- If a line sounds like it belongs in a poem anthology or literary journal, SIMPLIFY it.
+- If a line sounds like an adult wrote it for other adults to admire, REWRITE it.
+- Concrete beats pretty. "The block smiles at me" beats "The whole bright block seems glad to see."
+- "Mama reads low. Page turns slow." beats "Mama reads low. Page turn, page tune."
+- Every line must pass the MOUTH TEST: say it aloud. Does it feel natural? Does it bounce or flow? If it sits awkwardly, rewrite.
+- Dialogue from the child must sound like a REAL ${age}-year-old talking — short, concrete, sometimes funny, sometimes random. "Can I have some?" not "Might I partake?"
+- Narration should be simple enough that the child hearing it could repeat the line back. If they can't, it's too complex.
+
+VOCABULARY CEILING RULE (CRITICAL):
+Your first spread sets the vocabulary ceiling for the entire book. Every subsequent spread must stay at or below that complexity level.
+- If spread 1 uses "big", "run", "hug" — then spread 10 CANNOT use "glistening", "magnificent", or "splendid"
+- If spread 1 uses simple subject-verb sentences — spread 8 cannot suddenly have dependent clauses
+- Scan every spread against spread 1. If ANY word or construction would look out of place in spread 1, replace it with a simpler alternative.
+- The reader should never feel a tonal "gear shift" between spreads. The same person is telling this story from beginning to end, at the same level.`;
   }
   return `Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
 
@@ -1368,7 +1427,13 @@ function getAuthorialVoice(tier, age) {
 - No cliches. No filler. No greeting-card language. If a line could appear on a motivational poster, a coffee mug, or a mass-produced birthday card, delete it and write something only THIS story could say.
 - Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
 - Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She set the cup down without drinking" is alive.
-- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.`;
+- Dialogue must sound like a real child — surprising, concrete, sometimes funny, sometimes off-topic.
+
+READ-ALOUD VOICE TEST:
+Before finalizing ANY line, read it aloud in your head. Does it flow naturally? If a line sounds writerly rather than storyteller-y, simplify it. The best children's prose sounds like someone TELLING a story, not writing one.
+
+VOCABULARY CONSISTENCY:
+Maintain a consistent complexity level throughout. If you establish a simple, direct voice in the opening, do not suddenly shift to lyrical or literary language mid-story. The reader should feel one consistent voice from first page to last.`;
 }
 
 function getRhythmGuide(tier, age) {
