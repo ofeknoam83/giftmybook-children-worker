@@ -383,12 +383,12 @@ async function checkTextWidthPlacement(allImages) {
     const checks = textImages.map(async (img) => {
       const prompt = `Check the text in this children's book illustration:
 1. Does the text take up more than about 35% of the page width?
-2. Is the text readable (good contrast against background)?
-3. Is the text in a natural area of the composition (not covering important illustration elements)?
+2. Is the text readable (good contrast against the illustrated background, with shadow or outline)?
+3. Is the text rendered with a consistent, child-friendly font?
 
 Return ONLY valid JSON:
 {"passed": true, "estimatedTextWidthPct": 25, "issues": []}
-Only flag if text is clearly too wide (>35% of page) or unreadable.`;
+Flag if text is clearly too wide (>35% of page) or unreadable.`;
 
       const result = await callGeminiQa(prompt, [img.imageBase64], { maxTokens: 256 });
       return { index: img.index, result };
