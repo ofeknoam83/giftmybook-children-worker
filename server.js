@@ -2522,7 +2522,8 @@ Format your answer with each label on its own line followed by a colon and the a
       if (storyPlan.characterAnchor && cachedPhotoBase64) {
         try {
           bookContext.log('info', 'Generating character reference sheet');
-          const refSheetPrompt = `Front-facing portrait of a child character. Clean, well-lit, plain soft-colored background. Head and shoulders visible, looking directly at camera, neutral friendly expression. ${storyPlan.characterAnchor}. Character must look EXACTLY like the reference photo provided.`;
+          const outfitClause = storyPlan.characterOutfit ? ` Wearing: ${storyPlan.characterOutfit}.` : '';
+          const refSheetPrompt = `Front-facing portrait of a child character. Clean, well-lit, plain soft-colored background. Head and shoulders visible, looking directly at camera, neutral friendly expression. ${storyPlan.characterAnchor}.${outfitClause} Character must look EXACTLY like the reference photo provided — but use the outfit described above, not the clothing in the photo.`;
 
           const refSheet = await generateIllustration(refSheetPrompt, null, style, {
             apiKeys,

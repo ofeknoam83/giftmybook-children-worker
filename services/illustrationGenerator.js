@@ -1318,7 +1318,8 @@ async function checkCharacterConsistency(generatedImageBase64, referenceImageBas
   const apiKey = getNextApiKey();
   if (!apiKey) return { consistent: true, issues: [] };
 
-  const secondaryCheck = secondaryCharacterDescription
+  const hasSecondary = secondaryCharacterDescription && secondaryCharacterDescription.toUpperCase() !== 'NONE';
+  const secondaryCheck = hasSecondary
     ? `\n5. SECONDARY CHARACTER: If a secondary character (parent/adult) appears in the generated image, check that their hair color/style, skin tone, general appearance, AND OUTFIT match this description: ${secondaryCharacterDescription}. The secondary character must wear the SAME outfit (same garment type, same colors) across all illustrations — flag any outfit change. If the secondary character is NOT present in the generated image, skip this check.`
     : '';
 
@@ -1336,7 +1337,7 @@ Check ONLY these critical dimensions — ignore everything else:
 
 1. ETHNICITY/SKIN: Is the child the same ethnicity with a similar skin tone? Minor lighting-based shade differences are acceptable.
 2. HAIR: Same general style (e.g., pigtails, braids, short) and color? Minor accessory differences (different beads, slightly different ties) are acceptable.
-3. CORE GARMENTS: Same main clothing items (top, bottom, shoes) with similar colors? Minor detail differences (button count, pocket placement, exact trim pattern) are acceptable.
+3. CORE GARMENTS: ${characterOutfit ? `The DEFINED outfit is: ${characterOutfit}. Use this text description as the ground truth for what the child should be wearing — it overrides whatever clothing appears in the reference image (the reference photo may show a different outfit). Check that the generated illustration matches THIS outfit description.` : 'Same main clothing items (top, bottom, shoes) with similar colors?'} Minor detail differences (button count, pocket placement, exact trim pattern) are acceptable.
 4. FACE: Similar facial structure and features?${secondaryCheck}
 
 DO NOT FLAG any of these — they are expected variations:
@@ -1347,9 +1348,10 @@ DO NOT FLAG any of these — they are expected variations:
 - Whether specific small details like patches or badges are visible
 - Text width or text-related issues (checked separately)
 - Eye open/closed state: if the reference shows closed or squinting eyes but the illustration shows open eyes, this is CORRECT and expected — do NOT flag it as inconsistent
+- Outfit differences between the reference image and the defined outfit text — the outfit TEXT is the authority, not the reference image
 
 ${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
-${characterOutfit ? `Expected outfit: ${characterOutfit}` : ''}
+${characterOutfit ? `Expected outfit (AUTHORITATIVE — use this, not the reference image, for outfit checks): ${characterOutfit}` : ''}
 
 Respond with ONLY valid JSON:
 {"consistent": true} or {"consistent": false, "issues": ["skin tone is significantly different", "hair is completely different style"]}
