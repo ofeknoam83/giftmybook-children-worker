@@ -18,8 +18,7 @@ const CHECK_WEIGHTS = {
   textAccuracy: 0.25,
   fontConsistency: 0.15,
   anatomical: 0.10,
-  artStyle: 0.05,
-  colorPalette: 0.05,
+  artStyle: 0.10,
   textWidth: 0.10,
   contentSafety: 0.05,
 };
@@ -503,8 +502,8 @@ Return ONLY valid JSON:
 /**
  * Run holistic visual QA checks on the complete set of illustrations.
  * Includes text accuracy, font consistency, and text width checks for embedded text.
- * 8 checks: character consistency (30%), text accuracy (20%), font consistency (15%),
- * anatomical (15%), art style (5%), color palette (5%), text width (5%), content safety (5%).
+ * 7 checks: character consistency (25%), text accuracy (25%), font consistency (15%),
+ * anatomical (10%), art style (10%), text width (10%), content safety (5%).
  *
  * IMPORTANT: Never abort generation. Always produce a book.
  * QA results are informational — used for chat-based retries, not blocking.
@@ -531,7 +530,6 @@ async function runHolisticQa(allImages, context) {
     fontConsistency,
     anatomical,
     artStyle,
-    colorPalette,
     textWidth,
     contentSafety,
   ] = await Promise.all([
@@ -555,10 +553,6 @@ async function runHolisticQa(allImages, context) {
       console.warn('[illustrationQa] Art style failed:', e.message);
       return { passed: true, issues: [], affectedSpreads: [] };
     }),
-    checkColorPaletteCoherence(validImages, context).catch(e => {
-      console.warn('[illustrationQa] Color palette failed:', e.message);
-      return { passed: true, issues: [], affectedSpreads: [] };
-    }),
     checkTextWidthPlacement(validImages).catch(e => {
       console.warn('[illustrationQa] Text width failed:', e.message);
       return { passed: true, issues: [], affectedSpreads: [] };
@@ -576,7 +570,6 @@ async function runHolisticQa(allImages, context) {
     fontConsistency,
     anatomical,
     artStyle,
-    colorPalette,
     textWidth,
     contentSafety,
   };

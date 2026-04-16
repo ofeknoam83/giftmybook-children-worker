@@ -169,13 +169,6 @@ Do NOT add, remove, or change any words.
 Previous issue: ${issueStr}`);
         break;
 
-      case 'colorPalette':
-        parts.push(`COLOR PALETTE FIX:
-Match the color palette of the companion scenes shown in the reference images.
-Same lighting, same background tones, same warmth.
-Previous issue: ${issueStr}`);
-        break;
-
       case 'artStyle':
         parts.push(`ART STYLE FIX:
 Match the rendering technique of the reference images exactly.
@@ -2906,46 +2899,73 @@ Format your answer with each label on its own line followed by a colon and the a
 
                 const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
 
-                // Build retry opts
-                const retryOpts = {
-                  apiKeys, costTracker, bookId,
-                  childName: childDetails.name,
-                  characterOutfit: storyPlan.characterOutfit || '',
-                  characterDescription: storyPlan.characterDescription || '',
-                  characterAnchor: storyPlan.characterAnchor || null,
-                  additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                  recurringElement: storyPlan.recurringElement || '',
-                  keyObjects: storyPlan.keyObjects || '',
-                  coverArtStyle: storyPlan.coverArtStyle || '',
-                  childPhotoUrl: resolvedChildPhotoUrl,
-                  _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
-                  _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
-                  spreadIndex: failed.index,
-                  totalSpreads: spreadEntries.length,
-                  childAge: childDetails.age || childDetails.childAge,
-                  pageText: origImg?.pageText || '',
-                  isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
-                  deadlineMs: 200000,
-                  abortSignal: bookContext.abortController.signal,
-                };
-
-                const retryUrl = await generateIllustrationWithAnchors(
-                  correctedPrompt,
-                  characterRef,
-                  style,
-                  anchorImages,
-                  retryOpts
-                );
-
-                if (retryUrl) {
-                  if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                    const page = (storyPlan.pages || [])[failed.index];
-                    if (page) page.illustrationUrl = retryUrl;
-                  } else {
-                    const entry = entriesWithIllustrations[failed.index];
-                    if (entry) entry.spreadIllustrationUrl = retryUrl;
+                // Prefer multi-turn chat session so embedded text is preserved
+                if (multiTurnSession && !multiTurnSession.abandoned) {
+                  const chatRetryOpts = {
+                    aspectRatio: entriesWithIllustrations[failed.index]?.type === 'spread' ? '16:9' : '1:1',
+                    spreadIndex: failed.index,
+                    sceneSummary: (originalPrompt || '').slice(0, 100),
+                    pageText: origImg?.pageText || '',
+                    additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || null,
+                  };
+                  const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, chatRetryOpts);
+                  if (chatRetry?.imageBuffer) {
+                    const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-qa-retry.png`;
+                    const retryUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
+                    if (retryUrl) {
+                      if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                        const page = (storyPlan.pages || [])[failed.index];
+                        if (page) page.illustrationUrl = retryUrl;
+                      } else {
+                        const entry = entriesWithIllustrations[failed.index];
+                        if (entry) entry.spreadIllustrationUrl = retryUrl;
+                      }
+                      bookContext.log('info', `QA retry: spread ${failed.index + 1} improved (chat session)`);
+                    }
                   }
-                  bookContext.log('info', `QA retry: spread ${failed.index + 1} improved`);
+                } else {
+                  // Standalone fallback — ensure text is still embedded when chat illustrations are enabled
+                  const retryOpts = {
+                    apiKeys, costTracker, bookId,
+                    childName: childDetails.name,
+                    characterOutfit: storyPlan.characterOutfit || '',
+                    characterDescription: storyPlan.characterDescription || '',
+                    characterAnchor: storyPlan.characterAnchor || null,
+                    additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                    recurringElement: storyPlan.recurringElement || '',
+                    keyObjects: storyPlan.keyObjects || '',
+                    coverArtStyle: storyPlan.coverArtStyle || '',
+                    childPhotoUrl: resolvedChildPhotoUrl,
+                    _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
+                    _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
+                    spreadIndex: failed.index,
+                    totalSpreads: spreadEntries.length,
+                    childAge: childDetails.age || childDetails.childAge,
+                    pageText: origImg?.pageText || '',
+                    embedText: useMultiTurnChat,
+                    isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
+                    deadlineMs: 200000,
+                    abortSignal: bookContext.abortController.signal,
+                  };
+
+                  const retryUrl = await generateIllustrationWithAnchors(
+                    correctedPrompt,
+                    characterRef,
+                    style,
+                    anchorImages,
+                    retryOpts
+                  );
+
+                  if (retryUrl) {
+                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                      const page = (storyPlan.pages || [])[failed.index];
+                      if (page) page.illustrationUrl = retryUrl;
+                    } else {
+                      const entry = entriesWithIllustrations[failed.index];
+                      if (entry) entry.spreadIllustrationUrl = retryUrl;
+                    }
+                    bookContext.log('info', `QA retry: spread ${failed.index + 1} improved`);
+                  }
                 }
               } catch (retryErr) {
                 bookContext.log('warn', `QA retry failed for spread ${failed.index + 1}: ${retryErr.message} — accepting as-is`);
