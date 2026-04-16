@@ -988,15 +988,33 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
               const correctedPrompt = correctionNote + '\n\n' + prompt;
               bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
-              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-              if (retryResult) {
-                imageUrl = retryResult;
-                genBase64 = null; // re-download for subsequent checks
-                try {
-                  const reResp = await fetch(imageUrl);
-                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
-                } catch {}
-                bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded`);
+              if (multiTurnSession && !multiTurnSession.abandoned) {
+                const retryOpts = {
+                  aspectRatio: job.isSpread ? '16:9' : '1:1',
+                  shotType: entries[idx]?.shot_type || null,
+                  spreadIndex: idx,
+                  sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
+                  pageText: job.pageText || null,
+                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                };
+                const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
+                if (chatRetry?.imageBuffer) {
+                  const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-retry.png`;
+                  imageUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
+                  genBase64 = chatRetry.imageBuffer.toString('base64');
+                  bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded (chat session)`);
+                }
+              } else {
+                const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+                if (retryResult) {
+                  imageUrl = retryResult;
+                  genBase64 = null; // re-download for subsequent checks
+                  try {
+                    const reResp = await fetch(imageUrl);
+                    if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
+                  } catch {}
+                  bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded`);
+                }
               }
             } catch (retryErr) {
               bookContext.log('warn', `Consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
@@ -1017,9 +1035,13 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
           const spreadImagePrompt = entry.spread_image_prompt || '';
           const searchableText = spreadText + ' ' + spreadImagePrompt;
-          const hasSecondaryCharacters = !!storyPlan.additionalCoverCharacters;
+          const hasSecondaryCharacters = !!(storyPlan.additionalCoverCharacters || storyPlan.secondaryCharacterDescription);
           const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(searchableText);
-          const expectedCharacters = { childCount: 1, adultCount: (mentionsParent && hasSecondaryCharacters) ? 1 : 0 };
+          const childAlone = /\bchild\s+alone\b|\balone\b.*\bchild\b|\bno\s+(adult|parent|mom|dad)\b|\bby\s+(himself|herself|themselves)\b|\bsolo\b/i.test(spreadImagePrompt);
+          // If the book has a secondary character (parent), expect them in every spread
+          // unless the image prompt explicitly says the child is alone
+          const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (mentionsParent ? 1 : 0);
+          const expectedCharacters = { childCount: 1, adultCount: adultExpected };
           const countResult = await checkCharacterCount(genBase64, expectedCharacters);
           if (!countResult.passed) {
             bookContext.log('warn', `Spread ${idx + 1} character count mismatch`, { message: countResult.message });
@@ -1027,15 +1049,33 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               const correctionNote = `CRITICAL: The previous image showed the wrong number of characters. ${countResult.message}. Generate with EXACTLY ${expectedCharacters.childCount} child(ren) and ${expectedCharacters.adultCount} adult(s).`;
               const correctedPrompt = correctionNote + '\n\n' + prompt;
               bookContext.log('info', `Retrying spread ${idx + 1} with character count correction`);
-              const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-              if (retryResult) {
-                imageUrl = retryResult;
-                genBase64 = null;
-                try {
-                  const reResp = await fetch(imageUrl);
-                  if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
-                } catch {}
-                bookContext.log('info', `Spread ${idx + 1} character count retry succeeded`);
+              if (multiTurnSession && !multiTurnSession.abandoned) {
+                const retryOpts = {
+                  aspectRatio: job.isSpread ? '16:9' : '1:1',
+                  shotType: entries[idx]?.shot_type || null,
+                  spreadIndex: idx,
+                  sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
+                  pageText: job.pageText || null,
+                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                };
+                const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
+                if (chatRetry?.imageBuffer) {
+                  const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-retry.png`;
+                  imageUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
+                  genBase64 = chatRetry.imageBuffer.toString('base64');
+                  bookContext.log('info', `Spread ${idx + 1} character count retry succeeded (chat session)`);
+                }
+              } else {
+                const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+                if (retryResult) {
+                  imageUrl = retryResult;
+                  genBase64 = null;
+                  try {
+                    const reResp = await fetch(imageUrl);
+                    if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
+                  } catch {}
+                  bookContext.log('info', `Spread ${idx + 1} character count retry succeeded`);
+                }
               }
             } catch (retryErr) {
               bookContext.log('warn', `Character count retry failed for spread ${idx + 1}`, { error: retryErr.message });
@@ -1061,10 +1101,27 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             try {
               const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${finalCheck.issues.join(', ')}`;
               const correctedPrompt = correctionNote + '\n\n' + prompt;
-              const finalRetry = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-              if (finalRetry) {
-                imageUrl = finalRetry;
-                bookContext.log('info', `Spread ${idx + 1} final consistency retry succeeded`);
+              if (multiTurnSession && !multiTurnSession.abandoned) {
+                const retryOpts = {
+                  aspectRatio: job.isSpread ? '16:9' : '1:1',
+                  shotType: entries[idx]?.shot_type || null,
+                  spreadIndex: idx,
+                  sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
+                  pageText: job.pageText || null,
+                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                };
+                const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
+                if (chatRetry?.imageBuffer) {
+                  const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-retry.png`;
+                  imageUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
+                  bookContext.log('info', `Spread ${idx + 1} final consistency retry succeeded (chat session)`);
+                }
+              } else {
+                const finalRetry = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
+                if (finalRetry) {
+                  imageUrl = finalRetry;
+                  bookContext.log('info', `Spread ${idx + 1} final consistency retry succeeded`);
+                }
               }
             } catch (retryErr) {
               bookContext.log('warn', `Final consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
