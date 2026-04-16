@@ -84,7 +84,8 @@ async function fetchWithTimeout(url, opts, timeoutMs = 180000, parentSignal) { /
 }
 
 /** Maximum retry attempts per illustration (includes text verification retries) */
-const MAX_RETRIES = 3;
+const BASE_MAX_RETRIES = 3;
+const TEXT_HEAVY_MAX_RETRIES = 5;
 
 const TEXT_VERIFY_MODEL = 'gemini-2.5-flash';
 
@@ -432,8 +433,32 @@ function buildHairNegatives(characterDescription) {
 }
 
 /**
+ * Simple Levenshtein distance implementation.
+ */
+function levenshteinDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  // Use single-row optimization
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array(n + 1);
+
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+/**
  * Compare expected page text against OCR-extracted text from the generated image.
- * Uses word-frequency bags to detect duplications and missing words.
+ * Uses word-frequency bags to detect duplications and missing words,
+ * plus character-level Levenshtein distance for overall similarity.
  */
 function compareTexts(expected, extracted) {
   const normalize = (s) => s.toLowerCase().replace(/[^\w\s']/g, '').replace(/\s+/g, ' ').trim();
@@ -445,13 +470,15 @@ function compareTexts(expected, extracted) {
     return bag;
   };
 
+  const normalizedExpected = normalize(expected);
+  const normalizedExtracted = normalize(extracted);
   const expectedBag = toWordBag(expected);
   const extractedBag = toWordBag(extracted);
   const issues = [];
 
+  // Existing word-bag duplicate check
   for (const [word, count] of Object.entries(extractedBag)) {
     const expectedCount = expectedBag[word] || 0;
-    // Zero tolerance for duplicate text — if a word appears more times than expected, reject and retry
     if (count > expectedCount) {
       issues.push(`"${word}" appears ${count}x in illustration (expected ${expectedCount}x) — text rendered twice`);
     }
@@ -464,6 +491,16 @@ function compareTexts(expected, extracted) {
   }
   if (uniqueExpected > 0 && missingCount / uniqueExpected > 0.25) {
     issues.push(`${missingCount}/${uniqueExpected} unique words missing`);
+  }
+
+  // NEW: Character-level similarity check
+  if (normalizedExpected.length > 0 && normalizedExtracted.length > 0) {
+    const editDist = levenshteinDistance(normalizedExpected, normalizedExtracted);
+    const maxLen = Math.max(normalizedExpected.length, normalizedExtracted.length);
+    const similarity = 1 - (editDist / maxLen);
+    if (similarity < 0.85) {
+      issues.push(`Character similarity ${(similarity * 100).toFixed(0)}% (need 85%+)`);
+    }
   }
 
   return { valid: issues.length === 0, issues };
@@ -1163,7 +1200,13 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
   let promptVariantIndex = 0;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  // Dynamic retry budget — text-heavy pages get more attempts
+  const wordCount = opts.pageText ? opts.pageText.split(/\s+/).length : 0;
+  const maxRetries = (wordCount > 8 && !opts.skipTextEmbed && !opts.comicPageMode)
+    ? TEXT_HEAVY_MAX_RETRIES
+    : BASE_MAX_RETRIES;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const variant = promptVariants[promptVariantIndex];
     try {
       const geminiStart = Date.now();
@@ -1193,7 +1236,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       // Verify embedded text accuracy (skip on last attempt — accept best effort)
       const hasEmbeddedText = opts.pageText && !opts.skipTextEmbed;
-      if (hasEmbeddedText && attempt < MAX_RETRIES) {
+      if (hasEmbeddedText && attempt < maxRetries) {
         const textCheck = await verifyImageText(imageBuffer, opts.pageText, opts.abortSignal, costTracker);
         if (!textCheck.valid) {
           console.warn(`[illustrationGenerator] Text verification failed on attempt ${attempt} for book ${bookId || 'unknown'}: ${textCheck.issues.join('; ')} — regenerating`);
@@ -1232,8 +1275,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       }
 
       console.error(`[illustrationGenerator] Attempt ${attempt} failed: ${genErr.message} (${Date.now() - totalStart}ms)`);
-      if (attempt === MAX_RETRIES) {
-        throw new Error(`Illustration generation failed after ${MAX_RETRIES} attempts: ${genErr.message}`);
+      if (attempt === maxRetries) {
+        throw new Error(`Illustration generation failed after ${maxRetries} attempts: ${genErr.message}`);
       }
     }
   }
