@@ -58,6 +58,7 @@ const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarly
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 const { ChatSessionManager } = require('./services/chatSessionManager');
+const { compositeTextOnIllustration } = require('./services/illustrationPostProcess');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -673,13 +674,12 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       const entryLabel = `entry ${idx + 1} (${results[idx].type})`;
 
       // ── Try chat session first, fall back to standalone ──
+      const pageText = job.pageText || '';
       if (chatSession) {
         try {
           bookContext.log('info', `Illustration ${entryLabel} via chat session`);
           const entryData = entries[idx] || {};
-          const textPlacement = idx % 2 === 0 ? 'bottom' : 'top';
-          const pageText = job.pageText || '';
-          const chatResult = await chatSession.generateSpread(prompt, idx, pageText, textPlacement, {
+          const chatResult = await chatSession.generateSpread(prompt, idx, null, null, {
             aspectRatio: job.isSpread ? '16:9' : '1:1',
             shotType: entryData.shot_type || null,
           });
@@ -690,60 +690,30 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
           }
 
+          // ── Composite text onto illustration (text rendered externally via Sharp/SVG) ──
+          if (pageText && pageText.trim() && imageBuffer) {
+            try {
+              const entry = entries[idx];
+              const leftText = entry.left?.text || null;
+              const rightText = entry.right?.text || null;
+              const textResult = await compositeTextOnIllustration(imageBuffer, leftText, rightText, {
+                fontSize: 48,
+                fontColor: '#FFFFFF',
+                maxWidthPct: 0.35,
+                isSpread: job.isSpread,
+              });
+              imageBuffer = textResult.imageBuffer;
+              bookContext.log('info', `Spread ${idx + 1}: text composited successfully`);
+            } catch (textErr) {
+              bookContext.log('warn', `Spread ${idx + 1}: text compositing failed: ${textErr.message} — using illustration without text`);
+            }
+          }
+
           // Upload illustration to GCS
           if (bookId && imageBuffer) {
             const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
             const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
             imageUrl = await uploadBuf(imageBuffer, gcsPath, 'image/png');
-          }
-
-          // ── OCR Verification: verify embedded text accuracy ──
-          if (pageText && pageText.trim() && chatResult.imageBase64) {
-            try {
-              const textCheck = await verifyEmbeddedText(chatResult.imageBase64, pageText);
-              if (!textCheck.passed) {
-                console.log(`[server] Spread ${idx + 1}: text verification failed (similarity=${textCheck.similarity.toFixed(2)}), retrying text only`);
-                bookContext.log('info', `Spread ${idx + 1}: text verification failed`, {
-                  similarity: textCheck.similarity,
-                  expected: pageText.slice(0, 80),
-                  extracted: textCheck.extractedText.slice(0, 80),
-                });
-
-                // Retry within chat — ask to fix only the text
-                const retryResult = await chatSession.retryTextOnly(pageText, textCheck.issues, {
-                  aspectRatio: job.isSpread ? '16:9' : '1:1',
-                });
-                imageBuffer = retryResult.imageBuffer;
-
-                // Re-upload the corrected illustration
-                if (bookId && imageBuffer) {
-                  const { uploadBuffer: uploadBuf2 } = require('./services/gcsStorage');
-                  const retryPath = `children-jobs/${bookId}/illustrations/${Date.now()}-textfix.png`;
-                  imageUrl = await uploadBuf2(imageBuffer, retryPath, 'image/png');
-                }
-
-                if (costTracker) {
-                  costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
-                }
-
-                // Verify again
-                const recheck = await verifyEmbeddedText(retryResult.imageBase64, pageText);
-                if (!recheck.passed) {
-                  console.log(`[server] Spread ${idx + 1}: text still incorrect after retry (similarity=${recheck.similarity.toFixed(2)}), accepting`);
-                  bookContext.log('info', `Spread ${idx + 1}: text still incorrect after retry, accepting`, {
-                    similarity: recheck.similarity,
-                  });
-                } else {
-                  console.log(`[server] Spread ${idx + 1}: text corrected successfully after retry`);
-                  bookContext.log('info', `Spread ${idx + 1}: text corrected after retry`);
-                }
-              } else {
-                console.log(`[server] Spread ${idx + 1}: text verification passed (similarity=${textCheck.similarity.toFixed(2)})`);
-              }
-            } catch (ocrErr) {
-              console.log(`[server] Spread ${idx + 1}: OCR verification error: ${ocrErr.message} — accepting as-is`);
-              bookContext.log('info', `Spread ${idx + 1}: OCR verification error, accepting as-is`, { error: ocrErr.message });
-            }
           }
 
           bookContext.touchActivity();
@@ -829,6 +799,35 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           }
         }
       } // end fallback standalone generation
+
+      // ── Composite text for standalone fallback path ──
+      if (!chatSession && pageText && pageText.trim() && imageUrl && !imageBuffer) {
+        try {
+          const dlResp = await fetch(imageUrl);
+          if (dlResp.ok) {
+            imageBuffer = Buffer.from(await dlResp.arrayBuffer());
+            const entry = entries[idx];
+            const leftText = entry.left?.text || null;
+            const rightText = entry.right?.text || null;
+            const textResult = await compositeTextOnIllustration(imageBuffer, leftText, rightText, {
+              fontSize: 48,
+              fontColor: '#FFFFFF',
+              maxWidthPct: 0.35,
+              isSpread: job.isSpread,
+            });
+            imageBuffer = textResult.imageBuffer;
+            // Re-upload with composited text
+            if (bookId) {
+              const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
+              const textPath = `children-jobs/${bookId}/illustrations/${Date.now()}-text.png`;
+              imageUrl = await uploadBuf(textResult.imageBuffer, textPath, 'image/png');
+            }
+            bookContext.log('info', `Spread ${idx + 1}: text composited (standalone path)`);
+          }
+        } catch (textErr) {
+          bookContext.log('warn', `Spread ${idx + 1}: standalone text compositing failed: ${textErr.message}`);
+        }
+      }
 
       // ── C5: Post-generation visual QA checks (streamlined — text checks removed) ──
       // Download generated image once for all checks
@@ -952,7 +951,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
         }
       }
 
-      // Checks 3 & 4 (text overlay, font consistency) handled by OCR verification above
+      // Text is composited externally via Sharp/SVG — font consistency guaranteed by code
 
       // Final re-check: if any QA retry changed the image, verify character consistency one more time
       if (genBase64 && refBase64ForCheck && imageUrl !== originalImageUrl) {

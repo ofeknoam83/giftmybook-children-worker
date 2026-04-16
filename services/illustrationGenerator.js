@@ -826,12 +826,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
-  // Text is composited separately — never include text in AI-generated illustrations
+  // Text is composited separately after generation — no text in the illustration itself
   parts.push('');
   parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
-  parts.push('TEXT SPACE: Leave clean, uncluttered empty space at the bottom ~25% of the image where text will be added separately later. This area should have a simple, soft background — avoid placing characters, key objects, or important details there.');
+  parts.push('FULL SCENE: The illustration must fill the ENTIRE canvas from edge to edge. Do NOT leave any blank, empty, or reserved areas anywhere in the image — no clean zones at top, bottom, or sides. Every part of the canvas should contain illustration artwork.');
 
-  // Pre-generate checklist (text checks removed — text composited separately)
+  // Pre-generate checklist
   parts.push('');
   parts.push('\u26a0\ufe0f MANDATORY PRE-GENERATE CHECKLIST — mentally verify each before generating:');
   parts.push(`1. CHILD COUNT: exactly 1 child visible in the scene. \u2713`);
@@ -844,7 +844,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
-  parts.push(`11. TEXT SPACE: clean empty area at the bottom ~25% of the image for text overlay. \u2713`);
+  parts.push(`11. FULL SCENE: illustration fills the entire canvas edge to edge — no blank areas anywhere. \u2713`);
   if (isSpread) {
     parts.push(`12. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
     parts.push(`13. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);

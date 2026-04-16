@@ -111,34 +111,13 @@ Acknowledge that you understand this character's appearance and will maintain pe
     }
 
     const totalSpreads = this.bookContext?.totalSpreads || 13;
-    const placement = textPlacementHint || 'bottom';
-    const isFirstSpread = spreadIndex === 0;
-
-    // Build text rendering instructions
-    let textInstructions = '';
-    if (pageText && pageText.trim()) {
-      const fontGuidance = isFirstSpread
-        ? `- This is the first page — choose a clean, consistent, child-friendly font and commit to it. The font style you choose here will be the standard for ALL subsequent pages.`
-        : `- CRITICAL: The text font must be IDENTICAL to what you used on the previous pages — same font family, same size relative to the page, same weight, same color.`;
-
-      textInstructions = `
-TEXT INSTRUCTIONS:
-- The exact text for this page is: "${pageText}"
-- Render this text EXACTLY as written — every word, every letter, every punctuation mark must be correct
-- Font style: Use a clean, rounded, child-friendly sans-serif font (like Quicksand or Nunito style)
-- Font size: The text should be clearly readable but not dominate the illustration — text should occupy no more than 35% of the page width
-- Text placement: Position the text at the ${placement} of the image in a clean area
-- Text color: Use a color that contrasts well with the background for readability
-${fontGuidance}
-- The text must be embedded naturally into the illustration — NOT on an opaque overlay box`;
-    }
 
     const messageParts = [{
       text: `Generate illustration for page ${spreadIndex + 1} of ${totalSpreads}:
 Scene: ${sceneDescription}
 ${opts.shotType ? `Shot type: ${opts.shotType}` : ''}
-${textInstructions}
 
+Fill the entire canvas with the illustration — no blank areas, no text, no letters, no numbers.
 The character must look IDENTICAL to all previous illustrations.`,
     }];
 
@@ -163,7 +142,7 @@ The character must look IDENTICAL to all previous illustrations.`,
       text: `The previous illustration had an issue: ${issue}.
 Please regenerate it with these corrections: ${corrections}.
 Keep the character looking identical to earlier illustrations.
-Match the same font style and text rendering as previous pages.`,
+Fill the entire canvas with the illustration — no blank areas, no text.`,
     }];
 
     const response = await this._sendMessage(messageParts, {
@@ -184,25 +163,10 @@ Match the same font style and text rendering as previous pages.`,
    * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
    */
   async retryTextOnly(expectedText, issues, opts = {}) {
-    const issueList = (issues || []).join(', ') || 'text does not match expected';
-    const messageParts = [{
-      text: `The text in the previous illustration is incorrect.
-The issues are: ${issueList}
-
-Please regenerate this SAME illustration but fix ONLY the text.
-The correct text should read EXACTLY: "${expectedText}"
-
-Keep EVERYTHING else identical — same character, same scene, same composition, same colors.
-Only fix the text to match what I specified above.
-Match the same font style as the other pages.`,
-    }];
-
-    const response = await this._sendMessage(messageParts, {
-      aspectRatio: opts.aspectRatio || '16:9',
-    });
-    this.turnsUsed++;
-
-    return this._extractImage(response, -1);
+    // No-op: text is now composited externally via Sharp/SVG after illustration generation.
+    // Kept for API compatibility.
+    console.log('[chatSessionManager] retryTextOnly is a no-op — text is composited externally');
+    return null;
   }
 
   /**
@@ -254,14 +218,11 @@ Match the same font style as the other pages.`,
       parts.push('8. NO family members (parents, siblings, grandparents). Only fictional characters may interact with the child.');
     }
     parts.push('');
-    parts.push('TEXT RENDERING RULES:');
-    parts.push('- Every page has specific text that MUST be rendered accurately in the illustration.');
-    parts.push('- Use a clean, rounded, child-friendly sans-serif font throughout the ENTIRE book.');
-    parts.push('- The font style, size, weight, and color must be IDENTICAL on every page.');
-    parts.push('- Text should occupy no more than 35% of the page width.');
-    parts.push('- Text must be embedded naturally — NOT on opaque overlay boxes.');
-    parts.push('- Text must be clearly legible with good contrast against the background.');
-    parts.push('- Spell every word EXACTLY as specified — no creative spelling changes.');
+    parts.push('COMPOSITION:');
+    parts.push('- Fill the ENTIRE image with the illustration scene from edge to edge.');
+    parts.push('- Do NOT leave any blank, empty, or reserved areas anywhere in the image.');
+    parts.push('- Do NOT render any text, words, letters, or numbers in the illustration.');
+    parts.push('- Text will be composited separately after generation — your job is ONLY the illustration.');
 
     return parts.join('\n');
   }

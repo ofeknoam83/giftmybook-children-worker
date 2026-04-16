@@ -167,7 +167,7 @@ async function splitSpreadImage(buf, pw, ph) {
   const upscaledMeta = await sharp(upscaled).metadata();
   const scaledH = Math.round(upscaledMeta.height * spreadW / upscaledMeta.width);
   // Center crop — equal from top and bottom.
-  // The illustration prompt enforces 25% margin from all edges to survive this crop + print bleed.
+  // The prompt safe-zone rule keeps important content within the middle 85% of height to survive this crop + print bleed.
   const excessH  = Math.max(0, scaledH - hp);
   const cropTop  = Math.floor(excessH / 2);
 
