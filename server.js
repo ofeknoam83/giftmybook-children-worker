@@ -1948,6 +1948,17 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       console.log(`[server] Stage timing: photo_cache=${stage1Ms}ms (book ${bookId})`);
 
+      // ── EARLY parent theme guard: clear photo-detected secondary characters for parent themes ──
+      // The photo scan may detect an adult (mother/father) in the child photo, but for parent-themed
+      // books where the parent is NOT on the chosen cover, we must NOT pass those characters to the
+      // story planner — otherwise it bakes the parent into secondaryCharacterDescription and the
+      // illustration system draws them explicitly. This must happen BEFORE story planning.
+      const { PARENT_THEMES } = require('./services/illustrationGenerator');
+      if (PARENT_THEMES.has(theme) && detectedSecondaryCharacters) {
+        bookContext.log('info', 'Parent theme — clearing photo-detected secondary characters BEFORE story planning (parent must not be drawn explicitly unless on chosen cover)', { was: detectedSecondaryCharacters.slice(0, 100) });
+        detectedSecondaryCharacters = null;
+      }
+
       // Character reference generation skipped — Gemini illustrations use child photo directly
       const characterRef = null;
 
@@ -2534,11 +2545,17 @@ Format your answer with each label on its own line followed by a colon and the a
       // ignore photo-detected secondary characters. The photo scan may have detected
       // an adult's hand/arm in the child photo, but that should NOT override
       // the implied-presence path when the parent is not on the chosen cover.
-      const { PARENT_THEMES } = require('./services/illustrationGenerator');
       if (PARENT_THEMES.has(theme) && !storyPlan.additionalCoverCharacters) {
+        // Safety net: clear any lingering secondary character references for parent themes
         if (detectedSecondaryCharacters) {
-          bookContext.log('info', 'Parent theme without cover parent — ignoring photo-detected secondary characters for implied presence', { was: detectedSecondaryCharacters.slice(0, 100) });
+          bookContext.log('info', 'Parent theme without cover parent — clearing residual detectedSecondaryCharacters', { was: detectedSecondaryCharacters.slice(0, 100) });
           detectedSecondaryCharacters = null;
+        }
+        // Also clear secondaryCharacterDescription if the story planner generated one—
+        // this would cause the illustration system to draw the parent explicitly
+        if (storyPlan.secondaryCharacterDescription) {
+          bookContext.log('info', 'Parent theme without cover parent — clearing storyPlan.secondaryCharacterDescription (parent must not be drawn explicitly)', { was: storyPlan.secondaryCharacterDescription.slice(0, 100) });
+          storyPlan.secondaryCharacterDescription = null;
         }
       }
 
