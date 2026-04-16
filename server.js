@@ -58,6 +58,7 @@ const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarly
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 const { ChatSessionManager } = require('./services/chatSessionManager');
+const { createIllustrationSession, establishCharacter, generateSpreadInSession } = require('./services/illustrationChatSession');
 const { compositeTextOnIllustration } = require('./services/illustrationPostProcess');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
@@ -613,8 +614,39 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
   // Try to start a Gemini chat session for visual consistency across spreads.
   // Falls back to standalone generateIllustration() calls if chat fails.
   let chatSession = null;
+  let multiTurnSession = null; // New multi-turn chat session (illustrationChatSession)
+  const useMultiTurnChat = process.env.USE_CHAT_ILLUSTRATIONS === 'true';
   const useChatSession = !opts.disableChatSession; // allow opting out
-  if (useChatSession) {
+
+  if (useMultiTurnChat && useChatSession) {
+    // ── New multi-turn chat session (feature-flagged) ──
+    try {
+      bookContext.log('info', 'Starting multi-turn chat session for illustration generation (USE_CHAT_ILLUSTRATIONS=true)');
+      multiTurnSession = createIllustrationSession({
+        characterPhotoBase64: cachedPhotoBase64 || null,
+        characterPhotoMime: cachedPhotoMime || 'image/jpeg',
+        coverBase64: parentCoverRefBase64 || characterRefSheetBase64 || null,
+        coverMime: 'image/jpeg',
+        characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
+        characterDescription: storyPlan.characterDescription || '',
+        characterOutfit: storyPlan.characterOutfit || '',
+        style,
+        childName: childDetails.name,
+        childAge: childDetails.age || childDetails.childAge,
+        totalSpreads: illustratableEntries.length,
+        additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+        recurringElement: storyPlan.recurringElement || '',
+        keyObjects: storyPlan.keyObjects || '',
+      });
+
+      await establishCharacter(multiTurnSession);
+      bookContext.log('info', 'Multi-turn chat session established successfully');
+    } catch (chatErr) {
+      bookContext.log('warn', `Multi-turn chat session failed to start — falling back: ${chatErr.message}`);
+      multiTurnSession = null;
+    }
+  } else if (useChatSession) {
+    // ── Legacy ChatSessionManager (default path) ──
     try {
       chatSession = new ChatSessionManager();
       const characterRefImages = [];
@@ -675,7 +707,70 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
 
       // ── Try chat session first, fall back to standalone ──
       const pageText = job.pageText || '';
-      if (chatSession) {
+
+      // ── Multi-turn chat session (new, feature-flagged) ──
+      if (multiTurnSession && !multiTurnSession.abandoned) {
+        try {
+          bookContext.log('info', `Illustration ${entryLabel} via multi-turn chat session`);
+          const entryData = entries[idx] || {};
+
+          // Retry once within the session if no image returned
+          let chatResult = null;
+          for (let chatAttempt = 0; chatAttempt < 2; chatAttempt++) {
+            try {
+              chatResult = await generateSpreadInSession(multiTurnSession, prompt, {
+                aspectRatio: job.isSpread ? '16:9' : '1:1',
+                shotType: entryData.shot_type || null,
+                spreadIndex: idx,
+                sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
+                pageText: pageText || null,
+              });
+              break; // Success
+            } catch (turnErr) {
+              if (turnErr.isNsfw) {
+                bookContext.log('warn', `Multi-turn spread ${idx + 1} NSFW blocked — falling back to stateless`);
+                throw turnErr; // Don't retry NSFW, fall through to stateless
+              }
+              if (chatAttempt === 0) {
+                bookContext.log('warn', `Multi-turn spread ${idx + 1} attempt 1 failed: ${turnErr.message} — retrying within session`);
+              } else {
+                throw turnErr; // Second attempt failed
+              }
+            }
+          }
+
+          if (chatResult) {
+            imageBuffer = chatResult.imageBuffer;
+
+            if (costTracker) {
+              costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+            }
+
+            // ── Text compositing: skip for multi-turn chat (text is embedded by AI in the image) ──
+            // Text was passed to generateSpreadInSession() via pageText opt, so the AI renders it directly.
+            bookContext.log('info', `Spread ${idx + 1}: text embedded by AI in multi-turn chat — skipping external compositing`);
+
+            // Upload illustration to GCS
+            if (bookId && imageBuffer) {
+              const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
+              const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
+              imageUrl = await uploadBuf(imageBuffer, gcsPath, 'image/png');
+            }
+
+            bookContext.touchActivity();
+            const memUsage = process.memoryUsage();
+            bookContext.log('info', `Illustration ${entryLabel} complete (multi-turn)`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
+          }
+        } catch (chatGenErr) {
+          bookContext.log('warn', `Multi-turn chat generation failed for ${entryLabel}: ${chatGenErr.message} — abandoning session, falling back to standalone`);
+          multiTurnSession.abandoned = true; // Disable multi-turn for remaining spreads
+          imageUrl = null;
+          imageBuffer = null;
+        }
+      }
+
+      // ── Legacy chat session (ChatSessionManager) ──
+      if (!imageUrl && chatSession) {
         try {
           bookContext.log('info', `Illustration ${entryLabel} via chat session`);
           const entryData = entries[idx] || {};
@@ -801,7 +896,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       } // end fallback standalone generation
 
       // ── Composite text for standalone fallback path ──
-      if (!chatSession && pageText && pageText.trim() && imageUrl && !imageBuffer) {
+      const chatProducedImage = (chatSession && imageBuffer) || (multiTurnSession && !multiTurnSession.abandoned && imageBuffer);
+      if (!chatProducedImage && pageText && pageText.trim() && imageUrl && !imageBuffer) {
         try {
           const dlResp = await fetch(imageUrl);
           if (dlResp.ok) {
