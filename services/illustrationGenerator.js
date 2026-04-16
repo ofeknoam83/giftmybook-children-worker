@@ -1295,7 +1295,7 @@ async function checkCharacterConsistency(generatedImageBase64, referenceImageBas
   if (!apiKey) return { consistent: true, issues: [] };
 
   const secondaryCheck = secondaryCharacterDescription
-    ? `\n5. SECONDARY CHARACTER: If a secondary character (parent/adult) appears in the generated image, check that their hair color/style, skin tone, and general appearance match this description: ${secondaryCharacterDescription}. If the secondary character is NOT present in the generated image, skip this check.`
+    ? `\n5. SECONDARY CHARACTER: If a secondary character (parent/adult) appears in the generated image, check that their hair color/style, skin tone, general appearance, AND OUTFIT match this description: ${secondaryCharacterDescription}. The secondary character must wear the SAME outfit (same garment type, same colors) across all illustrations — flag any outfit change. If the secondary character is NOT present in the generated image, skip this check.`
     : '';
 
   try {
