@@ -164,8 +164,10 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
 
   // Build the user turn
   const pageText = opts.pageText || '';
+  const wordCount = pageText.trim().split(/\s+/).length;
+  const estimatedLines = Math.ceil(wordCount / 9);
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent Lora-style serif font established in the first illustration):\n${pageText}\nTEXT PLACEMENT: Text can go anywhere but must not cross the vertical center of the image. Keep small padding from top/bottom edges.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent font style established in the first illustration):\n${pageText}\n\nThis text is approximately ${wordCount} words (~${estimatedLines} lines). Plan your layout: reserve space for ${estimatedLines} lines of small text at the top or bottom edge, then compose the illustration in the remaining area. Characters and key action must not be behind the text.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   const secondaryCharReminder = opts.additionalCoverCharacters
@@ -326,17 +328,21 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('');
   parts.push('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS:');
   parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
-  parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate, with gentle serifs');
-  parts.push('- Letters should be graceful and readable — a timeless storybook quality, NOT bold or chunky');
-  parts.push('- Use a SMALL font size — the text should complement the illustration, not dominate it');
+  parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
+  parts.push('- Use a SMALL font size — text complements the illustration, does not dominate');
+  parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
-  parts.push('- Text must look IDENTICAL across all spreads: same font appearance, same text size, same text color');
-  parts.push('- Use white or light-colored text with a subtle dark drop shadow or thin outline for readability');
-  parts.push('- Text can be placed anywhere on the image — top, bottom, left side, right side');
-  parts.push('- Text must NEVER cross or overlap the vertical center of the image');
-  parts.push('- Keep a small padding/margin from the top and bottom edges (at least 3-5% of image height) so text is not cut off when printed');
-  parts.push('- Place text where it best fits the composition without obscuring the main characters or action');
   parts.push('- NEVER change the font style, size, or color between pages — consistency is critical');
+  parts.push('');
+  parts.push('TEXT LAYOUT PLANNING (CRITICAL — follow this process for EVERY spread):');
+  parts.push('1. FIRST, count the words in the story text you need to render');
+  parts.push('2. ESTIMATE how many lines the text will occupy at small font size (roughly 8-10 words per line in a 16:9 image)');
+  parts.push('3. DECIDE whether to place the text zone at the TOP or BOTTOM of the image — choose whichever works better for the scene composition');
+  parts.push('4. RESERVE a horizontal band for the text — the band height should match the number of lines needed, plus a small padding margin from the edge (so text is not cut when printed)');
+  parts.push('5. DESIGN the illustration to fill the REST of the image — place main characters, action, and key elements OUTSIDE the reserved text band');
+  parts.push('6. The text band and illustration can share the image canvas, but the main focal elements (characters, faces, important objects) must NOT be behind the text');
+  parts.push('7. Text must NEVER cross the vertical center line of the image — if text needs many lines, use a smaller font rather than expanding the text zone past the center');
+  parts.push('8. Keep a small margin (3-5% of image height) between the text and the top/bottom edge');
 
   return parts.join('\n');
 }

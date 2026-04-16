@@ -866,16 +866,22 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Text handling — embed text when using chat illustrations with admin regen, otherwise no text
   parts.push('');
   if (opts.embedText && pageText && pageText.trim()) {
+    const embedWordCount = pageText.trim().split(/\s+/).length;
+    const embedEstimatedLines = Math.ceil(embedWordCount / 9);
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
     parts.push('');
-    parts.push('TEXT RULES:');
-    parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
-    parts.push('- Use a SMALL font size — text complements the illustration, does not dominate');
-    parts.push('- White or light text with a subtle dark drop shadow for readability');
-    parts.push('- Text can be placed anywhere but must NEVER cross the vertical center of the image');
-    parts.push('- Keep small padding from top and bottom edges so text is not cut when printed');
-    parts.push('- Consistent font style, size, and color across all pages');
+    parts.push('TEXT LAYOUT PLANNING:');
+    parts.push(`1. This text is approximately ${embedWordCount} words (~${embedEstimatedLines} lines at small font size)`);
+    parts.push('2. Reserve a horizontal band at the top or bottom for this text');
+    parts.push('3. Design the illustration so main characters and action are NOT behind the text band');
+    parts.push('4. Text must never cross the vertical center of the image');
+    parts.push('');
+    parts.push('TEXT STYLE:');
+    parts.push('- Elegant classic serif font similar to Lora — refined, delicate');
+    parts.push('- SMALL font size — text complements, does not dominate');
+    parts.push('- White or light text with subtle dark drop shadow for readability');
+    parts.push('- Keep 3-5% padding from top/bottom edges');
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
