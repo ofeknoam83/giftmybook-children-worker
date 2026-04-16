@@ -1044,7 +1044,10 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (isImpliedPresenceTheme ? 0 : (mentionsParent ? 1 : 0));
           const expectedCharacters = { childCount: 1, adultCount: adultExpected };
           const countResult = await checkCharacterCount(genBase64, expectedCharacters);
-          if (!countResult.passed) {
+          if (!countResult.passed && isImpliedPresenceTheme) {
+            // For implied-presence themes, don't retry — the parent showing up is acceptable
+            bookContext.log('info', `Spread ${idx + 1} has extra adult (implied presence theme) — accepting`, { message: countResult.message });
+          } else if (!countResult.passed) {
             bookContext.log('warn', `Spread ${idx + 1} character count mismatch`, { message: countResult.message });
             try {
               const correctionNote = `CRITICAL: The previous image showed the wrong number of characters. ${countResult.message}. Generate with EXACTLY ${expectedCharacters.childCount} child(ren) and ${expectedCharacters.adultCount} adult(s).`;
