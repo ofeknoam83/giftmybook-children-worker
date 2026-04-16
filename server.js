@@ -3545,7 +3545,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, characterAnchor, recurringElement, keyObjects,
     coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters,
-    totalSpreads, firstSpreadRefUrl, theme, parentOutfit } = req.body;
+    totalSpreads, firstSpreadRefUrl, theme, parentOutfit, childAge } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -3630,6 +3630,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       costTracker,
       bookId,
       childName,
+      childAge: childAge || null,
       childPhotoUrl,
       spreadIndex,
       totalSpreads: totalSpreads || 0,
