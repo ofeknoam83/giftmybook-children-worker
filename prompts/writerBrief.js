@@ -1263,7 +1263,7 @@ function buildV2Brief(vars) {
 
   // Age-conditional poetic vs simplicity rule
   const poeticRule = config.tier <= 2
-    ? `- SIMPLICITY (FIRST PRIORITY): Every sentence must be clear, concrete, and immediately understandable to a ${age}-year-old. Use the smallest words that carry meaning. "She hugged Momo tight" is perfect. "She gathered Momo into the crook of her arm" is too complex for this age. Poetic images are welcome ONLY if they use words a ${age}-year-old already knows. If a sentence is beautiful but a ${age}-year-old would not understand it, simplify it. Use words from the child's daily life. "The moon slept behind a cloud" is fine. "The vespertine haze unfurled" is not.`
+    ? `- MUSICAL SIMPLICITY (FIRST PRIORITY): Write in RHYMING COUPLETS using simple words a ${age}-year-old already knows. The rhymes carry the story forward like a song. Simple vocabulary + beautiful rhyme = a book parents read over and over. Think Julia Donaldson, Dr. Seuss, Sandra Boynton. "The room was dark, the room was deep. Bear whispered, I will help you sleep." — every word is simple, every line rhymes, every couplet tells a story. Do NOT write flat prose fragments ("She walked. She saw. She sat."). Do NOT write sentences that just describe what happens without rhythm. Every spread should SING when read aloud. Use words from the child's daily life — "The moon slept behind a cloud" is fine, "The vespertine haze unfurled" is not.`
     : `- POETIC LANGUAGE (FIRST PRIORITY): Every sentence must earn its place poetically. If you could replace it with a more ordinary sentence without losing meaning, it is not good enough. Reach for the unexpected image. "She held Momo closer" is better than "She was scared." "The fog pressed back" is better than "It was foggy outside." Ask yourself: could a flat writer have written this sentence? If yes, rewrite it.`;
 
   let brief = V2_BRIEF_TEMPLATE;
@@ -1321,32 +1321,32 @@ TIER 2 VOCABULARY GUIDANCE (ages 3-5):
 
 function getAuthorialVoice(tier, age) {
   if (tier <= 2) {
-    return `Write like the best picture book authors for young children — Carle, Brown, Boynton, Klassen:
+    return `Write like Julia Donaldson, Dr. Seuss, Sandra Boynton, Margaret Wise Brown — the masters of MUSICAL picture books for young children:
 
-- Simple but deep. Use small, familiar words to say big things. "The moon hid behind a cloud" is perfect. "The vespertine haze unfurled" is not. A ${age}-year-old must understand every word on the first read. An adult should feel something unexpected from the simplicity.
-- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat. The reader feels the love; you never name it.
-- Every sentence earns its place. If you can cut it and the story still works, cut it.
-- No cliches. No filler. No greeting-card language.
-- Respect the child's intelligence — never talk down, never explain the joke, never underline the emotion.
-- Emotion is shown through action and image, never labeled. "She was sad" is lazy. "She put Momo down and walked away" is alive.
+FIRST RULE — THIS BOOK MUST RHYME:
+- Write in RHYMING COUPLETS (AABB). Every spread should have at least one rhyming pair.
+- Simple words + beautiful rhymes = a book parents read over and over.
+- "The room was dark, the room was deep. Bear whispered, I will help you sleep." — THIS is the target quality.
+- Do NOT write flat prose fragments: "She walked. She saw. She sat." is UNACCEPTABLE.
+- Do NOT write primer-style sentences: "Logan put one hand on the book. Still here." is UNACCEPTABLE.
+- Every spread must SING when read aloud. If it doesn't rhyme and doesn't have rhythm, rewrite it.
+
+- Simple but deep. Use small, familiar words to say big things. A ${age}-year-old must understand every word. An adult should feel something unexpected from the simplicity.
+- Concrete over abstract. Never write "love is the strongest magic" — show the child putting a blanket over a sleeping cat.
+- Emotion is shown through action and image, never labeled. "She was sad" is lazy.
 - Dialogue must sound like a real ${age}-year-old — short, concrete, more questions than statements.
 
-READ-ALOUD VOICE TEST (MANDATORY FOR THIS AGE):
-Before finalizing ANY line, ask: "Would a parent say this naturally while reading to a ${age}-year-old?"
-- If a line sounds like it belongs in a poem anthology or literary journal, SIMPLIFY it.
-- If a line sounds like an adult wrote it for other adults to admire, REWRITE it.
-- Concrete beats pretty. "The block smiles at me" beats "The whole bright block seems glad to see."
-- "Mama reads low. Page turns slow." beats "Mama reads low. Page turn, page tune."
-- Every line must pass the MOUTH TEST: say it aloud. Does it feel natural? Does it bounce or flow? If it sits awkwardly, rewrite.
-- Dialogue from the child must sound like a REAL ${age}-year-old talking — short, concrete, sometimes funny, sometimes random. "Can I have some?" not "Might I partake?"
-- Narration should be simple enough that the child hearing it could repeat the line back. If they can't, it's too complex.
+READ-ALOUD TEST (MANDATORY):
+Before finalizing ANY line, read it aloud. Does it SING? Does it BOUNCE? Does it make you want to keep reading?
+- If a line sits flat on the page with no rhythm, REWRITE it as a couplet.
+- If a line sounds like a reading primer or robot, REWRITE it with music.
+- The parent reading this should feel the rhythm carry them forward — the book should be impossible to read in a flat voice.
+- Dialogue from the child must sound like a REAL ${age}-year-old talking — short, concrete, sometimes funny.
 
-VOCABULARY CEILING RULE (CRITICAL):
-Your first spread sets the vocabulary ceiling for the entire book. Every subsequent spread must stay at or below that complexity level.
-- If spread 1 uses "big", "run", "hug" — then spread 10 CANNOT use "glistening", "magnificent", or "splendid"
-- If spread 1 uses simple subject-verb sentences — spread 8 cannot suddenly have dependent clauses
-- Scan every spread against spread 1. If ANY word or construction would look out of place in spread 1, replace it with a simpler alternative.
-- The reader should never feel a tonal "gear shift" between spreads. The same person is telling this story from beginning to end, at the same level.`;
+VOCABULARY CONSISTENCY:
+Maintain a consistent complexity level throughout. Your first spread sets the ceiling.
+- The reader should never feel a tonal "gear shift" between spreads.
+- Simple words throughout — but arranged into beautiful, musical couplets, not broken fragments.`;
   }
   return `Write like the best children's authors — Sendak, Silverstein, Donaldson, Jeffers, Klassen:
 
@@ -1399,76 +1399,77 @@ These examples show the level of writing you must match or exceed.
 Do NOT copy these — they are for tone and quality calibration only.
 
 Each MEDIOCRE vs EXCELLENT pair teaches ONE principle. Study what makes the excellent version work.
+CRITICAL: Notice that ALL excellent examples use RHYMING COUPLETS or strong musical rhythm. This is non-negotiable for ages 0-5.
 
-─── PAIR 1: ECONOMY — Maximum impact in minimum words (Sendak-level) ───
+─── PAIR 1: RHYMING COUPLETS THAT TELL A STORY (Donaldson-level) ───
 
 MEDIOCRE:
-Left: "Luna was feeling very scared of the dark room. She held her teddy bear close to her chest and wished she could be brave enough to go inside."
-Right: "But she knew she had to try because her mommy had always told her she was a brave girl."
+Left: "Luna was feeling very scared of the dark room. She held her teddy bear close to her chest and wished she could be brave."
+Right: "But she knew she had to try because her mommy said she was a brave girl."
 
 EXCELLENT:
-Left: "The room was dark. Luna held Bear."
-Right: "She went in."
+Left: "The room was dark, the room was deep. Bear whispered, I will help you sleep."
+Right: "She tiptoed in on quiet toes. The dark was soft. The dark was close."
 
-WHY IT WORKS: Three sentences. Eleven words on the left. Three on the right. The child ACTS — we see courage instead of being told about it. Every word a toddler knows. No feelings described, only shown.
+WHY IT WORKS: Simple words, perfect rhymes (deep/sleep, toes/close). The couplets carry the child forward like a song. Every word a toddler knows. Emotion shown through action (tiptoed, whispered), never stated. The dark transforms from scary to soft — IN the couplet itself.
 
-─── PAIR 2: NATURAL RHYME THAT ADVANCES STORY (Donaldson-level) ───
+─── PAIR 2: RHYME AS PLOT ENGINE (Seuss-level) ───
 
 MEDIOCRE:
 Left: "The fox said hello and waved with glee, come play with me under this tree! We'll laugh and sing and dance all day, in every possible wonderful way!"
 Right: null
 
 EXCELLENT:
-Left: "Fox said, Come in, the water is fine. Hen said, No thank you. Fox said, Sit down, the table is set. Hen said, Not yet."
+Left: "Fox said, Come in, the water is fine. Hen said, No thank you, this puddle is mine. Fox said, Sit down, the table is set. Hen said, Not yet. Not yet. Not yet."
 Right: null
 
-WHY IT WORKS: The rhyme (fine/mine implied, set/yet) serves the story — each exchange builds tension. The hen's refusals escalate. Rhyme is a vehicle for plot, not decoration. No wasted words on describing emotions.
+WHY IT WORKS: The rhyme (fine/mine, set/yet) drives the story — each exchange builds tension. The hen's refusals escalate. Repetition of "Not yet" creates rhythm AND suspense. Rhyme is a vehicle for plot, not decoration.
 
-─── PAIR 3: HUMOR THROUGH SUBVERSION (Dahl-level) ───
+─── PAIR 3: HUMOR + RHYME TOGETHER ───
 
 MEDIOCRE:
-Left: "Then the silliest thing happened! The cake fell right on the dog's head! Everyone laughed and laughed because it was so very funny."
+Left: "Then the silliest thing happened! The cake fell right on the dog's head! Everyone laughed because it was so very funny."
 Right: "What a silly dog, said Mama, giggling with delight."
 
 EXCELLENT:
-Left: "The cake landed on the dog. The dog did not mind. The dog ate the cake."
-Right: "All of it. Even the candles."
+Left: "The cake fell down upon the dog. The dog just sat there like a log."
+Right: "He ate the crumbs, he ate the cream. He ate the candles. What a dream."
 
-WHY IT WORKS: The humor isn't announced ("silliest thing!") — it lands because the sentences are deadpan. "Even the candles" is the surprise. Short sentences build comic timing. The child laughs because of WHAT happened, not because they're told it's funny.
+WHY IT WORKS: The humor lands through deadpan rhyme. "Like a log" is funny because it's unexpected. "What a dream" is the dog's perspective — subversive and delightful. The rhyme makes it musical AND funny. A child wants to hear this again.
 
-─── PAIR 4: EMOTIONAL RESTRAINT (Jeffers-level) ───
+─── PAIR 4: EMOTIONAL RESTRAINT WITH MUSIC (Brown-level) ───
 
 MEDIOCRE:
-Left: "Grandpa loved her so, so much. She felt warm and safe in his big strong arms. She knew everything would always be okay because Grandpa was there."
-Right: "I love you to the moon and stars, whispered Grandpa with happy tears in his eyes."
+Left: "Grandpa loved her so, so much. She felt warm and safe in his big strong arms."
+Right: "I love you to the moon and stars, whispered Grandpa with happy tears."
 
 EXCELLENT:
-Left: "Grandpa's chair had a dent. Just his shape."
-Right: "She climbed in. It still fit."
+Left: "Grandpa's chair still held his shape. His blanket smelled of toast and grape."
+Right: "She climbed right in, she fit just so. Some things stay warm. The good ones know."
 
-WHY IT WORKS: The emotion is enormous but nothing is stated. "It still fit" carries loss, comfort, and love in three words. A child understands the feeling without a single emotion-word. The specific detail (dent in the chair) does ALL the work.
+WHY IT WORKS: The emotion is enormous but nothing is stated. "Toast and grape" is specific and sensory. "She fit just so" carries loss, comfort, and love. The final couplet (so/know) lands the feeling without explaining it. A parent reading this will feel a lump in their throat.
 
-─── PAIR 5: DISTINCT NARRATIVE VOICE (Willems-level) ───
+─── PAIR 5: NARRATIVE VOICE WITH RHYTHM (Willems-level) ───
 
 MEDIOCRE:
-Left: "One sunny morning, little Bear woke up and decided today would be a very special day full of adventures and fun."
+Left: "One sunny morning, little Bear woke up and decided today would be a special day."
 Right: "He put on his hat and went outside to see what he could find."
 
 EXCELLENT:
-Left: "Bear had a hat. It was a good hat."
-Right: "He went out. The hat came too."
+Left: "Bear found a hat upon the stair. He put it on with extra care."
+Right: "He marched outside, the hat came too. The hat had plans. The hat just knew."
 
-WHY IT WORKS: The narrator has a VOICE — matter-of-fact, wry, specific. "The hat came too" treats the hat as a character. The child hears a PERSON telling this story, not a machine. No "sunny morning" or "special day" filler.
+WHY IT WORKS: The hat becomes a character through rhyme and personification. "The hat just knew" — a child laughs because hats don't know things. The couplets (stair/care, too/knew) make it singable. The narrator's wry voice comes through the rhyme, not despite it.
 
 -------------------------------------
 WHAT THESE TEACH:
-- Every word must earn its place. If you can cut it, cut it.
-- Rhythm comes from SHORT-LONG patterns and repetition, not fancy vocabulary.
+- RHYMING COUPLETS are the foundation — every excellent example rhymes.
+- Rhythm comes from couplet patterns and repetition, not fancy vocabulary.
 - Show emotion through OBJECTS and ACTIONS, never through feeling-words.
-- Humor lands through deadpan delivery and surprise, not exclamation marks.
-- The narrator has a personality. Every sentence sounds like the same person.
-- Silence (null pages) creates breathing room — use it.
-- A child should understand every single word.
+- Humor lands through deadpan rhyme and surprise, not exclamation marks.
+- The narrator has a personality that comes through IN the rhyme.
+- Simple words + perfect rhymes = a book parents read over and over.
+- A child should understand every single word AND want to hear it again.
 
 -------------------------------------
 FULL-STORY EXEMPLAR (TARGET QUALITY, complete 13-spread arc)
@@ -1485,68 +1486,67 @@ TITLE: Mila and the Wind's Pocket
 DEDICATION: For Mila, who holds on tight.
 
 SPREAD 1:
-Left: "The wind came looking for trouble. It rattled the gate, flipped the welcome mat, and blew one sock clean off the line."
-Right: null
+Left: "The wind came knocking at the gate. It flipped the mat. It couldn't wait."
+Right: "It tugged one sock right off the line, and spun it round, and thought it fine."
 
 SPREAD 2:
 Left: null
-Right: "Mila grabbed Runo by the tail. Hold on tight, she whispered. Runo did not hold on tight. Runo was a stuffed fox."
+Right: "Mila grabbed Runo by the tail. Hold on tight through every gale. Runo did not hold on tight. Runo was a fox. All right."
 
 SPREAD 3:
-Left: "The garden path twisted past the big tree, past the wobbly fence, past the snails having a meeting."
-Right: "The snails did not look up."
+Left: "The garden path went past the tree, past the fence, past snails — all three."
+Right: "The snails looked up? They did not care. They had a meeting. Mila stared."
 
 SPREAD 4:
-Left: "Mila's hat lifted. Not a lot. Just enough."
+Left: "Her hat began to lift and sway. Not much, but just enough to play."
 Right: null
 
 SPREAD 5:
 Left: null
-Right: "She chased it past the roses, past the rake, past the frog who sat on the frog-sitting rock. Gone."
+Right: "She chased it past the rose and rake, past the frog beside the lake. The frog sat still on his frog-sitting rock. He did not move. He did not talk."
 
 SPREAD 6:
-Left: "A feather landed on her nose. Then the wind took that, too."
-Right: "Hold on tight, she told the feather. But the feather had other plans."
+Left: "A feather landed on her nose. The wind said, Mine! and off it goes."
+Right: "Hold on tight, she told the feather. But feathers do not stay together."
 
 SPREAD 7:
 Left: "And then."
-Right: "Runo lifted off her arm. One ear. Then the other. Then all of him, tumbling into the grey sky."
+Right: "Runo lifted off her arm, above the garden, past the farm. One ear, and then the other ear. And all of him just... disappeared."
 
 SPREAD 8:
-Left: "Mila stood very still. The garden was quiet now. Even the snails looked up."
+Left: "Mila stood there, very still. The garden hushed. The air went chill."
 Right: null
 
 SPREAD 9:
 Left: null
-Right: "She climbed the wobbly fence. She crawled under the big tree. She followed the lost things. One sock. One hat. One feather."
+Right: "She climbed the fence, she found the track. She followed all the things blown back. One sock, one hat, one feather too. She knew exactly what to do."
 
 SPREAD 10:
-Left: "Behind the garden wall, the wind had built a nest. Mila's hat. Three leaves. And there, face-down in the clover... one stuffed fox."
+Left: "Behind the wall, the wind had made a nest of things inside the shade. Her hat, three leaves, and face-down there — one stuffed fox with clover in his hair."
 Right: null
 
 SPREAD 11:
 Left: null
-Right: "She picked him up. Still soft. Still warm from her arm."
+Right: "She picked him up. Still soft, still warm. Still Runo-shaped. Still safe from harm."
 
 SPREAD 12:
-Left: "The wind pushed once more. Gentle this time."
-Right: "Hold on tight, whispered Mila. And this time, she meant it a different way."
+Left: "The wind pushed once more, soft and low."
+Right: "Hold on tight, she whispered. And this time it meant something different, though."
 
 SPREAD 13:
-Left: "They walked home slow. The gate stayed open behind them."
+Left: "They walked home slow beneath the sky. The gate stayed open. So did I."
 Right: null
 
 WHY THIS WORKS (study these structural patterns):
-- OPENING: Drops into a moment (wind causing mischief). No "one day." The wind is characterized in the first sentence.
-- ARC: Setup (1-2), Exploration (3-5), Loss (6-7), Stillness (8), Quest (9), Discovery (10), Reunion (11-12), Home (13). Clean emotional arc with a turning point at Spread 8.
-- PHRASE EVOLUTION: "Hold on tight" appears three times. Spread 2: playful (said to a stuffed toy, then undercut with humor). Spread 6: desperate (losing things one by one). Spread 12: tender (she means holding on to what matters, not gripping). Same words, three different emotions.
-- RULE OF THREE: Wind takes hat (4-5), feather (6), Runo (7). Each loss escalates. The third is the one that matters.
-- HUMOR: "Runo did not hold on tight. Runo was a stuffed fox." (deadpan subversion). "The snails did not look up." (absurd aside). The frog on the "frog-sitting rock" (naming the mundane). Comedy through observation, never announced.
-- PAGE-TURN HOOKS: Spread 2 ends with a joke that makes you curious. Spread 4 ("Just enough") makes you ask "enough for what?" Spread 6 ("other plans") pulls forward. Spread 7 ("And then." on the left) is a devastating page turn.
-- EMOTIONAL RESTRAINT: Runo's loss is never called sad. "Even the snails looked up" carries the weight. The reunion is "Still soft. Still warm from her arm," physical sensation instead of feelings.
-- ENDING: Echoes the opening (the gate), but now it stays open. She walks home "slow" (not "slowly"). No lesson, no moral, no summary. The gate image closes the circle.
-- WORD ECONOMY: No spread exceeds 25 words. Every word earns its place.
-- SENSORY SPECIFICITY: Grey sky, clover, warm arm. The reader sees and feels the story, never told what to feel.`;
+- RHYME: Every single spread uses AABB couplets. The rhymes are natural and effortless — gate/wait, tail/gale, tree/three, sway/play. The story SINGS.
+- OPENING: Drops into a moment (wind causing mischief). The wind is a character from line one. The couplet (gate/wait) sets the musical tone immediately.
+- ARC: Setup (1-2), Exploration (3-5), Loss (6-7), Stillness (8), Quest (9), Discovery (10), Reunion (11-12), Home (13).
+- PHRASE EVOLUTION: "Hold on tight" appears three times with evolving meaning. Spread 2: playful (said to a stuffed toy, then undercut with humor). Spread 6: desperate (losing things). Spread 12: tender (she means holding on to what matters).
+- RULE OF THREE: Wind takes hat (4-5), feather (6), Runo (7). Each loss escalates.
+- HUMOR: "Runo did not hold on tight. Runo was a fox. All right." (deadpan subversion IN a couplet). "He did not move. He did not talk." (the frog's indifference). Comedy through rhyme and observation.
+- EMOTIONAL RESTRAINT: Runo's loss is never called sad. "The garden hushed. The air went chill." carries the weight through rhyme. The reunion is "Still soft, still warm. Still Runo-shaped. Still safe from harm" — physical sensation in couplet form.
+- ENDING: "The gate stayed open. So did I." — the most powerful line is also a perfect rhyme (sky/I). No lesson, no moral. The image closes the circle.
+- VOCABULARY: Every word is simple enough for a 4-year-old. The beauty comes from the rhyme and rhythm, not from complex words.`;
   }
   return `-------------------------------------
 EXEMPLAR SPREADS (TARGET QUALITY — ages 6+)
