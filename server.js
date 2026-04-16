@@ -3600,6 +3600,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       prevIllustrationUrls: Array.isArray(prevIllustrationUrls) && prevIllustrationUrls.length > 0 ? prevIllustrationUrls : (prevIllustrationUrl ? [prevIllustrationUrl] : []),
       _cachedPhotoBase64: cachedPhotoBase64 || null,
       firstSpreadRefBase64,
+      embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true',
     });
 
     if (!result) {

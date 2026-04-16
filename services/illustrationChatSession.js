@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent Lora-style serif font established in the first illustration):\n${pageText}\nREMINDER: Place text ONLY at the top or bottom edge of the image — NEVER across the middle.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent Lora-style serif font established in the first illustration):\n${pageText}\nTEXT PLACEMENT: Text can go anywhere but must not cross the vertical center of the image. Keep small padding from top/bottom edges.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   const secondaryCharReminder = opts.additionalCoverCharacters
@@ -328,13 +328,14 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
   parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate, with gentle serifs');
   parts.push('- Letters should be graceful and readable — a timeless storybook quality, NOT bold or chunky');
-  parts.push('- Use a SMALL to medium font size — the text should complement the illustration, not dominate it');
+  parts.push('- Use a SMALL font size — the text should complement the illustration, not dominate it');
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
   parts.push('- Text must look IDENTICAL across all spreads: same font appearance, same text size, same text color');
   parts.push('- Use white or light-colored text with a subtle dark drop shadow or thin outline for readability');
-  parts.push('- CRITICAL: Text must be placed ONLY in the top or bottom portion of the image — NEVER across the middle');
-  parts.push('- Text must NOT cross or overlap the center/middle area of the illustration');
-  parts.push('- Place text in a strip along the top edge or bottom edge, leaving the middle entirely for the artwork');
+  parts.push('- Text can be placed anywhere on the image — top, bottom, left side, right side');
+  parts.push('- Text must NEVER cross or overlap the vertical center of the image');
+  parts.push('- Keep a small padding/margin from the top and bottom edges (at least 3-5% of image height) so text is not cut off when printed');
+  parts.push('- Place text where it best fits the composition without obscuring the main characters or action');
   parts.push('- NEVER change the font style, size, or color between pages — consistency is critical');
 
   return parts.join('\n');

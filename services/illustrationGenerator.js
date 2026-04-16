@@ -863,9 +863,22 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
-  // Text is composited separately after generation — no text in the illustration itself
+  // Text handling — embed text when using chat illustrations with admin regen, otherwise no text
   parts.push('');
-  parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
+  if (opts.embedText && pageText && pageText.trim()) {
+    parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
+    parts.push(pageText.trim());
+    parts.push('');
+    parts.push('TEXT RULES:');
+    parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
+    parts.push('- Use a SMALL font size — text complements the illustration, does not dominate');
+    parts.push('- White or light text with a subtle dark drop shadow for readability');
+    parts.push('- Text can be placed anywhere but must NEVER cross the vertical center of the image');
+    parts.push('- Keep small padding from top and bottom edges so text is not cut when printed');
+    parts.push('- Consistent font style, size, and color across all pages');
+  } else {
+    parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
+  }
   parts.push('FULL SCENE: The illustration must fill the ENTIRE canvas from edge to edge. Do NOT leave any blank, empty, or reserved areas anywhere in the image — no clean zones at top, bottom, or sides. Every part of the canvas should contain illustration artwork.');
 
   // Pre-generate checklist
@@ -880,7 +893,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
-  parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
+  if (opts.embedText && pageText && pageText.trim()) {
+    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, not crossing the vertical center. \u2713`);
+  } else {
+    parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
+  }
   parts.push(`11. FULL SCENE: illustration fills the entire canvas edge to edge — no blank areas anywhere. \u2713`);
   if (isSpread) {
     parts.push(`12. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
@@ -1119,6 +1136,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const isSpread = opts.isSpread || false;
   const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, {
     skipTextEmbed: opts.skipTextEmbed,
+    embedText: opts.embedText || false,
     coverArtStyle: opts.coverArtStyle,
     isSpread,
     spreadIndex: opts.spreadIndex,
