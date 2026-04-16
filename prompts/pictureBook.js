@@ -304,11 +304,17 @@ Generate the COMPLETE story as a JSON object with this structure:`;
     ? `\n  "secondaryCharacterDescription": "appearance of secondary person from the photo — hair, skin, build — written so illustrations stay consistent",`
     : '';
 
+  const { PARENT_THEMES } = require('../services/illustrationGenerator');
+  const needsParentOutfit = !additionalCoverCharacters && PARENT_THEMES.has(theme);
+  const parentOutfitField = needsParentOutfit
+    ? `\n  "parentOutfit": "EXACT outfit the parent wears in EVERY spread — LOCKED, no changes. Must include: top garment + color, bottom garment + color, shoe type + color. Example: 'soft cream cable-knit sweater, dark blue jeans, brown leather ankle boots'. Pick a warm, parent-appropriate outfit that fits the story setting.",`
+    : '';
+
   return prompt + `
 {
   "title": "The book title (MUST include the child's name and reference something specific to THIS story — see TITLE RULES)",
   "characterOutfit": "EXACT outfit the child wears in EVERY spread with NO changes. Must include ALL of: (1) top garment type + exact color + any pattern/logo, (2) bottom garment type + exact color, (3) shoe type + exact color, (4) any accessories or 'none'. Example: 'red short-sleeve t-shirt with a small yellow star on the chest, blue denim shorts, white canvas sneakers with green laces, no hat, no accessories'. This outfit is LOCKED — it must not change on any spread.",
-  "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",${secondaryCharField}
+  "characterDescription": "physical appearance details beyond the photo (MUST include hair description)",${secondaryCharField}${parentOutfitField}
   "recurringElement": "exact visual description of ${v2Vars?.favorite_object || 'the favorite object'} so it looks identical on every page",
   "keyObjects": "other objects that recur across spreads, with exact visual details",
   "entries": [

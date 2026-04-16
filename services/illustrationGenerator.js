@@ -877,7 +877,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
     parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
-    parts.push('- Use a medium-small, comfortably readable font size — clearly legible but not overpowering');
+    parts.push('- Use a small-to-medium, neatly readable font size — clearly legible but compact');
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
     parts.push('- TEXT PLACEMENT (CRITICAL): Text can be anywhere EXCEPT it must NEVER cross the vertical center line');

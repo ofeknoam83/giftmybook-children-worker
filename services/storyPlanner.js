@@ -1599,9 +1599,11 @@ function normalizePlan(parsed, childDetails, opts = {}) {
   if (parsed.recurringElement) plan.recurringElement = parsed.recurringElement;
   if (parsed.keyObjects) plan.keyObjects = parsed.keyObjects;
   if (parsed.secondaryCharacterDescription) plan.secondaryCharacterDescription = parsed.secondaryCharacterDescription;
+  if (parsed.parentOutfit) plan.parentOutfit = parsed.parentOutfit;
 
   console.log(`[storyPlanner] Plan complete: "${title}" with ${spreads.length} spreads, ${entries.length} total entries`);
   if (plan.characterOutfit) console.log(`[storyPlanner] Character outfit: ${plan.characterOutfit}`);
+  if (plan.parentOutfit) console.log(`[storyPlanner] Parent outfit: ${plan.parentOutfit}`);
 
   // Strip em-dashes and en-dashes from all story text for clean children's book typography
   sanitizeAllStoryText(plan);

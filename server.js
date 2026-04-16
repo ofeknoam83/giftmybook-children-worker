@@ -2522,6 +2522,18 @@ Format your answer with each label on its own line followed by a colon and the a
         }
       }
 
+      // ── Fix: For parent themes, if the cover does NOT contain the parent,
+      // ignore photo-detected secondary characters. The photo scan may have detected
+      // an adult's hand/arm in the child photo, but that should NOT override
+      // the implied-presence path when the parent is not on the chosen cover.
+      const { PARENT_THEMES } = require('./services/illustrationGenerator');
+      if (PARENT_THEMES.has(theme) && !storyPlan.additionalCoverCharacters) {
+        if (detectedSecondaryCharacters) {
+          bookContext.log('info', 'Parent theme without cover parent — ignoring photo-detected secondary characters for implied presence', { was: detectedSecondaryCharacters.slice(0, 100) });
+          detectedSecondaryCharacters = null;
+        }
+      }
+
       // If we still have no characterAnchor but parent provided one, use it
       if (!storyPlan.characterAnchor && parentCharacterAnchor) {
         storyPlan.characterAnchor = parentCharacterAnchor;
@@ -2763,6 +2775,15 @@ Format your answer with each label on its own line followed by a colon and the a
         bookContext.log('info', 'Starting V2 illustration generation');
         if (progressCallbackUrl) {
           reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
+        }
+
+        // Safety: For parent themes, ensure photo-detected characters don't override implied presence
+        // This catches cases where cover analysis didn't run (no approved cover yet)
+        if (PARENT_THEMES.has(theme) && !storyPlan.additionalCoverCharacters) {
+          if (detectedSecondaryCharacters) {
+            bookContext.log('info', 'Pre-illustration safety: nullifying photo-detected secondary chars for parent theme implied presence');
+            detectedSecondaryCharacters = null;
+          }
         }
 
         entriesWithIllustrations = await generateAllIllustrations(storyPlan.entries, storyPlan, childDetails, characterRef, style, {
@@ -3534,7 +3555,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, characterAnchor, recurringElement, keyObjects,
     coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters,
-    totalSpreads, firstSpreadRefUrl } = req.body;
+    totalSpreads, firstSpreadRefUrl, theme } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -3633,6 +3654,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       promptInjection: promptInjection || '',
       fontStyle: fontStyle || null,
       additionalCoverCharacters: additionalCoverCharacters || null,
+      theme: theme || null,
       prevIllustrationUrl: prevIllustrationUrl || null,
       prevIllustrationUrls: Array.isArray(prevIllustrationUrls) && prevIllustrationUrls.length > 0 ? prevIllustrationUrls : (prevIllustrationUrl ? [prevIllustrationUrl] : []),
       _cachedPhotoBase64: cachedPhotoBase64 || null,
@@ -4129,6 +4151,7 @@ app.post('/get-spread-data', authenticate, async (req, res) => {
         recurringElement: storyPlan.recurringElement || '',
         keyObjects: storyPlan.keyObjects || [],
         coverArtStyle: storyPlan.coverArtStyle || '',
+        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
       };
     });
 

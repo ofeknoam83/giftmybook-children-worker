@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text can be placed anywhere in the image EXCEPT it must NEVER cross the vertical center line. Keep a small padding from all edges so text won't be cut in print. Maximum 6 words per line. FONT SIZE: Use a medium-small, comfortably readable font — clearly legible but not overpowering. The text area should occupy roughly 20-30% of the total image area. TEXT CLARITY: The text must be crisp and sharp with clean edges — NOT blurry, fuzzy, or soft. Use solid, well-defined letterforms with high contrast against the background.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text can be placed anywhere in the image EXCEPT it must NEVER cross the vertical center line. Keep a small padding from all edges so text won't be cut in print. Maximum 6 words per line. FONT SIZE: Use a small-to-medium, neatly readable font — clearly legible but not overpowering. The text area should occupy roughly 15-25% of the total image area. TEXT CLARITY: The text must be crisp and sharp with clean edges — NOT blurry, fuzzy, or soft. Use solid, well-defined letterforms with high contrast against the background.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   let secondaryCharReminder = '';
@@ -334,7 +334,7 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS:');
   parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
   parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
-  parts.push('- Use a medium-small, comfortably readable font size — clearly legible but not overpowering');
+  parts.push('- Use a small-to-medium, neatly readable font size — clearly legible but compact');
   parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
   parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
