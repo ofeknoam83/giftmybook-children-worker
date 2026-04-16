@@ -316,7 +316,9 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('');
   parts.push('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS:');
   parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
-  parts.push('- Use a consistent, playful, highly readable children\'s book font style throughout ALL pages');
+  parts.push('- Use a rounded, bubbly, playful sans-serif font style similar to BubblegumSans or Fredoka One');
+  parts.push('- Letters should be soft, rounded, and friendly — typical of children\'s picture books');
+  parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
   parts.push('- Text must look IDENTICAL across all spreads: same font appearance, same text size, same text color');
   parts.push('- Use white or light-colored text with a dark drop shadow or outline for readability over any background');
   parts.push('- Place text in areas that don\'t obscure the main characters or key action');

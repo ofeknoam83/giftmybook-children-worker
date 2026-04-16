@@ -417,7 +417,7 @@ describe('illustrationChatSession', () => {
 
       expect(prompt).toContain('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS');
       expect(prompt).toContain('story text rendered directly INTO the image');
-      expect(prompt).toContain('consistent, playful, highly readable');
+      expect(prompt).toContain('BubblegumSans or Fredoka One');
       expect(prompt).toContain('white or light-colored text with a dark drop shadow');
       expect(prompt).toContain('NEVER change the font style, size, or color between pages');
     });
