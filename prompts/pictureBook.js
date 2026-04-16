@@ -136,23 +136,31 @@ CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom
         `- Mom and the secondary character(s) listed above MAY appear in illustration prompts. Describe each consistently every time. Do NOT invent other family members not listed.`
       );
     } else {
-      // For Mother's Day, Mom is a co-protagonist even without a photo reference
-      const motherOverride = `MOTHER'S DAY — MOM AS VISIBLE CHARACTER:
-Mom is a co-protagonist in this story. She MUST appear in illustration prompts for at least 6 of 13 spreads.
-When writing spread_image_prompt fields that include Mom, describe her presence explicitly:
-- Her position relative to the child (kneeling beside, standing behind, sitting together)
-- Her gesture or action (hugging, pointing, laughing, holding hands)
-- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled woman with gentle eyes")
-If a specific Mom appearance description becomes available from the cover, it will override these generic descriptions at illustration time.
+      // For Mother's Day WITHOUT a cover parent: Mom is in the STORY TEXT but shown via implied presence in illustrations
+      const motherImpliedOverride = `MOTHER'S DAY — MOM IN STORY, IMPLIED PRESENCE IN ILLUSTRATIONS:
+Mom is a co-protagonist in the story TEXT — she speaks, acts, and is central to the narrative.
+However, because we have NO reference image for Mom, her face must NEVER be shown in illustrations.
+
+ILLUSTRATION RULES FOR MOM (CRITICAL):
+- Mom MUST appear physically present in at least 6 of 13 spread_image_prompt fields — she is REAL, not invisible.
+- But ALWAYS describe her with HIDDEN FACE: show her from behind, from the side with face turned away, as hands reaching in from frame edge, kneeling with face cropped out, back view hugging the child, silhouette, or partially out of frame.
+- NEVER write "a warm-smiled woman" or describe Mom's facial features in spread_image_prompt fields.
+- DO describe: her hands, her arms around the child, her back, her hair from behind, her silhouette, her posture.
+- The child's face is always fully visible. Mom's warmth comes through her ACTIONS and BODY LANGUAGE, not her face.
+- Examples of good spread_image_prompt Mom descriptions:
+  "Mom's hands gently holding Logan's small hands over a mixing bowl"
+  "Logan sitting in Mom's lap, we see Mom from behind, her arms wrapped around Logan"
+  "Mom kneeling beside Logan, her face turned away, pointing at something in the distance"
+  "A warm pair of hands reaching into frame to straighten Logan's collar"
 Other family members (siblings, grandparents, dad) still follow the standard rule — text only, never illustrated.`;
 
       brief = brief.replace(
         /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
-        motherOverride + '\n'
+        motherImpliedOverride + '\n'
       );
       brief = brief.replace(
         /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
-        `- Mom MAY appear in illustration prompts for this Mother's Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.`
+        `- Mom MUST appear in illustration prompts but with HIDDEN FACE (back view, hands, silhouette, side view with face turned away). She is physically present but we have no face reference. Other family members must NOT appear in illustrations.`
       );
     }
   } else if (theme === 'fathers_day') {
@@ -176,22 +184,31 @@ CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Dad
         `- Dad and the secondary character(s) listed above MAY appear in illustration prompts. Describe each consistently every time. Do NOT invent other family members not listed.`
       );
     } else {
-      const fatherOverride = `FATHER'S DAY — DAD AS VISIBLE CHARACTER:
-Dad is a co-protagonist in this story. He MUST appear in illustration prompts for at least 6 of 13 spreads.
-When writing spread_image_prompt fields that include Dad, describe his presence explicitly:
-- His position relative to the child (kneeling beside, standing behind, sitting together)
-- His gesture or action (hugging, pointing, laughing, holding hands, carrying)
-- A warm, generic appearance if no specific description is available (e.g. "a warm-smiled man with kind eyes")
-If a specific Dad appearance description becomes available from the cover, it will override these generic descriptions at illustration time.
+      // For Father's Day WITHOUT a cover parent: Dad is in the STORY TEXT but shown via implied presence in illustrations
+      const fatherImpliedOverride = `FATHER'S DAY — DAD IN STORY, IMPLIED PRESENCE IN ILLUSTRATIONS:
+Dad is a co-protagonist in the story TEXT — he speaks, acts, and is central to the narrative.
+However, because we have NO reference image for Dad, his face must NEVER be shown in illustrations.
+
+ILLUSTRATION RULES FOR DAD (CRITICAL):
+- Dad MUST appear physically present in at least 6 of 13 spread_image_prompt fields — he is REAL, not invisible.
+- But ALWAYS describe him with HIDDEN FACE: show him from behind, from the side with face turned away, as hands reaching in from frame edge, kneeling with face cropped out, back view hugging the child, silhouette, or partially out of frame.
+- NEVER write "a warm-smiled man" or describe Dad's facial features in spread_image_prompt fields.
+- DO describe: his hands, his arms around the child, his back, his hair from behind, his silhouette, his posture.
+- The child's face is always fully visible. Dad's warmth comes through his ACTIONS and BODY LANGUAGE, not his face.
+- Examples of good spread_image_prompt Dad descriptions:
+  "Dad's large hands steadying Logan on the bicycle seat"
+  "Logan riding on Dad's shoulders, we see Dad from behind, walking down a sunlit path"
+  "Dad kneeling beside Logan, his face turned away, pointing at something in the sky"
+  "A strong pair of hands reaching into frame to help Logan up"
 Other family members (siblings, grandparents, mom) still follow the standard rule — text only, never illustrated.`;
 
       brief = brief.replace(
         /FAMILY MEMBERS — TEXT vs\. ILLUSTRATIONS \(CRITICAL\):[\s\S]*?(?=\n[A-Z]|\n-{5,})/,
-        fatherOverride + '\n'
+        fatherImpliedOverride + '\n'
       );
       brief = brief.replace(
         /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
-        `- Dad MAY appear in illustration prompts for this Father's Day book. Describe him warmly and consistently. Other family members (siblings, grandparents, mom) must NOT appear in illustrations.`
+        `- Dad MUST appear in illustration prompts but with HIDDEN FACE (back view, hands, silhouette, side view with face turned away). He is physically present but we have no face reference. Other family members must NOT appear in illustrations.`
       );
     }
   } else if (additionalCoverCharacters) {

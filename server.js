@@ -2935,32 +2935,9 @@ Format your answer with each label on its own line followed by a colon and the a
 
                 const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
 
-                // Prefer multi-turn chat session so embedded text is preserved
-                if (multiTurnSession && !multiTurnSession.abandoned) {
-                  const chatRetryOpts = {
-                    aspectRatio: entriesWithIllustrations[failed.index]?.type === 'spread' ? '16:9' : '1:1',
-                    spreadIndex: failed.index,
-                    sceneSummary: (originalPrompt || '').slice(0, 100),
-                    pageText: origImg?.pageText || '',
-                    additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || null,
-                    theme: theme,
-                  };
-                  const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, chatRetryOpts);
-                  if (chatRetry?.imageBuffer) {
-                    const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-qa-retry.png`;
-                    const retryUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
-                    if (retryUrl) {
-                      if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                        const page = (storyPlan.pages || [])[failed.index];
-                        if (page) page.illustrationUrl = retryUrl;
-                      } else {
-                        const entry = entriesWithIllustrations[failed.index];
-                        if (entry) entry.spreadIllustrationUrl = retryUrl;
-                      }
-                      bookContext.log('info', `QA retry: spread ${failed.index + 1} improved (chat session)`);
-                    }
-                  }
-                } else {
+                // Multi-turn chat session is not available during QA retry (it lives inside generateAllIllustrations).
+                // Always use standalone generation with anchor images.
+                {
                   // Standalone fallback — ensure text is still embedded when chat illustrations are enabled
                   const retryOpts = {
                     apiKeys, costTracker, bookId,
