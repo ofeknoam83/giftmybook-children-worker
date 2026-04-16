@@ -723,6 +723,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                 shotType: entryData.shot_type || null,
                 spreadIndex: idx,
                 sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
+                pageText: pageText || null,
               });
               break; // Success
             } catch (turnErr) {
@@ -745,24 +746,9 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
             }
 
-            // ── Composite text onto illustration (text rendered externally via Sharp/SVG) ──
-            if (pageText && pageText.trim() && imageBuffer) {
-              try {
-                const entry = entries[idx];
-                const leftText = entry.left?.text || null;
-                const rightText = entry.right?.text || null;
-                const textResult = await compositeTextOnIllustration(imageBuffer, leftText, rightText, {
-                  fontSize: 48,
-                  fontColor: '#FFFFFF',
-                  maxWidthPct: 0.35,
-                  isSpread: job.isSpread,
-                });
-                imageBuffer = textResult.imageBuffer;
-                bookContext.log('info', `Spread ${idx + 1}: text composited successfully (multi-turn)`);
-              } catch (textErr) {
-                bookContext.log('warn', `Spread ${idx + 1}: text compositing failed: ${textErr.message} — using illustration without text`);
-              }
-            }
+            // ── Text compositing: skip for multi-turn chat (text is embedded by AI in the image) ──
+            // Text was passed to generateSpreadInSession() via pageText opt, so the AI renders it directly.
+            bookContext.log('info', `Spread ${idx + 1}: text embedded by AI in multi-turn chat — skipping external compositing`);
 
             // Upload illustration to GCS
             if (bookId && imageBuffer) {

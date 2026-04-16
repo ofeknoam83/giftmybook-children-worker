@@ -410,6 +410,17 @@ describe('illustrationChatSession', () => {
       expect(prompt).toContain('small grey kitten');
       expect(prompt).toContain('Magic wand, golden crown');
     });
+
+    test('includes text rendering instructions', () => {
+      const session = createIllustrationSession({ style: 'watercolor' });
+      const prompt = _buildCharacterEstablishmentPrompt(session);
+
+      expect(prompt).toContain('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS');
+      expect(prompt).toContain('story text rendered directly INTO the image');
+      expect(prompt).toContain('consistent, playful, highly readable');
+      expect(prompt).toContain('white or light-colored text with a dark drop shadow');
+      expect(prompt).toContain('NEVER change the font style, size, or color between pages');
+    });
   });
 
   describe('generateSpreadInSession', () => {
@@ -568,6 +579,84 @@ describe('illustrationChatSession', () => {
       expect(session.history.length).toBe(historyBefore + 2);
       expect(session.history[session.history.length - 2].role).toBe('user');
       expect(session.history[session.history.length - 1].role).toBe('model');
+    });
+
+    test('includes page text in prompt when pageText is provided', async () => {
+      fetchWithTimeout.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'OK' }] } }],
+        }),
+      });
+
+      const session = createIllustrationSession({ style: 'watercolor' });
+      await establishCharacter(session);
+
+      fetchWithTimeout.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [
+                { text: 'Generated' },
+                { inlineData: { mimeType: 'image/png', data: Buffer.from('img').toString('base64') } },
+              ],
+            },
+          }],
+        }),
+      });
+
+      await generateSpreadInSession(session, 'Child flying a kite', {
+        spreadIndex: 0,
+        pageText: 'The kite soared high above the trees!',
+      });
+
+      // Check the user prompt sent to the API includes the page text
+      const spreadCall = fetchWithTimeout.mock.calls[1];
+      const body = JSON.parse(spreadCall[1].body);
+      const userContent = body.contents[body.contents.length - 1];
+      expect(userContent.role).toBe('user');
+      const promptText = userContent.parts[0].text;
+      expect(promptText).toContain('STORY TEXT TO RENDER ON THIS PAGE');
+      expect(promptText).toContain('The kite soared high above the trees!');
+      expect(promptText).not.toContain('Do NOT render any text');
+    });
+
+    test('instructs no text rendering when pageText is not provided', async () => {
+      fetchWithTimeout.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'OK' }] } }],
+        }),
+      });
+
+      const session = createIllustrationSession({ style: 'watercolor' });
+      await establishCharacter(session);
+
+      fetchWithTimeout.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [
+                { text: 'Generated' },
+                { inlineData: { mimeType: 'image/png', data: Buffer.from('img').toString('base64') } },
+              ],
+            },
+          }],
+        }),
+      });
+
+      await generateSpreadInSession(session, 'Child flying a kite', {
+        spreadIndex: 0,
+      });
+
+      const spreadCall = fetchWithTimeout.mock.calls[1];
+      const body = JSON.parse(spreadCall[1].body);
+      const userContent = body.contents[body.contents.length - 1];
+      const promptText = userContent.parts[0].text;
+      expect(promptText).toContain('Do NOT render any text');
+      expect(promptText).not.toContain('STORY TEXT TO RENDER ON THIS PAGE');
     });
   });
 });

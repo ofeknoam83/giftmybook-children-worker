@@ -163,6 +163,11 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   const spreadIndex = opts.spreadIndex != null ? opts.spreadIndex : session.turnsUsed - 1;
 
   // Build the user turn
+  const pageText = opts.pageText || '';
+  const textInstruction = pageText.trim()
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent font style established in the first illustration):\n${pageText}`
+    : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
+
   const parts = [{
     text: `Generate illustration for spread ${spreadIndex + 1}:
 
@@ -170,8 +175,7 @@ ${prompt}
 
 ${opts.shotType ? `Shot type: ${opts.shotType}` : ''}
 
-Fill the entire canvas with the illustration — edge to edge, no blank areas.
-Do NOT render any text, words, letters, or numbers in the illustration.
+Fill the entire canvas with the illustration — edge to edge, no blank areas.${textInstruction}
 The character must look IDENTICAL to the reference images from Turn 1 and all previous illustrations.`,
   }];
 
@@ -309,8 +313,15 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('COMPOSITION:');
   parts.push('- Fill the ENTIRE image edge to edge with the illustration scene.');
   parts.push('- Do NOT leave any blank, empty, or reserved areas.');
-  parts.push('- Do NOT render any text, words, letters, or numbers in the illustration.');
-  parts.push('- Text will be composited separately — your job is ONLY the illustration.');
+  parts.push('');
+  parts.push('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS:');
+  parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
+  parts.push('- Use a consistent, playful, highly readable children\'s book font style throughout ALL pages');
+  parts.push('- Text must look IDENTICAL across all spreads: same font appearance, same text size, same text color');
+  parts.push('- Use white or light-colored text with a dark drop shadow or outline for readability over any background');
+  parts.push('- Place text in areas that don\'t obscure the main characters or key action');
+  parts.push('- Text should be large enough for young children to read easily');
+  parts.push('- NEVER change the font style, size, or color between pages — consistency is critical');
 
   return parts.join('\n');
 }
