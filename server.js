@@ -873,6 +873,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                 : '',
               firstSpreadRefBase64: firstSpreadBase64 || null,
               theme: theme,
+              parentOutfit: storyPlan.parentOutfit || null,
             });
             const timeoutPromise = new Promise((_, reject) =>
               setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)
@@ -972,6 +973,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           abortSignal: bookContext.abortController.signal,
           firstSpreadRefBase64: firstSpreadBase64 || null,
           theme: theme,
+          parentOutfit: storyPlan.parentOutfit || null,
         };
       };
 
@@ -1398,6 +1400,8 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
           promptInjection: completed === 0
             ? 'STYLE ESTABLISHMENT: This is the FIRST page of the graphic novel. The art style, color palette, lighting mood, character rendering, and text style you establish HERE will be the reference for ALL subsequent pages. Commit to a specific, rich, consistent style. '
             : '',
+          theme: theme || null,
+          parentOutfit: storyPlan.parentOutfit || null,
         }
       );
     } catch (pageErr) {
@@ -1470,6 +1474,8 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
                   abortSignal: bookContext.abortController.signal,
                   deadlineMs: 180000,
                   firstPageRefBase64: firstPageRefBase64 || null,
+                  theme: theme || null,
+                  parentOutfit: storyPlan.parentOutfit || null,
                 }
               );
               if (retryResult) {
@@ -2663,6 +2669,8 @@ Format your answer with each label on its own line followed by a colon and the a
                 pageText: '',
                 additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
                 artStyle: style,
+                theme: theme || null,
+                parentOutfit: storyPlan.parentOutfit || null,
               }
             );
             // generateIllustration returns a GCS URL string directly
@@ -2715,6 +2723,8 @@ Format your answer with each label on its own line followed by a colon and the a
                           pageText: '',
                           additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
                           artStyle: style,
+                          theme: theme || null,
+                          parentOutfit: storyPlan.parentOutfit || null,
                         }
                       );
                       if (retryResult && typeof retryResult === 'string') {
@@ -2963,6 +2973,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     deadlineMs: 200000,
                     abortSignal: bookContext.abortController.signal,
                     theme: theme,
+                    parentOutfit: storyPlan.parentOutfit || null,
                   };
 
                   const retryUrl = await generateIllustrationWithAnchors(
@@ -3534,7 +3545,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     characterOutfit, characterDescription, characterAnchor, recurringElement, keyObjects,
     coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters,
-    totalSpreads, firstSpreadRefUrl, theme } = req.body;
+    totalSpreads, firstSpreadRefUrl, theme, parentOutfit } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -3634,6 +3645,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       fontStyle: fontStyle || null,
       additionalCoverCharacters: additionalCoverCharacters || null,
       theme: theme || null,
+      parentOutfit: parentOutfit || null,
       prevIllustrationUrl: prevIllustrationUrl || null,
       prevIllustrationUrls: Array.isArray(prevIllustrationUrls) && prevIllustrationUrls.length > 0 ? prevIllustrationUrls : (prevIllustrationUrl ? [prevIllustrationUrl] : []),
       _cachedPhotoBase64: cachedPhotoBase64 || null,
@@ -3676,7 +3688,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
 
   const {
     bookId, spreadPlan, characterRef,
-    childDetails, bookFormat, storyContext, artStyle, apiKeys,
+    childDetails, bookFormat, storyContext, artStyle, apiKeys, theme, parentOutfit: reqParentOutfit,
   } = req.body;
 
   console.log(`[server] /generate-spread: bookId=${bookId}, spread=${spreadPlan.spreadNumber}`);
@@ -3699,6 +3711,8 @@ app.post('/generate-spread', authenticate, async (req, res) => {
       apiKeys,
       costTracker,
       bookId,
+      theme: theme || null,
+      parentOutfit: reqParentOutfit || null,
     });
     global.touchActivity(bookId);
 

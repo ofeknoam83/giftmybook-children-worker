@@ -332,7 +332,7 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('4. All content must be age-appropriate for children ages 2-8.');
   parts.push('5. Each illustration is ONE single moment — not a comic strip or sequence.');
   parts.push('6. The child\'s eyes must ALWAYS be drawn OPEN and expressive.');
-  if (!opts.additionalCoverCharacters) {
+  if (!opts.additionalCoverCharacters && !(opts.parentOutfit || (opts.theme && PARENT_THEMES.has(opts.theme)))) {
     parts.push('7. NO family members (parents, siblings, grandparents) unless explicitly mentioned in the scene prompt.');
   }
   parts.push('');

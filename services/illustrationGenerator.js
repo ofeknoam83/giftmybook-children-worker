@@ -368,6 +368,13 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
     parts.push('- Do NOT change their ethnicity, hair, or skin tone between pages');
     parts.push('- Match their appearance to the uploaded reference photo');
     parts.push('');
+  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+    parts.push('=== PARENT CHARACTER (NO FACE) ===');
+    parts.push('The parent is physically present but we have NO reference photo. Show them through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the parent\'s full face.');
+    if (opts.parentOutfit) {
+      parts.push(`PARENT OUTFIT (LOCKED): ${opts.parentOutfit}`);
+    }
+    parts.push('');
   } else {
     parts.push('=== NO FAMILY MEMBERS IN PANELS ===');
     parts.push('Do NOT draw the child\'s parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately.');
@@ -697,6 +704,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`4. ADDITIONAL CHARACTERS ALLOWED: The following characters appear on the book cover and MAY appear in illustrations. Draw them as described — do NOT invent new relatives or characters not listed here:`);
     parts.push(opts.additionalCoverCharacters);
     parts.push(`   IMPORTANT: Only the characters listed above are allowed. Do NOT add any other family members, parents, siblings, or relatives beyond what is listed.`);
+  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+    parts.push(`4. PARENT CHARACTER (NO FACE): The parent is physically present in the scene but we have NO reference photo for them. Show the parent through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the parent's full face — it would be inconsistent across pages. The parent should feel warm and THERE, just with their face always hidden or turned away.`);
+    if (opts.parentOutfit) {
+      parts.push(`   PARENT OUTFIT (LOCKED): ${opts.parentOutfit}`);
+    }
   } else {
     parts.push(`4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`);
   }
