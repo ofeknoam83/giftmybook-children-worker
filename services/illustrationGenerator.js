@@ -892,7 +892,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- FONT SIZE: The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED');
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
-    parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER cross the left-right center of the spread. The spread is split into two pages at the vertical midpoint, so the entire text block must stay on the left half or the right half.');
+    parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER cross the left-right center of the image. The entire text block must stay on the left half or the right half.');
     parts.push('- EDGE PADDING (CRITICAL): Leave at least 8% padding from ALL edges (top, bottom, left, right) so text won\'t be cut in print. Text must have visible breathing room from every edge.');
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push('');
