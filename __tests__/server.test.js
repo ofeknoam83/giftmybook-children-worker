@@ -68,16 +68,12 @@ jest.mock('../services/chatSessionManager', () => ({
       imageBuffer: Buffer.from('fake-image'),
       imageBase64: 'ZmFrZS1pbWFnZQ==',
     }),
+    retryTextOnly: jest.fn().mockResolvedValue({
+      imageBuffer: Buffer.from('fake-image'),
+      imageBase64: 'ZmFrZS1pbWFnZQ==',
+    }),
     getSessionInfo: jest.fn().mockReturnValue({ turnsUsed: 1, model: 'test', startedAt: Date.now() }),
   })),
-}));
-jest.mock('../services/textCompositor', () => ({
-  TextCompositor: jest.fn().mockImplementation(() => ({
-    compositeText: jest.fn().mockResolvedValue(Buffer.from('fake-composited')),
-    wrapText: jest.fn().mockReturnValue(['line 1']),
-  })),
-  FONT_OPTIONS: {},
-  DEFAULT_FONT_KEY: 'bubblegum',
 }));
 jest.mock('../services/faceEngine', () => ({
   extractFaceEmbedding: jest.fn().mockResolvedValue({ embedding: null, faceCount: 1, primaryPhotoUrl: 'https://example.com/photo.jpg' }),

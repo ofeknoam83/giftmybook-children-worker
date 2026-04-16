@@ -98,11 +98,12 @@ Acknowledge that you understand this character's appearance and will maintain pe
    *
    * @param {string} sceneDescription - Scene to illustrate
    * @param {number} spreadIndex - 0-based spread index
-   * @param {string} textPlacementHint - Where to leave space for text ('bottom', 'top', etc.)
+   * @param {string} pageText - The story text to embed in this illustration
+   * @param {string} textPlacementHint - Where to place the text ('bottom', 'top', etc.)
    * @param {object} [opts] - { aspectRatio, shotType }
    * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
    */
-  async generateSpread(sceneDescription, spreadIndex, textPlacementHint, opts = {}) {
+  async generateSpread(sceneDescription, spreadIndex, pageText, textPlacementHint, opts = {}) {
     // Check if we need a session refresh (sliding window for large books)
     if (this.turnsUsed > MAX_SPREADS_PER_SESSION) {
       console.log(`[chatSessionManager] Session refresh at spread ${spreadIndex} (${this.turnsUsed} turns used)`);
@@ -111,14 +112,34 @@ Acknowledge that you understand this character's appearance and will maintain pe
 
     const totalSpreads = this.bookContext?.totalSpreads || 13;
     const placement = textPlacementHint || 'bottom';
+    const isFirstSpread = spreadIndex === 0;
+
+    // Build text rendering instructions
+    let textInstructions = '';
+    if (pageText && pageText.trim()) {
+      const fontGuidance = isFirstSpread
+        ? `- This is the first page — choose a clean, consistent, child-friendly font and commit to it. The font style you choose here will be the standard for ALL subsequent pages.`
+        : `- CRITICAL: The text font must be IDENTICAL to what you used on the previous pages — same font family, same size relative to the page, same weight, same color.`;
+
+      textInstructions = `
+TEXT INSTRUCTIONS:
+- The exact text for this page is: "${pageText}"
+- Render this text EXACTLY as written — every word, every letter, every punctuation mark must be correct
+- Font style: Use a clean, rounded, child-friendly sans-serif font (like Quicksand or Nunito style)
+- Font size: The text should be clearly readable but not dominate the illustration — text should occupy no more than 35% of the page width
+- Text placement: Position the text at the ${placement} of the image in a clean area
+- Text color: Use a color that contrasts well with the background for readability
+${fontGuidance}
+- The text must be embedded naturally into the illustration — NOT on an opaque overlay box`;
+    }
 
     const messageParts = [{
       text: `Generate illustration for page ${spreadIndex + 1} of ${totalSpreads}:
 Scene: ${sceneDescription}
-Text area: Leave clean empty space at the ${placement} ~25% of the image for text placement.
 ${opts.shotType ? `Shot type: ${opts.shotType}` : ''}
+${textInstructions}
 
-Remember: NO text, words, letters, or writing in the image. The character must look IDENTICAL to all previous illustrations.`,
+The character must look IDENTICAL to all previous illustrations.`,
     }];
 
     const response = await this._sendMessage(messageParts, {
@@ -142,8 +163,38 @@ Remember: NO text, words, letters, or writing in the image. The character must l
       text: `The previous illustration had an issue: ${issue}.
 Please regenerate it with these corrections: ${corrections}.
 Keep the character looking identical to earlier illustrations.
-DO NOT include any text in the illustration.
-Leave clean empty space for text placement.`,
+Match the same font style and text rendering as previous pages.`,
+    }];
+
+    const response = await this._sendMessage(messageParts, {
+      aspectRatio: opts.aspectRatio || '16:9',
+    });
+    this.turnsUsed++;
+
+    return this._extractImage(response, -1);
+  }
+
+  /**
+   * Retry text ONLY on the previous illustration within the same chat session.
+   * Asks Gemini to fix the text while keeping everything else identical.
+   *
+   * @param {string} expectedText - The correct text that should appear
+   * @param {string[]} issues - List of text issues found
+   * @param {object} [opts] - { aspectRatio }
+   * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
+   */
+  async retryTextOnly(expectedText, issues, opts = {}) {
+    const issueList = (issues || []).join(', ') || 'text does not match expected';
+    const messageParts = [{
+      text: `The text in the previous illustration is incorrect.
+The issues are: ${issueList}
+
+Please regenerate this SAME illustration but fix ONLY the text.
+The correct text should read EXACTLY: "${expectedText}"
+
+Keep EVERYTHING else identical — same character, same scene, same composition, same colors.
+Only fix the text to match what I specified above.
+Match the same font style as the other pages.`,
     }];
 
     const response = await this._sendMessage(messageParts, {
@@ -187,23 +238,30 @@ Leave clean empty space for text placement.`,
     parts.push('');
     parts.push('RULES:');
     parts.push('1. Every illustration must show the EXACT same character — same face shape, same hair color and style, same skin tone, same body proportions, same outfit (unless a scene change explicitly requires different clothing).');
-    parts.push('2. NEVER include any text, words, letters, numbers, or writing in the illustrations. The text will be added separately.');
-    parts.push('3. Leave clean empty space in the designated area for text to be placed later.');
-    parts.push('4. Maintain the same art style throughout — same line weight, shading, color palette warmth, level of detail.');
-    parts.push('5. Characters must have correct anatomy — 5 fingers per hand, 2 arms, 2 legs, proportional features.');
-    parts.push('6. All content must be age-appropriate for children ages 2-8.');
-    parts.push('7. Each illustration is ONE single moment — not a comic strip, not a sequence, not multiple panels.');
+    parts.push('2. Maintain the same art style throughout — same line weight, shading, color palette warmth, level of detail.');
+    parts.push('3. Characters must have correct anatomy — 5 fingers per hand, 2 arms, 2 legs, proportional features.');
+    parts.push('4. All content must be age-appropriate for children ages 2-8.');
+    parts.push('5. Each illustration is ONE single moment — not a comic strip, not a sequence, not multiple panels.');
     if (bookContext.recurringElement) {
-      parts.push(`8. Recurring companion: ${bookContext.recurringElement} — must appear in every scene and look identical.`);
+      parts.push(`6. Recurring companion: ${bookContext.recurringElement} — must appear in every scene and look identical.`);
     }
     if (bookContext.keyObjects) {
-      parts.push(`9. Key objects (must look identical across all pages): ${bookContext.keyObjects}`);
+      parts.push(`7. Key objects (must look identical across all pages): ${bookContext.keyObjects}`);
     }
     if (styleConfig.additionalCoverCharacters) {
-      parts.push(`10. Allowed secondary characters: ${styleConfig.additionalCoverCharacters}. No other family members may appear.`);
+      parts.push(`8. Allowed secondary characters: ${styleConfig.additionalCoverCharacters}. No other family members may appear.`);
     } else {
-      parts.push('10. NO family members (parents, siblings, grandparents). Only fictional characters may interact with the child.');
+      parts.push('8. NO family members (parents, siblings, grandparents). Only fictional characters may interact with the child.');
     }
+    parts.push('');
+    parts.push('TEXT RENDERING RULES:');
+    parts.push('- Every page has specific text that MUST be rendered accurately in the illustration.');
+    parts.push('- Use a clean, rounded, child-friendly sans-serif font throughout the ENTIRE book.');
+    parts.push('- The font style, size, weight, and color must be IDENTICAL on every page.');
+    parts.push('- Text should occupy no more than 35% of the page width.');
+    parts.push('- Text must be embedded naturally — NOT on opaque overlay boxes.');
+    parts.push('- Text must be clearly legible with good contrast against the background.');
+    parts.push('- Spell every word EXACTLY as specified — no creative spelling changes.');
 
     return parts.join('\n');
   }
