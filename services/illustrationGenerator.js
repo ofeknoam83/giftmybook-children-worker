@@ -84,7 +84,8 @@ async function fetchWithTimeout(url, opts, timeoutMs = 180000, parentSignal) { /
 }
 
 /** Maximum retry attempts per illustration (includes text verification retries) */
-const MAX_RETRIES = 3;
+const BASE_MAX_RETRIES = 3;
+const TEXT_HEAVY_MAX_RETRIES = 5;
 
 const TEXT_VERIFY_MODEL = 'gemini-2.5-flash';
 
@@ -291,17 +292,14 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
   parts.push(fullPagePrompt);
   parts.push('');
 
-  // ── PRIORITY 3: Text rendering (CRITICAL) ──
-  parts.push('=== TEXT & LETTERING (MANDATORY — pages without text will be REJECTED) ===');
-  parts.push('You MUST render ALL text described above as visible, legible text in the image:');
-  parts.push('• SPEECH BUBBLES: White oval/round bubbles with 1-2pt dark outline and a pointed tail toward the speaker. The EXACT dialogue text must be written inside in clean, readable black lettering.');
-  parts.push('• THOUGHT BUBBLES: Cloud/puffy shape with small circles trailing to the thinker. Thought text inside.');
-  parts.push('• SHOUT BUBBLES: Jagged/starburst spiky shape. Bold uppercase text inside.');
-  parts.push('• CAPTION BOXES: Rectangular boxes. Narration = dark navy background with white text. Location = cream background with dark text.');
-  parts.push('• SOUND EFFECTS: LIMIT to at most 1-2 per page. Use large bold stylized comic lettering only for genuinely impactful moments. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than excessive sound effects.');
-  parts.push('• Text must be LARGE ENOUGH to read when printed at 6×9 inches. Minimum apparent font size: 8pt equivalent.');
-  parts.push('• Reading order: top-to-bottom, left-to-right within each panel.');
-  parts.push('• Every speech bubble, caption, and SFX mentioned in the page composition MUST appear as rendered text.');
+  // ── PRIORITY 3: Text zones (text will be composited separately) ──
+  parts.push('=== TEXT ZONES (DO NOT RENDER TEXT) ===');
+  parts.push('Do NOT render any text, letters, words, speech bubbles, caption boxes, or sound effects in this image.');
+  parts.push('Instead, leave CLEAN QUIET AREAS in the following zones for text to be composited later:');
+  parts.push('- Speech areas: preserve clean space near speaking characters (simple background — sky, wall, ground)');
+  parts.push('- Caption areas: leave a clean band at the top or bottom of each panel');
+  parts.push('- The quiet areas should feel like natural parts of the illustration (sky, open ground, simple wall) — not empty boxes');
+  parts.push('ALL text (dialogue, captions, sound effects) will be added in a separate compositing step with a consistent professional font.');
   parts.push('');
 
   // ── PRIORITY 4: Art style (same premium Pixar 3D as children's books) ──
@@ -344,11 +342,9 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
     parts.push('');
   }
 
-  // ── TEXT CONSISTENCY RULES ──
-  parts.push('=== TEXT CONSISTENCY ===');
-  parts.push('Font style and size must be consistent across all pages.');
-  parts.push('CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Verify text width before finalizing.');
-  parts.push('Use only embedded text — no overlays.');
+  parts.push('=== TEXT-FREE RENDERING ===');
+  parts.push('This image must contain ZERO text of any kind. No speech bubbles, no captions, no sound effects, no letters, no words, no numbers.');
+  parts.push('CRITICAL TEXT WIDTH RULE: When text is composited later, it will occupy no more than 35% of the page width. Ensure quiet zones in the illustration are at least 35% of page width to accommodate text.');
   parts.push('');
 
   // ── PRIORITY 6: Family member rules ──
@@ -432,8 +428,32 @@ function buildHairNegatives(characterDescription) {
 }
 
 /**
+ * Simple Levenshtein distance implementation.
+ */
+function levenshteinDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  // Use single-row optimization
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array(n + 1);
+
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+/**
  * Compare expected page text against OCR-extracted text from the generated image.
- * Uses word-frequency bags to detect duplications and missing words.
+ * Uses word-frequency bags to detect duplications and missing words,
+ * plus character-level Levenshtein distance for overall similarity.
  */
 function compareTexts(expected, extracted) {
   const normalize = (s) => s.toLowerCase().replace(/[^\w\s']/g, '').replace(/\s+/g, ' ').trim();
@@ -445,13 +465,15 @@ function compareTexts(expected, extracted) {
     return bag;
   };
 
+  const normalizedExpected = normalize(expected);
+  const normalizedExtracted = normalize(extracted);
   const expectedBag = toWordBag(expected);
   const extractedBag = toWordBag(extracted);
   const issues = [];
 
+  // Existing word-bag duplicate check
   for (const [word, count] of Object.entries(extractedBag)) {
     const expectedCount = expectedBag[word] || 0;
-    // Zero tolerance for duplicate text — if a word appears more times than expected, reject and retry
     if (count > expectedCount) {
       issues.push(`"${word}" appears ${count}x in illustration (expected ${expectedCount}x) — text rendered twice`);
     }
@@ -464,6 +486,16 @@ function compareTexts(expected, extracted) {
   }
   if (uniqueExpected > 0 && missingCount / uniqueExpected > 0.25) {
     issues.push(`${missingCount}/${uniqueExpected} unique words missing`);
+  }
+
+  // NEW: Character-level similarity check
+  if (normalizedExpected.length > 0 && normalizedExtracted.length > 0) {
+    const editDist = levenshteinDistance(normalizedExpected, normalizedExtracted);
+    const maxLen = Math.max(normalizedExpected.length, normalizedExtracted.length);
+    const similarity = 1 - (editDist / maxLen);
+    if (similarity < 0.85) {
+      issues.push(`Character similarity ${(similarity * 100).toFixed(0)}% (need 85%+)`);
+    }
   }
 
   return { valid: issues.length === 0, issues };
@@ -1163,7 +1195,13 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
   let promptVariantIndex = 0;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  // Dynamic retry budget — text-heavy pages get more attempts
+  const wordCount = opts.pageText ? opts.pageText.split(/\s+/).length : 0;
+  const maxRetries = (wordCount > 8 && !opts.skipTextEmbed && !opts.comicPageMode)
+    ? TEXT_HEAVY_MAX_RETRIES
+    : BASE_MAX_RETRIES;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const variant = promptVariants[promptVariantIndex];
     try {
       const geminiStart = Date.now();
@@ -1191,9 +1229,10 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
       }
 
-      // Verify embedded text accuracy (skip on last attempt — accept best effort)
-      const hasEmbeddedText = opts.pageText && !opts.skipTextEmbed;
-      if (hasEmbeddedText && attempt < MAX_RETRIES) {
+      // Verify embedded text accuracy (only for non-comic picture books that still embed text)
+      // Comic pages now generate text-free and composite later
+      const hasEmbeddedText = opts.pageText && !opts.skipTextEmbed && !opts.comicPageMode;
+      if (hasEmbeddedText && attempt < maxRetries) {
         const textCheck = await verifyImageText(imageBuffer, opts.pageText, opts.abortSignal, costTracker);
         if (!textCheck.valid) {
           console.warn(`[illustrationGenerator] Text verification failed on attempt ${attempt} for book ${bookId || 'unknown'}: ${textCheck.issues.join('; ')} — regenerating`);
@@ -1232,8 +1271,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       }
 
       console.error(`[illustrationGenerator] Attempt ${attempt} failed: ${genErr.message} (${Date.now() - totalStart}ms)`);
-      if (attempt === MAX_RETRIES) {
-        throw new Error(`Illustration generation failed after ${MAX_RETRIES} attempts: ${genErr.message}`);
+      if (attempt === maxRetries) {
+        throw new Error(`Illustration generation failed after ${maxRetries} attempts: ${genErr.message}`);
       }
     }
   }

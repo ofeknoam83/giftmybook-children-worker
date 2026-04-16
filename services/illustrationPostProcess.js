@@ -412,6 +412,80 @@ async function fixColorPalette(imageBase64, referenceBase64) {
   }
 }
 
+// ── Adaptive Text Color ──────────────────────────────────────────────────────
+
+/**
+ * Choose optimal text color based on background brightness in the target region.
+ * Dark backgrounds → white text, light backgrounds → dark text.
+ */
+async function chooseTextColor(imageBuffer, region) {
+  try {
+    const regionBuffer = await sharp(imageBuffer)
+      .extract(region)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const { data, info } = regionBuffer;
+    const { channels } = info;
+    let brightnessSum = 0;
+    const pixelCount = data.length / channels;
+
+    for (let i = 0; i < data.length; i += channels) {
+      brightnessSum += (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    }
+
+    const avgBrightness = brightnessSum / pixelCount;
+
+    if (avgBrightness < 128) {
+      return { color: '#FFFFFF', shadowColor: 'rgba(0,0,0,0.8)' };
+    } else {
+      return { color: '#2D2D2D', shadowColor: 'rgba(255,255,255,0.4)' };
+    }
+  } catch (e) {
+    console.warn('[illustrationPostProcess] chooseTextColor error:', e.message);
+    return { color: '#FFFFFF', shadowColor: 'rgba(0,0,0,0.7)' };
+  }
+}
+
+// ── Subtle Background Blur ──────────────────────────────────────────────────
+
+/**
+ * Apply a subtle blur to the text target area to improve text readability.
+ * Not a solid overlay — the artwork remains visible, just softened.
+ */
+async function blurTextBackground(imageBuffer, region, blurSigma = 6) {
+  try {
+    const metadata = await sharp(imageBuffer).metadata();
+
+    // Clamp region to image bounds
+    const safeRegion = {
+      left: Math.max(0, region.left),
+      top: Math.max(0, region.top),
+      width: Math.min(region.width, metadata.width - Math.max(0, region.left)),
+      height: Math.min(region.height, metadata.height - Math.max(0, region.top)),
+    };
+
+    if (safeRegion.width < 10 || safeRegion.height < 10) return imageBuffer;
+
+    const blurredRegion = await sharp(imageBuffer)
+      .extract(safeRegion)
+      .blur(blurSigma)
+      .modulate({ brightness: 1.05 }) // very subtle lighten
+      .toBuffer();
+
+    return sharp(imageBuffer)
+      .composite([{
+        input: blurredRegion,
+        left: safeRegion.left,
+        top: safeRegion.top,
+      }])
+      .toBuffer();
+  } catch (e) {
+    console.warn('[illustrationPostProcess] blurTextBackground error:', e.message);
+    return imageBuffer; // fallback: no blur
+  }
+}
+
 // ── Text Compositing (Hybrid Approach) ──────────────────────────────────────
 
 /**
@@ -512,6 +586,7 @@ function escapeXml(str) {
 function buildTextSvg(text, svgWidth, svgHeight, opts = {}) {
   const fontSize = opts.fontSize || 48;
   const fontColor = opts.fontColor || '#FFFFFF';
+  const shadowColor = opts.shadowColor || 'rgba(0,0,0,0.7)';
   const maxTextWidth = opts.maxTextWidth || svgWidth;
   const fontBase64 = getFontBase64();
 
@@ -536,7 +611,7 @@ function buildTextSvg(text, svgWidth, svgHeight, opts = {}) {
       }
     </style>
     <filter id="textShadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.7)"/>
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="${shadowColor}"/>
     </filter>
   </defs>
   <text font-family="BubblegumSans, sans-serif" font-size="${fontSize}" fill="${fontColor}" filter="url(#textShadow)">
@@ -576,6 +651,7 @@ async function compositeTextOnIllustration(imageBuffer, leftText, rightText, opt
   const pageWidth = isSpread ? centerX : imgWidth;
   const maxTextWidth = Math.round(pageWidth * maxWidthPct);
 
+  let currentImageBuffer = imageBuffer;
   const imageBase64 = imageBuffer.toString('base64');
   const composites = [];
 
@@ -612,21 +688,66 @@ async function compositeTextOnIllustration(imageBuffer, leftText, rightText, opt
     // Build SVG with the constrained width
     const svgWidth = Math.min(maxTextWidth, areaWidth);
     const svgHeight = Math.min(areaHeight, Math.round(imgHeight * 0.30));
-    const svgBuffer = buildTextSvg(text, svgWidth, svgHeight, {
-      fontSize,
-      fontColor,
-      maxTextWidth: svgWidth,
-    });
 
     // Clamp position to image bounds
     const finalLeft = Math.max(0, Math.min(textLeft, imgWidth - svgWidth));
     const finalTop = Math.max(0, Math.min(textTop, imgHeight - svgHeight));
 
-    composites.push({
-      input: svgBuffer,
+    // Adaptive text color: analyze brightness in the target region
+    const colorRegion = {
       left: finalLeft,
       top: finalTop,
-    });
+      width: Math.min(svgWidth, imgWidth - finalLeft),
+      height: Math.min(svgHeight, imgHeight - finalTop),
+    };
+    if (colorRegion.width > 0 && colorRegion.height > 0) {
+      const { color: adaptiveColor, shadowColor: adaptiveShadow } = await chooseTextColor(currentImageBuffer, colorRegion);
+
+      // Subtle background blur: only if the region is "busy" (high variance)
+      const blurPad = Math.round(Math.min(svgWidth, svgHeight) * 0.1);
+      const blurRegion = {
+        left: Math.max(0, finalLeft - blurPad),
+        top: Math.max(0, finalTop - blurPad),
+        width: Math.min(svgWidth + blurPad * 2, imgWidth - Math.max(0, finalLeft - blurPad)),
+        height: Math.min(svgHeight + blurPad * 2, imgHeight - Math.max(0, finalTop - blurPad)),
+      };
+      if (blurRegion.width > 10 && blurRegion.height > 10) {
+        try {
+          const regionStats = await sharp(currentImageBuffer).extract(blurRegion).stats();
+          const avgStddev = regionStats.channels.reduce((sum, c) => sum + c.stdev, 0) / regionStats.channels.length;
+          if (avgStddev >= 30) {
+            currentImageBuffer = await blurTextBackground(currentImageBuffer, blurRegion);
+          }
+        } catch (blurErr) {
+          console.warn('[illustrationPostProcess] blur stats error:', blurErr.message);
+        }
+      }
+
+      const svgBuffer = buildTextSvg(text, svgWidth, svgHeight, {
+        fontSize,
+        fontColor: adaptiveColor,
+        shadowColor: adaptiveShadow,
+        maxTextWidth: svgWidth,
+      });
+
+      composites.push({
+        input: svgBuffer,
+        left: finalLeft,
+        top: finalTop,
+      });
+    } else {
+      const svgBuffer = buildTextSvg(text, svgWidth, svgHeight, {
+        fontSize,
+        fontColor,
+        maxTextWidth: svgWidth,
+      });
+
+      composites.push({
+        input: svgBuffer,
+        left: finalLeft,
+        top: finalTop,
+      });
+    }
   }
 
   // Process left and right text (can run Gemini calls in parallel)
@@ -642,10 +763,10 @@ async function compositeTextOnIllustration(imageBuffer, leftText, rightText, opt
   }
 
   if (composites.length === 0) {
-    return { imageBuffer, imageBase64 };
+    return { imageBuffer: currentImageBuffer, imageBase64: currentImageBuffer.toString('base64') };
   }
 
-  const resultBuffer = await sharp(imageBuffer)
+  const resultBuffer = await sharp(currentImageBuffer)
     .composite(composites)
     .png()
     .toBuffer();
@@ -662,4 +783,6 @@ module.exports = {
   fixColorPalette,
   compositeTextOnIllustration,
   findBestTextPlacement,
+  chooseTextColor,
+  blurTextBackground,
 };

@@ -14,13 +14,13 @@ const MAX_IMAGES_PER_REQUEST = 4;
 
 // ── Check weights (text checks restored for embedded text verification) ──
 const CHECK_WEIGHTS = {
-  characterConsistency: 0.30,
-  textAccuracy: 0.20,
+  characterConsistency: 0.25,
+  textAccuracy: 0.25,
   fontConsistency: 0.15,
-  anatomical: 0.15,
+  anatomical: 0.10,
   artStyle: 0.05,
   colorPalette: 0.05,
-  textWidth: 0.05,
+  textWidth: 0.10,
   contentSafety: 0.05,
 };
 
@@ -612,9 +612,13 @@ async function runHolisticQa(allImages, context) {
     checks,
   }));
 
-  // Overall pass: score >= 75% — never abort generation, always produce a book
-  // Safety issues are logged but do not block (the generation must complete)
-  const passed = score >= 75;
+  // Hard gate: text width violation is always fixable — trigger re-composite
+  if (!textWidth.passed) {
+    console.warn(`[illustrationQa] TEXT WIDTH HARD GATE: text exceeds 35% width on ${textWidth.affectedSpreads?.length || 0} spreads`);
+  }
+
+  // Overall pass: score >= 75% AND no text width violations
+  const passed = score >= 75 && textWidth.passed;
 
   const elapsed = Date.now() - startTime;
   console.log(`[illustrationQa] Holistic QA complete: score=${score}, passed=${passed}, issues=${allIssues.length}, failedSpreads=${failedSpreads.length}, elapsed=${elapsed}ms`);
