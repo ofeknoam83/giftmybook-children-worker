@@ -164,10 +164,8 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
 
   // Build the user turn
   const pageText = opts.pageText || '';
-  const wordCount = pageText.trim().split(/\s+/).length;
-  const estimatedLines = Math.ceil(wordCount / 7);
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent font style established in the first illustration):\n${pageText}\n\nThis text is approximately ${wordCount} words (~${estimatedLines} lines). Plan your layout: reserve space for ${estimatedLines} lines of small text at the top or bottom edge, then compose the illustration in the remaining area. Characters and key action must not be behind the text.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nEvaluate the text length and compose the illustration so the text fits naturally without crossing the vertical center of the image.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   const secondaryCharReminder = opts.additionalCoverCharacters
@@ -333,16 +331,10 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
   parts.push('- NEVER change the font style, size, or color between pages — consistency is critical');
-  parts.push('');
-  parts.push('TEXT LAYOUT PLANNING (CRITICAL — follow this process for EVERY spread):');
-  parts.push('1. FIRST, count the words in the story text you need to render');
-  parts.push('2. ESTIMATE how many lines the text will occupy at small font size (roughly 7 words per line in a 16:9 image)');
-  parts.push('3. DECIDE whether to place the text zone at the TOP or BOTTOM of the image — choose whichever works better for the scene composition');
-  parts.push('4. RESERVE a horizontal band for the text — the band height should match the number of lines needed, plus a small padding margin from the edge (so text is not cut when printed)');
-  parts.push('5. DESIGN the illustration to fill the REST of the image — place main characters, action, and key elements OUTSIDE the reserved text band');
-  parts.push('6. The text band and illustration can share the image canvas, but the main focal elements (characters, faces, important objects) must NOT be behind the text');
-  parts.push('7. Text must NEVER cross the vertical center line of the image — if text needs many lines, use a smaller font rather than expanding the text zone past the center');
-  parts.push('8. Keep a small margin (3-5% of image height) between the text and the top/bottom edge');
+  parts.push('- For each spread, evaluate the story text length and compose the illustration accordingly');
+  parts.push('- Text must NOT cross the vertical center of the image — keep it in the top or bottom half');
+  parts.push('- Keep a small padding from the top and bottom edges so text is not cut when printed');
+  parts.push('- Main characters and key action should not be hidden behind the text');
 
   return parts.join('\n');
 }
