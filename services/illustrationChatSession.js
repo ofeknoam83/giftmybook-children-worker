@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent font style established in the first illustration):\n${pageText}`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent Lora-style serif font established in the first illustration):\n${pageText}\nREMINDER: Place text ONLY at the top or bottom edge of the image — NEVER across the middle.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   const secondaryCharReminder = opts.additionalCoverCharacters
@@ -326,13 +326,15 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('');
   parts.push('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS:');
   parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
-  parts.push('- Use a rounded, bubbly, playful sans-serif font style similar to BubblegumSans or Fredoka One');
-  parts.push('- Letters should be soft, rounded, and friendly — typical of children\'s picture books');
+  parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate, with gentle serifs');
+  parts.push('- Letters should be graceful and readable — a timeless storybook quality, NOT bold or chunky');
+  parts.push('- Use a SMALL to medium font size — the text should complement the illustration, not dominate it');
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
   parts.push('- Text must look IDENTICAL across all spreads: same font appearance, same text size, same text color');
-  parts.push('- Use white or light-colored text with a dark drop shadow or outline for readability over any background');
-  parts.push('- Place text in areas that don\'t obscure the main characters or key action');
-  parts.push('- Text should be large enough for young children to read easily');
+  parts.push('- Use white or light-colored text with a subtle dark drop shadow or thin outline for readability');
+  parts.push('- CRITICAL: Text must be placed ONLY in the top or bottom portion of the image — NEVER across the middle');
+  parts.push('- Text must NOT cross or overlap the center/middle area of the illustration');
+  parts.push('- Place text in a strip along the top edge or bottom edge, leaving the middle entirely for the artwork');
   parts.push('- NEVER change the font style, size, or color between pages — consistency is critical');
 
   return parts.join('\n');
