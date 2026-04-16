@@ -39,12 +39,45 @@ jest.mock('../services/storyPlanner', () => ({
     beats: [],
   }),
   validateStoryText: jest.fn().mockReturnValue({ valid: true, issues: [] }),
+  combinedCritic: jest.fn().mockResolvedValue({ approved: true }),
+  polishEarlyReader: jest.fn().mockImplementation(async (plan) => plan),
+  masterCritic: jest.fn().mockResolvedValue({ approved: true }),
+  EMOTIONAL_THEMES: new Set(['separation_anxiety', 'new_sibling', 'first_day_school', 'moving_house', 'grief', 'hospital']),
+  getEmotionalTier: jest.fn().mockReturnValue(null),
+  planChapterBook: jest.fn().mockResolvedValue({}),
 }));
 jest.mock('../services/textGenerator', () => ({
   generateSpreadText: jest.fn().mockResolvedValue('Generated text.'),
 }));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
+  generateIllustrationWithAnchors: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
+  downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'fake-base64', mimeType: 'image/jpeg' }),
+  getNextApiKey: jest.fn().mockReturnValue('test-key'),
+  fetchWithTimeout: jest.fn(),
+  ART_STYLE_CONFIG: { watercolor: { prefix: 'watercolor', suffix: 'soft' } },
+}));
+jest.mock('../services/chatSessionManager', () => ({
+  ChatSessionManager: jest.fn().mockImplementation(() => ({
+    startBookSession: jest.fn().mockResolvedValue(true),
+    generateSpread: jest.fn().mockResolvedValue({
+      imageBuffer: Buffer.from('fake-image'),
+      imageBase64: 'ZmFrZS1pbWFnZQ==',
+    }),
+    retrySpread: jest.fn().mockResolvedValue({
+      imageBuffer: Buffer.from('fake-image'),
+      imageBase64: 'ZmFrZS1pbWFnZQ==',
+    }),
+    getSessionInfo: jest.fn().mockReturnValue({ turnsUsed: 1, model: 'test', startedAt: Date.now() }),
+  })),
+}));
+jest.mock('../services/textCompositor', () => ({
+  TextCompositor: jest.fn().mockImplementation(() => ({
+    compositeText: jest.fn().mockResolvedValue(Buffer.from('fake-composited')),
+    wrapText: jest.fn().mockReturnValue(['line 1']),
+  })),
+  FONT_OPTIONS: {},
+  DEFAULT_FONT_KEY: 'bubblegum',
 }));
 jest.mock('../services/faceEngine', () => ({
   extractFaceEmbedding: jest.fn().mockResolvedValue({ embedding: null, faceCount: 1, primaryPhotoUrl: 'https://example.com/photo.jpg' }),
@@ -77,6 +110,7 @@ jest.mock('../services/progressReporter', () => ({
   reportProgressForce: jest.fn(),
   reportComplete: jest.fn(),
   reportError: jest.fn(),
+  clearThrottle: jest.fn(),
 }));
 
 const request = require('supertest');

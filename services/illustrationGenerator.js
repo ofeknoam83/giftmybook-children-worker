@@ -607,7 +607,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
   }
   if (opts.firstSpreadRefBase64) {
-    parts.push('OUTFIT & TEXT STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look AND how text should be rendered in this book\'s art style. Match the outfit rendering — same garments, same colors, same style. Match the text rendering — same font, same size, same color, same placement style — in this illustration.');
+    parts.push('OUTFIT & STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look in this book\'s art style. Match the outfit rendering — same garments, same colors, same style. Match the art style, lighting, and color palette.');
   }
   if (recurringElement) {
     parts.push(`RECURRING OBJECT: ${recurringElement}`);
@@ -826,50 +826,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
   parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
 
-  // Embed story text directly in the illustration — or explicitly forbid text
-  if (!pageText || skipTextEmbed) {
-    parts.push('');
-    parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
-  } else if (pageText && !skipTextEmbed) {
-    parts.push('');
-    parts.push('TEXT IN IMAGE — VERBATIM COPY (THIS IS THE EXACT TEXT TO RENDER):');
-    parts.push(`"${pageText}"`);
-    parts.push('');
-    parts.push('TEXT RULES:');
-    parts.push('- Copy the text above VERBATIM — character for character, word for word');
-    parts.push('- Do NOT repeat any word. If the text says a word once, render it exactly once')
-    parts.push('- DUPLICATE TEXT FORBIDDEN: Do NOT render the text block twice. The text appears in exactly ONE place in the image. If you find yourself placing text in two locations, stop — only one placement is allowed. A duplicate text block is an automatic rejection.');
-    parts.push('- Do NOT add extra words, do NOT skip words, do NOT paraphrase or rewrite');
-    parts.push('- Do NOT truncate or cut off — the COMPLETE text must be visible and readable');
-    parts.push('- Count the words before and after rendering — the count must match exactly');
-    const fontInstruction = opts.fontStyle
-      ? `- FONT: ${opts.fontStyle} This EXACT same font style MUST be used on EVERY page of the book — no variations, no switching between fonts.`
-      : '- FONT: Use Bubblegum Sans exclusively — rounded, bubbly, friendly. This EXACT font MUST appear on every single page of the book. Do NOT switch fonts, do NOT use a different font on any page. Bubblegum Sans only, consistently throughout.';
-    parts.push(fontInstruction);
-    parts.push('- FONT CONSISTENCY (CRITICAL): Use the EXACT same font style, font size, and text color across ALL illustrations in this book. Use a clean, rounded, child-friendly sans-serif font. The font size should be large enough for children to read — approximately 22pt equivalent — match the exact size used on the first spread. Text color should be dark (black or very dark gray) for maximum readability.');
-    if (opts.firstSpreadRefBase64 && spreadIndex > 0) {
-      parts.push('- FONT MATCHING (CRITICAL): The FIRST ILLUSTRATION is provided as a style reference. You MUST match the EXACT text appearance from that first illustration: same font style, weight, size relative to the page, same text color treatment, same text positioning style. Your text must look like it belongs in the same book.');
-    }
-    parts.push('- The text rendering style (font, size, color, line spacing) must be IDENTICAL on every page — as if the same typesetter set every page.');
-    parts.push('- TEXT PLACEMENT — MARGINS (CRITICAL): This image will be cropped ~7% from every edge when printed. To survive this crop, ALL text must be at least 25% away from the top edge, 25% away from the bottom edge, and 12% away from the left and right edges. Text within 25% of any edge WILL BE CROPPED OFF in the final book. If in doubt, move the text further toward the center of the image.');
-    parts.push('- CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Place text in a narrow sidebar-style column on the left or right side of the illustration, leaving at least 65% of the width for the artwork. If the text is long, wrap it into more lines to keep the column narrow. NEVER stretch text across the full width of the image. Verify text width before finalizing.');
-    // Position-aware text placement based on character position
-    if (opts.characterPosition === 'left_third') {
-      parts.push('- TEXT PLACEMENT — POSITION: Place text on the RIGHT side of the image (right 30%), away from the character on the left. ONE compact text block only.');
-    } else if (opts.characterPosition === 'right_third') {
-      parts.push('- TEXT PLACEMENT — POSITION: Place text on the LEFT side of the image (left 30%), away from the character on the right. ONE compact text block only.');
-    } else if (isSpread) {
-      parts.push('- TEXT PLACEMENT — POSITION: Place all text in ONE compact block in the upper-left or upper-right area of the image. The text block must not be wider than 30% of the image width. If the text is long, wrap it into more lines to keep the block narrow. Never stretch text across the full width.');
-    }
-    parts.push('- Place the text in the top or bottom portion of the image, where the background is simplest/softest');
-    parts.push('- FORBIDDEN: Text must NEVER overlap with any person, face, body, or key subject in the illustration');
-    parts.push('- TEXT INTEGRATION: Text must be embedded directly into the illustration composition — placed in a dedicated text area (white or cream margin, or a clear area within the scene). NEVER place text as an overlay on top of the illustration with a semi-transparent or colored background box. The text area should be part of the page layout design, not a floating box over artwork.');
-    parts.push('- FORBIDDEN: Semi-transparent text boxes, text banners overlaid on the illustration, text with background highlights placed over the artwork. Text must sit in its own clean space within the page layout.');
-    parts.push('- Text color should contrast with its immediate background for readability');
-    parts.push('- Do NOT place text over the character\'s face or the main action');
-  }
+  // Text is composited separately — never include text in AI-generated illustrations
+  parts.push('');
+  parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
+  parts.push('TEXT SPACE: Leave clean, uncluttered empty space at the bottom ~25% of the image where text will be added separately later. This area should have a simple, soft background — avoid placing characters, key objects, or important details there.');
 
-  // Change 15: Enumerated anti-weird-stuff checklist (replaces old FINAL CHECK)
+  // Pre-generate checklist (text checks removed — text composited separately)
   parts.push('');
   parts.push('\u26a0\ufe0f MANDATORY PRE-GENERATE CHECKLIST — mentally verify each before generating:');
   parts.push(`1. CHILD COUNT: exactly 1 child visible in the scene. \u2713`);
@@ -880,17 +842,12 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`6. CORRECT SCALE: the child's head, body, and limbs are in normal human proportion. \u2713`);
   parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
-  parts.push(`OUTFIT CONSISTENCY: the child's outfit matches the characterOutfit definition exactly — same garments, colors, patterns, accessories as every other spread. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
-  parts.push(`10. TEXT EXACT: rendered text matches the page text WORD FOR WORD — no repeated words, no missing words, no extra words, no rewording. \u2713`);
-  parts.push(`11. FONT CONSISTENCY: the text font is ${opts.fontStyle ? 'the admin-specified font' : 'Bubblegum Sans'} — the same font used on every other page of this book. \u2713`);
-  parts.push(`TEXT SIZE CONSISTENCY: the text size matches the first spread exactly — same point size on every page. \u2713`);
-  parts.push(`12. TEXT MARGINS: text is at least 25% from top/bottom edges and 12% from left/right edges — it will survive print cropping. \u2713`);
-  parts.push(`12b. TEXT WIDTH: text block occupies NO MORE than 35% of the page width — this is a hard limit, pages exceeding 35% text width will be REJECTED. \u2713`);
+  parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
+  parts.push(`11. TEXT SPACE: clean empty area at the bottom ~25% of the image for text overlay. \u2713`);
   if (isSpread) {
-    parts.push(`13. TEXT POSITION: text is in ONE compact block in the upper-left or upper-right area, no wider than 30% of the image width. \u2713`);
-    parts.push(`14. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
-    parts.push(`15. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
+    parts.push(`12. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
+    parts.push(`13. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
   }
   parts.push('If any check fails, adjust the scene before generating.');
 
@@ -959,9 +916,9 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     }
   }
 
-  // Add first spread as outfit style reference for subsequent spreads
+  // Add first spread as outfit/style reference for subsequent spreads
   if (opts.firstSpreadRefBase64) {
-    parts.push({ text: 'OUTFIT & TEXT STYLE REFERENCE — FIRST SPREAD: This is the first illustration from this book. The child\'s outfit in THIS image is the correct rendered version. Match it exactly. The text font, size, color, and placement style in THIS image is the standard for the entire book. Match it exactly.' });
+    parts.push({ text: 'OUTFIT & STYLE REFERENCE — FIRST SPREAD: This is the first illustration from this book. Match the child\'s outfit rendering, art style, color palette, and lighting exactly. Do NOT include any text in the new illustration.' });
     parts.push({ inline_data: { mimeType: 'image/jpeg', data: opts.firstSpreadRefBase64 } });
   }
 
