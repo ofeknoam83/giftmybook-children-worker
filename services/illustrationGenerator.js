@@ -889,7 +889,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
     parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
-    parts.push('- Use a moderate, readable font size — each line roughly 5-6% of image height. The full text block should occupy about 15-20% of image area. Clear and readable, but the illustration remains the focal point');
+    parts.push('- FONT SIZE: The text must NOT be large or prominent. NOT a title, NOT a headline. It should look like a small, quiet caption — like subtitles on a screen. If you drew a box around all the text, that box must be SMALL and fit in a corner or edge strip. The illustration is the star. Err on the side of too small. Text that is too large will be REJECTED');
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
     parts.push('- TEXT PLACEMENT (CRITICAL): Text can be anywhere EXCEPT it must NEVER cross the vertical center line');
