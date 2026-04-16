@@ -1507,4 +1507,58 @@ Return ONLY valid JSON: {"consistent": true/false, "issues": ["different font fa
   return { passed: true };
 }
 
-module.exports = { generateIllustration, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, checkCharacterCount, checkTextPresentation, checkFontConsistency };
+/**
+ * Generate an illustration with anchor images (top-scoring spreads) as visual references.
+ * Wraps generateIllustration but injects anchor images into the Gemini request
+ * so the model can see what "good" looks like.
+ *
+ * @param {string} sceneDescription
+ * @param {string} characterRefUrl
+ * @param {string} artStyle
+ * @param {Array<{imageBase64: string, label: string}>} anchorImages - Up to 2 anchor images
+ * @param {object} opts - Same opts as generateIllustration
+ * @returns {Promise<string|null>} URL or null
+ */
+async function generateIllustrationWithAnchors(sceneDescription, characterRefUrl, artStyle, anchorImages, opts = {}) {
+  if (!anchorImages || anchorImages.length === 0) {
+    return generateIllustration(sceneDescription, characterRefUrl, artStyle, opts);
+  }
+
+  // Limit to max 2 anchor images (Gemini model has image input limits)
+  const anchors = anchorImages.slice(0, 2);
+
+  // Build anchor prefix for the prompt
+  const anchorPrefix = `STYLE & CHARACTER REFERENCE — ANCHOR IMAGES (${anchors.length} provided):
+Match the style, characters, and font of these reference illustrations exactly.
+These are the highest-quality spreads from this book — use them as your visual standard.
+${anchors.map((a, i) => `Anchor ${i + 1}: ${a.label}`).join('\n')}
+
+`;
+
+  // Inject anchor images as additional prevIllustrationRefs
+  // The existing code in callGeminiImageApi already handles prevIllustrationRefs as inline image parts
+  const existingRefs = Array.isArray(opts.prevIllustrationRefs) ? opts.prevIllustrationRefs : [];
+  const anchorRefs = anchors.map(a => ({
+    base64: a.imageBase64,
+    mimeType: 'image/jpeg',
+  }));
+
+  // Combine: existing refs + anchor refs (anchor refs take priority in the prompt)
+  // But keep total refs reasonable — max 2 anchors + existing
+  const combinedRefs = [...anchorRefs, ...existingRefs].slice(0, 3);
+
+  return generateIllustration(
+    anchorPrefix + sceneDescription,
+    characterRefUrl,
+    artStyle,
+    {
+      ...opts,
+      prevIllustrationRefs: combinedRefs,
+      // Also set single ref for backward compat
+      prevIllustrationBase64: combinedRefs[0]?.base64 || opts.prevIllustrationBase64,
+      prevIllustrationMime: combinedRefs[0]?.mimeType || opts.prevIllustrationMime,
+    }
+  );
+}
+
+module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, checkCharacterCount, checkTextPresentation, checkFontConsistency };

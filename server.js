@@ -56,7 +56,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarlyReader, masterCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
-const { generateIllustration } = require('./services/illustrationGenerator');
+const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -81,6 +81,182 @@ function parseGifters(bookFrom) {
   // Split on " and ", " & ", ", "
   const parts = cleaned.split(/\s+and\s+|\s*&\s*|,\s*/i).map(s => s.trim()).filter(Boolean);
   return parts.length > 1 ? parts : [cleaned];
+}
+
+// ── QA Fix Tier Helpers ──
+
+/**
+ * Pick the top-scoring images from a QA run to use as visual anchors during retries.
+ * Selects images that passed the most checks / had fewest issues.
+ *
+ * @param {Array<{index, imageBase64}>} allQaImages
+ * @param {{failedSpreads: Array<{index, checks}>}} qaResult
+ * @param {number} count - How many anchor images to return (max 2)
+ * @returns {Array<{imageBase64: string, label: string}>}
+ */
+function getTopScoringImages(allQaImages, qaResult, count = 2) {
+  const failedIndices = new Set((qaResult.failedSpreads || []).map(f => f.index));
+
+  // Score each image: images NOT in failedSpreads score highest
+  const scored = allQaImages
+    .filter(img => img.imageBase64 && !failedIndices.has(img.index))
+    .map(img => {
+      // Count how many checks this image failed across all failedSpreads
+      const failEntry = (qaResult.failedSpreads || []).find(f => f.index === img.index);
+      const failCount = failEntry ? failEntry.checks.length : 0;
+      return { ...img, failCount };
+    })
+    .sort((a, b) => a.failCount - b.failCount);
+
+  return scored.slice(0, count).map(img => ({
+    imageBase64: img.imageBase64,
+    label: `Spread ${img.index + 1} (anchor — highest quality)`,
+  }));
+}
+
+/**
+ * Build check-specific correction strategies for QA retries.
+ * Returns a correction prompt tailored to the specific checks that failed.
+ *
+ * @param {Array<{check: string, issues: string[]}>} failedChecks
+ * @param {object} context - { characterAnchor, characterOutfit, pageText, sceneDescription }
+ * @returns {string} Correction prompt
+ */
+function buildCheckSpecificCorrection(failedChecks, context) {
+  const parts = ['QUALITY CORRECTION — FIX THESE SPECIFIC ISSUES:\n'];
+
+  for (const { check, issues } of failedChecks) {
+    const issueStr = (issues || []).join(', ');
+    switch (check) {
+      case 'characterConsistency':
+        parts.push(`CHARACTER CONSISTENCY FIX (CRITICAL):
+The child has ${context.characterAnchor || 'the appearance shown in the reference photo'}.
+Their outfit is ${context.characterOutfit || 'as shown in the reference'}.
+Reproduce their appearance EXACTLY — same face shape, hair, skin tone, clothing.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'fontConsistency':
+        parts.push(`FONT CONSISTENCY FIX (CRITICAL):
+Match the EXACT font family, size, weight, and color from the reference image.
+Use the same font style on every page — no variations.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'textWidth':
+        parts.push(`TEXT WIDTH FIX (CRITICAL):
+Text must occupy no more than 30% of the image width.
+Place text in a clean area with a narrow column.
+Use shorter lines and more line breaks rather than wide text blocks.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'anatomical':
+        parts.push(`ANATOMICAL FIX (CRITICAL):
+Every character must have exactly 5 fingers per hand, 2 arms, 2 legs.
+Check all body proportions carefully before finalizing.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'textAccuracy':
+        parts.push(`TEXT ACCURACY FIX (CRITICAL):
+The text on this page must read EXACTLY: "${context.pageText || ''}"
+Spell every word correctly. Double-check every letter.
+Do NOT add, remove, or change any words.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'colorPalette':
+        parts.push(`COLOR PALETTE FIX:
+Match the color palette of the companion scenes shown in the reference images.
+Same lighting, same background tones, same warmth.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'artStyle':
+        parts.push(`ART STYLE FIX:
+Match the rendering technique of the reference images exactly.
+Same line weight, same level of detail, same shading approach.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'sceneAlignment':
+        parts.push(`SCENE ALIGNMENT FIX:
+This page must show: ${context.sceneDescription || 'the described scene'}.
+Ensure the character's action and setting match the story text.
+Previous issue: ${issueStr}`);
+        break;
+
+      case 'contentSafety':
+        parts.push(`CONTENT SAFETY FIX (CRITICAL):
+This is for ages 2-8. No scary elements, no unsafe situations.
+All characters must be appropriately dressed. No violence or dark imagery.
+Previous issue: ${issueStr}`);
+        break;
+
+      default:
+        parts.push(`${check}: ${issueStr}`);
+    }
+    parts.push('');
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Generate 3 candidates for a stubborn spread and pick the best one via QA scoring.
+ * Used as Tier 3 — the nuclear option for spreads that fail Tier 1 and Tier 2.
+ *
+ * @param {string} prompt - Scene prompt
+ * @param {string} characterRef
+ * @param {string} style
+ * @param {Array<{imageBase64, label}>} anchorImages
+ * @param {object} opts - generateIllustration opts
+ * @param {Array<string>} failedCheckNames - Which checks failed
+ * @param {object} qaContext
+ * @param {Array} allQaImages
+ * @param {object} imageInfo - {index, pageText, sceneDescription}
+ * @returns {Promise<{url: string|null, score: number, imageBase64: string|null}>}
+ */
+async function generateBestCandidate(prompt, characterRef, style, anchorImages, opts, failedCheckNames, qaContext, allQaImages, imageInfo) {
+  const { scoreIllustrationAgainstBook } = require('./services/illustrationQa');
+
+  // Generate 3 candidates in parallel
+  const candidatePromises = [
+    generateIllustrationWithAnchors(prompt, characterRef, style, anchorImages, opts).catch(() => null),
+    generateIllustrationWithAnchors(prompt, characterRef, style, anchorImages, opts).catch(() => null),
+    generateIllustrationWithAnchors(prompt, characterRef, style, anchorImages, opts).catch(() => null),
+  ];
+
+  const candidateUrls = await Promise.all(candidatePromises);
+  const validCandidates = candidateUrls.filter(Boolean);
+
+  if (validCandidates.length === 0) {
+    return { url: null, score: 0, imageBase64: null };
+  }
+
+  // Download and QA-score each candidate
+  const scored = await Promise.all(
+    validCandidates.map(async (url) => {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) return { url, score: 0, imageBase64: null };
+        const imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
+        const scoreResult = await scoreIllustrationAgainstBook(
+          imgBase64, allQaImages, failedCheckNames, qaContext, imageInfo
+        );
+        return { url, score: scoreResult.score, imageBase64: imgBase64, issues: scoreResult.issues };
+      } catch (e) {
+        return { url, score: 0, imageBase64: null };
+      }
+    })
+  );
+
+  // Return the best candidate
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  console.log(`[qa-tier3] Best candidate: score=${best.score}, candidates evaluated=${scored.length}`);
+  return best;
 }
 
 const app = express();
@@ -2361,21 +2537,139 @@ Format your answer with each label on its own line followed by a colon and the a
             });
           }
 
-          // Retry failed spreads if QA didn't pass (max 2 rounds)
+          // ── 3-Tier QA Fix System ──
+          // Tier 1: Smart retry with visual anchors + check-specific corrections
+          // Tier 2: Post-processing fixes (font compositing, color adjustment)
+          // Tier 3: Multi-candidate generation for stubborn spreads
+          const qaTiers = { tier1: [], tier2: [], tier3: [] };
+
           if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
-            const MAX_QA_RETRY_ROUNDS = 2;
-            for (let round = 1; round <= MAX_QA_RETRY_ROUNDS; round++) {
-              bookContext.log('info', `QA retry round ${round}/${MAX_QA_RETRY_ROUNDS}: ${qaResult.failedSpreads.length} spreads to fix`);
+            const { detectFontSpec, fixFontOnIllustration, fixColorPalette } = require('./services/illustrationPostProcess');
+
+            // Helper: rebuild allQaImages from current illustration URLs
+            async function rebuildAllQaImages() {
+              const rebuilt = [];
+              if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                for (const page of (storyPlan.pages || [])) {
+                  if (!page.illustrationUrl) continue;
+                  let imgBase64 = null;
+                  try {
+                    const resp = await fetch(page.illustrationUrl);
+                    if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
+                  } catch {}
+                  if (imgBase64) {
+                    const panelTexts = (page.panels || []).map(p => p.dialogue || p.caption || '').filter(Boolean).join(' ');
+                    rebuilt.push({
+                      index: (page.pageNumber || rebuilt.length + 1) - 1,
+                      imageBase64: imgBase64,
+                      imageUrl: page.illustrationUrl,
+                      pageText: panelTexts,
+                      sceneDescription: page.sceneTitle || '',
+                    });
+                  }
+                }
+              } else {
+                for (let i = 0; i < (entriesWithIllustrations || []).length; i++) {
+                  const entry = entriesWithIllustrations[i];
+                  const illUrl = entry.spreadIllustrationUrl || entry.illustrationUrl;
+                  if (!illUrl) continue;
+                  let imgBase64 = null;
+                  try {
+                    const resp = await fetch(illUrl);
+                    if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
+                  } catch {}
+                  if (imgBase64) {
+                    const spreadText = [entry.left?.text, entry.right?.text, entry.text].filter(Boolean).join(' ');
+                    rebuilt.push({
+                      index: i,
+                      imageBase64: imgBase64,
+                      imageUrl: illUrl,
+                      pageText: spreadText || '',
+                      sceneDescription: entry.spread_image_prompt || '',
+                    });
+                  }
+                }
+              }
+              return rebuilt;
+            }
+
+            // Helper: build generation opts for a spread/page
+            function buildRetryOpts(failed, anchorImages) {
+              if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                return {
+                  apiKeys, costTracker, bookId, bookContext,
+                  childName: childDetails.name,
+                  childAge: parseInt(childDetails.age, 10) || childDetails.childAge,
+                  childPhotoUrl: resolvedChildPhotoUrl,
+                  _cachedPhotoBase64: characterRefBase64,
+                  _cachedPhotoMime: characterRefMime,
+                  characterDescription: storyPlan.characterDescription || '',
+                  characterAnchor: storyPlan.characterAnchor || null,
+                  characterOutfit: storyPlan.characterOutfit || '',
+                  additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                  coverArtStyle: storyPlan.coverArtStyle || '',
+                  spreadIndex: failed.index,
+                  totalSpreads: (storyPlan.pages || []).length,
+                  comicPageMode: true,
+                  abortSignal: bookContext.abortController.signal,
+                  deadlineMs: 180000,
+                };
+              }
+              const entry = entriesWithIllustrations[failed.index];
+              return {
+                apiKeys, costTracker, bookId,
+                childName: childDetails.name,
+                characterOutfit: storyPlan.characterOutfit || '',
+                characterDescription: storyPlan.characterDescription || '',
+                characterAnchor: storyPlan.characterAnchor || null,
+                additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+                recurringElement: storyPlan.recurringElement || '',
+                keyObjects: storyPlan.keyObjects || '',
+                coverArtStyle: storyPlan.coverArtStyle || '',
+                childPhotoUrl: resolvedChildPhotoUrl,
+                _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
+                _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
+                spreadIndex: failed.index,
+                totalSpreads: spreadEntries.length,
+                childAge: childDetails.age || childDetails.childAge,
+                pageText: entry ? (entry.left?.text || entry.right?.text || '') : '',
+                isSpread: entry ? entry.type === 'spread' : false,
+                deadlineMs: 200000,
+                abortSignal: bookContext.abortController.signal,
+              };
+            }
+
+            // ════════════════════════════════════════
+            // TIER 1: Smart Retry with Visual Anchors
+            // ════════════════════════════════════════
+            const MAX_TIER1_ROUNDS = 2;
+            for (let round = 1; round <= MAX_TIER1_ROUNDS; round++) {
+              bookContext.log('info', `Tier 1 round ${round}/${MAX_TIER1_ROUNDS}: ${qaResult.failedSpreads.length} spreads to fix`);
+              if (progressCallbackUrl) {
+                reportProgress(progressCallbackUrl, {
+                  bookId, stage: 'qa_fix', progress: 0.83 + round * 0.02,
+                  message: `Fixing illustrations (round ${round})...`, logs: bookContext.logs,
+                });
+              }
+
+              const anchorImages = getTopScoringImages(allQaImages, qaResult, 2);
               let anyFixed = false;
 
               for (const failed of qaResult.failedSpreads) {
-                const failedChecks = failed.checks.map(c => `${c.check}: ${(c.issues || []).join(', ')}`).join('; ');
-                bookContext.log('info', `Retrying spread ${failed.index + 1} for: ${failedChecks}`);
+                const failedCheckNames = failed.checks.map(c => c.check);
+                const failedCheckStr = failedCheckNames.join(', ');
+                bookContext.log('info', `Tier 1: retrying spread ${failed.index + 1} for: ${failedCheckStr}`);
 
-                // Build correction prompt with specific issues
-                const correctionNote = `CRITICAL QUALITY CORRECTIONS NEEDED:\n${failed.checks.map(c =>
-                  `- ${c.check}: ${(c.issues || []).join(', ')}`
-                ).join('\n')}\nPlease fix the above issues in this illustration.`;
+                // Get context for check-specific corrections
+                const origImg = allQaImages.find(q => q.index === failed.index);
+                const correctionContext = {
+                  characterAnchor: storyPlan.characterAnchor || '',
+                  characterOutfit: storyPlan.characterOutfit || '',
+                  pageText: origImg?.pageText || '',
+                  sceneDescription: origImg?.sceneDescription || '',
+                };
+
+                const correctionNote = buildCheckSpecificCorrection(failed.checks, correctionContext);
 
                 try {
                   let originalPrompt = '';
@@ -2383,117 +2677,298 @@ Format your answer with each label on its own line followed by a colon and the a
 
                   if (isGraphicNovel || storyPlan.isGraphicNovel) {
                     const page = (storyPlan.pages || [])[failed.index];
-                    if (page) {
-                      originalPrompt = page.fullPagePrompt || '';
-                      const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
-                      retryUrl = await generateIllustration(correctedPrompt, null, storyPlan.coverArtStyle || style, {
-                        apiKeys, costTracker, bookId, bookContext,
-                        childName: childDetails.name,
-                        childAge: parseInt(childDetails.age, 10) || childDetails.childAge,
-                        childPhotoUrl: resolvedChildPhotoUrl,
-                        _cachedPhotoBase64: characterRefBase64,
-                        _cachedPhotoMime: characterRefMime,
-                        characterDescription: storyPlan.characterDescription || '',
-                        characterAnchor: storyPlan.characterAnchor || null,
-                        characterOutfit: storyPlan.characterOutfit || '',
-                        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                        coverArtStyle: storyPlan.coverArtStyle || '',
-                        spreadIndex: failed.index,
-                        totalSpreads: (storyPlan.pages || []).length,
-                        comicPageMode: true,
-                        abortSignal: bookContext.abortController.signal,
-                        deadlineMs: 180000,
-                      });
-                      if (retryUrl) {
-                        page.illustrationUrl = retryUrl;
-                        anyFixed = true;
-                        bookContext.log('info', `QA retry: page ${failed.index + 1} regenerated`);
-                      }
-                    }
+                    if (page) originalPrompt = page.fullPagePrompt || '';
                   } else {
                     const entry = entriesWithIllustrations[failed.index];
-                    if (entry) {
-                      originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
-                      const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
-                      retryUrl = await generateIllustration(correctedPrompt, characterRef, style, {
-                        apiKeys, costTracker, bookId,
-                        childName: childDetails.name,
-                        characterOutfit: storyPlan.characterOutfit || '',
-                        characterDescription: storyPlan.characterDescription || '',
-                        characterAnchor: storyPlan.characterAnchor || null,
-                        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                        recurringElement: storyPlan.recurringElement || '',
-                        keyObjects: storyPlan.keyObjects || '',
-                        coverArtStyle: storyPlan.coverArtStyle || '',
-                        childPhotoUrl: resolvedChildPhotoUrl,
-                        _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
-                        _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
-                        spreadIndex: failed.index,
-                        totalSpreads: spreadEntries.length,
-                        childAge: childDetails.age || childDetails.childAge,
-                        pageText: entry.left?.text || entry.right?.text || '',
-                        isSpread: entry.type === 'spread',
-                        deadlineMs: 200000,
-                        abortSignal: bookContext.abortController.signal,
-                      });
-                      if (retryUrl) {
-                        entry.spreadIllustrationUrl = retryUrl;
-                        anyFixed = true;
-                        bookContext.log('info', `QA retry: spread ${failed.index + 1} regenerated`);
-                      }
+                    if (entry) originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
+                  }
+
+                  const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
+                  const retryOpts = buildRetryOpts(failed, anchorImages);
+                  retryUrl = await generateIllustrationWithAnchors(
+                    correctedPrompt,
+                    isGraphicNovel || storyPlan.isGraphicNovel ? null : characterRef,
+                    isGraphicNovel || storyPlan.isGraphicNovel ? (storyPlan.coverArtStyle || style) : style,
+                    anchorImages,
+                    retryOpts
+                  );
+
+                  if (retryUrl) {
+                    // Update the illustration URL
+                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                      const page = (storyPlan.pages || [])[failed.index];
+                      if (page) page.illustrationUrl = retryUrl;
+                    } else {
+                      const entry = entriesWithIllustrations[failed.index];
+                      if (entry) entry.spreadIllustrationUrl = retryUrl;
                     }
+                    anyFixed = true;
+                    qaTiers.tier1.push({ spread: failed.index, checks: failedCheckNames, fixed: true });
+                    bookContext.log('info', `Tier 1: spread ${failed.index + 1} regenerated with anchors`);
                   }
                 } catch (retryErr) {
-                  bookContext.log('warn', `QA retry failed for spread ${failed.index + 1}`, { error: retryErr.message });
+                  bookContext.log('warn', `Tier 1 retry failed for spread ${failed.index + 1}`, { error: retryErr.message });
+                  qaTiers.tier1.push({ spread: failed.index, checks: failedCheckNames, fixed: false });
                 }
               }
 
               if (!anyFixed) {
-                bookContext.log('info', `QA retry round ${round}: no spreads were fixed, stopping retries`);
+                bookContext.log('info', `Tier 1 round ${round}: no spreads were fixed, stopping`);
                 break;
               }
 
-              // Re-run QA on the fixed spreads only
-              const fixedQaImages = [];
-              for (const failed of qaResult.failedSpreads) {
-                let illUrl, imgBase64;
-                if (isGraphicNovel || storyPlan.isGraphicNovel) {
-                  const page = (storyPlan.pages || [])[failed.index];
-                  illUrl = page?.illustrationUrl;
-                } else {
-                  const entry = entriesWithIllustrations[failed.index];
-                  illUrl = entry?.spreadIllustrationUrl || entry?.illustrationUrl;
-                }
-                if (illUrl) {
-                  try {
-                    const resp = await fetch(illUrl);
-                    if (resp.ok) imgBase64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
-                  } catch {}
-                }
-                if (imgBase64) {
-                  const origImg = allQaImages.find(q => q.index === failed.index);
-                  fixedQaImages.push({
-                    index: failed.index,
-                    imageBase64: imgBase64,
-                    imageUrl: illUrl,
-                    pageText: origImg?.pageText || '',
-                    sceneDescription: origImg?.sceneDescription || '',
-                  });
-                }
-              }
+              // Re-QA ALL images (not just fixed ones) — the key improvement
+              const updatedQaImages = await rebuildAllQaImages();
+              if (updatedQaImages.length >= 2) {
+                // Update the master allQaImages for subsequent tiers
+                allQaImages.length = 0;
+                allQaImages.push(...updatedQaImages);
 
-              if (fixedQaImages.length > 0) {
-                const reQaResult = await runHolisticQa(fixedQaImages, qaContext);
-                bookContext.log('info', `QA re-check round ${round}: score=${reQaResult.score}, passed=${reQaResult.passed}`);
+                const reQaResult = await runHolisticQa(allQaImages, qaContext);
+                bookContext.log('info', `Tier 1 re-QA round ${round}: score=${reQaResult.score}, passed=${reQaResult.passed}`);
                 if (reQaResult.passed) {
-                  bookContext.log('info', 'QA re-check passed after retries');
+                  qaResult.passed = true;
+                  qaResult.score = reQaResult.score;
+                  qaResult.issues = reQaResult.issues;
+                  qaResult.failedSpreads = [];
+                  bookContext.log('info', 'Tier 1 re-QA passed — done');
                   break;
                 }
-                // Update failedSpreads for next round
+                qaResult.score = reQaResult.score;
+                qaResult.issues = reQaResult.issues;
                 qaResult.failedSpreads = reQaResult.failedSpreads;
               } else {
                 break;
               }
+            }
+
+            // ════════════════════════════════════════
+            // TIER 2: Post-Processing Fixes
+            // ════════════════════════════════════════
+            if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
+              bookContext.log('info', `Tier 2: post-processing ${qaResult.failedSpreads.length} remaining failed spreads`);
+              if (progressCallbackUrl) {
+                reportProgress(progressCallbackUrl, {
+                  bookId, stage: 'qa_postprocess', progress: 0.87,
+                  message: 'Applying post-processing fixes...', logs: bookContext.logs,
+                });
+              }
+
+              // Detect font spec from the first spread (for font fix reference)
+              let fontSpec = null;
+              const firstImage = allQaImages.find(img => img.index === 0) || allQaImages[0];
+              if (firstImage?.imageBase64) {
+                try {
+                  fontSpec = await detectFontSpec(firstImage.imageBase64);
+                  if (fontSpec) bookContext.log('info', `Tier 2: detected font spec: ${JSON.stringify(fontSpec)}`);
+                } catch (e) {
+                  bookContext.log('warn', 'Tier 2: font spec detection failed', { error: e.message });
+                }
+              }
+
+              let anyPostProcessed = false;
+
+              for (const failed of qaResult.failedSpreads) {
+                const failedCheckNames = failed.checks.map(c => c.check);
+                const hasFontIssue = failedCheckNames.includes('fontConsistency') || failedCheckNames.includes('textAccuracy');
+                const hasColorIssue = failedCheckNames.includes('colorPalette');
+
+                const origImg = allQaImages.find(q => q.index === failed.index);
+                if (!origImg?.imageBase64) continue;
+
+                try {
+                  let currentBase64 = origImg.imageBase64;
+                  let wasFixed = false;
+
+                  // Font fix via compositing
+                  if (hasFontIssue && fontSpec && origImg.pageText) {
+                    bookContext.log('info', `Tier 2: attempting font fix for spread ${failed.index + 1}`);
+                    const fontResult = await fixFontOnIllustration(
+                      currentBase64,
+                      origImg.pageText,
+                      fontSpec,
+                      firstImage?.imageBase64
+                    );
+                    if (fontResult.fixed && fontResult.imageBase64) {
+                      currentBase64 = fontResult.imageBase64;
+                      wasFixed = true;
+                      bookContext.log('info', `Tier 2: font fix applied to spread ${failed.index + 1}`);
+                    }
+                  }
+
+                  // Color palette fix
+                  if (hasColorIssue) {
+                    // Find an adjacent spread as color reference
+                    const adjacentImg = allQaImages.find(q =>
+                      q.index !== failed.index && q.imageBase64 && Math.abs(q.index - failed.index) <= 2
+                    ) || firstImage;
+
+                    if (adjacentImg?.imageBase64) {
+                      bookContext.log('info', `Tier 2: attempting color fix for spread ${failed.index + 1}`);
+                      const colorResult = await fixColorPalette(currentBase64, adjacentImg.imageBase64);
+                      if (colorResult.fixed && colorResult.imageBase64) {
+                        currentBase64 = colorResult.imageBase64;
+                        wasFixed = true;
+                        bookContext.log('info', `Tier 2: color fix applied to spread ${failed.index + 1}`);
+                      }
+                    }
+                  }
+
+                  if (wasFixed) {
+                    // Upload the post-processed image
+                    const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
+                    const fixedBuffer = Buffer.from(currentBase64, 'base64');
+                    const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-pp.png`;
+                    const fixedUrl = await uploadBuf(fixedBuffer, gcsPath, 'image/png');
+
+                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                      const page = (storyPlan.pages || [])[failed.index];
+                      if (page) page.illustrationUrl = fixedUrl;
+                    } else {
+                      const entry = entriesWithIllustrations[failed.index];
+                      if (entry) entry.spreadIllustrationUrl = fixedUrl;
+                    }
+
+                    anyPostProcessed = true;
+                    qaTiers.tier2.push({
+                      spread: failed.index,
+                      checks: failedCheckNames.filter(c => c === 'fontConsistency' || c === 'textAccuracy' || c === 'colorPalette'),
+                      fixed: true,
+                    });
+                  }
+                } catch (ppErr) {
+                  bookContext.log('warn', `Tier 2 post-processing failed for spread ${failed.index + 1}`, { error: ppErr.message });
+                }
+              }
+
+              // Re-QA ALL images after post-processing
+              if (anyPostProcessed) {
+                const updatedQaImages = await rebuildAllQaImages();
+                if (updatedQaImages.length >= 2) {
+                  allQaImages.length = 0;
+                  allQaImages.push(...updatedQaImages);
+
+                  const reQaResult = await runHolisticQa(allQaImages, qaContext);
+                  bookContext.log('info', `Tier 2 re-QA: score=${reQaResult.score}, passed=${reQaResult.passed}`);
+                  if (reQaResult.passed) {
+                    qaResult.passed = true;
+                    qaResult.score = reQaResult.score;
+                    qaResult.issues = reQaResult.issues;
+                    qaResult.failedSpreads = [];
+                  } else {
+                    qaResult.score = reQaResult.score;
+                    qaResult.issues = reQaResult.issues;
+                    qaResult.failedSpreads = reQaResult.failedSpreads;
+                  }
+                }
+              }
+            }
+
+            // ════════════════════════════════════════
+            // TIER 3: Multi-Candidate Selection
+            // ════════════════════════════════════════
+            if (!qaResult.passed && qaResult.failedSpreads.length > 0) {
+              bookContext.log('info', `Tier 3: multi-candidate generation for ${qaResult.failedSpreads.length} stubborn spreads`);
+              if (progressCallbackUrl) {
+                reportProgress(progressCallbackUrl, {
+                  bookId, stage: 'qa_candidates', progress: 0.89,
+                  message: 'Generating candidate fixes for remaining issues...', logs: bookContext.logs,
+                });
+              }
+
+              const anchorImages = getTopScoringImages(allQaImages, qaResult, 2);
+
+              for (const failed of qaResult.failedSpreads) {
+                const failedCheckNames = failed.checks.map(c => c.check);
+                bookContext.log('info', `Tier 3: generating candidates for spread ${failed.index + 1} (${failedCheckNames.join(', ')})`);
+
+                try {
+                  let originalPrompt = '';
+                  if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                    const page = (storyPlan.pages || [])[failed.index];
+                    if (page) originalPrompt = page.fullPagePrompt || '';
+                  } else {
+                    const entry = entriesWithIllustrations[failed.index];
+                    if (entry) originalPrompt = entry.spread_image_prompt || entry.left?.image_prompt || '';
+                  }
+
+                  const origImg = allQaImages.find(q => q.index === failed.index);
+                  const correctionContext = {
+                    characterAnchor: storyPlan.characterAnchor || '',
+                    characterOutfit: storyPlan.characterOutfit || '',
+                    pageText: origImg?.pageText || '',
+                    sceneDescription: origImg?.sceneDescription || '',
+                  };
+                  const correctionNote = buildCheckSpecificCorrection(failed.checks, correctionContext);
+                  const correctedPrompt = correctionNote + '\n\n' + originalPrompt;
+                  const retryOpts = buildRetryOpts(failed, anchorImages);
+
+                  const imageInfo = {
+                    index: failed.index,
+                    pageText: origImg?.pageText || '',
+                    sceneDescription: origImg?.sceneDescription || '',
+                  };
+
+                  const best = await generateBestCandidate(
+                    correctedPrompt,
+                    isGraphicNovel || storyPlan.isGraphicNovel ? null : characterRef,
+                    isGraphicNovel || storyPlan.isGraphicNovel ? (storyPlan.coverArtStyle || style) : style,
+                    anchorImages,
+                    retryOpts,
+                    failedCheckNames,
+                    qaContext,
+                    allQaImages,
+                    imageInfo
+                  );
+
+                  if (best.url) {
+                    if (isGraphicNovel || storyPlan.isGraphicNovel) {
+                      const page = (storyPlan.pages || [])[failed.index];
+                      if (page) page.illustrationUrl = best.url;
+                    } else {
+                      const entry = entriesWithIllustrations[failed.index];
+                      if (entry) entry.spreadIllustrationUrl = best.url;
+                    }
+                    bookContext.log('info', `Tier 3: best candidate for spread ${failed.index + 1} scored ${best.score}`);
+                    qaTiers.tier3.push({ spread: failed.index, checks: failedCheckNames, bestScore: best.score });
+                  } else {
+                    bookContext.log('warn', `Tier 3: no valid candidates for spread ${failed.index + 1}`);
+                    qaTiers.tier3.push({ spread: failed.index, checks: failedCheckNames, bestScore: 0 });
+                  }
+                } catch (t3Err) {
+                  bookContext.log('warn', `Tier 3 failed for spread ${failed.index + 1}`, { error: t3Err.message });
+                  qaTiers.tier3.push({ spread: failed.index, checks: failedCheckNames, bestScore: 0 });
+                }
+              }
+
+              // Final re-QA on ALL images
+              const finalQaImages = await rebuildAllQaImages();
+              if (finalQaImages.length >= 2) {
+                allQaImages.length = 0;
+                allQaImages.push(...finalQaImages);
+
+                const finalQaResult = await runHolisticQa(allQaImages, qaContext);
+                bookContext.log('info', `Tier 3 final re-QA: score=${finalQaResult.score}, passed=${finalQaResult.passed}`);
+                qaResult.passed = finalQaResult.passed;
+                qaResult.score = finalQaResult.score;
+                qaResult.issues = finalQaResult.issues;
+                qaResult.failedSpreads = finalQaResult.failedSpreads;
+              }
+            }
+
+            // Report final QA results with tier info
+            if (progressCallbackUrl) {
+              reportProgressForce(progressCallbackUrl, {
+                bookId,
+                stage: 'qa_final',
+                progress: 0.90,
+                message: `Final quality: ${qaResult.score}% (${qaResult.passed ? 'passed' : 'best effort'})`,
+                qaScore: qaResult.score,
+                qaPassed: qaResult.passed,
+                qaIssues: qaResult.issues,
+                qaTiers,
+                logs: bookContext.logs,
+              });
             }
           }
         } else {
