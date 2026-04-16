@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text can be placed anywhere in the image EXCEPT it must NEVER cross the vertical center line. Keep a small padding from all edges so text won't be cut in print. Maximum 6 words per line. FONT SIZE (CRITICAL): The text must NOT be large or dominant. NOT a title, NOT a headline, NOT a chapter heading. Think of it as a quiet caption — like subtitles on a movie screen. The illustration is the star; text is secondary. The text should be clearly readable but SMALL — never covering more than a thin strip of the image. Text that looks like a poster headline will be REJECTED. TEXT CLARITY: The text must be crisp and sharp with clean edges — NOT blurry, fuzzy, or soft. Use solid, well-defined letterforms with high contrast against the background.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text can be placed anywhere in the image EXCEPT it must NEVER cross or touch the vertical center line of the image. Keep the ENTIRE text block clearly in the top quarter OR bottom quarter of the image — never straddling the middle. EDGE PADDING (CRITICAL): Leave at least 8% padding from ALL edges (top, bottom, left, right) so text won't be cut in print. If text is at the bottom, it must be clearly above the bottom edge with visible breathing room. If text is at the top, it must be clearly below the top edge. Maximum 6 words per line. FONT SIZE (CRITICAL): The text must NOT be large or dominant. NOT a title, NOT a headline, NOT a chapter heading. Think of it as a quiet caption — like subtitles on a movie screen. The illustration is the star; text is secondary. The text should be clearly readable but SMALL — never covering more than a thin strip of the image. Text that looks like a poster headline will be REJECTED. TEXT CLARITY: The text must be crisp and sharp with clean edges — NOT blurry, fuzzy, or soft. Use solid, well-defined letterforms with high contrast against the background.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   let secondaryCharReminder = '';
@@ -349,8 +349,8 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
   parts.push('- NEVER change the font style, size, or color between pages — consistency is critical');
   parts.push('- For each spread, evaluate the story text length and compose the illustration accordingly');
-  parts.push('- Text must NOT cross the vertical center of the image — keep it in the top or bottom half');
-  parts.push('- Keep a small padding from the top and bottom edges so text is not cut when printed');
+  parts.push('- Text must NEVER cross or touch the vertical center of the image — keep the ENTIRE text block in the top quarter OR bottom quarter');
+  parts.push('- EDGE PADDING: Leave at least 8% padding from ALL edges (top, bottom, left, right) so text is not cut when printed. Text must have visible breathing room from every edge.');
   parts.push('- Main characters and key action should not be hidden behind the text');
 
   return parts.join('\n');

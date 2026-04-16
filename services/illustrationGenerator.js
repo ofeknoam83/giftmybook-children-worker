@@ -892,13 +892,13 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- FONT SIZE: The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED');
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
-    parts.push('- TEXT PLACEMENT (CRITICAL): Text can be anywhere EXCEPT it must NEVER cross the vertical center line');
-    parts.push('- Keep a small padding from all edges (top, bottom, left, right) so text won\'t be cut in print');
+    parts.push('- TEXT PLACEMENT (CRITICAL): Text can be anywhere EXCEPT it must NEVER cross or touch the vertical center line. Keep the ENTIRE text block in the top quarter OR bottom quarter of the image.');
+    parts.push('- EDGE PADDING (CRITICAL): Leave at least 8% padding from ALL edges (top, bottom, left, right) so text won\'t be cut in print. Text must have visible breathing room from every edge.');
     parts.push('- Main characters and key action should not be hidden behind the text');
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push('\nREMINDER: Text must NEVER cross the vertical center line. Padding from all edges.');
+    parts.push('\nREMINDER: Text must NEVER cross the vertical center line. Keep text in the top quarter OR bottom quarter only. Leave at least 8% padding from ALL edges.');
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -917,7 +917,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (opts.embedText && pageText && pageText.trim()) {
-    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, not crossing the vertical center. \u2713`);
+    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, in the top quarter or bottom quarter only, never crossing the vertical center, with at least 8% padding from all edges. \u2713`);
   } else {
     parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
   }
