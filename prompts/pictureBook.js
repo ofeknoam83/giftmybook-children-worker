@@ -471,6 +471,14 @@ WRITING QUALITY:
 - The child's dialogue must sound like a real ${age}-year-old: short sentences, concrete words
 - The ${favoriteObject} must appear in at least 5 spreads — it is the child's anchor
 
+READ-ALOUD TEST (MANDATORY — EVERY LINE MUST PASS):
+- Read every sentence out loud. If it sounds choppy, robotic, or like a reading primer — rewrite it.
+- Sentences must be COMPLETE and COHERENT — no fragments, no broken grammar, no baby talk.
+- The text should FLOW like a real published children's book — think Julia Donaldson, Oliver Jeffers, Margaret Wise Brown.
+- Simple language does NOT mean broken language. "The stars came out one by one" is simple AND beautiful. "Stars. Out. One." is broken.
+- Rhymes must feel EFFORTLESS. If a rhyme bends the sentence into an unnatural shape, rewrite until it flows.
+- A parent reading this aloud should never stumble, cringe, or feel like they're reading AI-generated filler.
+
 PERSONAL DETAIL INTEGRATION (MANDATORY):
 You are given personal details about the child and their world. Transform them into natural story elements:
 - Convert interests into SKILLS the child uses during the adventure (e.g. "loves dinosaurs" → the child recognizes a fossil that others missed)

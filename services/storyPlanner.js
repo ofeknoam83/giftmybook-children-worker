@@ -2741,7 +2741,7 @@ EVALUATION CRITERIA (12 total — score each 1-10)
 ─────────────────────────────────────────
 
 1. EMOTIONAL WRITING: Is emotion shown (not told)? Any "she felt / she was scared" → penalty.
-2. LANGUAGE QUALITY & RHYTHM: Are there generic phrases? Is the prose musical? Do ALL lines pass the read-aloud test — would a parent say each line naturally? Flag any line that sounds "written" rather than "told." For young children (ages 2-5): every line must be simple enough that the child could repeat it back.
+2. LANGUAGE QUALITY & RHYTHM: Read every line OUT LOUD. Does it flow? Is the prose musical? Would a parent enjoy saying these words? Flag any line that sounds choppy, robotic, like a reading primer, or like AI filler. Sentences must be COMPLETE and COHERENT — no fragments, no broken grammar. Simple language does NOT mean broken language. "The stars came out one by one" = beautiful. "Stars. Out. One." = broken. Rhymes must feel effortless — if a rhyme bends a sentence into an unnatural shape, flag it. For young children (ages 2-5): simple but beautiful, like Julia Donaldson or Margaret Wise Brown.
 3. IMAGERY: Are visuals specific and vivid? Or vague and common?
 4. AUTHORIAL VOICE & CONSISTENCY: Does the voice feel like a real author — not AI? Is the vocabulary level CONSISTENT across all spreads? Flag any spread where the language suddenly becomes more literary, complex, or poetic than the surrounding text. A "gear shift" in sophistication is a voice failure.
 5. CHILD AGENCY: Does the child actively drive the story?
@@ -2761,6 +2761,9 @@ Do NOT give any category above 7 if ANY of these are present:
 - Any spread where vocabulary suddenly jumps in complexity compared to surrounding spreads
 - The motif/repeated phrase first appearing after spread 4
 - An abstract or poetic final line when the target audience is under 6
+- Sentence fragments or broken grammar ("Stars. Out. One." instead of complete sentences)
+- Lines that sound choppy, robotic, or like a reading primer when read aloud
+- Forced rhymes that bend sentences into unnatural shapes
 
 ─────────────────────────────────────────
 REWRITE PROTOCOL
@@ -2775,7 +2778,8 @@ Fix these issues — they are objectively broken:
 - Word count violations (spread exceeding age-tier maximum)
 - Weak verb + adverb combos → single strong verb
 - Duplicate consecutive words
-- Lines that sound "written" rather than "told" for ages 2-5 → simplify to natural parent-reading voice
+- Lines that sound choppy, robotic, or like a reading primer → rewrite as complete, flowing sentences a parent would enjoy reading aloud
+- Sentence fragments or broken grammar → rewrite as complete sentences ("The stars came out one by one" not "Stars. Out. One.")
 - Vocabulary ceiling violations (a spread using notably harder words than spread 1) → match the established level
 - Motif/repeated phrase appearing too late → move first appearance to spread 2 or 3
 - Abstract/poetic ending for young children → replace with concrete image or action

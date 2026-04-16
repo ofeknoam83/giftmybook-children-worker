@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const textInstruction = pageText.trim()
-    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text can be placed anywhere in the image EXCEPT it must NEVER cross the vertical center line. Keep a small padding from all edges so text won't be cut in print. Maximum 6 words per line. FONT SIZE (CRITICAL — READ CAREFULLY): The text must NOT be large. It must NOT dominate the image. It must NOT look like a title or headline. Think of it as a small, quiet caption — like subtitles on a movie screen. If you drew a bounding box around ALL the text, that box must be SMALL — it should fit comfortably in a corner or edge strip of the image. The illustration is the star, the text is a whisper. Err on the side of TOO SMALL rather than too big. Text that is too large will be REJECTED. TEXT CLARITY: The text must be crisp and sharp with clean edges — NOT blurry, fuzzy, or soft. Use solid, well-defined letterforms with high contrast against the background.`
+    ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nTEXT PLACEMENT RULE (CRITICAL): The text can be placed anywhere in the image EXCEPT it must NEVER cross the vertical center line. Keep a small padding from all edges so text won't be cut in print. Maximum 6 words per line. FONT SIZE (CRITICAL): The text must NOT be large or dominant. NOT a title, NOT a headline, NOT a chapter heading. Think of it as a quiet caption — like subtitles on a movie screen. The illustration is the star; text is secondary. The text should be clearly readable but SMALL — never covering more than a thin strip of the image. Text that looks like a poster headline will be REJECTED. TEXT CLARITY: The text must be crisp and sharp with clean edges — NOT blurry, fuzzy, or soft. Use solid, well-defined letterforms with high contrast against the background.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   let secondaryCharReminder = '';
@@ -343,7 +343,7 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS:');
   parts.push('- Every illustration MUST include the story text rendered directly INTO the image');
   parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
-  parts.push('- FONT SIZE: The text must NOT be large or prominent. NOT a title, NOT a headline. It should look like a small, quiet caption — like subtitles on a screen. If you drew a box around all the text, that box must be SMALL and fit in a corner or edge strip. The illustration is the star. Err on the side of too small. Text that is too large will be REJECTED.');
+  parts.push('- FONT SIZE: The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED.');
   parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
   parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
   parts.push('- The EXACT same lettering style, size, weight, and color must appear on EVERY page');
