@@ -165,7 +165,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Build the user turn
   const pageText = opts.pageText || '';
   const wordCount = pageText.trim().split(/\s+/).length;
-  const estimatedLines = Math.ceil(wordCount / 9);
+  const estimatedLines = Math.ceil(wordCount / 7);
   const textInstruction = pageText.trim()
     ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, with the consistent font style established in the first illustration):\n${pageText}\n\nThis text is approximately ${wordCount} words (~${estimatedLines} lines). Plan your layout: reserve space for ${estimatedLines} lines of small text at the top or bottom edge, then compose the illustration in the remaining area. Characters and key action must not be behind the text.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
@@ -336,7 +336,7 @@ function _buildCharacterEstablishmentPrompt(session) {
   parts.push('');
   parts.push('TEXT LAYOUT PLANNING (CRITICAL — follow this process for EVERY spread):');
   parts.push('1. FIRST, count the words in the story text you need to render');
-  parts.push('2. ESTIMATE how many lines the text will occupy at small font size (roughly 8-10 words per line in a 16:9 image)');
+  parts.push('2. ESTIMATE how many lines the text will occupy at small font size (roughly 7 words per line in a 16:9 image)');
   parts.push('3. DECIDE whether to place the text zone at the TOP or BOTTOM of the image — choose whichever works better for the scene composition');
   parts.push('4. RESERVE a horizontal band for the text — the band height should match the number of lines needed, plus a small padding margin from the edge (so text is not cut when printed)');
   parts.push('5. DESIGN the illustration to fill the REST of the image — place main characters, action, and key elements OUTSIDE the reserved text band');

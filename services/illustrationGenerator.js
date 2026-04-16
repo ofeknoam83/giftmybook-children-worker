@@ -867,7 +867,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('');
   if (opts.embedText && pageText && pageText.trim()) {
     const embedWordCount = pageText.trim().split(/\s+/).length;
-    const embedEstimatedLines = Math.ceil(embedWordCount / 9);
+    const embedEstimatedLines = Math.ceil(embedWordCount / 7);
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
     parts.push('');
