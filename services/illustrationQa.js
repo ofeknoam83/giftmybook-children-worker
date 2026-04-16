@@ -623,8 +623,86 @@ async function runHolisticQa(allImages, context) {
   return { passed, score, issues: allIssues, failedSpreads };
 }
 
+// ═══════════════════════════════════════════
+// LIGHTWEIGHT SCORER: Score a single image against the book
+// ═══════════════════════════════════════════
+
+/**
+ * Score a single illustration against the full book context for specific checks only.
+ * Used by Tier 3 (multi-candidate selection) to pick the best candidate.
+ *
+ * @param {string} imageBase64 - The candidate image to score
+ * @param {Array<{index, imageBase64, pageText, sceneDescription}>} allQaImages - All book images
+ * @param {Array<string>} failedChecks - Which checks to run (e.g., ['characterConsistency', 'fontConsistency'])
+ * @param {{characterRef, characterAnchor, characterOutfit, artStyle, childName, storyPlan, allCharacters}} qaContext
+ * @param {object} imageInfo - {index, pageText, sceneDescription} for the candidate
+ * @returns {Promise<{score: number, issues: string[]}>}
+ */
+async function scoreIllustrationAgainstBook(imageBase64, allQaImages, failedChecks, qaContext, imageInfo) {
+  if (!imageBase64 || !failedChecks || failedChecks.length === 0) {
+    return { score: 100, issues: [] };
+  }
+
+  // Build a combined image set: replace the candidate's position with the new image
+  const combinedImages = allQaImages.map(img => {
+    if (img.index === imageInfo.index) {
+      return { ...img, imageBase64 };
+    }
+    return img;
+  });
+
+  // Map check names to check functions
+  const checkMap = {
+    characterConsistency: () => checkCharacterVisualConsistency(combinedImages, qaContext),
+    colorPalette: () => checkColorPaletteCoherence(combinedImages, qaContext),
+    fontConsistency: () => checkFontTextConsistency(combinedImages),
+    anatomical: () => checkAnatomicalCorrectness([{ ...imageInfo, imageBase64 }]),
+    textAccuracy: () => checkTextAccuracy([{ ...imageInfo, imageBase64 }]),
+    artStyle: () => checkArtStyleConsistency(combinedImages, qaContext),
+    textWidth: () => checkTextWidthPlacement([{ ...imageInfo, imageBase64 }]),
+    sceneAlignment: () => checkSceneTextAlignment([{ ...imageInfo, imageBase64 }]),
+    contentSafety: () => checkContentSafety([{ ...imageInfo, imageBase64 }]),
+  };
+
+  // Run only the failed checks
+  const checksToRun = failedChecks.filter(c => checkMap[c]);
+  const results = await Promise.all(
+    checksToRun.map(async (checkName) => {
+      try {
+        const result = await checkMap[checkName]();
+        return { checkName, result };
+      } catch (e) {
+        console.warn(`[illustrationQa] scoreIllustrationAgainstBook: ${checkName} error:`, e.message);
+        return { checkName, result: { passed: true, issues: [] } };
+      }
+    })
+  );
+
+  // Calculate weighted score based on the checks we ran
+  let score = 0;
+  let totalWeight = 0;
+  const allIssues = [];
+
+  for (const { checkName, result } of results) {
+    const weight = CHECK_WEIGHTS[checkName] || 0;
+    totalWeight += weight;
+    if (result.passed) {
+      score += weight * 100;
+    }
+    if (result.issues?.length > 0) {
+      allIssues.push(...result.issues.map(i => `[${checkName}] ${i}`));
+    }
+  }
+
+  // Normalize score to 0-100 based on total weight of checks run
+  const normalizedScore = totalWeight > 0 ? Math.round(score / totalWeight) : 100;
+
+  return { score: normalizedScore, issues: allIssues };
+}
+
 module.exports = {
   runHolisticQa,
+  scoreIllustrationAgainstBook,
   // Export individual checks for testing
   checkCharacterVisualConsistency,
   checkColorPaletteCoherence,
@@ -635,4 +713,5 @@ module.exports = {
   checkTextWidthPlacement,
   checkSceneTextAlignment,
   checkContentSafety,
+  CHECK_WEIGHTS,
 };
