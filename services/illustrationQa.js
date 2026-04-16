@@ -12,13 +12,15 @@ const { getNextApiKey, fetchWithTimeout } = require('./illustrationGenerator');
 const GEMINI_QA_MODEL = 'gemini-2.5-flash';
 const MAX_IMAGES_PER_REQUEST = 4;
 
-// ── Check weights (streamlined — text checks removed, handled by text compositor) ──
+// ── Check weights (text checks restored for embedded text verification) ──
 const CHECK_WEIGHTS = {
-  characterConsistency: 0.35,
-  anatomical: 0.25,
-  artStyle: 0.15,
-  colorPalette: 0.10,
-  sceneAlignment: 0.10,
+  characterConsistency: 0.30,
+  textAccuracy: 0.20,
+  fontConsistency: 0.15,
+  anatomical: 0.15,
+  artStyle: 0.05,
+  colorPalette: 0.05,
+  textWidth: 0.05,
   contentSafety: 0.05,
 };
 
@@ -499,10 +501,10 @@ Return ONLY valid JSON:
 // ═══════════════════════════════════════════
 
 /**
- * Run streamlined visual QA checks on the complete set of illustrations.
- * Text-related checks have been removed (text is composited separately).
- * 6 checks: character consistency (35%), anatomical (25%), art style (15%),
- * color palette (10%), scene alignment (10%), content safety (5%).
+ * Run holistic visual QA checks on the complete set of illustrations.
+ * Includes text accuracy, font consistency, and text width checks for embedded text.
+ * 8 checks: character consistency (30%), text accuracy (20%), font consistency (15%),
+ * anatomical (15%), art style (5%), color palette (5%), text width (5%), content safety (5%).
  *
  * IMPORTANT: Never abort generation. Always produce a book.
  * QA results are informational — used for chat-based retries, not blocking.
@@ -522,17 +524,27 @@ async function runHolisticQa(allImages, context) {
     return { passed: true, score: 100, issues: [], failedSpreads: [] };
   }
 
-  // Run all visual checks in parallel (text checks removed — handled by text compositor)
+  // Run all checks in parallel (text checks restored for embedded text)
   const [
     charConsistency,
+    textAccuracy,
+    fontConsistency,
     anatomical,
     artStyle,
     colorPalette,
-    sceneAlignment,
+    textWidth,
     contentSafety,
   ] = await Promise.all([
     checkCharacterVisualConsistency(validImages, context).catch(e => {
       console.warn('[illustrationQa] Character consistency failed:', e.message);
+      return { passed: true, issues: [], affectedSpreads: [] };
+    }),
+    checkTextAccuracy(validImages).catch(e => {
+      console.warn('[illustrationQa] Text accuracy failed:', e.message);
+      return { passed: true, issues: [], affectedSpreads: [] };
+    }),
+    checkFontTextConsistency(validImages).catch(e => {
+      console.warn('[illustrationQa] Font consistency failed:', e.message);
       return { passed: true, issues: [], affectedSpreads: [] };
     }),
     checkAnatomicalCorrectness(validImages).catch(e => {
@@ -547,8 +559,8 @@ async function runHolisticQa(allImages, context) {
       console.warn('[illustrationQa] Color palette failed:', e.message);
       return { passed: true, issues: [], affectedSpreads: [] };
     }),
-    checkSceneTextAlignment(validImages).catch(e => {
-      console.warn('[illustrationQa] Scene alignment failed:', e.message);
+    checkTextWidthPlacement(validImages).catch(e => {
+      console.warn('[illustrationQa] Text width failed:', e.message);
       return { passed: true, issues: [], affectedSpreads: [] };
     }),
     checkContentSafety(validImages).catch(e => {
@@ -560,10 +572,12 @@ async function runHolisticQa(allImages, context) {
   // Calculate weighted score
   const checkResults = {
     characterConsistency: charConsistency,
+    textAccuracy,
+    fontConsistency,
     anatomical,
     artStyle,
     colorPalette,
-    sceneAlignment,
+    textWidth,
     contentSafety,
   };
 
@@ -636,12 +650,15 @@ async function scoreIllustrationAgainstBook(imageBase64, allQaImages, failedChec
     return img;
   });
 
-  // Map check names to check functions (text checks removed — handled by compositor)
+  // Map check names to check functions
   const checkMap = {
     characterConsistency: () => checkCharacterVisualConsistency(combinedImages, qaContext),
+    textAccuracy: () => checkTextAccuracy([{ ...imageInfo, imageBase64 }]),
+    fontConsistency: () => checkFontTextConsistency(combinedImages),
     anatomical: () => checkAnatomicalCorrectness([{ ...imageInfo, imageBase64 }]),
     artStyle: () => checkArtStyleConsistency(combinedImages, qaContext),
     colorPalette: () => checkColorPaletteCoherence(combinedImages, qaContext),
+    textWidth: () => checkTextWidthPlacement([{ ...imageInfo, imageBase64 }]),
     sceneAlignment: () => checkSceneTextAlignment([{ ...imageInfo, imageBase64 }]),
     contentSafety: () => checkContentSafety([{ ...imageInfo, imageBase64 }]),
   };
@@ -692,7 +709,6 @@ module.exports = {
   checkArtStyleConsistency,
   checkSceneTextAlignment,
   checkContentSafety,
-  // Legacy exports kept for backward compatibility (now no-ops if called)
   checkFontTextConsistency,
   checkTextAccuracy,
   checkTextWidthPlacement,

@@ -58,7 +58,6 @@ const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarly
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 const { ChatSessionManager } = require('./services/chatSessionManager');
-const { TextCompositor } = require('./services/textCompositor');
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -259,6 +258,130 @@ async function generateBestCandidate(prompt, characterRef, style, anchorImages, 
   const best = scored[0];
   console.log(`[qa-tier3] Best candidate: score=${best.score}, candidates evaluated=${scored.length}`);
   return best;
+}
+
+// ── Text Similarity Utilities (for OCR verification) ──
+
+/**
+ * Calculate Levenshtein-based text similarity between two strings.
+ * Returns a value between 0 (completely different) and 1 (identical).
+ */
+function calculateTextSimilarity(extracted, expected) {
+  const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const a = norm(extracted);
+  const b = norm(expected);
+
+  if (a === b) return 1.0;
+  if (!a || !b) return 0.0;
+
+  const matrix = [];
+  for (let i = 0; i <= a.length; i++) {
+    matrix[i] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      matrix[i][j] = i === 0 ? j : Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+
+  const maxLen = Math.max(a.length, b.length);
+  return 1 - (matrix[a.length][b.length] / maxLen);
+}
+
+/**
+ * Identify specific text differences between extracted OCR text and expected text.
+ * Returns an array of human-readable issue descriptions.
+ */
+function identifyTextDifferences(extracted, expected) {
+  const issues = [];
+  if (!extracted || extracted === 'UNREADABLE') {
+    issues.push('Text is unreadable or missing');
+    return issues;
+  }
+
+  const extractedWords = extracted.toLowerCase().split(/\s+/);
+  const expectedWords = expected.toLowerCase().split(/\s+/);
+
+  for (const word of expectedWords) {
+    if (!extractedWords.some(w => calculateTextSimilarity(w, word) > 0.8)) {
+      issues.push(`Missing or misspelled word: "${word}"`);
+    }
+  }
+
+  for (const word of extractedWords) {
+    if (!expectedWords.some(w => calculateTextSimilarity(w, word) > 0.8)) {
+      issues.push(`Unexpected extra text: "${word}"`);
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Verify embedded text in an illustration using Gemini Vision OCR.
+ * Reads text from the image and compares to expected text.
+ *
+ * @param {string} imageBase64 - Base64-encoded image
+ * @param {string} expectedText - The text that should appear in the image
+ * @returns {Promise<{passed: boolean, extractedText: string, expectedText: string, similarity: number, issues: string[]}>}
+ */
+async function verifyEmbeddedText(imageBase64, expectedText) {
+  const { getNextApiKey, fetchWithTimeout } = require('./services/illustrationGenerator');
+
+  if (!expectedText || !expectedText.trim()) {
+    return { passed: true, extractedText: '', expectedText: '', similarity: 1.0, issues: [] };
+  }
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) {
+    console.log('[verifyEmbeddedText] No API key available — skipping verification');
+    return { passed: true, extractedText: '', expectedText, similarity: 1.0, issues: [] };
+  }
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const body = {
+      contents: [{
+        role: 'user',
+        parts: [
+          { inline_data: { mime_type: 'image/png', data: imageBase64 } },
+          { text: `Read ALL text visible in this children's book illustration. Return ONLY the text you can read, nothing else. If you cannot read any text or the text is garbled, return "UNREADABLE".` },
+        ],
+      }],
+      generationConfig: {
+        maxOutputTokens: 256,
+        temperature: 0.1,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    };
+
+    const resp = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, 30000);
+
+    if (!resp.ok) {
+      console.log(`[verifyEmbeddedText] OCR API error ${resp.status} — skipping verification`);
+      return { passed: true, extractedText: '', expectedText, similarity: 1.0, issues: [] };
+    }
+
+    const data = await resp.json();
+    const extractedText = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+
+    const similarity = calculateTextSimilarity(extractedText, expectedText);
+    const passed = similarity > 0.85;
+    const issues = !passed ? identifyTextDifferences(extractedText, expectedText) : [];
+
+    console.log(`[verifyEmbeddedText] similarity=${similarity.toFixed(2)}, passed=${passed}, extracted="${extractedText.slice(0, 80)}"`);
+
+    return { passed, extractedText, expectedText, similarity, issues };
+  } catch (err) {
+    console.log(`[verifyEmbeddedText] Verification error: ${err.message} — skipping`);
+    return { passed: true, extractedText: '', expectedText, similarity: 1.0, issues: [] };
+  }
 }
 
 const app = express();
@@ -555,7 +678,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           bookContext.log('info', `Illustration ${entryLabel} via chat session`);
           const entryData = entries[idx] || {};
           const textPlacement = idx % 2 === 0 ? 'bottom' : 'top';
-          const chatResult = await chatSession.generateSpread(prompt, idx, textPlacement, {
+          const pageText = job.pageText || '';
+          const chatResult = await chatSession.generateSpread(prompt, idx, pageText, textPlacement, {
             aspectRatio: job.isSpread ? '16:9' : '1:1',
             shotType: entryData.shot_type || null,
           });
@@ -566,11 +690,60 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
             costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
           }
 
-          // Upload raw (no-text) illustration to GCS
+          // Upload illustration to GCS
           if (bookId && imageBuffer) {
             const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
             const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
             imageUrl = await uploadBuf(imageBuffer, gcsPath, 'image/png');
+          }
+
+          // ── OCR Verification: verify embedded text accuracy ──
+          if (pageText && pageText.trim() && chatResult.imageBase64) {
+            try {
+              const textCheck = await verifyEmbeddedText(chatResult.imageBase64, pageText);
+              if (!textCheck.passed) {
+                console.log(`[server] Spread ${idx + 1}: text verification failed (similarity=${textCheck.similarity.toFixed(2)}), retrying text only`);
+                bookContext.log('info', `Spread ${idx + 1}: text verification failed`, {
+                  similarity: textCheck.similarity,
+                  expected: pageText.slice(0, 80),
+                  extracted: textCheck.extractedText.slice(0, 80),
+                });
+
+                // Retry within chat — ask to fix only the text
+                const retryResult = await chatSession.retryTextOnly(pageText, textCheck.issues, {
+                  aspectRatio: job.isSpread ? '16:9' : '1:1',
+                });
+                imageBuffer = retryResult.imageBuffer;
+
+                // Re-upload the corrected illustration
+                if (bookId && imageBuffer) {
+                  const { uploadBuffer: uploadBuf2 } = require('./services/gcsStorage');
+                  const retryPath = `children-jobs/${bookId}/illustrations/${Date.now()}-textfix.png`;
+                  imageUrl = await uploadBuf2(imageBuffer, retryPath, 'image/png');
+                }
+
+                if (costTracker) {
+                  costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+                }
+
+                // Verify again
+                const recheck = await verifyEmbeddedText(retryResult.imageBase64, pageText);
+                if (!recheck.passed) {
+                  console.log(`[server] Spread ${idx + 1}: text still incorrect after retry (similarity=${recheck.similarity.toFixed(2)}), accepting`);
+                  bookContext.log('info', `Spread ${idx + 1}: text still incorrect after retry, accepting`, {
+                    similarity: recheck.similarity,
+                  });
+                } else {
+                  console.log(`[server] Spread ${idx + 1}: text corrected successfully after retry`);
+                  bookContext.log('info', `Spread ${idx + 1}: text corrected after retry`);
+                }
+              } else {
+                console.log(`[server] Spread ${idx + 1}: text verification passed (similarity=${textCheck.similarity.toFixed(2)})`);
+              }
+            } catch (ocrErr) {
+              console.log(`[server] Spread ${idx + 1}: OCR verification error: ${ocrErr.message} — accepting as-is`);
+              bookContext.log('info', `Spread ${idx + 1}: OCR verification error, accepting as-is`, { error: ocrErr.message });
+            }
           }
 
           bookContext.touchActivity();
@@ -625,9 +798,8 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
               spreadIndex: idx,
               totalSpreads: entries.filter(e => e.type === 'spread').length,
               childAge: childDetails.age || childDetails.childAge,
-              pageText: '', // Never embed text — composited separately
+              pageText: job.pageText || '',
               isSpread: job.isSpread || false,
-              skipTextEmbed: true, // Force no-text mode
               deadlineMs: 200000,
               abortSignal: bookContext.abortController.signal,
               prevIllustrationUrl,
@@ -700,8 +872,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           spreadIndex: idx,
           totalSpreads: entries.filter(e => e.type === 'spread').length,
           childAge: childDetails.age || childDetails.childAge,
-          pageText: '', // No text in illustrations — composited separately
-          skipTextEmbed: true,
+          pageText: job.pageText || '',
           isSpread: job.isSpread || false,
           deadlineMs: 200000,
           abortSignal: bookContext.abortController.signal,
@@ -781,7 +952,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
         }
       }
 
-      // Checks 3 & 4 (text overlay, font consistency) REMOVED — text is composited separately
+      // Checks 3 & 4 (text overlay, font consistency) handled by OCR verification above
 
       // Final re-check: if any QA retry changed the image, verify character consistency one more time
       if (genBase64 && refBase64ForCheck && imageUrl !== originalImageUrl) {
@@ -853,53 +1024,9 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
 
   await Promise.all(illustrationPromises);
 
-  bookContext.log('info', 'All illustrations generated (no text)', { totalMs: Date.now() - stage5Start });
+  bookContext.log('info', 'All illustrations generated (with embedded text)', { totalMs: Date.now() - stage5Start });
 
-  // ── Text Compositing ──
-  // Composite story text onto illustrations programmatically.
-  // This ensures perfect font consistency across all spreads.
-  const textCompositor = new TextCompositor();
-  const compositingStart = Date.now();
-  let compositedCount = 0;
-
-  for (const job of illustratableEntries) {
-    const { idx, field } = job;
-    const entry = results[idx];
-    const illUrl = entry?.[field];
-    const pageText = job.pageText || '';
-
-    if (!illUrl || !pageText.trim()) continue;
-
-    try {
-      // Download the raw illustration
-      const resp = await fetch(illUrl);
-      if (!resp.ok) continue;
-      const rawBuffer = Buffer.from(await resp.arrayBuffer());
-
-      // Get layout config for this spread
-      const layout = TextCompositor.getDefaultLayout(idx, illustratableEntries.length);
-
-      // Composite text
-      const compositedBuffer = await textCompositor.compositeText(rawBuffer, pageText, layout);
-
-      // Upload composited version
-      const compositedPath = `children-jobs/${bookId}/illustrations/${Date.now()}-text.png`;
-      const compositedUrl = await uploadBuffer(compositedBuffer, compositedPath, 'image/png');
-
-      // Store raw URL for admin comparison, use composited for the book
-      entry._rawIllustrationUrl = illUrl;
-      entry[field] = compositedUrl;
-      compositedCount++;
-
-      bookContext.log('info', `Text composited for spread ${idx + 1}`);
-    } catch (compErr) {
-      bookContext.log('warn', `Text compositing failed for spread ${idx + 1}: ${compErr.message} — using raw illustration`);
-      // Non-fatal: the illustration without text is still usable
-    }
-  }
-
-  bookContext.log('info', `Text compositing complete: ${compositedCount}/${illustratableEntries.filter(j => j.pageText?.trim()).length} spreads`, { ms: Date.now() - compositingStart });
-  console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (incl. text compositing, book ${bookId})`);
+  console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
   return results;
 }
 
@@ -1103,7 +1230,6 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
           coverArtStyle: storyPlan.coverArtStyle || '',
           spreadIndex: completed,
           totalSpreads: totalIllustrated,
-          skipTextEmbed: false,
           comicPageMode: true,
           colorScript: page.colorScript,
           prevIllustrationUrls,
@@ -1179,7 +1305,6 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
                   coverArtStyle: storyPlan.coverArtStyle || '',
                   spreadIndex: completed,
                   totalSpreads: totalIllustrated,
-                  skipTextEmbed: false,
                   comicPageMode: true,
                   colorScript: page.colorScript,
                   prevIllustrationUrls,
@@ -2264,7 +2389,6 @@ Format your answer with each label on its own line followed by a colon and the a
             spreadIndex: -1, // special index for ref sheet
             deadlineMs: 120000,
             isSpread: false,
-            skipTextEmbed: true,
           });
 
           if (refSheet && typeof refSheet === 'string') {
@@ -2361,7 +2485,6 @@ Format your answer with each label on its own line followed by a colon and the a
                 isSpread: false,
                 spreadIndex: i,
                 totalSpreads: 5,
-                skipTextEmbed: true,
                 promptInjection: 'PORTRAIT FORMAT: This is a 2:3 portrait illustration for a chapter book. Tall, not wide.',
                 pageText: '',
                 additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
@@ -2414,7 +2537,6 @@ Format your answer with each label on its own line followed by a colon and the a
                           isSpread: false,
                           spreadIndex: i,
                           totalSpreads: 5,
-                          skipTextEmbed: true,
                           promptInjection: 'PORTRAIT FORMAT: This is a 2:3 portrait illustration for a chapter book. Tall, not wide.',
                           pageText: '',
                           additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
@@ -2648,8 +2770,7 @@ Format your answer with each label on its own line followed by a colon and the a
                   spreadIndex: failed.index,
                   totalSpreads: spreadEntries.length,
                   childAge: childDetails.age || childDetails.childAge,
-                  pageText: '', // No text in illustrations
-                  skipTextEmbed: true,
+                  pageText: origImg?.pageText || '',
                   isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
                   deadlineMs: 200000,
                   abortSignal: bookContext.abortController.signal,
