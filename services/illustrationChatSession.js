@@ -408,8 +408,8 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
       if (part.text !== undefined) preserved.text = part.text;
       // Keep inline image data
       if (part.inlineData) preserved.inlineData = part.inlineData;
-      // CRITICAL: Preserve thought_signature on every part that has it
-      if (part.thought_signature !== undefined) preserved.thought_signature = part.thought_signature;
+      // CRITICAL: Preserve thoughtSignature on every part that has it (Gemini REST API uses camelCase)
+      if (part.thoughtSignature !== undefined) preserved.thoughtSignature = part.thoughtSignature;
       return preserved;
     });
     history.push({ role: 'model', parts: preservedParts });

@@ -91,7 +91,7 @@ describe('illustrationChatSession', () => {
           candidates: [{
             content: {
               parts: [
-                { text: 'I understand. I will maintain character consistency.', thought_signature: 'sig_ack' },
+                { text: 'I understand. I will maintain character consistency.', thoughtSignature: 'sig_ack' },
               ],
             },
           }],
@@ -160,8 +160,8 @@ describe('illustrationChatSession', () => {
     });
   });
 
-  describe('thought_signature preservation', () => {
-    test('preserves thought_signature fields in model response history', async () => {
+  describe('thoughtSignature preservation', () => {
+    test('preserves thoughtSignature fields in model response history', async () => {
       // First call: establishment
       fetchWithTimeout.mockResolvedValueOnce({
         ok: true,
@@ -180,17 +180,17 @@ describe('illustrationChatSession', () => {
       });
       await establishCharacter(session);
 
-      // Second call: generate spread with thought_signatures in response
+      // Second call: generate spread with thoughtSignatures in response
       fetchWithTimeout.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           candidates: [{
             content: {
               parts: [
-                { text: 'Here is the illustration.', thought_signature: 'sig_text_A' },
+                { text: 'Here is the illustration.', thoughtSignature: 'sig_text_A' },
                 {
                   inlineData: { mimeType: 'image/png', data: Buffer.from('fake-image').toString('base64') },
-                  thought_signature: 'sig_image_B',
+                  thoughtSignature: 'sig_image_B',
                 },
               ],
             },
@@ -200,18 +200,18 @@ describe('illustrationChatSession', () => {
 
       await generateSpreadInSession(session, 'A child in a garden', { spreadIndex: 0 });
 
-      // Verify thought_signatures are preserved in history
+      // Verify thoughtSignatures are preserved in history
       const modelResponse = session.history[session.history.length - 1];
       expect(modelResponse.role).toBe('model');
 
       const textPart = modelResponse.parts.find(p => p.text);
-      expect(textPart.thought_signature).toBe('sig_text_A');
+      expect(textPart.thoughtSignature).toBe('sig_text_A');
 
       const imagePart = modelResponse.parts.find(p => p.inlineData);
-      expect(imagePart.thought_signature).toBe('sig_image_B');
+      expect(imagePart.thoughtSignature).toBe('sig_image_B');
     });
 
-    test('handles parts without thought_signature gracefully', async () => {
+    test('handles parts without thoughtSignature gracefully', async () => {
       fetchWithTimeout.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -242,7 +242,7 @@ describe('illustrationChatSession', () => {
 
       const modelResponse = session.history[session.history.length - 1];
       const textPart = modelResponse.parts.find(p => p.text);
-      expect(textPart.thought_signature).toBeUndefined();
+      expect(textPart.thoughtSignature).toBeUndefined();
     });
   });
 
@@ -272,8 +272,8 @@ describe('illustrationChatSession', () => {
         history.push({
           role: 'model',
           parts: [
-            { text: `Spread ${i} generated`, thought_signature: `sig_${i}` },
-            { inlineData: { mimeType: 'image/png', data: `image_${i}` }, thought_signature: `sig_img_${i}` },
+            { text: `Spread ${i} generated`, thoughtSignature: `sig_${i}` },
+            { inlineData: { mimeType: 'image/png', data: `image_${i}` }, thoughtSignature: `sig_img_${i}` },
           ],
         });
       }
