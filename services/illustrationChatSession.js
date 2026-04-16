@@ -172,6 +172,9 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
     ? `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`
     : '';
 
+  // Reinforce art style on every spread
+  const styleReminder = `ART STYLE REMINDER: ${session.styleConfig.prefix} ${session.styleConfig.suffix}`;
+
   const parts = [{
     text: `Generate illustration for spread ${spreadIndex + 1}:
 
@@ -179,6 +182,7 @@ ${prompt}
 
 ${opts.shotType ? `Shot type: ${opts.shotType}` : ''}
 
+${styleReminder}
 Fill the entire canvas with the illustration — edge to edge, no blank areas.${textInstruction}
 All characters must look IDENTICAL to the reference images from Turn 1 and all previous illustrations — this applies to BOTH the child AND any secondary characters (parents/adults). Same face, hair, skin tone, AND outfit for every character.${secondaryCharReminder}`,
   }];

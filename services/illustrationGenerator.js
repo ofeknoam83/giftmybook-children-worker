@@ -906,7 +906,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`12. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
     parts.push(`13. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
   }
+  parts.push(`14. ART STYLE: ${styleConfig.prefix} ${styleConfig.suffix} \u2713`);
   parts.push('If any check fails, adjust the scene before generating.');
+  parts.push('');
+  parts.push(`FINAL STYLE REMINDER: This MUST be rendered as ${styleConfig.prefix} ${styleConfig.suffix}`);
 
   return parts.join('\n');
 }
