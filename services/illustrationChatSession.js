@@ -172,7 +172,7 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   if (opts.additionalCoverCharacters) {
     secondaryCharReminder = `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`;
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    secondaryCharReminder = `\nIMPLIED PARENT PRESENCE ONLY: The story references a parent but we do NOT have a reference image for them. Do NOT draw the parent's full face or body. Instead show the parent through IMPLIED PRESENCE only: a hand reaching into frame, a shadow on the wall, feet at the edge of the image, the child talking to someone just off-screen, or evidence of the parent (their coffee cup, their bag, a warm glow from their direction). The parent must NEVER be fully visible — only hints and traces.`;
+    secondaryCharReminder = `\nPARENT WITHOUT REFERENCE IMAGE: The story references a parent but we do NOT have a reference image for them. You MUST still show the parent physically present in the scene — they are real, NOT invisible. However, since we have no reference photo, NEVER show the parent's full face (it would look different on every page). Instead show them partially: hands on the table, arms reaching out, back or side view, a shoulder and arm, kneeling with face turned away, or cropped at the frame edge so only their torso/hands are visible. The parent should feel warm and physically THERE — just with their face hidden or turned away from the viewer.`;
   }
 
   // Reinforce art style on every spread

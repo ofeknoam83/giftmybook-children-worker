@@ -1427,11 +1427,14 @@ Return ONLY valid JSON: {"children": N, "adults": N}` },
       const actualChildren = result.children || 0;
       const actualAdults = result.adults || 0;
       const expectedChildren = expectedCharacters.childCount || 0;
-      const expectedAdults = expectedCharacters.adultCount || 0;
-      if (actualChildren !== expectedChildren || actualAdults !== expectedAdults) {
+      const expectedAdults = expectedCharacters.adultCount;
+      // adultCount === -1 means skip adult check (partial parent presence — count is unreliable)
+      const skipAdultCheck = expectedAdults === -1;
+      const effectiveExpectedAdults = skipAdultCheck ? actualAdults : (expectedAdults || 0);
+      if (actualChildren !== expectedChildren || (!skipAdultCheck && actualAdults !== effectiveExpectedAdults)) {
         return {
           passed: false,
-          message: `Expected ${expectedChildren} child(ren) and ${expectedAdults} adult(s), but found ${actualChildren} child(ren) and ${actualAdults} adult(s)`,
+          message: `Expected ${expectedChildren} child(ren) and ${skipAdultCheck ? 'any' : effectiveExpectedAdults} adult(s), but found ${actualChildren} child(ren) and ${actualAdults} adult(s)`,
         };
       }
       return { passed: true };

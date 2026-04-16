@@ -1040,8 +1040,9 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           const isImpliedPresenceTheme = !hasSecondaryCharacters && PARENT_THEMES.has(theme);
           // If the book has a secondary character (parent), expect them in every spread
           // unless the image prompt explicitly says the child is alone.
-          // For parent-themed books without a cover parent, expect 0 adults (implied presence only).
-          const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (isImpliedPresenceTheme ? 0 : (mentionsParent ? 1 : 0));
+          // For parent-themed books without a cover parent, skip the count check entirely —
+          // the parent is shown partially (hands, back, side) which confuses the counter.
+          const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (isImpliedPresenceTheme ? -1 : (mentionsParent ? 1 : 0));
           const expectedCharacters = { childCount: 1, adultCount: adultExpected };
           const countResult = await checkCharacterCount(genBase64, expectedCharacters);
           if (!countResult.passed) {
