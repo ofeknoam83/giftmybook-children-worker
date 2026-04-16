@@ -83,6 +83,9 @@ async function fetchWithTimeout(url, opts, timeoutMs = 180000, parentSignal) { /
   }
 }
 
+/** Themes where the parent should be shown via implied presence (not drawn in full) when they're not on the cover */
+const PARENT_THEMES = new Set(['mothers_day', 'fathers_day']);
+
 /** Maximum retry attempts per illustration (includes text verification retries) */
 const BASE_MAX_RETRIES = 3;
 const TEXT_HEAVY_MAX_RETRIES = 5;
@@ -675,9 +678,14 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   parts.push(`\u26a0\ufe0f CRITICAL RULES (READ FIRST, VIOLATING ANY = REJECTED IMAGE):`);
   parts.push(``);
-  const charCountRule = opts.additionalCoverCharacters
-    ? `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the main child plus the additional cover characters listed below and no others.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`
-    : `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions child + one parent → EXACTLY TWO people visible.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
+  let charCountRule;
+  if (opts.additionalCoverCharacters) {
+    charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the main child plus the additional cover characters listed below and no others.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
+  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+    charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions a parent → show the parent through IMPLIED PRESENCE ONLY: a hand reaching into frame, a shadow, feet at the edge, the child talking to someone just off-screen, or evidence of the parent (their coffee cup, bag, warm glow). NEVER draw the parent's full face or body — only hints and traces. The character count should still be ONE (just the child).\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
+  } else {
+    charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions child + one parent → EXACTLY TWO people visible.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
+  }
   parts.push(charCountRule);
   parts.push(``);
   parts.push(`2. ANATOMY: The child has exactly TWO arms, TWO hands (with 5 fingers each), TWO legs, TWO feet. No extra limbs. No missing limbs. Count them before finishing: 2 arms, 2 hands, 2 legs, 2 feet.`);
@@ -1340,6 +1348,8 @@ Check ONLY these critical dimensions — ignore everything else:
 3. CORE GARMENTS: ${characterOutfit ? `The DEFINED outfit is: ${characterOutfit}. Use this text description as the ground truth for what the child should be wearing — it overrides whatever clothing appears in the reference image (the reference photo may show a different outfit). Check that the generated illustration matches THIS outfit description.` : 'Same main clothing items (top, bottom, shoes) with similar colors?'} Minor detail differences (button count, pocket placement, exact trim pattern) are acceptable.
 4. FACE: Similar facial structure and features?${secondaryCheck}
 
+IMPORTANT: If additional people appear in the generated image who are NOT the main child, focus your consistency check ONLY on the main child. Do not flag issues about other characters unless they were explicitly described in the expected outfit.
+
 DO NOT FLAG any of these — they are expected variations:
 - Items the character is holding (these change per scene)
 - Left/right mirroring (common in AI-generated images)
@@ -1587,4 +1597,4 @@ ${anchors.map((a, i) => `Anchor ${i + 1}: ${a.label}`).join('\n')}
   );
 }
 
-module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, checkCharacterCount, checkTextPresentation, checkFontConsistency };
+module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, PARENT_THEMES, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, checkCharacterCount, checkTextPresentation, checkFontConsistency };

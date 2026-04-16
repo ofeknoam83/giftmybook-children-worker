@@ -718,6 +718,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                 sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
                 pageText: pageText || null,
                 additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                theme: theme,
               });
               break; // Success
             } catch (turnErr) {
@@ -868,6 +869,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                 ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
                 : '',
               firstSpreadRefBase64: firstSpreadBase64 || null,
+              theme: theme,
             });
             const timeoutPromise = new Promise((_, reject) =>
               setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)
@@ -966,6 +968,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           deadlineMs: 200000,
           abortSignal: bookContext.abortController.signal,
           firstSpreadRefBase64: firstSpreadBase64 || null,
+          theme: theme,
         };
       };
 
@@ -989,6 +992,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                   sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
                   pageText: job.pageText || null,
                   additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                  theme: theme,
                 };
                 const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
                 if (chatRetry?.imageBuffer) {
@@ -1028,12 +1032,15 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
           const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
           const spreadImagePrompt = entry.spread_image_prompt || '';
           const searchableText = spreadText + ' ' + spreadImagePrompt;
+          const { PARENT_THEMES } = require('./services/illustrationGenerator');
           const hasSecondaryCharacters = !!(storyPlan.additionalCoverCharacters || storyPlan.secondaryCharacterDescription);
           const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(searchableText);
           const childAlone = /\bchild\s+alone\b|\balone\b.*\bchild\b|\bno\s+(adult|parent|mom|dad)\b|\bby\s+(himself|herself|themselves)\b|\bsolo\b/i.test(spreadImagePrompt);
+          const isImpliedPresenceTheme = !hasSecondaryCharacters && PARENT_THEMES.has(theme);
           // If the book has a secondary character (parent), expect them in every spread
-          // unless the image prompt explicitly says the child is alone
-          const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (mentionsParent ? 1 : 0);
+          // unless the image prompt explicitly says the child is alone.
+          // For parent-themed books without a cover parent, expect 0 adults (implied presence only).
+          const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (isImpliedPresenceTheme ? 0 : (mentionsParent ? 1 : 0));
           const expectedCharacters = { childCount: 1, adultCount: adultExpected };
           const countResult = await checkCharacterCount(genBase64, expectedCharacters);
           if (!countResult.passed) {
@@ -1050,6 +1057,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                   sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
                   pageText: job.pageText || null,
                   additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                  theme: theme,
                 };
                 const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
                 if (chatRetry?.imageBuffer) {
@@ -1102,6 +1110,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
                   sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
                   pageText: job.pageText || null,
                   additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+                  theme: theme,
                 };
                 const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
                 if (chatRetry?.imageBuffer) {
@@ -2908,6 +2917,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     sceneSummary: (originalPrompt || '').slice(0, 100),
                     pageText: origImg?.pageText || '',
                     additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || null,
+                    theme: theme,
                   };
                   const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, chatRetryOpts);
                   if (chatRetry?.imageBuffer) {
@@ -2947,6 +2957,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
                     deadlineMs: 200000,
                     abortSignal: bookContext.abortController.signal,
+                    theme: theme,
                   };
 
                   const retryUrl = await generateIllustrationWithAnchors(

@@ -15,7 +15,7 @@
  * - Falls back to stateless generateIllustration() on failure
  */
 
-const { fetchWithTimeout, ART_STYLE_CONFIG } = require('./illustrationGenerator');
+const { fetchWithTimeout, ART_STYLE_CONFIG, PARENT_THEMES } = require('./illustrationGenerator');
 
 const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -168,9 +168,12 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
     ? `\nSTORY TEXT TO RENDER ON THIS PAGE (include exactly as written, consistent font style):\n${pageText}\n\nEvaluate the text length and compose the illustration so the text fits naturally without crossing the vertical center of the image.`
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
-  const secondaryCharReminder = opts.additionalCoverCharacters
-    ? `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`
-    : '';
+  let secondaryCharReminder = '';
+  if (opts.additionalCoverCharacters) {
+    secondaryCharReminder = `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`;
+  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+    secondaryCharReminder = `\nIMPLIED PARENT PRESENCE ONLY: The story references a parent but we do NOT have a reference image for them. Do NOT draw the parent's full face or body. Instead show the parent through IMPLIED PRESENCE only: a hand reaching into frame, a shadow on the wall, feet at the edge of the image, the child talking to someone just off-screen, or evidence of the parent (their coffee cup, their bag, a warm glow from their direction). The parent must NEVER be fully visible — only hints and traces.`;
+  }
 
   // Reinforce art style on every spread
   const styleReminder = `ART STYLE REMINDER: ${session.styleConfig.prefix} ${session.styleConfig.suffix}`;

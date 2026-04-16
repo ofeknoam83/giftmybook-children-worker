@@ -21,6 +21,8 @@ const CHECK_WEIGHTS = {
   artStyle: 0.10,
   textWidth: 0.10,
   contentSafety: 0.05,
+  duplicateItems: 0.05,
+  colorPalette: 0,
 };
 
 // ── Helpers ──
@@ -496,6 +498,55 @@ Return ONLY valid JSON:
 }
 
 // ═══════════════════════════════════════════
+// CHECK 10: Duplicate Item Detection (5%)
+// ═══════════════════════════════════════════
+async function checkDuplicateItems(allImages) {
+  const results = { passed: true, issues: [], affectedSpreads: [] };
+
+  try {
+    const checks = allImages.map(async (img) => {
+      const prompt = `Examine this children's book illustration for DUPLICATED or CLONED objects.
+
+Look for any specific, distinctive object that appears to be duplicated/cloned in the image — as if copy-pasted:
+- Two identical books with the same cover design
+- Two copies of the same distinctive toy in different positions
+- The child holding the same specific object in both hands
+- Two identical plates of food
+- Two identical specific items that should be unique
+
+Do NOT flag these — they are intentional multiples:
+- A shelf of books (multiple different books is normal)
+- A pile of blocks or building pieces
+- A row of flowers or trees
+- Multiple similar but not identical items (e.g. two different cups)
+- Patterns or repeating decorative elements
+- Multiple of the same common item (e.g. plates at a dinner table for multiple people)
+
+Only flag objects that appear to be AI cloning artifacts — the SAME specific distinctive item appearing twice when it clearly should be unique.
+
+Return ONLY valid JSON:
+{"passed": true, "issues": []}`;
+
+      const result = await callGeminiQa(prompt, [img.imageBase64], { maxTokens: 512 });
+      return { index: img.index, result };
+    });
+
+    const checkResults = await Promise.all(checks);
+    for (const { index, result } of checkResults) {
+      if (result && !result.passed) {
+        results.passed = false;
+        results.issues.push(...(result.issues || []).map(i => `Spread ${index + 1}: ${i}`));
+        results.affectedSpreads.push(index);
+      }
+    }
+  } catch (e) {
+    console.warn('[illustrationQa] Duplicate items check error:', e.message);
+  }
+
+  return results;
+}
+
+// ═══════════════════════════════════════════
 // ORCHESTRATOR: runHolisticQa
 // ═══════════════════════════════════════════
 
@@ -532,6 +583,7 @@ async function runHolisticQa(allImages, context) {
     artStyle,
     textWidth,
     contentSafety,
+    duplicateItems,
   ] = await Promise.all([
     checkCharacterVisualConsistency(validImages, context).catch(e => {
       console.warn('[illustrationQa] Character consistency failed:', e.message);
@@ -561,6 +613,10 @@ async function runHolisticQa(allImages, context) {
       console.warn('[illustrationQa] Content safety failed:', e.message);
       return { passed: true, issues: [], affectedSpreads: [], isHardBlock: false };
     }),
+    checkDuplicateItems(validImages).catch(e => {
+      console.warn('[illustrationQa] Duplicate items check failed:', e.message);
+      return { passed: true, issues: [], affectedSpreads: [] };
+    }),
   ]);
 
   // Calculate weighted score
@@ -572,6 +628,7 @@ async function runHolisticQa(allImages, context) {
     artStyle,
     textWidth,
     contentSafety,
+    duplicateItems,
   };
 
   let score = 0;
@@ -655,6 +712,7 @@ async function scoreIllustrationAgainstBook(imageBase64, allQaImages, failedChec
     anatomical: () => checkAnatomicalCorrectness([{ ...imageInfo, imageBase64 }]),
     artStyle: () => checkArtStyleConsistency(combinedImages, qaContext),
     colorPalette: () => checkColorPaletteCoherence(combinedImages, qaContext),
+    duplicateItems: () => checkDuplicateItems([{ ...imageInfo, imageBase64 }]),
     textWidth: () => checkTextWidthPlacement([{ ...imageInfo, imageBase64 }]),
     sceneAlignment: () => checkSceneTextAlignment([{ ...imageInfo, imageBase64 }]),
     contentSafety: () => checkContentSafety([{ ...imageInfo, imageBase64 }]),
@@ -709,5 +767,6 @@ module.exports = {
   checkFontTextConsistency,
   checkTextAccuracy,
   checkTextWidthPlacement,
+  checkDuplicateItems,
   CHECK_WEIGHTS,
 };
