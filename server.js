@@ -3785,10 +3785,20 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
   console.log(`[server] /generate-coloring-book: bookId=${bookId}, mode=${mode}`);
 
   try {
-    const { generateColoringPages, generateOriginalColoringPages, planColoringScenes } = require('./services/coloringBookGenerator');
+    const { generateColoringPages, generateOriginalColoringPages, planColoringScenes, generateCoverArt } = require('./services/coloringBookGenerator');
     const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
     const { buildColoringBookPdf, buildInteriorPdf, buildCoverWrapPdf, generateCoverThumbnailPng, imageToPreviewPng } = require('./services/coloringBookLayout');
     const { uploadBuffer } = require('./services/gcsStorage');
+
+    // Start cover art generation in parallel with coloring pages
+    let coverArtPromise = null;
+    if (!pagesOnly) {
+      coverArtPromise = generateCoverArt({ childName, title, age, characterDescription })
+        .catch(err => {
+          console.warn(`[server] Cover art generation failed, will fall back to programmatic covers: ${err.message}`);
+          return null;
+        });
+    }
 
     let pages;
 
@@ -3835,15 +3845,23 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     const successCount = pages.filter(p => p.success).length;
     console.log(`[server] Coloring page ${mode}: ${successCount}/${totalPages} succeeded`);
 
-    // Pick a cover image from the first successful coloring page
+    // Await cover art (was running in parallel with coloring pages)
+    const coverArt = coverArtPromise ? await coverArtPromise : null;
+    const frontCoverBuffer = coverArt?.frontCoverBuffer;
+    const backCoverBuffer = coverArt?.backCoverBuffer;
+    if (coverArt) {
+      console.log(`[server] AI cover art generated — front: ${Math.round(frontCoverBuffer.length / 1024)}KB, back: ${Math.round(backCoverBuffer.length / 1024)}KB`);
+    }
+
+    // Pick a fallback cover image from the first successful coloring page
     const firstSuccessPage = pages.find(p => p.success && p.buffer);
     const coverImageBuffer = firstSuccessPage ? firstSuccessPage.buffer : undefined;
 
     // Build all PDFs in parallel
     const [legacyPdfBuffer, interiorPdfBuffer, coverPdfBuffer] = await Promise.all([
-      buildColoringBookPdf(pages, { title, childName, pagesOnly, coverImageBuffer }),
+      buildColoringBookPdf(pages, { title, childName, pagesOnly, coverImageBuffer, frontCoverBuffer }),
       pagesOnly ? null : buildInteriorPdf(pages, { title, childName }),
-      pagesOnly ? null : buildCoverWrapPdf({ title, childName, coverImageBuffer }),
+      pagesOnly ? null : buildCoverWrapPdf({ title, childName, frontCoverBuffer, backCoverBuffer, coverImageBuffer }),
     ]);
     console.log(`[server] Coloring book PDFs built — legacy: ${Math.round(legacyPdfBuffer.length / 1024)}KB` +
       (interiorPdfBuffer ? `, interior: ${Math.round(interiorPdfBuffer.length / 1024)}KB` : '') +
@@ -3863,9 +3881,9 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
 
     // Generate cover thumbnail and preview PNGs
     const pngPromises = [];
-    if (!pagesOnly && coverImageBuffer) {
+    if (!pagesOnly && (frontCoverBuffer || coverImageBuffer)) {
       pngPromises.push(
-        generateCoverThumbnailPng({ title, childName, coverImageBuffer })
+        generateCoverThumbnailPng({ title, childName, frontCoverBuffer, coverImageBuffer })
           .then(buf => uploadBuffer(buf, `${gcsBase}/cover-thumbnail.png`, 'image/png'))
       );
     }
@@ -3884,7 +3902,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     const coverPdfUrl = coverPdfBuffer ? restUrls[interiorPdfBuffer ? 1 : 0] : undefined;
 
     const pngUrls = await Promise.all(pngPromises);
-    const coverImageUrl = (!pagesOnly && coverImageBuffer) ? pngUrls[0] : undefined;
+    const coverImageUrl = (!pagesOnly && (frontCoverBuffer || coverImageBuffer)) ? pngUrls[0] : undefined;
     const previewImageUrls = pngUrls.slice(coverImageUrl ? 1 : 0);
 
     console.log(`[server] Coloring book uploaded — legacy: ${legacyUrl.slice(0, 80)}`);

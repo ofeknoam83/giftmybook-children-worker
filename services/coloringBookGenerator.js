@@ -379,10 +379,93 @@ Return ONLY valid JSON, no markdown.`;
   });
 }
 
+// ── Cover art generation ──
+
+/**
+ * Build a Gemini prompt for the front cover illustration.
+ */
+function buildFrontCoverPrompt({ childName, title, age, characterDescription }) {
+  const charBlock = characterDescription
+    ? `\nThe main character looks like this: ${characterDescription}`
+    : '';
+  return `Create a beautiful, colorful children's coloring book COVER illustration.
+Book title: "${title || 'My Coloring Book'}"
+Child's name: ${childName || 'a child'}, age ${age || 5}${charBlock}
+
+STYLE REQUIREMENTS:
+- Bright, vibrant, playful colors — looks like a real published children's coloring book cover
+- Whimsical, inviting art style with fun characters and magical elements
+- PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
+- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
+- Leave a CLEAN, relatively uncluttered area at the TOP of the image (top 15%) for title text overlay
+- Leave a CLEAN area at the BOTTOM of the image (bottom 10%) for branding text overlay
+- The middle portion should be rich, detailed, and eye-catching
+- High quality, professional children's book cover art`;
+}
+
+/**
+ * Build a Gemini prompt for the back cover illustration.
+ */
+function buildBackCoverPrompt({ childName, title, age, characterDescription }) {
+  const charBlock = characterDescription
+    ? `\nThe characters look like this: ${characterDescription}`
+    : '';
+  return `Create a simple, complementary back cover illustration for a children's coloring book.
+Book title: "${title || 'My Coloring Book'}"
+Child's name: ${childName || 'a child'}${charBlock}
+
+STYLE REQUIREMENTS:
+- Simpler than a front cover — could be a gentle pattern, scattered coloring elements, or a soft scene
+- Same playful, colorful art style as a children's coloring book
+- PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
+- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
+- Leave the LOWER-RIGHT area (bottom-right quadrant, roughly 2 inches by 1.2 inches) COMPLETELY CLEAR/EMPTY for a barcode — this area should be plain white or very light
+- Gentle, inviting colors — not too busy
+- High quality, professional illustration`;
+}
+
+/**
+ * Generate front and back cover art via Gemini image generation.
+ * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string }} opts
+ * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer }>}
+ */
+async function generateCoverArt(opts = {}) {
+  const MAX_ATTEMPTS = 3; // initial + 2 retries
+
+  async function generateSingle(promptText, label) {
+    let lastError;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const parts = [{ text: promptText }];
+        const buf = await callGeminiImage(parts, 120000);
+        console.log(`[coverArt] ${label} generated (${Math.round(buf.length / 1024)}KB) on attempt ${attempt}`);
+        return buf;
+      } catch (err) {
+        lastError = err;
+        console.warn(`[coverArt] ${label} attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
+        if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 2000));
+      }
+    }
+    throw lastError;
+  }
+
+  const frontPrompt = buildFrontCoverPrompt(opts);
+  const backPrompt = buildBackCoverPrompt(opts);
+
+  // Generate front and back covers in parallel
+  const [frontCoverBuffer, backCoverBuffer] = await Promise.all([
+    generateSingle(frontPrompt, 'front cover'),
+    generateSingle(backPrompt, 'back cover'),
+  ]);
+
+  return { frontCoverBuffer, backCoverBuffer };
+}
+
 module.exports = {
   generateColoringPages,
   convertToColoringPage,
   generateOriginalColoringPages,
   generateOriginalColoringPage,
   planColoringScenes,
+  generateCoverArt,
 };

@@ -55,59 +55,90 @@ function drawCenteredText(page, text, font, size, y, color = rgb(0.1, 0.1, 0.2))
 
 /**
  * Build the cover page — "Coloring Edition" style.
- * If coverImageBuffer is provided, it is converted to B&W and used as the main visual.
+ * If frontCoverBuffer (AI art) is provided, it is used as a full-bleed background.
+ * Falls back to old B&W style if only coverImageBuffer is available.
  */
-async function buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer }) {
+async function buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer, frontCoverBuffer }) {
   const p = pdfDoc.addPage([PAGE_W_PT, PAGE_H_PT]);
   const titleFont = fonts.bubblegum || fonts.playfair || fonts.helv;
   const subFont = fonts.bubblegum || fonts.dancing || fonts.playfairItalic || fonts.helv;
+  const centerX = PAGE_W_PT / 2;
 
-  // Black background
-  p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(0.05, 0.05, 0.12) });
+  if (frontCoverBuffer) {
+    // ── AI-generated full-bleed background ──
+    try {
+      const coverPng = await sharp(frontCoverBuffer).png().toBuffer();
+      const pdfImage = await pdfDoc.embedPng(coverPng);
+      p.drawImage(pdfImage, { x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT });
+    } catch (err) {
+      console.warn(`[buildCover] Could not embed AI front cover: ${err.message}`);
+      p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(0.05, 0.05, 0.12) });
+    }
 
-  if (coverImageBuffer) {
-    // Convert cover to B&W (grayscale + threshold 150)
-    const bwCover = await sharp(coverImageBuffer)
-      .grayscale()
-      .threshold(150)
-      .png()
-      .toBuffer();
-    const pdfImage = await pdfDoc.embedPng(bwCover);
-    // Center the image in the middle portion of the page
-    const imgArea = { w: PAGE_W_PT - 80, h: 440 };
-    const imgY = (PAGE_H_PT - imgArea.h) / 2 + 20;
-    p.drawImage(pdfImage, { x: 40, y: imgY, width: imgArea.w, height: imgArea.h });
+    // Title text overlay with shadow
+    const titleStr = title.toUpperCase();
+    const titleSz = 28;
+    const maxW = PAGE_W_PT - 80;
+    const titleWords = titleStr.split(' ');
+    let lines = []; let cur = '';
+    for (const w of titleWords) {
+      const t = cur ? `${cur} ${w}` : w;
+      if (titleFont.widthOfTextAtSize(t, titleSz) > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+
+    const lineH = titleSz * 1.35;
+    let y = PAGE_H_PT - 60;
+    for (const line of lines) {
+      drawCenteredTextWithShadow(p, line, titleFont, titleSz, y, rgb(1, 1, 1), centerX);
+      y -= lineH;
+    }
+
+    drawCenteredTextWithShadow(p, 'COLORING EDITION', titleFont, 18, y - 10, rgb(1, 0.9, 0.5), centerX);
+
+    const sub = `A personalized coloring book for ${childName || 'You'}`;
+    drawCenteredTextWithShadow(p, sub, subFont, 14, 80, rgb(1, 1, 1), centerX);
+    drawCenteredTextWithShadow(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(1, 1, 0.9), centerX);
+
+  } else {
+    // ── Fallback: old programmatic cover ──
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(0.05, 0.05, 0.12) });
+
+    if (coverImageBuffer) {
+      const bwCover = await sharp(coverImageBuffer)
+        .grayscale().threshold(150).png().toBuffer();
+      const pdfImage = await pdfDoc.embedPng(bwCover);
+      const imgArea = { w: PAGE_W_PT - 80, h: 440 };
+      const imgY = (PAGE_H_PT - imgArea.h) / 2 + 20;
+      p.drawImage(pdfImage, { x: 40, y: imgY, width: imgArea.w, height: imgArea.h });
+    }
+
+    const titleStr = title.toUpperCase();
+    const titleSz = 28;
+    const titleWords = titleStr.split(' ');
+    const maxW = PAGE_W_PT - 80;
+    let lines = []; let cur = '';
+    for (const w of titleWords) {
+      const t = cur ? `${cur} ${w}` : w;
+      if (titleFont.widthOfTextAtSize(t, titleSz) > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+
+    const lineH = titleSz * 1.35;
+    let y = PAGE_H_PT - 60;
+    for (const line of lines) {
+      drawCenteredText(p, line, titleFont, titleSz, y, rgb(1, 1, 1));
+      y -= lineH;
+    }
+
+    drawCenteredText(p, 'COLORING EDITION', titleFont, 18, y - 10, rgb(0.75, 0.55, 0.1));
+
+    const sub = `A personalized coloring book for ${childName || 'You'}`;
+    drawCenteredText(p, sub, subFont, 14, 80, rgb(0.8, 0.8, 0.85));
+    drawCenteredText(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(0.5, 0.5, 0.55));
   }
-
-  // Title — large, upper area
-  const titleStr = title.toUpperCase();
-  const titleSz = 28;
-  const titleWords = titleStr.split(' ');
-  const maxW = PAGE_W_PT - 80;
-  let lines = []; let cur = '';
-  for (const w of titleWords) {
-    const t = cur ? `${cur} ${w}` : w;
-    if (titleFont.widthOfTextAtSize(t, titleSz) > maxW && cur) { lines.push(cur); cur = w; }
-    else cur = t;
-  }
-  if (cur) lines.push(cur);
-
-  const lineH = titleSz * 1.35;
-  let y = PAGE_H_PT - 60;
-  for (const line of lines) {
-    drawCenteredText(p, line, titleFont, titleSz, y, rgb(1, 1, 1));
-    y -= lineH;
-  }
-
-  // "COLORING EDITION" subtitle
-  drawCenteredText(p, 'COLORING EDITION', titleFont, 18, y - 10, rgb(0.75, 0.55, 0.1));
-
-  // Personalized subtitle at bottom area
-  const sub = `A personalized coloring book for ${childName || 'You'}`;
-  drawCenteredText(p, sub, subFont, 14, 80, rgb(0.8, 0.8, 0.85));
-
-  // Bottom branding
-  drawCenteredText(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(0.5, 0.5, 0.55));
 }
 
 /**
@@ -398,14 +429,35 @@ async function buildInteriorPdf(pages, opts = {}) {
 // ── Cover wrap PDF (Lulu saddle stitch) ─────────────────────────────────────
 
 /**
+ * Draw text with a subtle shadow/outline for readability over illustrations.
+ * Draws the text twice: once offset in dark color (shadow), then the main text on top.
+ */
+function drawTextWithShadow(page, text, font, size, x, y, color, shadowColor = rgb(0, 0, 0)) {
+  const shadowOffset = Math.max(1, Math.round(size / 20));
+  // Shadow (dark, slightly offset)
+  page.drawText(text, { x: x + shadowOffset, y: y - shadowOffset, size, font, color: shadowColor, opacity: 0.4 });
+  // Main text
+  page.drawText(text, { x, y, size, font, color });
+}
+
+/**
+ * Draw centered text with shadow for readability over illustrations.
+ */
+function drawCenteredTextWithShadow(page, text, font, size, y, color, centerX) {
+  const w = font.widthOfTextAtSize(text, size);
+  const x = centerX - w / 2;
+  drawTextWithShadow(page, text, font, size, x, y, color);
+}
+
+/**
  * Build wrap-around cover PDF for Lulu saddle stitch printing.
  * Layout: back cover (left) + front cover (right), no spine.
  * Total size: 17.25"×11.25".
- * @param {{ title?: string, childName?: string, coverImageBuffer?: Buffer }} opts
+ * @param {{ title?: string, childName?: string, frontCoverBuffer?: Buffer, backCoverBuffer?: Buffer, coverImageBuffer?: Buffer }} opts
  * @returns {Promise<Buffer>} PDF bytes
  */
 async function buildCoverWrapPdf(opts = {}) {
-  const { title = 'My Coloring Book', childName = '', coverImageBuffer } = opts;
+  const { title = 'My Coloring Book', childName = '', frontCoverBuffer, backCoverBuffer, coverImageBuffer } = opts;
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle(`${title} — Cover`);
@@ -417,105 +469,149 @@ async function buildCoverWrapPdf(opts = {}) {
 
   const p = pdfDoc.addPage([COVER_W_PT, COVER_H_PT]);
 
-  // ── Full-bleed background: playful warm yellow ───────────────────────────
-  p.drawRectangle({ x: 0, y: 0, width: COVER_W_PT, height: COVER_H_PT, color: rgb(1, 0.92, 0.6) });
-
-  // ── Front cover (right half) ─────────────────────────────────────────────
+  // ── Layout coordinates ──
   const frontX = BLEED + COVER_HALF_W;  // right half starts here
-  const frontW = COVER_HALF_W;
-  const frontCenterX = frontX + frontW / 2;
-
-  // Colorful border frame on front cover
-  const frameInset = SAFETY_MARGIN;
-  const frameX = frontX + frameInset;
-  const frameY = BLEED + frameInset;
-  const frameW = frontW - frameInset * 2;
-  const frameH = COVER_H_PT - BLEED * 2 - frameInset * 2;
-  // Outer border - bright orange
-  p.drawRectangle({ x: frameX, y: frameY, width: frameW, height: frameH, borderColor: rgb(0.95, 0.5, 0.15), borderWidth: 6, color: undefined });
-  // Inner border - teal
-  p.drawRectangle({ x: frameX + 10, y: frameY + 10, width: frameW - 20, height: frameH - 20, borderColor: rgb(0.2, 0.7, 0.7), borderWidth: 3, color: undefined });
-
-  // Title: "{childName}'s" large at top
-  const nameStr = childName ? `${childName}'s` : 'My';
-  const nameSz = 36;
-  const nameW = titleFont.widthOfTextAtSize(nameStr, nameSz);
-  p.drawText(nameStr, { x: frontCenterX - nameW / 2, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 60, size: nameSz, font: titleFont, color: rgb(0.15, 0.15, 0.3) });
-
-  // "Coloring Book" below
-  const cbStr = 'Coloring Book';
-  const cbSz = 28;
-  const cbW = titleFont.widthOfTextAtSize(cbStr, cbSz);
-  p.drawText(cbStr, { x: frontCenterX - cbW / 2, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 100, size: cbSz, font: titleFont, color: rgb(0.85, 0.35, 0.2) });
-
-  // Cover image (one of the coloring pages) centered on front
-  if (coverImageBuffer) {
-    try {
-      // Keep it as-is for the cover (coloring page line art on colorful background)
-      const coverPng = await sharp(coverImageBuffer)
-        .grayscale()
-        .threshold(150)
-        .flatten({ background: { r: 255, g: 235, b: 153 } })  // match background
-        .png()
-        .toBuffer();
-      const pdfImage = await pdfDoc.embedPng(coverPng);
-      const imgSize = 320;
-      const imgX = frontCenterX - imgSize / 2;
-      const imgY = (COVER_H_PT - imgSize) / 2 - 20;
-      p.drawImage(pdfImage, { x: imgX, y: imgY, width: imgSize, height: imgSize });
-    } catch (err) {
-      console.warn(`[coverWrap] Could not embed cover image: ${err.message}`);
-    }
-  }
-
-  // Decorative elements: small colored circles (stars/dots)
-  const decorColors = [
-    rgb(0.95, 0.3, 0.3),   // red
-    rgb(0.3, 0.7, 0.95),   // blue
-    rgb(0.4, 0.85, 0.4),   // green
-    rgb(0.95, 0.7, 0.2),   // orange
-    rgb(0.7, 0.4, 0.9),    // purple
-  ];
-  const decorPositions = [
-    { x: frontX + 30, y: COVER_H_PT - 60 },
-    { x: frontX + frontW - 40, y: COVER_H_PT - 80 },
-    { x: frontX + 40, y: BLEED + 50 },
-    { x: frontX + frontW - 50, y: BLEED + 60 },
-    { x: frontX + frontW / 2 - 120, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 80 },
-    { x: frontX + frontW / 2 + 120, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 80 },
-  ];
-  for (let i = 0; i < decorPositions.length; i++) {
-    const { x, y } = decorPositions[i];
-    const c = decorColors[i % decorColors.length];
-    const r = 8 + (i % 3) * 3;
-    p.drawCircle({ x, y, size: r, color: c });
-  }
-
-  // Small branding at bottom of front cover
-  const brandFront = 'GiftMyBook.com';
-  const brandFW = fonts.helv.widthOfTextAtSize(brandFront, 9);
-  p.drawText(brandFront, { x: frontCenterX - brandFW / 2, y: BLEED + SAFETY_MARGIN + 10, size: 9, font: fonts.helv, color: rgb(0.4, 0.4, 0.45) });
-
-  // ── Back cover (left half) ───────────────────────────────────────────────
+  const frontW = COVER_HALF_W + BLEED;  // includes right bleed
+  const frontCenterX = BLEED + COVER_HALF_W + COVER_HALF_W / 2;
   const backCenterX = BLEED + COVER_HALF_W / 2;
 
-  // Simpler design with lighter wash
-  p.drawRectangle({ x: BLEED, y: BLEED, width: COVER_HALF_W, height: COVER_H_PT - BLEED * 2, color: rgb(1, 0.95, 0.78) });
+  const hasAiCovers = frontCoverBuffer && backCoverBuffer;
 
-  // "Made with love for {childName}"
-  const loveStr = `Made with love for ${childName || 'You'}`;
-  const loveSz = 20;
-  const loveW = subFont.widthOfTextAtSize(loveStr, loveSz);
-  p.drawText(loveStr, { x: backCenterX - loveW / 2, y: COVER_H_PT / 2 + 20, size: loveSz, font: subFont, color: rgb(0.2, 0.2, 0.35) });
+  if (hasAiCovers) {
+    // ── AI-generated cover art as full-bleed backgrounds ──
 
-  // GiftMyBook branding
-  const brandBack = 'GiftMyBook.com';
-  const brandBSz = 12;
-  const brandBW = fonts.helv.widthOfTextAtSize(brandBack, brandBSz);
-  p.drawText(brandBack, { x: backCenterX - brandBW / 2, y: COVER_H_PT / 2 - 30, size: brandBSz, font: fonts.helv, color: rgb(0.5, 0.5, 0.55) });
+    // Embed front cover image on right half (full bleed)
+    try {
+      const frontPng = await sharp(frontCoverBuffer).png().toBuffer();
+      const frontImg = await pdfDoc.embedPng(frontPng);
+      p.drawImage(frontImg, { x: frontX, y: 0, width: frontW, height: COVER_H_PT });
+    } catch (err) {
+      console.warn(`[coverWrap] Could not embed front cover AI image: ${err.message}`);
+      // Fallback: solid color
+      p.drawRectangle({ x: frontX, y: 0, width: frontW, height: COVER_H_PT, color: rgb(1, 0.92, 0.6) });
+    }
+
+    // Embed back cover image on left half (full bleed)
+    try {
+      const backPng = await sharp(backCoverBuffer).png().toBuffer();
+      const backImg = await pdfDoc.embedPng(backPng);
+      p.drawImage(backImg, { x: 0, y: 0, width: BLEED + COVER_HALF_W, height: COVER_H_PT });
+    } catch (err) {
+      console.warn(`[coverWrap] Could not embed back cover AI image: ${err.message}`);
+      p.drawRectangle({ x: 0, y: 0, width: BLEED + COVER_HALF_W, height: COVER_H_PT, color: rgb(1, 0.95, 0.78) });
+    }
+
+    // ── Front cover text overlay (pdf-lib, with shadow for readability) ──
+
+    // Title at top (word-wrap if needed)
+    const titleStr = title.toUpperCase();
+    const titleSz = 32;
+    const maxTitleW = COVER_HALF_W - SAFETY_MARGIN * 2;
+    const titleWords = titleStr.split(' ');
+    const titleLines = []; let curLine = '';
+    for (const w of titleWords) {
+      const t = curLine ? `${curLine} ${w}` : w;
+      if (titleFont.widthOfTextAtSize(t, titleSz) > maxTitleW && curLine) { titleLines.push(curLine); curLine = w; }
+      else curLine = t;
+    }
+    if (curLine) titleLines.push(curLine);
+
+    const lineH = titleSz * 1.35;
+    let y = COVER_H_PT - BLEED - SAFETY_MARGIN - 40;
+    for (const line of titleLines) {
+      drawCenteredTextWithShadow(p, line, titleFont, titleSz, y, rgb(1, 1, 1), frontCenterX);
+      y -= lineH;
+    }
+
+    // "Coloring Book" subtitle
+    drawCenteredTextWithShadow(p, 'Coloring Book', titleFont, 24, y - 8, rgb(1, 0.95, 0.7), frontCenterX);
+
+    // Child's name
+    const nameStr = childName ? `A personalized book for ${childName}` : '';
+    if (nameStr) {
+      drawCenteredTextWithShadow(p, nameStr, subFont, 16, BLEED + SAFETY_MARGIN + 60, rgb(1, 1, 1), frontCenterX);
+    }
+
+    // GiftMyBook branding at bottom of front
+    drawCenteredTextWithShadow(p, 'GiftMyBook.com', fonts.helv, 9, BLEED + SAFETY_MARGIN + 14, rgb(1, 1, 0.9), frontCenterX);
+
+    // ── Back cover text overlay ──
+
+    // "Made with love for {childName}" centered on back
+    const loveStr = `Made with love for ${childName || 'You'}`;
+    drawCenteredTextWithShadow(p, loveStr, subFont, 20, COVER_H_PT / 2 + 20, rgb(1, 1, 1), backCenterX);
+
+    // GiftMyBook branding on back
+    drawCenteredTextWithShadow(p, 'GiftMyBook.com', fonts.helv, 12, COVER_H_PT / 2 - 30, rgb(1, 1, 0.9), backCenterX);
+
+  } else {
+    // ── Fallback: old programmatic cover (no AI art available) ──
+    p.drawRectangle({ x: 0, y: 0, width: COVER_W_PT, height: COVER_H_PT, color: rgb(1, 0.92, 0.6) });
+
+    // Front cover (right half)
+    const frameInset = SAFETY_MARGIN;
+    const frameX = frontX + frameInset;
+    const frameY = BLEED + frameInset;
+    const frameW = COVER_HALF_W - frameInset * 2;
+    const frameH = COVER_H_PT - BLEED * 2 - frameInset * 2;
+    p.drawRectangle({ x: frameX, y: frameY, width: frameW, height: frameH, borderColor: rgb(0.95, 0.5, 0.15), borderWidth: 6, color: undefined });
+    p.drawRectangle({ x: frameX + 10, y: frameY + 10, width: frameW - 20, height: frameH - 20, borderColor: rgb(0.2, 0.7, 0.7), borderWidth: 3, color: undefined });
+
+    const nameStr = childName ? `${childName}'s` : 'My';
+    const nameSz = 36;
+    const nameW = titleFont.widthOfTextAtSize(nameStr, nameSz);
+    p.drawText(nameStr, { x: frontCenterX - nameW / 2, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 60, size: nameSz, font: titleFont, color: rgb(0.15, 0.15, 0.3) });
+
+    const cbStr = 'Coloring Book';
+    const cbSz = 28;
+    const cbW = titleFont.widthOfTextAtSize(cbStr, cbSz);
+    p.drawText(cbStr, { x: frontCenterX - cbW / 2, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 100, size: cbSz, font: titleFont, color: rgb(0.85, 0.35, 0.2) });
+
+    if (coverImageBuffer) {
+      try {
+        const coverPng = await sharp(coverImageBuffer)
+          .grayscale().threshold(150)
+          .flatten({ background: { r: 255, g: 235, b: 153 } })
+          .png().toBuffer();
+        const pdfImage = await pdfDoc.embedPng(coverPng);
+        const imgSize = 320;
+        p.drawImage(pdfImage, { x: frontCenterX - imgSize / 2, y: (COVER_H_PT - imgSize) / 2 - 20, width: imgSize, height: imgSize });
+      } catch (err) {
+        console.warn(`[coverWrap] Could not embed cover image: ${err.message}`);
+      }
+    }
+
+    const decorColors = [rgb(0.95,0.3,0.3), rgb(0.3,0.7,0.95), rgb(0.4,0.85,0.4), rgb(0.95,0.7,0.2), rgb(0.7,0.4,0.9)];
+    const decorPositions = [
+      { x: frontX + 30, y: COVER_H_PT - 60 }, { x: frontX + COVER_HALF_W - 40, y: COVER_H_PT - 80 },
+      { x: frontX + 40, y: BLEED + 50 }, { x: frontX + COVER_HALF_W - 50, y: BLEED + 60 },
+      { x: frontX + COVER_HALF_W / 2 - 120, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 80 },
+      { x: frontX + COVER_HALF_W / 2 + 120, y: COVER_H_PT - BLEED - SAFETY_MARGIN - 80 },
+    ];
+    for (let i = 0; i < decorPositions.length; i++) {
+      const { x, y } = decorPositions[i];
+      p.drawCircle({ x, y, size: 8 + (i % 3) * 3, color: decorColors[i % decorColors.length] });
+    }
+
+    const brandFront = 'GiftMyBook.com';
+    const brandFW = fonts.helv.widthOfTextAtSize(brandFront, 9);
+    p.drawText(brandFront, { x: frontCenterX - brandFW / 2, y: BLEED + SAFETY_MARGIN + 10, size: 9, font: fonts.helv, color: rgb(0.4, 0.4, 0.45) });
+
+    // Back cover (left half)
+    p.drawRectangle({ x: BLEED, y: BLEED, width: COVER_HALF_W, height: COVER_H_PT - BLEED * 2, color: rgb(1, 0.95, 0.78) });
+
+    const loveStr = `Made with love for ${childName || 'You'}`;
+    const loveSz = 20;
+    const loveW = subFont.widthOfTextAtSize(loveStr, loveSz);
+    p.drawText(loveStr, { x: backCenterX - loveW / 2, y: COVER_H_PT / 2 + 20, size: loveSz, font: subFont, color: rgb(0.2, 0.2, 0.35) });
+
+    const brandBack = 'GiftMyBook.com';
+    const brandBSz = 12;
+    const brandBW = fonts.helv.widthOfTextAtSize(brandBack, brandBSz);
+    p.drawText(brandBack, { x: backCenterX - brandBW / 2, y: COVER_H_PT / 2 - 30, size: brandBSz, font: fonts.helv, color: rgb(0.5, 0.5, 0.55) });
+  }
 
   // Barcode clear area: bottom-right of back cover, 2"×1.2" (144×86.4pt)
-  // "right" of back cover = close to the center seam
   const barcodeW = 2 * PTS_PER_INCH;
   const barcodeH = 1.2 * PTS_PER_INCH;
   const barcodeX = BLEED + COVER_HALF_W - SAFETY_MARGIN - barcodeW;
@@ -541,46 +637,72 @@ async function imageToPreviewPng(imageBuffer, targetWidth = 800) {
 }
 
 /**
- * Generate a cover thumbnail PNG from the cover wrap PDF.
- * Since we can't easily rasterize PDF→PNG without puppeteer,
- * we re-render the front cover portion as a PNG using sharp compositing.
- * @param {{ title?: string, childName?: string, coverImageBuffer?: Buffer }} opts
+ * Generate a cover thumbnail PNG.
+ * If frontCoverBuffer (AI art) is available, use it as the base and overlay text with sharp/SVG.
+ * Otherwise falls back to old yellow-background style.
+ * @param {{ title?: string, childName?: string, frontCoverBuffer?: Buffer, coverImageBuffer?: Buffer }} opts
  * @returns {Promise<Buffer>} PNG buffer (front cover only, ~600×776px)
  */
 async function generateCoverThumbnailPng(opts = {}) {
-  const { childName = '', coverImageBuffer } = opts;
+  const { title = 'My Coloring Book', childName = '', frontCoverBuffer, coverImageBuffer } = opts;
   const width = 600;
   const height = 776;
 
-  // Create a warm yellow background
   const layers = [];
+  let composite;
 
-  // Base: warm yellow background
-  let composite = sharp({
-    create: { width, height, channels: 4, background: { r: 255, g: 235, b: 153, alpha: 1 } }
-  });
-
-  if (coverImageBuffer) {
+  if (frontCoverBuffer) {
+    // ── AI cover art as base ──
     try {
-      const coverImg = await sharp(coverImageBuffer)
-        .grayscale()
-        .threshold(150)
-        .flatten({ background: { r: 255, g: 235, b: 153 } })
-        .resize(360, 360, { fit: 'inside' })
+      const base = await sharp(frontCoverBuffer)
+        .resize(width, height, { fit: 'cover' })
         .png()
         .toBuffer();
-      layers.push({ input: coverImg, top: Math.round((height - 360) / 2 + 10), left: Math.round((width - 360) / 2) });
+      composite = sharp(base);
     } catch (err) {
-      console.warn(`[coverThumbnail] Could not process cover image: ${err.message}`);
+      console.warn(`[coverThumbnail] Could not process AI cover: ${err.message}`);
+      composite = sharp({
+        create: { width, height, channels: 4, background: { r: 255, g: 235, b: 153, alpha: 1 } }
+      });
+    }
+  } else {
+    // ── Fallback: old yellow background ──
+    composite = sharp({
+      create: { width, height, channels: 4, background: { r: 255, g: 235, b: 153, alpha: 1 } }
+    });
+
+    if (coverImageBuffer) {
+      try {
+        const coverImg = await sharp(coverImageBuffer)
+          .grayscale().threshold(150)
+          .flatten({ background: { r: 255, g: 235, b: 153 } })
+          .resize(360, 360, { fit: 'inside' })
+          .png().toBuffer();
+        layers.push({ input: coverImg, top: Math.round((height - 360) / 2 + 10), left: Math.round((width - 360) / 2) });
+      } catch (err) {
+        console.warn(`[coverThumbnail] Could not process cover image: ${err.message}`);
+      }
     }
   }
 
-  // Build an SVG overlay for text
+  // SVG text overlay (sharp composite — this is just a thumbnail, Sharp is OK here)
   const escapedName = (childName || 'My').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const escapedTitle = (title || 'My Coloring Book').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Use white text with dark shadow when over AI art, dark text when over yellow
+  const hasAi = !!frontCoverBuffer;
+  const titleColor = hasAi ? '#FFFFFF' : '#26264D';
+  const subColor = hasAi ? '#FFF3CC' : '#D95933';
+  const brandColor = hasAi ? '#FFFFEE' : '#666670';
+  const shadow = hasAi ? 'filter="url(#shadow)"' : '';
+  const shadowDef = hasAi ? `<defs><filter id="shadow" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="1" dy="1" stdDeviation="2" flood-color="#000000" flood-opacity="0.6"/></filter></defs>` : '';
+
   const svgOverlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${width / 2}" y="80" text-anchor="middle" font-family="sans-serif" font-size="40" font-weight="bold" fill="#26264D">${escapedName}'s</text>
-    <text x="${width / 2}" y="125" text-anchor="middle" font-family="sans-serif" font-size="30" font-weight="bold" fill="#D95933">Coloring Book</text>
-    <text x="${width / 2}" y="${height - 30}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#666670">GiftMyBook.com</text>
+    ${shadowDef}
+    <text x="${width / 2}" y="60" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold" fill="${titleColor}" ${shadow}>${escapedTitle}</text>
+    <text x="${width / 2}" y="95" text-anchor="middle" font-family="sans-serif" font-size="36" font-weight="bold" fill="${titleColor}" ${shadow}>${escapedName}'s</text>
+    <text x="${width / 2}" y="132" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="bold" fill="${subColor}" ${shadow}>Coloring Book</text>
+    <text x="${width / 2}" y="${height - 30}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="${brandColor}" ${shadow}>GiftMyBook.com</text>
   </svg>`);
 
   layers.push({ input: svgOverlay, top: 0, left: 0 });
@@ -591,11 +713,11 @@ async function generateCoverThumbnailPng(opts = {}) {
 /**
  * Assemble the full coloring book PDF.
  * @param {Array<{buffer: Buffer|null, success: boolean, title?: string}>} pages
- * @param {{ title?: string, childName?: string, pagesOnly?: boolean, coverImageBuffer?: Buffer }} opts
+ * @param {{ title?: string, childName?: string, pagesOnly?: boolean, coverImageBuffer?: Buffer, frontCoverBuffer?: Buffer }} opts
  * @returns {Promise<Buffer>} PDF bytes
  */
 async function buildColoringBookPdf(pages, opts = {}) {
-  const { title = 'My Coloring Book', childName = '', pagesOnly = false, coverImageBuffer } = opts;
+  const { title = 'My Coloring Book', childName = '', pagesOnly = false, coverImageBuffer, frontCoverBuffer } = opts;
 
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle(`${title} — Coloring Book`);
@@ -606,7 +728,7 @@ async function buildColoringBookPdf(pages, opts = {}) {
   if (!pagesOnly) {
     fonts = await loadFonts(pdfDoc);
     bangersFont = fonts.bubblegum || fonts.playfair || fonts.helv;
-    await buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer });
+    await buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer, frontCoverBuffer });
   } else {
     fonts = await loadFonts(pdfDoc);
     bangersFont = fonts.bubblegum || fonts.playfair || fonts.helv;
