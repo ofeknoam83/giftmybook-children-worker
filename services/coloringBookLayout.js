@@ -1,6 +1,6 @@
 'use strict';
 
-const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const { PDFDocument, rgb } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const sharp = require('sharp');
 const fs = require('fs');
@@ -28,6 +28,7 @@ const FONT_PATHS = {
   playfair:       path.join(FONT_DIR, 'PlayfairDisplay.ttf'),
   playfairItalic: path.join(FONT_DIR, 'PlayfairDisplay-Italic.ttf'),
   dancing:        path.join(FONT_DIR, 'DancingScript.ttf'),
+  helv:           path.join(FONT_DIR, 'LiberationSans-Regular.ttf'),
 };
 
 /**
@@ -41,7 +42,7 @@ async function loadFonts(pdfDoc) {
     load(FONT_PATHS.playfair),
     load(FONT_PATHS.playfairItalic),
     load(FONT_PATHS.dancing),
-    pdfDoc.embedFont(StandardFonts.Helvetica),
+    load(FONT_PATHS.helv),
   ]);
   return { bubblegum, playfair, playfairItalic, dancing, helv };
 }
