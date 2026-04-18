@@ -197,6 +197,33 @@ ${prompt}`;
           }
         }
 
+        // If anatomy still fails after correction retries, attempt one fresh generation
+        if (!anatomyCheck.pass && qaRetries >= MAX_SPREAD_RETRIES) {
+          log('warn', `Spread ${i + 1} anatomy still failing after ${qaRetries} corrections — attempting fresh generation`);
+          try {
+            const freshResult = await generateSpread(session, prompt, i);
+            const freshImageBase64 = freshResult.imageBase64;
+            const freshImageBuffer = freshResult.imageBuffer;
+
+            const [freshTextCheck, freshAnatomyCheck] = await Promise.all([
+              verifySpreadText(freshImageBase64, spreadText, qaOpts),
+              checkAnatomy(freshImageBase64, qaOpts),
+            ]);
+
+            if (freshAnatomyCheck.pass) {
+              log('info', `Spread ${i + 1} fresh generation passed anatomy QA`);
+              imageBase64 = freshImageBase64;
+              imageBuffer = freshImageBuffer;
+              Object.assign(textCheck, freshTextCheck);
+              Object.assign(anatomyCheck, freshAnatomyCheck);
+            } else {
+              log('warn', `Spread ${i + 1} fresh generation also failed anatomy — keeping best attempt`);
+            }
+          } catch (freshErr) {
+            log('warn', `Spread ${i + 1} fresh generation failed: ${freshErr.message} — keeping best attempt`);
+          }
+        }
+
         if (!textCheck.pass || !anatomyCheck.pass) {
           log('warn', `Spread ${i + 1} accepting with QA issues after ${qaRetries} retries`);
         } else {

@@ -27,24 +27,29 @@ function buildSystemInstruction(opts) {
   parts.push('');
 
   // Art style
-  parts.push(`ART STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
-  parts.push('Maintain this exact art style in every illustration.');
+  parts.push(`ART STYLE (NON-NEGOTIABLE): ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push('This art style is MANDATORY for every single illustration. Do NOT deviate to watercolor, flat 2D, line art, or any other rendering technique.');
+  parts.push('Every illustration must use the EXACT SAME rendering technique — if the style says 3D/CGI, every page must be 3D/CGI rendered. If it says watercolor, every page must be watercolor.');
+  parts.push('Match the rendering style shown in the approved cover image provided in Turn 1.');
   parts.push('');
 
   // Character consistency (image-based, no text descriptions)
-  parts.push('CHARACTER CONSISTENCY (CRITICAL):');
+  parts.push('CHARACTER CONSISTENCY (CRITICAL — READ CAREFULLY):');
   parts.push('- Every character must look IDENTICAL to the reference images provided in Turn 1');
-  parts.push('- Same face, hair, skin tone, body proportions in EVERY illustration');
-  parts.push('- Same outfit in EVERY spread — no costume changes, no activity-specific clothing');
+  parts.push('- HAIR: Same hair COLOR, LENGTH, STYLE, and TEXTURE in EVERY illustration. If the child has short dark curly hair on the cover, they must have short dark curly hair on every single page. NEVER change hairstyle, hair color, or hair length.');
+  parts.push('- OUTFIT: The child wears the EXACT SAME CLOTHES in EVERY illustration — same colors, same style, same accessories. No costume changes for weather, activity, time of day, or scene. Look at the cover — that outfit is what they wear on EVERY page.');
+  parts.push('- FACE: Same face shape, same skin tone, same facial features in EVERY illustration');
   parts.push('- The child\'s eyes must ALWAYS be OPEN and expressive');
   parts.push('- If the reference photo shows closed/squinting eyes, IGNORE that — draw them open');
   parts.push('');
 
   // Anatomy
-  parts.push('ANATOMY RULES:');
-  parts.push('- 5 fingers per hand, 2 arms, 2 legs — count before generating');
+  parts.push('ANATOMY RULES (COUNT BEFORE GENERATING):');
+  parts.push('- Every person has EXACTLY 2 hands, 2 arms, 2 legs, 2 feet — NO MORE, NO LESS');
+  parts.push('- Every hand has EXACTLY 5 fingers — count them before finalizing');
+  parts.push('- NEVER generate 3 hands, 3 arms, or any extra limbs');
   parts.push('- Proportions appropriate for a young child');
-  parts.push('- No extra limbs, no merged body parts, no body horror');
+  parts.push('- No merged body parts, no distorted limbs, no body horror');
   parts.push('');
 
   // Composition

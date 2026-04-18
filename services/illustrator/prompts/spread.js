@@ -50,8 +50,11 @@ function buildSpreadPrompt(opts) {
 
   // Character rules (image-based — no text descriptions)
   parts.push('### CHARACTER RULES');
-  parts.push('- Characters must match the reference images EXACTLY — same face, hair, skin tone, outfit');
-  parts.push('- Same outfit as in EVERY other spread — no changes for weather, activity, or scene');
+  parts.push('- Characters must match the reference images EXACTLY');
+  parts.push('- HAIR: Same color, length, style, texture as on the cover — do NOT change hairstyle');
+  parts.push('- OUTFIT: Same clothes and colors as on the cover — no costume changes for any reason');
+  parts.push('- FACE: Same face shape, skin tone, and features as the reference');
+  parts.push('- ANATOMY: Exactly 2 hands, 2 arms, 2 legs per person. 5 fingers per hand. Count before generating.');
 
   if (hasParentOnCover) {
     parts.push('- Parent can appear and must match their cover appearance exactly');
@@ -77,8 +80,9 @@ function buildSpreadPrompt(opts) {
 
   // Style consistency reminder
   parts.push('### STYLE CONSISTENCY');
-  parts.push('- Match the EXACT rendering technique, lighting quality, texture detail, and color saturation of all previous spreads');
-  parts.push('- This is the same physical book — every page must look like the same artist painted it in the same session');
+  parts.push('- Match the EXACT rendering technique of the cover and all previous spreads — same 3D/2D/watercolor technique, same lighting quality, same texture detail, same color saturation');
+  parts.push('- This is the same physical book — every page must look like the same artist rendered it');
+  parts.push('- If the cover is 3D CGI, this spread MUST be 3D CGI. Do NOT switch to watercolor, flat illustration, or any other style.');
   parts.push('- Use the SAME font as every other page — identical family, weight, and size');
   parts.push('');
 
