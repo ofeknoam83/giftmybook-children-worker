@@ -1,0 +1,78 @@
+/**
+ * Illustrator V2 — Configuration
+ *
+ * Models, timeouts, sliding window settings, and text rules.
+ * Art style configs are imported from illustrationGenerator.js (single source of truth).
+ */
+
+const { ART_STYLE_CONFIG, PARENT_THEMES } = require('../illustrationGenerator');
+
+// ── Gemini models ──
+const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_QA_MODEL = 'gemini-2.5-flash';
+const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+// ── Timeouts ──
+const TURN_TIMEOUT_MS = 180000;       // 3 minutes per generation turn
+const QA_TIMEOUT_MS = 60000;          // 1 minute per QA call
+const ESTABLISHMENT_TIMEOUT_MS = 60000; // 1 minute for character establishment
+
+// ── Sliding window ──
+const SLIDING_WINDOW_SIZE = 3;  // Keep last 3 generated spread images
+const MAX_HISTORY_IMAGES = 12;  // Start trimming above this
+
+// ── Retry budgets ──
+const MAX_SPREAD_RETRIES = 2;       // Per-spread QA retry limit (within session)
+const MAX_REGEN_SPREADS = 3;        // Max spreads to regenerate after cross-spread QA
+
+// ── Book structure ──
+const TOTAL_SPREADS = 13;
+
+// ── Text rules ──
+const TEXT_RULES = {
+  maxWordsPerLine: 6,
+  edgePaddingPercent: 8,
+  fontStyle: 'elegant classic serif (Lora-like), refined delicate serifs',
+  fontColor: 'white/cream with subtle drop shadow',
+  fontSize: 'small, like quiet subtitles — NOT a headline, NOT a title',
+};
+
+// ── Emotional beat mapping (spread position -> beat) ──
+function getEmotionalBeat(spreadIndex, totalSpreads) {
+  const ratio = spreadIndex / (totalSpreads - 1);
+  if (ratio <= 0.15) return 'opening';
+  if (ratio <= 0.4) return 'building';
+  if (ratio <= 0.6) return 'rising';
+  if (ratio <= 0.8) return 'climax';
+  if (ratio <= 0.92) return 'resolution';
+  return 'closing';
+}
+
+// ── Camera angle suggestions per beat ──
+const BEAT_CAMERA = {
+  opening: 'wide establishing shot — show the setting and character',
+  building: 'medium shot — character engaged in activity',
+  rising: 'medium-close — growing emotion visible',
+  climax: 'close-up or dynamic angle — peak emotion',
+  resolution: 'medium shot — calm, warm moment',
+  closing: 'wide or medium — sense of completion',
+};
+
+module.exports = {
+  GEMINI_IMAGE_MODEL,
+  GEMINI_QA_MODEL,
+  CHAT_API_BASE,
+  TURN_TIMEOUT_MS,
+  QA_TIMEOUT_MS,
+  ESTABLISHMENT_TIMEOUT_MS,
+  SLIDING_WINDOW_SIZE,
+  MAX_HISTORY_IMAGES,
+  MAX_SPREAD_RETRIES,
+  MAX_REGEN_SPREADS,
+  TOTAL_SPREADS,
+  TEXT_RULES,
+  ART_STYLE_CONFIG,
+  PARENT_THEMES,
+  getEmotionalBeat,
+  BEAT_CAMERA,
+};

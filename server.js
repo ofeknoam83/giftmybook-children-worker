@@ -552,6 +552,29 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     theme,
   } = opts;
 
+  // ── Illustrator V2 (feature-flagged) ──
+  const useIllustratorV2 = process.env.USE_ILLUSTRATOR_V2 === 'true';
+  if (useIllustratorV2) {
+    bookContext.log('info', 'Using Illustrator V2 engine (USE_ILLUSTRATOR_V2=true)');
+    const { IllustratorEngine } = require('./services/illustrator/engine');
+    const illustrator = new IllustratorEngine();
+    return await illustrator.generate({
+      entries,
+      storyPlan,
+      childDetails,
+      style,
+      coverBase64: parentCoverRefBase64 || characterRefSheetBase64 || null,
+      coverMime: 'image/jpeg',
+      childPhotoBase64: cachedPhotoBase64,
+      childPhotoMime: cachedPhotoMime || 'image/jpeg',
+      bookId,
+      bookContext,
+      theme,
+      additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+      costTracker,
+    });
+  }
+
   // Count how many illustrations we need
   const illustratableEntries = entries.map((entry, idx) => {
     if (entry.type === 'blank') return null;
@@ -3088,7 +3111,7 @@ Format your answer with each label on its own line followed by a colon and the a
                     totalSpreads: spreadEntries.length,
                     childAge: childDetails.age || childDetails.childAge,
                     pageText: origImg?.pageText || '',
-                    embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true',
+                    embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true' || process.env.USE_ILLUSTRATOR_V2 === 'true',
                     isSpread: !!(entriesWithIllustrations[failed.index]?.type === 'spread'),
                     deadlineMs: 200000,
                     abortSignal: bookContext.abortController.signal,
@@ -3774,7 +3797,7 @@ Format: each label on its own line followed by a colon and the answer.` },
       prevIllustrationUrls: Array.isArray(prevIllustrationUrls) && prevIllustrationUrls.length > 0 ? prevIllustrationUrls : (prevIllustrationUrl ? [prevIllustrationUrl] : []),
       _cachedPhotoBase64: cachedPhotoBase64 || null,
       firstSpreadRefBase64,
-      embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true',
+      embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true' || process.env.USE_ILLUSTRATOR_V2 === 'true',
     });
 
     if (!result) {
