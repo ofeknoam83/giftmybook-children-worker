@@ -202,9 +202,9 @@ class FathersDayWriter extends BaseThemeWriter {
       { spread: 5, beat: 'DEEPENING_1', description: `${parentName} noticing something specific about ${child.name}. The shift from activities to connection.`, wordTarget: 22 },
       { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — a specific gesture, habit, or look that ${child.name} has.`, wordTarget: 22 },
       { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName}'s quiet softness — the way he watches when ${child.name} isn't looking.`, wordTarget: 20 },
-      { spread: 8, beat: 'EVEN_WHEN', description: `One brief moment things are hard — a tumble, a frustration, a tired wobble. ${parentName} stays steady. Love holds.`, wordTarget: 22 },
-      { spread: 9, beat: 'TURNING_POINT', description: `The mood lifts — ${parentName} makes ${child.name} laugh. A silly voice, a surprise, a game. Joy rushes back.`, wordTarget: 22 },
-      { spread: 10, beat: 'CELEBRATION', description: `Something special they do together — building, exploring, a shared adventure. Bright, warm, happy.`, wordTarget: 22 },
+      { spread: 8, beat: 'SURPRISE', description: `${child.name} does something sweet or unexpected for ${parentName} — a drawing, a made-up gift, a silly salute. Warm and funny.`, wordTarget: 22 },
+      { spread: 9, beat: 'ADVENTURE', description: `They go on a little adventure together — exploring, building something big, a backyard quest. Bright, active, joyful.`, wordTarget: 22 },
+      { spread: 10, beat: 'CELEBRATION', description: `Something special they share — a high-five, a victory dance, a silly game. Pure happiness and laughter.`, wordTarget: 22 },
       { spread: 11, beat: 'TOGETHER', description: `Side by side doing their favorite thing. The ordinary IS the gift. Warm, vivid, full of life.`, wordTarget: 22 },
       { spread: 12, beat: 'CLIMAX', description: `The warmest moment — a big bear hug, laughter still in the air. WARM, not quiet. Full of love and light.`, wordTarget: 20 },
       { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful and warm. A parent should want to read it twice.`, wordTarget: 14 },
@@ -224,9 +224,9 @@ class FathersDayWriter extends BaseThemeWriter {
       { spread: 5, beat: 'DEEPENING_1', description: `${parentName} begins noticing specific things about ${child.name}. The shift from activities to emotional connection.`, wordTarget: 28 },
       { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — the specific laugh, the particular habit, the invented game.`, wordTarget: 28 },
       { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName}'s perspective feels earned — he saw something specific; that seeing is the love.`, wordTarget: 25 },
-      { spread: 8, beat: 'EVEN_WHEN', description: `One moment things are hard — a scraped knee, a frustration, a tough moment. ${parentName} stays steady. Love holds.`, wordTarget: 25 },
-      { spread: 9, beat: 'TURNING_POINT', description: `The mood lifts — ${parentName} cracks a joke, starts a game, does something unexpected. Energy and joy return.`, wordTarget: 25 },
-      { spread: 10, beat: 'CELEBRATION', description: `A shared moment of joy — building something epic, an adventure, a surprise. Bright, warm, active.`, wordTarget: 25 },
+      { spread: 8, beat: 'SURPRISE', description: `${child.name} does something sweet or unexpected for ${parentName} — a handmade card, a silly gift, a proud show-and-tell. Warm and funny.`, wordTarget: 25 },
+      { spread: 9, beat: 'ADVENTURE', description: `They go on a little adventure together — exploring, building something big, a backyard quest. Bright, active, joyful.`, wordTarget: 25 },
+      { spread: 10, beat: 'CELEBRATION', description: `A shared moment of pure joy — a victory dance, a high-five, laughing together. Bright, warm, happy.`, wordTarget: 25 },
       { spread: 11, beat: 'TOGETHER', description: `The best part of the day. Doing what they love most together. Happy, vivid, full of energy and warmth.`, wordTarget: 25 },
       { spread: 12, beat: 'CLIMAX', description: `The warmest moment — not quiet, FULL. A big bear hug. Laughter in the air. Full of love and light.`, wordTarget: 20 },
       { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful, warm, celebratory. A parent should want to read it twice.`, wordTarget: 15 },
@@ -337,7 +337,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## CRITICAL REMINDERS\n`);
     sections.push(`- AABB couplets throughout — every line pair must rhyme`);
     sections.push(`- The climax spread (${plan.beats.find(b => b.beat === 'CLIMAX')?.spread || 10}) should have the FEWEST words`);
-    sections.push(`- This is a CELEBRATION book, not a bedtime book. The ending must be WARM, JOYFUL, and ENERGETIC. No falling asleep, no winding down, no quiet settling. After the one brief difficult moment (spread 8), the book should bounce back to happiness and end on a high.`);
+    sections.push(`- This is a CELEBRATION book, not a bedtime book. EVERY spread must be WARM, JOYFUL, and POSITIVE. No anger, crying, tantrums, frustration, tiredness, sleeping, winding down, or negative emotions at any point. The entire book should feel happy and loving from start to finish.`);
     sections.push(`- Close on an IMAGE, not a declaration — no "I love you" as the last line`);
     sections.push(`- Every spread needs at least one concrete, specific noun`);
     sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
