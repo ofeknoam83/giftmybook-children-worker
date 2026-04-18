@@ -32,15 +32,18 @@ const API_KEY_POOL = buildKeyPool();
 let keyIndex = 0;
 let stickyKeyIndex = -1; // If a key responds fast, stick with it
 let stickyKeyExpiry = 0;
+let lastUsedKeyIndex = -1;
 
 function getNextApiKey() {
   if (API_KEY_POOL.length === 0) return '';
   // If we have a sticky key that responded fast recently, prefer it
   if (stickyKeyIndex >= 0 && Date.now() < stickyKeyExpiry) {
-    return API_KEY_POOL[stickyKeyIndex % API_KEY_POOL.length];
+    lastUsedKeyIndex = stickyKeyIndex % API_KEY_POOL.length;
+    return API_KEY_POOL[lastUsedKeyIndex];
   }
   stickyKeyIndex = -1; // expired
-  const key = API_KEY_POOL[keyIndex % API_KEY_POOL.length];
+  lastUsedKeyIndex = keyIndex % API_KEY_POOL.length;
+  const key = API_KEY_POOL[lastUsedKeyIndex];
   keyIndex++;
   return key;
 }
@@ -596,6 +599,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
         keyObjects,
         colorScript: opts.colorScript,
         firstPageRefBase64: opts.firstPageRefBase64,
+        theme: opts.theme,
+        parentOutfit: opts.parentOutfit,
       }
     );
   }
@@ -966,37 +971,22 @@ async function downloadPhotoAsBase64(url) {
  * @param {string} photoMime - MIME type of the photo
  * @param {AbortSignal} abortSignal
  * @param {object} opts
- * @param {string} [opts.originalPhotoBase64] - Original uploaded photo (for first spread only — ground truth for ethnicity/skin tone)
- * @param {string} [opts.originalPhotoMime]
  * @returns {Promise<Buffer>} Generated image buffer
  */
 async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, opts = {}) {
   const apiKey = getNextApiKey();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const keyIdx = (keyIndex - 1) % API_KEY_POOL.length;
+  const keyIdx = lastUsedKeyIndex;
 
   const generationConfig = { responseModalities: ['TEXT', 'IMAGE'] };
   if (opts.aspectRatio) {
     generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
   }
 
-  // Build parts: text prompt + character references + optional style references
-  // For spread 1: send both the original uploaded photo (ethnicity ground truth) AND the cover (rendered style)
-  // For all other spreads: send only the cover
   const parts = [
     { text: prompt },
+    { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
   ];
-
-  if (opts.originalPhotoBase64) {
-    // Spread 1: original photo first (real-world ground truth for ethnicity, skin tone, eye shape)
-    parts.push({ text: 'CHARACTER REFERENCE — REAL PHOTO (ground truth): This is the actual photograph of the child. Use this as the definitive reference for: ethnicity, skin tone, eye shape, eye color, and facial features. These characteristics are LOCKED and must be reproduced exactly. IMPORTANT: If the child\'s eyes appear closed or squinting in this photo, IGNORE the eye state — always draw the child with open, bright, expressive eyes.' });
-    parts.push({ inline_data: { mimeType: opts.originalPhotoMime || 'image/jpeg', data: opts.originalPhotoBase64 } });
-    parts.push({ text: 'CHARACTER REFERENCE — BOOK COVER (rendered style): This is the approved book cover showing the same child in the book\'s art style. Use this as reference for: art style, rendering quality, hair depiction, outfit, and how the character looks in this specific illustration style. Combine both references — the real photo\'s ethnicity/features with the cover\'s art style.' });
-    parts.push({ inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } });
-  } else {
-    // All other spreads: cover only (already anchored by spread 1 as style reference)
-    parts.push({ inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } });
-  }
 
   // Add all style reference images (multiple supported)
   const styleRefs = Array.isArray(opts.prevIllustrationRefs) && opts.prevIllustrationRefs.length > 0
@@ -1082,7 +1072,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal, opts =
 
   // Build endpoint list: primary (round-robin key) + proxy fallback
   const endpoints = [
-    { url: publicUrl, headers: { 'Content-Type': 'application/json' }, label: `public-${(keyIndex - 1) % API_KEY_POOL.length}` },
+    { url: publicUrl, headers: { 'Content-Type': 'application/json' }, label: `public-${lastUsedKeyIndex}` },
     ...(PROXY_URL ? [{
       url: `${PROXY_URL}/generate-image`,
       headers: { 'Content-Type': 'application/json', 'x-api-key': PROXY_API_KEY },
@@ -1154,6 +1144,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal, opts =
       }
     }
   }
+  throw new Error('No time remaining for illustration generation — all endpoints skipped');
 }
 
 /**
@@ -1204,6 +1195,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     aspectRatioHint: opts.aspectRatioHint || '',
     aspectRatio: opts.aspectRatio || '',
     firstSpreadRefBase64: opts.firstSpreadRefBase64 || null,
+    theme: opts.theme || null,
+    parentOutfit: opts.parentOutfit || null,
+    shotType: opts.shotType || null,
   });
   const aspectRatio = determineAspectRatio({ ...opts, isSpread });
 
@@ -1269,15 +1263,8 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       const geminiStart = Date.now();
 
       let imageBuffer;
-      // Always use cover image as reference for character likeness
       if (photoBase64) {
-        // For spread 0 (first illustration): pass both the original uploaded photo AND the cover
-        // The original photo is the ground truth for ethnicity/skin tone/eye shape
-        // The cover shows the rendered art style the character should match
-        // Send the original uploaded photo as ethnicity/skin tone ground truth for ALL spreads, not just the first
-        const originalPhotoBase64 = opts._cachedPhotoBase64 || null;
-        const originalPhotoMime = opts._cachedPhotoMime || 'image/jpeg';
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, originalPhotoBase64, originalPhotoMime, firstSpreadRefBase64: opts.firstSpreadRefBase64 || null });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, firstSpreadRefBase64: opts.firstSpreadRefBase64 || null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
@@ -1292,7 +1279,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       }
 
       // Verify embedded text accuracy (skip on last attempt — accept best effort)
-      const hasEmbeddedText = opts.pageText && !opts.skipTextEmbed;
+      const hasEmbeddedText = opts.pageText && opts.embedText;
       if (hasEmbeddedText && attempt < maxRetries) {
         const textCheck = await verifyImageText(imageBuffer, opts.pageText, opts.abortSignal, costTracker);
         if (!textCheck.valid) {
@@ -1357,9 +1344,8 @@ async function checkCharacterConsistency(generatedImageBase64, referenceImageBas
     : '';
 
   try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const resp = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1391,13 +1377,12 @@ ${characterOutfit ? `Expected outfit (AUTHORITATIVE — use this, not the refere
 Respond with ONLY valid JSON:
 {"consistent": true} or {"consistent": false, "issues": ["skin tone is significantly different", "hair is completely different style"]}
 Only return consistent:false if the character would be unrecognizable or clearly a different person. Minor variations are acceptable.` },
-            { inline_data: { mime_type: 'image/jpeg', data: referenceImageBase64 } },
-            { inline_data: { mime_type: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
+            { inline_data: { mimeType: 'image/jpeg', data: referenceImageBase64 } },
+            { inline_data: { mimeType: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
           ]}],
           generationConfig: { maxOutputTokens: 1024, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
         }),
-      }
-    );
+      }, 60000);
 
     if (!resp.ok) return { consistent: true, issues: [] };
     const data = await resp.json();
@@ -1425,9 +1410,8 @@ async function checkCharacterCount(imageBase64, expectedCharacters) {
   if (!apiKey) return { passed: true };
 
   try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const resp = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1435,12 +1419,11 @@ async function checkCharacterCount(imageBase64, expectedCharacters) {
             { text: `How many distinct human characters are visible in this children's book illustration?
 Count each unique person (not reflections, shadows, or background art/paintings/posters on walls).
 Return ONLY valid JSON: {"children": N, "adults": N}` },
-            { inline_data: { mime_type: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
+            { inline_data: { mimeType: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
           ]}],
           generationConfig: { maxOutputTokens: 256, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
         }),
-      }
-    );
+      }, 60000);
 
     if (!resp.ok) return { passed: true };
     const data = await resp.json();
@@ -1481,9 +1464,8 @@ async function checkTextPresentation(imageBase64) {
   if (!apiKey) return { passed: true };
 
   try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const resp = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1495,12 +1477,11 @@ Text in a dedicated margin/negative space area is fine.
 Text with a subtle shadow or outline is fine.
 Only flag solid opaque boxes that obscure the illustration.
 Return ONLY valid JSON: {"hasOpaqueOverlay": true/false, "description": "brief description"}` },
-            { inline_data: { mime_type: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
+            { inline_data: { mimeType: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
           ]}],
           generationConfig: { maxOutputTokens: 256, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
         }),
-      }
-    );
+      }, 60000);
 
     if (!resp.ok) return { passed: true };
     const data = await resp.json();
@@ -1532,9 +1513,8 @@ async function checkFontConsistency(currentImageBase64, firstSpreadBase64) {
   if (!apiKey) return { passed: true };
 
   try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const resp = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1545,13 +1525,12 @@ Does Image 2 use the same: font family, font size (relative to page), font weigh
 Minor variations are acceptable (AI rendering is imperfect).
 Only flag OBVIOUS differences — clearly different font, dramatically different size, different color.
 Return ONLY valid JSON: {"consistent": true/false, "issues": ["different font family", "larger font size", etc.]}` },
-            { inline_data: { mime_type: 'image/jpeg', data: typeof firstSpreadBase64 === 'string' ? firstSpreadBase64 : firstSpreadBase64.toString('base64') } },
-            { inline_data: { mime_type: 'image/jpeg', data: typeof currentImageBase64 === 'string' ? currentImageBase64 : currentImageBase64.toString('base64') } },
+            { inline_data: { mimeType: 'image/jpeg', data: typeof firstSpreadBase64 === 'string' ? firstSpreadBase64 : firstSpreadBase64.toString('base64') } },
+            { inline_data: { mimeType: 'image/jpeg', data: typeof currentImageBase64 === 'string' ? currentImageBase64 : currentImageBase64.toString('base64') } },
           ]}],
           generationConfig: { maxOutputTokens: 512, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
         }),
-      }
-    );
+      }, 60000);
 
     if (!resp.ok) return { passed: true };
     const data = await resp.json();
@@ -1625,4 +1604,4 @@ ${anchors.map((a, i) => `Anchor ${i + 1}: ${a.label}`).join('\n')}
   );
 }
 
-module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, buildComicPagePrompt, getNextApiKey, ART_STYLE_CONFIG, PARENT_THEMES, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, checkCharacterCount, checkTextPresentation, checkFontConsistency };
+module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, PARENT_THEMES, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };
