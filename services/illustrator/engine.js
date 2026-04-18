@@ -130,10 +130,26 @@ class IllustratorEngine {
           theme,
         });
 
-        // Generate within session
-        let result = await generateSpread(session, prompt, i);
-        let imageBase64 = result.imageBase64;
-        let imageBuffer = result.imageBuffer;
+        // Generate within session (retry up to 2 times on failure)
+        const MAX_GENERATION_RETRIES = 2;
+        let result = null;
+        let imageBase64 = null;
+        let imageBuffer = null;
+        for (let genRetry = 0; genRetry <= MAX_GENERATION_RETRIES; genRetry++) {
+          try {
+            result = await generateSpread(session, prompt, i);
+            imageBase64 = result.imageBase64;
+            imageBuffer = result.imageBuffer;
+            break;
+          } catch (genErr) {
+            if (genRetry < MAX_GENERATION_RETRIES) {
+              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in 2s`);
+              await new Promise(r => setTimeout(r, 2000));
+            } else {
+              throw genErr; // Final attempt failed — outer catch handles it
+            }
+          }
+        }
 
         // ── Per-spread QA ──
         const qaOpts = { costTracker };
