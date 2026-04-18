@@ -36,6 +36,7 @@ const RULES_BY_TIER = {
       'NO adjective stacking — choose ONE precise word.',
       'Use concrete nouns: "oak" not "tree", "chicken soup" not "lunch".',
       'Maximum 1-2 onomatopoeia across the entire story.',
+      'Do NOT invent names or details not provided in the input. Use ONLY the names given to you.',
     ],
   },
 
@@ -47,6 +48,7 @@ const RULES_BY_TIER = {
       'Pattern with variation — same structure repeated but with new content each time.',
       'Repetition can substitute for escalation.',
       'The "ending" is often a satisfying completion of the pattern.',
+      'Imagery must match the scene\'s time of day — no moon at noon, no sunrise at bedtime.',
     ],
     language: [
       'Simple sentences, action + object.',
@@ -62,6 +64,7 @@ const RULES_BY_TIER = {
       'Rhymes must feel EFFORTLESS — never bending a sentence into unnatural shape.',
       'If a rhyme does not flow naturally, rewrite BOTH lines.',
       'Near-rhymes acceptable only when they sound musical.',
+      'End-rhymes must be natural end-of-phrase words. Do NOT use enjambment to force a weak word into rhyme position.',
     ],
     antiAI: [
       'NO greeting-card language ("a love so deep and pure").',
@@ -70,6 +73,7 @@ const RULES_BY_TIER = {
       'Every spread must have at least one concrete, specific noun.',
       'Every spread must have rhythm variation.',
       'Could this line appear in a greeting card? If yes, replace it.',
+      'Do NOT invent names or details not provided in the input. Use ONLY the names given to you.',
     ],
   },
 
@@ -83,6 +87,7 @@ const RULES_BY_TIER = {
       'Act 3 (resolution): Spreads 10-13, ~20% of total words.',
       'The climax spread (10) often has the FEWEST words.',
       'Page turns are tools: end each spread with something that compels the next turn.',
+      'Imagery must match the scene\'s time of day — no moon at noon, no sunrise at bedtime.',
     ],
     language: [
       'Compound sentences, emerging narrative.',
@@ -100,6 +105,8 @@ const RULES_BY_TIER = {
       'Rhymes must feel EFFORTLESS and BEAUTIFUL — never forced.',
       'If rhyme controls the story rather than serving it, rebuild the couplet.',
       'AI-common rhyme pairs to AVOID: day/way, heart/start, love/above, you/true.',
+      'End-rhymes must be natural end-of-phrase words. Do NOT use enjambment to force a weak word into rhyme position.',
+      'NEVER sacrifice logical consistency for a rhyme — if the image contradicts the scene, the rhyme is wrong.',
     ],
     antiAI: [
       'NO "you are so special/wonderful/amazing".',
@@ -111,6 +118,7 @@ const RULES_BY_TIER = {
       'At least one word per spread that mildly surprises the reader.',
       'Emotion must emerge from ACTION, not declaration.',
       'Close on an image, not a declaration.',
+      'Do NOT invent names, places, or details not provided in the input. Use ONLY the names given to you.',
     ],
   },
 };
@@ -130,6 +138,7 @@ const TEN_COMMANDMENTS = [
   'Repetition is not laziness — it is the engine. Plan your refrain before you write the book.',
   'The page turn is your most powerful tool — every spread should earn the next turn.',
   'Read it aloud before considering it done — if you stumble anywhere, revise until you don\'t.',
+  'NEVER invent character names, place names, or personal details that were not provided in the input — use only the names and details given to you.',
 ];
 
 /**

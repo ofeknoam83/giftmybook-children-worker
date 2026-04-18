@@ -37,7 +37,7 @@ function buildPronounInstruction(name, gender) {
   if (!gender || gender === 'neutral' || gender === 'not specified') return '';
   const pronouns = getPronounInfo(gender);
   const wrong = getWrongPronouns(gender);
-  return `CRITICAL: ${name} is a ${gender === 'female' ? 'girl' : 'boy'}. Always use ${pronouns.pair} pronouns for ${name}. Never use ${wrong} pronouns when referring to ${name}.`;
+  return `CRITICAL PRONOUN RULE: ${name} is a ${gender === 'female' ? 'girl' : 'boy'}. ALWAYS use ${pronouns.pair} pronouns for ${name}. NEVER use ${wrong} pronouns. NEVER use they/them/their to refer to ${name} alone — "they" is ONLY acceptable when referring to ${name} AND another person together (plural). When in doubt, use "${name}" instead of a pronoun.`;
 }
 
 /**
@@ -53,25 +53,47 @@ function checkPronounConsistency(text, gender) {
     return { valid: true, issues: [] };
   }
 
+  // Check for opposite-gender pronouns
   const wrongPatterns = {
     female: /\b(he|him|his)\b/gi,
     male: /\b(she|her|hers)\b/gi,
   };
 
-  const pattern = wrongPatterns[gender];
-  if (!pattern) return { valid: true, issues: [] };
-
-  // Reset lastIndex for the global regex
-  pattern.lastIndex = 0;
+  // Also check for they/them/their when gender IS specified — the child is not non-binary
+  const neutralPattern = /\b(they|them|their|themself|themselves)\b/gi;
 
   const issues = [];
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    issues.push({
-      pronoun: match[0],
-      position: match.index,
-      context: text.substring(Math.max(0, match.index - 20), match.index + 20),
-    });
+
+  const pattern = wrongPatterns[gender];
+  if (pattern) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      issues.push({
+        pronoun: match[0],
+        type: 'wrong-gender',
+        position: match.index,
+        context: text.substring(Math.max(0, match.index - 20), match.index + 20),
+      });
+    }
+  }
+
+  // Check for neutral pronouns used for the child (they/them/their)
+  // Exclude cases where "they" clearly refers to a plural subject (e.g., "they both")
+  neutralPattern.lastIndex = 0;
+  let neutralMatch;
+  while ((neutralMatch = neutralPattern.exec(text)) !== null) {
+    const beforeContext = text.substring(Math.max(0, neutralMatch.index - 40), neutralMatch.index).toLowerCase();
+    // Skip if likely plural usage ("parents they", "dogs they", "together they", etc.)
+    const likelyPlural = /\b(parents|dogs|birds|friends|children|kids|people|both|together|everyone|all)\s*$/.test(beforeContext);
+    if (!likelyPlural) {
+      issues.push({
+        pronoun: neutralMatch[0],
+        type: 'neutral-for-gendered',
+        position: neutralMatch.index,
+        context: text.substring(Math.max(0, neutralMatch.index - 20), neutralMatch.index + 20),
+      });
+    }
   }
 
   return { valid: issues.length === 0, issues };

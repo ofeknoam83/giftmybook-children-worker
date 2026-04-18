@@ -307,6 +307,8 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Every spread needs at least one concrete, specific noun`);
     sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
     sections.push(`- The refrain must appear at least 3 times, spaced through the story`);
+    sections.push(`- Use ONLY the parent name "${parentName}" — do NOT invent any other name for the mother. No nicknames, no full names, no pet names unless provided in the input.`);
+    sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl — use she/her.' : child.gender === 'male' ? 'He is a boy — use he/him.' : ''} Use the child's name or correct pronouns. "They" is only for plural subjects (e.g., ${child.name} and ${parentName} together).`);
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
 
     return sections.join('\n');
