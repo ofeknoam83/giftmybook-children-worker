@@ -225,7 +225,9 @@ class BaseThemeWriter {
         if (opts.jsonMode && !String(result.text || '').trim()) {
           throw new Error('GPT-5.4 returned empty JSON-mode content');
         }
-        return { ...result, model: 'gpt-5.4' };
+        const llmResult = { ...result, model: 'gpt-5.4' };
+        this._recordLLMCall(role, llmResult, systemPrompt, userPrompt);
+        return llmResult;
       } catch (err) {
         console.warn(`[writerV2] GPT-5.4 failed for ${role}, falling back to Gemini: ${err.message}`);
       }
@@ -243,7 +245,27 @@ class BaseThemeWriter {
       requestLabel: `writerV2-${role}`,
       model: isFlash ? GEMINI_FLASH_MODEL : GEMINI_MODEL,
     });
-    return { ...result, model: fallbackModel };
+    const llmResult = { ...result, model: fallbackModel };
+    this._recordLLMCall(role, llmResult, systemPrompt, userPrompt);
+    return llmResult;
+  }
+
+  /**
+   * Record raw LLM call data for pipeline transparency.
+   * Only records if _pipeline was set by the engine.
+   */
+  _recordLLMCall(role, result, systemPrompt, userPrompt) {
+    if (!this._pipeline) return;
+    this._pipeline.llmCalls.push({
+      role,
+      model: result.model,
+      systemPrompt: systemPrompt.substring(0, 500) + (systemPrompt.length > 500 ? '...' : ''),
+      userPrompt: userPrompt.substring(0, 1000) + (userPrompt.length > 1000 ? '...' : ''),
+      rawResponse: result.text.substring(0, 2000) + (result.text.length > 2000 ? '...' : ''),
+      tokens: { input: result.inputTokens, output: result.outputTokens },
+      finishReason: result.finishReason,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   /**

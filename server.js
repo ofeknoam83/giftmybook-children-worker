@@ -4367,16 +4367,29 @@ app.post('/qa/generate-story', authenticate, async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  // Inject API keys from standalone proxy (don't overwrite existing env vars)
+  const apiKeys = req.body.apiKeys || {};
+  for (const [key, val] of Object.entries(apiKeys)) {
+    if (val && !process.env[key]) process.env[key] = val;
+  }
+
   try {
     const { WriterEngine } = require('./services/writer/engine');
     const result = await WriterEngine.generate(req.body, {
       onProgress: (progress) => sendEvent('progress', progress),
     });
-    sendEvent('story', result);
+    // Flatten story + metadata + pipeline for frontend (fixes "0 words across 0 spreads" bug)
+    sendEvent('story', {
+      spreads: result.story.spreads,
+      _model: result.story._model,
+      _ageTier: result.story._ageTier,
+      ...result.metadata,
+      pipeline: result.pipeline,
+    });
     sendEvent('done', {});
   } catch (err) {
     console.error('[qa/generate-story] Error:', err.message);
-    sendEvent('error', { message: err.message });
+    sendEvent('error', { message: err.message, stack: err.stack?.split('\n').slice(0, 5).join('\n') });
   } finally {
     res.end();
   }

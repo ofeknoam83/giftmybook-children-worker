@@ -23,9 +23,23 @@ class WriterEngine {
   static async generate(bookJson, opts = {}) {
     const { onProgress, maxRetries } = opts;
 
+    // Pipeline transparency: record stages, context, and LLM calls
+    const pipeline = {
+      stages: [],
+      llmCalls: [],
+      themeDetected: null,
+      childContext: null,
+      bookContext: null,
+    };
+
     // Normalize payload: support both new { child, book } and legacy flat format
     const child = bookJson.child || buildChildFromLegacy(bookJson);
     const book = bookJson.book || buildBookFromLegacy(bookJson);
+
+    // Record what was extracted
+    pipeline.childContext = { ...child };
+    pipeline.bookContext = { ...book };
+    pipeline.themeDetected = book.theme;
 
     // 1. Get theme-specific writer
     const themeWriter = getThemeWriter(book.theme);
@@ -33,21 +47,42 @@ class WriterEngine {
       throw new Error(`Writer V2 does not support theme "${book.theme}" — use legacy pipeline`);
     }
 
+    // Enable pipeline recording on the theme writer
+    themeWriter._pipeline = pipeline;
+
     // 2. Plan the story
     onProgress?.({ step: 'planning', message: 'Planning story beats...' });
     console.log(`[writerV2] Planning story for ${child.name}, age ${child.age}, theme ${book.theme}`);
     const plan = await themeWriter.plan(child, book);
     console.log(`[writerV2] Plan complete: ${plan.beats.length} beats, tier ${plan.ageTier}, target ${plan.wordTargets.total} words`);
+    pipeline.stages.push({
+      name: 'plan',
+      input: { child: child.name, age: child.age, theme: book.theme },
+      output: plan,
+      timestamp: new Date().toISOString(),
+    });
 
     // 3. Write the story
     onProgress?.({ step: 'writing', message: 'Writing story text...' });
     let story = await themeWriter.write(plan, child, book);
     console.log(`[writerV2] First draft: ${story.spreads.length} spreads, model ${story._model}`);
+    pipeline.stages.push({
+      name: 'write',
+      output: { spreads: story.spreads.length, model: story._model },
+      rawText: story._rawText || null,
+      timestamp: new Date().toISOString(),
+    });
 
     // 4. Quality check
     onProgress?.({ step: 'quality', message: 'Running quality checks...' });
     let quality = await QualityGate.check(story, child, book);
     console.log(`[writerV2] Quality: ${quality.overallScore}/10, pass=${quality.pass}, scores=${JSON.stringify(quality.scores)}`);
+    pipeline.stages.push({
+      name: 'quality',
+      output: { overallScore: quality.overallScore, pass: quality.pass, scores: quality.scores },
+      feedback: quality.feedback || null,
+      timestamp: new Date().toISOString(),
+    });
 
     // 5. Revise if needed (up to maxRetries)
     let attempts = 0;
@@ -58,6 +93,12 @@ class WriterEngine {
       story = await themeWriter.revise(story, quality.feedback, child, book);
       quality = await QualityGate.check(story, child, book);
       console.log(`[writerV2] After revision ${attempts + 1}: ${quality.overallScore}/10, pass=${quality.pass}`);
+      pipeline.stages.push({
+        name: `revision_${attempts + 1}`,
+        output: { overallScore: quality.overallScore, pass: quality.pass, scores: quality.scores },
+        feedback: quality.feedback || null,
+        timestamp: new Date().toISOString(),
+      });
       attempts++;
     }
 
@@ -67,7 +108,7 @@ class WriterEngine {
 
     onProgress?.({ step: 'complete', message: 'Story generation complete.' });
 
-    return { story, metadata };
+    return { story, metadata, pipeline };
   }
 }
 
