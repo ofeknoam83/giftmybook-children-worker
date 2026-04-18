@@ -150,11 +150,21 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
 
   const result = await resp.json();
   const candidate = result.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text || '';
+  const finishReason = candidate?.finishReason || 'unknown';
+
+  // Detect safety blocks and other non-STOP finish reasons with no content
+  if (!text && finishReason !== 'STOP') {
+    const blockReason = result.promptFeedback?.blockReason || candidate?.finishReason || 'unknown';
+    console.error(`[writerV2] Gemini returned empty content. finishReason=${finishReason}, blockReason=${blockReason}`);
+    throw new Error(`Gemini returned no content (finishReason=${finishReason}, blockReason=${blockReason})`);
+  }
+
   return {
-    text: candidate?.content?.parts?.[0]?.text || '',
+    text,
     inputTokens: result.usageMetadata?.promptTokenCount || 0,
     outputTokens: result.usageMetadata?.candidatesTokenCount || 0,
-    finishReason: candidate?.finishReason || 'unknown',
+    finishReason,
   };
 }
 
@@ -276,6 +286,10 @@ class BaseThemeWriter {
    */
   parseSpreads(rawText) {
     const spreads = [];
+    if (!rawText || !rawText.trim()) {
+      console.warn(`[writerV2] parseSpreads: received empty or null rawText`);
+      return spreads;
+    }
     // Match ---SPREAD N--- or similar patterns
     const pattern = /---\s*SPREAD\s+(\d+)\s*---/gi;
     const parts = rawText.split(pattern);
@@ -304,10 +318,15 @@ class BaseThemeWriter {
 
     // Last resort: split by double newlines and number them
     if (spreads.length === 0 && rawText.trim()) {
+      console.warn(`[writerV2] parseSpreads: no spread markers found, falling back to paragraph splitting. Raw text starts with: ${rawText.substring(0, 200)}`);
       const chunks = rawText.trim().split(/\n\s*\n/).filter(c => c.trim());
       chunks.forEach((chunk, i) => {
         spreads.push({ spread: i + 1, text: chunk.trim() });
       });
+    }
+
+    if (spreads.length === 0) {
+      console.error(`[writerV2] parseSpreads: FAILED to extract any spreads. Raw text length: ${rawText.length}, first 300 chars: ${rawText.substring(0, 300)}`);
     }
 
     return spreads;

@@ -54,7 +54,7 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { brainstormStorySeed, masterCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
+const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 // V3: ChatSessionManager removed (V1 illustration pipeline)
@@ -1595,6 +1595,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         });
         console.log(`[server] Stage timing: writerV2=${stage3Ms}ms (book ${bookId})`);
 
+        // Safety: if Writer V2 returned 0 spreads, fail the book instead of generating a blank PDF
+        if (!writerResult.story.spreads || writerResult.story.spreads.length === 0) {
+          throw new Error(`Writer V2 returned 0 spreads for book ${bookId} — aborting to prevent blank book`);
+        }
+
         // Convert Writer V2 result to legacy storyPlan shape for illustration pipeline
         storyPlan = convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle);
         storyPlan._writerV2Metadata = writerResult.metadata;
@@ -1616,55 +1621,15 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       // V2: Text is already in the story plan — no separate text generation needed.
 
-      // ── W3 + W7: Quality gates — check custom details usage and story quality ──
+      // ── W3: Check custom details usage (non-blocking, informational) ──
+      // Writer V2 has its own QualityGate — no need for V1 criticStory/masterCritic
       if (!isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
         try {
-          const { checkCustomDetailsUsage, criticStory } = require('./services/qualityGates');
-
-          // W3: Check customDetails usage
+          const { checkCustomDetailsUsage } = require('./services/qualityGates');
           const detailsCheck = await checkCustomDetailsUsage(storyPlan.entries, enrichedCustomDetails || customDetails, { costTracker });
           bookContext.log('info', 'Custom details usage check', { score: detailsCheck.score, missing: detailsCheck.missingCritical });
-          if (detailsCheck.missingCritical && detailsCheck.missingCritical.length > 0 && detailsCheck.score < 5) {
-            bookContext.log('warn', 'Story missing critical custom details', { missing: detailsCheck.missingCritical, score: detailsCheck.score });
-          }
-
-          // W7: Story critic (blocking — triggers retry on failure)
-          const criticResult = await criticStory(storyPlan.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
-          bookContext.log('info', 'Story critic result', { total: criticResult.total, approved: criticResult.approved, feedback: (criticResult.feedback || '').slice(0, 200) });
-
-          if (!criticResult.approved) {
-            bookContext.log('warn', 'Story below quality threshold — triggering masterCritic retry', { score: criticResult.total, weakest: criticResult.weakestSpreads });
-            try {
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.27, message: 'Improving story based on critic feedback...', logs: bookContext.logs });
-              }
-
-              // Re-run masterCritic on the current version
-              const retryCritic = await masterCritic(storyPlan, {
-                apiKeys,
-                costTracker,
-                theme,
-                childAge: childDetails.age || childDetails.childAge,
-                format,
-                style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
-                techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
-                narrativePatterns: storyPlan._narrativePatterns || null,
-              });
-              bookContext.log('info', 'Critic retry: masterCritic complete', { scores: retryCritic._masterCriticScores });
-
-              // Re-run criticStory on the improved version
-              const retryResult = await criticStory(retryCritic.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
-              bookContext.log('info', 'Critic retry: second critic result', { total: retryResult.total, approved: retryResult.approved });
-
-              // Accept the retried version regardless of second score (don't loop more than once)
-              storyPlan = retryCritic;
-              bookContext.log('info', `Critic retry complete — using retried version (score: ${retryResult.total}, approved: ${retryResult.approved})`);
-            } catch (criticRetryErr) {
-              bookContext.log('warn', `Critic retry failed — keeping original: ${criticRetryErr.message}`);
-            }
-          }
         } catch (qgErr) {
-          bookContext.log('warn', 'Quality gates failed (non-blocking)', { error: qgErr.message });
+          bookContext.log('warn', 'Custom details check failed (non-blocking)', { error: qgErr.message });
         }
       }
 

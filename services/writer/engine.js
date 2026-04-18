@@ -62,7 +62,7 @@ class WriterEngine {
       timestamp: new Date().toISOString(),
     });
 
-    // 3. Write the story
+    // 3. Write the story (with catastrophic retry if 0 spreads)
     onProgress?.({ step: 'writing', message: 'Writing story text...' });
     let story = await themeWriter.write(plan, child, book);
     console.log(`[writerV2] First draft: ${story.spreads.length} spreads, model ${story._model}`);
@@ -72,6 +72,31 @@ class WriterEngine {
       rawText: story._rawText || null,
       timestamp: new Date().toISOString(),
     });
+
+    // Catastrophic failure guard: if write() returned 0 spreads, retry up to 2 more times
+    const MIN_SPREADS = 5;
+    let writeRetries = 0;
+    while (story.spreads.length < MIN_SPREADS && writeRetries < 2) {
+      writeRetries++;
+      console.warn(`[writerV2] CRITICAL: write() returned ${story.spreads.length} spreads (min ${MIN_SPREADS}). Full retry ${writeRetries}/2...`);
+      onProgress?.({ step: 'writing', message: `Retrying story (attempt ${writeRetries + 1})...` });
+      try {
+        story = await themeWriter.write(plan, child, book);
+        console.log(`[writerV2] Retry ${writeRetries} produced ${story.spreads.length} spreads, model ${story._model}`);
+        pipeline.stages.push({
+          name: `write_retry_${writeRetries}`,
+          output: { spreads: story.spreads.length, model: story._model },
+          timestamp: new Date().toISOString(),
+        });
+      } catch (retryErr) {
+        console.error(`[writerV2] Retry ${writeRetries} failed: ${retryErr.message}`);
+      }
+    }
+
+    // If still 0 spreads after all retries, throw — do NOT pass empty story downstream
+    if (story.spreads.length === 0) {
+      throw new Error(`Writer V2 produced 0 spreads after ${writeRetries + 1} attempts — cannot continue. Model: ${story._model || 'unknown'}`);
+    }
 
     // 4. Quality check
     onProgress?.({ step: 'quality', message: 'Running quality checks...' });
