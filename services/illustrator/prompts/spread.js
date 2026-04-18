@@ -80,13 +80,11 @@ function buildSpreadPrompt(opts) {
   parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('');
 
-  // Style consistency reminder — use the actual configured style
-  const styleConfig = style ? (ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.watercolor) : null;
+  // Style consistency reminder — use the actual configured style, defaulting to watercolor
+  const styleConfig = ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.watercolor;
   parts.push('### STYLE CONSISTENCY');
-  if (styleConfig) {
-    parts.push(`- MANDATORY STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
-    parts.push('- This spread MUST use this exact style. Do NOT switch to any other rendering technique.');
-  }
+  parts.push(`- MANDATORY STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push('- This spread MUST use this exact style. Do NOT switch to any other rendering technique.');
   parts.push('- Match the EXACT rendering technique, lighting quality, texture detail, and color saturation of the cover and all previous spreads');
   parts.push('- This is the same physical book — every page must look like the same artist rendered it');
   parts.push('- Use the SAME font as every other page — identical family, weight, and size');

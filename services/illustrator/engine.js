@@ -202,7 +202,8 @@ ${prompt}`;
         if (!anatomyCheck.pass && qaRetries >= MAX_SPREAD_RETRIES) {
           log('warn', `Spread ${i + 1} anatomy still failing after ${qaRetries} corrections — attempting fresh generation`);
           try {
-            const freshResult = await generateSpread(session, prompt, i);
+            const freshPrompt = `Please generate a completely fresh illustration for spread ${i + 1}. Disregard previous attempts — start fresh with the original scene. Pay special attention to anatomy: every person must have exactly 2 arms and 2 hands visible.\n\n${prompt}`;
+            const freshResult = await sendCorrection(session, freshPrompt, i);
             const freshImageBase64 = freshResult.imageBase64;
             const freshImageBuffer = freshResult.imageBuffer;
 
@@ -211,12 +212,15 @@ ${prompt}`;
               checkAnatomy(freshImageBase64, qaOpts),
             ]);
 
-            if (freshAnatomyCheck.pass) {
-              log('info', `Spread ${i + 1} fresh generation passed anatomy QA`);
+            const freshTextNotWorse = freshTextCheck.pass || !textCheck.pass;
+            if (freshAnatomyCheck.pass && freshTextNotWorse) {
+              log('info', `Spread ${i + 1} fresh generation improved QA without regressing text`);
               imageBase64 = freshImageBase64;
               imageBuffer = freshImageBuffer;
               Object.assign(textCheck, freshTextCheck);
               Object.assign(anatomyCheck, freshAnatomyCheck);
+            } else if (freshAnatomyCheck.pass) {
+              log('warn', `Spread ${i + 1} fresh generation passed anatomy but regressed text QA — keeping best attempt`);
             } else {
               log('warn', `Spread ${i + 1} fresh generation also failed anatomy — keeping best attempt`);
             }

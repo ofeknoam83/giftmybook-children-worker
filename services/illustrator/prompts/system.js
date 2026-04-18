@@ -28,7 +28,7 @@ function buildSystemInstruction(opts) {
 
   // Art style
   parts.push(`ART STYLE (NON-NEGOTIABLE): ${styleConfig.prefix} ${styleConfig.suffix}`);
-  parts.push('This art style is MANDATORY for every single illustration. Do NOT deviate to watercolor, flat 2D, line art, or any other rendering technique.');
+  parts.push('This art style is MANDATORY for every single illustration. Do NOT deviate to any other rendering technique.');
   parts.push('Every illustration must use the EXACT SAME rendering technique — if the style says 3D/CGI, every page must be 3D/CGI rendered. If it says watercolor, every page must be watercolor.');
   parts.push('Match the rendering style shown in the approved cover image provided in Turn 1.');
   parts.push('');

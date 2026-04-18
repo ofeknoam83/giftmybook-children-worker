@@ -30,7 +30,7 @@ async function checkAnatomy(imageBase64, opts = {}) {
   const prompt = `Check this children's book illustration for anatomy and quality issues.
 
 Check ALL of the following carefully:
-1. LIMB COUNT (CRITICAL): Count the number of hands and arms visible for EACH person in the image. Every person must have EXACTLY 2 hands and 2 arms. Flag IMMEDIATELY if anyone has 3 hands, 3 arms, 1 arm, or any wrong number of limbs. This is the MOST IMPORTANT check.
+1. LIMB COUNT (CRITICAL): Count the number of hands and arms CLEARLY VISIBLE for EACH person in the image. Flag ONLY when MORE than the expected number are visible (e.g., 3 hands, 3 arms, 3 legs). Do NOT flag when a limb is partially hidden, occluded by the body/clothing, or cropped at the frame edge — these are normal artistic compositions. Only flag clear violations where extra limbs are present.
 2. FINGERS: Do visible hands have the correct number of fingers (5 per hand)? Flag extra or missing fingers.
 3. BODY HORROR: Any merged limbs, distorted faces, extra body parts, or unnatural anatomy? Pay special attention to arms that split into two, hands growing from wrong positions, or limbs at impossible angles.
 4. DUPLICATE ITEMS: Any specific object that appears to be cloned/copy-pasted? (Multiple similar items like books on a shelf are fine — only flag obvious AI cloning artifacts.)
