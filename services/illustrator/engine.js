@@ -114,6 +114,7 @@ class IllustratorEngine {
       }
 
       log('info', `Generating spread ${i + 1}/${spreadEntries.length} (entry ${idx})`);
+      bookContext?.touchActivity?.();
       const spreadStart = Date.now();
 
       try {
@@ -209,6 +210,7 @@ ${prompt}`;
 
         const spreadMs = Date.now() - spreadStart;
         log('info', `Spread ${i + 1} complete (${spreadMs}ms)`);
+        bookContext?.touchActivity?.();
 
       } catch (spreadErr) {
         log('error', `Spread ${i + 1} generation failed: ${spreadErr.message}`);

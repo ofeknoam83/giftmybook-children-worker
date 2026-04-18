@@ -1,48 +1,39 @@
 /**
  * Illustrator V2 — Upscale to Print Resolution
  *
- * 4x upscale using ImageMagick Lanczos filter + unsharp mask.
- * Targets print-quality resolution for children's book production.
+ * 2x upscale using Sharp (libvips Lanczos3). Fast and memory-efficient.
+ * Gemini outputs ~1024x576; 2x gives ~2048x1152 which is sufficient for
+ * children's book print at 300 DPI (covers ~7x4 inches).
+ * 4x was causing OOM/timeouts with ImageMagick on Cloud Run.
  */
 
-const { execFile } = require('child_process');
-const { promisify } = require('util');
+const sharp = require('sharp');
 
-const execFileAsync = promisify(execFile);
-
-// Upscale factor for print resolution
-const UPSCALE_FACTOR = '400%';
-
-// Unsharp mask parameters: radius x sigma + amount + threshold
-// Gentle sharpening to restore detail after upscale without artifacts
-const UNSHARP = '0x0.5+0.7+0.02';
+// 2x is the sweet spot: good print quality without blowing up memory
+const UPSCALE_FACTOR = 2;
 
 /**
- * Upscale an image buffer to print resolution using ImageMagick.
+ * Upscale an image buffer to print resolution using Sharp.
  *
  * @param {Buffer} imageBuffer - Source image
  * @returns {Promise<Buffer>} Upscaled image buffer
  */
 async function upscaleForPrint(imageBuffer) {
   try {
-    const { stdout } = await execFileAsync('convert', [
-      'png:-',                         // Read from stdin
-      '-filter', 'Lanczos',            // High-quality resampling filter
-      '-resize', UPSCALE_FACTOR,       // 4x upscale
-      '-unsharp', UNSHARP,             // Sharpen to restore detail
-      '-quality', '95',                // High quality output
-      'png:-',                         // Write to stdout
-    ], {
-      encoding: 'buffer',
-      input: imageBuffer,
-      maxBuffer: 200 * 1024 * 1024, // 200MB (upscaled images can be large)
-      timeout: 120000, // 2 minutes
-    });
+    const meta = await sharp(imageBuffer).metadata();
+    const targetWidth = Math.round(meta.width * UPSCALE_FACTOR);
+    const targetHeight = Math.round(meta.height * UPSCALE_FACTOR);
 
-    console.log(`[illustrator/postprocess/upscale] Upscaled: ${imageBuffer.length} bytes -> ${stdout.length} bytes`);
-    return stdout;
+    const result = await sharp(imageBuffer)
+      .resize(targetWidth, targetHeight, { kernel: sharp.kernel.lanczos3 })
+      .sharpen({ sigma: 0.5, m1: 0.7, m2: 0.02 })
+      .png({ compressionLevel: 6 })
+      .toBuffer();
+
+    console.log(`[illustrator/postprocess/upscale] Upscaled ${meta.width}x${meta.height} -> ${targetWidth}x${targetHeight}: ${imageBuffer.length} -> ${result.length} bytes`);
+    return result;
   } catch (e) {
-    console.warn(`[illustrator/postprocess/upscale] ImageMagick upscale failed: ${e.message} — returning original`);
+    console.warn(`[illustrator/postprocess/upscale] Upscale failed: ${e.message} — returning original`);
     return imageBuffer;
   }
 }
