@@ -3,7 +3,8 @@
  * so we can track which writer version produced which story.
  */
 
-const WRITER_VERSION = 'children-v2.0.0';
+const versionInfo = require('../../version.json');
+const WRITER_VERSION = versionInfo.writerVersion;
 
 /**
  * Create metadata object for a generated story.

@@ -1572,10 +1572,15 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
 }
 
 // ── Health Check ──
+const versionInfo = require('./version.json');
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'giftmybook-children-worker',
+    version: versionInfo.version,
+    writerVersion: versionInfo.writerVersion,
+    buildDate: versionInfo.buildDate,
     activeBooks: activeBooks.size,
   });
 });
