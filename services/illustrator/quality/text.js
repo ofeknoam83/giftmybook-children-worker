@@ -42,7 +42,7 @@ Check ALL of the following:
 
 1. TEXT CONTENT: Read the text in the image word-for-word. Does it match the expected text exactly? Flag missing words, extra words, misspellings, or garbled text.
 
-2. TEXT PLACEMENT: Is the entire text block on one side (left half or right half) of the image? The text must NEVER cross the vertical center line. Flag if text crosses the center.
+2. TEXT PLACEMENT: Imagine a vertical line splitting the image into LEFT and RIGHT halves. The entire text block must stay completely within ONE half (either all on the left side or all on the right side). Flag if any text crosses this left-right center divider. Note: text CAN be at the top or bottom — vertical position does not matter, only left-right position matters.
 
 3. EDGE MARGINS: Is the text at least ~8% away from all edges (top, bottom, left, right)? Flag if text is too close to any edge.
 

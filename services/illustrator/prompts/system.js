@@ -94,9 +94,9 @@ function buildSystemInstruction(opts) {
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
   parts.push('- EXACT same font style, size, weight, and color on EVERY page');
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
-  parts.push('- Text can be placed anywhere vertically (top, bottom, etc.)');
-  parts.push('- Text must NEVER cross the left-right center of the image');
-  parts.push('- Entire text block stays completely on the LEFT half or RIGHT half');
+  parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
+  parts.push('- Text must NEVER cross the left-right center of the image. Imagine a vertical line splitting the image in half — ALL text must be entirely on one side.');
+  parts.push('- Entire text block stays completely on the LEFT half or RIGHT half — never spanning both halves');
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from ALL edges`);
   parts.push('- Main characters and key action should not be hidden behind text');
   parts.push('');
