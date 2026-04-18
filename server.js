@@ -548,7 +548,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
     existingIllustrations, checkpointData, detectedSecondaryCharacters,
     characterAnchor,
-    characterRefSheetBase64, parentCoverRefBase64,
+    coverForIllustratorBase64,
     theme,
   } = opts;
 
@@ -563,7 +563,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       storyPlan,
       childDetails,
       style,
-      coverBase64: parentCoverRefBase64 || characterRefSheetBase64 || null,
+      coverBase64: coverForIllustratorBase64 || null,
       coverMime: 'image/jpeg',
       childPhotoBase64: cachedPhotoBase64,
       childPhotoMime: cachedPhotoMime || 'image/jpeg',
@@ -1065,10 +1065,11 @@ app.post('/generate-style-variant', authenticate, async (req, res) => {
       bookContext,
       progressCallbackUrl,
       resolvedChildPhotoUrl: childPhotoUrl,
-      cachedPhotoBase64: characterRefBase64,
-      cachedPhotoMime: characterRefMime,
+      cachedPhotoBase64: cachedPhotoBase64,
+      cachedPhotoMime: cachedPhotoMime,
       existingIllustrations: [],
       checkpointData: null,
+      coverForIllustratorBase64: characterRefBase64 || null,
       theme: storyPlan.theme || null,
     });
 
@@ -1651,6 +1652,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       let characterRefBase64 = cachedPhotoBase64;
       let characterRefMime = cachedPhotoMime;
       let preGeneratedCoverBuffer = null;
+      let coverForIllustratorBase64 = null; // 512px cover for Illustrator V2
 
       if (approvedCoverUrl) {
         try {
@@ -1662,22 +1664,18 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           );
           preGeneratedCoverBuffer = coverBuf;
 
-          // Use 512px cover for vision analysis (needs detail for facial feature extraction)
-          const coverForVision = await sharp(coverBuf)
+          // 512px cover for Illustrator V2 (high enough detail for Gemini to see style/outfit/features)
+          const coverForIllustrator = await sharp(coverBuf)
             .resize(512, 512, { fit: 'cover' })
             .jpeg({ quality: 80 })
             .toBuffer();
-          const coverForVisionBase64 = coverForVision.toString('base64');
+          coverForIllustratorBase64 = coverForIllustrator.toString('base64');
 
-          const resizedCover = await sharp(coverBuf)
-            .resize(256, 256, { fit: 'cover' })
-            .jpeg({ quality: 80 })
-            .toBuffer();
-          characterRefBase64 = resizedCover.toString('base64');
-          characterRefMime = 'image/jpeg';
-          bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, visionBytes: coverForVision.length, refBytes: resizedCover.length, ms: Date.now() - stage6Start });
+          bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, illustratorBytes: coverForIllustrator.length, ms: Date.now() - stage6Start });
 
-          // Extract character appearance + art style from cover using Gemini vision (512px)
+          // Detect additional characters on cover (parent, grandparent, sibling, etc.)
+          // Illustrator V2 sees the cover image directly for style/outfit/appearance,
+          // but we still need to know if a secondary character is present for parent visibility logic.
           try {
             const { getNextApiKey } = require('./services/illustrationGenerator');
             const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
@@ -1688,141 +1686,30 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Analyze this children's book cover image and respond with exactly four labeled sections.
-
-CHARACTER:
-Describe the MAIN child character in this exact format:
-HAIR: [exact color, style, length, texture, and any accessories]
-EYES: [color]
-SKIN: [tone description]
-BUILD: [approximate age/size cues visible]
-NOTABLE: [any distinguishing features]
-
-If you cannot determine a field from the image, write "not visible".
-
-OUTFIT:
-Describe the MAIN child's clothing EXACTLY as visible in the image:
-TOP: [garment type, exact color, any patterns/logos/details, sleeve length, neckline, or "not visible"]
-BOTTOM: [garment type, exact color, or "not visible"]
-SHOES: [type, exact color, or "not visible"]
-CLOTHING_ACCESSORIES: [items WORN on the body: hats, bows, hair ties, glasses, jewelry, scarves, capes, belts — or "none"]
-HELD_ITEMS: [anything the character is HOLDING or interacting with: toys, devices, weapons, wands, books, tools — or "none". These are scene props, NOT part of the outfit]
-
-ADDITIONAL_CHARACTERS:
-List any OTHER characters visible on the cover besides the main child. For each one write:
-- [relationship if apparent, e.g. grandmother/elderly woman/adult man]: [brief appearance description — hair, skin, clothing, distinguishing features]. If no other characters are present, write: NONE.
-
-STYLE:
-Describe the exact art style: medium (watercolor/digital/gouache/etc), color palette, line quality, texture, lighting, mood, and any distinctive techniques.
-
-You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, and STYLE: exactly.` },
-                    { inline_data: { mime_type: 'image/jpeg', data: coverForVisionBase64 } },
+                    { text: `Look at this children's book cover. Are there any characters visible BESIDES the main child? If yes, for each one write:\n- [relationship if apparent, e.g. grandmother/elderly woman/adult man]: [brief appearance description — hair, skin, clothing, distinguishing features]\n\nIf the main child is the ONLY character, respond with exactly: NONE` },
+                    { inline_data: { mime_type: 'image/jpeg', data: coverForIllustratorBase64 } },
                   ]}],
-                  generationConfig: { maxOutputTokens: 2500, temperature: 0.2 },
+                  generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
                 }),
                 signal: bookContext.abortController.signal,
               }
             );
             if (visionResp.ok) {
               const visionData = await visionResp.json();
-              const extractedDesc = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-              if (extractedDesc && extractedDesc.length > 20) {
-                // Parse CHARACTER, OUTFIT, ADDITIONAL_CHARACTERS, and STYLE sections
-                const charMatch = extractedDesc.match(/CHARACTER[:\s]+([\s\S]*?)(?=\nOUTFIT[:\s]|\nADDITIONAL_CHARACTERS[:\s]|\nSTYLE[:\s]|$)/i);
-                const outfitMatch = extractedDesc.match(/OUTFIT[:\s]+([\s\S]*?)(?=\nADDITIONAL_CHARACTERS[:\s]|\nSTYLE[:\s]|$)/i);
-                const addlMatch = extractedDesc.match(/ADDITIONAL_CHARACTERS[:\s]+([\s\S]*?)(?=\nSTYLE[:\s]|$)/i);
-                const styleMatch = extractedDesc.match(/STYLE[:\s]+([\s\S]*?)$/i);
-                if (charMatch?.[1]?.trim()) {
-                  const charDesc = charMatch[1].trim();
-                  const charDescLower = charDesc.toLowerCase();
-                  // Guard: if Gemini describes an adult instead of a child, discard
-                  if (charDescLower.includes('adult male') || charDescLower.includes('adult female') || charDescLower.includes('not a child') || charDescLower.includes('beard and mustache')) {
-                    bookContext.log('warn', 'Character description describes an adult, not a child — discarding', { description: charDesc.slice(0, 200) });
-                    storyPlan.characterDescription = null;
-                  } else {
-                    storyPlan.characterDescription = charDesc;
-                    bookContext.log('info', 'Character appearance extracted from cover', { description: charDesc.slice(0, 300) });
-                  }
-                } else {
-                  storyPlan.characterDescription = extractedDesc;
-                  bookContext.log('info', 'Character appearance extracted (unstructured)', { description: extractedDesc.slice(0, 300) });
-                }
-                // Store additional cover characters (Grammy, siblings, etc.) for illustration allowlist
-                const addlRaw = addlMatch?.[1]?.trim();
-                const isNone = !addlRaw || /^none[.!]?$/i.test(addlRaw.trim()) || addlRaw.trim().length <= 5;
-                if (addlRaw && !isNone) {
-                  storyPlan.additionalCoverCharacters = addlRaw;
-                  bookContext.log('info', 'Additional cover characters detected', { characters: addlRaw.slice(0, 300) });
-                } else {
-                  storyPlan.additionalCoverCharacters = null;
-                }
-                if (styleMatch?.[1]?.trim()) {
-                  storyPlan.coverArtStyle = styleMatch[1].trim();
-                  bookContext.log('info', 'Cover art style extracted', { style: styleMatch[1].trim().slice(0, 300) });
-                } else {
-                  bookContext.log('info', 'Cover art style not extracted — using cinematic_3d default');
-                }
-                // Override characterOutfit from cover image (takes priority over story planner's guess)
-                // For partially visible outfits (e.g. cover shows only upper body), merge:
-                // use cover-extracted values for visible parts, keep story planner's for non-visible parts.
-                const outfitRaw = outfitMatch?.[1]?.trim();
-                if (outfitRaw && outfitRaw.length > 10) {
-                  const topPart = outfitRaw.match(/TOP[:\s]+(.+)/i);
-                  const bottomPart = outfitRaw.match(/BOTTOM[:\s]+(.+)/i);
-                  const shoesPart = outfitRaw.match(/SHOES[:\s]+(.+)/i);
-                  const accessoriesPart = outfitRaw.match(/CLOTHING_ACCESSORIES[:\s]+(.+)/i);
-                  // Intentionally ignore HELD_ITEMS — they are scene-specific props, not outfit
-                  const coverParts = [];
-                  if (topPart?.[1]?.trim() && !/not visible/i.test(topPart[1])) coverParts.push(topPart[1].trim());
-                  if (bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1])) coverParts.push(bottomPart[1].trim());
-                  if (shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1])) coverParts.push(shoesPart[1].trim());
-                  if (accessoriesPart?.[1]?.trim() && !/not visible|^none$/i.test(accessoriesPart[1])) coverParts.push(accessoriesPart[1].trim());
-                  if (coverParts.length > 0) {
-                    const previousOutfit = storyPlan.characterOutfit || '';
-                    // Merge: start with cover-extracted parts, then append non-visible parts from story planner
-                    let mergedOutfit = coverParts.join(', ');
-                    let hasBottom = bottomPart?.[1]?.trim() && !/not visible/i.test(bottomPart[1]);
-                    let hasShoes = shoesPart?.[1]?.trim() && !/not visible/i.test(shoesPart[1]);
-                    if ((!hasBottom || !hasShoes) && previousOutfit) {
-                      // Extract bottom/shoes from story planner's outfit to fill gaps
-                      const plannerItems = previousOutfit.split(/,\s*/);
-                      for (const item of plannerItems) {
-                        const itemLower = item.toLowerCase().trim();
-                        if (!hasBottom && /\b(pants|jeans|shorts|skirt|leggings|trousers|joggers|overalls)\b/.test(itemLower)) {
-                          mergedOutfit += ', ' + item.trim();
-                          bookContext.log('info', 'Merged bottom garment from story planner', { item: item.trim() });
-                          hasBottom = true;
-                        }
-                        if (!hasShoes && /\b(shoes|sneakers|boots|sandals|slippers|loafers|flats)\b/.test(itemLower)) {
-                          mergedOutfit += ', ' + item.trim();
-                          bookContext.log('info', 'Merged shoes from story planner', { item: item.trim() });
-                          hasShoes = true;
-                        }
-                      }
-                    }
-                    // Append "no additional accessories" if cover showed none, to prevent invented items
-                    const hasAccessories = accessoriesPart?.[1]?.trim() && !/not visible|^none$/i.test(accessoriesPart[1]);
-                    if (!hasAccessories) {
-                      mergedOutfit += ', no additional accessories';
-                    }
-                    storyPlan.characterOutfit = mergedOutfit;
-                    bookContext.log('info', 'Character outfit extracted from cover (overriding story planner)', {
-                      coverOutfit: storyPlan.characterOutfit.slice(0, 300),
-                      previousOutfit: previousOutfit.slice(0, 300),
-                    });
-                  } else {
-                    bookContext.log('info', 'Outfit section parsed but no visible garments — keeping story planner outfit');
-                  }
-                } else {
-                  bookContext.log('info', 'Outfit not extracted from cover — keeping story planner outfit');
-                }
+              const addlText = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+              const isNone = !addlText || /^none[.!]?$/i.test(addlText.trim()) || addlText.trim().length <= 5;
+              if (addlText && !isNone) {
+                storyPlan.additionalCoverCharacters = addlText;
+                bookContext.log('info', 'Additional cover characters detected', { characters: addlText.slice(0, 300) });
+              } else {
+                storyPlan.additionalCoverCharacters = null;
+                bookContext.log('info', 'No additional cover characters detected');
               }
             }
 
-            // V3: characterAnchor removed — Illustrator V2 uses images directly
             storyPlan.characterAnchor = null;
           } catch (visionErr) {
-            bookContext.log('warn', 'Failed to extract character appearance from cover', { error: visionErr.message });
+            bookContext.log('warn', 'Failed to detect additional cover characters', { error: visionErr.message });
           }
         } catch (dlErr) {
           bookContext.log('warn', 'Failed to download approved cover for reference, using original photo', { error: dlErr.message });
@@ -1853,29 +1740,7 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
         bookContext.log('info', '[generate-book] Using parentCharacterAnchor from parent book');
       }
 
-      bookContext.log('info', 'Character reference ready', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
-
-      // V3: Character reference sheet removed — Illustrator V2 uses child photo directly
-      let characterRefSheetBase64 = null;
-
-      // ── C4: Use approved cover as secondary character visual reference ──
-      // Fetch whenever the cover contains a secondary character, regardless of theme.
-      let parentCoverRefBase64 = null;
-      if (approvedCoverUrl && storyPlan.additionalCoverCharacters) {
-        try {
-          bookContext.log('info', 'Downloading approved cover as parent character reference');
-          const coverResp = await fetch(approvedCoverUrl);
-          if (coverResp.ok) {
-            const coverBuf = Buffer.from(await coverResp.arrayBuffer());
-            const sharp = require('sharp');
-            const resized = await sharp(coverBuf).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 80 }).toBuffer();
-            parentCoverRefBase64 = resized.toString('base64');
-            bookContext.log('info', 'Cover reference ready for parent character', { bytes: parentCoverRefBase64.length });
-          }
-        } catch (coverRefErr) {
-          bookContext.log('warn', 'Cover reference download failed', { error: coverRefErr.message });
-        }
-      }
+      bookContext.log('info', 'Character reference ready', { refBytes: characterRefBase64?.length || 0, coverBytes: coverForIllustratorBase64?.length || 0, ms: Date.now() - stage6Start });
 
       // Birthday theme: ensure spread 13 illustration prompt shows cake/candles
       if (theme === 'birthday' && !isChapterBook && !storyPlan.isChapterBook) {
@@ -1946,7 +1811,7 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
             chapter.imageBuffer = null; // will be downloaded later from the URL
 
             // ── C5: Post-generation consistency check (chapter book) ──
-            const chapterRefBase64 = characterRefSheetBase64 || characterRefBase64;
+            const chapterRefBase64 = characterRefBase64;
             if (illustUrl && chapterRefBase64) {
               try {
                 const { checkCharacterConsistency } = require('./services/illustrationGenerator');
@@ -2075,8 +1940,7 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
           checkpointData: { bookId, storyPlan },
           detectedSecondaryCharacters: detectedSecondaryCharacters || null,
           characterAnchor: storyPlan.characterAnchor || null,
-          characterRefSheetBase64: characterRefSheetBase64 || null,
-          parentCoverRefBase64: parentCoverRefBase64 || null,
+          coverForIllustratorBase64: coverForIllustratorBase64 || null,
           theme,
         });
 
@@ -2230,8 +2094,8 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
                     keyObjects: storyPlan.keyObjects || '',
                     coverArtStyle: storyPlan.coverArtStyle || '',
                     childPhotoUrl: resolvedChildPhotoUrl,
-                    _cachedPhotoBase64: characterRefSheetBase64 || characterRefBase64 || cachedPhotoBase64,
-                    _cachedPhotoMime: characterRefSheetBase64 ? 'image/jpeg' : (characterRefMime || cachedPhotoMime),
+                    _cachedPhotoBase64: characterRefBase64 || cachedPhotoBase64,
+                    _cachedPhotoMime: characterRefMime || cachedPhotoMime,
                     spreadIndex: failed.index,
                     totalSpreads: spreadEntries.length,
                     childAge: childDetails.age || childDetails.childAge,

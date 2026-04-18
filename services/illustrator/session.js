@@ -157,16 +157,18 @@ async function generateSpread(session, spreadPrompt, spreadIndex) {
   // Build user turn parts
   const parts = [];
 
-  // Always include cover image as visual anchor
-  parts.push({
-    text: 'COVER REFERENCE (visual anchor):',
-  });
-  parts.push({
-    inline_data: {
-      mimeType: session.coverMime,
-      data: session.coverBase64,
-    },
-  });
+  // Include cover image as visual anchor (if available)
+  if (session.coverBase64) {
+    parts.push({
+      text: 'COVER REFERENCE (visual anchor):',
+    });
+    parts.push({
+      inline_data: {
+        mimeType: session.coverMime,
+        data: session.coverBase64,
+      },
+    });
+  }
 
   // Include last N generated spreads as sliding window context
   const recentSpreads = session.generatedSpreads.slice(-SLIDING_WINDOW_SIZE);
