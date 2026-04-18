@@ -1222,6 +1222,57 @@ function buildGraphicNovelStoryContentForDb(storyPlan) {
   };
 }
 
+/**
+ * Convert Writer V2 result to legacy storyPlan shape for the illustration pipeline.
+ * The illustration pipeline expects { title, entries: [...] } with specific entry types.
+ */
+function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle) {
+  const spreads = writerResult.story.spreads || [];
+  const childName = childDetails.name || childDetails.childName || 'the child';
+  const title = approvedTitle || `A Story for ${childName}`;
+  const THEME_SUBS = { mothers_day: 'A story about love', fathers_day: 'A story about love', birthday: 'A birthday story', adventure: 'An adventure story' };
+  const subtitle = `${THEME_SUBS[theme] || 'A story'} for ${childName}`;
+
+  // Build spread entries — split text into left/right pages
+  const spreadEntries = spreads.map((s) => {
+    const lines = (s.text || '').split('\n').filter(l => l.trim());
+    let leftText, rightText;
+    if (lines.length >= 4) {
+      const mid = Math.ceil(lines.length / 2);
+      leftText = lines.slice(0, mid).join('\n');
+      rightText = lines.slice(mid).join('\n');
+    } else if (lines.length >= 2) {
+      leftText = lines[0];
+      rightText = lines.slice(1).join('\n');
+    } else {
+      leftText = s.text || '';
+      rightText = null;
+    }
+
+    return {
+      type: 'spread',
+      spread: s.spread,
+      left: { text: leftText },
+      right: { text: rightText },
+      spread_image_prompt: `Illustration for spread ${s.spread} of a ${theme} children's picture book. Scene: ${leftText} ${rightText || ''}`.slice(0, 500),
+    };
+  });
+
+  const entries = [
+    { type: 'half_title_page', title },
+    { type: 'blank' },
+    { type: 'title_page', title, subtitle },
+    { type: 'copyright_page' },
+    { type: 'dedication_page', text: `For ${childName}` },
+    ...spreadEntries,
+    { type: 'blank' },
+    { type: 'closing_page' },
+    { type: 'blank' },
+  ];
+
+  return { title, entries };
+}
+
 function buildGraphicNovelReferencePack(storyPlan, childDetails) {
   const storyBible = storyPlan.storyBible || {};
   const heroName = childDetails.name || childDetails.childName || 'the child';
@@ -2094,6 +2145,53 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         if (progressCallbackUrl) {
           const storyContentForDb = buildGraphicNovelStoryContentForDb(storyPlan);
+          reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
+        }
+
+        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
+      } else if (!isChapterBook && !isGraphicNovel && (() => { try { return require('./services/writer/themes').getThemeWriter(theme || 'adventure'); } catch (e) { return null; } })()) {
+        // ── Writer V2 — unified engine for supported themes ──
+        bookContext.checkAbort();
+        bookContext.log('info', 'Starting Writer V2 story generation', { theme: theme || 'adventure' });
+        if (progressCallbackUrl) {
+          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Writing story (Writer V2)...', logs: bookContext.logs });
+        }
+
+        const { WriterEngine } = require('./services/writer/engine');
+        const stage3Start = Date.now();
+        const writerResult = await WriterEngine.generate(sanitized, {
+          onProgress: (p) => {
+            if (progressCallbackUrl) {
+              const progressMap = { planning: 0.16, writing: 0.18, quality: 0.20, revising: 0.22, complete: 0.25 };
+              reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: progressMap[p.step] || 0.20, message: p.message, logs: bookContext.logs });
+            }
+          },
+          maxRetries: 2,
+        });
+        bookContext.touchActivity();
+        const stage3Ms = Date.now() - stage3Start;
+        bookContext.log('info', 'Writer V2 story complete', {
+          spreads: writerResult.story.spreads.length,
+          model: writerResult.metadata.model,
+          qualityScore: writerResult.metadata.qualityScore,
+          totalWords: writerResult.metadata.totalWords,
+          ms: stage3Ms,
+        });
+        console.log(`[server] Stage timing: writerV2=${stage3Ms}ms (book ${bookId})`);
+
+        // Convert Writer V2 result to legacy storyPlan shape for illustration pipeline
+        storyPlan = convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle);
+        storyPlan._writerV2Metadata = writerResult.metadata;
+
+        // Save story content to DB
+        if (progressCallbackUrl) {
+          const storyContentForDb = {
+            title: storyPlan.title,
+            entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })),
+            characterDescription: storyPlan.characterDescription || null,
+            characterOutfit: storyPlan.characterOutfit || null,
+            writerV2Metadata: writerResult.metadata,
+          };
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
 
@@ -4259,6 +4357,31 @@ app.get('/test-gemini-image', authenticate, async (req, res) => {
 // ── Startup Validation ──
 const REQUIRED_ENV = ['API_KEY', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+// ─── POST /qa/generate-story ─── Writer V2 QA endpoint with SSE streaming
+app.post('/qa/generate-story', authenticate, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const { WriterEngine } = require('./services/writer/engine');
+    const result = await WriterEngine.generate(req.body, {
+      onProgress: (progress) => sendEvent('progress', progress),
+    });
+    sendEvent('story', result);
+    sendEvent('done', {});
+  } catch (err) {
+    console.error('[qa/generate-story] Error:', err.message);
+    sendEvent('error', { message: err.message });
+  } finally {
+    res.end();
+  }
+});
+
 if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
   console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}`);
   process.exit(1);

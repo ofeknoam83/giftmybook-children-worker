@@ -1,0 +1,107 @@
+/**
+ * WriterEngine — single entry point for all Writer V2 story generation.
+ *
+ * Orchestrates: theme routing → plan → write → quality gate → revise loop → stamp.
+ *
+ * Handles legacy payload conversion so existing standalone payloads work
+ * without any changes to the standalone.
+ */
+
+const { getThemeWriter } = require('./themes');
+const { QualityGate } = require('./quality/gate');
+const { stampBook } = require('./version');
+const { WRITER_CONFIG } = require('./config');
+
+class WriterEngine {
+  /**
+   * Generate a story for a children's book.
+   *
+   * @param {object} bookJson - The book payload (new format or legacy flat format)
+   * @param {object} opts - { onProgress: fn, maxRetries: number }
+   * @returns {{ story: { spreads: [...] }, metadata: { writerVersion, timestamp, model, qualityScore, ... } }}
+   */
+  static async generate(bookJson, opts = {}) {
+    const { onProgress, maxRetries } = opts;
+
+    // Normalize payload: support both new { child, book } and legacy flat format
+    const child = bookJson.child || buildChildFromLegacy(bookJson);
+    const book = bookJson.book || buildBookFromLegacy(bookJson);
+
+    // 1. Get theme-specific writer
+    const themeWriter = getThemeWriter(book.theme);
+    if (!themeWriter) {
+      throw new Error(`Writer V2 does not support theme "${book.theme}" — use legacy pipeline`);
+    }
+
+    // 2. Plan the story
+    onProgress?.({ step: 'planning', message: 'Planning story beats...' });
+    console.log(`[writerV2] Planning story for ${child.name}, age ${child.age}, theme ${book.theme}`);
+    const plan = await themeWriter.plan(child, book);
+    console.log(`[writerV2] Plan complete: ${plan.beats.length} beats, tier ${plan.ageTier}, target ${plan.wordTargets.total} words`);
+
+    // 3. Write the story
+    onProgress?.({ step: 'writing', message: 'Writing story text...' });
+    let story = await themeWriter.write(plan, child, book);
+    console.log(`[writerV2] First draft: ${story.spreads.length} spreads, model ${story._model}`);
+
+    // 4. Quality check
+    onProgress?.({ step: 'quality', message: 'Running quality checks...' });
+    let quality = await QualityGate.check(story, child, book);
+    console.log(`[writerV2] Quality: ${quality.overallScore}/10, pass=${quality.pass}, scores=${JSON.stringify(quality.scores)}`);
+
+    // 5. Revise if needed (up to maxRetries)
+    let attempts = 0;
+    const retryLimit = maxRetries ?? WRITER_CONFIG.retries.maxQualityRetries;
+    while (!quality.pass && attempts < retryLimit) {
+      onProgress?.({ step: 'revising', message: `Revising story (attempt ${attempts + 1})...` });
+      console.log(`[writerV2] Revising (attempt ${attempts + 1}/${retryLimit}): ${quality.feedback.slice(0, 200)}`);
+      story = await themeWriter.revise(story, quality.feedback, child, book);
+      quality = await QualityGate.check(story, child, book);
+      console.log(`[writerV2] After revision ${attempts + 1}: ${quality.overallScore}/10, pass=${quality.pass}`);
+      attempts++;
+    }
+
+    // 6. Stamp with version + timestamp
+    const metadata = stampBook(story, quality, book.theme);
+    console.log(`[writerV2] Complete: v${metadata.writerVersion}, ${metadata.totalWords} words, score ${metadata.qualityScore}`);
+
+    onProgress?.({ step: 'complete', message: 'Story generation complete.' });
+
+    return { story, metadata };
+  }
+}
+
+/**
+ * Convert legacy flat payload to child object.
+ * Handles the current standalone payload format where everything is flat.
+ */
+function buildChildFromLegacy(payload) {
+  return {
+    name: payload.childName,
+    age: payload.childAge,
+    gender: payload.childGender,
+    appearance: payload.childAppearance,
+    interests: payload.childInterests || [],
+    photoUrls: payload.childPhotoUrls || [],
+    anecdotes: payload.childAnecdotes || {},
+  };
+}
+
+/**
+ * Convert legacy flat payload to book object.
+ */
+function buildBookFromLegacy(payload) {
+  return {
+    format: payload.bookFormat || 'PICTURE_BOOK',
+    theme: payload.theme || 'adventure',
+    artStyle: payload.artStyle || 'watercolor',
+    bindingType: payload.bindingType || '',
+    title: payload.approvedTitle || null,
+    customDetails: payload.customDetails || '',
+    heartfeltNote: payload.heartfeltNote || null,
+    bookFrom: payload.bookFrom || null,
+    coverUrl: payload.approvedCoverUrl || null,
+  };
+}
+
+module.exports = { WriterEngine, buildChildFromLegacy, buildBookFromLegacy };
