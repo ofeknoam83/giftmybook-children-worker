@@ -43,7 +43,7 @@ jobs:
             --concurrency=2 \
             --min-instances=1 \
             --max-instances=5 \
-            --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }},GEMINI_PROXY_URL=${{ secrets.GEMINI_PROXY_URL }},GEMINI_PROXY_API_KEY=${{ secrets.GEMINI_PROXY_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }},GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }},GEMINI_API_KEY_3=${{ secrets.GEMINI_API_KEY_3 }},GEMINI_API_KEY_4=${{ secrets.GEMINI_API_KEY_4 }},USE_CHAT_ILLUSTRATIONS=true" \
+            --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }},GEMINI_PROXY_URL=${{ secrets.GEMINI_PROXY_URL }},GEMINI_PROXY_API_KEY=${{ secrets.GEMINI_PROXY_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }},GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }},GEMINI_API_KEY_3=${{ secrets.GEMINI_API_KEY_3 }},GEMINI_API_KEY_4=${{ secrets.GEMINI_API_KEY_4 }},USE_CHAT_ILLUSTRATIONS=true,USE_ILLUSTRATOR_V2=true" \
             --quiet
 
       - name: Route all traffic to latest
