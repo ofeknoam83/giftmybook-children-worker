@@ -54,12 +54,12 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { planStory, polishStory, brainstormStorySeed, combinedCritic, polishEarlyReader, masterCritic, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
+const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateSpreadText } = require('./services/textGenerator');
 const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-const { ChatSessionManager } = require('./services/chatSessionManager');
-const { createIllustrationSession, establishCharacter, generateSpreadInSession } = require('./services/illustrationChatSession');
-const { compositeTextOnIllustration } = require('./services/illustrationPostProcess');
+// V3: ChatSessionManager removed (V1 illustration pipeline)
+// V3: illustrationChatSession imports removed (V1 illustration pipeline)
+// V3: compositeTextOnIllustration removed (V1 illustration pipeline)
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -575,643 +575,9 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
     });
   }
 
-  // Count how many illustrations we need
-  const illustratableEntries = entries.map((entry, idx) => {
-    if (entry.type === 'blank') return null;
-    if (entry.type === 'title_page') return null;
-    if (entry.type === 'half_title_page') return null;
-    if (entry.type === 'copyright_page') return null;
-    if (entry.type === 'closing_page') return null;
-    if (entry.type === 'dedication_page') return null;
-    if (entry.type === 'spread') {
-      const spreadText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' ');
-      const validSpreadText = spreadText && !LOREM_PATTERNS.test(spreadText) ? spreadText : '';
-      // Always generate as a single wide spread (16:9) — never as separate left/right pages
-      const spreadPrompt = entry.spread_image_prompt
-        || entry.left?.image_prompt
-        || entry.right?.image_prompt
-        || (validSpreadText ? `Children's book illustration for this scene: ${validSpreadText}. Show the main character in a warm, expressive moment. Include environment details, lighting, and one texture detail.` : null);
-      if (!spreadPrompt) return null;
-      if (!entry.spread_image_prompt && (entry.left?.image_prompt || entry.right?.image_prompt)) {
-        bookContext.log('info', `Spread ${entry.spread}: using left/right prompt as spread (forced wide format)`);
-      }
-      return { idx, prompt: spreadPrompt, field: 'spreadIllustrationUrl', pageText: validSpreadText, isSpread: true };
-    }
-    return null;
-  }).flat().filter(Boolean);
-
-  bookContext.log('info', 'Starting V2 illustration generation', {
-    totalIllustrations: illustratableEntries.length,
-    resumed: (existingIllustrations || []).filter(Boolean).length,
-  });
-
-  const stage5Start = Date.now();
-  const results = new Array(entries.length);
-  // Pre-fill entries
-  for (let i = 0; i < entries.length; i++) {
-    results[i] = { ...entries[i] };
-  }
-
-  // Pre-fill from checkpoint
-  let completedCount = 0;
-  if (existingIllustrations) {
-    for (let i = 0; i < existingIllustrations.length && i < results.length; i++) {
-      if (existingIllustrations[i]?.spreadIllustrationUrl || existingIllustrations[i]?.illustrationUrl) {
-        results[i] = existingIllustrations[i];
-        completedCount++;
-        bookContext.log('info', `Entry ${i} illustration resumed from checkpoint`);
-      }
-    }
-  }
-
-  const illustrationLimit = pLimit(1); // Sequential
-  let firstSpreadBase64 = null;
-
-  // ── Chat Session Setup ──
-  // Try to start a Gemini chat session for visual consistency across spreads.
-  // Falls back to standalone generateIllustration() calls if chat fails.
-  let chatSession = null;
-  let multiTurnSession = null; // New multi-turn chat session (illustrationChatSession)
-  const useMultiTurnChat = process.env.USE_CHAT_ILLUSTRATIONS === 'true';
-  const useChatSession = !opts.disableChatSession; // allow opting out
-
-  if (useMultiTurnChat && useChatSession) {
-    // ── New multi-turn chat session (feature-flagged) ──
-    try {
-      bookContext.log('info', 'Starting multi-turn chat session for illustration generation (USE_CHAT_ILLUSTRATIONS=true)');
-      multiTurnSession = createIllustrationSession({
-        characterPhotoBase64: cachedPhotoBase64 || null,
-        characterPhotoMime: cachedPhotoMime || 'image/jpeg',
-        coverBase64: parentCoverRefBase64 || characterRefSheetBase64 || null,
-        coverMime: 'image/jpeg',
-        characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
-        characterDescription: storyPlan.characterDescription || '',
-        characterOutfit: storyPlan.characterOutfit || '',
-        style,
-        childName: childDetails.name,
-        childAge: childDetails.age || childDetails.childAge,
-        totalSpreads: illustratableEntries.length,
-        additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-        recurringElement: storyPlan.recurringElement || '',
-        keyObjects: storyPlan.keyObjects || '',
-        parentOutfit: storyPlan.parentOutfit || null,
-      });
-
-      await establishCharacter(multiTurnSession);
-      bookContext.log('info', 'Multi-turn chat session established successfully');
-    } catch (chatErr) {
-      bookContext.log('warn', `Multi-turn chat session failed to start — falling back: ${chatErr.message}`);
-      multiTurnSession = null;
-    }
-  } else if (useChatSession) {
-    // ── Legacy ChatSessionManager (default path) ──
-    try {
-      chatSession = new ChatSessionManager();
-      const characterRefImages = [];
-      if (cachedPhotoBase64) {
-        characterRefImages.push({ base64: cachedPhotoBase64, mimeType: cachedPhotoMime || 'image/jpeg' });
-      }
-      if (parentCoverRefBase64 && parentCoverRefBase64 !== cachedPhotoBase64) {
-        characterRefImages.push({ base64: parentCoverRefBase64, mimeType: 'image/jpeg' });
-      }
-      if (characterRefSheetBase64 && characterRefSheetBase64 !== cachedPhotoBase64) {
-        characterRefImages.push({ base64: characterRefSheetBase64, mimeType: 'image/jpeg' });
-      }
-
-      const styleConfig = {
-        artStyle: style,
-        characterDescription: storyPlan.characterDescription || '',
-        characterOutfit: storyPlan.characterOutfit || '',
-        characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
-        additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-      };
-      const chatBookContext = {
-        childName: childDetails.name,
-        childAge: childDetails.age || childDetails.childAge,
-        totalSpreads: illustratableEntries.length,
-        recurringElement: storyPlan.recurringElement || '',
-        keyObjects: storyPlan.keyObjects || '',
-      };
-
-      await chatSession.startBookSession(characterRefImages, styleConfig, chatBookContext);
-      bookContext.log('info', 'Chat session started for illustration generation');
-    } catch (chatErr) {
-      bookContext.log('warn', `Chat session failed to start — falling back to standalone generation: ${chatErr.message}`);
-      chatSession = null;
-    }
-  }
-
-  const illustrationPromises = illustratableEntries.map((job) =>
-    illustrationLimit(async () => {
-      const { idx, prompt, field } = job;
-
-      // Check abort signal before starting each illustration
-      if (bookContext.abortController.signal.aborted) {
-        bookContext.log('info', `Skipping illustration entry ${idx + 1} — generation aborted`);
-        return;
-      }
-
-      // Skip if already resumed from checkpoint
-      if (results[idx]?.[field]) {  // field = leftIllustrationUrl, rightIllustrationUrl, or spreadIllustrationUrl
-        return;
-      }
-
-      let imageUrl = null;
-      let imageBuffer = null; // Keep raw buffer for text compositing
-      const illStart = Date.now();
-      const outfit = storyPlan.characterOutfit || '';
-      const MAX_ILL_RETRIES = 3;
-      const entryLabel = `entry ${idx + 1} (${results[idx].type})`;
-
-      // ── Try chat session first, fall back to standalone ──
-      const pageText = job.pageText || '';
-
-      // ── Multi-turn chat session (new, feature-flagged) ──
-      if (multiTurnSession && !multiTurnSession.abandoned) {
-        try {
-          bookContext.log('info', `Illustration ${entryLabel} via multi-turn chat session`);
-          const entryData = entries[idx] || {};
-
-          // Retry once within the session if no image returned
-          let chatResult = null;
-          for (let chatAttempt = 0; chatAttempt < 2; chatAttempt++) {
-            try {
-              chatResult = await generateSpreadInSession(multiTurnSession, prompt, {
-                aspectRatio: job.isSpread ? '16:9' : '1:1',
-                shotType: entryData.shot_type || null,
-                spreadIndex: idx,
-                sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
-                pageText: pageText || null,
-                additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-                theme: theme,
-                parentOutfit: storyPlan.parentOutfit || null,
-              });
-              break; // Success
-            } catch (turnErr) {
-              if (turnErr.isNsfw) {
-                bookContext.log('warn', `Multi-turn spread ${idx + 1} NSFW blocked — falling back to stateless`);
-                throw turnErr; // Don't retry NSFW, fall through to stateless
-              }
-              if (chatAttempt === 0) {
-                bookContext.log('warn', `Multi-turn spread ${idx + 1} attempt 1 failed: ${turnErr.message} — retrying within session`);
-              } else {
-                throw turnErr; // Second attempt failed
-              }
-            }
-          }
-
-          if (chatResult) {
-            imageBuffer = chatResult.imageBuffer;
-
-            if (costTracker) {
-              costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
-            }
-
-            // ── Text compositing: skip for multi-turn chat (text is embedded by AI in the image) ──
-            // Text was passed to generateSpreadInSession() via pageText opt, so the AI renders it directly.
-            bookContext.log('info', `Spread ${idx + 1}: text embedded by AI in multi-turn chat — skipping external compositing`);
-
-            // Upload illustration to GCS
-            if (bookId && imageBuffer) {
-              const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
-              const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
-              imageUrl = await uploadBuf(imageBuffer, gcsPath, 'image/png');
-            }
-
-            bookContext.touchActivity();
-            const memUsage = process.memoryUsage();
-            bookContext.log('info', `Illustration ${entryLabel} complete (multi-turn)`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
-          }
-        } catch (chatGenErr) {
-          bookContext.log('warn', `Multi-turn chat generation failed for ${entryLabel}: ${chatGenErr.message} — abandoning session, falling back to standalone`);
-          multiTurnSession.abandoned = true; // Disable multi-turn for remaining spreads
-          imageUrl = null;
-          imageBuffer = null;
-        }
-      }
-
-      // ── Legacy chat session (ChatSessionManager) ──
-      if (!imageUrl && chatSession) {
-        try {
-          bookContext.log('info', `Illustration ${entryLabel} via chat session`);
-          const entryData = entries[idx] || {};
-          const chatResult = await chatSession.generateSpread(prompt, idx, null, null, {
-            aspectRatio: job.isSpread ? '16:9' : '1:1',
-            shotType: entryData.shot_type || null,
-          });
-
-          imageBuffer = chatResult.imageBuffer;
-
-          if (costTracker) {
-            costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
-          }
-
-          // ── Composite text onto illustration (text rendered externally via Sharp/SVG) ──
-          if (pageText && pageText.trim() && imageBuffer) {
-            try {
-              const entry = entries[idx];
-              const leftText = entry.left?.text || null;
-              const rightText = entry.right?.text || null;
-              const textResult = await compositeTextOnIllustration(imageBuffer, leftText, rightText, {
-                fontSize: 48,
-                fontColor: '#FFFFFF',
-                maxWidthPct: 0.35,
-                isSpread: job.isSpread,
-              });
-              imageBuffer = textResult.imageBuffer;
-              bookContext.log('info', `Spread ${idx + 1}: text composited successfully`);
-            } catch (textErr) {
-              bookContext.log('warn', `Spread ${idx + 1}: text compositing failed: ${textErr.message} — using illustration without text`);
-            }
-          }
-
-          // Upload illustration to GCS
-          if (bookId && imageBuffer) {
-            const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
-            const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
-            imageUrl = await uploadBuf(imageBuffer, gcsPath, 'image/png');
-          }
-
-          bookContext.touchActivity();
-          const memUsage = process.memoryUsage();
-          bookContext.log('info', `Illustration ${entryLabel} complete (chat)`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
-        } catch (chatGenErr) {
-          bookContext.log('warn', `Chat session generation failed for ${entryLabel}: ${chatGenErr.message} — falling back to standalone`);
-          chatSession = null; // Disable chat for remaining spreads
-          imageUrl = null;
-          imageBuffer = null;
-        }
-      }
-
-      // Fallback: standalone generation (original path)
-      if (!imageUrl) {
-        for (let attempt = 1; attempt <= MAX_ILL_RETRIES; attempt++) {
-          try {
-            if (attempt === 1) {
-              bookContext.log('info', `Illustration ${entryLabel} starting (standalone)`, { promptLength: prompt.length, field });
-            } else {
-              bookContext.log('info', `Illustration ${entryLabel} retry ${attempt}/${MAX_ILL_RETRIES}`);
-            }
-            let prevIllustrationUrl = null;
-            for (let pi = idx - 1; pi >= 0; pi--) {
-              const prev = results[pi];
-              const prevUrl = prev?.spreadIllustrationUrl || prev?.illustrationUrl;
-              if (prevUrl) { prevIllustrationUrl = prevUrl; break; }
-            }
-            const isFirstSpread = (idx === 0);
-            const photoRefForSpread = parentCoverRefBase64
-              ? parentCoverRefBase64
-              : (characterRefSheetBase64 || cachedPhotoBase64);
-            const photoMimeForSpread = parentCoverRefBase64
-              ? 'image/jpeg'
-              : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
-            const entryData = entries[idx] || {};
-            const illustrationPromise = generateIllustration(prompt, characterRef, style, {
-              apiKeys,
-              costTracker,
-              bookId,
-              childName: childDetails.name,
-              characterOutfit: outfit,
-              characterDescription: storyPlan.characterDescription || '',
-              characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
-              additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-              recurringElement: storyPlan.recurringElement || '',
-              keyObjects: storyPlan.keyObjects || '',
-              coverArtStyle: storyPlan.coverArtStyle || '',
-              childPhotoUrl: resolvedChildPhotoUrl,
-              _cachedPhotoBase64: photoRefForSpread,
-              _cachedPhotoMime: photoMimeForSpread,
-              spreadIndex: idx,
-              totalSpreads: entries.filter(e => e.type === 'spread').length,
-              childAge: childDetails.age || childDetails.childAge,
-              pageText: job.pageText || '',
-              isSpread: job.isSpread || false,
-              deadlineMs: 200000,
-              abortSignal: bookContext.abortController.signal,
-              prevIllustrationUrl,
-              shotType: entryData.shot_type || null,
-              characterPosition: entryData.character_position || null,
-              promptInjection: isFirstSpread
-                ? `STYLE ESTABLISHMENT: This is the FIRST illustration of the book. The art style, color palette, lighting mood, and character rendering quality you establish HERE will be used as the style reference for ALL subsequent illustrations. Commit to a specific, rich, consistent style in this first image. `
-                : '',
-              firstSpreadRefBase64: firstSpreadBase64 || null,
-              theme: theme,
-              parentOutfit: storyPlan.parentOutfit || null,
-            });
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error(`Illustration ${entryLabel} timed out after 3.5 minutes`)), 210000)
-            );
-            imageUrl = await Promise.race([illustrationPromise, timeoutPromise]);
-            bookContext.touchActivity();
-            const memUsage = process.memoryUsage();
-            bookContext.log('info', `Illustration ${entryLabel} complete (standalone)`, { ms: Date.now() - illStart, hasImage: !!imageUrl, heapMB: Math.round(memUsage.heapUsed / 1024 / 1024) });
-            break;
-          } catch (illustrationErr) {
-            bookContext.log('error', `Illustration ${entryLabel} attempt ${attempt} failed`, { error: illustrationErr.message, ms: Date.now() - illStart });
-            if (attempt < MAX_ILL_RETRIES) {
-              const backoff = attempt * 3000;
-              await new Promise(r => setTimeout(r, backoff));
-            } else {
-              bookContext.log('warn', `Illustration ${entryLabel} failed after ${MAX_ILL_RETRIES} attempts — skipping`);
-            }
-          }
-        }
-      } // end fallback standalone generation
-
-      // ── Composite text for standalone fallback path ──
-      const chatProducedImage = (chatSession && imageBuffer) || (multiTurnSession && !multiTurnSession.abandoned && imageBuffer);
-      if (!chatProducedImage && pageText && pageText.trim() && imageUrl && !imageBuffer) {
-        try {
-          const dlResp = await fetch(imageUrl);
-          if (dlResp.ok) {
-            imageBuffer = Buffer.from(await dlResp.arrayBuffer());
-            const entry = entries[idx];
-            const leftText = entry.left?.text || null;
-            const rightText = entry.right?.text || null;
-            const textResult = await compositeTextOnIllustration(imageBuffer, leftText, rightText, {
-              fontSize: 48,
-              fontColor: '#FFFFFF',
-              maxWidthPct: 0.35,
-              isSpread: job.isSpread,
-            });
-            imageBuffer = textResult.imageBuffer;
-            // Re-upload with composited text
-            if (bookId) {
-              const { uploadBuffer: uploadBuf } = require('./services/gcsStorage');
-              const textPath = `children-jobs/${bookId}/illustrations/${Date.now()}-text.png`;
-              imageUrl = await uploadBuf(textResult.imageBuffer, textPath, 'image/png');
-            }
-            bookContext.log('info', `Spread ${idx + 1}: text composited (standalone path)`);
-          }
-        } catch (textErr) {
-          bookContext.log('warn', `Spread ${idx + 1}: standalone text compositing failed: ${textErr.message}`);
-        }
-      }
-
-      // ── C5: Post-generation visual QA checks (streamlined — text checks removed) ──
-      // Download generated image once for all checks
-      const originalImageUrl = imageUrl; // track original to detect if QA retries changed the image
-      let genBase64 = null;
-      if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
-        try {
-          const checkResp = await fetch(imageUrl);
-          if (checkResp.ok) {
-            genBase64 = Buffer.from(await checkResp.arrayBuffer()).toString('base64');
-          }
-        } catch {}
-      }
-
-      // Helper: build retry options for corrective re-generation
-      const buildRetryOpts = () => {
-        const entry = results[idx];
-        const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
-        const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(spreadText);
-        const photoRefForRetry = (mentionsParent && parentCoverRefBase64)
-          ? parentCoverRefBase64
-          : (characterRefSheetBase64 || cachedPhotoBase64);
-        const photoMimeForRetry = (mentionsParent && parentCoverRefBase64)
-          ? 'image/jpeg'
-          : (characterRefSheetBase64 ? 'image/jpeg' : cachedPhotoMime);
-        return {
-          apiKeys,
-          costTracker,
-          bookId,
-          childName: childDetails.name,
-          characterOutfit: storyPlan.characterOutfit || '',
-          characterDescription: storyPlan.characterDescription || '',
-          characterAnchor: characterAnchor || storyPlan.characterAnchor || null,
-          additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-          recurringElement: storyPlan.recurringElement || '',
-          keyObjects: storyPlan.keyObjects || '',
-          coverArtStyle: storyPlan.coverArtStyle || '',
-          childPhotoUrl: resolvedChildPhotoUrl,
-          _cachedPhotoBase64: photoRefForRetry,
-          _cachedPhotoMime: photoMimeForRetry,
-          spreadIndex: idx,
-          totalSpreads: entries.filter(e => e.type === 'spread').length,
-          childAge: childDetails.age || childDetails.childAge,
-          pageText: job.pageText || '',
-          isSpread: job.isSpread || false,
-          deadlineMs: 200000,
-          abortSignal: bookContext.abortController.signal,
-          firstSpreadRefBase64: firstSpreadBase64 || null,
-          theme: theme,
-          parentOutfit: storyPlan.parentOutfit || null,
-        };
-      };
-
-      // Check 1: Character consistency (existing)
-      const refBase64ForCheck = characterRefSheetBase64 || cachedPhotoBase64;
-      if (genBase64 && refBase64ForCheck) {
-        try {
-          const { checkCharacterConsistency } = require('./services/illustrationGenerator');
-          const consistency = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '', storyPlan.additionalCoverCharacters || null);
-          if (!consistency.consistent) {
-            bookContext.log('warn', `Spread ${idx + 1} character inconsistency detected`, { issues: consistency.issues });
-            try {
-              const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${consistency.issues.join(', ')}`;
-              const correctedPrompt = correctionNote + '\n\n' + prompt;
-              bookContext.log('info', `Retrying spread ${idx + 1} with consistency correction`);
-              if (multiTurnSession && !multiTurnSession.abandoned) {
-                const retryOpts = {
-                  aspectRatio: job.isSpread ? '16:9' : '1:1',
-                  shotType: entries[idx]?.shot_type || null,
-                  spreadIndex: idx,
-                  sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
-                  pageText: job.pageText || null,
-                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-                  theme: theme,
-                };
-                const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
-                if (chatRetry?.imageBuffer) {
-                  const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-retry.png`;
-                  imageUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
-                  genBase64 = chatRetry.imageBuffer.toString('base64');
-                  bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded (chat session)`);
-                }
-              } else {
-                const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-                if (retryResult) {
-                  imageUrl = retryResult;
-                  genBase64 = null; // re-download for subsequent checks
-                  try {
-                    const reResp = await fetch(imageUrl);
-                    if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
-                  } catch {}
-                  bookContext.log('info', `Spread ${idx + 1} consistency retry succeeded`);
-                }
-              }
-            } catch (retryErr) {
-              bookContext.log('warn', `Consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
-            }
-          } else {
-            bookContext.log('info', `Spread ${idx + 1} character consistency OK`);
-          }
-        } catch (checkErr) {
-          bookContext.log('warn', `Consistency check error for spread ${idx + 1}`, { error: checkErr.message });
-        }
-      }
-
-      // Check 2: Character count — detect duplicated characters
-      if (genBase64) {
-        try {
-          const { checkCharacterCount } = require('./services/illustrationGenerator');
-          const entry = results[idx];
-          const spreadText = (entry.left?.text || '') + ' ' + (entry.right?.text || '') + ' ' + (entry.text || '');
-          const spreadImagePrompt = entry.spread_image_prompt || '';
-          const searchableText = spreadText + ' ' + spreadImagePrompt;
-          const { PARENT_THEMES } = require('./services/illustrationGenerator');
-          const hasSecondaryCharacters = !!(storyPlan.additionalCoverCharacters || storyPlan.secondaryCharacterDescription);
-          const mentionsParent = /mom|mama|mommy|mother|dad|daddy|papa|father/i.test(searchableText);
-          const childAlone = /\bchild\s+alone\b|\balone\b.*\bchild\b|\bno\s+(adult|parent|mom|dad)\b|\bby\s+(himself|herself|themselves)\b|\bsolo\b/i.test(spreadImagePrompt);
-          const isImpliedPresenceTheme = !hasSecondaryCharacters && PARENT_THEMES.has(theme);
-          // If the book has a secondary character (parent), expect them in every spread
-          // unless the image prompt explicitly says the child is alone.
-          // For parent-themed books without a cover parent, skip the count check entirely —
-          // the parent is shown partially (hands, back, side) which confuses the counter.
-          const adultExpected = hasSecondaryCharacters ? (childAlone ? 0 : 1) : (isImpliedPresenceTheme ? -1 : (mentionsParent ? 1 : 0));
-          const expectedCharacters = { childCount: 1, adultCount: adultExpected };
-          const countResult = await checkCharacterCount(genBase64, expectedCharacters);
-          if (!countResult.passed) {
-            bookContext.log('warn', `Spread ${idx + 1} character count mismatch`, { message: countResult.message });
-            try {
-              const correctionNote = `CRITICAL: The previous image showed the wrong number of characters. ${countResult.message}. Generate with EXACTLY ${expectedCharacters.childCount} child(ren) and ${expectedCharacters.adultCount} adult(s).`;
-              const correctedPrompt = correctionNote + '\n\n' + prompt;
-              bookContext.log('info', `Retrying spread ${idx + 1} with character count correction`);
-              if (multiTurnSession && !multiTurnSession.abandoned) {
-                const retryOpts = {
-                  aspectRatio: job.isSpread ? '16:9' : '1:1',
-                  shotType: entries[idx]?.shot_type || null,
-                  spreadIndex: idx,
-                  sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
-                  pageText: job.pageText || null,
-                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-                  theme: theme,
-                };
-                const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
-                if (chatRetry?.imageBuffer) {
-                  const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-retry.png`;
-                  imageUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
-                  genBase64 = chatRetry.imageBuffer.toString('base64');
-                  bookContext.log('info', `Spread ${idx + 1} character count retry succeeded (chat session)`);
-                }
-              } else {
-                const retryResult = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-                if (retryResult) {
-                  imageUrl = retryResult;
-                  genBase64 = null;
-                  try {
-                    const reResp = await fetch(imageUrl);
-                    if (reResp.ok) genBase64 = Buffer.from(await reResp.arrayBuffer()).toString('base64');
-                  } catch {}
-                  bookContext.log('info', `Spread ${idx + 1} character count retry succeeded`);
-                }
-              }
-            } catch (retryErr) {
-              bookContext.log('warn', `Character count retry failed for spread ${idx + 1}`, { error: retryErr.message });
-            }
-          } else {
-            bookContext.log('info', `Spread ${idx + 1} character count OK`);
-          }
-        } catch (checkErr) {
-          bookContext.log('warn', `Character count check error for spread ${idx + 1}`, { error: checkErr.message });
-        }
-      }
-
-      // Text is composited externally via Sharp/SVG — font consistency guaranteed by code
-
-      // Final re-check: if any QA retry changed the image, verify character consistency one more time
-      if (genBase64 && refBase64ForCheck && imageUrl !== originalImageUrl) {
-        try {
-          const { checkCharacterConsistency } = require('./services/illustrationGenerator');
-          const finalCheck = await checkCharacterConsistency(genBase64, refBase64ForCheck, storyPlan.characterAnchor, storyPlan.characterOutfit || '', storyPlan.additionalCoverCharacters || null);
-          if (!finalCheck.consistent) {
-            bookContext.log('warn', `Spread ${idx + 1} post-retry consistency re-check failed`, { issues: finalCheck.issues });
-            // One last attempt with explicit correction
-            try {
-              const correctionNote = `IMPORTANT: Pay close attention to the character's appearance.\nThe child has: ${storyPlan.characterAnchor || ''}\nCore outfit: ${storyPlan.characterOutfit || ''}\nPrevious attempt issue: ${finalCheck.issues.join(', ')}`;
-              const correctedPrompt = correctionNote + '\n\n' + prompt;
-              if (multiTurnSession && !multiTurnSession.abandoned) {
-                const retryOpts = {
-                  aspectRatio: job.isSpread ? '16:9' : '1:1',
-                  shotType: entries[idx]?.shot_type || null,
-                  spreadIndex: idx,
-                  sceneSummary: (entries[idx]?.spread_image_prompt || prompt).slice(0, 100),
-                  pageText: job.pageText || null,
-                  additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-                  theme: theme,
-                };
-                const chatRetry = await generateSpreadInSession(multiTurnSession, correctedPrompt, retryOpts);
-                if (chatRetry?.imageBuffer) {
-                  const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}-retry.png`;
-                  imageUrl = await uploadBuffer(chatRetry.imageBuffer, gcsPath, 'image/png');
-                  bookContext.log('info', `Spread ${idx + 1} final consistency retry succeeded (chat session)`);
-                }
-              } else {
-                const finalRetry = await generateIllustration(correctedPrompt, characterRef, style, buildRetryOpts());
-                if (finalRetry) {
-                  imageUrl = finalRetry;
-                  bookContext.log('info', `Spread ${idx + 1} final consistency retry succeeded`);
-                }
-              }
-            } catch (retryErr) {
-              bookContext.log('warn', `Final consistency retry failed for spread ${idx + 1}`, { error: retryErr.message });
-            }
-          } else {
-            bookContext.log('info', `Spread ${idx + 1} post-retry consistency re-check OK`);
-          }
-        } catch (checkErr) {
-          bookContext.log('warn', `Post-retry consistency re-check error for spread ${idx + 1}`, { error: checkErr.message });
-        }
-      }
-
-      // Save first spread image as outfit style reference for subsequent spreads
-      if (idx === 0 && imageUrl && !firstSpreadBase64) {
-        try {
-          const fsResp = await fetch(imageUrl);
-          if (fsResp.ok) {
-            firstSpreadBase64 = Buffer.from(await fsResp.arrayBuffer()).toString('base64');
-            bookContext.log('info', 'Saved first spread as outfit style reference');
-          }
-        } catch (e) {
-          bookContext.log('warn', 'Failed to save first spread as outfit reference', { error: e.message });
-        }
-      }
-
-      results[idx][field] = imageUrl;
-      completedCount++;
-
-      // Save partial checkpoint
-      if (checkpointData) {
-        await saveCheckpoint(bookId, {
-          ...checkpointData,
-          completedStage: 'illustrations_partial',
-          illustrationResults: results,
-          timestamp: new Date().toISOString(),
-          accumulatedCosts: costTracker.getSummary(),
-        }).catch(e => console.warn('[checkpoint] Save failed:', e.message));
-      }
-
-      if (progressCallbackUrl) {
-        const progress = 0.40 + (0.35 * completedCount / illustratableEntries.length);
-        reportProgress(progressCallbackUrl, {
-          bookId,
-          stage: 'illustration',
-          progress,
-          message: `Generating illustration ${completedCount} of ${illustratableEntries.length}...`,
-          previewUrls: results.filter(r => r.spreadIllustrationUrl || r.illustrationUrl || r.leftIllustrationUrl).map(r => r.spreadIllustrationUrl || r.illustrationUrl || r.leftIllustrationUrl),
-          logs: bookContext.logs,
-        });
-      }
-    })
-  );
-
-  await Promise.all(illustrationPromises);
-
-  bookContext.log('info', 'All illustrations generated (with embedded text)', { totalMs: Date.now() - stage5Start });
-
-  console.log(`[server] Stage timing: illustrations=${Date.now() - stage5Start}ms (book ${bookId})`);
-  return results;
+  // V3: V1 illustration pipeline removed — Illustrator V2 handles all picture books.
+  // If we reach here, USE_ILLUSTRATOR_V2 is not enabled, which is a configuration error.
+  throw new Error('Illustrator V2 (USE_ILLUSTRATOR_V2=true) is required — V1 illustration pipeline has been removed');
 }
 
 function trimToWordCount(text, maxWords) {
@@ -1253,7 +619,29 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
   const spreads = writerResult.story.spreads || [];
   const childName = childDetails.name || childDetails.childName || 'the child';
   const title = approvedTitle || `A Story for ${childName}`;
-  const THEME_SUBS = { mothers_day: 'A story about love', fathers_day: 'A story about love', birthday: 'A birthday story', adventure: 'An adventure story' };
+  const THEME_SUBS = {
+    mothers_day: 'A story about love',
+    fathers_day: 'A story about love',
+    birthday: 'A birthday story',
+    birthday_magic: 'A birthday story',
+    adventure: 'An adventure story',
+    fantasy: 'A fantasy quest',
+    space: 'A space adventure',
+    underwater: 'An underwater adventure',
+    nature: 'A nature story',
+    bedtime: 'A bedtime story',
+    school: 'A school story',
+    friendship: 'A friendship story',
+    holiday: 'A holiday story',
+    anxiety: 'A story about being brave',
+    anger: 'A story about big feelings',
+    fear: 'A story about courage',
+    grief: 'A story about remembering',
+    loneliness: 'A story about connection',
+    new_beginnings: 'A story about new beginnings',
+    self_worth: 'A story about being you',
+    family_change: 'A story about family',
+  };
   const subtitle = `${THEME_SUBS[theme] || 'A story'} for ${childName}`;
 
   // Build spread entries — split text into left/right pages
@@ -2177,7 +1565,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
-      } else if (!isChapterBook && !isGraphicNovel && (() => { try { return require('./services/writer/themes').getThemeWriter(theme || 'adventure'); } catch (e) { return null; } })()) {
+      } else if (!isChapterBook && !isGraphicNovel) {
         // ── Writer V2 — unified engine for supported themes ──
         bookContext.checkAbort();
         bookContext.log('info', 'Starting Writer V2 story generation', { theme: theme || 'adventure' });
@@ -2207,6 +1595,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         });
         console.log(`[server] Stage timing: writerV2=${stage3Ms}ms (book ${bookId})`);
 
+        // Safety: if Writer V2 returned 0 spreads, fail the book instead of generating a blank PDF
+        if (!writerResult.story.spreads || writerResult.story.spreads.length === 0) {
+          throw new Error(`Writer V2 returned 0 spreads for book ${bookId} — aborting to prevent blank book`);
+        }
+
         // Convert Writer V2 result to legacy storyPlan shape for illustration pipeline
         storyPlan = convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle);
         storyPlan._writerV2Metadata = writerResult.metadata;
@@ -2224,170 +1617,19 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
-      } else {
-        // Always start fresh for V2 (incompatible with old checkpoint format)
-        bookContext.checkAbort();
-        bookContext.log('info', 'Starting V2 story planning', { theme: theme || 'adventure' });
-        if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Planning story...', logs: bookContext.logs });
-        }
-
-        const stage3Start = Date.now();
-        storyPlan = await planStory(childDetails, theme || 'adventure', format, plannerCustomDetails, {
-          apiKeys,
-          costTracker,
-          approvedTitle,
-          v2Vars,
-          additionalCoverCharacters: detectedSecondaryCharacters || null,
-        });
-        bookContext.touchActivity();
-        const stage3Ms = Date.now() - stage3Start;
-        const spreads = storyPlan.entries.filter(e => e.type === 'spread');
-        bookContext.log('info', 'V2 story planned', { spreads: spreads.length, entries: storyPlan.entries.length, title: storyPlan.title, ms: stage3Ms });
-        console.log(`[server] Stage timing: story=${stage3Ms}ms (book ${bookId})`);
-
-        // Save story content to DB immediately so admin can see the text
-        if (progressCallbackUrl) {
-          const storyContentForDb = {
-            title: storyPlan.title,
-            entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })),
-            characterDescription: storyPlan.characterDescription || null,
-            characterOutfit: storyPlan.characterOutfit || null,
-            characterAnchor: storyPlan.characterAnchor || null,
-            additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-          };
-          reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
-        }
-
-        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
-
-        // ── Master Critic (consolidated single pass) ──
-        bookContext.checkAbort();
-        bookContext.log('info', 'Starting master critic (12-criteria scoring + rewrite)');
-        if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.20, message: 'Evaluating and polishing story...', logs: bookContext.logs });
-        }
-        try {
-          const criticStart = Date.now();
-          storyPlan = await masterCritic(storyPlan, {
-            apiKeys,
-            costTracker,
-            theme,
-            childAge: childDetails.age,
-            format,
-            style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
-            techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
-            narrativePatterns: storyPlan._narrativePatterns || null,
-          });
-          const criticMs = Date.now() - criticStart;
-          bookContext.log('info', 'Master critic complete', { ms: criticMs, scores: storyPlan._masterCriticScores, issueCount: storyPlan._masterCriticIssueCount });
-          bookContext.touchActivity();
-
-          // Quality gate: retry writing once if masterCritic avg < 5.0
-          if (storyPlan._masterCriticScores) {
-            const scores = storyPlan._masterCriticScores;
-            const scoreValues = Object.values(scores).filter(v => typeof v === 'number');
-            const avgScore = scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length : 10;
-            if (avgScore < 5.0) {
-              bookContext.log('info', `Quality gate triggered: avg=${avgScore.toFixed(1)} — retrying story generation + re-critic`);
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.22, message: 'Improving story — rewriting...', logs: bookContext.logs });
-              }
-              try {
-                const retryPlan = await planStory(childDetails, theme || 'adventure', format, plannerCustomDetails, {
-                  apiKeys,
-                  costTracker,
-                  approvedTitle,
-                  v2Vars: { ...v2Vars, retryTemperature: 0.9 },
-                  additionalCoverCharacters: detectedSecondaryCharacters || null,
-                });
-                const retryCritic = await masterCritic(retryPlan, {
-                  apiKeys,
-                  costTracker,
-                  theme,
-                  childAge: childDetails.age,
-                  format,
-                  style_mode: v2Vars?.style_mode || retryPlan._styleMode || 'playful',
-                  techniques: v2Vars?.techniques || retryPlan._techniques || ['rule_of_three', 'humor'],
-                  narrativePatterns: retryPlan._narrativePatterns || null,
-                });
-                const retryScores = retryCritic._masterCriticScores || {};
-                const retryValues = Object.values(retryScores).filter(v => typeof v === 'number');
-                const retryAvg = retryValues.length > 0 ? retryValues.reduce((a, b) => a + b, 0) / retryValues.length : 0;
-                if (retryAvg > avgScore) {
-                  bookContext.log('info', `Quality gate retry succeeded: new avg=${retryAvg.toFixed(1)} > old avg=${avgScore.toFixed(1)} — using retry version`);
-                  storyPlan = retryCritic;
-                } else {
-                  bookContext.log('info', `Quality gate retry did not improve: new avg=${retryAvg.toFixed(1)} <= old avg=${avgScore.toFixed(1)} — keeping original`);
-                }
-              } catch (retryErr) {
-                bookContext.log('warn', `Quality gate retry failed: ${retryErr.message} — keeping original`);
-              }
-            }
-          }
-
-          // Save polished content to DB
-          if (progressCallbackUrl) {
-            const polishedContent = { title: storyPlan.title, entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })) };
-            reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: polishedContent, logs: bookContext.logs }).catch(() => {});
-          }
-          await saveCheckpoint(bookId, { bookId, completedStage: 'story_final_polish', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
-        } catch (criticErr) {
-          bookContext.log('warn', `Master critic failed — continuing with original text: ${criticErr.message}`);
-        }
       }
 
       // V2: Text is already in the story plan — no separate text generation needed.
 
-      // ── W3 + W7: Quality gates — check custom details usage and story quality ──
+      // ── W3: Check custom details usage (non-blocking, informational) ──
+      // Writer V2 has its own QualityGate — no need for V1 criticStory/masterCritic
       if (!isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
         try {
-          const { checkCustomDetailsUsage, criticStory } = require('./services/qualityGates');
-
-          // W3: Check customDetails usage
+          const { checkCustomDetailsUsage } = require('./services/qualityGates');
           const detailsCheck = await checkCustomDetailsUsage(storyPlan.entries, enrichedCustomDetails || customDetails, { costTracker });
           bookContext.log('info', 'Custom details usage check', { score: detailsCheck.score, missing: detailsCheck.missingCritical });
-          if (detailsCheck.missingCritical && detailsCheck.missingCritical.length > 0 && detailsCheck.score < 5) {
-            bookContext.log('warn', 'Story missing critical custom details', { missing: detailsCheck.missingCritical, score: detailsCheck.score });
-          }
-
-          // W7: Story critic (blocking — triggers retry on failure)
-          const criticResult = await criticStory(storyPlan.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
-          bookContext.log('info', 'Story critic result', { total: criticResult.total, approved: criticResult.approved, feedback: (criticResult.feedback || '').slice(0, 200) });
-
-          if (!criticResult.approved) {
-            bookContext.log('warn', 'Story below quality threshold — triggering masterCritic retry', { score: criticResult.total, weakest: criticResult.weakestSpreads });
-            try {
-              if (progressCallbackUrl) {
-                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.27, message: 'Improving story based on critic feedback...', logs: bookContext.logs });
-              }
-
-              // Re-run masterCritic on the current version
-              const retryCritic = await masterCritic(storyPlan, {
-                apiKeys,
-                costTracker,
-                theme,
-                childAge: childDetails.age || childDetails.childAge,
-                format,
-                style_mode: v2Vars?.style_mode || storyPlan._styleMode || 'playful',
-                techniques: v2Vars?.techniques || storyPlan._techniques || ['rule_of_three', 'humor'],
-                narrativePatterns: storyPlan._narrativePatterns || null,
-              });
-              bookContext.log('info', 'Critic retry: masterCritic complete', { scores: retryCritic._masterCriticScores });
-
-              // Re-run criticStory on the improved version
-              const retryResult = await criticStory(retryCritic.entries, enrichedCustomDetails || customDetails, theme, childDetails.age || childDetails.childAge, { costTracker });
-              bookContext.log('info', 'Critic retry: second critic result', { total: retryResult.total, approved: retryResult.approved });
-
-              // Accept the retried version regardless of second score (don't loop more than once)
-              storyPlan = retryCritic;
-              bookContext.log('info', `Critic retry complete — using retried version (score: ${retryResult.total}, approved: ${retryResult.approved})`);
-            } catch (criticRetryErr) {
-              bookContext.log('warn', `Critic retry failed — keeping original: ${criticRetryErr.message}`);
-            }
-          }
         } catch (qgErr) {
-          bookContext.log('warn', 'Quality gates failed (non-blocking)', { error: qgErr.message });
+          bookContext.log('warn', 'Custom details check failed (non-blocking)', { error: qgErr.message });
         }
       }
 
@@ -2570,95 +1812,8 @@ You MUST start the sections with CHARACTER:, OUTFIT:, ADDITIONAL_CHARACTERS:, an
               }
             }
 
-            // Dedicated character anchor extraction — explicit ethnicity, eye shape, skin tone
-            // Retries up to 4 times with rotating API keys until a valid anchor is extracted
-            if (childPhotoUrls && childPhotoUrls.length > 0) {
-            const MAX_ANCHOR_RETRIES = 4;
-            for (let anchorAttempt = 1; anchorAttempt <= MAX_ANCHOR_RETRIES; anchorAttempt++) {
-              try {
-                const { getNextApiKey: getAnchorKey } = require('./services/illustrationGenerator');
-                const anchorApiKey = getAnchorKey() || apiKey;
-                bookContext.log('info', `Character anchor extraction attempt ${anchorAttempt}/${MAX_ANCHOR_RETRIES}`);
-                const anchorResp = await fetch(
-                  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${anchorApiKey}`,
-                  {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      contents: [{ role: 'user', parts: [
-                        { text: `Look at the main child in this photograph. Answer these questions about their physical appearance with SPECIFIC, PRECISE answers — no vague descriptions. This is a REAL PHOTOGRAPH, not an illustration.
-
-ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
-SKIN_TONE: Describe the exact skin tone using a specific shade name and undertone (e.g. "deep brown with warm golden undertones", "fair peach with cool pink undertones", "medium olive with warm yellow undertones"). Be precise enough that an illustrator could match this exactly.
-EYE_SHAPE: Describe the eye shape specifically (e.g. "monolid", "almond-shaped with epicanthal fold", "large round", "hooded almond", "wide set round"). IMPORTANT: If the child's eyes are closed, squinting, or not fully visible in the photo, describe the eye SHAPE as if they were open (e.g. based on ethnicity and facial structure). A single photo captures a transient moment — always describe the eyes as open.
-EYE_COLOR: What color are the eyes? If the eyes are closed or not visible, make your best estimate based on ethnicity and other features.
-HAIR_COLOR: Exact hair color
-HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
-HAIR_LENGTH: Short / medium / long / very long
-
-Format your answer with each label on its own line followed by a colon and the answer. Be specific and concrete — these will be used to ensure illustration consistency across an entire book.` },
-                        { inline_data: { mime_type: cachedPhotoMime || 'image/jpeg', data: cachedPhotoBase64 } },
-                      ]}],
-                      generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
-                    }),
-                    signal: bookContext.abortController.signal,
-                  }
-                );
-                if (!anchorResp.ok) {
-                  bookContext.log('warn', `Character anchor attempt ${anchorAttempt} failed`, { status: anchorResp.status, statusText: anchorResp.statusText });
-                  if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
-                  continue;
-                }
-                const anchorData = await anchorResp.json();
-                const anchorText = anchorData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-                if (!anchorText || anchorText.length < 20) {
-                  bookContext.log('warn', `Character anchor attempt ${anchorAttempt} returned empty/short response`, { length: anchorText?.length || 0 });
-                  if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
-                  continue;
-                }
-                // Guard: if Gemini says "not a child" or "adult male/female", the photo
-                // subject isn't a child — discard the anchor to avoid prompt contradictions
-                const anchorLower = anchorText.toLowerCase();
-                if (anchorLower.includes('not a child') || anchorLower.includes('adult male') || anchorLower.includes('adult female') || anchorLower.includes('not a kid')) {
-                  bookContext.log('warn', 'Character anchor describes an adult, not a child — discarding to avoid prompt contradiction', { anchor: anchorText.slice(0, 200) });
-                  storyPlan.characterAnchor = null;
-                  break;
-                }
-                storyPlan.characterAnchor = anchorText;
-                bookContext.log('info', 'Character anchor extracted', { attempt: anchorAttempt, anchor: anchorText.slice(0, 300) });
-                // Persist to DB immediately
-                if (progressCallbackUrl) {
-                  const entriesSummary = Array.isArray(storyPlan.entries)
-                    ? storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right }))
-                    : [];
-                  reportProgressForce(progressCallbackUrl, {
-                    bookId,
-                    stage: 'cover_analysis',
-                    storyContent: {
-                      title: storyPlan.title,
-                      entries: entriesSummary,
-                      ...(storyPlan.isGraphicNovel && { isGraphicNovel: true, panelCount: (storyPlan.allPanels || []).length }),
-                      characterDescription: storyPlan.characterDescription || null,
-                      characterOutfit: storyPlan.characterOutfit || null,
-                      characterAnchor: storyPlan.characterAnchor || null,
-                      additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-                    },
-                    logs: bookContext.logs,
-                  }).catch(() => {});
-                }
-                break; // success — stop retrying
-              } catch (anchorErr) {
-                bookContext.log('warn', `Character anchor attempt ${anchorAttempt} threw`, { error: anchorErr.message });
-                if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
-              }
-            }
-            if (!storyPlan.characterAnchor) {
-              bookContext.log('warn', 'Character anchor extraction failed after all retries — illustrations will use characterDescription only');
-            }
-            } else {
-              storyPlan.characterAnchor = null;
-              bookContext.log('info', '[generate-book] No photo provided, skipping characterAnchor extraction');
-            }
+            // V3: characterAnchor removed — Illustrator V2 uses images directly
+            storyPlan.characterAnchor = null;
           } catch (visionErr) {
             bookContext.log('warn', 'Failed to extract character appearance from cover', { error: visionErr.message });
           }
@@ -2693,45 +1848,8 @@ Format your answer with each label on its own line followed by a colon and the a
 
       bookContext.log('info', 'Character reference ready', { refBytes: characterRefBase64?.length || 0, ms: Date.now() - stage6Start });
 
-      // ── C1: Generate character reference sheet in the book's art style ──
+      // V3: Character reference sheet removed — Illustrator V2 uses child photo directly
       let characterRefSheetBase64 = null;
-      if (storyPlan.characterAnchor && cachedPhotoBase64) {
-        try {
-          bookContext.log('info', 'Generating character reference sheet');
-          const outfitClause = storyPlan.characterOutfit ? ` Wearing: ${storyPlan.characterOutfit}.` : '';
-          const refSheetPrompt = `Front-facing portrait of a child character. Clean, well-lit, plain soft-colored background. Head and shoulders visible, looking directly at camera, neutral friendly expression. ${storyPlan.characterAnchor}.${outfitClause} Character must look EXACTLY like the reference photo provided — but use the outfit described above, not the clothing in the photo.`;
-
-          const refSheet = await generateIllustration(refSheetPrompt, null, style, {
-            apiKeys,
-            costTracker,
-            bookId,
-            childName: childDetails.name || childDetails.childName,
-            childPhotoUrl: null,
-            _cachedPhotoBase64: cachedPhotoBase64,
-            _cachedPhotoMime: cachedPhotoMime || 'image/jpeg',
-            spreadIndex: -1, // special index for ref sheet
-            deadlineMs: 120000,
-            isSpread: false,
-          });
-
-          if (refSheet && typeof refSheet === 'string') {
-            // refSheet is a GCS URL — download it
-            const refResp = await fetch(refSheet);
-            if (refResp.ok) {
-              const sharp = require('sharp');
-              const refBuf = Buffer.from(await refResp.arrayBuffer());
-              const resizedRef = await sharp(refBuf).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 80 }).toBuffer();
-              characterRefSheetBase64 = resizedRef.toString('base64');
-              bookContext.log('info', 'Character reference sheet generated', { bytes: characterRefSheetBase64.length });
-            }
-          } else if (Buffer.isBuffer(refSheet)) {
-            characterRefSheetBase64 = refSheet.toString('base64');
-            bookContext.log('info', 'Character reference sheet generated', { bytes: characterRefSheetBase64.length });
-          }
-        } catch (refErr) {
-          bookContext.log('warn', 'Character reference sheet failed, using photo fallback', { error: refErr.message });
-        }
-      }
 
       // ── C4: Use approved cover as secondary character visual reference ──
       // Fetch whenever the cover contains a secondary character, regardless of theme.

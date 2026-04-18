@@ -33,6 +33,16 @@ class QualityGate {
     const spreads = story.spreads || [];
     const scores = {};
 
+    // Hard-fail: if there are 0 spreads, don't bother scoring
+    if (spreads.length === 0) {
+      return {
+        pass: false,
+        overallScore: 0,
+        scores: { pronouns: 0, wordCount: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0 },
+        feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
+      };
+    }
+
     // Deterministic checks (fast, no LLM needed)
     scores.pronouns = scorePronounCorrectness(spreads, child.gender);
     scores.wordCount = QualityGate._scoreWordCount(spreads, child.age, story._ageTier);
@@ -83,7 +93,9 @@ class QualityGate {
     else if (totalWords > tier.maxWords) score -= 1;
 
     // Too few words is also a problem
-    if (totalWords < tier.maxWords * 0.3) score -= 3;
+    if (totalWords === 0) score = 1;
+    else if (totalWords < tier.maxWords * 0.15) score -= 5;
+    else if (totalWords < tier.maxWords * 0.3) score -= 3;
 
     // Per-spread check
     let oversizedSpreads = 0;
