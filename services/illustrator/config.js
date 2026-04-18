@@ -32,7 +32,7 @@ const TOTAL_SPREADS = 13;
 const TEXT_RULES = {
   maxWordsPerLine: 6,
   edgePaddingPercent: 8,
-  centerExclusionPercent: 15,
+  centerExclusionPercent: 10, // 10% on each side of center = middle 20% no-text zone
   fontStyle: 'Georgia serif font — plain, clean, traditional serif with round letterforms and moderate x-height. NO decorative fonts, NO swashes, NO italic, NO condensed, NO handwritten, NO display fonts',
   fontColor: 'white/cream with subtle drop shadow',
   fontSize: 'small, like quiet subtitles — NOT a headline, NOT a title',

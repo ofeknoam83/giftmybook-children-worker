@@ -95,7 +95,7 @@ function buildSystemInstruction(opts) {
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
-  parts.push(`- CENTER EXCLUSION ZONE (CRITICAL): Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. All text must be in the outer 40% of the image — the LEFT 40% or the RIGHT 40%. NEVER place text in the middle 20% of the image. This image will be split into two pages at the center.`);
+  parts.push(`- CENTER EXCLUSION ZONE (CRITICAL): Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. All text must be in the outer ${50 - TEXT_RULES.centerExclusionPercent}% of the image — the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}%. NEVER place text in the middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image. This image will be split into two pages at the center.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from ALL edges`);
   parts.push('- Main characters and key action should not be hidden behind text');
   parts.push('');

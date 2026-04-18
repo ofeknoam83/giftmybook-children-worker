@@ -90,14 +90,13 @@ async function checkCrossSpreadConsistency(spreads, opts = {}) {
     }
   }
 
-  // ── Check 3: Art style consistency (batches of 4, anchored to spread 1) ──
+  // ── Check 3: Art style consistency (anchored to spread 1) ──
+  // Chunk non-anchor spreads at MAX_IMAGES_PER_BATCH - 1 so anchor + batch fits in one batch
   const anchor = spreads[0];
-  for (let bi = 0; bi < batches.length; bi++) {
-    const batch = batches[bi];
-    // Always include spread 1 as an anchor if this batch doesn't already contain it
-    const anchoredBatch = (bi === 0 || batch.some(s => s.index === 0))
-      ? batch
-      : [anchor, ...batch].slice(0, MAX_IMAGES_PER_BATCH);
+  const nonAnchorSpreads = spreads.slice(1);
+  const styleBatches = chunk(nonAnchorSpreads, MAX_IMAGES_PER_BATCH - 1);
+  for (const batch of styleBatches) {
+    const anchoredBatch = [anchor, ...batch];
     try {
       const result = await _checkBatchStyleConsistency(anchoredBatch, opts);
       checkResults.push(result);

@@ -9,7 +9,7 @@
  * 5. Text is legible
  */
 
-const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS } = require('../config');
+const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS, TEXT_RULES } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 
 /**
@@ -42,7 +42,7 @@ Check ALL of the following:
 
 1. TEXT CONTENT: Read the text in the image word-for-word. Does it match the expected text exactly? Flag missing words, extra words, misspellings, garbled text, or DUPLICATED text (same text appearing twice).
 
-2. TEXT PLACEMENT — CENTER EXCLUSION ZONE (CRITICAL): This image will be split into two pages at the exact vertical center. Imagine the image divided into 5 equal vertical columns (each 20% wide). The MIDDLE column (the center 20%) is a NO-TEXT ZONE. ALL text must be completely within the LEFT 40% or the RIGHT 40% of the image. Flag as HARD FAIL if ANY text appears in the center 20% of the image, or if text crosses from one half to the other. Vertical position (top/bottom) does not matter.
+2. TEXT PLACEMENT — CENTER EXCLUSION ZONE (CRITICAL): This image will be split into two pages at the exact vertical center. The center ${TEXT_RULES.centerExclusionPercent * 2}% of the image (${TEXT_RULES.centerExclusionPercent}% on each side of center) is a NO-TEXT ZONE. ALL text must be completely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. Flag as HARD FAIL if ANY text appears in the center ${TEXT_RULES.centerExclusionPercent * 2}% of the image, or if text crosses from one half to the other. Vertical position (top/bottom) does not matter.
 
 3. EDGE MARGINS: Is the text at least ~8% away from all edges (top, bottom, left, right)? Flag if text is too close to any edge.
 
@@ -59,7 +59,7 @@ Return ONLY valid JSON:
 }
 
 Score guide: 1.0 = perfect, 0.8+ = minor issues, 0.5-0.8 = significant issues, <0.5 = major problems.
-Set pass=false for: text in the center 20%, text crossing the center, duplicated text, missing/garbled text, or text too close to edges.`;
+Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%, text crossing the center, duplicated text, missing/garbled text, or text too close to edges.`;
 
   try {
     const resp = await fetchWithTimeout(url, {

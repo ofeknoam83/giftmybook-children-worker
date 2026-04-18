@@ -25,7 +25,7 @@ function buildTextInstruction(text) {
   parts.push('');
   parts.push('### TEXT PLACEMENT (CRITICAL)');
   parts.push('- Place text anywhere vertically (top, bottom, upper, lower — all fine)');
-  parts.push(`- CENTER EXCLUSION ZONE: Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. Place ALL text in the outer 40% of the image (LEFT 40% or RIGHT 40%). NEVER in the middle 20%. This image will be split into two pages at the center.`);
+  parts.push(`- CENTER EXCLUSION ZONE: Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. Place ALL text in the outer ${50 - TEXT_RULES.centerExclusionPercent}% of the image (LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or RIGHT ${50 - TEXT_RULES.centerExclusionPercent}%). NEVER in the middle ${TEXT_RULES.centerExclusionPercent * 2}%. This image will be split into two pages at the center.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from ALL edges (top, bottom, left, right)`);
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
