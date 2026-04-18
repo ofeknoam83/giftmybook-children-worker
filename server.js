@@ -1573,6 +1573,13 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Writing story (Writer V2)...', logs: bookContext.logs });
         }
 
+        // Inject API keys from standalone into process.env so Writer V2 can use GPT-5.4
+        if (apiKeys) {
+          for (const [key, val] of Object.entries(apiKeys)) {
+            if (val && !process.env[key]) process.env[key] = val;
+          }
+        }
+
         const { WriterEngine } = require('./services/writer/engine');
         const stage3Start = Date.now();
         const writerResult = await WriterEngine.generate(sanitized, {
