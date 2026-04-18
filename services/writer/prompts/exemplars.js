@@ -50,6 +50,46 @@ const EXEMPLARS = {
       ],
     },
   },
+  fathers_day: {
+    'young-picture': {
+      description: 'Young picture book (ages 0-3): AABB couplets, iambic tetrameter, simpler vocabulary, musical rhythm. 13 spreads.',
+      spreads: [
+        'The sun peeks in across the floor,\n{parent_name} is at the door.\nHe scoops you up, still warm from sleep,\nAnd holds you close without a peep.',
+        'He makes the eggs, he pours the juice,\nHe finds your shoe that wriggled loose.\n{parent_name} hums a morning song,\nAnd you just hum and tag along.',
+        'He lifts you up above his head,\nYou touch the sky from where he said.\nThe world below is far and small,\nBut {parent_name} will never let you fall.',
+        'He holds your hand across the hill,\nYou race him down and feel the thrill.\nHe lets you win by half a stride,\nAnd grins the widest grin with pride.',
+        'He cuts the paper, folds the crown,\nYou wear it backwards, upside down.\n{parent_name} says it suits you best,\nThe finest crown above the rest.',
+        '{parent_name} knows your little ways,\nThe scrunched up nose on rainy days,\nThe song you sing below your breath,\nThe way you sigh before you rest.',
+        'He sees the things nobody sees,\nYour tangled hair, your muddy knees.\nHe knows the look that means "I\'m done,"\nAnd gathers you before you run.',
+        'And even when the blocks fall down,\nAnd all you want to do is frown,\nHe sits beside you on the floor,\nAnd builds the tower up once more.',
+        'He reads the book, he does the bear,\nHe growls so loud you gasp for air.\nThen whispers soft and tucks you tight,\nAnd checks the room for too much light.',
+        '{parent_name} stays beside the bed.\nHe rests his hand upon your head.',
+        'The stars blink on, the house sits still,\nA nightlight glows upon the sill.\nHe hears your breathing soft and deep,\nThe surest sound before his sleep.',
+        'And if you asked him, "Why do you?"\nHe\'d say, "The world is best with you."\n{parent_name} is here. He\'ll always be.\nAs close as breath, as sure as sea.',
+        'The morning came. The sun shone through.\n{parent_name} was right there next to you.',
+      ],
+    },
+
+    'picture-book': {
+      description: 'Picture book (ages 4-6): Full narrative arc, AABB iambic tetrameter, richer vocabulary, emotional progression. 13 spreads.',
+      spreads: [
+        'A red toolbox beneath the shelf,\n{parent_name} said, "Let\'s build it ourself."\n{name} grabbed the wood, the nails, the glue,\nAnd said, "I know what we should do."',
+        'They drew the plan on paper white,\nA shelf for books to hold at night.\n{parent_name} held the plank up straight,\n{name} tapped the nail and said, "It\'s great."',
+        'They marched outside with sticks for swords,\nThe lawn became a land of lords.\n{parent_name} fell when {name} struck true,\nAnd lay there laughing at the blue.',
+        'The bike stood tall beside the tree,\n{name} said, "{parent_name}, will you hold me?"\nHe held the seat and walked behind,\nThen let it go. {name} didn\'t mind.',
+        'The wind pushed back, the pedals spun,\n{name} kept on going toward the sun.\n{parent_name} stood still beside the gate,\nAnd watched, and smiled, and chose to wait.',
+        'He knew which laugh meant "one more round,"\nAnd which meant "please sit on the ground."\nHe knew the frown that hid a grin,\nThe quiet look that let him in.',
+        'He never said he understood.\nHe showed it in the way he would\nJust wait until the storm had passed,\nAnd hold {name}\'s hand at last.',
+        'And even when the paint went wide,\nAnd stained the floor on every side,\nHe shrugged and dipped his finger, too,\nAnd drew a star in red and blue.',
+        '"Why do you always fix the things\nThat break?" asked {name} on the swings.\n{parent_name} pushed the swing up high\nAnd said, "Because I love to try."',
+        'Two shadows walked the lamplight hall.\nOne big. One brave. One strong. One small.',
+        'He tucked the blanket, checked the shelf,\nThe one they built there by themself.\n{name} touched the wood and felt the groove,\nThe surest proof of how things move.',
+        'And in the dream the world grew wide,\nWith {parent_name} forever at their side.\nNot asked for, never having to,\nBut choosing this, and choosing you.',
+        'The morning came. The sun shone through.\nThe red toolbox was waiting, too.',
+      ],
+    },
+  },
+
   birthday: {
     'young-picture': {
       description: 'Young picture book (ages 0-3): Birthday celebration arc, AABB couplets, simpler vocabulary, 13 spreads.',

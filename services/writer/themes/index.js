@@ -6,10 +6,12 @@
  */
 
 const { MothersDayWriter } = require('./mothers_day');
+const { FathersDayWriter } = require('./fathers_day');
 const { GenericThemeWriter } = require('./generic');
 
 const THEME_WRITERS = {
   mothers_day: new MothersDayWriter(),
+  fathers_day: new FathersDayWriter(),
 };
 
 /**
