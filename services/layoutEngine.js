@@ -29,46 +29,9 @@ const fs   = require('fs');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const sharp   = require('sharp');
-const { execFile } = require('child_process');
-const os = require('os');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
 // comicLayoutPresets and comicLetterer are no longer used — graphic novel pages
 // are now rendered as full-page AI-generated images with text baked in.
 
-/**
- * Upscale an image buffer 4x using ImageMagick Lanczos + unsharp.
- * Falls back to sharp Lanczos3 if ImageMagick is unavailable.
- */
-async function upscaleImage(buf) {
-  const tmpIn  = path.join(os.tmpdir(), `gmb-upscale-in-${Date.now()}.png`);
-  const tmpOut = path.join(os.tmpdir(), `gmb-upscale-out-${Date.now()}.jpg`);
-  try {
-    fs.writeFileSync(tmpIn, buf);
-    await execFileAsync('convert', [
-      tmpIn,
-      '-filter', 'Lanczos',
-      '-resize', '400%',
-      '-unsharp', '0x1.5+0.7+0.02',
-      '-quality', '95',
-      tmpOut,
-    ], { timeout: 120000 });
-    const result = fs.readFileSync(tmpOut);
-    return result;
-  } catch (e) {
-    console.warn('[LayoutEngine] ImageMagick upscale failed, using sharp fallback:', e.message);
-    // Fallback: sharp Lanczos3
-    const meta = await sharp(buf).metadata();
-    return sharp(buf)
-      .resize(meta.width * 4, meta.height * 4, { kernel: 'lanczos3', fastShrinkOnLoad: false })
-      .sharpen({ sigma: 0.8, m1: 0.5, m2: 1.5 })
-      .jpeg({ quality: 95 })
-      .toBuffer();
-  } finally {
-    try { fs.unlinkSync(tmpIn); } catch (_) {}
-    try { fs.unlinkSync(tmpOut); } catch (_) {}
-  }
-}
 
 // ── Geometry constants ───────────────────────────────────────────────────────
 const BLEED       = 9;    // 0.125" in pts
@@ -150,36 +113,27 @@ async function embedFullBleed(pdfDoc, page, buf) {
 }
 
 async function splitSpreadImage(buf, pw, ph) {
-  // Strategy: "Full-bleed spread with controlled center crop"
-  // 1. Upscale 4x (Lanczos + unsharp) so source ~1376px → ~5500px (319 DPI at print size)
-  // 2. Scale to fill spread width (2×page width) exactly
-  // 3. Crop evenly from top+bottom (~6%) to fit page height
-  // 4. Split down the center into two square full-bleed pages
-
   const wp = Math.round(pw / PTS_PER_INCH * TARGET_DPI);  // page width in pixels
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);  // page height in pixels
   const spreadW = wp * 2;  // full spread = 2 pages wide
 
-  // Step 1: Upscale 4x for print quality
-  const upscaled = await upscaleImage(buf);
+  // Resize to fill spread width exactly (images already upscaled by Illustrator V2)
+  const meta = await sharp(buf).metadata();
+  const scaledH = Math.round(meta.height * spreadW / meta.width);
 
-  // Step 2: Scale to fill spread width exactly, crop center vertically, split — all in one pass
-  const upscaledMeta = await sharp(upscaled).metadata();
-  const scaledH = Math.round(upscaledMeta.height * spreadW / upscaledMeta.width);
-  // Center crop — equal from top and bottom.
-  // The prompt safe-zone rule keeps important content within the middle 85% of height to survive this crop + print bleed.
-  const excessH  = Math.max(0, scaledH - hp);
-  const cropTop  = Math.floor(excessH / 2);
+  // Center crop vertically
+  const excessH = Math.max(0, scaledH - hp);
+  const cropTop = Math.floor(excessH / 2);
 
-  // Step 3: Scale + crop in one sharp operation (avoids raw buffer issue)
-  const spreadBuf = await sharp(upscaled)
+  // Scale + crop in one sharp operation
+  const spreadBuf = await sharp(buf)
     .resize(spreadW, scaledH, { kernel: 'lanczos3' })
     .extract({ left: 0, top: cropTop, width: spreadW, height: hp })
     .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
 
-  // Step 4: Split exactly down the center
-  const leftBuf  = await sharp(spreadBuf)
-    .extract({ left: 0,  top: 0, width: wp, height: hp })
+  // Split exactly down the center
+  const leftBuf = await sharp(spreadBuf)
+    .extract({ left: 0, top: 0, width: wp, height: hp })
     .toBuffer();
   const rightBuf = await sharp(spreadBuf)
     .extract({ left: wp, top: 0, width: wp, height: hp })
