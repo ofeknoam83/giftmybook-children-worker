@@ -95,6 +95,15 @@ class MothersDayWriter extends BaseThemeWriter {
     // Fix pronouns
     checkAndFixPronouns(spreads, child.gender);
 
+    // Strip dashes from story text (em dash, en dash, hyphen between words)
+    for (const s of spreads) {
+      if (s.text) {
+        s.text = s.text
+          .replace(/\s*[\u2014\u2013]\s*/g, ', ')   // em/en dash → comma
+          .replace(/(?<=[a-zA-Z])\s*-\s*(?=[a-zA-Z])/g, ', ');  // word-dash-word → comma
+      }
+    }
+
     return {
       spreads,
       _model: result.model,
@@ -132,6 +141,15 @@ class MothersDayWriter extends BaseThemeWriter {
 
     checkAndFixPronouns(spreads, child.gender);
 
+    // Strip dashes from story text
+    for (const s of spreads) {
+      if (s.text) {
+        s.text = s.text
+          .replace(/\s*[\u2014\u2013]\s*/g, ', ')
+          .replace(/(?<=[a-zA-Z])\s*-\s*(?=[a-zA-Z])/g, ', ');
+      }
+    }
+
     return {
       spreads,
       _model: result.model,
@@ -142,45 +160,40 @@ class MothersDayWriter extends BaseThemeWriter {
   // ── Private helpers ──
 
   _buildBeats(ageTier, spreadCount, child, parentName) {
-    if (ageTier === 'board-book') {
-      return this._buildBoardBookBeats(spreadCount, child, parentName);
+    if (ageTier === 'young-picture') {
+      return this._buildYoungPictureBeats(child, parentName);
     }
-    if (ageTier === 'early-picture') {
-      return this._buildEarlyPictureBeats(spreadCount, child, parentName);
-    }
-    return this._buildPictureBookBeats(spreadCount, child, parentName);
+    return this._buildPictureBookBeats(child, parentName);
   }
 
-  _buildBoardBookBeats(spreadCount, child, parentName) {
+  /**
+   * Young Picture Book (ages 0-3): 13 spreads.
+   * Simpler vocabulary, more repetition, shorter per-spread text.
+   * Still a full narrative arc — parents should love reading this.
+   */
+  _buildYoungPictureBeats(child, parentName) {
     return [
-      { spread: 1, beat: 'OPENING', description: `${parentName} and ${child.name} together — morning or waking moment`, wordTarget: 10 },
-      { spread: 2, beat: 'ACTIVITY', description: `Simple activity together — feeding, playing`, wordTarget: 10 },
-      { spread: 3, beat: 'ACTIVITY', description: `Another activity — splashing, reading, singing`, wordTarget: 10 },
-      { spread: 4, beat: 'CLOSENESS', description: `Physical closeness — hugging, holding`, wordTarget: 10 },
-      { spread: 5, beat: 'COMFORT', description: `${parentName} comforting — when something is hard`, wordTarget: 10 },
-      { spread: 6, beat: 'CLOSING', description: `Bedtime or quiet closing — safe and loved`, wordTarget: 10 },
+      { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific morning moment. Simple, vivid, particular.`, wordTarget: 20 },
+      { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — use child's anecdote if available. Concrete nouns, sensory detail.`, wordTarget: 22 },
+      { spread: 3, beat: 'ACTIVITY_2', description: `Second activity — daily routine moment. Show ${parentName}'s character through action.`, wordTarget: 22 },
+      { spread: 4, beat: 'ACTIVITY_3', description: `Third activity — playful, fun. Use child's interests if available.`, wordTarget: 22 },
+      { spread: 5, beat: 'DEEPENING_1', description: `${parentName} noticing something specific about ${child.name}. The shift from activities to connection.`, wordTarget: 22 },
+      { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — a specific gesture, habit, or look.`, wordTarget: 22 },
+      { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName} saw something specific; that seeing is the love.`, wordTarget: 20 },
+      { spread: 8, beat: 'EVEN_WHEN', description: `Love holds when things are hard — child is tired, fussy, or overwhelmed.`, wordTarget: 22 },
+      { spread: 9, beat: 'COMFORT', description: `${parentName} gathers ${child.name} close. Physical comfort. The quiet after difficulty.`, wordTarget: 22 },
+      { spread: 10, beat: 'CLIMAX', description: `Fewest words in the whole book. Physical closeness. Near-wordless.`, wordTarget: 12 },
+      { spread: 11, beat: 'RESOLUTION_1', description: `The world settles. Echo of the opening. Return to the specific place or image from spread 1.`, wordTarget: 22 },
+      { spread: 12, beat: 'RESOLUTION_2', description: `The refrain lands one final time. Close on an image, not a declaration.`, wordTarget: 20 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Echo the opening. The most beautiful sentence in the book. A parent should want to read it twice.`, wordTarget: 14 },
     ];
   }
 
-  _buildEarlyPictureBeats(spreadCount, child, parentName) {
-    const beats = [
-      { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific morning moment`, wordTarget: 15 },
-      { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — use anecdote if available`, wordTarget: 18 },
-      { spread: 3, beat: 'ACTIVITY_2', description: `Second activity — daily routine moment`, wordTarget: 18 },
-      { spread: 4, beat: 'ACTIVITY_3', description: `Third activity — playful, fun moment`, wordTarget: 18 },
-      { spread: 5, beat: 'DEEPENING_1', description: `${parentName} noticing something specific about ${child.name}`, wordTarget: 18 },
-      { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows`, wordTarget: 18 },
-      { spread: 7, beat: 'EVEN_WHEN', description: `Love holds even when things are hard`, wordTarget: 15 },
-      { spread: 8, beat: 'COMFORT', description: `Physical closeness — the quiet after difficulty`, wordTarget: 15 },
-      { spread: 9, beat: 'RITUAL', description: `Their special ritual — bedtime or evening`, wordTarget: 15 },
-      { spread: 10, beat: 'CLIMAX', description: `Fewest words. Physical closeness. Quiet.`, wordTarget: 10 },
-      { spread: 11, beat: 'RESOLUTION', description: `Echo the opening — return to the specific`, wordTarget: 15 },
-      { spread: 12, beat: 'CLOSING', description: `Final image — close on an image, not a declaration`, wordTarget: 12 },
-    ];
-    return beats.slice(0, spreadCount.max);
-  }
-
-  _buildPictureBookBeats(spreadCount, child, parentName) {
+  /**
+   * Picture Book (ages 4-6): 13 spreads.
+   * Richer vocabulary, compound sentences, more narrative depth.
+   */
+  _buildPictureBookBeats(child, parentName) {
     return [
       { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific moment. Establish tone. The world is vivid and particular.`, wordTarget: 30 },
       { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — use child's anecdote. Concrete nouns, specific actions.`, wordTarget: 30 },
@@ -309,6 +322,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- The refrain must appear at least 3 times, spaced through the story`);
     sections.push(`- Use ONLY the parent name "${parentName}" — do NOT invent any other name for the mother. No nicknames, no full names, no pet names unless provided in the input.`);
     sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl — use she/her.' : child.gender === 'male' ? 'He is a boy — use he/him.' : ''} Use the child's name or correct pronouns. "They" is only for plural subjects (e.g., ${child.name} and ${parentName} together).`);
+    sections.push(`- NEVER use dashes, hyphens, or em dashes (\u2014, \u2013, -) in the story text. Use commas, periods, or line breaks instead.`);
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
 
     return sections.join('\n');

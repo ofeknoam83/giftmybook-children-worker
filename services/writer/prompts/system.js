@@ -12,7 +12,7 @@ const { buildPronounInstruction } = require('../quality/pronoun');
 /**
  * Build the system prompt for story writing.
  * @param {string} theme - e.g. 'mothers_day'
- * @param {string} tierName - e.g. 'board-book', 'early-picture', 'picture-book'
+ * @param {string} tierName - 'young-picture' or 'picture-book'
  * @param {object} child - { name, age, gender, ... }
  * @param {object} book - { theme, format, ... }
  * @param {object} opts - { role: 'writer'|'planner'|'reviser' }

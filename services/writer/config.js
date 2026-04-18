@@ -22,39 +22,30 @@ const WRITER_CONFIG = {
   },
 
   /**
-   * Age tiers define word counts, spread counts, and per-spread limits
-   * for each developmental stage.
+   * Age tiers — two tiers, both produce 13-spread picture books.
+   * The tier changes vocabulary and sentence complexity, NOT structure.
+   * Parents are the readers, so writing quality must be high for both tiers.
    *
-   * Ages at tier boundaries:
-   *   - age 2 falls in board-book (writing for a 2-year-old is still board-book territory)
-   *   - age 3 falls in early-picture (research: "2-3: 8-15 words per spread")
-   *   - age 3-5 also eligible for picture-book depending on theme
+   * Tier 1 (ages 0-3): Simpler vocabulary, shorter sentences, more repetition.
+   *   Still beautifully written — parents should enjoy reading it aloud.
+   * Tier 2 (ages 4-6): Richer vocabulary, compound sentences, more narrative depth.
    */
   ageTiers: {
-    'board-book': {
-      label: 'Board Book',
-      ages: [0, 1, 2],
-      maxWords: 100,
-      spreads: { min: 6, max: 10 },
-      wordsPerSpread: { min: 3, max: 12 },
-      meter: 'bouncy/sing-song',
-      rhyme: 'AABB couplets (loose)',
-    },
-    'early-picture': {
-      label: 'Early Picture Book',
-      ages: [2, 3],
-      maxWords: 250,
-      spreads: { min: 10, max: 13 },
-      wordsPerSpread: { min: 8, max: 20 },
+    'young-picture': {
+      label: 'Young Picture Book (ages 0-3)',
+      ages: [0, 1, 2, 3],
+      maxWords: 350,
+      spreads: { min: 13, max: 13 },
+      wordsPerSpread: { min: 10, max: 30 },
       meter: 'iambic tetrameter',
       rhyme: 'AABB couplets',
     },
     'picture-book': {
-      label: 'Picture Book',
-      ages: [3, 4, 5],
+      label: 'Picture Book (ages 4-6)',
+      ages: [4, 5, 6],
       maxWords: 500,
-      spreads: { min: 12, max: 14 },
-      wordsPerSpread: { min: 15, max: 35 },
+      spreads: { min: 13, max: 13 },
+      wordsPerSpread: { min: 15, max: 40 },
       meter: 'iambic tetrameter',
       rhyme: 'AABB couplets',
     },

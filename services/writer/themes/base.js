@@ -167,15 +167,15 @@ class BaseThemeWriter {
 
   /**
    * Get age tier name based on child's age.
+   * Two tiers: young-picture (0-3) and picture-book (4-6).
+   * Both produce 13-spread books; tier affects vocabulary, not structure.
    * @param {number|string} age
-   * @returns {string} 'board-book', 'early-picture', or 'picture-book'
+   * @returns {string} 'young-picture' or 'picture-book'
    */
   getAgeTier(age) {
-    const a = Number(age) || 5;
-    if (a <= 1) return 'board-book';
-    if (a <= 2) return 'early-picture';
-    if (a <= 5) return 'picture-book';
-    return 'picture-book'; // default for older children
+    const a = Number(age) || 3;
+    if (a <= 3) return 'young-picture';
+    return 'picture-book';
   }
 
   /**
