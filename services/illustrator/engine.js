@@ -128,6 +128,7 @@ class IllustratorEngine {
           hasParentOnCover,
           additionalCoverCharacters,
           theme,
+          style,
         });
 
         // Generate within session (retry up to 2 times on failure)
@@ -305,6 +306,7 @@ ${buildSpreadPrompt({
   hasParentOnCover,
   additionalCoverCharacters,
   theme,
+  style,
 })}`;
 
           const result = await sendCorrection(session, correctionPrompt, failed.index);

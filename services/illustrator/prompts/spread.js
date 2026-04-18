@@ -6,7 +6,7 @@
  * recent spreads as visual references.
  */
 
-const { getEmotionalBeat, BEAT_CAMERA, PARENT_THEMES } = require('../config');
+const { getEmotionalBeat, BEAT_CAMERA, PARENT_THEMES, ART_STYLE_CONFIG } = require('../config');
 const { buildTextInstruction } = require('./text');
 
 /**
@@ -21,6 +21,7 @@ const { buildTextInstruction } = require('./text');
  * @param {boolean} opts.hasParentOnCover - Whether parent is on the cover
  * @param {string} [opts.additionalCoverCharacters] - Description of secondary chars
  * @param {string} [opts.theme] - Book theme
+ * @param {string} [opts.style] - Art style key (e.g. 'pixar_premium')
  * @returns {string}
  */
 function buildSpreadPrompt(opts) {
@@ -33,6 +34,7 @@ function buildSpreadPrompt(opts) {
     hasParentOnCover,
     additionalCoverCharacters,
     theme,
+    style,
   } = opts;
 
   const beat = getEmotionalBeat(spreadIndex, totalSpreads);
@@ -78,11 +80,15 @@ function buildSpreadPrompt(opts) {
   parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('');
 
-  // Style consistency reminder
+  // Style consistency reminder — use the actual configured style
+  const styleConfig = style ? (ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.watercolor) : null;
   parts.push('### STYLE CONSISTENCY');
-  parts.push('- Match the EXACT rendering technique of the cover and all previous spreads — same 3D/2D/watercolor technique, same lighting quality, same texture detail, same color saturation');
+  if (styleConfig) {
+    parts.push(`- MANDATORY STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+    parts.push('- This spread MUST use this exact style. Do NOT switch to any other rendering technique.');
+  }
+  parts.push('- Match the EXACT rendering technique, lighting quality, texture detail, and color saturation of the cover and all previous spreads');
   parts.push('- This is the same physical book — every page must look like the same artist rendered it');
-  parts.push('- If the cover is 3D CGI, this spread MUST be 3D CGI. Do NOT switch to watercolor, flat illustration, or any other style.');
   parts.push('- Use the SAME font as every other page — identical family, weight, and size');
   parts.push('');
 
