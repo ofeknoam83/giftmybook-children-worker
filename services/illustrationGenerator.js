@@ -654,8 +654,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
   }
 
-  // Fix 1B: Strengthened character locking
-  parts.push(`\nLOCKED APPEARANCE — This character must look IDENTICAL in every illustration. Same face shape, same hair color/style, same skin tone, same outfit. Any deviation will be rejected.\n`);
+  // Fix 1B: Strengthened character locking — ALL characters
+  parts.push(`\nLOCKED APPEARANCE — EVERY character must look IDENTICAL in every illustration. Same face shape, same hair color/style, same skin tone, same outfit. Any deviation will be rejected.`);
+  if (opts.additionalCoverCharacters) {
+    parts.push(`SECONDARY CHARACTER LOCK: ${opts.additionalCoverCharacters}`);
+    parts.push(`The secondary character(s) above must ALSO look identical across all illustrations — same face, hair, skin tone, build, and outfit. This is just as important as the child's consistency.`);
+  } else if (opts.parentOutfit) {
+    parts.push(`PARENT OUTFIT LOCK: ${opts.parentOutfit} — same outfit on EVERY page. Never show parent's full face (no reference photo).`);
+  }
+  parts.push('');
 
   if (opts.firstSpreadRefBase64) {
     parts.push('OUTFIT & STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look in this book\'s art style. Match the outfit rendering — same garments, same colors, same style. Match the art style, lighting, and color palette.');

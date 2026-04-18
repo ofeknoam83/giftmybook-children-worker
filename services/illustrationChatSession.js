@@ -185,10 +185,17 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   let characterReminder = '';
   if (session.opts.childName || session.opts.characterAnchor || session.opts.characterOutfit) {
     const reminderParts = [];
-    if (session.opts.childName) reminderParts.push(`CHARACTER REMINDER: ${session.opts.childName}`);
-    if (session.opts.characterAnchor) reminderParts.push(`has ${session.opts.characterAnchor}`);
+    reminderParts.push(`CHILD CHARACTER REMINDER: ${session.opts.childName || 'main child'}`);
+    if (session.opts.characterAnchor) reminderParts.push(`Appearance: ${session.opts.characterAnchor}`);
     if (session.opts.characterOutfit) reminderParts.push(`Outfit: ${session.opts.characterOutfit}`);
-    characterReminder = `\n${reminderParts.join('. ')}. These must match EXACTLY — same face, hair, skin, outfit as all previous pages.\n`;
+    characterReminder = `\n${reminderParts.join('. ')}. Must match EXACTLY — same face, hair, skin, outfit as all previous pages.`;
+    // Include secondary characters (parent/adult from cover photo)
+    if (session.opts.additionalCoverCharacters) {
+      characterReminder += `\nSECONDARY CHARACTER REMINDER: ${session.opts.additionalCoverCharacters}. Must also look IDENTICAL across all pages — same face, hair, skin tone, build, and outfit as established.`;
+    } else if (session.opts.parentOutfit) {
+      characterReminder += `\nPARENT REMINDER: Outfit locked — ${session.opts.parentOutfit}. Same outfit on EVERY page. Never show parent's full face (no reference photo).`;
+    }
+    characterReminder += '\n';
   }
 
   // Per-turn font consistency reinforcement (Fix 2A)
