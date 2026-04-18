@@ -500,6 +500,7 @@ WHAT MAKES THIS BOOK GREAT:
 
 PRONOUN CONSISTENCY (CRITICAL):
 When the child's gender and pronouns are specified, use ONLY the correct pronouns throughout the entire story. Never switch pronouns mid-story. Pay special attention to gender-ambiguous names — always follow the declared pronouns regardless of the name.
+${vars.gender && vars.gender !== 'neutral' && vars.gender !== 'not specified' ? buildPronounInstruction(name, vars.gender) + `\nNEVER use they/them when referring to ${name} unless ${name}'s gender is explicitly neutral.` : ''}
 
 DIALECT & SPELLING — use \${dialectInfo.dialect} throughout:
 \${dialectInfo.dialectRule}

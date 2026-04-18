@@ -653,6 +653,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (characterOutfit) {
     parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
   }
+
+  // Fix 1B: Strengthened character locking
+  parts.push(`\nLOCKED APPEARANCE — This character must look IDENTICAL in every illustration. Same face shape, same hair color/style, same skin tone, same outfit. Any deviation will be rejected.\n`);
+
   if (opts.firstSpreadRefBase64) {
     parts.push('OUTFIT & STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look in this book\'s art style. Match the outfit rendering — same garments, same colors, same style. Match the art style, lighting, and color palette.');
   }
@@ -895,6 +899,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER cross the left-right center of the image. The entire text block must stay on the left half or the right half.');
     parts.push('- EDGE PADDING (CRITICAL): Leave at least 8% padding from ALL edges (top, bottom, left, right) so text won\'t be cut in print. Text must have visible breathing room from every edge.');
     parts.push('- Main characters and key action should not be hidden behind the text');
+    // Fix 2B: Font matching for admin regen
+    parts.push('- MATCH the font style from other pages in this book — same family, same size, same color, same weight. Do not introduce a new font.');
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());

@@ -7,6 +7,8 @@
  * {fear}, {setting}, {dedication}.
  */
 
+const { buildPronounInstruction } = require('../services/pronouns');
+
 // ── Age Tier Configuration ──
 
 const AGE_TIERS = {
@@ -1756,6 +1758,15 @@ function buildWritingBrief(vars) {
   brief = brief.replace(/\{authorialVoice\}/g, getAuthorialVoice(config.tier, age));
   brief = brief.replace(/\{rhythmGuide\}/g, getRhythmGuide(config.tier, age));
   brief = brief.replace(/\{exemplars\}/g, getExemplars(config.tier));
+
+  // Fix 4A: Append pronoun instruction to system prompt when gender is known
+  const gender = vars.gender;
+  if (gender && gender !== 'neutral' && gender !== 'not specified') {
+    const pronounInstruction = buildPronounInstruction(name || 'the child', gender);
+    if (pronounInstruction) {
+      brief += `\n\nPRONOUN RULE (CRITICAL):\n${pronounInstruction}\nNEVER use they/them when referring to ${name || 'the child'} unless ${name || 'the child'}'s gender is explicitly neutral.`;
+    }
+  }
 
   return brief;
 }

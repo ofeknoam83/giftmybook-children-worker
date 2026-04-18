@@ -13,6 +13,7 @@ const { buildStoryWriterSystem, STORY_WRITER_USER, buildStoryStructurerSystem, S
 const { STORY_PLANNER_SYSTEM: ER_SYSTEM, STORY_PLANNER_USER: erUserPrompt, EARLY_READER_CRITIC_SYSTEM } = require('../prompts/earlyReader');
 const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
+const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
@@ -1139,6 +1140,8 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     fear: 'the dark',
     setting: '',
   };
+  // Fix 4D: Ensure gender is included in briefVars for pronoun enforcement
+  briefVars.gender = briefVars.gender || childDetails.gender || childDetails.childGender || '';
   // Inject style_mode and techniques into briefVars for the writing brief
   if (style_mode) briefVars.style_mode = style_mode;
   if (techniques) briefVars.techniques = techniques;
@@ -1669,12 +1672,22 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
 
   try {
     // Phase 1: Generate story text freely (pass style_mode + techniques + narrative patterns)
-    const storyText = await generateStoryText(childDetails, theme, enrichedCustomDetails, {
+    let storyText = await generateStoryText(childDetails, theme, enrichedCustomDetails, {
       ...opts,
       style_mode: v2Vars?.style_mode,
       techniques: v2Vars?.techniques,
       narrativePatterns,
     });
+
+    // Fix 4C: Post-generation pronoun check and fix
+    const gender = childDetails.gender || childDetails.childGender;
+    if (gender && gender !== 'neutral' && gender !== 'not specified') {
+      const pronounCheck = checkPronounConsistency(storyText, gender);
+      if (!pronounCheck.valid) {
+        console.log(`[storyPlanner] Pronoun inconsistency detected: ${pronounCheck.issues.length} issues — applying simpleReplace`);
+        storyText = simpleReplace(storyText, gender);
+      }
+    }
 
     // Try to parse the free-form text
     const parsedText = parseStoryText(storyText);
@@ -1701,6 +1714,15 @@ async function planStory(childDetails, theme, bookFormat, customDetails, opts = 
     if (approvedTitle) parsed.title = approvedTitle;
 
     const plan = normalizePlan(parsed, childDetails, optsWithTheme);
+
+    // Fix 3A: Validate text presence — ensure spreads with text have illustration prompts
+    const spreadsForTextCheck = plan.entries.filter(e => e.type === 'spread');
+    for (const sp of spreadsForTextCheck) {
+      const hasText = (sp.left?.text && sp.left.text.trim()) || (sp.right?.text && sp.right.text.trim());
+      if (hasText && !sp.spread_image_prompt) {
+        console.warn(`[storyPlanner] Spread ${sp.spread}: has text but no illustration prompt — text embedding may fail`);
+      }
+    }
 
     // Retry with single-call if spread count is too low
     const spreadCount = plan.entries.filter(e => e.type === 'spread').length;

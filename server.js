@@ -3642,6 +3642,9 @@ Format: each label on its own line followed by a colon and the answer.` },
   }
 
   try {
+    // Fix 1C: Log character anchor presence for admin regen
+    console.log(`[server] /regenerate-illustration: characterAnchor ${resolvedCharacterAnchor ? 'PRESENT' : 'MISSING'} for bookId=${bookId}, spread=${spreadIndex}${resolvedCharacterAnchor ? ' (' + resolvedCharacterAnchor.slice(0, 80) + '...)' : ''}`);
+
     // Generate the illustration
     const result = await generateIllustration(spreadImagePrompt, null, style, {
       costTracker,
@@ -3725,12 +3728,23 @@ app.post('/generate-spread', authenticate, async (req, res) => {
     // Generate illustration
     const style = artStyle || 'cinematic_3d';
     const sceneDesc = spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || text;
+    // Fix 2C + 3C: Pass pageText, embedText, and font style instruction for /generate-spread
+    const spreadText = text || '';
+    const fontStyleInstruction = 'Use an elegant white serif font similar to Lora, small caption size, with dark drop shadow. Must be identical across all pages.';
     const imageUrl = await generateIllustration(sceneDesc, characterRef, style, {
       apiKeys,
       costTracker,
       bookId,
       theme: theme || null,
       parentOutfit: reqParentOutfit || null,
+      pageText: spreadText,
+      embedText: !!(spreadText && spreadText.trim()),
+      fontStyleInstruction,
+      childName: childDetails?.name || childDetails?.childName || '',
+      characterOutfit: childDetails?.characterOutfit || spreadPlan.characterOutfit || '',
+      characterDescription: childDetails?.characterDescription || spreadPlan.characterDescription || '',
+      characterAnchor: childDetails?.characterAnchor || spreadPlan.characterAnchor || null,
+      isSpread: true,
     });
     global.touchActivity(bookId);
 

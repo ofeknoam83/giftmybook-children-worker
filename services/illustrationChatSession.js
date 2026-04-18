@@ -181,15 +181,30 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   // Reinforce art style on every spread
   const styleReminder = `ART STYLE REMINDER: ${session.styleConfig.prefix} ${session.styleConfig.suffix}`;
 
+  // Per-turn character appearance reminder (Fix 1A)
+  let characterReminder = '';
+  if (session.opts.childName || session.opts.characterAnchor || session.opts.characterOutfit) {
+    const reminderParts = [];
+    if (session.opts.childName) reminderParts.push(`CHARACTER REMINDER: ${session.opts.childName}`);
+    if (session.opts.characterAnchor) reminderParts.push(`has ${session.opts.characterAnchor}`);
+    if (session.opts.characterOutfit) reminderParts.push(`Outfit: ${session.opts.characterOutfit}`);
+    characterReminder = `\n${reminderParts.join('. ')}. These must match EXACTLY — same face, hair, skin, outfit as all previous pages.\n`;
+  }
+
+  // Per-turn font consistency reinforcement (Fix 2A)
+  const fontReminder = pageText.trim()
+    ? `\nFONT CONSISTENCY: You MUST use the exact same font family, size, weight, and color as on all previous pages. If you used white serif text before, use white serif text now.\n`
+    : '';
+
   const parts = [{
     text: `Generate illustration for spread ${spreadIndex + 1}:
-
+${characterReminder}
 ${prompt}
 
 ${opts.shotType ? `Shot type: ${opts.shotType}` : ''}
 
 ${styleReminder}
-Fill the entire canvas with the illustration — edge to edge, no blank areas.${textInstruction}
+Fill the entire canvas with the illustration — edge to edge, no blank areas.${fontReminder}${textInstruction}
 All characters must look IDENTICAL to the reference images from Turn 1 and all previous illustrations — this applies to BOTH the child AND any secondary characters (parents/adults). Same face, hair, skin tone, AND outfit for every character.${secondaryCharReminder}`,
   }];
 
