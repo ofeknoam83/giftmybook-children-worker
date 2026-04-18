@@ -76,14 +76,32 @@ class WriterEngine {
  * Handles the current standalone payload format where everything is flat.
  */
 function buildChildFromLegacy(payload) {
+  const brief = payload.brief && typeof payload.brief === 'object' ? payload.brief : {};
+  const bc = brief.child || {};
   return {
-    name: payload.childName,
-    age: payload.childAge,
-    gender: payload.childGender,
-    appearance: payload.childAppearance,
-    interests: payload.childInterests || [],
+    name: bc.name || payload.childName,
+    age: bc.age != null ? Number(bc.age) : payload.childAge,
+    gender: bc.gender || payload.childGender,
+    appearance: payload.childAppearance || '',
+    interests: payload.childInterests || (bc.favorite_activities ? [bc.favorite_activities] : []),
     photoUrls: payload.childPhotoUrls || [],
-    anecdotes: payload.childAnecdotes || {},
+    anecdotes: {
+      favorite_activities: bc.favorite_activities || '',
+      funny_thing: bc.funny_thing || '',
+      favorite_food: bc.favorite_food || '',
+      other_detail: bc.other_detail || '',
+      calls_mom: bc.calls_mom || '',
+      mom_name: bc.mom_name || '',
+      calls_dad: bc.calls_dad || '',
+      dad_name: bc.dad_name || '',
+      meaningful_moment: bc.meaningful_moment || '',
+      moms_favorite_moment: bc.moms_favorite_moment || '',
+      favorite_cake_flavor: bc.favorite_cake_flavor || '',
+      favorite_toys: bc.favorite_toys || '',
+      birth_date: bc.birth_date || '',
+      anything_else: bc.anything_else || '',
+      ...(payload.childAnecdotes || {}),
+    },
   };
 }
 
@@ -93,7 +111,7 @@ function buildChildFromLegacy(payload) {
 function buildBookFromLegacy(payload) {
   return {
     format: payload.bookFormat || 'PICTURE_BOOK',
-    theme: payload.theme || 'adventure',
+    theme: payload.theme || payload.occasionTheme || (payload.brief?.child?.theme) || 'adventure',
     artStyle: payload.artStyle || 'watercolor',
     bindingType: payload.bindingType || '',
     title: payload.approvedTitle || null,
