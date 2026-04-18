@@ -2,6 +2,8 @@
  * Progress Reporter — sends progress updates + completion callbacks to standalone app
  */
 
+const { WORKER_VERSION } = require('./workerVersion');
+
 const THROTTLE_MS = 3_000; // 3 seconds between progress updates
 const lastReportTimes = new Map();
 const API_KEY = process.env.API_KEY || '';
@@ -25,7 +27,7 @@ async function reportProgress(callbackUrl, data) {
     const res = await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, workerVersion: WORKER_VERSION }),
     });
     const body = await res.json().catch(() => null);
     return body;
@@ -47,7 +49,7 @@ async function reportProgressForce(callbackUrl, data) {
     await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, workerVersion: WORKER_VERSION }),
     });
   } catch (err) {
     console.warn(`[ProgressReporter] Failed to report progress for ${key}:`, err.message);
@@ -66,7 +68,7 @@ async function reportComplete(callbackUrl, data) {
     await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ...data, success: true }),
+      body: JSON.stringify({ ...data, workerVersion: WORKER_VERSION, success: true }),
     });
     console.log(`[ProgressReporter] Reported completion for ${data.bookId}`);
   } catch (err) {
@@ -86,7 +88,7 @@ async function reportError(callbackUrl, data) {
     await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ...data, success: false }),
+      body: JSON.stringify({ ...data, workerVersion: WORKER_VERSION, success: false }),
     });
     console.log(`[ProgressReporter] Reported error for ${data.bookId}`);
   } catch (err) {
