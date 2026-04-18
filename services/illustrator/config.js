@@ -18,8 +18,8 @@ const QA_TIMEOUT_MS = 60000;          // 1 minute per QA call
 const ESTABLISHMENT_TIMEOUT_MS = 60000; // 1 minute for character establishment
 
 // ── Sliding window ──
-const SLIDING_WINDOW_SIZE = 3;  // Keep last 3 generated spread images
-const MAX_HISTORY_IMAGES = 12;  // Start trimming above this
+const SLIDING_WINDOW_SIZE = 4;  // Keep last 4 generated spread images for better style continuity
+const MAX_HISTORY_IMAGES = 14;  // Start trimming above this
 
 // ── Retry budgets ──
 const MAX_SPREAD_RETRIES = 2;       // Per-spread QA retry limit (within session)
@@ -32,7 +32,8 @@ const TOTAL_SPREADS = 13;
 const TEXT_RULES = {
   maxWordsPerLine: 6,
   edgePaddingPercent: 8,
-  fontStyle: 'elegant classic serif (Lora-like), refined delicate serifs',
+  centerExclusionPercent: 15,
+  fontStyle: 'Georgia serif font — plain, clean, traditional serif with round letterforms and moderate x-height. NO decorative fonts, NO swashes, NO italic, NO condensed, NO handwritten, NO display fonts',
   fontColor: 'white/cream with subtle drop shadow',
   fontSize: 'small, like quiet subtitles — NOT a headline, NOT a title',
 };

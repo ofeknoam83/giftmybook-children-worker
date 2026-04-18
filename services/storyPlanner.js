@@ -96,7 +96,10 @@ const THEME_RULES = {
 - Story is told from the child's perspective of love and gratitude for mom
 - Include the meaningful_moment from customDetails as a specific scene
 - Include moms_favorite_moment if provided
-- Ending: heartfelt, warm — a direct expression of love from child to mom
+- CELEBRATION ONLY: NO tantrums, NO crying, NO frustration, NO anger, NO conflict, NO "even when" test-of-love moments. Every spread must be warm, joyful, and positive.
+- NO BEDTIME ENDING: The story must NOT end with sleeping, goodnight, tucking in, dreams, nightlights, or the house going quiet. End in DAYLIGHT with warmth, togetherness, and joy.
+- CREATIVITY: At least 2 spreads must use the child's imagination — transforming something ordinary into something magical. Include one reversal where the child tries to take care of Mom. Avoid flat documentary narration.
+- Ending: warm, bright, celebratory — a joyful image of mother and child together. NOT quiet, NOT sleepy.
 - This book should make a mother cry happy tears`,
 
   fathers_day: `FATHER'S DAY THEME — a bonding adventure:
@@ -641,21 +644,22 @@ function getThemeBeatStructure(theme, age) {
     case 'mothers_day':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
    MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
-   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm, tender, and deeply personal. The story builds from everyday moments to a heartfelt expression of love.
-   CELEBRATION RULE: This story is a CELEBRATION, not a hero's journey. There is NO villain, NO doubt, NO loss to overcome. Every spread radiates love and warmth.
-   - Spread 1 (THE MORNING): Child wakes up excited — today is a special day for Mom. Establish the warm, loving world. Mom is VISIBLE.
-   - Spread 2 (THE PLAN): Child decides to make this day unforgettable. Reference their favorite activities together. Mom is VISIBLE.
-   - Spread 3 (TOGETHER — ACTIVITY 1): Child and Mom enjoy their first favorite shared activity. Use favorite_activities from questionnaire. Mom is VISIBLE.
-   - Spread 4 (TOGETHER — ACTIVITY 2): Another cherished shared activity or moment. Use additional questionnaire details. At least one spread shows Mom VISIBLE alongside the child.
-   - Spread 5 (THE HEART): The most meaningful moment between child and Mom. Use meaningful_moment or moms_favorite_moment. Mom is VISIBLE.
-   - Spread 6 (A SWEET SURPRISE): Child does something adorable or funny for Mom. Use funny_thing or other_detail. Mom is VISIBLE.
-   - Spread 7 (MOM'S JOY): Show Mom's happiness and what she treasures about their bond. Mom is VISIBLE, receiving the child's love.
-   - Spread 8 (FAVORITE THINGS): Weave in remaining personal details — favorite food, toys, cake flavor. Mom is VISIBLE.
-   - Spread 9 (QUIET TOGETHER): A calm, cozy moment of connection between child and Mom. Mom is VISIBLE.
-   - Spread 10 (WORDS OF LOVE): Child expresses love for Mom in their own simple, genuine words.
-   - Spread 11 (WARM GLOW): The feeling of being loved unconditionally. Mom is VISIBLE.
-   - Spread 12 (REFLECTION): What makes their bond truly special and unique. Mom holds the child close. Mom is VISIBLE.
-   - Spread 13 (THE LAST LINE): One perfect closing image of mother-child love. The most beautiful sentence in the book. Mom is VISIBLE. This is the emotional peak — make it land.`;
+   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm and deeply personal. The story builds from shared moments to imaginative play to a warm, joyful climax.
+   CELEBRATION RULE: This story is a CELEBRATION, not a hero's journey. There is NO villain, NO doubt, NO loss, NO tantrums, NO crying, NO frustration, NO anger, NO bedtime, NO sleeping, NO goodnight. Every spread radiates love, warmth, and JOY.
+   CREATIVITY RULE: At least 2 spreads must use the child's IMAGINATION — transforming something ordinary into something magical (a puddle becomes an ocean, a stick becomes a wand, the kitchen becomes a restaurant). Include one spread where the child tries to take care of Mom (a reversal). Avoid flat documentary narration.
+   - Spread 1 (THE MORNING): Child and Mom in a specific morning moment. Establish the warm, loving world. Mom is VISIBLE.
+   - Spread 2 (TOGETHER — ACTIVITY 1): First shared activity — use favorite_activities from questionnaire. Mom is VISIBLE.
+   - Spread 3 (TOGETHER — ACTIVITY 2): Second activity — daily routine made magical. Show Mom's character through action. Mom is VISIBLE.
+   - Spread 4 (IMAGINATION): Child transforms something ordinary into something magical — Mom plays along wholeheartedly. Whimsical, surprising, fun. Mom is VISIBLE.
+   - Spread 5 (SECRET LANGUAGE): The private things only they share — a made-up word, an inside joke, a funny face, a secret handshake. Nobody else would understand. Mom is VISIBLE.
+   - Spread 6 (MOM NOTICES): Mom sees something specific and wonderful about the child that nobody else catches. The noticing IS the love. Mom is VISIBLE.
+   - Spread 7 (REVERSAL): Child tries to take care of Mom — pours pretend tea, "reads" a story, tucks a blanket around her. Funny, earnest, tender. Mom is VISIBLE.
+   - Spread 8 (THE GIFT): Child gives Mom something imperfect and precious — a dandelion, a lopsided drawing, a rock. The gesture is small but it lands. Mom is VISIBLE.
+   - Spread 9 (ADVENTURE): They go somewhere together or try something new — a walk, the park, baking. Bright, active, joyful. Mom is VISIBLE.
+   - Spread 10 (CELEBRATION): Something physical and joyful — spinning, dancing, racing, jumping. Pure laughter and movement. NOT quiet. Mom is VISIBLE.
+   - Spread 11 (TOGETHER): The best part of the day. Doing what they love most together. Happy, vivid, full of energy and warmth. Mom is VISIBLE.
+   - Spread 12 (CLIMAX): The warmest moment — a hug, a spin, laughter ringing. FULL of love and light. NOT sleepy, NOT bedtime. Mom is VISIBLE.
+   - Spread 13 (THE LAST LINE): One perfect closing image — warm, bright, celebratory. NOT a goodnight, NOT falling asleep, NOT a dream. End in DAYLIGHT with togetherness. Mom is VISIBLE. A parent should want to read it twice.`;
 
     case 'fathers_day':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FATHER'S DAY arc:

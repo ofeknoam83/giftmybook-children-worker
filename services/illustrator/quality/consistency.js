@@ -90,10 +90,16 @@ async function checkCrossSpreadConsistency(spreads, opts = {}) {
     }
   }
 
-  // ── Check 3: Art style consistency (batches of 4) ──
-  for (const batch of batches) {
+  // ── Check 3: Art style consistency (batches of 4, anchored to spread 1) ──
+  const anchor = spreads[0];
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    // Always include spread 1 as an anchor if this batch doesn't already contain it
+    const anchoredBatch = (bi === 0 || batch.some(s => s.index === 0))
+      ? batch
+      : [anchor, ...batch].slice(0, MAX_IMAGES_PER_BATCH);
     try {
-      const result = await _checkBatchStyleConsistency(batch, opts);
+      const result = await _checkBatchStyleConsistency(anchoredBatch, opts);
       checkResults.push(result);
       if (result.failedIndices) {
         for (const { index, issues } of result.failedIndices) {
@@ -190,14 +196,14 @@ async function _checkBatchFontConsistency(batch, opts) {
   const parts = [{
     text: `These are ${batch.length} pages from the same children's book.
 
-Compare the text rendering:
-1. Font family — same across all?
+Compare the text rendering — the font must be IDENTICAL across all pages:
+1. Font family — is it clearly the same serif font on every page? Different serif families count as a FAIL.
 2. Font size (relative to page) — consistent?
 3. Font weight/boldness — consistent?
 4. Text color — same?
 
-Find the MAJORITY style. Flag outliers.
-Minor AI rendering variations are acceptable — only flag OBVIOUS differences.
+Find the MAJORITY style. Flag any page that uses a visibly different font family, weight, or size.
+The font should look like the same typeface was used — not just "both are serifs."
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}

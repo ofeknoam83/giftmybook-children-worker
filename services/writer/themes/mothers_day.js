@@ -175,17 +175,17 @@ class MothersDayWriter extends BaseThemeWriter {
     return [
       { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific morning moment. Simple, vivid, particular.`, wordTarget: 20 },
       { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — use child's anecdote if available. Concrete nouns, sensory detail.`, wordTarget: 22 },
-      { spread: 3, beat: 'ACTIVITY_2', description: `Second activity — daily routine moment. Show ${parentName}'s character through action.`, wordTarget: 22 },
-      { spread: 4, beat: 'ACTIVITY_3', description: `Third activity — playful, fun. Use child's interests if available.`, wordTarget: 22 },
-      { spread: 5, beat: 'DEEPENING_1', description: `${parentName} noticing something specific about ${child.name}. The shift from activities to connection.`, wordTarget: 22 },
-      { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — a specific gesture, habit, or look.`, wordTarget: 22 },
-      { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName} saw something specific; that seeing is the love.`, wordTarget: 20 },
-      { spread: 8, beat: 'SURPRISE', description: `${child.name} does something sweet or unexpected for ${parentName} — a drawing, a made-up song, picking a flower. Warm and funny.`, wordTarget: 22 },
+      { spread: 3, beat: 'ACTIVITY_2', description: `Second activity — daily routine moment. Show ${parentName}'s character through action, not description.`, wordTarget: 22 },
+      { spread: 4, beat: 'IMAGINATION', description: `${child.name} transforms something ordinary into something magical — a puddle is an ocean, a box is a castle, a spoon is a wand. ${parentName} plays along.`, wordTarget: 22 },
+      { spread: 5, beat: 'SECRET_LANGUAGE', description: `The private, particular things only ${child.name} and ${parentName} share — a made-up word, a funny face, a sound, an inside joke. Nobody else would understand.`, wordTarget: 22 },
+      { spread: 6, beat: 'NOTICING', description: `${parentName} sees something specific and delightful about ${child.name} that nobody else notices — the way they hold a crayon, how they talk to a stuffed animal, a particular dance move.`, wordTarget: 22 },
+      { spread: 7, beat: 'REVERSAL', description: `${child.name} tries to take care of ${parentName} — pours pretend tea, covers ${parentName} with a tiny blanket, "reads" a story to her. Warm and funny.`, wordTarget: 22 },
+      { spread: 8, beat: 'GIFT', description: `${child.name} gives ${parentName} something imperfect and precious — a picked flower, a scribbled drawing, a rock, a dandelion. The gift is funny and earnest.`, wordTarget: 22 },
       { spread: 9, beat: 'ADVENTURE', description: `They go somewhere together or try something new — a walk, the park, baking, a little exploration. Bright, active, joyful.`, wordTarget: 22 },
-      { spread: 10, beat: 'CELEBRATION', description: `Something special they share — a dance, a song, a treat, a silly game. Pure happiness and laughter.`, wordTarget: 22 },
-      { spread: 11, beat: 'TOGETHER', description: `Side by side doing their favorite thing. The ordinary IS the gift. Warm, vivid, full of life.`, wordTarget: 22 },
-      { spread: 12, beat: 'CLIMAX', description: `The warmest moment — a big hug, a kiss, laughter still in the air. WARM, not quiet. Full of love and light.`, wordTarget: 20 },
-      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful and warm. A parent should want to read it twice.`, wordTarget: 14 },
+      { spread: 10, beat: 'CELEBRATION', description: `Something physical and joyful — spinning, swinging, dancing, jumping. Pure laughter and movement. NOT quiet. NOT winding down.`, wordTarget: 22 },
+      { spread: 11, beat: 'TOGETHER', description: `Side by side doing their favorite thing. The ordinary IS the gift. Warm, vivid, full of life and energy.`, wordTarget: 22 },
+      { spread: 12, beat: 'CLIMAX', description: `The warmest moment — a big hug, spinning, laughter. WARM and FULL, not quiet. NOT sleepy, NOT bedtime. Full of love and light and energy.`, wordTarget: 20 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Warm, bright, celebratory. NOT a goodnight, NOT falling asleep, NOT a dream. End in daylight with togetherness. A parent should want to read it twice.`, wordTarget: 14 },
     ];
   }
 
@@ -197,17 +197,17 @@ class MothersDayWriter extends BaseThemeWriter {
     return [
       { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific moment. Establish tone. The world is vivid and particular.`, wordTarget: 30 },
       { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — use child's anecdote. Concrete nouns, specific actions.`, wordTarget: 30 },
-      { spread: 3, beat: 'ACTIVITY_2', description: `Second activity — daily routine made magical. Show ${parentName}'s character through action.`, wordTarget: 30 },
-      { spread: 4, beat: 'ACTIVITY_3', description: `Third activity — playful, unexpected. Use child's interests if available.`, wordTarget: 28 },
-      { spread: 5, beat: 'DEEPENING_1', description: `${parentName} begins noticing specific things about ${child.name}. The shift from activities to emotional connection.`, wordTarget: 28 },
-      { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — the specific laugh, the particular habit, the invented game.`, wordTarget: 28 },
-      { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName}'s perspective feels earned — she saw something specific; that seeing is the love.`, wordTarget: 25 },
-      { spread: 8, beat: 'SURPRISE', description: `${child.name} does something sweet or unexpected for ${parentName} — a gift, a drawing, a made-up song. Warm and funny.`, wordTarget: 25 },
+      { spread: 3, beat: 'ACTIVITY_2', description: `Second activity — daily routine made magical. Show ${parentName}'s character through action, not description.`, wordTarget: 30 },
+      { spread: 4, beat: 'IMAGINATION', description: `${child.name} transforms something ordinary into something magical — a stick becomes a wand, a hill becomes a mountain, the backyard becomes a jungle. ${parentName} plays along wholeheartedly.`, wordTarget: 28 },
+      { spread: 5, beat: 'SECRET_LANGUAGE', description: `The private, particular things only ${child.name} and ${parentName} share — a made-up word, an inside joke, a secret handshake, a sound only they know the meaning of.`, wordTarget: 28 },
+      { spread: 6, beat: 'NOTICING', description: `${parentName} sees something specific and wonderful about ${child.name} that nobody else catches — a particular expression, the way they arrange things, how they whisper to animals. The noticing IS the love.`, wordTarget: 28 },
+      { spread: 7, beat: 'REVERSAL', description: `${child.name} tries to take care of ${parentName} — makes her a "meal," reads her a "story," tucks a blanket around her legs. Funny, earnest, tender.`, wordTarget: 25 },
+      { spread: 8, beat: 'GIFT', description: `${child.name} gives ${parentName} something imperfect and precious — a dandelion, a lopsided drawing, a rock, a wish blown off a seed. The gift is small but the gesture lands.`, wordTarget: 25 },
       { spread: 9, beat: 'ADVENTURE', description: `They go somewhere together or try something new — exploring, building, baking, a shared quest. Bright, active, joyful.`, wordTarget: 25 },
-      { spread: 10, beat: 'CELEBRATION', description: `A shared moment of pure joy — dancing, singing, laughing together. Bright, warm, happy.`, wordTarget: 25 },
+      { spread: 10, beat: 'CELEBRATION', description: `Something physical and joyful — racing, spinning, dancing, jumping. Pure laughter and movement. NOT quiet. NOT winding down.`, wordTarget: 25 },
       { spread: 11, beat: 'TOGETHER', description: `The best part of the day. Doing what they love most together. Happy, vivid, full of energy and warmth.`, wordTarget: 25 },
-      { spread: 12, beat: 'CLIMAX', description: `The warmest moment — not quiet, FULL. Full of love, full of light. A hug that means everything. Laughter in the air.`, wordTarget: 20 },
-      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful, warm, celebratory. A parent should want to read it twice.`, wordTarget: 15 },
+      { spread: 12, beat: 'CLIMAX', description: `The warmest moment — FULL, not quiet. A hug, a spin, laughter still ringing. NOT sleepy, NOT bedtime. Full of love and light and energy.`, wordTarget: 20 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Warm, bright, celebratory. NOT a goodnight, NOT falling asleep, NOT a dream. End in daylight with togetherness. A parent should want to read it twice.`, wordTarget: 15 },
     ];
   }
 
@@ -317,14 +317,24 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- AABB couplets throughout — every line pair must rhyme`);
     sections.push(`- The climax spread (${plan.beats.find(b => b.beat === 'CLIMAX')?.spread || 10}) should have the FEWEST words`);
     sections.push(`- This is a CELEBRATION book, not a bedtime book. EVERY spread must be WARM, JOYFUL, and POSITIVE. No anger, crying, tantrums, frustration, tiredness, sleeping, winding down, or negative emotions at any point. The entire book should feel happy and loving from start to finish.`);
+    sections.push(`- The ENDING must be warm, bright, and celebratory — NOT a goodnight, NOT falling asleep, NOT tucking in, NOT a dream. End in DAYLIGHT with togetherness, joy, and energy. The last image should be of ${child.name} and ${parentName} together in warmth and light.`);
     sections.push(`- Close on an IMAGE, not a declaration — no "I love you" as the last line`);
     sections.push(`- Every spread needs at least one concrete, specific noun`);
     sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
     sections.push(`- The refrain must appear at least 3 times, spaced through the story`);
+    sections.push(`- The refrain should DEEPEN in meaning each time it appears — same words, but the context around it shifts so it lands differently`);
     sections.push(`- Use ONLY the parent name "${parentName}" — do NOT invent any other name for the mother. No nicknames, no full names, no pet names unless provided in the input.`);
     sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl — use she/her.' : child.gender === 'male' ? 'He is a boy — use he/him.' : ''} Use the child's name or correct pronouns. "They" is only for plural subjects (e.g., ${child.name} and ${parentName} together).`);
     sections.push(`- NEVER use dashes, hyphens, or em dashes (\u2014, \u2013, -) in the story text. Use commas, periods, or line breaks instead.`);
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
+
+    sections.push(`\n## CREATIVITY RULES (CRITICAL)\n`);
+    sections.push(`- At least 2 spreads must use the child's IMAGINATION — transform an ordinary moment into something magical or whimsical (a puddle is a sea, a stick is a sword, the kitchen is a restaurant). ${parentName} plays along.`);
+    sections.push(`- Avoid documentary narration ("they did this, then they did that"). Each spread should SURPRISE the reader with an unexpected image, action, or perspective.`);
+    sections.push(`- Include at least one REVERSAL where ${child.name} takes care of ${parentName} — pours pretend tea, "reads" a story, covers her with a blanket. This is funny and tender.`);
+    sections.push(`- At least one spread should contain an image so SPECIFIC it could only belong to THIS child — use the anecdotes and real details provided.`);
+    sections.push(`- Avoid AI-common rhyme pairs: day/way, heart/start, love/above, you/true, night/light, play/day. Find fresher, more surprising rhymes.`);
+    sections.push(`- Sensory details should go beyond sight — include sounds (crunch, hum, splash), textures (sticky, fuzzy, warm), smells (toast, rain, grass).`);
 
     return sections.join('\n');
   }

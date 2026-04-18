@@ -40,9 +40,9 @@ EXPECTED TEXT: "${expectedText}"
 
 Check ALL of the following:
 
-1. TEXT CONTENT: Read the text in the image word-for-word. Does it match the expected text exactly? Flag missing words, extra words, misspellings, or garbled text.
+1. TEXT CONTENT: Read the text in the image word-for-word. Does it match the expected text exactly? Flag missing words, extra words, misspellings, garbled text, or DUPLICATED text (same text appearing twice).
 
-2. TEXT PLACEMENT: Imagine a vertical line splitting the image into LEFT and RIGHT halves. The entire text block must stay completely within ONE half (either all on the left side or all on the right side). Flag if any text crosses this left-right center divider. Note: text CAN be at the top or bottom — vertical position does not matter, only left-right position matters.
+2. TEXT PLACEMENT — CENTER EXCLUSION ZONE (CRITICAL): This image will be split into two pages at the exact vertical center. Imagine the image divided into 5 equal vertical columns (each 20% wide). The MIDDLE column (the center 20%) is a NO-TEXT ZONE. ALL text must be completely within the LEFT 40% or the RIGHT 40% of the image. Flag as HARD FAIL if ANY text appears in the center 20% of the image, or if text crosses from one half to the other. Vertical position (top/bottom) does not matter.
 
 3. EDGE MARGINS: Is the text at least ~8% away from all edges (top, bottom, left, right)? Flag if text is too close to any edge.
 
@@ -59,7 +59,7 @@ Return ONLY valid JSON:
 }
 
 Score guide: 1.0 = perfect, 0.8+ = minor issues, 0.5-0.8 = significant issues, <0.5 = major problems.
-Only set pass=false for issues that would be noticeable to a reader.`;
+Set pass=false for: text in the center 20%, text crossing the center, duplicated text, missing/garbled text, or text too close to edges.`;
 
   try {
     const resp = await fetchWithTimeout(url, {

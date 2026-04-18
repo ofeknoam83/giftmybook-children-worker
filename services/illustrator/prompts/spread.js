@@ -75,6 +75,13 @@ function buildSpreadPrompt(opts) {
   parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('');
 
+  // Style consistency reminder
+  parts.push('### STYLE CONSISTENCY');
+  parts.push('- Match the EXACT rendering technique, lighting quality, texture detail, and color saturation of all previous spreads');
+  parts.push('- This is the same physical book — every page must look like the same artist painted it in the same session');
+  parts.push('- Use the SAME font as every other page — identical family, weight, and size');
+  parts.push('');
+
   // Text embedding
   const spreadText = [leftText, rightText].filter(Boolean).join(' ');
   parts.push(buildTextInstruction(spreadText));
