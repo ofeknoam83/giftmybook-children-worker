@@ -160,6 +160,10 @@ function buildBookFromLegacy(payload) {
     heartfeltNote: payload.heartfeltNote || null,
     bookFrom: payload.bookFrom || null,
     coverUrl: payload.approvedCoverUrl || null,
+    emotionalCategory: payload.emotionalCategory || null,
+    emotionalSituation: payload.emotionalSituation || null,
+    emotionalParentGoal: payload.emotionalParentGoal || null,
+    copingResourceHint: payload.copingResourceHint || null,
   };
 }
 
