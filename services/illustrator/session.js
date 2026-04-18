@@ -297,10 +297,13 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
   const elapsedMs = Date.now() - startMs;
   console.log(`[illustrator/session] Turn ${session.turnsUsed + 1} complete (${elapsedMs}ms)`);
 
-  // CRITICAL: Preserve thoughtSignature fields when storing model response
+  // CRITICAL: Preserve thoughtSignature fields when storing model response.
+  // If we can't store a valid model response, pop the user message to keep
+  // history well-formed (alternating user/model turns).
   const modelContent = data.candidates?.[0]?.content;
-  if (modelContent) {
-    const preservedParts = modelContent.parts.map(part => {
+  const modelParts = modelContent?.parts;
+  if (modelParts && Array.isArray(modelParts) && modelParts.length > 0) {
+    const preservedParts = modelParts.map(part => {
       const preserved = {};
       if (part.text !== undefined) preserved.text = part.text;
       if (part.inlineData) preserved.inlineData = part.inlineData;
@@ -308,6 +311,10 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
       return preserved;
     });
     history.push({ role: 'model', parts: preservedParts });
+  } else {
+    // No valid model response — remove the user message to keep history alternating
+    history.pop();
+    console.warn(`[illustrator/session] Turn ${session.turnsUsed + 1} returned no content parts — removed user message from history`);
   }
 
   return data;
