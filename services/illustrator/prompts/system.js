@@ -89,14 +89,13 @@ function buildSystemInstruction(opts) {
   // Text rendering rules
   parts.push('TEXT RENDERING RULES:');
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
+  parts.push('- The font MUST be IDENTICAL on every single page — same font family, same weight, same size. If in doubt, use a plain clean serif. NEVER switch fonts between pages.');
   parts.push(`- Size: ${TEXT_RULES.fontSize}. The illustration is the star.`);
   parts.push(`- Color: ${TEXT_RULES.fontColor}`);
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
-  parts.push('- EXACT same font style, size, weight, and color on EVERY page');
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
-  parts.push('- Text must NEVER cross the left-right center of the image. Imagine a vertical line splitting the image in half — ALL text must be entirely on one side.');
-  parts.push('- Entire text block stays completely on the LEFT half or RIGHT half — never spanning both halves');
+  parts.push(`- CENTER EXCLUSION ZONE (CRITICAL): Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. All text must be in the outer ${50 - TEXT_RULES.centerExclusionPercent}% of the image — the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}%. NEVER place text in the middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image. This image will be split into two pages at the center.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from ALL edges`);
   parts.push('- Main characters and key action should not be hidden behind text');
   parts.push('');

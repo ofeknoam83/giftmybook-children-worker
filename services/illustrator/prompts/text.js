@@ -25,15 +25,14 @@ function buildTextInstruction(text) {
   parts.push('');
   parts.push('### TEXT PLACEMENT (CRITICAL)');
   parts.push('- Place text anywhere vertically (top, bottom, upper, lower — all fine)');
-  parts.push('- Text must NEVER cross the left-right center of the image');
-  parts.push('- Entire text block stays completely on the LEFT half or RIGHT half');
+  parts.push(`- CENTER EXCLUSION ZONE: Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. Place ALL text in the outer ${50 - TEXT_RULES.centerExclusionPercent}% of the image (LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or RIGHT ${50 - TEXT_RULES.centerExclusionPercent}%). NEVER in the middle ${TEXT_RULES.centerExclusionPercent * 2}%. This image will be split into two pages at the center.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from ALL edges (top, bottom, left, right)`);
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
+  parts.push('- The font must be IDENTICAL to all other pages — same family, same weight, same size. NEVER change fonts.');
   parts.push(`- Size: ${TEXT_RULES.fontSize}. The illustration is the star.`);
   parts.push(`- Color: ${TEXT_RULES.fontColor}`);
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
-  parts.push('- EXACT same font style, size, weight, and color on EVERY page');
 
   return parts.join('\n');
 }

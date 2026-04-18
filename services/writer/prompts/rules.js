@@ -107,7 +107,7 @@ const TEN_COMMANDMENTS = [
   'Concrete nouns over abstract claims — "baloney sandwich" > "lunch"; "she checked three times" > "she worried".',
   'Show the action; let the art carry the emotion — never narrate what the illustration will show.',
   'AABB couplets for ages 0-5 — ABAB requires memory-holding that young children do not yet have.',
-  'The closing spread should be your quietest — fewest words, largest emotional payoff.',
+  'The closing spread should have fewest words and largest emotional payoff. For celebration themes (Mother\'s Day, Father\'s Day, birthday), the closing should be the WARMEST and most emotionally FULL — not quiet, not sleepy, not bedtime. End with togetherness, joy, and light.',
   'Repetition is not laziness — it is the engine. Plan your refrain before you write the book.',
   'The page turn is your most powerful tool — every spread should earn the next turn.',
   'Read it aloud before considering it done — if you stumble anywhere, revise until you don\'t.',
