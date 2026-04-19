@@ -2,7 +2,8 @@
  * Input validation and prompt sanitization for API requests.
  */
 
-const VALID_FORMATS = ['picture_book', 'early_reader', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
+const VALID_FORMATS = ['picture_book', 'early_reader', 'PICTURE_BOOK', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
+const FORMAT_NORMALIZE = { PICTURE_BOOK: 'picture_book', EARLY_READER: 'early_reader' };
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
 const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
   // Occasion themes
@@ -74,6 +75,22 @@ function isValidHttpsUrl(str) {
   try {
     const url = new URL(str);
     return url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a string is a valid callback URL (HTTPS in production, HTTP allowed otherwise).
+ * @param {string} str
+ * @returns {boolean}
+ */
+function isValidCallbackUrl(str) {
+  if (typeof str !== 'string') return false;
+  try {
+    const url = new URL(str);
+    if (process.env.NODE_ENV === 'production') return url.protocol === 'https:';
+    return url.protocol === 'https:' || url.protocol === 'http:';
   } catch {
     return false;
   }
@@ -153,12 +170,12 @@ function validateGenerateBookRequest(body) {
     childGender: VALID_GENDERS.includes(body.childGender) ? body.childGender : 'neutral',
     childAppearance: sanitizeForPrompt(body.childAppearance || '', 300),
     childInterests: sanitizeInterests(body.childInterests),
-    bookFormat: VALID_FORMATS.includes(body.bookFormat) ? body.bookFormat : 'picture_book',
+    bookFormat: VALID_FORMATS.includes(body.bookFormat) ? (FORMAT_NORMALIZE[body.bookFormat] || body.bookFormat) : 'picture_book',
     artStyle: VALID_ART_STYLES.includes(body.artStyle) ? body.artStyle : 'pixar_premium',
     theme: VALID_THEMES.includes(body.theme) ? body.theme : 'adventure',
     customDetails: sanitizeForPrompt(body.customDetails || '', MAX_CUSTOM_DETAILS_LENGTH),
-    callbackUrl: isValidHttpsUrl(body.callbackUrl) ? body.callbackUrl : null,
-    progressCallbackUrl: isValidHttpsUrl(body.progressCallbackUrl) ? body.progressCallbackUrl : null,
+    callbackUrl: isValidCallbackUrl(body.callbackUrl) ? body.callbackUrl : null,
+    progressCallbackUrl: isValidCallbackUrl(body.progressCallbackUrl) ? body.progressCallbackUrl : null,
     childId: body.childId ? String(body.childId).slice(0, 100) : undefined,
     approvedTitle: typeof body.approvedTitle === 'string' ? body.approvedTitle.slice(0, 200) : undefined,
     approvedCoverUrl: isValidHttpsUrl(body.approvedCoverUrl) ? body.approvedCoverUrl : undefined,

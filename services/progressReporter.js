@@ -39,18 +39,21 @@ async function reportProgress(callbackUrl, data) {
  * Force-send progress (bypass throttle).
  */
 async function reportProgressForce(callbackUrl, data) {
-  if (!callbackUrl) return;
+  if (!callbackUrl) return null;
   const key = data.bookId || 'unknown';
   lastReportTimes.set(key, Date.now());
 
   try {
-    await fetch(callbackUrl, {
+    const res = await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify(data),
     });
+    const body = await res.json().catch(() => null);
+    return body;
   } catch (err) {
     console.warn(`[ProgressReporter] Failed to report progress for ${key}:`, err.message);
+    return null;
   }
 }
 

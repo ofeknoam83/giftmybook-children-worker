@@ -1093,6 +1093,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   let absoluteTimer = null;
   let heartbeatInterval = null;
+  let hardTimeoutId = null;
 
   const generationWork = (async () => {
     const bookWarnings = [];
@@ -1109,7 +1110,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     heartbeatInterval = setInterval(async () => {
       if (progressCallbackUrl) {
         try {
-          const resp = await reportProgress(progressCallbackUrl, {
+          const resp = await reportProgressForce(progressCallbackUrl, {
             bookId,
             stage: 'generating',
             heartbeat: true,
@@ -2082,6 +2083,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
       // Stage 7: Build cover PDF separately (after interior is done)
       let coverPdfUrl = null;
+      let coverData = null;
       const coverPath = `children-jobs/${bookId}/cover.pdf`;
       try {
         bookContext.log('info', 'Building cover PDF...');
@@ -2125,7 +2127,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             || `A personalized bedtime story for ${childDetails.name}`;
         }
 
-        const coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
+        coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
           heartfeltNote, bookFrom, bindingType,
         });
@@ -2268,14 +2270,15 @@ Be concise. Only describe adults/secondary people, not the main child.` },
     } finally {
       clearInterval(heartbeatInterval);
       clearTimeout(absoluteTimer);
+      clearTimeout(hardTimeoutId);
       removeBookContext(bookId);
     }
   })();
 
   // Hard wall: kill generation after 90 minutes no matter what
-  const hardTimeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Generation exceeded 90 minute hard limit')), 90 * 60 * 1000)
-  );
+  const hardTimeout = new Promise((_, reject) => {
+    hardTimeoutId = setTimeout(() => reject(new Error('Generation exceeded 90 minute hard limit')), 90 * 60 * 1000);
+  });
 
   Promise.race([generationWork, hardTimeout]).catch(async (err) => {
     console.error(`[server] Book ${bookId} hit hard timeout: ${err.message}`);
