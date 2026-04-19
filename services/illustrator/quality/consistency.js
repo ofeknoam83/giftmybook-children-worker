@@ -12,9 +12,10 @@ const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 
 const MAX_IMAGES_PER_BATCH = 4;
+const CHARACTER_BATCH_STRIDE = 3; // Overlap 1 image between adjacent character batches
 
 /**
- * Split array into chunks.
+ * Split array into chunks (non-overlapping).
  */
 function chunk(arr, size) {
   const chunks = [];
@@ -22,6 +23,19 @@ function chunk(arr, size) {
     chunks.push(arr.slice(i, i + size));
   }
   return chunks;
+}
+
+/**
+ * Split array into overlapping windows for cross-boundary drift detection.
+ */
+function overlappingWindows(arr, windowSize, stride) {
+  const windows = [];
+  for (let i = 0; i < arr.length; i += stride) {
+    const win = arr.slice(i, i + windowSize);
+    if (win.length >= 2) windows.push(win);
+    if (i + windowSize >= arr.length) break;
+  }
+  return windows;
 }
 
 /**
@@ -53,8 +67,8 @@ async function checkCrossSpreadConsistency(spreads, opts = {}) {
   const failedSpreadMap = new Map(); // index -> issues[]
   const checkResults = [];
 
-  // ── Check 1: Character consistency (batches of 4) ──
-  const batches = chunk(spreads, MAX_IMAGES_PER_BATCH);
+  // ── Check 1: Character consistency (overlapping windows of 4, stride 3) ──
+  const batches = overlappingWindows(spreads, MAX_IMAGES_PER_BATCH, CHARACTER_BATCH_STRIDE);
   for (const batch of batches) {
     try {
       const result = await _checkBatchCharacterConsistency(batch, opts);
@@ -141,10 +155,11 @@ Check character consistency across ALL images — be STRICT:
 1. HAIR: Is the hair color, length, and style the SAME in every image? Flag if hair changes color (e.g., dark to light), changes length (short to long), or changes style (curly to straight, ponytail to loose).
 2. OUTFIT: Is the child wearing the SAME clothes in every image? Flag if clothing color, style, or type changes between images. The outfit must be identical on every page.
 3. FACE: Same face shape and skin tone across all?
-4. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts.
+4. AGE & PROPORTIONS: Does the child look the SAME AGE in every image? Flag if the child looks like a toddler in one image but a 5-6 year old in another. Body proportions (height, head-to-body ratio, limb length) must be consistent. This is CRITICAL — age drift between spreads is a major defect.
+5. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts.
 
 Do NOT flag: left/right mirroring, minor lighting/shadow differences, eye open/closed state, minor pose differences.
-DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any anatomy errors.
+DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any age/proportion shift, any anatomy errors.
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}

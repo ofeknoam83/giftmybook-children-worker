@@ -163,6 +163,19 @@ async function generateSpread(session, spreadPrompt, spreadIndex) {
   // Build user turn parts
   const parts = [];
 
+  // Re-send child photo as face/feature ground truth every spread
+  if (session.childPhotoBase64) {
+    parts.push({
+      text: 'CHILD PHOTO (face ground truth — match age, proportions, and features):',
+    });
+    parts.push({
+      inline_data: {
+        mimeType: session.childPhotoMime,
+        data: session.childPhotoBase64,
+      },
+    });
+  }
+
   // Include cover image as visual anchor (if available)
   if (session.coverBase64) {
     parts.push({
@@ -224,7 +237,51 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
     throw new Error('Session abandoned \u2014 cannot send correction');
   }
 
-  const parts = [{ text: correctionPrompt }];
+  const parts = [];
+
+  // Re-attach child photo so the model keeps face/proportion ground truth
+  if (session.childPhotoBase64) {
+    parts.push({
+      text: 'CHILD PHOTO (face ground truth — match age, proportions, and features):',
+    });
+    parts.push({
+      inline_data: {
+        mimeType: session.childPhotoMime,
+        data: session.childPhotoBase64,
+      },
+    });
+  }
+
+  // Re-attach cover as visual anchor
+  if (session.coverBase64) {
+    parts.push({
+      text: 'COVER REFERENCE (visual anchor):',
+    });
+    parts.push({
+      inline_data: {
+        mimeType: session.coverMime,
+        data: session.coverBase64,
+      },
+    });
+  }
+
+  // Re-attach recent spreads for style/character continuity
+  const recentSpreads = session.generatedSpreads.slice(-SLIDING_WINDOW_SIZE);
+  if (recentSpreads.length > 0) {
+    parts.push({
+      text: `RECENT SPREADS (${recentSpreads.length}) \u2014 maintain consistency:`,
+    });
+    for (const recent of recentSpreads) {
+      parts.push({
+        inline_data: {
+          mimeType: 'image/png',
+          data: recent.imageBase64,
+        },
+      });
+    }
+  }
+
+  parts.push({ text: correctionPrompt });
   const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
   session.turnsUsed++;
 
