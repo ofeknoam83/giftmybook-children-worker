@@ -23,6 +23,7 @@ const MAX_HISTORY_IMAGES = 14;  // Start trimming above this
 
 // ── Retry budgets ──
 const MAX_SPREAD_RETRIES = 6;       // Per-spread QA retry limit (within session)
+const MAX_FRESH_SESSION_RETRIES = 2; // Fresh-session fallbacks when in-session retries exhausted
 const MAX_REGEN_SPREADS = 3;        // Max spreads to regenerate after cross-spread QA
 
 // ── Book structure ──
@@ -70,6 +71,7 @@ module.exports = {
   SLIDING_WINDOW_SIZE,
   MAX_HISTORY_IMAGES,
   MAX_SPREAD_RETRIES,
+  MAX_FRESH_SESSION_RETRIES,
   MAX_REGEN_SPREADS,
   TOTAL_SPREADS,
   TEXT_RULES,

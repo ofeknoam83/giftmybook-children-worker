@@ -22,7 +22,7 @@ const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_REGEN_SPREADS, TOTAL_SPREADS, TEXT_RULES } = require('./config');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, MAX_REGEN_SPREADS, TOTAL_SPREADS, TEXT_RULES } = require('./config');
 const { getTextPlacement } = require('./prompts/text');
 
 class IllustratorEngine {
@@ -304,10 +304,56 @@ ${prompt}`;
             ...(textCheck.pass ? [] : textCheck.issues.map(iss => `[text] ${iss}`)),
             ...(anatomyCheck.pass ? [] : anatomyCheck.issues.map(iss => `[anatomy] ${iss}`)),
           ];
-          if (imageBase64 && imageBuffer) {
-            log('warn', `Spread ${i + 1} accepting best attempt despite QA issues (${remaining.length} remaining): ${remaining.join('; ')}`);
-          } else {
-            throw new Error(`Spread ${i + 1} failed QA after ${qaRetries} retries with no usable image: ${remaining.join('; ')}`);
+          log('warn', `Spread ${i + 1} still failing after in-session retries (${remaining.join('; ')}) — trying fresh sessions`);
+
+          let freshSessionPassed = false;
+          for (let freshAttempt = 1; freshAttempt <= MAX_FRESH_SESSION_RETRIES; freshAttempt++) {
+            log('info', `Spread ${i + 1} fresh-session attempt ${freshAttempt}/${MAX_FRESH_SESSION_RETRIES}`);
+            try {
+              const freshResult = await this.generateSingleSpread({
+                scenePrompt: spreadPrompt,
+                spreadText,
+                leftText,
+                rightText,
+                style,
+                coverBase64,
+                childPhotoBase64,
+                childPhotoMime: childPhotoMime || 'image/jpeg',
+                theme,
+                additionalCoverCharacters,
+                parentOutfit,
+                spreadIndex: i,
+                totalSpreads: spreadEntries.length,
+                costTracker,
+              });
+              imageBase64 = freshResult.imageBase64;
+              imageBuffer = freshResult.imageBuffer;
+
+              const [freshTextCheck, freshAnatomyCheck] = await Promise.all([
+                verifySpreadText(imageBase64, spreadText, { costTracker, spreadText }),
+                checkAnatomy(imageBase64, { costTracker, spreadText }),
+              ]);
+
+              if (freshTextCheck.pass && freshAnatomyCheck.pass) {
+                log('info', `Spread ${i + 1} fresh-session attempt ${freshAttempt} passed QA`);
+                Object.assign(textCheck, freshTextCheck);
+                Object.assign(anatomyCheck, freshAnatomyCheck);
+                freshSessionPassed = true;
+                break;
+              }
+
+              const freshIssues = [
+                ...(freshTextCheck.pass ? [] : freshTextCheck.issues.map(iss => `[text] ${iss}`)),
+                ...(freshAnatomyCheck.pass ? [] : freshAnatomyCheck.issues.map(iss => `[anatomy] ${iss}`)),
+              ];
+              log('warn', `Spread ${i + 1} fresh-session attempt ${freshAttempt} still failing: ${freshIssues.join('; ')}`);
+            } catch (freshErr) {
+              log('warn', `Spread ${i + 1} fresh-session attempt ${freshAttempt} errored: ${freshErr.message}`);
+            }
+          }
+
+          if (!freshSessionPassed) {
+            throw new Error(`Spread ${i + 1} failed QA after all retries and ${MAX_FRESH_SESSION_RETRIES} fresh sessions — refusing to accept defective image`);
           }
         } else {
           log('info', `Spread ${i + 1} QA passed`);
