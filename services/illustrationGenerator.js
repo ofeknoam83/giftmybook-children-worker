@@ -372,10 +372,12 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
     parts.push('- Match their appearance to the uploaded reference photo');
     parts.push('');
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    parts.push('=== PARENT CHARACTER (NO FACE) ===');
-    parts.push('The parent is physically present but we have NO reference photo. Show them through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the parent\'s full face.');
+    const isMother = opts.theme === 'mothers_day';
+    const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
+    parts.push(`=== PARENT CHARACTER — ${parentLabel} (NO FACE) ===`);
+    parts.push(`The ${isMother ? 'mother' : 'father'} is physically present but we have NO reference photo. ${isMother ? 'She' : 'He'} is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show ${isMother ? 'her' : 'him'} through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the ${isMother ? 'mother' : 'father'}'s full face.`);
     if (opts.parentOutfit) {
-      parts.push(`PARENT OUTFIT (LOCKED): ${opts.parentOutfit}`);
+      parts.push(`PARENT OUTFIT (LOCKED): ${opts.parentOutfit} — same outfit on EVERY page, no changes.`);
     }
     parts.push('');
   } else {
@@ -665,7 +667,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`SECONDARY CHARACTER LOCK: ${opts.additionalCoverCharacters}`);
     parts.push(`The secondary character(s) above must ALSO look identical across all illustrations — same face, hair, skin tone, build, and outfit. This is just as important as the child's consistency.`);
   } else if (opts.parentOutfit) {
-    parts.push(`PARENT OUTFIT LOCK: ${opts.parentOutfit} — same outfit on EVERY page. Never show parent's full face (no reference photo).`);
+    const isMom = opts.theme === 'mothers_day';
+    const parentWord = isMom ? 'mother' : 'father';
+    parts.push(`PARENT OUTFIT LOCK: The ${parentWord} wears EXACTLY: ${opts.parentOutfit} — same outfit on EVERY page. Never show the ${parentWord}'s full face (no reference photo). The parent is ${isMom ? 'FEMALE (a woman)' : 'MALE (a man)'}.`);
   }
   parts.push('');
 
@@ -705,7 +709,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (opts.additionalCoverCharacters) {
     charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the main child plus the additional cover characters listed below and no others.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions a parent → show the parent through IMPLIED PRESENCE ONLY: a hand reaching into frame, a shadow, feet at the edge, the child talking to someone just off-screen, or evidence of the parent (their coffee cup, bag, warm glow). NEVER draw the parent's full face or body — only hints and traces. The character count should still be ONE (just the child).\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
+    const _isMom = opts.theme === 'mothers_day';
+    const _pWord = _isMom ? 'mother (a woman/female)' : 'father (a man/male)';
+    charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions a parent → the parent is the child's ${_pWord}. Show the ${_isMom ? 'mother' : 'father'} through IMPLIED PRESENCE ONLY: a hand reaching into frame, a shadow, feet at the edge, the child talking to someone just off-screen, or evidence of the ${_isMom ? 'mother' : 'father'} (${_isMom ? 'her' : 'his'} coffee cup, bag, warm glow). NEVER draw the ${_isMom ? 'mother' : 'father'}'s full face or body — only hints and traces. The character count should still be ONE (just the child).\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
   } else {
     charCountRule = `1. CHARACTER COUNT — STRICT:\n   - The image must contain EXACTLY the characters described in the scene text and no others.\n   - If the scene mentions ONLY the child → EXACTLY ONE person visible. No exceptions.\n   - If the scene mentions child + one parent → EXACTLY TWO people visible.\n   - ZERO additional people anywhere: no background pedestrians, no shadow figures, no reflections showing extra people, no babies, no siblings, no pets unless explicitly in the scene text.\n   - No duplicate characters: the child appears ONCE, not as a reflection or shadow copy.\n   - When in doubt, FEWER characters is ALWAYS correct.`;
   }
@@ -721,9 +727,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(opts.additionalCoverCharacters);
     parts.push(`   IMPORTANT: Only the characters listed above are allowed. Do NOT add any other family members, parents, siblings, or relatives beyond what is listed.`);
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    parts.push(`4. PARENT CHARACTER (NO FACE): The parent is physically present in the scene but we have NO reference photo for them. Show the parent through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the parent's full face — it would be inconsistent across pages. The parent should feel warm and THERE, just with their face always hidden or turned away.`);
+    const _isMom4 = opts.theme === 'mothers_day';
+    const _pWord4 = _isMom4 ? 'mother' : 'father';
+    parts.push(`4. PARENT CHARACTER — ${_isMom4 ? 'MOTHER (FEMALE)' : 'FATHER (MALE)'} (NO FACE): The ${_pWord4} is physically present in the scene but we have NO reference photo. The parent is ${_isMom4 ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show the ${_pWord4} through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the ${_pWord4}'s full face — it would be inconsistent across pages. The ${_pWord4} should feel warm and THERE, just with ${_isMom4 ? 'her' : 'his'} face always hidden or turned away.`);
     if (opts.parentOutfit) {
-      parts.push(`   PARENT OUTFIT (LOCKED): ${opts.parentOutfit}`);
+      parts.push(`   PARENT OUTFIT (LOCKED): ${opts.parentOutfit} — same outfit on EVERY page, no changes.`);
     }
   } else {
     parts.push(`4. NO FAMILY MEMBERS: Do NOT draw the child's parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately. The child may interact with fictional characters (shopkeepers, fairies, talking animals, imaginary friends) but NEVER with family members. If a parent or relative is mentioned in the story, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body. If any relative appears, the image will be rejected.`);
@@ -909,14 +917,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
     parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER cross the left-right center of the image. The entire text block must stay on the left half or the right half.');
-    parts.push('- EDGE PADDING (CRITICAL): Leave at least 8% padding from ALL edges (top, bottom, left, right) so text won\'t be cut in print. Text must have visible breathing room from every edge.');
+    parts.push('- EDGE PADDING (CRITICAL): Leave at least 10% padding from left, right, and top edges so text won\'t be cut in print.');
+    parts.push('- BOTTOM PADDING (CRITICAL): Leave at least 15% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom 15% of the image.');
     parts.push('- Main characters and key action should not be hidden behind the text');
     // Fix 2B: Font matching for admin regen
     parts.push('- MATCH the font style from other pages in this book — same family, same size, same color, same weight. Do not introduce a new font.');
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push('\nREMINDER: Text must stay completely on the left half or right half — NEVER crossing the left-right center. Leave at least 8% padding from ALL edges.');
+    parts.push('\nREMINDER: Text must stay completely on the left half or right half — NEVER crossing the left-right center. Leave at least 10% padding from left/right/top edges and at least 15% from the BOTTOM edge (bottom gets cropped in print).');
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -935,7 +944,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (opts.embedText && pageText && pageText.trim()) {
-    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely on the left or right half (not crossing the left-right center), with at least 8% padding from all edges. \u2713`);
+    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely on the left or right half (not crossing the left-right center), with at least 10% padding from left/right/top and at least 15% from the bottom edge. \u2713`);
   } else {
     parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
   }

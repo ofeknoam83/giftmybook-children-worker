@@ -35,6 +35,7 @@ function buildSpreadPrompt(opts) {
     additionalCoverCharacters,
     theme,
     style,
+    parentOutfit,
   } = opts;
 
   const beat = getEmotionalBeat(spreadIndex, totalSpreads);
@@ -63,7 +64,12 @@ function buildSpreadPrompt(opts) {
   } else if (additionalCoverCharacters) {
     parts.push('- Secondary characters from the cover can appear and must match exactly');
   } else if (theme && PARENT_THEMES.has(theme)) {
+    const isMother = theme === 'mothers_day';
+    parts.push(`- The parent is the child's ${isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)'} — ${isMother ? 'NEVER draw a man' : 'NEVER draw a woman'}`);
     parts.push('- Parent must NOT be shown with visible face — show only hands/shadow/back/implied presence');
+    if (parentOutfit) {
+      parts.push(`- PARENT OUTFIT (LOCKED): ${parentOutfit} — same outfit on EVERY spread, no changes`);
+    }
   } else {
     parts.push('- NO other human characters unless explicitly mentioned in the scene');
   }

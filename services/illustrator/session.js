@@ -58,6 +58,7 @@ function createSession(opts) {
     style: opts.style,
     hasParentOnCover: opts.hasParentOnCover,
     theme: opts.theme,
+    parentOutfit: opts.parentOutfit,
   });
 
   return {
@@ -120,9 +121,14 @@ async function establishCharacterReferences(session) {
       text: 'NOTE: The parent/secondary character visible on the cover should appear in scenes where mentioned. They must match their cover appearance exactly in every spread.',
     });
   } else if (theme === 'mothers_day' || theme === 'fathers_day') {
-    parts.push({
-      text: 'NOTE: The story references a parent but they are NOT on the cover. The parent must NEVER show their face \u2014 show only hands, shadow, back view, or implied presence.',
-    });
+    const isMother = theme === 'mothers_day';
+    const parentLabel = isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)';
+    const parentOutfit = session.opts.parentOutfit;
+    let note = `NOTE: The story references the child's ${parentLabel} but they are NOT on the cover. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their face \u2014 show only hands, shadow, back view, or implied presence.`;
+    if (parentOutfit) {
+      note += ` PARENT OUTFIT LOCK: The ${isMother ? 'mother' : 'father'} wears EXACTLY this outfit in every illustration: ${parentOutfit}`;
+    }
+    parts.push({ text: note });
   }
 
   parts.push({
