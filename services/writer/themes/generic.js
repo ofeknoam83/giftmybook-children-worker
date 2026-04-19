@@ -474,6 +474,15 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`This book is from: ${book.bookFrom}`);
     }
 
+    if (this.category !== 'parent') {
+      sections.push(`\n## ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES (CRITICAL)\n`);
+      sections.push(`We only have the CHILD's photo. Family members (parents, grandparents, siblings, aunts, uncles) must NEVER appear as visible characters in the story.`);
+      sections.push(`- The story text must NOT describe a family member as physically present in a scene. Do NOT write lines like "Grandpa stood there" or "Mom waved hello" — these cause the illustrator to draw them, and without a reference photo they look different on every page.`);
+      sections.push(`- Instead, show family presence through TRACES and EFFECTS: a packed lunch from Grandpa, a note in Mom's handwriting, a jacket that smells like Dad, a garden that Grandma planted.`);
+      sections.push(`- The child is the ONLY human character visible in every spread. Animals, fantasy creatures, and environmental characters (fairies, talking animals, shopkeepers) are fine.`);
+      sections.push(`- "Book from: ${book.bookFrom || 'family'}" tells you who ordered the book — honor their relationship through the story's emotional core, NOT by drawing them into scenes.`);
+    }
+
     sections.push(`\n## STORY PLAN\n`);
     sections.push(`Theme: ${this.themeName.replace(/_/g, ' ')}`);
     sections.push(`Age tier: ${plan.ageTier}`);

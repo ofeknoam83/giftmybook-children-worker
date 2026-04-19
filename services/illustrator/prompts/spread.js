@@ -72,7 +72,7 @@ function buildSpreadPrompt(opts) {
       parts.push(`- PARENT OUTFIT (LOCKED): ${parentOutfit} — same outfit on EVERY spread, no changes`);
     }
   } else {
-    parts.push('- NO other human characters unless explicitly mentioned in the scene');
+    parts.push('- NO other human characters — the child is the ONLY person visible. Even if the text mentions a family member, do NOT draw them (no reference image exists).');
   }
 
   parts.push('- No duplicate characters — the child appears ONCE');

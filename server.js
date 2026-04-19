@@ -2401,8 +2401,19 @@ Format: each label on its own line followed by a colon and the answer.` },
     // Fix 1C: Log character anchor presence for admin regen
     console.log(`[server] /regenerate-illustration: characterAnchor ${resolvedCharacterAnchor ? 'PRESENT' : 'MISSING'} for bookId=${bookId}, spread=${spreadIndex}${resolvedCharacterAnchor ? ' (' + resolvedCharacterAnchor.slice(0, 80) + '...)' : ''}`);
 
+    // Family-member safety: if no secondary characters and not a parent theme,
+    // inject a warning when the scene prompt mentions family members
+    let safePrompt = spreadImagePrompt;
+    const isParentTheme = theme && (theme === 'mothers_day' || theme === 'fathers_day');
+    if (!additionalCoverCharacters && !isParentTheme) {
+      const familyRegex = /\b(grandpa|grandma|grandfather|grandmother|granny|nana|papa|nanny|uncle|aunt|auntie|daddy|dad|mommy|mom|mum|mama|father|mother|brother|sister|sibling|parent)\b/i;
+      if (familyRegex.test(spreadImagePrompt)) {
+        safePrompt += `\n\n⚠️ FAMILY MEMBER RULE: The scene mentions a family member but we have NO reference image. Do NOT draw any family member. The child is the ONLY human character. Show family presence through traces only: a hand from off-screen, a shadow, belongings, or evidence they were there. NEVER draw a family member's face or full body.`;
+      }
+    }
+
     // Generate the illustration
-    const result = await generateIllustration(spreadImagePrompt, null, style, {
+    const result = await generateIllustration(safePrompt, null, style, {
       costTracker,
       bookId,
       childName,
@@ -2455,8 +2466,7 @@ Format: each label on its own line followed by a colon and the answer.` },
   }
 });
 
-// ── POST /generate-spread ──
-// Generate a single spread (for Cloud Tasks parallelism)
+// ── POST /generate-spread ── (DEPRECATED — V2 pipeline generates sequentially, this endpoint is unused)
 app.post('/generate-spread', authenticate, async (req, res) => {
   const { valid, errors } = validateGenerateSpreadRequest(req.body);
   if (!valid) {

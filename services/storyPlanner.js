@@ -854,8 +854,11 @@ The uploaded photo contains more than one person. The following secondary charac
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations — same hair, same skin, same build, same clothing style. Write their presence into illustration prompts just as you do for the child. They are LOCKED to the reference photo.
 Do NOT invent other family members beyond what is listed above.`
-    : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
-Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`)}
+    : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES (CRITICAL):
+We only have the CHILD's reference photo. Family members (parents, grandparents, siblings, aunts, uncles) must NEVER appear as visible characters in the story or illustrations.
+Do NOT write beats where a family member is physically present in the scene (e.g. "Grandpa stood there", "Mom waved"). The illustrator will draw them, and without a reference photo they will look different on every page — this is a major quality defect.
+Instead, show family love through TRACES and EFFECTS: a packed lunch, a hand-written note, a garden someone planted, a warm jacket left on a chair. The child is the ONLY human character visible in every spread.
+If "book_from" or "favorite_food" mentions a family member, honor that relationship through the story's emotional warmth — NOT by putting them in scenes.`)}
 
 INTERESTS vs. VISUAL THEMES (CRITICAL):
 When the child's interests include character names (Bluey, Pinkalicious, Peppa Pig, Spider-Man, Elsa, etc.), these are CHARACTERS the child likes — NOT literal color or visual themes. "Pinkalicious" means the child enjoys those books, not "make everything pink." "Bluey" means the child watches that show, not "make everything blue." Use these interests as INSPIRATION for tone, energy, or a subtle nod — but NEVER flood the story with a single color or visual motif. The story should have a natural, varied color palette. A subtle reference is charming; saturation is overwhelming.

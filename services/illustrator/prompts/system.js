@@ -98,9 +98,11 @@ function buildSystemInstruction(opts) {
     }
     parts.push('');
   } else {
-    parts.push('NO FAMILY MEMBERS:');
-    parts.push('- Do NOT draw parents, siblings, or grandparents unless explicitly mentioned in the scene');
-    parts.push('- The child may interact with fictional characters (animals, fairies, shopkeepers)');
+    parts.push('NO FAMILY MEMBERS (ABSOLUTE — NO EXCEPTIONS):');
+    parts.push('- Do NOT draw any real human characters besides the child — no parents, grandparents, siblings, aunts, uncles, or any other family members.');
+    parts.push('- This rule applies EVEN IF the story text mentions a family member by name. We have NO reference image for them, so drawing them would produce inconsistent faces across pages.');
+    parts.push('- If the scene text mentions a family member, show their PRESENCE through traces only: a hand reaching from off-screen, a shadow, belongings, or evidence they were there. NEVER their face or full body.');
+    parts.push('- The child may interact with fictional/non-human characters (animals, fairies, shopkeepers).');
     parts.push('');
   }
 

@@ -121,16 +121,22 @@ class IllustratorEngine {
       const spreadStart = Date.now();
 
       try {
-        // For parent themes without parent on cover, inject face-hidden reminder
-        // directly into the scene prompt to prevent the illustrator from showing the face
         let safeScenePrompt = spreadPrompt;
+
         if (!hasParentOnCover && isParentTheme) {
+          // Parent themes without parent on cover: inject face-hidden reminder
           const isMother = theme === 'mothers_day';
           const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
           const parentRegex = new RegExp(parentWord, 'i');
           if (parentRegex.test(spreadPrompt)) {
             const parentLabel = isMother ? 'Mom' : 'Dad';
             safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features.`;
+          }
+        } else if (!hasParentOnCover && !isParentTheme) {
+          // Non-parent themes without secondary cover characters: strip family references
+          const familyRegex = /\b(grandpa|grandma|grandfather|grandmother|granny|nana|papa|nanny|uncle|aunt|auntie|daddy|dad|mommy|mom|mum|mama|father|mother|brother|sister|sibling|parent)\b/i;
+          if (familyRegex.test(spreadPrompt)) {
+            safeScenePrompt += `\n\n⚠️ FAMILY MEMBER RULE: The scene text mentions a family member, but we have NO reference image for them. Do NOT draw any family member. The child is the ONLY human character in this illustration. Show the family member's PRESENCE through traces only: their belongings, a hand reaching from off-screen, a shadow, or evidence they were there (a packed lunch, a note, a warm jacket). NEVER draw a family member's face or full body.`;
           }
         }
 
