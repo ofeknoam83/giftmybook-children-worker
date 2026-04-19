@@ -212,8 +212,15 @@ async function generateSpread(session, spreadPrompt, spreadIndex) {
   const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
   session.turnsUsed++;
 
-  // Extract image
-  const result = _extractImage(response, spreadIndex);
+  // Extract image — if Gemini returned text-only (no image), clean up the
+  // failed exchange so subsequent turns don't inherit a poisoned history.
+  let result;
+  try {
+    result = _extractImage(response, spreadIndex);
+  } catch (extractErr) {
+    _removeLastExchange(session);
+    throw extractErr;
+  }
 
   // Store for sliding window
   session.generatedSpreads.push({
@@ -285,7 +292,13 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
   const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
   session.turnsUsed++;
 
-  const result = _extractImage(response, spreadIndex);
+  let result;
+  try {
+    result = _extractImage(response, spreadIndex);
+  } catch (extractErr) {
+    _removeLastExchange(session);
+    throw extractErr;
+  }
 
   // Replace the last stored spread with the corrected version
   const existing = session.generatedSpreads.findIndex(s => s.index === spreadIndex);
@@ -299,6 +312,22 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
 }
 
 // ── Private helpers ──
+
+/**
+ * Remove the last user+model exchange from history.
+ * Called when _extractImage fails (Gemini returned text-only, no image).
+ * Prevents poisoning subsequent turns with a broken exchange.
+ */
+function _removeLastExchange(session) {
+  const h = session.history;
+  if (h.length >= 2 && h[h.length - 1].role === 'model' && h[h.length - 2].role === 'user') {
+    h.splice(-2, 2);
+    console.log('[illustrator/session] Removed text-only exchange from history to keep session clean');
+  } else if (h.length >= 1 && h[h.length - 1].role === 'user') {
+    h.pop();
+    console.log('[illustrator/session] Removed orphaned user message from history');
+  }
+}
 
 /**
  * Send a turn to the Gemini REST API and manage history.
