@@ -66,7 +66,8 @@ function buildSpreadPrompt(opts) {
   } else if (theme && PARENT_THEMES.has(theme)) {
     const isMother = theme === 'mothers_day';
     parts.push(`- The parent is the child's ${isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)'} — ${isMother ? 'NEVER draw a man' : 'NEVER draw a woman'}`);
-    parts.push('- Parent must NOT be shown with visible face — but body must ALWAYS face TOWARD the child (leaning in, reaching, kneeling). Show hands, arms, side view with face cropped. NEVER facing away from the child.');
+    parts.push(`- ⚠️ PARENT FACE — COMPLETELY HIDDEN (NON-NEGOTIABLE): We have NO reference photo of the ${isMother ? 'mother' : 'father'}. ${isMother ? 'Her' : 'His'} face must NEVER appear in ANY illustration. Show the parent ONLY through: back view, hands/arms reaching in, kneeling with face cropped out of frame, or side view with face turned away. NEVER show eyes, mouth, nose, or any facial features. This is the #1 rule for the parent.`);
+    parts.push('- BODY ORIENTATION: Even with face hidden, the parent must face TOWARD the child (leaning in, reaching, kneeling). NEVER facing away.');
     if (parentOutfit) {
       parts.push(`- PARENT OUTFIT (LOCKED): ${parentOutfit} — same outfit on EVERY spread, no changes`);
     }
@@ -75,6 +76,14 @@ function buildSpreadPrompt(opts) {
   }
 
   parts.push('- No duplicate characters — the child appears ONCE');
+  parts.push('');
+
+  // Format — seamless painting
+  parts.push('### FORMAT (CRITICAL — READ BEFORE DRAWING)');
+  parts.push('- THIS IS ONE SINGLE SEAMLESS PAINTING — like a wide movie still or a panoramic photograph.');
+  parts.push('- The scene flows continuously from the left edge to the right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break at the center or anywhere else.');
+  parts.push('- Do NOT treat this as two separate images side by side. There must be ZERO visual indication that this image will be split into two pages. Paint it as ONE unified wide scene.');
+  parts.push('- ONE continuous background, ONE unified lighting, ONE seamless composition.');
   parts.push('');
 
   // Composition

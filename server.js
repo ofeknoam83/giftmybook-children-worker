@@ -1086,6 +1086,12 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   console.log(`[server] /generate-book: bookId=${bookId}, child=${childName}, format=${format}, style=${style}`);
 
+  // Deduplication guard — reject if this bookId is already being generated
+  if (activeBooks.has(bookId)) {
+    console.warn(`[server] /generate-book: DUPLICATE request for bookId=${bookId} — already in progress, rejecting`);
+    return res.status(409).json({ success: false, error: 'Book generation already in progress', bookId });
+  }
+
   const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
 
   // Respond 202 immediately, process in background

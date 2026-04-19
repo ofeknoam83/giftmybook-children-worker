@@ -121,11 +121,24 @@ class IllustratorEngine {
       const spreadStart = Date.now();
 
       try {
+        // For parent themes without parent on cover, inject face-hidden reminder
+        // directly into the scene prompt to prevent the illustrator from showing the face
+        let safeScenePrompt = spreadPrompt;
+        if (!hasParentOnCover && isParentTheme) {
+          const isMother = theme === 'mothers_day';
+          const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
+          const parentRegex = new RegExp(parentWord, 'i');
+          if (parentRegex.test(spreadPrompt)) {
+            const parentLabel = isMother ? 'Mom' : 'Dad';
+            safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features.`;
+          }
+        }
+
         // Build prompt
         const prompt = buildSpreadPrompt({
           spreadIndex: i,
           totalSpreads: spreadEntries.length,
-          scenePrompt: spreadPrompt,
+          scenePrompt: safeScenePrompt,
           leftText,
           rightText,
           hasParentOnCover,
@@ -177,13 +190,20 @@ class IllustratorEngine {
           // Build correction prompt — use focused language for text issues
           const hasTextIssues = issues.some(iss => iss.startsWith('[text]'));
           const hasAnatomyIssues = issues.some(iss => iss.startsWith('[anatomy]'));
+          const hasSplitPanel = issues.some(iss => iss.toLowerCase().includes('split panel'));
           const hasDuplication = issues.some(iss => iss.toLowerCase().includes('duplicat'));
           const hasCenterViolation = issues.some(iss => iss.toLowerCase().includes('center'));
           const hasEdgeViolation = issues.some(iss => iss.toLowerCase().includes('edge'));
 
           let correctionPrompt;
 
-          if (hasTextIssues && !hasAnatomyIssues) {
+          if (hasSplitPanel) {
+            correctionPrompt = `REGENERATE spread ${i + 1} COMPLETELY. The previous image was SPLIT INTO TWO SEPARATE PANELS — this is WRONG.
+
+CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph. ONE continuous background, ONE unified lighting, ONE seamless composition from left edge to right edge. NO divider, NO seam, NO panel split, NO two separate scenes side by side.
+
+${prompt}`;
+          } else if (hasTextIssues && !hasAnatomyIssues) {
             const placement = getTextPlacement(i);
             const safePct = 50 - TEXT_RULES.centerExclusionPercent;
             const textFixes = [];

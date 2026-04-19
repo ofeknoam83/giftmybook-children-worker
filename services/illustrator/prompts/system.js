@@ -55,13 +55,14 @@ function buildSystemInstruction(opts) {
   parts.push('');
 
   // Composition
-  parts.push('COMPOSITION:');
-  parts.push('- Each illustration is ONE single moment — not a comic strip or sequence');
-  parts.push('- Fill the entire canvas edge to edge with the illustration');
-  parts.push('- No blank areas, no reserved zones');
+  parts.push('COMPOSITION (CRITICAL):');
+  parts.push('- EVERY illustration is ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph.');
+  parts.push('- The scene flows continuously from left edge to right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break ANYWHERE.');
+  parts.push('- NEVER draw two separate images side by side. NEVER split into left panel and right panel. There must be ZERO visual indication of a center divide.');
+  parts.push('- ONE continuous background, ONE unified lighting, ONE seamless composition across the full width.');
+  parts.push('- Each illustration is one single moment — not a comic strip or sequence');
+  parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('- Wide cinematic 16:9 panoramic format');
-  parts.push('- THIS IS ONE SINGLE SEAMLESS PAINTING — continuous from left to right edge');
-  parts.push('- No visual break, divider, seam, or panel split anywhere');
   parts.push('- Important elements should NOT be placed at the exact left-right center');
   parts.push('');
 
@@ -83,13 +84,13 @@ function buildSystemInstruction(opts) {
     const isMother = opts.theme === 'mothers_day';
     const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
     const parentPronoun = isMother ? 'her' : 'his';
-    parts.push(`PARENT CHARACTER — ${parentLabel} (NO FACE):`);
+    parts.push(`⚠️ PARENT CHARACTER — ${parentLabel} (FACE COMPLETELY HIDDEN — #1 RULE):`);
     parts.push(`- The story references the child's ${isMother ? 'mother' : 'father'} but we have NO reference image`);
     parts.push(`- The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}`);
-    parts.push(`- NEVER show the parent's full face — it would look different on every page`);
-    parts.push(`- Show ${isMother ? 'her' : 'him'} through: hands reaching toward the child, arms around the child, side view with face turned toward the child but obscured/cropped, or kneeling beside the child with face just out of frame`);
-    parts.push(`- BODY ORIENTATION (CRITICAL): The parent's body must ALWAYS face TOWARD the child — leaning in, bending down, reaching out. NEVER show the parent walking away, facing away, or with their back to the child. The parent is ENGAGED with the child, not walking ahead of them.`);
-    parts.push(`- The ${isMother ? 'mother' : 'father'} should feel warm and physically present — just with ${parentPronoun} face hidden`);
+    parts.push(`- THE PARENT'S FACE MUST NEVER BE VISIBLE IN ANY ILLUSTRATION. No eyes, no mouth, no nose, no facial features. This is because we have no photo — showing a face would make it look different on every page.`);
+    parts.push(`- Show ${isMother ? 'her' : 'him'} ONLY through: hands reaching toward the child, arms around the child, back view, kneeling with face cropped out of frame, or side view with face turned away and obscured. If the parent is sitting, show from behind or with face out of frame.`);
+    parts.push(`- BODY ORIENTATION: The parent's body must face TOWARD the child — leaning in, bending down, reaching out. NEVER facing away from the child.`);
+    parts.push(`- The ${isMother ? 'mother' : 'father'} should feel warm and physically present — just with ${parentPronoun} face completely hidden`);
     if (opts.parentOutfit) {
       parts.push(`- PARENT OUTFIT LOCK (CRITICAL): The ${isMother ? 'mother' : 'father'} MUST wear EXACTLY this outfit in EVERY illustration — no exceptions: ${opts.parentOutfit}`);
       parts.push(`- Do NOT change the parent's outfit for any reason. Same garments, same colors, every single page.`);
@@ -111,7 +112,7 @@ function buildSystemInstruction(opts) {
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
-  parts.push(`- CENTER EXCLUSION ZONE (CRITICAL): This image will be split into LEFT and RIGHT pages at the exact center. The middle ${TEXT_RULES.centerExclusionPercent * 2}% is a NO-TEXT ZONE. Place ALL text entirely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. NEVER place any text near the center. If in doubt, push text further toward the edge.`);
+  parts.push(`- CENTER NO-TEXT ZONE (MOST COMMON MISTAKE — READ CAREFULLY): This image will be printed as a two-page spread, folded at the EXACT center. Any text near the center will disappear into the book's spine and be unreadable. The middle ${TEXT_RULES.centerExclusionPercent * 2}% is FORBIDDEN for text. ALL text must be placed entirely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. If in doubt, push text further toward the edge.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left, right, and top edges`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`);
   parts.push('- Main characters and key action should not be hidden behind text');
