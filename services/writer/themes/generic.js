@@ -16,7 +16,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle } = require('./plots');
+const { selectPlotTemplate, matchTitleToPlot, generateCustomPlot, isPlaceholderTitle } = require('./plots');
 
 // ── Theme category membership ──
 
@@ -55,16 +55,24 @@ class GenericThemeWriter extends BaseThemeWriter {
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
 
+    let titleMatchFailed = false;
     if (!book.plotId && book.title && this.category !== 'emotional') {
       try {
         const matchedId = await matchTitleToPlot(book.title, this.themeName);
-        if (matchedId) book = { ...book, plotId: matchedId };
+        if (matchedId) {
+          book = { ...book, plotId: matchedId };
+        } else {
+          titleMatchFailed = true;
+        }
       } catch (err) {
         console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
+        titleMatchFailed = true;
       }
     }
 
-    const beats = this._buildBeats(ageTier, child, parentName, book);
+    const beats = titleMatchFailed
+      ? await this._buildBeatsWithCustomFallback(ageTier, child, parentName, book)
+      : this._buildBeats(ageTier, child, parentName, book);
     const refrain = this._chooseRefrain(child, parentName);
 
     let enrichedBeats = beats;
@@ -199,6 +207,29 @@ class GenericThemeWriter extends BaseThemeWriter {
       case 'emotional':  return this._emotionalBeats(isYoung, child, book);
       default:           return this._adventureBeats(isYoung, child);
     }
+  }
+
+  /**
+   * Async wrapper for _buildBeats that supports custom plot generation.
+   * Called from plan() instead of _buildBeats when a title exists but no plot matched.
+   */
+  async _buildBeatsWithCustomFallback(ageTier, child, parentName, book) {
+    const isYoung = ageTier === 'young-picture';
+    const wt = isYoung ? 16 : 28;
+
+    if (this.category !== 'emotional' && book?.title && !isPlaceholderTitle(book.title) && !book.plotId) {
+      try {
+        const customPlot = await generateCustomPlot(book.title, this.themeName, { child, isYoung, wt });
+        if (customPlot) {
+          this._selectedPlot = customPlot;
+          return customPlot.beats;
+        }
+      } catch (err) {
+        console.warn(`[writerV2] Custom plot generation failed, using template: ${err.message}`);
+      }
+    }
+
+    return this._buildBeats(ageTier, child, parentName, book);
   }
 
   // ── Parent themes (fathers_day) ──
