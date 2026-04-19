@@ -96,9 +96,12 @@ const THEME_RULES = {
 - Story is told from the child's perspective of love and gratitude for mom
 - Include the meaningful_moment from customDetails as a specific scene
 - Include moms_favorite_moment if provided
-- CELEBRATION ONLY: NO tantrums, NO crying, NO frustration, NO anger, NO conflict, NO "even when" test-of-love moments. Every spread must be warm, joyful, and positive.
+- NARRATIVE SPINE: The story MUST follow one simple through-line (a journey together, a shared project, or a gift the child prepares). Every spread connects to this spine. Do NOT write a slideshow of unrelated activities.
+- CELEBRATION WITH MOMENTUM: NO tantrums, NO crying, NO anger, NO conflict. But the story MUST have forward momentum — anticipation, a small goal, curiosity, or a surprise that pulls the reader through. Every spread should make the reader want to turn the page. A flat sequence of "nice moments" is not a story.
+- SCENE PACING: Use no more than 3-4 distinct locations or activities across 13 spreads. Each scene gets 2-4 spreads to develop. Single-spread activities create a disjointed slideshow.
+- TRANSITIONS: Every scene change must be clear to a 3-year-old listener. Show HOW they got from one place to the next.
 - NO BEDTIME ENDING: The story must NOT end with sleeping, goodnight, tucking in, dreams, nightlights, or the house going quiet. End in DAYLIGHT with warmth, togetherness, and joy.
-- CREATIVITY: At least 2 spreads must use the child's imagination — transforming something ordinary into something magical. Include one reversal where the child tries to take care of Mom. Avoid flat documentary narration.
+- CREATIVITY: At least 2 spreads must use the child's imagination — transforming something ordinary into something magical WITHIN the story's spine. Include one reversal where the child tries to take care of Mom. Avoid flat documentary narration.
 - Ending: warm, bright, celebratory — a joyful image of mother and child together. NOT quiet, NOT sleepy.
 - This book should make a mother cry happy tears`,
 
@@ -107,8 +110,12 @@ const THEME_RULES = {
 - Dad MUST appear in at least 6 of 13 spreads — he is co-protagonist
 - Include shared activities from customDetails as story scenes
 - Include meaningful_moment as a specific spread
+- NARRATIVE SPINE: The story MUST follow one simple through-line (an adventure together, a shared project, or a challenge they tackle). Every spread connects to this spine. Do NOT write a slideshow of unrelated activities.
+- CELEBRATION WITH MOMENTUM: NO tantrums, NO crying, NO anger, NO conflict. But the story MUST have forward momentum — anticipation, excitement, a goal. Every spread should make the reader want to turn the page.
+- SCENE PACING: Use no more than 3-4 distinct locations or activities across 13 spreads. Each scene gets 2-4 spreads to develop.
+- TRANSITIONS: Every scene change must be clear to a 3-year-old listener.
 - Tone: adventurous, proud, bonding, playful
-- Ending: heartfelt — child expressing love and admiration for dad`,
+- Ending: heartfelt — child expressing love and admiration for dad. Concrete and specific, not abstract.`,
 
   adventure: `ADVENTURE THEME — a quest with a goal:
 - State the quest/mission clearly in spread 1 or 2
@@ -644,41 +651,71 @@ function getThemeBeatStructure(theme, age) {
     case 'mothers_day':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
    MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
-   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm and deeply personal. The story builds from shared moments to imaginative play to a warm, joyful climax.
-   CELEBRATION RULE: This story is a CELEBRATION, not a hero's journey. There is NO villain, NO doubt, NO loss, NO tantrums, NO crying, NO frustration, NO anger, NO bedtime, NO sleeping, NO goodnight. Every spread radiates love, warmth, and JOY.
-   CREATIVITY RULE: At least 2 spreads must use the child's IMAGINATION — transforming something ordinary into something magical (a puddle becomes an ocean, a stick becomes a wand, the kitchen becomes a restaurant). Include one spread where the child tries to take care of Mom (a reversal). Avoid flat documentary narration.
-   - Spread 1 (THE MORNING): Child and Mom in a specific morning moment. Establish the warm, loving world. Mom is VISIBLE.
-   - Spread 2 (TOGETHER — ACTIVITY 1): First shared activity — use favorite_activities from questionnaire. Mom is VISIBLE.
-   - Spread 3 (TOGETHER — ACTIVITY 2): Second activity — daily routine made magical. Show Mom's character through action. Mom is VISIBLE.
-   - Spread 4 (IMAGINATION): Child transforms something ordinary into something magical — Mom plays along wholeheartedly. Whimsical, surprising, fun. Mom is VISIBLE.
-   - Spread 5 (SECRET LANGUAGE): The private things only they share — a made-up word, an inside joke, a funny face, a secret handshake. Nobody else would understand. Mom is VISIBLE.
-   - Spread 6 (MOM NOTICES): Mom sees something specific and wonderful about the child that nobody else catches. The noticing IS the love. Mom is VISIBLE.
-   - Spread 7 (REVERSAL): Child tries to take care of Mom — pours pretend tea, "reads" a story, tucks a blanket around her. Funny, earnest, tender. Mom is VISIBLE.
-   - Spread 8 (THE GIFT): Child gives Mom something imperfect and precious — a dandelion, a lopsided drawing, a rock. The gesture is small but it lands. Mom is VISIBLE.
-   - Spread 9 (ADVENTURE): They go somewhere together or try something new — a walk, the park, baking. Bright, active, joyful. Mom is VISIBLE.
-   - Spread 10 (CELEBRATION): Something physical and joyful — spinning, dancing, racing, jumping. Pure laughter and movement. NOT quiet. Mom is VISIBLE.
-   - Spread 11 (TOGETHER): The best part of the day. Doing what they love most together. Happy, vivid, full of energy and warmth. Mom is VISIBLE.
-   - Spread 12 (CLIMAX): The warmest moment — a hug, a spin, laughter ringing. FULL of love and light. NOT sleepy, NOT bedtime. Mom is VISIBLE.
-   - Spread 13 (THE LAST LINE): One perfect closing image — warm, bright, celebratory. NOT a goodnight, NOT falling asleep, NOT a dream. End in DAYLIGHT with togetherness. Mom is VISIBLE. A parent should want to read it twice.`;
+   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm and deeply personal. The story builds emotional warmth steadily — from a quiet opening to joyful peak to tender close.
+   CELEBRATION RULE: This story is a CELEBRATION — NO villain, NO loss, NO tantrums, NO crying, NO anger, NO bedtime, NO sleeping. However, the story MUST still have forward momentum: anticipation, a small goal, curiosity, or a surprise. The reader must want to turn the page. A story where every spread feels the same is not a celebration — it is a list.
+   NARRATIVE SPINE RULE (CRITICAL): The story MUST follow ONE simple through-line that connects all 13 spreads. Choose ONE of these spines:
+   A) A JOURNEY — child and Mom go somewhere together (a walk to the park, a trip to the market, a bus ride to a special place). Spreads follow the journey from leaving home to arriving.
+   B) A PROJECT — child and Mom make or do something together (bake a cake, plant a garden, build a fort). Spreads follow the project from start to finish.
+   C) A GIFT — child prepares something for Mom (a drawing, a surprise breakfast, a treasure hunt). Spreads follow the preparation and reveal.
+   Every spread must connect to the spine. No standalone vignettes. A 3-year-old should be able to answer "what is this book about?" in one sentence.
+   SCENE PACING: The 13 spreads should contain NO MORE than 3-4 distinct locations or activities. Each location/activity gets 2-4 spreads of development. Single-spread activities create a slideshow, not a story.
+   CREATIVITY RULE: At least 2 spreads must use the child's IMAGINATION — transforming something ordinary into something magical. Include one spread where the child tries to take care of Mom (a reversal). These moments must happen WITHIN the spine, not as detours.
+   TRANSITION RULE: Every spread-to-spread transition must be followable by a 3-year-old. The reader must always know WHERE the characters are and HOW they got there. If the location changes, show the movement.
+
+   SCENE A — HOME (Spreads 1-3): Mom is VISIBLE in all.
+   - Spread 1 (THE OPENING): Child and Mom in a specific moment at home — mid-action, not waking up. Establish the warm world AND hint at what the day holds (the spine).
+   - Spread 2 (SETTLING IN): The spine takes shape — the shared activity begins, or preparation for the journey starts. Use favorite_activities from questionnaire. A small moment that reveals their bond.
+   - Spread 3 (SOMETHING SPECIAL): A detail that makes THIS mother-child pair unique — a secret language, an inside joke, a private ritual from the questionnaire. Woven into the ongoing activity, not a standalone scene.
+
+   SCENE B — THE ADVENTURE (Spreads 4-7): Mom is VISIBLE in all.
+   - Spread 4 (SETTING OFF / DEEPENING): If journey spine: they leave home — show the transition. If project/gift spine: the activity deepens, something unexpected happens. Anticipation builds.
+   - Spread 5 (IMAGINATION): Child transforms something ordinary into something magical — Mom plays along. This must connect to the spine (e.g. a puddle on the walk becomes an ocean, the cake batter becomes a potion).
+   - Spread 6 (THE REVERSAL): Child tries to take care of Mom — earnest, funny, tender. Within the context of the spine (e.g. child "helps" navigate, child stirs the batter, child carries Mom's bag).
+   - Spread 7 (MOM NOTICES): Mom sees something specific and wonderful about the child. The noticing IS the love. A quiet beat before the peak — the story breathes here.
+
+   SCENE C — THE PEAK (Spreads 8-11): Mom is VISIBLE in at least 3.
+   - Spread 8 (ARRIVING / COMPLETING): The journey reaches its destination, OR the project nears completion. The world opens up.
+   - Spread 9 (PEAK JOY): The best moment of the day — physical, joyful, specific. Spinning, running, laughing, the thing they came here to do. Maximum energy.
+   - Spread 10 (THE GIFT): Child gives Mom something imperfect and precious — a dandelion, a lopsided drawing, a found pebble. The gesture is small but it lands. Can happen at the destination or as part of the project.
+   - Spread 11 (TOGETHER): Side by side, savoring the moment. Happy, vivid, warm. The emotional high point — not louder than spread 9, but deeper.
+
+   SCENE D — THE CLOSE (Spreads 12-13): Mom is VISIBLE in both.
+   - Spread 12 (HEADING HOME / WINDING DOWN): The journey home, or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime.
+   - Spread 13 (THE LAST LINE): One perfect closing image — warm, bright, celebratory. End in DAYLIGHT with togetherness. Concrete and specific, not abstract. A parent should want to read it twice.`;
 
     case 'fathers_day':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FATHER'S DAY arc:
    DAD AS CO-PROTAGONIST RULE: Dad is a NAMED, VISIBLE character in this story. He MUST appear in the illustration prompts for at least 6 of the 13 spreads. When he appears, describe his presence explicitly (e.g. "Dad lifts the child onto his shoulders", "Dad's hand steadies the child"). His appearance must be described consistently every time he is in an illustration prompt.
-   EMOTIONAL ARC: This is a love letter from the child to their father. Every spread should feel warm, adventurous, and deeply personal. The story builds from shared adventures to a heartfelt expression of love and admiration.
-   CELEBRATION RULE: This story is a CELEBRATION, not a hero's journey. There is NO villain, NO doubt, NO loss to overcome. Every spread radiates love and bonding.
-   - Spread 1 (THE MORNING): Child is bursting with energy — today is Dad's special day. Establish the bond. Dad is VISIBLE.
-   - Spread 2 (THE ADVENTURE BEGINS): Child and Dad set off to do something they love together. Use favorite_activities. Dad is VISIBLE.
-   - Spread 3 (TOGETHER — ACTIVITY 1): First favorite shared activity in full swing. Fun, laughter, bonding. Dad is VISIBLE.
-   - Spread 4 (TOGETHER — ACTIVITY 2): Another shared activity or meaningful moment from questionnaire. Dad is VISIBLE.
-   - Spread 5 (THE HEART): The deepest moment of connection between child and Dad. Use meaningful_moment. Dad is VISIBLE.
-   - Spread 6 (DAD'S SUPERPOWER): Something Dad does that makes him the child's hero. Use other_detail or funny_thing. Dad is VISIBLE.
-   - Spread 7 (LAUGHTER): A funny or playful moment together. Use funny_thing. Dad is VISIBLE.
-   - Spread 8 (FAVORITE THINGS): Incorporate favorite food, toys, or cake flavor from questionnaire.
-   - Spread 9 (SIDE BY SIDE): A quieter bonding moment — building, reading, watching, walking together. Dad is VISIBLE.
-   - Spread 10 (PROUD MOMENT): Child expresses admiration for Dad in simple, heartfelt words.
-   - Spread 11 (WARM GLOW): The comfort and safety of Dad's love. Dad is VISIBLE.
-   - Spread 12 (REFLECTION): What makes their father-child bond unique. Dad is VISIBLE.
-   - Spread 13 (THE LAST LINE): One perfect closing image of father-child love. The most beautiful sentence. Dad is VISIBLE.`;
+   EMOTIONAL ARC: This is a love letter from the child to their father. Every spread should feel warm, adventurous, and deeply personal. The story builds emotional warmth steadily — from a quiet opening to adventurous peak to heartfelt close.
+   CELEBRATION RULE: This story is a CELEBRATION — NO villain, NO loss, NO tantrums, NO crying, NO anger, NO bedtime. However, the story MUST still have forward momentum: anticipation, a small goal, curiosity, or excitement about what comes next. The reader must want to turn the page.
+   NARRATIVE SPINE RULE (CRITICAL): The story MUST follow ONE simple through-line that connects all 13 spreads. Choose ONE of these spines:
+   A) AN ADVENTURE — child and Dad go somewhere together (a hike, a fishing trip, the workshop, the ball field). Spreads follow the outing from start to finish.
+   B) A PROJECT — child and Dad build or make something together (a treehouse, a go-kart, a meal, a garden bed). Spreads follow the project from start to finish.
+   C) A CHALLENGE — child and Dad tackle something together (learn to ride a bike, fix something broken, explore a new place). Spreads follow the attempt from start to finish.
+   Every spread must connect to the spine. No standalone vignettes. A 3-year-old should be able to answer "what is this book about?" in one sentence.
+   SCENE PACING: The 13 spreads should contain NO MORE than 3-4 distinct locations or activities. Each location/activity gets 2-4 spreads of development. Single-spread activities create a slideshow, not a story.
+   TRANSITION RULE: Every spread-to-spread transition must be followable by a 3-year-old. The reader must always know WHERE the characters are and HOW they got there.
+
+   SCENE A — HOME / LAUNCH (Spreads 1-3): Dad is VISIBLE in all.
+   - Spread 1 (THE OPENING): Child and Dad in a specific moment — mid-action, not waking up. Establish the bond AND hint at what the day holds (the spine).
+   - Spread 2 (GETTING READY): The spine takes shape — preparing for the adventure or starting the project. Use favorite_activities from questionnaire. A moment that shows how they work together.
+   - Spread 3 (SOMETHING ONLY THEY DO): A detail that makes THIS father-child pair unique — a funny ritual, a shared joke, Dad's signature move from the questionnaire. Woven into the ongoing activity, not a standalone scene.
+
+   SCENE B — THE ADVENTURE (Spreads 4-7): Dad is VISIBLE in all.
+   - Spread 4 (SETTING OFF / DEEPENING): If adventure spine: they head out — show the transition and anticipation. If project spine: things get interesting, a new challenge within the task.
+   - Spread 5 (DAD'S SUPERPOWER): Something Dad does that amazes the child — a skill, a trick, a moment of strength or gentleness. Use other_detail or funny_thing. Connected to the spine.
+   - Spread 6 (LAUGHTER): A funny or playful moment within the adventure/project. Physical comedy, a shared joke, something goes slightly sideways in a fun way. Dad is VISIBLE.
+   - Spread 7 (SIDE BY SIDE): A quieter beat — working together, watching something, a moment of focus. The story breathes here before the peak. Dad is VISIBLE.
+
+   SCENE C — THE PEAK (Spreads 8-11): Dad is VISIBLE in at least 3.
+   - Spread 8 (THE BIG MOMENT): The adventure reaches its destination, OR the project nears completion. Use meaningful_moment from questionnaire.
+   - Spread 9 (PEAK JOY): The best moment — triumphant, exciting, the payoff. Maximum energy. Incorporate favorite food, toys, or activities from questionnaire.
+   - Spread 10 (THE CHILD LEADS): The child does something that surprises or impresses Dad — shows what they have learned, takes a turn, steps up. A role reversal.
+   - Spread 11 (PROUD): Dad and child share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper than spread 9, not louder.
+
+   SCENE D — THE CLOSE (Spreads 12-13): Dad is VISIBLE in both.
+   - Spread 12 (HEADING HOME / FINISHING UP): The journey home, or the completed project admired. One warm transitional beat. NOT sleepy, NOT bedtime.
+   - Spread 13 (THE LAST LINE): One perfect closing image of father-child love. Concrete and specific, not abstract. The most beautiful sentence. Dad is VISIBLE.`;
 
     case 'birthday_magic':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY MAGIC arc:
@@ -769,7 +806,13 @@ STORY ARC RULE (CRITICAL):
 - Every spread should reference specific details the parent provided.
 - Do NOT invent abstract conflicts, metaphorical bridges, missing-item quests, or mysterious challenges.
 - Do NOT introduce obstacles or struggles unless they come directly from the user's input.
-- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION, not a hero's journey. There is no villain, no doubt, no loss to overcome.
+- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION, not a hero's journey. There is no villain, no doubt, no loss to overcome. However, celebration stories MUST still have a NARRATIVE SPINE — one simple through-line that connects all spreads (a journey, a project, or a gift). A flat list of unrelated happy activities is NOT a story.
+
+NARRATIVE COHERENCE RULE (CRITICAL):
+- The beats must follow ONE continuous thread. A 3-year-old listener should be able to answer "what is this book about?" in one sentence.
+- Use no more than 3-4 distinct locations or activities across 13 beats. Each location/activity should span 2-4 consecutive beats.
+- Every beat-to-beat transition must be followable: the reader should always know WHERE the characters are and WHY they moved. No jump-cuts between unrelated scenes.
+- For celebration themes, the spine might be: "Child and Mom walk to the park together" or "Child bakes a surprise cake for Dad" or "Child and Dad build a birdhouse." Every beat advances or deepens the spine.
 
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.

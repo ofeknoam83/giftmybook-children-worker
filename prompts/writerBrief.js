@@ -264,6 +264,13 @@ WRITING QUALITY OVERRIDES (MANDATORY)
 
 - Use concrete, sensory language. Avoid vague words like "thing", "stuff", "very", "nice", "pretty", "fun", "special", "magical".
 
+CLARITY FOR YOUNG READERS (CRITICAL for ages 3-6):
+- Every image and metaphor must be LITERAL enough for the child to picture. A parent enjoys the rhythm; a child must understand the picture.
+- BAD: "Sun stripes the rug with bars of gold" — a 3-year-old cannot parse this. GOOD: "Sunlight falls across the rug."
+- BAD: "Toast is a map, and they ride it through" — confusing metaphor. GOOD: "He holds the toast like a steering wheel."
+- If you mix imagination and reality, SIGNAL the shift clearly: "The puddle BECAME an ocean" not "A puddle turns into a bright blue sea" (which sounds literal and confusing).
+- When in doubt, choose the simpler image. The parent will appreciate clarity too.
+
 - Include one repeated phrase that appears at least twice and evolves in meaning by the climax.
 
 - Include one subtle emotional layer that resonates with the parent reading.
@@ -407,6 +414,13 @@ Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+SCENE PACING (CRITICAL — prevents slideshow stories):
+- The 13 spreads should contain NO MORE than 3-4 distinct locations or activities.
+- Each location or activity must span at least 2-3 spreads so scenes have room to develop.
+- A spread that introduces a brand-new activity unrelated to the previous spread is a RED FLAG. If you find yourself writing 13 different activities, you are writing a list, not a story.
+- Group spreads into SCENES: 2-4 connected spreads in the same place or doing the same thing, with emotional escalation within each scene.
+- Transitions between scenes must be explicit: show the characters moving, arriving, or shifting focus. Never jump-cut between unrelated moments.
 
 -------------------------------------
 PAGE-TURN TENSION (the secret weapon of great picture books)
@@ -724,6 +738,7 @@ STYLE RULES:
 - Vocabulary suitable for the child's age
 - Prefer concrete, visual words (blanket, moon, steps, glow)
 - Avoid abstract phrases and vague words ("magical", "special", "nice", "wonderful")
+- CLARITY FOR YOUNG READERS (ages 3-6): Every image and metaphor must be literal enough for the child to picture. If you mix imagination and reality, signal the shift clearly ("The puddle BECAME an ocean" not "A puddle turns into a bright blue sea"). When in doubt, choose the simpler image.
 
 3.5 PUNCTUATION (CRITICAL): Do NOT use em-dashes (\u2014) or en-dashes (\u2013) anywhere in the story text. Use commas, periods, or ellipses instead. Children\u2019s books use simple punctuation only.
 
@@ -892,6 +907,13 @@ Spreads 3-6:   Rising tension (problem grows, uncertainty increases)
 Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
+
+SCENE PACING (CRITICAL — prevents slideshow stories):
+- The 13 spreads should contain NO MORE than 3-4 distinct locations or activities.
+- Each location or activity must span at least 2-3 spreads so scenes have room to develop.
+- A spread that introduces a brand-new activity unrelated to the previous spread is a RED FLAG. If you find yourself writing 13 different activities, you are writing a list, not a story.
+- Group spreads into SCENES: 2-4 connected spreads in the same place or doing the same thing, with emotional escalation within each scene.
+- Transitions between scenes must be explicit: show the characters moving, arriving, or shifting focus. Never jump-cut between unrelated moments.
 
 -------------------------------------
 PAGE-TURN TENSION (the secret weapon of great picture books)
