@@ -12,6 +12,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
+const { selectPlotTemplate } = require('./plots');
 
 class FathersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -70,6 +71,7 @@ class FathersDayWriter extends BaseThemeWriter {
       }
     }
 
+    const plot = this._selectedPlot;
     return {
       beats: enrichedBeats,
       refrain,
@@ -82,6 +84,9 @@ class FathersDayWriter extends BaseThemeWriter {
       parentName,
       pronouns,
       childName: child.name,
+      plotId: plot?.id || null,
+      plotName: plot?.name || null,
+      plotSynopsis: plot?.synopsis || null,
     };
   }
 
@@ -188,7 +193,17 @@ class FathersDayWriter extends BaseThemeWriter {
   // ── Private helpers ──
 
   _buildBeats(ageTier, spreadCount, child, parentName) {
-    if (ageTier === 'young-picture') {
+    const isYoung = ageTier === 'young-picture';
+    const wt = isYoung ? 16 : 28;
+
+    const plotTemplate = selectPlotTemplate('fathers_day');
+    if (plotTemplate) {
+      this._selectedPlot = plotTemplate;
+      return plotTemplate.beats({ child, isYoung, wt, parentName: parentName || 'Daddy', book: {}, theme: 'fathers_day' });
+    }
+
+    this._selectedPlot = null;
+    if (isYoung) {
       return this._buildYoungPictureBeats(child, parentName);
     }
     return this._buildPictureBookBeats(child, parentName);
@@ -333,6 +348,12 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`\n## HEARTFELT NOTE FROM THE PERSON ORDERING THIS BOOK\n`);
       sections.push(`"${book.heartfeltNote}"`);
       sections.push('Use the emotion and intent of this note to guide the story\'s tone.');
+    }
+
+    if (plan.plotSynopsis) {
+      sections.push(`\n## PLOT CONCEPT\n`);
+      sections.push(plan.plotSynopsis);
+      sections.push('\nFollow this specific story arc. The beat structure below gives you the scene-by-scene breakdown — lean into THIS plot, not a generic version of the theme.');
     }
 
     sections.push(`\n## STORY PLAN\n`);

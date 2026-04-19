@@ -16,6 +16,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
+const { selectPlotTemplate } = require('./plots');
 
 // ── Theme category membership ──
 
@@ -66,6 +67,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       }
     }
 
+    const plot = this._selectedPlot;
     return {
       beats: enrichedBeats,
       refrain,
@@ -77,6 +79,9 @@ class GenericThemeWriter extends BaseThemeWriter {
       childName: child.name,
       theme: this.themeName,
       category: this.category,
+      plotId: plot?.id || null,
+      plotName: plot?.name || null,
+      plotSynopsis: plot?.synopsis || null,
     };
   }
 
@@ -164,6 +169,19 @@ class GenericThemeWriter extends BaseThemeWriter {
 
   _buildBeats(ageTier, child, parentName, book) {
     const isYoung = ageTier === 'young-picture';
+    const wt = isYoung ? 16 : 28;
+
+    // Try plot templates for non-emotional themes
+    if (this.category !== 'emotional') {
+      const plotTemplate = selectPlotTemplate(this.themeName, { plotId: book?.plotId });
+      if (plotTemplate) {
+        this._selectedPlot = plotTemplate;
+        return plotTemplate.beats({ child, isYoung, wt, parentName, book, theme: this.themeName });
+      }
+    }
+
+    // Fallback to hardcoded beats (emotional themes + unknown themes without templates)
+    this._selectedPlot = null;
     switch (this.category) {
       case 'parent':     return this._parentBeats(isYoung, child, parentName);
       case 'celebration': return this._celebrationBeats(isYoung, child);
@@ -486,6 +504,12 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`- Instead, show family presence through TRACES and EFFECTS: a packed lunch from Grandpa, a note in Mom's handwriting, a jacket that smells like Dad, a garden that Grandma planted.`);
       sections.push(`- The child is the ONLY human character visible in every spread. Animals, fantasy creatures, and environmental characters (fairies, talking animals, shopkeepers) are fine.`);
       sections.push(`- "Book from: ${book.bookFrom || 'family'}" tells you who ordered the book — honor their relationship through the story's emotional core, NOT by drawing them into scenes.`);
+    }
+
+    if (plan.plotSynopsis) {
+      sections.push(`\n## PLOT CONCEPT\n`);
+      sections.push(plan.plotSynopsis);
+      sections.push('\nFollow this specific story arc. The beat structure below gives you the scene-by-scene breakdown — lean into THIS plot, not a generic version of the theme.');
     }
 
     sections.push(`\n## STORY PLAN\n`);
