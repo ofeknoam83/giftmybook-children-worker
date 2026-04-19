@@ -768,6 +768,15 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
 
   const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (${spreadCount} spreads).
 
+NARRATIVE STRUCTURE (READ THIS FIRST — it overrides all other instructions):
+- The story MUST follow ONE simple through-line: a journey, a project, or a gift. This is the "spine."
+- The ${spreadCount} beats must contain NO MORE than 3-4 distinct locations or activities.
+- Each location/activity spans 2-4 consecutive beats. Single-beat activities are FORBIDDEN.
+- Beats must be grouped into SCENES (e.g. Scene A: home, Scene B: the walk, Scene C: the park, Scene D: heading home) — NOT ${spreadCount} standalone vignettes.
+- If your beats read like a list of unrelated activities (reading, then eating, then drawing, then riding a bus, then jumping in puddles), STOP and restructure around the spine.
+- A 3-year-old listener must be able to follow every transition. The reader should always know WHERE the characters are.
+- Test: can you describe this story in one sentence? ("They walk to the park together." / "She bakes Dad a surprise cake.") If not, the spine is missing.
+
 You will receive details about a child and a THEME. The theme is NOT optional context — it is the structural backbone of the story. Every field you return must serve the theme.
 
 THEME: ${theme || 'adventure'}
@@ -782,9 +791,11 @@ Return a JSON object with these fields:
 
 4. storySeed: One sentence describing the unique emotional journey. Must reflect the theme's arc.
 
-5. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
+5. narrative_spine: One sentence describing the SINGLE through-line of the story. This is the answer to "what is this book about?" Format: "[Child] and [person] [do one thing]." Examples: "Logan and Mama walk to the park together", "Gianna bakes Mama a surprise cake", "Liam and Dad build a birdhouse in the backyard." The spine must be concrete and specific — not "they have a nice day" or "they share love." Every beat must connect to this spine.
 
-6. repeated_phrase: A short phrase (2-8 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
+6. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
+
+7. repeated_phrase: A short phrase (2-8 words) that repeats through the story and evolves. Must match the theme's energy — birthday phrases feel celebratory, bedtime phrases feel soothing, adventure phrases feel bold. NOT generic.
    The phrase MUST be poetic and sensory — specific and unexpected, never generic motivation. REJECT: "ready to fly", "you've got this", "believe in yourself", "anything is possible", "shine bright", "dream big", "you are enough". REQUIRE: phrases that carry a physical sensation or unexpected image. If your phrase could appear on a motivational poster, discard it and try again.
    Theme-specific examples of GOOD phrases (for calibration — do NOT copy these):
    - Adventure: "the map remembers", "boots on stone", "one bridge left", "the trail hums back"
@@ -794,25 +805,17 @@ Return a JSON object with these fields:
    - Emotional: "my hands are shaking still", "the knot unwound", "smaller than it was", "the weight has a name now"
    - Nature/Friendship: "the roots remember", "your hand in mine", "the river kept going", "bark under her nails"
 
-7. phrase_arc: Three short descriptions of how the phrase evolves:
+8. phrase_arc: Three short descriptions of how the phrase evolves:
    - early: how it feels the first time
    - middle: how it shifts
    - end: how it lands
 
 ${beatStructure}
 
-STORY ARC RULE (CRITICAL):
-- The story must be built DIRECTLY from the user's questionnaire answers.
-- Every spread should reference specific details the parent provided.
-- Do NOT invent abstract conflicts, metaphorical bridges, missing-item quests, or mysterious challenges.
-- Do NOT introduce obstacles or struggles unless they come directly from the user's input.
-- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION, not a hero's journey. There is no villain, no doubt, no loss to overcome. However, celebration stories MUST still have a NARRATIVE SPINE — one simple through-line that connects all spreads (a journey, a project, or a gift). A flat list of unrelated happy activities is NOT a story.
-
-NARRATIVE COHERENCE RULE (CRITICAL):
-- The beats must follow ONE continuous thread. A 3-year-old listener should be able to answer "what is this book about?" in one sentence.
-- Use no more than 3-4 distinct locations or activities across 13 beats. Each location/activity should span 2-4 consecutive beats.
-- Every beat-to-beat transition must be followable: the reader should always know WHERE the characters are and WHY they moved. No jump-cuts between unrelated scenes.
-- For celebration themes, the spine might be: "Child and Mom walk to the park together" or "Child bakes a surprise cake for Dad" or "Child and Dad build a birdhouse." Every beat advances or deepens the spine.
+STORY ARC RULE:
+- Build the story DIRECTLY from the user's questionnaire answers. Every spread should reference specific details the parent provided.
+- Do NOT invent abstract conflicts, metaphorical bridges, missing-item quests, or mysterious challenges unless they come from the user's input.
+- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION — no villain, no doubt, no loss. But remember: the NARRATIVE STRUCTURE rules above still apply. The narrative_spine field must drive every beat.
 
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
@@ -880,7 +883,7 @@ E. "lyrical_repetition" — A repeated structure that creates rhythm and evolves
 
 Output these in your JSON: "style_mode": "sparse|playful|lyrical|tender|mischievous", "techniques": ["rule_of_three", "humor"]
 
-You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats, style_mode, techniques.`;
+You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, storySeed, narrative_spine, emotional_core, repeated_phrase, phrase_arc, beats, style_mode, techniques.`;
 
   const genderLabel = gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : (gender && gender !== 'neutral' && gender !== 'not specified' ? gender : '');
   const pronounPair = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
@@ -951,6 +954,7 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
         fear: extractField('fear') || 'the dark',
         setting: extractField('setting') || 'a magical place',
         storySeed: extractField('storySeed') || extractField('story_seed') || '',
+        narrative_spine: extractField('narrative_spine') || '',
         emotional_core: extractField('emotional_core') || '',
         repeated_phrase: extractField('repeated_phrase') || '',
         phrase_arc: [],
@@ -973,9 +977,10 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   // Validate we got usable values
   if (!seed || (!seed.favorite_object && !seed.fear && !seed.setting)) {
     console.warn(`[storyPlanner] Story seed has no usable fields. Parsed: ${JSON.stringify(seed).slice(0, 300)}`);
-    return { favorite_object: getAgeAppropriateFallbackObject(age), fear: 'the dark', setting: 'a magical place', storySeed: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [], style_mode: 'playful', techniques: ['rule_of_three', 'humor'] };
+    return { favorite_object: getAgeAppropriateFallbackObject(age), fear: 'the dark', setting: 'a magical place', storySeed: '', narrative_spine: '', emotional_core: '', repeated_phrase: '', phrase_arc: [], beats: [], style_mode: 'playful', techniques: ['rule_of_three', 'humor'] };
   }
 
+  if (!seed.narrative_spine) seed.narrative_spine = '';
   if (!seed.emotional_core) seed.emotional_core = '';
   if (!seed.repeated_phrase) seed.repeated_phrase = '';
   if (!Array.isArray(seed.phrase_arc)) seed.phrase_arc = [];
@@ -995,6 +1000,7 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   }
 
   console.log(`[storyPlanner] Story seed: object="${seed.favorite_object}", fear="${seed.fear}", setting="${seed.setting}"`);
+  if (seed.narrative_spine) console.log(`[storyPlanner] Narrative spine: "${seed.narrative_spine}"`);
   if (seed.emotional_core) console.log(`[storyPlanner] Emotional core: "${seed.emotional_core}"`);
   if (seed.repeated_phrase) console.log(`[storyPlanner] Repeated phrase: "${seed.repeated_phrase}"`);
   if (seed.beats.length) console.log(`[storyPlanner] Beat sheet: ${seed.beats.length} beats`);
@@ -1009,11 +1015,13 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
       if (i.reason === 'too_generic') return `- setting: "${seed.setting}" is too vague. Make the setting vivid and specific — one sentence with color, texture, or atmosphere.`;
       if (i.reason === 'default_fear_for_non_bedtime') return `- fear: "the dark" is the default fear. Choose a fear that fits the ${theme} theme specifically.`;
       if (i.reason === 'wrong_length') return `- repeated_phrase: "${seed.repeated_phrase}" is the wrong length (must be 2-8 words).`;
+      if (i.reason === 'missing_spine') return `- narrative_spine: Missing or too vague. Provide a concrete one-sentence spine in the format "[Child] and [person] [do one thing]." Example: "Logan and Mama walk to the park together."`;
+      if (i.reason === 'too_many_scenes') return `- beats: The beats describe too many unrelated scenes (${i.detail || 'too many scene breaks'}). Restructure ALL beats around the narrative_spine. Group beats into 3-4 connected scenes (e.g. Scene A: home, Scene B: walking, Scene C: at the park, Scene D: heading home). Consecutive beats should share the same location or activity. Do NOT write 13 different standalone activities.`;
       return `- ${i.field}: ${i.reason}`;
     });
 
     try {
-      const retryPrompt = userPrompt + `\n\nYour previous response had these quality issues:\n${issueDescriptions.join('\n')}\n\nReturn the COMPLETE corrected JSON with ALL fields (favorite_object, fear, setting, storySeed, emotional_core, repeated_phrase, phrase_arc, beats). Fix ONLY the flagged fields — keep everything else the same.`;
+      const retryPrompt = userPrompt + `\n\nYour previous response had these quality issues:\n${issueDescriptions.join('\n')}\n\nReturn the COMPLETE corrected JSON with ALL fields (favorite_object, fear, setting, storySeed, narrative_spine, emotional_core, repeated_phrase, phrase_arc, beats). Fix ONLY the flagged fields — keep everything else the same.`;
       const retryResponse = await callLLM(systemPrompt, retryPrompt, {
         openaiApiKey: openaiKey,
         maxTokens: 1500,
@@ -1036,6 +1044,11 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
       }
       if (retrySeed && retrySeed.favorite_object) {
         const flaggedFields = new Set(seedValidation.issues.map(i => i.field).filter(Boolean));
+        // When beats have too many scenes, ensure both beats and spine are replaced
+        if (seedValidation.issues.some(i => i.reason === 'too_many_scenes')) {
+          flaggedFields.add('beats');
+          flaggedFields.add('narrative_spine');
+        }
         const mergedRetrySeed = { ...seed };
         for (const field of flaggedFields) {
           if (Object.prototype.hasOwnProperty.call(retrySeed, field)) {
@@ -1045,6 +1058,7 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
         const retryValidation = validateSeedQuality(mergedRetrySeed, theme, age);
         if (retryValidation.valid || retryValidation.issues.length < seedValidation.issues.length) {
           console.log(`[storyPlanner] Seed retry improved quality (${seedValidation.issues.length} -> ${retryValidation.issues.length} issues)`);
+          if (!mergedRetrySeed.narrative_spine) mergedRetrySeed.narrative_spine = '';
           if (!mergedRetrySeed.emotional_core) mergedRetrySeed.emotional_core = '';
           if (!mergedRetrySeed.repeated_phrase) mergedRetrySeed.repeated_phrase = '';
           if (!Array.isArray(mergedRetrySeed.phrase_arc)) mergedRetrySeed.phrase_arc = [];
@@ -1130,6 +1144,59 @@ function validateSeedQuality(seed, theme, age) {
           break;
         }
       }
+    }
+  }
+
+  // Narrative spine validation
+  if (!seed.narrative_spine || seed.narrative_spine.trim().split(/\s+/).length < 5) {
+    issues.push({ field: 'narrative_spine', reason: 'missing_spine' });
+  }
+
+  // Narrative coherence: detect slideshow beats (too many unrelated scenes)
+  const SPINE_THEMES = new Set(['mothers_day', 'fathers_day', 'birthday_magic', 'birthday']);
+  if (SPINE_THEMES.has(theme) && Array.isArray(seed.beats) && seed.beats.length >= 8) {
+    const STOPWORDS = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+      'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+      'should', 'may', 'might', 'must', 'shall', 'can', 'this', 'that',
+      'these', 'those', 'it', 'its', 'they', 'them', 'their', 'he', 'she',
+      'his', 'her', 'we', 'our', 'you', 'your', 'i', 'me', 'my', 'not',
+      'no', 'so', 'up', 'out', 'if', 'then', 'than', 'too', 'very', 'just',
+      'about', 'into', 'over', 'after', 'before', 'between', 'through',
+      'during', 'each', 'all', 'both', 'some', 'as', 'while', 'where',
+      'when', 'how', 'what', 'who', 'which', 'there', 'here', 'also',
+      'more', 'most', 'other', 'only', 'still', 'now', 'even',
+      'mom', 'mama', 'mommy', 'dad', 'daddy', 'child', 'visible',
+    ]);
+
+    const extractKeywords = (text) => {
+      if (typeof text !== 'string') return new Set();
+      return new Set(
+        text.toLowerCase()
+          .replace(/[^a-z\s]/g, ' ')
+          .split(/\s+/)
+          .filter(w => w.length > 2 && !STOPWORDS.has(w))
+      );
+    };
+
+    let sceneBreaks = 0;
+    for (let i = 1; i < seed.beats.length; i++) {
+      const prevKeywords = extractKeywords(seed.beats[i - 1]);
+      const currKeywords = extractKeywords(seed.beats[i]);
+      let shared = 0;
+      for (const word of currKeywords) {
+        if (prevKeywords.has(word)) { shared++; break; }
+      }
+      if (shared === 0) sceneBreaks++;
+    }
+
+    if (sceneBreaks > 4) {
+      issues.push({
+        field: 'beats',
+        reason: 'too_many_scenes',
+        detail: `${sceneBreaks} scene breaks detected across ${seed.beats.length} beats (max 4). Beats should share locations/activities with their neighbors.`,
+      });
     }
   }
 
