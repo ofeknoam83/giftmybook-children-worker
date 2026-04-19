@@ -39,6 +39,7 @@ const RULES_BY_TIER = {
       'Near-rhymes acceptable only when they sound musical.',
       'End-rhymes must be natural end-of-phrase words. Do NOT use enjambment to force a weak word into rhyme position.',
       'NEVER sacrifice logical consistency for a rhyme.',
+      'RHYME VARIETY across the book: No single end-rhyme sound should appear in more than 3 spreads. Each spread gets its own fresh rhyme pair.',
     ],
     antiAI: [
       'NO greeting-card language ("a love so deep and pure").',
@@ -82,6 +83,7 @@ const RULES_BY_TIER = {
       'AI-common rhyme pairs to AVOID: day/way, heart/start, love/above, you/true.',
       'End-rhymes must be natural end-of-phrase words. Do NOT use enjambment to force a weak word into rhyme position.',
       'NEVER sacrifice logical consistency for a rhyme — if the image contradicts the scene, the rhyme is wrong.',
+      'RHYME VARIETY across the book: No single end-rhyme sound should appear in more than 3 spreads. If the refrain uses "here," do NOT rhyme other spreads with here/clear/near/cheer. Each spread gets its own rhyme pair.',
     ],
     antiAI: [
       'NO "you are so special/wonderful/amazing".',

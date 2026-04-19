@@ -337,7 +337,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Words per spread: ${plan.wordTargets.perSpread.min}-${plan.wordTargets.perSpread.max}`);
 
     sections.push(`\n## REFRAIN\n`);
-    sections.push(`The story MUST have a refrain — a short phrase that recurs at least 3 times.`);
+    sections.push(`The story MUST have a refrain — a short phrase that recurs exactly 3 times (spreads 4, 9, and 13 are good anchor points).`);
     sections.push(`It should use "${plan.refrain.parentWord}" and be under 8 words.`);
     sections.push(`Suggested refrains (you may create your own):`);
     plan.refrain.suggestions.forEach(s => sections.push(`- "${s}"`));
@@ -362,7 +362,8 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Close on an IMAGE, not a declaration — no "I love you" as the last line`);
     sections.push(`- Every spread needs at least one concrete, specific noun`);
     sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
-    sections.push(`- The refrain must appear at least 3 times, spaced through the story`);
+    sections.push(`- The refrain must appear exactly 3 times, evenly spaced (not in consecutive spreads). More than 4 appearances makes the story feel monotonous.`);
+    sections.push(`- RHYME VARIETY: Do NOT let one rhyme sound dominate the story. If the refrain ends with a particular word (e.g., "here"), you must NOT rhyme other non-refrain spreads with that same sound. Each spread should find its own fresh end-rhyme pair. Avoid rhyming more than 3 spreads with the same sound.`);
     sections.push(`- Use ONLY the parent name "${parentName}" — do NOT invent any other name for the father. No nicknames, no full names, no pet names unless provided in the input.`);
     sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl — use she/her.' : child.gender === 'male' ? 'He is a boy — use he/him.' : ''} Use the child's name or correct pronouns. "They" is only for plural subjects (e.g., ${child.name} and ${parentName} together).`);
     sections.push(`- NEVER use dashes, hyphens, or em dashes (\u2014, \u2013, -) in the story text. Use commas, periods, or line breaks instead.`);

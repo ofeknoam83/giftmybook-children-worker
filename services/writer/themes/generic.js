@@ -456,7 +456,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Words per spread: ${plan.wordTargets.perSpread.min}-${plan.wordTargets.perSpread.max}`);
 
     sections.push(`\n## REFRAIN\n`);
-    sections.push(`The story MUST have a refrain, a short phrase that recurs at least 3 times.`);
+    sections.push(`The story MUST have a refrain, a short phrase that recurs exactly 3 times (evenly spaced, not in consecutive spreads).`);
     if (plan.refrain.parentWord) {
       sections.push(`It should use "${plan.refrain.parentWord}" and be under 8 words.`);
     } else {
@@ -485,7 +485,8 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Close on an IMAGE, not a declaration, no "I love you" as the last line`);
     sections.push(`- Every spread needs at least one concrete, specific noun`);
     sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
-    sections.push(`- The refrain must appear at least 3 times, spaced through the story`);
+    sections.push(`- The refrain must appear exactly 3 times, evenly spaced (not in consecutive spreads). More than 4 appearances makes the story monotonous.`);
+    sections.push(`- RHYME VARIETY: Do NOT let one rhyme sound dominate. If the refrain ends with a word like "here," other spreads must use different end-rhyme sounds. Each spread should find its own fresh rhyme pair.`);
     if (plan.parentName) {
       sections.push(`- Use ONLY the parent name "${plan.parentName}", do NOT invent any other name for the parent`);
     }

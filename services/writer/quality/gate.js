@@ -39,7 +39,7 @@ class QualityGate {
       return {
         pass: false,
         overallScore: 0,
-        scores: { pronouns: 0, wordCount: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0 },
+        scores: { pronouns: 0, wordCount: 0, rhymeVariety: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0 },
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
       };
     }
@@ -47,6 +47,7 @@ class QualityGate {
     // Deterministic checks (fast, no LLM needed)
     scores.pronouns = scorePronounCorrectness(spreads, child.gender);
     scores.wordCount = QualityGate._scoreWordCount(spreads, child.age, story._ageTier);
+    scores.rhymeVariety = QualityGate._scoreRhymeVariety(spreads);
 
     // LLM-based checks (slower, subjective)
     try {
@@ -81,6 +82,42 @@ class QualityGate {
     const feedback = pass ? '' : QualityGate._buildFeedback(scores, spreads);
 
     return { pass, overallScore: Math.round(overallScore * 10) / 10, scores, feedback };
+  }
+
+  /**
+   * Score rhyme-word variety deterministically.
+   * Penalizes stories where one end-rhyme sound dominates too many spreads.
+   */
+  static _scoreRhymeVariety(spreads) {
+    const endWords = [];
+    for (const s of spreads) {
+      const text = (s.text || '').trim();
+      if (!text) continue;
+      const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        const words = line.replace(/[.,!?;:"']+$/g, '').split(/\s+/);
+        if (words.length > 0) endWords.push(words[words.length - 1].toLowerCase());
+      }
+    }
+    if (endWords.length === 0) return 7;
+
+    // Group by approximate rhyme sound (last 3 chars as simple heuristic)
+    const rhymeBuckets = {};
+    for (const w of endWords) {
+      const suffix = w.length >= 3 ? w.slice(-3) : w;
+      rhymeBuckets[suffix] = (rhymeBuckets[suffix] || 0) + 1;
+    }
+
+    const maxRepeats = Math.max(...Object.values(rhymeBuckets));
+    const totalLines = endWords.length;
+    const ratio = maxRepeats / totalLines;
+
+    // If one rhyme sound appears in >30% of all lines, that's a problem
+    if (ratio > 0.4) return 3;
+    if (ratio > 0.3) return 5;
+    if (ratio > 0.25) return 6;
+    if (ratio > 0.2) return 7;
+    return 9;
   }
 
   /**
@@ -230,6 +267,12 @@ Return a JSON object:
       feedback.push('VARIETY: Multiple spreads describe the same activity or scene. Each spread must cover a DISTINCT moment — different action, different setting, or different emotional beat. Replace repeated scenes (e.g., sharing food multiple times) with varied activities like reading, playing outside, cooking, drawing, bath time, dancing, exploring, building, etc.');
     } else if (scores.variety < 7) {
       feedback.push('VARIETY: Some spreads feel repetitive — they describe similar activities or settings. Diversify the scenes so each spread feels like a fresh, distinct moment in the story.');
+    }
+
+    if (scores.rhymeVariety < minDimensionScore) {
+      feedback.push('RHYME VARIETY: One rhyme sound dominates too many spreads (e.g., "here/clear/cheer/near" appearing in 5+ spreads). Each spread MUST use a different end-rhyme pair. The refrain should appear exactly 3 times. All other spreads need their own fresh rhyme sounds. Rewrite non-refrain spreads to end with completely different rhyme pairs.');
+    } else if (scores.rhymeVariety < 7) {
+      feedback.push('RHYME VARIETY: Some rhyme sounds repeat across too many spreads. Diversify your end-rhymes — if the refrain uses one sound, make sure other spreads explore different rhyme pairs.');
     }
 
     if (scores.narrativeCoherence < minDimensionScore) {
