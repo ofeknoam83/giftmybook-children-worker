@@ -6,7 +6,7 @@
  * recent spreads as visual references.
  */
 
-const { getEmotionalBeat, BEAT_CAMERA, PARENT_THEMES } = require('../config');
+const { getEmotionalBeat, BEAT_CAMERA, PARENT_THEMES, ART_STYLE_CONFIG } = require('../config');
 const { buildTextInstruction } = require('./text');
 
 /**
@@ -21,6 +21,7 @@ const { buildTextInstruction } = require('./text');
  * @param {boolean} opts.hasParentOnCover - Whether parent is on the cover
  * @param {string} [opts.additionalCoverCharacters] - Description of secondary chars
  * @param {string} [opts.theme] - Book theme
+ * @param {string} [opts.style] - Art style key (e.g. 'pixar_premium')
  * @returns {string}
  */
 function buildSpreadPrompt(opts) {
@@ -33,6 +34,7 @@ function buildSpreadPrompt(opts) {
     hasParentOnCover,
     additionalCoverCharacters,
     theme,
+    style,
   } = opts;
 
   const beat = getEmotionalBeat(spreadIndex, totalSpreads);
@@ -50,8 +52,11 @@ function buildSpreadPrompt(opts) {
 
   // Character rules (image-based — no text descriptions)
   parts.push('### CHARACTER RULES');
-  parts.push('- Characters must match the reference images EXACTLY — same face, hair, skin tone, outfit');
-  parts.push('- Same outfit as in EVERY other spread — no changes for weather, activity, or scene');
+  parts.push('- Characters must match the reference images EXACTLY');
+  parts.push('- HAIR: Same color, length, style, texture as on the cover — do NOT change hairstyle');
+  parts.push('- OUTFIT: Same clothes and colors as on the cover — no costume changes for any reason');
+  parts.push('- FACE: Same face shape, skin tone, and features as the reference');
+  parts.push('- ANATOMY: Exactly 2 hands, 2 arms, 2 legs per person. 5 fingers per hand. Count before generating.');
 
   if (hasParentOnCover) {
     parts.push('- Parent can appear and must match their cover appearance exactly');
@@ -75,10 +80,13 @@ function buildSpreadPrompt(opts) {
   parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('');
 
-  // Style consistency reminder
+  // Style consistency reminder — use the actual configured style, defaulting to watercolor
+  const styleConfig = ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.watercolor;
   parts.push('### STYLE CONSISTENCY');
-  parts.push('- Match the EXACT rendering technique, lighting quality, texture detail, and color saturation of all previous spreads');
-  parts.push('- This is the same physical book — every page must look like the same artist painted it in the same session');
+  parts.push(`- MANDATORY STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push('- This spread MUST use this exact style. Do NOT switch to any other rendering technique.');
+  parts.push('- Match the EXACT rendering technique, lighting quality, texture detail, and color saturation of the cover and all previous spreads');
+  parts.push('- This is the same physical book — every page must look like the same artist rendered it');
   parts.push('- Use the SAME font as every other page — identical family, weight, and size');
   parts.push('');
 

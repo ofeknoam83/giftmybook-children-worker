@@ -27,13 +27,14 @@ async function checkAnatomy(imageBase64, opts = {}) {
 
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
-  const prompt = `Quickly check this children's book illustration for quality issues.
+  const prompt = `Check this children's book illustration for anatomy and quality issues.
 
-Check ONLY these:
-1. FINGERS: Do visible hands have the correct number of fingers (5 per hand)? Flag extra or missing fingers.
-2. BODY HORROR: Any merged limbs, extra arms/legs, distorted faces, or unnatural anatomy?
-3. DUPLICATE ITEMS: Any specific object that appears to be cloned/copy-pasted? (Multiple similar items like books on a shelf are fine — only flag obvious AI cloning artifacts.)
-4. CHILD APPEARANCE: Does the character look like a young child? Flag if they look like an adult or are distorted.
+Check ALL of the following carefully:
+1. LIMB COUNT (CRITICAL): Count the number of hands and arms CLEARLY VISIBLE for EACH person in the image. Flag ONLY when MORE than the expected number are visible (e.g., 3 hands, 3 arms, 3 legs). Do NOT flag when a limb is partially hidden, occluded by the body/clothing, or cropped at the frame edge — these are normal artistic compositions. Only flag clear violations where extra limbs are present.
+2. FINGERS: Do visible hands have the correct number of fingers (5 per hand)? Flag extra or missing fingers.
+3. BODY HORROR: Any merged limbs, distorted faces, extra body parts, or unnatural anatomy? Pay special attention to arms that split into two, hands growing from wrong positions, or limbs at impossible angles.
+4. DUPLICATE ITEMS: Any specific object that appears to be cloned/copy-pasted? (Multiple similar items like books on a shelf are fine — only flag obvious AI cloning artifacts.)
+5. CHILD APPEARANCE: Does the character look like a young child? Flag if they look like an adult or are distorted.
 
 Do NOT flag:
 - Minor stylistic exaggeration (large eyes, simplified features — normal for children's book art)
@@ -42,7 +43,7 @@ Do NOT flag:
 
 Return ONLY valid JSON:
 {"pass": true/false, "issues": ["list of specific issues"]}
-Only set pass=false for CLEAR, obvious problems.`;
+Set pass=false for: wrong number of hands/arms/legs, extra limbs, wrong finger count, distorted body parts, or any body horror.`;
 
   try {
     const resp = await fetchWithTimeout(url, {

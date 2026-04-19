@@ -135,16 +135,16 @@ async function _checkBatchCharacterConsistency(batch, opts) {
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
   const parts = [{
-    text: `These are ${batch.length} illustrations from the same children's book.
+    text: `These are ${batch.length} illustrations from the same children's book. The SAME child appears in every image.
 
-Check character consistency across ALL images:
-1. Face shape, features — same person across all?
-2. Hair color, style — same across all?
-3. Skin tone — same across all?
-4. Outfit — same clothing in every image?
+Check character consistency across ALL images — be STRICT:
+1. HAIR: Is the hair color, length, and style the SAME in every image? Flag if hair changes color (e.g., dark to light), changes length (short to long), or changes style (curly to straight, ponytail to loose).
+2. OUTFIT: Is the child wearing the SAME clothes in every image? Flag if clothing color, style, or type changes between images. The outfit must be identical on every page.
+3. FACE: Same face shape and skin tone across all?
+4. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts.
 
-Do NOT flag: left/right mirroring, minor lighting differences, eye open/closed state.
-Only flag OBVIOUS differences where the character is unrecognizable.
+Do NOT flag: left/right mirroring, minor lighting/shadow differences, eye open/closed state, minor pose differences.
+DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any anatomy errors.
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}
