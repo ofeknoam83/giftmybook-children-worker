@@ -176,7 +176,7 @@ class IllustratorEngine {
         }
 
         // ── Per-spread QA ──
-        const qaOpts = { costTracker };
+        const qaOpts = { costTracker, spreadText };
 
         // Run text and anatomy checks in parallel
         const [textCheck, anatomyCheck] = await Promise.all([
@@ -418,6 +418,167 @@ ${buildSpreadPrompt({
     log('info', `Illustrator V2 complete: ${generatedCount} spreads in ${totalMs}ms (avg ${generatedCount ? Math.round(totalMs / generatedCount) : 0}ms/spread)`);
 
     return results;
+  }
+
+  /**
+   * Generate a single spread illustration using the V2 pipeline.
+   * Used by admin single-spread regeneration. Creates a mini chat session,
+   * establishes character from cover/photo, generates one spread with QA.
+   *
+   * @param {object} input
+   * @param {string} input.scenePrompt - Illustration scene description
+   * @param {string} input.spreadText - Full story text for this spread
+   * @param {string} [input.leftText] - Left page text
+   * @param {string} [input.rightText] - Right page text
+   * @param {string} input.style - Art style key
+   * @param {string} [input.coverBase64] - Approved cover as base64
+   * @param {string} [input.childPhotoBase64] - Child photo as base64
+   * @param {string} [input.theme]
+   * @param {string} [input.additionalCoverCharacters]
+   * @param {string} [input.parentOutfit]
+   * @param {number} [input.spreadIndex] - 0-based spread index
+   * @param {number} [input.totalSpreads] - Total spreads in the book
+   * @param {object} [input.costTracker]
+   * @returns {Promise<{ imageBuffer: Buffer, imageBase64: string }>}
+   */
+  async generateSingleSpread(input) {
+    const {
+      scenePrompt,
+      spreadText,
+      leftText,
+      rightText,
+      style = 'pixar_premium',
+      coverBase64,
+      childPhotoBase64,
+      childPhotoMime = 'image/jpeg',
+      theme,
+      additionalCoverCharacters,
+      parentOutfit,
+      spreadIndex = 0,
+      totalSpreads = 13,
+      costTracker,
+    } = input;
+
+    const log = (level, msg) => console.log(`[illustrator/singleSpread] [${level}] ${msg}`);
+    const hasParentOnCover = !!(additionalCoverCharacters);
+    const isParentTheme = theme && PARENT_THEMES.has(theme);
+
+    // 1. Create session
+    const session = createSession({
+      style,
+      coverBase64: coverBase64 || null,
+      coverMime: 'image/jpeg',
+      childPhotoBase64: childPhotoBase64 || null,
+      childPhotoMime,
+      hasParentOnCover,
+      additionalCoverCharacters,
+      theme,
+      parentOutfit,
+    });
+
+    // 2. Establish character references
+    if (childPhotoBase64 || coverBase64) {
+      await establishCharacterReferences(session);
+      log('info', 'Character references established');
+    }
+
+    // 3. Apply safeScenePrompt filters (same as full pipeline)
+    let safeScenePrompt = scenePrompt;
+    if (!hasParentOnCover && isParentTheme) {
+      const isMother = theme === 'mothers_day';
+      const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
+      if (new RegExp(parentWord, 'i').test(scenePrompt)) {
+        const parentLabel = isMother ? 'Mom' : 'Dad';
+        safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features.`;
+      }
+    } else if (!hasParentOnCover && !isParentTheme) {
+      const familyRegex = /\b(grandpa|grandma|grandfather|grandmother|granny|nana|papa|nanny|uncle|aunt|auntie|daddy|dad|mommy|mom|mum|mama|father|mother|brother|sister|sibling|parent)\b/i;
+      if (familyRegex.test(scenePrompt)) {
+        safeScenePrompt += `\n\n⚠️ FAMILY MEMBER RULE: The scene mentions a family member but we have NO reference image. Do NOT draw any family member. The child is the ONLY human character. Show family presence through traces only.`;
+      }
+    }
+
+    // 4. Build prompt
+    const prompt = buildSpreadPrompt({
+      spreadIndex,
+      totalSpreads,
+      scenePrompt: safeScenePrompt,
+      leftText: leftText || spreadText,
+      rightText: rightText || null,
+      hasParentOnCover,
+      additionalCoverCharacters,
+      theme,
+      style,
+      parentOutfit,
+    });
+
+    // 5. Generate with retries
+    const MAX_GEN_RETRIES = 2;
+    let result = null;
+    for (let attempt = 0; attempt <= MAX_GEN_RETRIES; attempt++) {
+      try {
+        result = await generateSpread(session, prompt, spreadIndex);
+        break;
+      } catch (err) {
+        if (attempt < MAX_GEN_RETRIES) {
+          log('warn', `Generation attempt ${attempt + 1} failed: ${err.message} — retrying`);
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    let { imageBase64, imageBuffer } = result;
+
+    // 6. QA with retry loop
+    const qaOpts = { costTracker, spreadText };
+    let [textCheck, anatomyCheck] = await Promise.all([
+      verifySpreadText(imageBase64, spreadText || '', qaOpts),
+      checkAnatomy(imageBase64, qaOpts),
+    ]);
+
+    let qaRetries = 0;
+    while (qaRetries < MAX_SPREAD_RETRIES && (!textCheck.pass || !anatomyCheck.pass)) {
+      qaRetries++;
+      const issues = [
+        ...(textCheck.pass ? [] : textCheck.issues.map(i => `[text] ${i}`)),
+        ...(anatomyCheck.pass ? [] : anatomyCheck.issues.map(i => `[anatomy] ${i}`)),
+      ];
+      log('warn', `QA failed (retry ${qaRetries}/${MAX_SPREAD_RETRIES}): ${issues.join('; ')}`);
+
+      const correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
+
+      try {
+        const retryResult = await sendCorrection(session, correctionPrompt, spreadIndex);
+        imageBase64 = retryResult.imageBase64;
+        imageBuffer = retryResult.imageBuffer;
+
+        const [reText, reAnatomy] = await Promise.all([
+          verifySpreadText(imageBase64, spreadText || '', qaOpts),
+          checkAnatomy(imageBase64, qaOpts),
+        ]);
+        Object.assign(textCheck, reText);
+        Object.assign(anatomyCheck, reAnatomy);
+      } catch (retryErr) {
+        log('warn', `Correction retry ${qaRetries} failed: ${retryErr.message}`);
+      }
+    }
+
+    if (!textCheck.pass || !anatomyCheck.pass) {
+      const remaining = [
+        ...(textCheck.pass ? [] : textCheck.issues.map(i => `[text] ${i}`)),
+        ...(anatomyCheck.pass ? [] : anatomyCheck.issues.map(i => `[anatomy] ${i}`)),
+      ];
+      log('warn', `QA still failing after ${qaRetries} retries: ${remaining.join('; ')}`);
+    }
+
+    // 7. Post-process
+    imageBuffer = Buffer.from(imageBase64, 'base64');
+    imageBuffer = await stripMetadata(imageBuffer);
+    imageBuffer = await upscaleForPrint(imageBuffer);
+
+    return { imageBuffer, imageBase64: imageBuffer.toString('base64') };
   }
 }
 

@@ -67,7 +67,7 @@ function createIllustrationSession(opts = {}) {
   if (!apiKey) throw new Error('No API key available for illustration chat session');
 
   const model = opts.model || GEMINI_MODEL;
-  const styleConfig = ART_STYLE_CONFIG[opts.style] || ART_STYLE_CONFIG.watercolor;
+  const styleConfig = ART_STYLE_CONFIG[opts.style] || ART_STYLE_CONFIG.pixar_premium;
 
   const session = {
     apiKey,

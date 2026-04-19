@@ -169,7 +169,7 @@ function sanitizePrompt(prompt) {
  * Build a very generic safe fallback prompt for when sanitization isn't enough.
  */
 function buildGenericSafePrompt(artStyle) {
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
   return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}`;
 }
 
@@ -620,7 +620,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     );
   }
 
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.watercolor;
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
   const skipTextEmbed = opts.skipTextEmbed || false;
   const isSpread = opts.isSpread || false;
   const spreadIndex = opts.spreadIndex;

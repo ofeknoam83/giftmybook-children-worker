@@ -95,8 +95,7 @@ function buildSpreadPrompt(opts) {
   parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('');
 
-  // Style consistency reminder — use the actual configured style, defaulting to watercolor
-  const styleConfig = ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.watercolor;
+  const styleConfig = ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.pixar_premium;
   parts.push('### STYLE CONSISTENCY');
   parts.push(`- MANDATORY STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('- This spread MUST use this exact style. Do NOT switch to any other rendering technique.');

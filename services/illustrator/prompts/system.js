@@ -18,7 +18,7 @@ const { ART_STYLE_CONFIG, PARENT_THEMES, TEXT_RULES } = require('../config');
  * @returns {string}
  */
 function buildSystemInstruction(opts) {
-  const styleConfig = ART_STYLE_CONFIG[opts.style] || ART_STYLE_CONFIG.watercolor;
+  const styleConfig = ART_STYLE_CONFIG[opts.style] || ART_STYLE_CONFIG.pixar_premium;
   const parts = [];
 
   parts.push('You are creating illustrations for a personalized children\'s book.');

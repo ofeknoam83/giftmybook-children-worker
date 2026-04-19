@@ -49,7 +49,7 @@ class ChatSessionManager {
     this.bookContext = bookContext;
     this.characterRefParts = characterRefImages || [];
 
-    const artStyleConfig = ART_STYLE_CONFIG[styleConfig.artStyle] || ART_STYLE_CONFIG.watercolor;
+    const artStyleConfig = ART_STYLE_CONFIG[styleConfig.artStyle] || ART_STYLE_CONFIG.pixar_premium;
 
     // Build system instruction
     this.systemInstruction = this._buildSystemInstruction(artStyleConfig, styleConfig, bookContext);

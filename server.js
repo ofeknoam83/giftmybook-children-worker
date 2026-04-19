@@ -55,10 +55,9 @@ const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
 const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
-const { generateSpreadText } = require('./services/textGenerator');
-const { generateIllustration, generateIllustrationWithAnchors, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-// V3: ChatSessionManager removed (V1 illustration pipeline)
-// V3: illustrationChatSession imports removed (V1 illustration pipeline)
+const { generateIllustration, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
+// generateIllustration is only used for chapter books and graphic novels.
+// Picture book illustration uses IllustratorEngine (services/illustrator/engine.js) exclusively.
 // V3: compositeTextOnIllustration removed (V1 illustration pipeline)
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
@@ -263,7 +262,6 @@ if (process.env.NODE_ENV !== 'test') {
   });
   app.use('/generate-style-variant', generationLimiter);
   app.use('/generate-book', generationLimiter);
-  app.use('/generate-spread', generationLimiter);
   app.use('/finalize-book', generationLimiter);
 }
 
@@ -2312,13 +2310,12 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 });
 
 // ── POST /regenerate-illustration ──
-// Regenerate a single spread illustration without stopping the main pipeline.
+// Regenerate a single spread using Illustrator V2 pipeline.
 // Called by admin "regenerate illustration" button.
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
-    characterOutfit, characterDescription, characterAnchor, recurringElement, keyObjects,
-    coverArtStyle, childName, childPhotoUrl, cachedPhotoBase64, prevIllustrationUrl, prevIllustrationUrls, fontStyle, additionalCoverCharacters,
-    totalSpreads, firstSpreadRefUrl, theme, parentOutfit, childAge } = req.body;
+    additionalCoverCharacters, totalSpreads, theme, parentOutfit,
+    childPhotoUrl, cachedPhotoBase64, coverImageUrl, firstSpreadRefUrl } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2327,131 +2324,85 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'spreadImagePrompt is required' });
   }
 
-  console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
+  console.log(`[server] /regenerate-illustration (V2): bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
 
   const costTracker = new CostTracker();
   const style = artStyle || 'pixar_premium';
 
-  // Auto-extract characterAnchor if missing — happens for books generated before the anchor feature
-  let resolvedCharacterAnchor = characterAnchor || null;
-  if (!resolvedCharacterAnchor && childPhotoUrl) {
-    console.log(`[server] /regenerate-illustration: characterAnchor missing for ${bookId} — extracting from cover photo`);
-    const MAX_ANCHOR_RETRIES = 3;
-    for (let anchorAttempt = 1; anchorAttempt <= MAX_ANCHOR_RETRIES; anchorAttempt++) {
-      try {
-        const { getNextApiKey, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-        const anchorApiKey = getNextApiKey();
-        const coverPhoto = await downloadPhotoAsBase64(childPhotoUrl);
-        const anchorResp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${anchorApiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [
-                { text: `Look at the main child character in this image. Answer with SPECIFIC, PRECISE answers.
-
-ETHNICITY: What is the child's ethnicity or racial appearance? (e.g. East Asian, South Asian, Black/African, Hispanic/Latino, White/Caucasian, Middle Eastern, Mixed/Biracial — be specific)
-SKIN_TONE: Exact skin tone in 3-5 words
-EYE_SHAPE: Eye shape specifically (e.g. monolid, almond-shaped with epicanthal fold, large round)
-EYE_COLOR: Eye color
-HAIR_COLOR: Exact hair color
-HAIR_TEXTURE: Straight / wavy / curly / coily / tightly coiled
-HAIR_LENGTH: Short / medium / long / very long
-
-Format: each label on its own line followed by a colon and the answer.` },
-                { inline_data: { mime_type: coverPhoto.mimeType || 'image/jpeg', data: coverPhoto.base64 } },
-              ]}],
-              generationConfig: { maxOutputTokens: 400, temperature: 0.1 },
-            }),
-          }
-        );
-        if (anchorResp.ok) {
-          const anchorData = await anchorResp.json();
-          const anchorText = anchorData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (anchorText && anchorText.length > 20) {
-            resolvedCharacterAnchor = anchorText;
-            console.log(`[server] /regenerate-illustration: characterAnchor extracted (attempt ${anchorAttempt}):`, anchorText.slice(0, 120));
-            break;
-          }
-        } else {
-          console.warn(`[server] /regenerate-illustration: anchor extraction attempt ${anchorAttempt} failed: ${anchorResp.status}`);
-        }
-      } catch (anchorErr) {
-        console.warn(`[server] /regenerate-illustration: anchor extraction attempt ${anchorAttempt} threw:`, anchorErr.message);
-      }
-      if (anchorAttempt < MAX_ANCHOR_RETRIES) await new Promise(r => setTimeout(r, anchorAttempt * 1500));
-    }
-  }
-
-  // Download first spread as base64 for outfit/font reference during regeneration
-  let firstSpreadRefBase64 = null;
-  if (firstSpreadRefUrl && spreadIndex > 0) {
-    try {
-      const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-      const firstSpreadPhoto = await downloadPhotoAsBase64(firstSpreadRefUrl);
-      firstSpreadRefBase64 = firstSpreadPhoto.base64;
-      console.log(`[regen] Downloaded first spread ref for outfit/font consistency`);
-    } catch (e) {
-      console.log(`[regen] Could not download first spread ref: ${e.message}`);
-    }
-  }
-
   try {
-    // Fix 1C: Log character anchor presence for admin regen
-    console.log(`[server] /regenerate-illustration: characterAnchor ${resolvedCharacterAnchor ? 'PRESENT' : 'MISSING'} for bookId=${bookId}, spread=${spreadIndex}${resolvedCharacterAnchor ? ' (' + resolvedCharacterAnchor.slice(0, 80) + '...)' : ''}`);
+    const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 
-    // Family-member safety: if no secondary characters and not a parent theme,
-    // inject a warning when the scene prompt mentions family members
-    let safePrompt = spreadImagePrompt;
-    const isParentTheme = theme && (theme === 'mothers_day' || theme === 'fathers_day');
-    if (!additionalCoverCharacters && !isParentTheme) {
-      const familyRegex = /\b(grandpa|grandma|grandfather|grandmother|granny|nana|papa|nanny|uncle|aunt|auntie|daddy|dad|mommy|mom|mum|mama|father|mother|brother|sister|sibling|parent)\b/i;
-      if (familyRegex.test(spreadImagePrompt)) {
-        safePrompt += `\n\n⚠️ FAMILY MEMBER RULE: The scene mentions a family member but we have NO reference image. Do NOT draw any family member. The child is the ONLY human character. Show family presence through traces only: a hand from off-screen, a shadow, belongings, or evidence they were there. NEVER draw a family member's face or full body.`;
+    // Download child photo as base64
+    let childPhotoB64 = cachedPhotoBase64 || null;
+    if (!childPhotoB64 && childPhotoUrl) {
+      try {
+        const photo = await downloadPhotoAsBase64(childPhotoUrl);
+        childPhotoB64 = photo.base64;
+      } catch (e) {
+        console.warn(`[regen] Could not download child photo: ${e.message}`);
       }
     }
 
-    // Generate the illustration
-    const result = await generateIllustration(safePrompt, null, style, {
-      costTracker,
-      bookId,
-      childName,
-      childAge: childAge || null,
-      childPhotoUrl,
-      spreadIndex,
-      totalSpreads: totalSpreads || 0,
-      pageText: pageText || '',
-      characterOutfit,
-      characterDescription,
-      characterAnchor: resolvedCharacterAnchor,
-      recurringElement,
-      keyObjects,
-      coverArtStyle,
-      isSpread: true,
-      promptInjection: promptInjection || '',
-      fontStyle: fontStyle || null,
-      additionalCoverCharacters: additionalCoverCharacters || null,
+    // Download cover image as base64 (used by V2 for character consistency)
+    let coverB64 = null;
+    if (coverImageUrl) {
+      try {
+        const cover = await downloadPhotoAsBase64(coverImageUrl);
+        coverB64 = cover.base64;
+      } catch (e) {
+        console.warn(`[regen] Could not download cover: ${e.message}`);
+      }
+    }
+    // Fall back to first spread reference as cover substitute
+    if (!coverB64 && firstSpreadRefUrl) {
+      try {
+        const ref = await downloadPhotoAsBase64(firstSpreadRefUrl);
+        coverB64 = ref.base64;
+      } catch (e) {
+        console.warn(`[regen] Could not download first spread ref: ${e.message}`);
+      }
+    }
+
+    // Split page text into left/right if possible
+    const fullText = pageText || '';
+    const lines = fullText.split('\n').filter(l => l.trim());
+    let leftText = fullText, rightText = null;
+    if (lines.length >= 2) {
+      const mid = Math.ceil(lines.length / 2);
+      leftText = lines.slice(0, mid).join('\n');
+      rightText = lines.slice(mid).join('\n');
+    }
+
+    let scenePrompt = spreadImagePrompt;
+    if (promptInjection) {
+      scenePrompt += `\n\nADDITIONAL INSTRUCTIONS: ${promptInjection}`;
+    }
+
+    const { IllustratorEngine } = require('./services/illustrator/engine');
+    const illustrator = new IllustratorEngine();
+
+    const result = await illustrator.generateSingleSpread({
+      scenePrompt,
+      spreadText: fullText,
+      leftText,
+      rightText,
+      style,
+      coverBase64: coverB64,
+      childPhotoBase64: childPhotoB64,
       theme: theme || null,
+      additionalCoverCharacters: additionalCoverCharacters || null,
       parentOutfit: parentOutfit || null,
-      prevIllustrationUrl: prevIllustrationUrl || null,
-      prevIllustrationUrls: Array.isArray(prevIllustrationUrls) && prevIllustrationUrls.length > 0 ? prevIllustrationUrls : (prevIllustrationUrl ? [prevIllustrationUrl] : []),
-      _cachedPhotoBase64: cachedPhotoBase64 || null,
-      firstSpreadRefBase64,
-      embedText: process.env.USE_CHAT_ILLUSTRATIONS === 'true' || process.env.USE_ILLUSTRATOR_V2 === 'true',
+      spreadIndex,
+      totalSpreads: totalSpreads || 13,
+      costTracker,
     });
 
-    if (!result) {
-      return res.status(500).json({ success: false, error: 'Illustration generation returned no result' });
-    }
-
-    // Upload to GCS, replacing the old illustration
+    // Upload to GCS
     const gcsPath = `children-jobs/${bookId}/illustrations/spread-${spreadIndex}-${Date.now()}.png`;
-    const imageBuffer = await downloadBuffer(result);
-    await uploadBuffer(imageBuffer, gcsPath, 'image/png');
+    await uploadBuffer(result.imageBuffer, gcsPath, 'image/png');
     const newUrl = await getSignedUrl(gcsPath, 30 * 24 * 60 * 60 * 1000);
 
-    console.log(`[server] Illustration regenerated for book ${bookId}, spread ${spreadIndex}`);
+    console.log(`[server] Illustration regenerated (V2) for book ${bookId}, spread ${spreadIndex}`);
 
     res.json({
       success: true,
@@ -2466,72 +2417,7 @@ Format: each label on its own line followed by a colon and the answer.` },
   }
 });
 
-// ── POST /generate-spread ── (DEPRECATED — V2 pipeline generates sequentially, this endpoint is unused)
-app.post('/generate-spread', authenticate, async (req, res) => {
-  const { valid, errors } = validateGenerateSpreadRequest(req.body);
-  if (!valid) {
-    return res.status(400).json({ success: false, errors });
-  }
-
-  const {
-    bookId, spreadPlan, characterRef,
-    childDetails, bookFormat, storyContext, artStyle, apiKeys, theme, parentOutfit: reqParentOutfit,
-  } = req.body;
-
-  console.log(`[server] /generate-spread: bookId=${bookId}, spread=${spreadPlan.spreadNumber}`);
-  global.touchActivity(bookId);
-
-  const costTracker = new CostTracker();
-
-  try {
-    // Generate text for this spread
-    const text = await generateSpreadText(spreadPlan, childDetails, bookFormat || 'picture_book', storyContext || {}, {
-      apiKeys,
-      costTracker,
-    });
-    global.touchActivity(bookId);
-
-    // Generate illustration
-    const style = artStyle || 'pixar_premium';
-    const sceneDesc = spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || text;
-    // Fix 2C + 3C: Pass pageText, embedText, and font style instruction for /generate-spread
-    const spreadText = text || '';
-    const fontStyleInstruction = 'Use an elegant white serif font similar to Lora, small caption size, with dark drop shadow. Must be identical across all pages.';
-    const imageUrl = await generateIllustration(sceneDesc, characterRef, style, {
-      apiKeys,
-      costTracker,
-      bookId,
-      theme: theme || null,
-      parentOutfit: reqParentOutfit || null,
-      pageText: spreadText,
-      embedText: !!(spreadText && spreadText.trim()),
-      fontStyleInstruction,
-      childName: childDetails?.name || childDetails?.childName || '',
-      characterOutfit: childDetails?.characterOutfit || spreadPlan.characterOutfit || '',
-      characterDescription: childDetails?.characterDescription || spreadPlan.characterDescription || '',
-      characterAnchor: childDetails?.characterAnchor || spreadPlan.characterAnchor || null,
-      isSpread: true,
-    });
-    global.touchActivity(bookId);
-
-    // Upload spread image to GCS
-    const spreadPath = `children-jobs/${bookId}/spreads/spread-${spreadPlan.spreadNumber}.png`;
-    const imageBuffer = await downloadBuffer(imageUrl);
-    await uploadBuffer(imageBuffer, spreadPath, 'image/png');
-    const spreadImageUrl = await getSignedUrl(spreadPath, 30 * 24 * 60 * 60 * 1000);
-
-    res.json({
-      success: true,
-      spreadNumber: spreadPlan.spreadNumber,
-      text,
-      imageUrl: spreadImageUrl,
-      costs: costTracker.getSummary(),
-    });
-  } catch (err) {
-    console.error(`[server] Spread ${spreadPlan.spreadNumber} failed for ${bookId}:`, err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+// /generate-spread removed — V2 pipeline generates sequentially, this endpoint was unused.
 
 // ── POST /generate-coloring-book ──────────────────────────────────────────────
 // mode=trace  (default): converts existing spread illustrations to coloring pages.
