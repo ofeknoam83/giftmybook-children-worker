@@ -409,4 +409,4 @@ class BaseThemeWriter {
   }
 }
 
-module.exports = { BaseThemeWriter };
+module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL };

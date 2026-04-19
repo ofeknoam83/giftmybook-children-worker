@@ -12,7 +12,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate } = require('./plots');
+const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle } = require('./plots');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -32,13 +32,19 @@ class MothersDayWriter extends BaseThemeWriter {
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
 
-    // Build beat structure based on research
-    const beats = this._buildBeats(ageTier, spreadCount, child, parentName);
+    if (!book.plotId && book.title) {
+      try {
+        const matchedId = await matchTitleToPlot(book.title, 'mothers_day');
+        if (matchedId) book = { ...book, plotId: matchedId };
+      } catch (err) {
+        console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
+      }
+    }
 
-    // Choose refrain
+    const beats = this._buildBeats(ageTier, spreadCount, child, parentName, book);
+
     const refrain = this._chooseRefrain(child, parentName);
 
-    // Use LLM to refine the plan if we have anecdotes
     let enrichedBeats = beats;
     if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
       try {
@@ -169,14 +175,14 @@ class MothersDayWriter extends BaseThemeWriter {
 
   // ── Private helpers ──
 
-  _buildBeats(ageTier, spreadCount, child, parentName) {
+  _buildBeats(ageTier, spreadCount, child, parentName, book = {}) {
     const isYoung = ageTier === 'young-picture';
     const wt = isYoung ? 16 : 28;
 
-    const plotTemplate = selectPlotTemplate('mothers_day');
+    const plotTemplate = selectPlotTemplate('mothers_day', { plotId: book.plotId });
     if (plotTemplate) {
       this._selectedPlot = plotTemplate;
-      return plotTemplate.beats({ child, isYoung, wt, parentName: parentName || 'Mama', book: {}, theme: 'mothers_day' });
+      return plotTemplate.beats({ child, isYoung, wt, parentName: parentName || 'Mama', book, theme: 'mothers_day' });
     }
 
     this._selectedPlot = null;
@@ -327,6 +333,12 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`\n## HEARTFELT NOTE FROM THE PERSON ORDERING THIS BOOK\n`);
       sections.push(`"${book.heartfeltNote}"`);
       sections.push('Use the emotion and intent of this note to guide the story\'s tone.');
+    }
+
+    if (book.title && !isPlaceholderTitle(book.title)) {
+      sections.push(`\n## BOOK TITLE\n`);
+      sections.push(`The approved cover title is: "${book.title}"`);
+      sections.push('The story text must feel like it belongs under this title. Do not contradict the title\'s premise.');
     }
 
     if (plan.plotSynopsis) {

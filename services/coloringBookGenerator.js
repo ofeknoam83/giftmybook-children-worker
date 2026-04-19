@@ -284,19 +284,23 @@ async function generateOriginalColoringPage(scenePrompt, characterRef, opts = {}
 async function generateOriginalColoringPages(scenes, characterRef, opts = {}) {
   const pLimit = require('p-limit');
   const limit = pLimit(2); // 2 concurrent — balances speed vs. Gemini rate limits
+  let completedCount = 0;
 
   const tasks = scenes.map((scene, i) =>
     limit(async () => {
-      // Support both new {prompt, title} format and legacy string format
       const scenePrompt = typeof scene === 'string' ? scene : scene.prompt;
       const sceneTitle = typeof scene === 'string' ? undefined : scene.title;
       console.log(`[coloringBookGenerator] Generating scene ${i + 1}/${scenes.length}`);
       try {
         const buffer = await generateOriginalColoringPage(scenePrompt, characterRef, opts);
         console.log(`[coloringBookGenerator] Scene ${i + 1} done (${Math.round(buffer.length / 1024)}KB)`);
+        completedCount++;
+        if (typeof opts.onPageComplete === 'function') opts.onPageComplete(completedCount);
         return { index: i, buffer, success: true, title: sceneTitle };
       } catch (err) {
         console.error(`[coloringBookGenerator] Scene ${i + 1} failed: ${err.message}`);
+        completedCount++;
+        if (typeof opts.onPageComplete === 'function') opts.onPageComplete(completedCount);
         return { index: i, buffer: null, success: false, title: sceneTitle, error: err.message };
       }
     })

@@ -16,7 +16,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate } = require('./plots');
+const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle } = require('./plots');
 
 // ── Theme category membership ──
 
@@ -54,6 +54,15 @@ class GenericThemeWriter extends BaseThemeWriter {
     const wordLimits = this.getWordLimits(child.age);
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
+
+    if (!book.plotId && book.title && this.category !== 'emotional') {
+      try {
+        const matchedId = await matchTitleToPlot(book.title, this.themeName);
+        if (matchedId) book = { ...book, plotId: matchedId };
+      } catch (err) {
+        console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
+      }
+    }
 
     const beats = this._buildBeats(ageTier, child, parentName, book);
     const refrain = this._chooseRefrain(child, parentName);
@@ -504,6 +513,12 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`- Instead, show family presence through TRACES and EFFECTS: a packed lunch from Grandpa, a note in Mom's handwriting, a jacket that smells like Dad, a garden that Grandma planted.`);
       sections.push(`- The child is the ONLY human character visible in every spread. Animals, fantasy creatures, and environmental characters (fairies, talking animals, shopkeepers) are fine.`);
       sections.push(`- "Book from: ${book.bookFrom || 'family'}" tells you who ordered the book — honor their relationship through the story's emotional core, NOT by drawing them into scenes.`);
+    }
+
+    if (book.title && !isPlaceholderTitle(book.title)) {
+      sections.push(`\n## BOOK TITLE\n`);
+      sections.push(`The approved cover title is: "${book.title}"`);
+      sections.push('The story text must feel like it belongs under this title. Do not contradict the title\'s premise.');
     }
 
     if (plan.plotSynopsis) {

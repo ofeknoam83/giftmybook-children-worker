@@ -1420,6 +1420,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         const { WriterEngine } = require('./services/writer/engine');
         const stage3Start = Date.now();
+        if (approvedTitle && sanitized.approvedTitle !== approvedTitle) {
+          sanitized.approvedTitle = approvedTitle;
+        }
         const writerResult = await WriterEngine.generate(sanitized, {
           onProgress: (p) => {
             if (progressCallbackUrl) {
@@ -2432,6 +2435,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     pagesOnly = false,
     parentCoverImageUrl,
     callbackUrl,
+    progressCallbackUrl,
   } = req.body;
 
   if (!bookId) {
@@ -2457,11 +2461,24 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
   // Background generation
   (async () => {
     const startMs = Date.now();
+
+    async function reportProgress(stage, progress, message) {
+      if (!progressCallbackUrl) return;
+      const payload = { bookId, stage, progress, message };
+      fetch(progressCallbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    }
+
     try {
       const { generateColoringPages, generateOriginalColoringPages, planColoringScenes, generateCoverArtFromParent } = require('./services/coloringBookGenerator');
       const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
       const { buildColoringBookPdf, buildInteriorPdf, buildCoverWrapPdf, generateCoverThumbnailPng, imageToPreviewPng } = require('./services/coloringBookLayout');
       const { uploadBuffer } = require('./services/gcsStorage');
+
+      await reportProgress('planning', 0.05, 'Preparing coloring book generation');
 
       let parentCoverBuffer = null;
       if (parentCoverImageUrl && !pagesOnly) {
@@ -2484,19 +2501,24 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       }
 
       let pages;
+      let totalScenes;
 
       if (mode === 'trace') {
+        totalScenes = illustrationUrls.length;
+        await reportProgress('illustration', 0.10, `Converting ${totalScenes} illustrations to coloring pages`);
         pages = await generateColoringPages(illustrationUrls);
       } else {
         let resolvedScenePrompts = scenePrompts;
         if (!Array.isArray(resolvedScenePrompts) || resolvedScenePrompts.length === 0) {
-          console.log(`[server] Auto-planning coloring scenes from book metadata`);
+          await reportProgress('planning', 0.08, 'Planning coloring scenes from book story');
           resolvedScenePrompts = await planColoringScenes({
             title, synopsis, characterDescription, childName, age,
             count: sceneCount || 12,
           });
           console.log(`[server] Planned ${resolvedScenePrompts.length} coloring scenes`);
         }
+        totalScenes = resolvedScenePrompts.length;
+        await reportProgress('illustration', 0.10, `Generating ${totalScenes} coloring pages`);
 
         let characterRef = null;
         if (childPhotoUrl) {
@@ -2519,6 +2541,10 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
         pages = await generateOriginalColoringPages(resolvedScenePrompts, characterRef, {
           characterDescription,
           characterAnchor,
+          onPageComplete: (doneCount) => {
+            const pct = 0.10 + (doneCount / totalScenes) * 0.65;
+            reportProgress('illustration', pct, `Coloring page ${doneCount}/${totalScenes} done`);
+          },
         });
       }
 
@@ -2526,6 +2552,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       const successCount = pages.filter(p => p.success).length;
       console.log(`[server] Coloring page ${mode}: ${successCount}/${totalPages} succeeded`);
 
+      await reportProgress('cover', 0.78, 'Generating cover art');
       const coverArt = coverArtPromise ? await coverArtPromise : null;
       const frontCoverBuffer = coverArt?.frontCoverBuffer;
       const backCoverBuffer = coverArt?.backCoverBuffer;
@@ -2536,6 +2563,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       const firstSuccessPage = pages.find(p => p.success && p.buffer);
       const coverImageBuffer = firstSuccessPage ? firstSuccessPage.buffer : undefined;
 
+      await reportProgress('assembly', 0.82, 'Building PDFs');
       const [legacyPdfBuffer, interiorPdfBuffer, coverPdfBuffer] = await Promise.all([
         buildColoringBookPdf(pages, { title, childName, pagesOnly, coverImageBuffer, frontCoverBuffer }),
         pagesOnly ? null : buildInteriorPdf(pages, { title, childName }),
@@ -2545,6 +2573,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
         (interiorPdfBuffer ? `, interior: ${Math.round(interiorPdfBuffer.length / 1024)}KB` : '') +
         (coverPdfBuffer ? `, cover: ${Math.round(coverPdfBuffer.length / 1024)}KB` : ''));
 
+      await reportProgress('upload', 0.88, 'Uploading files');
       const gcsBase = `children-jobs/${bookId}/coloring`;
       const uploadPromises = [
         uploadBuffer(legacyPdfBuffer, `${gcsBase}/legacy.pdf`, 'application/pdf'),
