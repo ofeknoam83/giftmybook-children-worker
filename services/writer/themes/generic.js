@@ -175,19 +175,23 @@ class GenericThemeWriter extends BaseThemeWriter {
     const p = parentName || 'Daddy';
     const wt = isYoung ? 20 : 28;
     return [
-      { spread: 1,  beat: 'OPENING',      description: `Place ${child.name} and ${p} in a specific morning moment. Simple, vivid, particular.`, wordTarget: wt },
-      { spread: 2,  beat: 'ACTIVITY_1',   description: `First activity together, use child's anecdote if available. Concrete nouns, sensory detail.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'ACTIVITY_2',   description: `Second activity, daily routine moment. Show ${p}'s character through action.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'ACTIVITY_3',   description: `Third activity, playful, fun. Use child's interests if available.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'DEEPENING_1',  description: `${p} noticing something specific about ${child.name}. The shift from activities to connection.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'DEEPENING_2',  description: `${p} knows something nobody else knows, a specific gesture, habit, or look.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'DEEPENING_3',  description: `The noticing IS the love. ${p} saw something specific; that seeing is the love.`, wordTarget: wt },
-      { spread: 8,  beat: 'EVEN_WHEN',    description: `Love holds when things are hard, child is tired, fussy, or overwhelmed.`, wordTarget: wt + 2 },
-      { spread: 9,  beat: 'COMFORT',      description: `${p} gathers ${child.name} close. Physical comfort. The quiet after difficulty.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'CLIMAX',       description: `Fewest words in the whole book. Physical closeness. Near wordless.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 11, beat: 'RESOLUTION_1', description: `The world settles. Echo of the opening. Return to the specific place or image from spread 1.`, wordTarget: wt + 2 },
-      { spread: 12, beat: 'RESOLUTION_2', description: `The refrain lands one final time. Close on an image, not a declaration.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',      description: `The last line. Echo the opening. The most beautiful sentence in the book.`, wordTarget: isYoung ? 14 : 15 },
+      // SCENE A — HOME / LAUNCH (spreads 1-3)
+      { spread: 1,  beat: 'HOME_OPENING',   description: `Place ${child.name} and ${p} in a specific moment at home — mid-action, not waking up. Establish the bond AND hint at a plan (building something, going somewhere). Vivid, particular.`, wordTarget: wt },
+      { spread: 2,  beat: 'HOME_PREPARING',  description: `The plan takes shape — gathering tools, putting on shoes, starting the project. A moment showing how they work together. Use child's anecdote. Same location.`, wordTarget: wt + 2 },
+      { spread: 3,  beat: 'HOME_RITUAL',     description: `Something only THIS pair does — a funny handshake, ${p}'s signature move, a shared joke. Woven into the preparation, not a standalone scene.`, wordTarget: wt + 2 },
+      // SCENE B — THE ADVENTURE (spreads 4-7)
+      { spread: 4,  beat: 'ADVENTURE_START', description: `They head out or the project deepens — show the transition. The world opens up. Anticipation and excitement.`, wordTarget: wt + 2 },
+      { spread: 5,  beat: 'ADVENTURE_SKILL', description: `${p} does something that amazes ${child.name} — a skill, a trick, lifting something heavy, fixing something. Connected to the adventure/project.`, wordTarget: wt + 2 },
+      { spread: 6,  beat: 'ADVENTURE_PLAY',  description: `A funny or playful moment within the adventure — physical comedy, stick swords, a shared joke. Still in the same scene.`, wordTarget: wt + 2 },
+      { spread: 7,  beat: 'ADVENTURE_QUIET', description: `A quieter beat — working side by side, watching something together. The story breathes before the peak. Still in the same place.`, wordTarget: wt },
+      // SCENE C — THE PEAK (spreads 8-11)
+      { spread: 8,  beat: 'BIG_MOMENT',     description: `The adventure reaches its destination or the project nears completion. The payoff they've been building toward.`, wordTarget: wt + 2 },
+      { spread: 9,  beat: 'PEAK_JOY',       description: `The best moment — triumphant, exciting. A high-five, a victory dance, the finished thing. Maximum energy. Physical, joyful, specific.`, wordTarget: wt + 2 },
+      { spread: 10, beat: 'CHILD_LEADS',    description: `${child.name} does something that surprises or impresses ${p} — shows what they learned, takes a turn, makes a gift. Warm role reversal.`, wordTarget: wt + 2 },
+      { spread: 11, beat: 'PROUD',          description: `${p} and ${child.name} share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper, not louder.`, wordTarget: wt },
+      // SCENE D — HEADING HOME (spreads 12-13)
+      { spread: 12, beat: 'HEADING_HOME',   description: `The journey home or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime.`, wordTarget: wt },
+      { spread: 13, beat: 'CLOSING',        description: `The last line. Joyful echo of the opening. Concrete, specific, beautiful. A parent should want to read it twice.`, wordTarget: isYoung ? 14 : 15 },
     ];
   }
 
@@ -196,19 +200,23 @@ class GenericThemeWriter extends BaseThemeWriter {
   _celebrationBeats(isYoung, child) {
     const wt = isYoung ? 20 : 28;
     return [
-      { spread: 1,  beat: 'MORNING',       description: `${child.name} wakes on a special day. Morning light, birthday excitement, a sensory detail.`, wordTarget: wt },
-      { spread: 2,  beat: 'ANTICIPATION',  description: `Something is coming, preparations happening around ${child.name}. Build excitement through concrete images.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'PREPARATION',   description: `Getting ready: decorations, outfit, maybe baking. Use favorite_cake_flavor if available.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'PARTY_BEGINS',  description: `The celebration starts. Friends or family arrive. Noise, color, action.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'ACTIVITIES',    description: `Party games, play, laughter. Use favorite_toys or interests if available.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'CONNECTION',    description: `A quiet moment amid the fun. ${child.name} notices something, feels something deeper.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'CAKE_CANDLES',  description: `The cake arrives. Candles lit. Faces glow in warm light. Build to the wish.`, wordTarget: wt },
+      // SCENE A — MORNING / PREPARATION (spreads 1-3, at home)
+      { spread: 1,  beat: 'MORNING',       description: `${child.name} wakes on a special day. Morning light, birthday excitement, a sensory detail. At home.`, wordTarget: wt },
+      { spread: 2,  beat: 'ANTICIPATION',  description: `Something is coming — preparations happening around ${child.name}. Build excitement through concrete images. Still at home.`, wordTarget: wt + 2 },
+      { spread: 3,  beat: 'PREPARATION',   description: `Getting ready: decorations, outfit, maybe baking. Use favorite_cake_flavor if available. Still at home, same scene as spreads 1-2.`, wordTarget: wt + 2 },
+      // SCENE B — THE PARTY (spreads 4-6, at the party location)
+      { spread: 4,  beat: 'PARTY_BEGINS',  description: `The celebration starts. Friends or family arrive. Noise, color, action. Show where the party is.`, wordTarget: wt + 2 },
+      { spread: 5,  beat: 'ACTIVITIES',    description: `Party games, play, laughter. Use favorite_toys or interests if available. Same party location.`, wordTarget: wt + 2 },
+      { spread: 6,  beat: 'CONNECTION',    description: `A quiet moment amid the fun. ${child.name} notices something, feels something deeper. Still at the party.`, wordTarget: wt + 2 },
+      // SCENE C — THE CAKE / WISH (spreads 7-10, the emotional peak at the party)
+      { spread: 7,  beat: 'CAKE_CANDLES',  description: `The cake arrives. Candles lit. Faces glow in warm light. Build to the wish. Same party location.`, wordTarget: wt },
       { spread: 8,  beat: 'WISH_MOMENT',   description: `Eyes closed, a wish forming. The quietest, most magical spread. Fewest words.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 9,  beat: 'BLOW',          description: `The breath, the candles out, cheering erupts. Joy and release.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'WARMTH',        description: `Surrounded by love. The feeling of being celebrated just for being you.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'WINDING_DOWN',  description: `The party ends. Quiet settles. Echoes of laughter, crumbs on the table.`, wordTarget: wt },
-      { spread: 12, beat: 'BEDTIME',       description: `${child.name} in bed, replaying the day. A favorite gift or memory glows in mind.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',       description: `The last line. A wish fulfilled, or a secret smile. Echo the morning.`, wordTarget: isYoung ? 14 : 15 },
+      { spread: 9,  beat: 'BLOW',          description: `The breath, the candles out, cheering erupts. Joy and release. Still at the party.`, wordTarget: wt + 2 },
+      { spread: 10, beat: 'WARMTH',        description: `Surrounded by love. The feeling of being celebrated just for being you. The emotional high point.`, wordTarget: wt + 2 },
+      // SCENE D — AFTER THE PARTY (spreads 11-13, back at home, warm and happy)
+      { spread: 11, beat: 'WINDING_DOWN',  description: `The party ends, transition home. Quiet settles. Echoes of laughter, crumbs on the table.`, wordTarget: wt },
+      { spread: 12, beat: 'GLOW',          description: `${child.name} at home, still buzzing from the day. A favorite gift examined, a balloon still floating, frosting on a finger. NOT bedtime, NOT sleepy.`, wordTarget: wt },
+      { spread: 13, beat: 'CLOSING',       description: `The last line. A wish fulfilled, or a secret smile. Echo the morning. Warm, bright, joyful. NOT a goodnight, NOT asleep.`, wordTarget: isYoung ? 14 : 15 },
     ];
   }
 
@@ -224,19 +232,23 @@ class GenericThemeWriter extends BaseThemeWriter {
       nature: 'the wild woods past the meadow',
     }[this.themeName] || 'somewhere just past the familiar';
     return [
-      { spread: 1,  beat: 'HOOK',            description: `${child.name} discovers something that calls them toward ${setting}. Vivid, sensory, immediate.`, wordTarget: wt },
-      { spread: 2,  beat: 'DISCOVERY',       description: `The new world opens up. Colors, sounds, textures. Wonder fills the scene.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'RISING_1',        description: `${child.name} ventures deeper. A companion or guide may appear. Use child's interests.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'RISING_2',        description: `A second discovery, stranger and more wonderful. The world reveals its rules.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'DEEP_EXPLORE',    description: `The heart of the adventure world. ${child.name} is fully immersed, confident, curious.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'CHALLENGE',       description: `Something goes wrong or gets tricky. A puzzle, a blockage, a moment of doubt.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'CLEVERNESS',      description: `${child.name} uses something they know, something from home, to solve it. Resourcefulness.`, wordTarget: wt + 2 },
-      { spread: 8,  beat: 'TRIUMPH',         description: `The problem is solved. Joy, relief, pride. The world responds, celebrates.`, wordTarget: wt },
-      { spread: 9,  beat: 'WONDER',          description: `A quiet beat of pure wonder. The most beautiful image in the book. Fewest words.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 10, beat: 'GIFT',            description: `The world gives ${child.name} something to carry home, a token, a memory, a new understanding.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'HOMECOMING',      description: `Returning home. The familiar world looks a little different now.`, wordTarget: wt },
-      { spread: 12, beat: 'REFLECTION',      description: `Safe at home, but changed. The adventure lives inside. Echo of the opening.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',         description: `The last line. A whisper of the adventure still waiting. The most beautiful sentence.`, wordTarget: isYoung ? 14 : 15 },
+      // SCENE A — THE CALL (spreads 1-3, home / the threshold)
+      { spread: 1,  beat: 'HOOK',            description: `${child.name} discovers something that calls them toward ${setting}. Vivid, sensory, immediate. At home or a familiar place.`, wordTarget: wt },
+      { spread: 2,  beat: 'DISCOVERY',       description: `The new world opens up. Colors, sounds, textures. Wonder fills the scene. The threshold crossing.`, wordTarget: wt + 2 },
+      { spread: 3,  beat: 'RISING_1',        description: `${child.name} ventures deeper. A companion or guide may appear. Use child's interests. Same new world.`, wordTarget: wt + 2 },
+      // SCENE B — DEEP EXPLORATION (spreads 4-7, the adventure world)
+      { spread: 4,  beat: 'RISING_2',        description: `A second discovery, stranger and more wonderful. The world reveals its rules. Same adventure world.`, wordTarget: wt + 2 },
+      { spread: 5,  beat: 'DEEP_EXPLORE',    description: `The heart of the adventure world. ${child.name} is fully immersed, confident, curious. Same location.`, wordTarget: wt + 2 },
+      { spread: 6,  beat: 'CHALLENGE',       description: `Something goes wrong or gets tricky. A puzzle, a blockage, a moment of doubt. Same adventure world.`, wordTarget: wt + 2 },
+      { spread: 7,  beat: 'CLEVERNESS',      description: `${child.name} uses something they know, something from home, to solve it. Resourcefulness. Same location as the challenge.`, wordTarget: wt + 2 },
+      // SCENE C — TRIUMPH & WONDER (spreads 8-10, the peak of the adventure)
+      { spread: 8,  beat: 'TRIUMPH',         description: `The problem is solved. Joy, relief, pride. The world responds, celebrates. Same adventure world.`, wordTarget: wt },
+      { spread: 9,  beat: 'WONDER',          description: `A quiet beat of pure wonder. The most beautiful image in the book. Fewest words. Still in the adventure world.`, wordTarget: isYoung ? 12 : 15 },
+      { spread: 10, beat: 'GIFT',            description: `The world gives ${child.name} something to carry home — a token, a memory, a new understanding. The farewell.`, wordTarget: wt + 2 },
+      // SCENE D — HOMECOMING (spreads 11-13, returning home)
+      { spread: 11, beat: 'HOMECOMING',      description: `Returning home. Show the journey back. The familiar world looks a little different now.`, wordTarget: wt },
+      { spread: 12, beat: 'REFLECTION',      description: `Safe at home, but changed. The adventure lives inside. Echo of the opening. Same home as spread 1.`, wordTarget: wt },
+      { spread: 13, beat: 'CLOSING',         description: `The last line. A whisper of the adventure still waiting. Echo the opening image. The most beautiful sentence.`, wordTarget: isYoung ? 14 : 15 },
     ];
   }
 
@@ -246,18 +258,22 @@ class GenericThemeWriter extends BaseThemeWriter {
     const wt = isYoung ? 20 : 28;
     const settingWord = { bedtime: 'evening', school: 'morning', friendship: 'afternoon', holiday: 'day' }[this.themeName] || 'day';
     return [
+      // SCENE A — THE FAMILIAR (spreads 1-3, the known routine)
       { spread: 1,  beat: 'SETTING',        description: `The ${settingWord} begins for ${child.name}. A specific, familiar place. Sensory grounding.`, wordTarget: wt },
-      { spread: 2,  beat: 'ROUTINE',        description: `A comforting routine unfolds. The rhythm of the ordinary. Concrete details.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'DISRUPTION',     description: `Something new or unexpected enters the scene. A change in the pattern.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'CURIOSITY',      description: `${child.name} responds to the new thing with curiosity. Exploration of the change.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'DEEPENING',      description: `The new thing leads somewhere unexpected. Richer than first thought.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'EMOTIONAL_CORE', description: `The heart of the story. What this really means to ${child.name}. A feeling, not a lesson.`, wordTarget: wt + 2 },
+      { spread: 2,  beat: 'ROUTINE',        description: `A comforting routine unfolds. The rhythm of the ordinary. Concrete details. Same place as spread 1.`, wordTarget: wt + 2 },
+      { spread: 3,  beat: 'DISRUPTION',     description: `Something new or unexpected enters the scene. A change in the pattern. Still in the same familiar place.`, wordTarget: wt + 2 },
+      // SCENE B — THE NEW THING (spreads 4-7, exploring the disruption)
+      { spread: 4,  beat: 'CURIOSITY',      description: `${child.name} responds to the new thing with curiosity. Exploration of the change. The disruption draws them forward.`, wordTarget: wt + 2 },
+      { spread: 5,  beat: 'DEEPENING',      description: `The new thing leads somewhere unexpected. Richer than first thought. Same emotional territory as spread 4.`, wordTarget: wt + 2 },
+      { spread: 6,  beat: 'EMOTIONAL_CORE', description: `The heart of the story. What this really means to ${child.name}. A feeling, not a lesson. Connected to the disruption.`, wordTarget: wt + 2 },
       { spread: 7,  beat: 'QUIET_MOMENT',   description: `A pause. Fewest words. ${child.name} sits with the feeling. Near wordless.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 8,  beat: 'CONNECTION',     description: `Someone else shares the moment. A friend, a parent, a sibling. Togetherness.`, wordTarget: wt + 2 },
-      { spread: 9,  beat: 'RESOLUTION',     description: `The disruption resolves. Not fixed, but understood. Comfort returns.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'RETURN',         description: `Back to the routine, but it feels a little different now.`, wordTarget: wt },
-      { spread: 11, beat: 'COMFORT',        description: `The safety of the familiar. Physical warmth, soft light, gentle sounds.`, wordTarget: wt },
-      { spread: 12, beat: 'ECHO',           description: `The refrain lands one final time. Close on an image, not a declaration.`, wordTarget: wt },
+      // SCENE C — CONNECTION & RESOLUTION (spreads 8-10, someone joins, understanding arrives)
+      { spread: 8,  beat: 'CONNECTION',     description: `Someone else shares the moment. A friend, a parent, a sibling. Togetherness. The feeling is no longer alone.`, wordTarget: wt + 2 },
+      { spread: 9,  beat: 'RESOLUTION',     description: `The disruption resolves. Not fixed, but understood. Comfort returns. Same place as the connection.`, wordTarget: wt + 2 },
+      { spread: 10, beat: 'RETURN',         description: `Back to the routine, but it feels a little different now. Show the familiar place again.`, wordTarget: wt },
+      // SCENE D — SETTLING (spreads 11-13, back to the known world, changed)
+      { spread: 11, beat: 'COMFORT',        description: `The safety of the familiar. Physical warmth, soft light, gentle sounds. Same place as the opening.`, wordTarget: wt },
+      { spread: 12, beat: 'ECHO',           description: `The refrain lands one final time. Close on an image, not a declaration. Same place.`, wordTarget: wt },
       { spread: 13, beat: 'CLOSING',        description: `The last line. Echo the opening. The world is the same, but ${child.name} is a little more.`, wordTarget: isYoung ? 14 : 15 },
     ];
   }
@@ -279,19 +295,23 @@ class GenericThemeWriter extends BaseThemeWriter {
     const situation = book.emotionalSituation || '';
     const situationNote = situation ? ` Situation context: ${situation}.` : '';
     return [
-      { spread: 1,  beat: 'NORMAL_DAY',    description: `A regular moment for ${child.name}. Everything seems fine on the surface.${situationNote}`, wordTarget: wt },
-      { spread: 2,  beat: 'FEELING_ARRIVES', description: `${feeling} appears. Small at first. A physical sensation, not a label.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'FEELING_GROWS',  description: `The feeling gets bigger. It shows up in the body, in the world around ${child.name}.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'TRIES_TO_COPE',  description: `${child.name} tries to handle it alone. Maybe hides, maybe pushes back. It does not work yet.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'OVERWHELM',      description: `The feeling fills everything. The hardest spread. Honest, not scary.`, wordTarget: wt },
-      { spread: 6,  beat: 'TURNING_POINT',  description: `Someone notices. A gentle adult or friend reaches toward ${child.name}. No lecture, just presence.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'NAMING',         description: `The feeling gets a name. Spoken aloud, it shrinks a little. "You feel..." Fewest words.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 8,  beat: 'UNDERSTANDING',  description: `${child.name} learns the feeling is allowed. Everyone has it sometimes. Comfort.`, wordTarget: wt + 2 },
-      { spread: 9,  beat: 'PRACTICE',       description: `A small tool or action to try when the feeling comes back. Concrete, not abstract.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'TRYING_AGAIN',   description: `${child.name} goes back to the thing that was hard. The feeling is still there, but smaller.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'SMALL_WIN',      description: `A moment of bravery, or calm, or acceptance. Not perfection, just enough.`, wordTarget: wt },
-      { spread: 12, beat: 'SAFETY',         description: `The refrain lands one final time. ${child.name} is held, safe, understood.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',        description: `The last line. The feeling may come back, but ${child.name} knows what to do. Hope, not cure.`, wordTarget: isYoung ? 14 : 15 },
+      // SCENE A — THE ORDINARY (spreads 1-3, the feeling arrives in a familiar place)
+      { spread: 1,  beat: 'NORMAL_DAY',     description: `A regular moment for ${child.name}. Everything seems fine on the surface.${situationNote}`, wordTarget: wt },
+      { spread: 2,  beat: 'FEELING_ARRIVES', description: `${feeling} appears. Small at first. A physical sensation, not a label. Same place as spread 1.`, wordTarget: wt + 2 },
+      { spread: 3,  beat: 'FEELING_GROWS',   description: `The feeling gets bigger. It shows up in the body, in the world around ${child.name}. Same place, but it looks different now.`, wordTarget: wt + 2 },
+      // SCENE B — THE STRUGGLE (spreads 4-7, the feeling takes over)
+      { spread: 4,  beat: 'TRIES_TO_COPE',   description: `${child.name} tries to handle it alone. Maybe hides, maybe pushes back. It does not work yet. Connected to the situation.`, wordTarget: wt + 2 },
+      { spread: 5,  beat: 'OVERWHELM',       description: `The feeling fills everything. The hardest spread. Honest, not scary. The low point of the story.`, wordTarget: wt },
+      { spread: 6,  beat: 'TURNING_POINT',   description: `Someone notices. A gentle adult or friend reaches toward ${child.name}. No lecture, just presence. Same place.`, wordTarget: wt + 2 },
+      { spread: 7,  beat: 'NAMING',          description: `The feeling gets a name. Spoken aloud, it shrinks a little. "You feel..." Fewest words.`, wordTarget: isYoung ? 12 : 15 },
+      // SCENE C — LEARNING (spreads 8-10, understanding and practice)
+      { spread: 8,  beat: 'UNDERSTANDING',   description: `${child.name} learns the feeling is allowed. Everyone has it sometimes. Comfort. Still with the person from spread 6.`, wordTarget: wt + 2 },
+      { spread: 9,  beat: 'PRACTICE',        description: `A small tool or action to try when the feeling comes back. Concrete, not abstract. They practice together.`, wordTarget: wt + 2 },
+      { spread: 10, beat: 'TRYING_AGAIN',    description: `${child.name} goes back to the thing that was hard. The feeling is still there, but smaller. Connected to spreads 1-3.`, wordTarget: wt + 2 },
+      // SCENE D — HOPE (spreads 11-13, resolution and safety)
+      { spread: 11, beat: 'SMALL_WIN',       description: `A moment of bravery, or calm, or acceptance. Not perfection, just enough. Back in the familiar place from spread 1.`, wordTarget: wt },
+      { spread: 12, beat: 'SAFETY',          description: `The refrain lands one final time. ${child.name} is held, safe, understood. Same place.`, wordTarget: wt },
+      { spread: 13, beat: 'CLOSING',         description: `The last line. The feeling may come back, but ${child.name} knows what to do. Hope, not cure. Echo the opening.`, wordTarget: isYoung ? 14 : 15 },
     ];
   }
 
@@ -355,11 +375,17 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     const systemPrompt = `You are a children's book story planner specializing in ${themeLabel} picture books. Your job is to weave specific, real details about this child into the story beat structure.
 
+NARRATIVE STRUCTURE (CRITICAL):
+- The beats are organized into 4 SCENES. Keep this structure intact.
+- Consecutive beats within a scene MUST share the same location or emotional space. Do NOT jump between unrelated places.
+- A 3-year-old listener must be able to follow every transition between beats.
+
 RULES:
-- Keep every beat's purpose intact
+- Keep every beat's purpose and SCENE grouping intact
 - Replace generic placeholders with specific anecdotes from the child's real life
 - Use concrete nouns and actions, never abstract claims
-- The anecdotes should feel natural in the story, not forced in`;
+- The anecdotes should feel natural in the story, not forced in
+- When enriching, keep beats within the same scene connected to each other`;
 
     const userPrompt = `Here are the story beats for a ${ageTier} ${themeLabel} book${parentNote}:
 
@@ -477,6 +503,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
       b.beat === 'QUIET_MOMENT' || b.beat === 'NAMING'
     );
 
+    sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);
+    sections.push(`- The beats are organized into 4 SCENES. Beats within a scene share the same location or emotional space.`);
+    sections.push(`- Within each scene, the characters stay in the SAME PLACE. Do NOT jump to a new location within a scene.`);
+    sections.push(`- Scene transitions must be clear — the reader must always know WHERE the characters are and WHY they moved.`);
+    sections.push(`- Do NOT write a slideshow of unrelated activities. Each spread flows from the one before it.`);
+    sections.push(`- CLARITY: Every image and metaphor must be literal enough for a 3-year-old to picture. If you mix imagination and reality, signal the shift clearly.`);
+
     sections.push(`\n## CRITICAL REMINDERS\n`);
     sections.push(`- AABB couplets throughout, every line pair must rhyme`);
     if (climaxBeat) {
@@ -493,6 +526,9 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Do NOT invent names not provided in the input. Only use "${child.name}" and any names given above.`);
     sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl, use she/her.' : child.gender === 'male' ? 'He is a boy, use he/him.' : ''} Use the child's name or correct pronouns. "They" is only for plural subjects.`);
     sections.push(`- NEVER use dashes, hyphens, or em dashes in the story text. Use commas, periods, or line breaks instead.`);
+    if (this.themeName !== 'bedtime') {
+      sections.push(`- NO BEDTIME ENDING: Unless the theme is bedtime, the story must NOT end with the child falling asleep, going to bed, tucking in, closing eyes to sleep, dreaming, or any nighttime/goodnight imagery. End with warmth, togetherness, and energy — in DAYLIGHT or at least awake.`);
+    }
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
 
     return sections.join('\n');

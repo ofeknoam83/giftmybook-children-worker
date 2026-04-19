@@ -39,7 +39,7 @@ class QualityGate {
       return {
         pass: false,
         overallScore: 0,
-        scores: { pronouns: 0, wordCount: 0, rhymeVariety: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0 },
+        scores: { pronouns: 0, wordCount: 0, rhymeVariety: 0, endingAppropriateness: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0 },
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
       };
     }
@@ -48,6 +48,7 @@ class QualityGate {
     scores.pronouns = scorePronounCorrectness(spreads, child.gender);
     scores.wordCount = QualityGate._scoreWordCount(spreads, child.age, story._ageTier);
     scores.rhymeVariety = QualityGate._scoreRhymeVariety(spreads);
+    scores.endingAppropriateness = QualityGate._scoreEndingAppropriateness(spreads, book.theme);
 
     // LLM-based checks (slower, subjective)
     try {
@@ -82,6 +83,29 @@ class QualityGate {
     const feedback = pass ? '' : QualityGate._buildFeedback(scores, spreads);
 
     return { pass, overallScore: Math.round(overallScore * 10) / 10, scores, feedback };
+  }
+
+  /**
+   * Score whether the ending is appropriate for the theme.
+   * Penalizes bedtime/sleep endings on non-bedtime themes.
+   */
+  static _scoreEndingAppropriateness(spreads, theme) {
+    if (theme === 'bedtime') return 10;
+
+    const BEDTIME_PATTERNS = /\b(sleep|asleep|slept|sleeping|dream|dreaming|dreamt|goodnight|good\s*night|nighttime|tucked?\s*in|closed?\s*(her|his|their)\s*eyes?\s*(to\s*sleep)?|drifted?\s*off|pillow|pajama|blanket\s*(pulled|tucked)|yawn|drowsy|slumber|lullaby|moonlight|starlight|moon\s*(rose|shone|glowed))\b/i;
+
+    const lastSpreads = spreads.slice(-3);
+    let hits = 0;
+    for (const s of lastSpreads) {
+      const text = s.text || '';
+      const matches = text.match(new RegExp(BEDTIME_PATTERNS.source, 'gi'));
+      if (matches) hits += matches.length;
+    }
+
+    if (hits >= 3) return 2;
+    if (hits === 2) return 4;
+    if (hits === 1) return 6;
+    return 10;
   }
 
   /**
@@ -159,9 +183,13 @@ class QualityGate {
     const storyText = spreads.map(s => `Spread ${s.spread}: ${s.text}`).join('\n\n');
 
     const isCelebration = ['mothers_day', 'fathers_day', 'birthday', 'birthday_magic'].includes(book.theme);
+    const isBedtime = book.theme === 'bedtime';
     const arcDescription = isCelebration
       ? 'Does it build from specific activities to emotional connection to a joyful, warm climax? The closing should be the WARMEST spread — full of love and energy, NOT quiet, NOT sleepy, NOT bedtime.'
-      : 'Does it build from specific activities to emotional deepening to a quiet climax? Is the closing quieter than the middle?';
+      : isBedtime
+        ? 'Does it build toward a gentle, cozy bedtime? The arc should feel soothing and safe.'
+        : 'Does it build from specific activities to emotional deepening to a satisfying climax? Is the closing warm and connected?';
+    const bedtimePenalty = isBedtime ? '' : ' IMPORTANT: Unless the theme is "bedtime," the story must NOT end with the child going to sleep, falling asleep, being tucked in, dreaming, or any goodnight/nighttime imagery. Penalize heavily (score 1-4) if the last 2-3 spreads drift into bedtime/sleep when the theme is not bedtime.';
 
     const systemPrompt = `You are a professional children's book editor and quality assessor. Score the following story on these dimensions, each from 1-10:
 
@@ -171,7 +199,7 @@ class QualityGate {
 
 3. READ_ALOUD: Would this sound good read aloud by a parent? Is there rhythm variation? Do words have good "mouth-feel"? Would a parent stumble anywhere?
 
-4. EMOTIONAL_ARC: Does the story have emotional progression? ${arcDescription}${isCelebration ? ' Penalize if the story contains tantrums, crying, frustration, anger, bedtime, sleep, or goodnight imagery.' : ''}
+4. EMOTIONAL_ARC: Does the story have emotional progression? ${arcDescription}${isCelebration ? ' Penalize if the story contains tantrums, crying, frustration, anger, bedtime, sleep, or goodnight imagery.' : ''}${bedtimePenalty}
 
 5. SPECIFICITY: Are there concrete, specific nouns (not vague categories)? Do emotions emerge from actions rather than declarations? Is there at least one surprise per spread? Would any line work in a greeting card? (if yes, that's bad)
 
@@ -267,6 +295,12 @@ Return a JSON object:
       feedback.push('VARIETY: Multiple spreads describe the same activity or scene. Each spread must cover a DISTINCT moment — different action, different setting, or different emotional beat. Replace repeated scenes (e.g., sharing food multiple times) with varied activities like reading, playing outside, cooking, drawing, bath time, dancing, exploring, building, etc.');
     } else if (scores.variety < 7) {
       feedback.push('VARIETY: Some spreads feel repetitive — they describe similar activities or settings. Diversify the scenes so each spread feels like a fresh, distinct moment in the story.');
+    }
+
+    if (scores.endingAppropriateness < minDimensionScore) {
+      feedback.push('ENDING: The story ends with bedtime/sleep imagery (sleeping, dreaming, goodnight, tucking in, etc.) but this is NOT a bedtime-themed book. The ending MUST show the characters awake, warm, and together. Rewrite the last 2-3 spreads to end in daylight or at least fully awake — with togetherness, joy, and energy. No sleeping, no dreaming, no goodnights.');
+    } else if (scores.endingAppropriateness < 7) {
+      feedback.push('ENDING: The story drifts toward sleep/bedtime imagery at the end. Unless this is a bedtime book, keep the ending awake and warm. Remove references to sleep, dreams, or nighttime.');
     }
 
     if (scores.rhymeVariety < minDimensionScore) {
