@@ -87,7 +87,8 @@ function buildSystemInstruction(opts) {
     parts.push(`- The story references the child's ${isMother ? 'mother' : 'father'} but we have NO reference image`);
     parts.push(`- The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}`);
     parts.push(`- NEVER show the parent's full face — it would look different on every page`);
-    parts.push(`- Show ${isMother ? 'her' : 'him'} through: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge`);
+    parts.push(`- Show ${isMother ? 'her' : 'him'} through: hands reaching toward the child, arms around the child, side view with face turned toward the child but obscured/cropped, or kneeling beside the child with face just out of frame`);
+    parts.push(`- BODY ORIENTATION (CRITICAL): The parent's body must ALWAYS face TOWARD the child — leaning in, bending down, reaching out. NEVER show the parent walking away, facing away, or with their back to the child. The parent is ENGAGED with the child, not walking ahead of them.`);
     parts.push(`- The ${isMother ? 'mother' : 'father'} should feel warm and physically present — just with ${parentPronoun} face hidden`);
     if (opts.parentOutfit) {
       parts.push(`- PARENT OUTFIT LOCK (CRITICAL): The ${isMother ? 'mother' : 'father'} MUST wear EXACTLY this outfit in EVERY illustration — no exceptions: ${opts.parentOutfit}`);

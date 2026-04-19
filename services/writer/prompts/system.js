@@ -32,7 +32,7 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
   } else if (role === 'reviser') {
     sections.push('You are a world-class children\'s book editor. You revise picture book stories based on quality feedback, preserving the emotional arc and fixing specific issues.');
   } else {
-    sections.push('You are a world-class children\'s book writer. You write picture books that parents love reading aloud and children beg to hear again. Your writing is specific, musical, and emotionally true.');
+    sections.push('You are a world-class children\'s book writer. You write picture books that parents love reading aloud and children beg to hear again. Your writing is clever, fun, and easy to follow — like Dr. Seuss or Julia Donaldson, not like poetry for adults. Keep it simple and playful. A parent should be able to read it once, out loud, and a child should understand every line without explanation.');
   }
 
   // Core identity

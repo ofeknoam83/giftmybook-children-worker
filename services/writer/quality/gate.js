@@ -197,7 +197,7 @@ class QualityGate {
 
 2. AGE_APPROPRIATENESS: Is the vocabulary appropriate for age ${child.age}? Are sentences the right length? Would a child this age understand and enjoy this?${child.age <= 3 ? ' FOR AGES 0-3: Penalize heavily (score 1-4) if ANY spread contains words over 2 syllables (except proper names), abstract imagery, metaphors requiring interpretation, or more than 4 lines. Every word should be one a toddler hears daily. If the text feels like it was written for a 5-year-old, score 1-3.' : ''}
 
-3. READ_ALOUD: Would this sound good read aloud by a parent? Is there rhythm variation? Do words have good "mouth-feel"? Would a parent stumble anywhere?
+3. READ_ALOUD: Would this sound good read aloud by a parent? Is it easy and fun to read on the first try? Would a parent stumble on any word or phrasing? Penalize heavily (score 1-4) if the writing feels literary, overly poetic, or uses vocabulary that would make a parent pause to think about pronunciation or meaning. The writing should feel like Dr. Seuss or Julia Donaldson — clever and simple, not like adult poetry.
 
 4. EMOTIONAL_ARC: Does the story have emotional progression? ${arcDescription}${isCelebration ? ' Penalize if the story contains tantrums, crying, frustration, anger, bedtime, sleep, or goodnight imagery.' : ''}${bedtimePenalty}
 

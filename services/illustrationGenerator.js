@@ -375,7 +375,7 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
     const isMother = opts.theme === 'mothers_day';
     const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
     parts.push(`=== PARENT CHARACTER — ${parentLabel} (NO FACE) ===`);
-    parts.push(`The ${isMother ? 'mother' : 'father'} is physically present but we have NO reference photo. ${isMother ? 'She' : 'He'} is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show ${isMother ? 'her' : 'him'} through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the ${isMother ? 'mother' : 'father'}'s full face.`);
+    parts.push(`The ${isMother ? 'mother' : 'father'} is physically present but we have NO reference photo. ${isMother ? 'She' : 'He'} is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show ${isMother ? 'her' : 'him'} through BODY LANGUAGE ONLY: hands reaching toward child, arms around child, side view with face cropped/obscured, or kneeling beside child with face just out of frame. BODY ORIENTATION (CRITICAL): The parent's body must ALWAYS face TOWARD the child — leaning in, bending down, reaching out. NEVER show the parent walking away, facing away, or with back to the child. NEVER draw the ${isMother ? 'mother' : 'father'}'s full face.`);
     if (opts.parentOutfit) {
       parts.push(`PARENT OUTFIT (LOCKED): ${opts.parentOutfit} — same outfit on EVERY page, no changes.`);
     }
@@ -729,7 +729,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
     const _isMom4 = opts.theme === 'mothers_day';
     const _pWord4 = _isMom4 ? 'mother' : 'father';
-    parts.push(`4. PARENT CHARACTER — ${_isMom4 ? 'MOTHER (FEMALE)' : 'FATHER (MALE)'} (NO FACE): The ${_pWord4} is physically present in the scene but we have NO reference photo. The parent is ${_isMom4 ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show the ${_pWord4} through BODY LANGUAGE ONLY: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge. NEVER draw the ${_pWord4}'s full face — it would be inconsistent across pages. The ${_pWord4} should feel warm and THERE, just with ${_isMom4 ? 'her' : 'his'} face always hidden or turned away.`);
+    parts.push(`4. PARENT CHARACTER — ${_isMom4 ? 'MOTHER (FEMALE)' : 'FATHER (MALE)'} (NO FACE): The ${_pWord4} is physically present in the scene but we have NO reference photo. The parent is ${_isMom4 ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show the ${_pWord4} through BODY LANGUAGE ONLY: hands reaching toward child, arms around child, side view with face cropped/obscured, or kneeling beside child. BODY MUST FACE TOWARD THE CHILD — leaning in, bending down, reaching out. NEVER facing away or with back to the child. NEVER draw the ${_pWord4}'s full face — it would be inconsistent across pages. The ${_pWord4} should feel warm and ENGAGED, just with ${_isMom4 ? 'her' : 'his'} face always hidden.`);
     if (opts.parentOutfit) {
       parts.push(`   PARENT OUTFIT (LOCKED): ${opts.parentOutfit} — same outfit on EVERY page, no changes.`);
     }

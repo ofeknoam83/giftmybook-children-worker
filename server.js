@@ -1060,7 +1060,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     : customDetails;
 
   let format = bookFormat;
-  const style = artStyle || 'cinematic_3d';
+  const style = artStyle || 'pixar_premium';
   const costTracker = new CostTracker();
   const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
   const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
@@ -2324,7 +2324,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
 
   const costTracker = new CostTracker();
-  const style = artStyle || 'cinematic_3d';
+  const style = artStyle || 'pixar_premium';
 
   // Auto-extract characterAnchor if missing — happens for books generated before the anchor feature
   let resolvedCharacterAnchor = characterAnchor || null;
@@ -2476,7 +2476,7 @@ app.post('/generate-spread', authenticate, async (req, res) => {
     global.touchActivity(bookId);
 
     // Generate illustration
-    const style = artStyle || 'cinematic_3d';
+    const style = artStyle || 'pixar_premium';
     const sceneDesc = spreadPlan.illustrationPrompt || spreadPlan.illustrationDescription || text;
     // Fix 2C + 3C: Pass pageText, embedText, and font style instruction for /generate-spread
     const spreadText = text || '';

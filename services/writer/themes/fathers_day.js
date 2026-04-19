@@ -338,11 +338,19 @@ Refine each beat description to incorporate specific details from the anecdotes.
 
     if (plan.ageTier === 'young-picture') {
       sections.push(`\n## SIMPLICITY (THIS CHILD IS UNDER 4)\n`);
-      sections.push(`- Maximum 2 syllables per word (except names). No "solemn", "array", "beneath", "shimmer". Use "big", "soft", "warm", "red".`);
-      sections.push(`- Maximum 4 lines per spread. 2-4 lines is ideal.`);
-      sections.push(`- Every line must make a picture a toddler can see. No abstractions, no similes, no metaphors that require interpretation.`);
-      sections.push(`- Simple sentence structure: Subject + verb + object. One idea per line.`);
+      sections.push(`- Maximum 2 syllables per word (except names). Use "big", "soft", "warm", "red" — not "solemn", "beneath", "shimmer".`);
+      sections.push(`- Maximum 4 lines per spread. 2 lines is great.`);
+      sections.push(`- Every line must make a picture a toddler can see. No abstractions, no similes, no metaphors.`);
+      sections.push(`- Simple sentence structure. One idea per line.`);
+      sections.push(`- Be clever and fun, not literary. Think silly, bouncy, playful — the kind of line that makes a toddler giggle.`);
       sections.push(`- If in doubt, simpler is better. This book will be read to a child who still points at dogs and says "woof".`);
+    } else {
+      sections.push(`\n## KEEP IT SIMPLE AND FUN\n`);
+      sections.push(`- Write like Dr. Seuss or Julia Donaldson — clever, playful, easy to follow. NOT like adult poetry.`);
+      sections.push(`- A parent should read every line smoothly on the first try. No tricky words, no awkward phrasing.`);
+      sections.push(`- Prefer short, punchy sentences. Maximum 6 lines per spread. 4 is ideal.`);
+      sections.push(`- Use everyday words. "ran" not "crept", "big" not "vast", "fell" not "tumbled".`);
+      sections.push(`- Humor and wordplay are welcome. Literary flourishes are not.`);
     }
 
     sections.push(`\n## REFRAIN\n`);

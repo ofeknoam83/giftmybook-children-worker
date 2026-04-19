@@ -66,7 +66,7 @@ function buildSpreadPrompt(opts) {
   } else if (theme && PARENT_THEMES.has(theme)) {
     const isMother = theme === 'mothers_day';
     parts.push(`- The parent is the child's ${isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)'} — ${isMother ? 'NEVER draw a man' : 'NEVER draw a woman'}`);
-    parts.push('- Parent must NOT be shown with visible face — show only hands/shadow/back/implied presence');
+    parts.push('- Parent must NOT be shown with visible face — but body must ALWAYS face TOWARD the child (leaning in, reaching, kneeling). Show hands, arms, side view with face cropped. NEVER facing away from the child.');
     if (parentOutfit) {
       parts.push(`- PARENT OUTFIT (LOCKED): ${parentOutfit} — same outfit on EVERY spread, no changes`);
     }
