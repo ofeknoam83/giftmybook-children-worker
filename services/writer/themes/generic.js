@@ -15,6 +15,7 @@
 const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
+const { sanitizeNonLatinChars } = require('../quality/sanitize');
 
 // ── Theme category membership ──
 
@@ -115,6 +116,8 @@ class GenericThemeWriter extends BaseThemeWriter {
       }
     }
 
+    sanitizeNonLatinChars(spreads);
+
     return { spreads, _model: result.model, _ageTier: plan.ageTier };
   }
 
@@ -149,6 +152,8 @@ class GenericThemeWriter extends BaseThemeWriter {
           .replace(/(?<=[a-zA-Z])\s*-\s*(?=[a-zA-Z])/g, ', ');
       }
     }
+
+    sanitizeNonLatinChars(spreads);
 
     return { spreads, _model: result.model, _ageTier: ageTier };
   }

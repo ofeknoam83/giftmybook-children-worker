@@ -11,6 +11,7 @@
 const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
+const { sanitizeNonLatinChars } = require('../quality/sanitize');
 
 class FathersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -127,6 +128,8 @@ class FathersDayWriter extends BaseThemeWriter {
       }
     }
 
+    sanitizeNonLatinChars(spreads);
+
     return {
       spreads,
       _model: result.model,
@@ -172,6 +175,8 @@ class FathersDayWriter extends BaseThemeWriter {
           .replace(/(?<=[a-zA-Z])\s*-\s*(?=[a-zA-Z])/g, ', ');
       }
     }
+
+    sanitizeNonLatinChars(spreads);
 
     return {
       spreads,
