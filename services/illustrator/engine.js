@@ -22,7 +22,8 @@ const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_REGEN_SPREADS, TOTAL_SPREADS } = require('./config');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_REGEN_SPREADS, TOTAL_SPREADS, TEXT_RULES } = require('./config');
+const { getTextPlacement } = require('./prompts/text');
 
 class IllustratorEngine {
   /**
@@ -173,13 +174,36 @@ class IllustratorEngine {
           ];
           log('warn', `Spread ${i + 1} QA failed (retry ${qaRetries}/${MAX_SPREAD_RETRIES}): ${issues.join('; ')}`);
 
-          // Build correction prompt
-          const correctionPrompt = `The previous illustration for spread ${i + 1} had issues. Please regenerate with these corrections:
+          // Build correction prompt — use focused language for text issues
+          const hasTextIssues = issues.some(iss => iss.startsWith('[text]'));
+          const hasAnatomyIssues = issues.some(iss => iss.startsWith('[anatomy]'));
+          const hasDuplication = issues.some(iss => iss.toLowerCase().includes('duplicat'));
+          const hasCenterViolation = issues.some(iss => iss.toLowerCase().includes('center'));
+          const hasEdgeViolation = issues.some(iss => iss.toLowerCase().includes('edge'));
+
+          let correctionPrompt;
+
+          if (hasTextIssues && !hasAnatomyIssues) {
+            const placement = getTextPlacement(i);
+            const safePct = 50 - TEXT_RULES.centerExclusionPercent;
+            const textFixes = [];
+            if (hasDuplication) textFixes.push('The text appeared MORE THAN ONCE. Render it EXACTLY ONE TIME in ONE location.');
+            if (hasCenterViolation) textFixes.push(`Text was too close to the center. Move ALL text to the ${placement.side.toUpperCase()} side — within the ${placement.side} ${safePct}% of the image.`);
+            if (hasEdgeViolation) textFixes.push(`Text was too close to the edge. Keep at least ${TEXT_RULES.edgePaddingPercent}% from sides/top and ${TEXT_RULES.bottomPaddingPercent}% from the bottom.`);
+            if (textFixes.length === 0) textFixes.push(...issues.map(iss => iss.replace(/^\[text\]\s*/, '')));
+
+            correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. Fix ONLY the text:
+${textFixes.map(f => `- ${f}`).join('\n')}
+
+Place the story text in the ${placement.anchor} of the image. Same scene, same character, same style — just fix the text placement.`;
+          } else {
+            correctionPrompt = `The previous illustration for spread ${i + 1} had issues. Please regenerate with these corrections:
 ${issues.map(iss => `- FIX: ${iss}`).join('\n')}
 
 Generate the corrected illustration for spread ${i + 1} with the same scene, but fix the issues listed above.
 
 ${prompt}`;
+          }
 
           try {
             result = await sendCorrection(session, correctionPrompt, i);
@@ -237,7 +261,11 @@ ${prompt}`;
             ...(textCheck.pass ? [] : textCheck.issues.map(iss => `[text] ${iss}`)),
             ...(anatomyCheck.pass ? [] : anatomyCheck.issues.map(iss => `[anatomy] ${iss}`)),
           ];
-          throw new Error(`Spread ${i + 1} failed QA after ${qaRetries} retries + fresh attempt: ${remaining.join('; ')}`);
+          if (imageBase64 && imageBuffer) {
+            log('warn', `Spread ${i + 1} accepting best attempt despite QA issues (${remaining.length} remaining): ${remaining.join('; ')}`);
+          } else {
+            throw new Error(`Spread ${i + 1} failed QA after ${qaRetries} retries with no usable image: ${remaining.join('; ')}`);
+          }
         } else {
           log('info', `Spread ${i + 1} QA passed`);
         }

@@ -7,16 +7,39 @@
 
 const { TEXT_RULES } = require('../config');
 
+const TEXT_PLACEMENTS = [
+  { side: 'left',  vertical: 'upper', anchor: 'upper-left corner' },
+  { side: 'right', vertical: 'upper', anchor: 'upper-right corner' },
+  { side: 'left',  vertical: 'lower', anchor: 'lower-left area' },
+  { side: 'right', vertical: 'lower', anchor: 'lower-right area' },
+  { side: 'left',  vertical: 'upper', anchor: 'top-left area' },
+  { side: 'right', vertical: 'upper', anchor: 'top-right area' },
+];
+
+/**
+ * Get the target text placement for a spread, alternating sides.
+ * @param {number} spreadIndex - 0-based
+ * @returns {{ side: string, vertical: string, anchor: string }}
+ */
+function getTextPlacement(spreadIndex) {
+  return TEXT_PLACEMENTS[spreadIndex % TEXT_PLACEMENTS.length];
+}
+
 /**
  * Build text embedding instructions for a spread.
  *
  * @param {string} text - The story text to embed (may be empty)
+ * @param {object} [opts]
+ * @param {number} [opts.spreadIndex] - 0-based spread index for side alternation
  * @returns {string}
  */
-function buildTextInstruction(text) {
+function buildTextInstruction(text, opts = {}) {
   if (!text || !text.trim()) {
     return '### NO TEXT\nDo NOT render any text, words, letters, or numbers in the illustration.';
   }
+
+  const placement = getTextPlacement(opts.spreadIndex || 0);
+  const safePct = 50 - TEXT_RULES.centerExclusionPercent;
 
   const parts = [];
 
@@ -25,11 +48,11 @@ function buildTextInstruction(text) {
   parts.push('- Render EVERY word exactly as written above — spell each word correctly. Do NOT substitute, rearrange, or abbreviate any word.');
   parts.push('');
   parts.push('### TEXT PLACEMENT (CRITICAL)');
-  parts.push('- Render the text EXACTLY ONCE — do NOT place the same text in multiple locations. The story text must appear in ONE block only.');
-  parts.push('- Place text anywhere vertically (top, bottom, upper, lower — all fine)');
-  parts.push(`- CENTER EXCLUSION ZONE: This image will be split into LEFT and RIGHT pages at the exact center. The middle ${TEXT_RULES.centerExclusionPercent * 2}% is a NO-TEXT ZONE. Place ALL text entirely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. NEVER place any text near the center. If in doubt, push text further toward the edge.`);
+  parts.push(`- TEXT POSITION: Place ALL text in the ${placement.anchor} of the image — the ${placement.side.toUpperCase()} side, ${placement.vertical} portion.`);
+  parts.push(`- Render the text EXACTLY ONCE in a single block. ONE text block only — NEVER duplicate or repeat the text anywhere else in the image.`);
+  parts.push(`- This image will be split into LEFT and RIGHT pages at the exact center. The middle ${TEXT_RULES.centerExclusionPercent * 2}% is a NO-TEXT ZONE. ALL text must be within the ${placement.side.toUpperCase()} ${safePct}% of the image.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left, right, and top edges`);
-  parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${TEXT_RULES.bottomPaddingPercent}% of the image.`);
+  parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Keep text well above the bottom ${TEXT_RULES.bottomPaddingPercent}%.`);
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
   parts.push('- The font must be IDENTICAL to all other pages — same family, same weight, same size. NEVER change fonts.');
@@ -40,4 +63,4 @@ function buildTextInstruction(text) {
   return parts.join('\n');
 }
 
-module.exports = { buildTextInstruction };
+module.exports = { buildTextInstruction, getTextPlacement };

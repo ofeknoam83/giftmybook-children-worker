@@ -98,7 +98,7 @@ function buildSpreadPrompt(opts) {
 
   // Text embedding
   const spreadText = [leftText, rightText].filter(Boolean).join(' ');
-  parts.push(buildTextInstruction(spreadText));
+  parts.push(buildTextInstruction(spreadText, { spreadIndex }));
 
   return parts.join('\n');
 }
