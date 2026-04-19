@@ -386,9 +386,9 @@ Return ONLY valid JSON, no markdown.`;
 // ── Cover derivation from parent book cover ──
 
 /**
- * Convert a parent children's book cover into a coloring-edition cover.
- * Keeps the same composition/characters but re-renders in a whimsical,
- * colorful "coloring book cover" style — NOT pure B&W line art.
+ * Convert a parent children's book cover into a coloring-page cover.
+ * Keeps the same composition/characters but re-renders as clean B&W line art
+ * that a child can color in — matching the interior coloring page style.
  * @param {Buffer} parentCoverBuffer - original cover image buffer
  * @returns {Promise<Buffer>}
  */
@@ -397,17 +397,18 @@ async function convertCoverToColoringStyle(parentCoverBuffer) {
   let lastError;
 
   const base64 = parentCoverBuffer.toString('base64');
-  const prompt = `You are given a children's book cover. Re-create it as a COLORING BOOK COVER:
+  const prompt = `You are given a children's book cover. Re-create it as a COLORING PAGE that a child can color in:
 
 - Keep the SAME characters, composition, and scene from the original cover
-- Re-draw in a bright, playful, whimsical COLORING BOOK cover style
-- Use vibrant, cheerful colors — this is a COVER (not an interior B&W page)
-- Simplify fine details into bold, clean shapes suitable for a coloring book aesthetic
+- Render as CLEAN BLACK OUTLINES on a pure WHITE background — this must look like a coloring page
+- Bold, well-defined line art with clear shapes and smooth outlines
+- Simplify fine details into thick, child-friendly outlines (no thin or fiddly lines)
+- NO shading, NO gradients, NO fills, NO colors — only black outlines on white
 - PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
 - ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
-- Leave a CLEAN area at the TOP (top 15%) for title text overlay
-- Leave a CLEAN area at the BOTTOM (bottom 10%) for branding text overlay
-- High quality, professional children's coloring book cover art`;
+- Leave a CLEAN WHITE area at the TOP (top 15%) for title text overlay
+- Leave a CLEAN WHITE area at the BOTTOM (bottom 10%) for branding text overlay
+- Professional quality line art suitable for a printed coloring book cover`;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -484,19 +485,22 @@ function buildFrontCoverPrompt({ childName, title, age, characterDescription }) 
   const charBlock = characterDescription
     ? `\nThe main character looks like this: ${characterDescription}`
     : '';
-  return `Create a beautiful, colorful children's coloring book COVER illustration.
+  return `Create a children's coloring book COVER as a COLORING PAGE that a child can color in.
 Book title: "${title || 'My Coloring Book'}"
 Child's name: ${childName || 'a child'}, age ${age || 5}${charBlock}
 
 STYLE REQUIREMENTS:
-- Bright, vibrant, playful colors — looks like a real published children's coloring book cover
-- Whimsical, inviting art style with fun characters and magical elements
+- CLEAN BLACK OUTLINES on a pure WHITE background — this must look like a coloring page
+- Bold, well-defined line art with clear shapes and smooth outlines
+- Whimsical, inviting composition with fun characters and magical elements
+- Simplify details into thick, child-friendly outlines (no thin or fiddly lines)
+- NO shading, NO gradients, NO fills, NO colors — only black outlines on white
 - PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
 - ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
-- Leave a CLEAN, relatively uncluttered area at the TOP of the image (top 15%) for title text overlay
-- Leave a CLEAN area at the BOTTOM of the image (bottom 10%) for branding text overlay
-- The middle portion should be rich, detailed, and eye-catching
-- High quality, professional children's book cover art`;
+- Leave a CLEAN WHITE area at the TOP of the image (top 15%) for title text overlay
+- Leave a CLEAN WHITE area at the BOTTOM of the image (bottom 10%) for branding text overlay
+- The middle portion should be rich, detailed, and eye-catching line art
+- Professional quality suitable for a printed coloring book cover`;
 }
 
 /**
@@ -506,18 +510,21 @@ function buildBackCoverPrompt({ childName, title, age, characterDescription }) {
   const charBlock = characterDescription
     ? `\nThe characters look like this: ${characterDescription}`
     : '';
-  return `Create a simple, complementary back cover illustration for a children's coloring book.
+  return `Create a back cover for a children's coloring book as a COLORING PAGE with black outlines on white.
 Book title: "${title || 'My Coloring Book'}"
 Child's name: ${childName || 'a child'}${charBlock}
 
 STYLE REQUIREMENTS:
-- Simpler than a front cover — could be a gentle pattern, scattered coloring elements, or a soft scene
-- Same playful, colorful art style as a children's coloring book
+- CLEAN BLACK OUTLINES on a pure WHITE background — matching coloring-page line-art style
+- Simpler and calmer than the front cover — a gentle border/frame of decorative elements
+- Scattered whimsical coloring elements around the edges: stars, hearts, flowers, swirls, small animals, butterflies, clouds
+- The CENTER of the image should be mostly EMPTY/WHITE — leave a large clear area in the middle for text overlay
+- Elements should frame the edges like a decorative border, leaving the middle open
+- Bold, child-friendly outlines — no thin lines, no shading, no fills
 - PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
 - ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
-- Leave the LOWER-RIGHT area (bottom-right quadrant, roughly 2 inches by 1.2 inches) COMPLETELY CLEAR/EMPTY for a barcode — this area should be plain white or very light
-- Gentle, inviting colors — not too busy
-- High quality, professional illustration`;
+- Leave the LOWER-RIGHT area (bottom-right, roughly 2 inches by 1.2 inches) COMPLETELY CLEAR/WHITE for a barcode
+- Professional quality line art matching the front cover style`;
 }
 
 /**

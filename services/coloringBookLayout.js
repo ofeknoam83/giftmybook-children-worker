@@ -47,10 +47,10 @@ async function loadFonts(pdfDoc) {
   return { bubblegum, playfair, playfairItalic, dancing, helv };
 }
 
-function drawCenteredText(page, text, font, size, y, color = rgb(0.1, 0.1, 0.2)) {
+function drawCenteredText(page, text, font, size, y, color = rgb(0.1, 0.1, 0.2), centerX) {
   const w = font.widthOfTextAtSize(text, size);
-  const pw = page.getWidth();
-  page.drawText(text, { x: (pw - w) / 2, y, size, font, color });
+  const cx = centerX != null ? centerX : page.getWidth() / 2;
+  page.drawText(text, { x: cx - w / 2, y, size, font, color });
 }
 
 /**
@@ -65,17 +65,19 @@ async function buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer, f
   const centerX = PAGE_W_PT / 2;
 
   if (frontCoverBuffer) {
-    // ── AI-generated full-bleed background ──
+    // ── AI-generated full-bleed background (B&W line art) ──
     try {
       const coverPng = await sharp(frontCoverBuffer).png().toBuffer();
       const pdfImage = await pdfDoc.embedPng(coverPng);
       p.drawImage(pdfImage, { x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT });
     } catch (err) {
       console.warn(`[buildCover] Could not embed AI front cover: ${err.message}`);
-      p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(0.05, 0.05, 0.12) });
+      p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(1, 1, 1) });
     }
 
-    // Title text overlay with shadow
+    // Title text overlay (dark text on B&W line-art background)
+    const dark = rgb(0.08, 0.08, 0.15);
+    const accent = rgb(0.55, 0.25, 0.1);
     const titleStr = title.toUpperCase();
     const titleSz = 28;
     const maxW = PAGE_W_PT - 80;
@@ -91,19 +93,19 @@ async function buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer, f
     const lineH = titleSz * 1.35;
     let y = PAGE_H_PT - 60;
     for (const line of lines) {
-      drawCenteredTextWithShadow(p, line, titleFont, titleSz, y, rgb(1, 1, 1), centerX);
+      drawCenteredText(p, line, titleFont, titleSz, y, dark);
       y -= lineH;
     }
 
-    drawCenteredTextWithShadow(p, 'COLORING EDITION', titleFont, 18, y - 10, rgb(1, 0.9, 0.5), centerX);
+    drawCenteredText(p, 'COLORING EDITION', titleFont, 18, y - 10, accent);
 
     const sub = `A personalized coloring book for ${childName || 'You'}`;
-    drawCenteredTextWithShadow(p, sub, subFont, 14, 80, rgb(1, 1, 1), centerX);
-    drawCenteredTextWithShadow(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(1, 1, 0.9), centerX);
+    drawCenteredText(p, sub, subFont, 14, 80, dark);
+    drawCenteredText(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(0.4, 0.4, 0.45));
 
   } else {
-    // ── Fallback: old programmatic cover ──
-    p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(0.05, 0.05, 0.12) });
+    // ── Fallback: programmatic cover (white background with B&W image) ──
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W_PT, height: PAGE_H_PT, color: rgb(1, 1, 1) });
 
     if (coverImageBuffer) {
       const bwCover = await sharp(coverImageBuffer)
@@ -114,6 +116,8 @@ async function buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer, f
       p.drawImage(pdfImage, { x: 40, y: imgY, width: imgArea.w, height: imgArea.h });
     }
 
+    const fbDark = rgb(0.08, 0.08, 0.15);
+    const fbAccent = rgb(0.55, 0.25, 0.1);
     const titleStr = title.toUpperCase();
     const titleSz = 28;
     const titleWords = titleStr.split(' ');
@@ -129,15 +133,15 @@ async function buildCover(pdfDoc, fonts, { title, childName, coverImageBuffer, f
     const lineH = titleSz * 1.35;
     let y = PAGE_H_PT - 60;
     for (const line of lines) {
-      drawCenteredText(p, line, titleFont, titleSz, y, rgb(1, 1, 1));
+      drawCenteredText(p, line, titleFont, titleSz, y, fbDark);
       y -= lineH;
     }
 
-    drawCenteredText(p, 'COLORING EDITION', titleFont, 18, y - 10, rgb(0.75, 0.55, 0.1));
+    drawCenteredText(p, 'COLORING EDITION', titleFont, 18, y - 10, fbAccent);
 
     const sub = `A personalized coloring book for ${childName || 'You'}`;
-    drawCenteredText(p, sub, subFont, 14, 80, rgb(0.8, 0.8, 0.85));
-    drawCenteredText(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(0.5, 0.5, 0.55));
+    drawCenteredText(p, sub, subFont, 14, 80, fbDark);
+    drawCenteredText(p, 'BY GIFTMYBOOK', fonts.helv, 10, 50, rgb(0.4, 0.4, 0.45));
   }
 }
 
@@ -494,8 +498,8 @@ async function buildCoverWrapPdf(opts = {}) {
       p.drawImage(frontImg, { x: frontX, y: 0, width: frontW, height: COVER_H_PT });
     } catch (err) {
       console.warn(`[coverWrap] Could not embed front cover AI image: ${err.message}`);
-      // Fallback: solid color
-      p.drawRectangle({ x: frontX, y: 0, width: frontW, height: COVER_H_PT, color: rgb(1, 0.92, 0.6) });
+      // Fallback: white background
+      p.drawRectangle({ x: frontX, y: 0, width: frontW, height: COVER_H_PT, color: rgb(1, 1, 1) });
     }
 
     // Embed back cover image on left half (full bleed)
@@ -505,10 +509,12 @@ async function buildCoverWrapPdf(opts = {}) {
       p.drawImage(backImg, { x: 0, y: 0, width: BLEED + COVER_HALF_W, height: COVER_H_PT });
     } catch (err) {
       console.warn(`[coverWrap] Could not embed back cover AI image: ${err.message}`);
-      p.drawRectangle({ x: 0, y: 0, width: BLEED + COVER_HALF_W, height: COVER_H_PT, color: rgb(1, 0.95, 0.78) });
+      p.drawRectangle({ x: 0, y: 0, width: BLEED + COVER_HALF_W, height: COVER_H_PT, color: rgb(1, 1, 1) });
     }
 
-    // ── Front cover text overlay (pdf-lib, with shadow for readability) ──
+    // ── Front cover text overlay (dark text on B&W line-art background) ──
+    const dark = rgb(0.08, 0.08, 0.15);
+    const accent = rgb(0.55, 0.25, 0.1);
 
     // Title at top (word-wrap if needed)
     const titleStr = title.toUpperCase();
@@ -526,34 +532,74 @@ async function buildCoverWrapPdf(opts = {}) {
     const lineH = titleSz * 1.35;
     let y = COVER_H_PT - BLEED - SAFETY_MARGIN - 40;
     for (const line of titleLines) {
-      drawCenteredTextWithShadow(p, line, titleFont, titleSz, y, rgb(1, 1, 1), frontCenterX);
+      drawCenteredText(p, line, titleFont, titleSz, y, dark, frontCenterX);
       y -= lineH;
     }
 
     // "Coloring Book" subtitle
-    drawCenteredTextWithShadow(p, 'Coloring Book', titleFont, 24, y - 8, rgb(1, 0.95, 0.7), frontCenterX);
+    drawCenteredText(p, 'Coloring Book', titleFont, 24, y - 8, accent, frontCenterX);
 
     // Child's name
     const nameStr = childName ? `A personalized book for ${childName}` : '';
     if (nameStr) {
-      drawCenteredTextWithShadow(p, nameStr, subFont, 16, BLEED + SAFETY_MARGIN + 60, rgb(1, 1, 1), frontCenterX);
+      drawCenteredText(p, nameStr, subFont, 16, BLEED + SAFETY_MARGIN + 60, dark, frontCenterX);
     }
 
     // GiftMyBook branding at bottom of front
-    drawCenteredTextWithShadow(p, 'GiftMyBook.com', fonts.helv, 9, BLEED + SAFETY_MARGIN + 14, rgb(1, 1, 0.9), frontCenterX);
+    drawCenteredText(p, 'GiftMyBook.com', fonts.helv, 9, BLEED + SAFETY_MARGIN + 14, rgb(0.4, 0.4, 0.45), frontCenterX);
 
-    // ── Back cover text overlay ──
+    // ── Back cover text overlay (dark text on B&W line-art background) ──
+    const backDark = rgb(0.1, 0.1, 0.2);
+    const backAccent = rgb(0.55, 0.25, 0.1);
+    const backMuted = rgb(0.4, 0.4, 0.45);
 
-    // "Made with love for {childName}" centered on back
+    // Title at the top of back cover
+    const backTitleStr = title.toUpperCase();
+    const backTitleSz = 20;
+    const maxBackTitleW = COVER_HALF_W - SAFETY_MARGIN * 4;
+    const backTitleWords = backTitleStr.split(' ');
+    const backTitleLines = []; let backCurLine = '';
+    for (const w of backTitleWords) {
+      const t = backCurLine ? `${backCurLine} ${w}` : w;
+      if (titleFont.widthOfTextAtSize(t, backTitleSz) > maxBackTitleW && backCurLine) { backTitleLines.push(backCurLine); backCurLine = w; }
+      else backCurLine = t;
+    }
+    if (backCurLine) backTitleLines.push(backCurLine);
+
+    let backY = COVER_H_PT - BLEED - SAFETY_MARGIN - 60;
+    for (const line of backTitleLines) {
+      drawCenteredText(p, line, titleFont, backTitleSz, backY, backDark, backCenterX);
+      backY -= backTitleSz * 1.3;
+    }
+
+    // "Coloring Book" subtitle
+    drawCenteredText(p, 'Coloring Book', subFont, 16, backY - 6, backAccent, backCenterX);
+
+    // Decorative line separator
+    const sepY = COVER_H_PT / 2 + 60;
+    const sepHalfW = 80;
+    p.drawLine({ start: { x: backCenterX - sepHalfW, y: sepY }, end: { x: backCenterX + sepHalfW, y: sepY }, thickness: 0.75, color: rgb(0.7, 0.7, 0.7) });
+
+    // Personalization tagline
+    const tagline = childName
+      ? `A personalized coloring adventure for ${childName}`
+      : 'A personalized coloring adventure';
+    drawCenteredText(p, tagline, subFont, 14, COVER_H_PT / 2 + 20, backDark, backCenterX);
+
+    // "Made with love"
     const loveStr = `Made with love for ${childName || 'You'}`;
-    drawCenteredTextWithShadow(p, loveStr, subFont, 20, COVER_H_PT / 2 + 20, rgb(1, 1, 1), backCenterX);
+    drawCenteredText(p, loveStr, subFont, 13, COVER_H_PT / 2 - 20, backMuted, backCenterX);
 
-    // GiftMyBook branding on back
-    drawCenteredTextWithShadow(p, 'GiftMyBook.com', fonts.helv, 12, COVER_H_PT / 2 - 30, rgb(1, 1, 0.9), backCenterX);
+    // Second decorative line
+    const sep2Y = COVER_H_PT / 2 - 50;
+    p.drawLine({ start: { x: backCenterX - sepHalfW, y: sep2Y }, end: { x: backCenterX + sepHalfW, y: sep2Y }, thickness: 0.75, color: rgb(0.7, 0.7, 0.7) });
+
+    // GiftMyBook branding
+    drawCenteredText(p, 'GiftMyBook.com', fonts.helv, 11, COVER_H_PT / 2 - 75, backMuted, backCenterX);
 
   } else {
-    // ── Fallback: old programmatic cover (no AI art available) ──
-    p.drawRectangle({ x: 0, y: 0, width: COVER_W_PT, height: COVER_H_PT, color: rgb(1, 0.92, 0.6) });
+    // ── Fallback: programmatic cover (no AI art available) ──
+    p.drawRectangle({ x: 0, y: 0, width: COVER_W_PT, height: COVER_H_PT, color: rgb(1, 1, 1) });
 
     // Front cover (right half)
     const frameInset = SAFETY_MARGIN;
@@ -578,7 +624,7 @@ async function buildCoverWrapPdf(opts = {}) {
       try {
         const coverPng = await sharp(coverImageBuffer)
           .grayscale().threshold(150)
-          .flatten({ background: { r: 255, g: 235, b: 153 } })
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
           .png().toBuffer();
         const pdfImage = await pdfDoc.embedPng(coverPng);
         const imgSize = 320;
@@ -605,17 +651,28 @@ async function buildCoverWrapPdf(opts = {}) {
     p.drawText(brandFront, { x: frontCenterX - brandFW / 2, y: BLEED + SAFETY_MARGIN + 10, size: 9, font: fonts.helv, color: rgb(0.4, 0.4, 0.45) });
 
     // Back cover (left half)
-    p.drawRectangle({ x: BLEED, y: BLEED, width: COVER_HALF_W, height: COVER_H_PT - BLEED * 2, color: rgb(1, 0.95, 0.78) });
+    p.drawRectangle({ x: BLEED, y: BLEED, width: COVER_HALF_W, height: COVER_H_PT - BLEED * 2, color: rgb(1, 0.98, 0.95) });
 
-    const loveStr = `Made with love for ${childName || 'You'}`;
-    const loveSz = 20;
-    const loveW = subFont.widthOfTextAtSize(loveStr, loveSz);
-    p.drawText(loveStr, { x: backCenterX - loveW / 2, y: COVER_H_PT / 2 + 20, size: loveSz, font: subFont, color: rgb(0.2, 0.2, 0.35) });
+    // Title
+    const fbTitleStr = title.toUpperCase();
+    drawCenteredText(p, fbTitleStr, titleFont, 18, COVER_H_PT - BLEED - SAFETY_MARGIN - 60, rgb(0.1, 0.1, 0.2), backCenterX);
+    drawCenteredText(p, 'Coloring Book', subFont, 14, COVER_H_PT - BLEED - SAFETY_MARGIN - 85, rgb(0.55, 0.25, 0.1), backCenterX);
 
-    const brandBack = 'GiftMyBook.com';
-    const brandBSz = 12;
-    const brandBW = fonts.helv.widthOfTextAtSize(brandBack, brandBSz);
-    p.drawText(brandBack, { x: backCenterX - brandBW / 2, y: COVER_H_PT / 2 - 30, size: brandBSz, font: fonts.helv, color: rgb(0.5, 0.5, 0.55) });
+    // Separator
+    p.drawLine({ start: { x: backCenterX - 80, y: COVER_H_PT / 2 + 60 }, end: { x: backCenterX + 80, y: COVER_H_PT / 2 + 60 }, thickness: 0.75, color: rgb(0.7, 0.7, 0.7) });
+
+    // Tagline
+    const fbTagline = childName ? `A personalized coloring adventure for ${childName}` : 'A personalized coloring adventure';
+    drawCenteredText(p, fbTagline, subFont, 13, COVER_H_PT / 2 + 20, rgb(0.1, 0.1, 0.2), backCenterX);
+
+    // Made with love
+    drawCenteredText(p, `Made with love for ${childName || 'You'}`, subFont, 12, COVER_H_PT / 2 - 20, rgb(0.4, 0.4, 0.45), backCenterX);
+
+    // Separator
+    p.drawLine({ start: { x: backCenterX - 80, y: COVER_H_PT / 2 - 50 }, end: { x: backCenterX + 80, y: COVER_H_PT / 2 - 50 }, thickness: 0.75, color: rgb(0.7, 0.7, 0.7) });
+
+    // Branding
+    drawCenteredText(p, 'GiftMyBook.com', fonts.helv, 11, COVER_H_PT / 2 - 75, rgb(0.4, 0.4, 0.45), backCenterX);
   }
 
   // Barcode clear area: bottom-right of back cover, 2"×1.2" (144×86.4pt)
@@ -669,20 +726,20 @@ async function generateCoverThumbnailPng(opts = {}) {
     } catch (err) {
       console.warn(`[coverThumbnail] Could not process AI cover: ${err.message}`);
       composite = sharp({
-        create: { width, height, channels: 4, background: { r: 255, g: 235, b: 153, alpha: 1 } }
+        create: { width, height, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
       });
     }
   } else {
-    // ── Fallback: old yellow background ──
+    // ── Fallback: white background ──
     composite = sharp({
-      create: { width, height, channels: 4, background: { r: 255, g: 235, b: 153, alpha: 1 } }
+      create: { width, height, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
     });
 
     if (coverImageBuffer) {
       try {
         const coverImg = await sharp(coverImageBuffer)
           .grayscale().threshold(150)
-          .flatten({ background: { r: 255, g: 235, b: 153 } })
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
           .resize(360, 360, { fit: 'inside' })
           .png().toBuffer();
         layers.push({ input: coverImg, top: Math.round((height - 360) / 2 + 10), left: Math.round((width - 360) / 2) });
@@ -692,24 +749,19 @@ async function generateCoverThumbnailPng(opts = {}) {
     }
   }
 
-  // SVG text overlay (sharp composite — this is just a thumbnail, Sharp is OK here)
+  // SVG text overlay (dark text — works on both B&W line art and white fallback)
   const escapedName = (childName || 'My').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escapedTitle = (title || 'My Coloring Book').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Use white text with dark shadow when over AI art, dark text when over yellow
-  const hasAi = !!frontCoverBuffer;
-  const titleColor = hasAi ? '#FFFFFF' : '#26264D';
-  const subColor = hasAi ? '#FFF3CC' : '#D95933';
-  const brandColor = hasAi ? '#FFFFEE' : '#666670';
-  const shadow = hasAi ? 'filter="url(#shadow)"' : '';
-  const shadowDef = hasAi ? `<defs><filter id="shadow" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="1" dy="1" stdDeviation="2" flood-color="#000000" flood-opacity="0.6"/></filter></defs>` : '';
+  const titleColor = '#141426';
+  const subColor = '#8C4019';
+  const brandColor = '#666670';
 
   const svgOverlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    ${shadowDef}
-    <text x="${width / 2}" y="60" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold" fill="${titleColor}" ${shadow}>${escapedTitle}</text>
-    <text x="${width / 2}" y="95" text-anchor="middle" font-family="sans-serif" font-size="36" font-weight="bold" fill="${titleColor}" ${shadow}>${escapedName}'s</text>
-    <text x="${width / 2}" y="132" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="bold" fill="${subColor}" ${shadow}>Coloring Book</text>
-    <text x="${width / 2}" y="${height - 30}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="${brandColor}" ${shadow}>GiftMyBook.com</text>
+    <text x="${width / 2}" y="60" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold" fill="${titleColor}">${escapedTitle}</text>
+    <text x="${width / 2}" y="95" text-anchor="middle" font-family="sans-serif" font-size="36" font-weight="bold" fill="${titleColor}">${escapedName}'s</text>
+    <text x="${width / 2}" y="132" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="bold" fill="${subColor}">Coloring Book</text>
+    <text x="${width / 2}" y="${height - 30}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="${brandColor}">GiftMyBook.com</text>
   </svg>`);
 
   layers.push({ input: svgOverlay, top: 0, left: 0 });
