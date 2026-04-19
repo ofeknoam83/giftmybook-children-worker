@@ -172,10 +172,13 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
   if (opts.additionalCoverCharacters) {
     secondaryCharReminder = `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`;
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+    const _isMom = opts.theme === 'mothers_day';
+    const _parentWord = _isMom ? 'mother' : 'father';
+    const _genderNote = _isMom ? 'She is FEMALE — always draw a woman, never a man.' : 'He is MALE — always draw a man, never a woman.';
     const outfitLock = opts.parentOutfit
-      ? ` PARENT OUTFIT (LOCKED — same on EVERY page): ${opts.parentOutfit}. Do NOT change the parent's clothing between pages.`
-      : ' Keep the parent\'s clothing IDENTICAL across all pages — same garment type, same colors, same style as the first illustration where they appeared.';
-    secondaryCharReminder = `\nPARENT WITHOUT REFERENCE IMAGE: The story references a parent but we do NOT have a reference image for them. You MUST still show the parent physically present in the scene — they are real, NOT invisible. However, since we have no reference photo, NEVER show the parent's full face (it would look different on every page). Instead show them partially: hands on the table, arms reaching out, back or side view, a shoulder and arm, kneeling with face turned away, or cropped at the frame edge so only their torso/hands are visible. The parent should feel warm and physically THERE — just with their face hidden or turned away from the viewer.${outfitLock}`;
+      ? ` PARENT OUTFIT (LOCKED — same on EVERY page): ${opts.parentOutfit}. Do NOT change the ${_parentWord}'s clothing between pages.`
+      : ` Keep the ${_parentWord}'s clothing IDENTICAL across all pages — same garment type, same colors, same style as the first illustration where they appeared.`;
+    secondaryCharReminder = `\n${_parentWord.toUpperCase()} WITHOUT REFERENCE IMAGE: The story references the child's ${_parentWord} but we do NOT have a reference image. ${_genderNote} You MUST still show the ${_parentWord} physically present in the scene — they are real, NOT invisible. However, since we have no reference photo, NEVER show the ${_parentWord}'s full face (it would look different on every page). Instead show ${_isMom ? 'her' : 'him'} partially: hands on the table, arms reaching out, back or side view, a shoulder and arm, kneeling with face turned away, or cropped at the frame edge so only ${_isMom ? 'her' : 'his'} torso/hands are visible. The ${_parentWord} should feel warm and physically THERE — just with ${_isMom ? 'her' : 'his'} face hidden or turned away from the viewer.${outfitLock}`;
   }
 
   // Reinforce art style on every spread
@@ -192,8 +195,11 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
     // Include secondary characters (parent/adult from cover photo)
     if (session.opts.additionalCoverCharacters) {
       characterReminder += `\nSECONDARY CHARACTER REMINDER: ${session.opts.additionalCoverCharacters}. Must also look IDENTICAL across all pages — same face, hair, skin tone, build, and outfit as established.`;
-    } else if (session.opts.parentOutfit) {
-      characterReminder += `\nPARENT REMINDER: Outfit locked — ${session.opts.parentOutfit}. Same outfit on EVERY page. Never show parent's full face (no reference photo).`;
+    } else if (session.opts.theme && PARENT_THEMES.has(session.opts.theme)) {
+      const _m = session.opts.theme === 'mothers_day';
+      const _pw = _m ? 'mother' : 'father';
+      const outfitNote = session.opts.parentOutfit ? ` Outfit locked — ${session.opts.parentOutfit}. Same outfit on EVERY page.` : '';
+      characterReminder += `\n${_pw.toUpperCase()} REMINDER: ${_m ? 'She is FEMALE (a woman)' : 'He is MALE (a man)'}. NEVER show ${_pw}'s full face (no reference photo).${outfitNote}`;
     }
     characterReminder += '\n';
   }
@@ -330,12 +336,20 @@ function _buildCharacterEstablishmentPrompt(session) {
     parts.push('- In ALL subsequent illustrations, reproduce that EXACT outfit — same garment type, same color, same style. NO changes.');
     parts.push('- This is just as important as the child\'s outfit consistency — readers will notice if the parent\'s clothes change between pages.');
     parts.push('- Same hair color, style, length, skin tone, facial features, and approximate age on every spread.');
-  } else if (opts.parentOutfit) {
-    // Parent without cover reference but with a planned outfit
-    parts.push(`\nPARENT OUTFIT (LOCKED — same on EVERY page): ${opts.parentOutfit}`);
-    parts.push('- The parent must wear this EXACT outfit in EVERY illustration — no changes between pages.');
-    parts.push('- Same hair color, style, and approximate build on every spread.');
-    parts.push('- NEVER show the parent\'s full face — show them from behind, side, or cropped so only torso/hands are visible.');
+  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+    const _isMom = opts.theme === 'mothers_day';
+    const _pw = _isMom ? 'mother' : 'father';
+    const _genderRule = _isMom ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman';
+    parts.push(`\nPARENT CHARACTER — ${_pw.toUpperCase()} (NO FACE):`);
+    parts.push(`- The story references the child's ${_pw} but we have NO reference image.`);
+    parts.push(`- The ${_pw} is ${_genderRule}.`);
+    parts.push(`- NEVER show the ${_pw}'s full face — it would look different on every page.`);
+    parts.push(`- Show ${_isMom ? 'her' : 'him'} through: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge.`);
+    parts.push(`- The ${_pw} should feel warm and physically present — just with ${_isMom ? 'her' : 'his'} face hidden.`);
+    if (opts.parentOutfit) {
+      parts.push(`- PARENT OUTFIT LOCK (CRITICAL): The ${_pw} MUST wear EXACTLY this outfit in EVERY illustration — no exceptions: ${opts.parentOutfit}`);
+      parts.push('- Do NOT change the parent\'s outfit for any reason. Same garments, same colors, every single page.');
+    }
   }
 
   if (opts.recurringElement) {
