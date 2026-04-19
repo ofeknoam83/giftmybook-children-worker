@@ -34,9 +34,9 @@ const WRITER_CONFIG = {
     'young-picture': {
       label: 'Young Picture Book (ages 0-3)',
       ages: [0, 1, 2, 3],
-      maxWords: 350,
+      maxWords: 250,
       spreads: { min: 13, max: 13 },
-      wordsPerSpread: { min: 10, max: 30 },
+      wordsPerSpread: { min: 8, max: 22 },
       meter: 'iambic tetrameter',
       rhyme: 'AABB couplets',
     },

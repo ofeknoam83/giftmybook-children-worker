@@ -195,7 +195,7 @@ class QualityGate {
 
 1. RHYME: Do the couplets actually rhyme? Is the meter consistent (iambic tetrameter for ages 3+)? Does the rhythm feel natural or forced? Score 1 if rhymes are broken/forced, 10 if every couplet rhymes naturally.
 
-2. AGE_APPROPRIATENESS: Is the vocabulary appropriate for age ${child.age}? Are sentences the right length? Would a child this age understand and enjoy this?
+2. AGE_APPROPRIATENESS: Is the vocabulary appropriate for age ${child.age}? Are sentences the right length? Would a child this age understand and enjoy this?${child.age <= 3 ? ' FOR AGES 0-3: Penalize heavily (score 1-4) if ANY spread contains words over 2 syllables (except proper names), abstract imagery, metaphors requiring interpretation, or more than 4 lines. Every word should be one a toddler hears daily. If the text feels like it was written for a 5-year-old, score 1-3.' : ''}
 
 3. READ_ALOUD: Would this sound good read aloud by a parent? Is there rhythm variation? Do words have good "mouth-feel"? Would a parent stumble anywhere?
 

@@ -173,7 +173,7 @@ class GenericThemeWriter extends BaseThemeWriter {
 
   _parentBeats(isYoung, child, parentName) {
     const p = parentName || 'Daddy';
-    const wt = isYoung ? 20 : 28;
+    const wt = isYoung ? 16 : 28;
     return [
       // SCENE A — HOME / LAUNCH (spreads 1-3)
       { spread: 1,  beat: 'HOME_OPENING',   description: `Place ${child.name} and ${p} in a specific moment at home — mid-action, not waking up. Establish the bond AND hint at a plan (building something, going somewhere). Vivid, particular.`, wordTarget: wt },
@@ -191,14 +191,14 @@ class GenericThemeWriter extends BaseThemeWriter {
       { spread: 11, beat: 'PROUD',          description: `${p} and ${child.name} share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper, not louder.`, wordTarget: wt },
       // SCENE D — HEADING HOME (spreads 12-13)
       { spread: 12, beat: 'HEADING_HOME',   description: `The journey home or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',        description: `The last line. Joyful echo of the opening. Concrete, specific, beautiful. A parent should want to read it twice.`, wordTarget: isYoung ? 14 : 15 },
+      { spread: 13, beat: 'CLOSING',        description: `The last line. Joyful echo of the opening. Concrete, specific, beautiful. A parent should want to read it twice.`, wordTarget: isYoung ? 12 : 15 },
     ];
   }
 
   // ── Celebration themes (birthday, birthday_magic) ──
 
   _celebrationBeats(isYoung, child) {
-    const wt = isYoung ? 20 : 28;
+    const wt = isYoung ? 16 : 28;
     return [
       // SCENE A — MORNING / PREPARATION (spreads 1-3, at home)
       { spread: 1,  beat: 'MORNING',       description: `${child.name} wakes on a special day. Morning light, birthday excitement, a sensory detail. At home.`, wordTarget: wt },
@@ -216,14 +216,14 @@ class GenericThemeWriter extends BaseThemeWriter {
       // SCENE D — AFTER THE PARTY (spreads 11-13, back at home, warm and happy)
       { spread: 11, beat: 'WINDING_DOWN',  description: `The party ends, transition home. Quiet settles. Echoes of laughter, crumbs on the table.`, wordTarget: wt },
       { spread: 12, beat: 'GLOW',          description: `${child.name} at home, still buzzing from the day. A favorite gift examined, a balloon still floating, frosting on a finger. NOT bedtime, NOT sleepy.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',       description: `The last line. A wish fulfilled, or a secret smile. Echo the morning. Warm, bright, joyful. NOT a goodnight, NOT asleep.`, wordTarget: isYoung ? 14 : 15 },
+      { spread: 13, beat: 'CLOSING',       description: `The last line. A wish fulfilled, or a secret smile. Echo the morning. Warm, bright, joyful. NOT a goodnight, NOT asleep.`, wordTarget: isYoung ? 12 : 15 },
     ];
   }
 
   // ── Adventure themes (adventure, fantasy, space, underwater, nature) ──
 
   _adventureBeats(isYoung, child) {
-    const wt = isYoung ? 20 : 28;
+    const wt = isYoung ? 16 : 28;
     const setting = {
       adventure: 'a path beyond the garden gate',
       fantasy: 'a world that shimmers just past the wardrobe',
@@ -248,14 +248,14 @@ class GenericThemeWriter extends BaseThemeWriter {
       // SCENE D — HOMECOMING (spreads 11-13, returning home)
       { spread: 11, beat: 'HOMECOMING',      description: `Returning home. Show the journey back. The familiar world looks a little different now.`, wordTarget: wt },
       { spread: 12, beat: 'REFLECTION',      description: `Safe at home, but changed. The adventure lives inside. Echo of the opening. Same home as spread 1.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',         description: `The last line. A whisper of the adventure still waiting. Echo the opening image. The most beautiful sentence.`, wordTarget: isYoung ? 14 : 15 },
+      { spread: 13, beat: 'CLOSING',         description: `The last line. A whisper of the adventure still waiting. Echo the opening image. The most beautiful sentence.`, wordTarget: isYoung ? 12 : 15 },
     ];
   }
 
   // ── Daily life themes (bedtime, school, friendship, holiday) ──
 
   _dailyLifeBeats(isYoung, child) {
-    const wt = isYoung ? 20 : 28;
+    const wt = isYoung ? 16 : 28;
     const settingWord = { bedtime: 'evening', school: 'morning', friendship: 'afternoon', holiday: 'day' }[this.themeName] || 'day';
     return [
       // SCENE A — THE FAMILIAR (spreads 1-3, the known routine)
@@ -274,14 +274,14 @@ class GenericThemeWriter extends BaseThemeWriter {
       // SCENE D — SETTLING (spreads 11-13, back to the known world, changed)
       { spread: 11, beat: 'COMFORT',        description: `The safety of the familiar. Physical warmth, soft light, gentle sounds. Same place as the opening.`, wordTarget: wt },
       { spread: 12, beat: 'ECHO',           description: `The refrain lands one final time. Close on an image, not a declaration. Same place.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',        description: `The last line. Echo the opening. The world is the same, but ${child.name} is a little more.`, wordTarget: isYoung ? 14 : 15 },
+      { spread: 13, beat: 'CLOSING',        description: `The last line. Echo the opening. The world is the same, but ${child.name} is a little more.`, wordTarget: isYoung ? 12 : 15 },
     ];
   }
 
   // ── Emotional themes (anxiety, anger, fear, grief, loneliness, etc.) ──
 
   _emotionalBeats(isYoung, child, book) {
-    const wt = isYoung ? 20 : 28;
+    const wt = isYoung ? 16 : 28;
     const feeling = {
       anxiety: 'a worry that buzzes',
       anger: 'a hot feeling that rises',
@@ -311,7 +311,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       // SCENE D — HOPE (spreads 11-13, resolution and safety)
       { spread: 11, beat: 'SMALL_WIN',       description: `A moment of bravery, or calm, or acceptance. Not perfection, just enough. Back in the familiar place from spread 1.`, wordTarget: wt },
       { spread: 12, beat: 'SAFETY',          description: `The refrain lands one final time. ${child.name} is held, safe, understood. Same place.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',         description: `The last line. The feeling may come back, but ${child.name} knows what to do. Hope, not cure. Echo the opening.`, wordTarget: isYoung ? 14 : 15 },
+      { spread: 13, beat: 'CLOSING',         description: `The last line. The feeling may come back, but ${child.name} knows what to do. Hope, not cure. Echo the opening.`, wordTarget: isYoung ? 12 : 15 },
     ];
   }
 
@@ -480,6 +480,15 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Target spread count: ${plan.spreadCount.target}`);
     sections.push(`Total word target: ${plan.wordTargets.total} words maximum`);
     sections.push(`Words per spread: ${plan.wordTargets.perSpread.min}-${plan.wordTargets.perSpread.max}`);
+
+    if (plan.ageTier === 'young-picture') {
+      sections.push(`\n## SIMPLICITY (THIS CHILD IS UNDER 4)\n`);
+      sections.push(`- Maximum 2 syllables per word (except names). No "solemn", "array", "beneath", "shimmer". Use "big", "soft", "warm", "red".`);
+      sections.push(`- Maximum 4 lines per spread. 2-4 lines is ideal.`);
+      sections.push(`- Every line must make a picture a toddler can see. No abstractions, no similes, no metaphors that require interpretation.`);
+      sections.push(`- Simple sentence structure: Subject + verb + object. One idea per line.`);
+      sections.push(`- If in doubt, simpler is better. This book will be read to a child who still points at dogs and says "woof".`);
+    }
 
     sections.push(`\n## REFRAIN\n`);
     sections.push(`The story MUST have a refrain, a short phrase that recurs exactly 3 times (evenly spaced, not in consecutive spreads).`);

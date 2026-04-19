@@ -916,7 +916,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- FONT SIZE: The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED');
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
-    parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER cross the left-right center of the image. The entire text block must stay on the left half or the right half.');
+    parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER appear in the middle 30% of the image (15% on each side of center). The entire text block must be within the left 35% or the right 35% of the image.');
     parts.push('- EDGE PADDING (CRITICAL): Leave at least 10% padding from left, right, and top edges so text won\'t be cut in print.');
     parts.push('- BOTTOM PADDING (CRITICAL): Leave at least 15% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom 15% of the image.');
     parts.push('- Main characters and key action should not be hidden behind the text');
@@ -925,7 +925,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push('\nREMINDER: Text must stay completely on the left half or right half — NEVER crossing the left-right center. Leave at least 10% padding from left/right/top edges and at least 15% from the BOTTOM edge (bottom gets cropped in print).');
+    parts.push('\nREMINDER: Text must stay completely within the left 35% or right 35% of the image — NEVER in the middle 30% (the center gutter zone). Leave at least 10% padding from left/right/top edges and at least 15% from the BOTTOM edge (bottom gets cropped in print).');
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -944,7 +944,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (opts.embedText && pageText && pageText.trim()) {
-    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely on the left or right half (not crossing the left-right center), with at least 10% padding from left/right/top and at least 15% from the bottom edge. \u2713`);
+    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely within the left 35% or right 35% (not in the center 30% gutter zone), with at least 10% padding from left/right/top and at least 15% from the bottom edge. \u2713`);
   } else {
     parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
   }

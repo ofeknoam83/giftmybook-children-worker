@@ -27,7 +27,7 @@ function buildTextInstruction(text) {
   parts.push('### TEXT PLACEMENT (CRITICAL)');
   parts.push('- Render the text EXACTLY ONCE — do NOT place the same text in multiple locations. The story text must appear in ONE block only.');
   parts.push('- Place text anywhere vertically (top, bottom, upper, lower — all fine)');
-  parts.push('- CENTER EXCLUSION ZONE: This image will be split into LEFT and RIGHT pages at the exact center. Place ALL text entirely on ONE SIDE — either the LEFT THIRD or the RIGHT THIRD. NEVER place any text near the center. If in doubt, push text further toward the edge.');
+  parts.push(`- CENTER EXCLUSION ZONE: This image will be split into LEFT and RIGHT pages at the exact center. The middle ${TEXT_RULES.centerExclusionPercent * 2}% is a NO-TEXT ZONE. Place ALL text entirely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. NEVER place any text near the center. If in doubt, push text further toward the edge.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left, right, and top edges`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${TEXT_RULES.bottomPaddingPercent}% of the image.`);
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);

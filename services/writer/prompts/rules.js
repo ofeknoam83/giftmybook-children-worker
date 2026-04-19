@@ -23,11 +23,12 @@ const RULES_BY_TIER = {
     ],
     language: [
       'Simple, musical sentences — parents read this aloud, so it must SOUND beautiful.',
-      'Mostly one- and two-syllable words; occasional three-syllable if it sounds natural.',
-      'Vivid verbs: whispered, tumbled, wandered, crept, wobbled, tiptoed.',
+      'Maximum 2 syllables per word (except proper names). NO words a 3-year-old wouldn\'t hear daily.',
+      'Vivid but simple verbs: ran, jumped, hugged, splashed, clapped, spun, kissed.',
       'Complete, flowing sentences — simple does NOT mean broken.',
-      'No adjective stacking. One rich metaphor per story is fine.',
+      'No adjective stacking. No metaphors that require interpretation.',
       'Grammar must always be correct — no baby talk, no broken syntax.',
+      'Maximum 4 lines per spread. Keep sentences short and direct.',
       'The parent is the reader. Write for the parent\'s pleasure and the child\'s ear.',
     ],
     rhyme: [
