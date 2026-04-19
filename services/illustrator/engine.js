@@ -233,7 +233,11 @@ ${prompt}`;
         }
 
         if (!textCheck.pass || !anatomyCheck.pass) {
-          log('warn', `Spread ${i + 1} accepting with QA issues after ${qaRetries} retries`);
+          const remaining = [
+            ...(textCheck.pass ? [] : textCheck.issues.map(iss => `[text] ${iss}`)),
+            ...(anatomyCheck.pass ? [] : anatomyCheck.issues.map(iss => `[anatomy] ${iss}`)),
+          ];
+          throw new Error(`Spread ${i + 1} failed QA after ${qaRetries} retries + fresh attempt: ${remaining.join('; ')}`);
         } else {
           log('info', `Spread ${i + 1} QA passed`);
         }

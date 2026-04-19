@@ -22,7 +22,7 @@ const SLIDING_WINDOW_SIZE = 4;  // Keep last 4 generated spread images for bette
 const MAX_HISTORY_IMAGES = 14;  // Start trimming above this
 
 // ── Retry budgets ──
-const MAX_SPREAD_RETRIES = 2;       // Per-spread QA retry limit (within session)
+const MAX_SPREAD_RETRIES = 4;       // Per-spread QA retry limit (within session)
 const MAX_REGEN_SPREADS = 3;        // Max spreads to regenerate after cross-spread QA
 
 // ── Book structure ──
@@ -36,7 +36,7 @@ const TEXT_RULES = {
   centerExclusionPercent: 10, // 10% on each side of center = middle 20% no-text zone
   fontStyle: 'Georgia serif font — plain, clean, traditional serif with round letterforms and moderate x-height. NO decorative fonts, NO swashes, NO italic, NO condensed, NO handwritten, NO display fonts',
   fontColor: 'white/cream with subtle drop shadow',
-  fontSize: 'small, like quiet subtitles — NOT a headline, NOT a title',
+  fontSize: 'very small, like movie subtitles — MUCH smaller than a headline or title. If in doubt, make the text smaller.',
 };
 
 // ── Emotional beat mapping (spread position -> beat) ──
