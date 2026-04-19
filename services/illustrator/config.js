@@ -22,7 +22,7 @@ const SLIDING_WINDOW_SIZE = 4;  // Keep last 4 generated spread images for bette
 const MAX_HISTORY_IMAGES = 14;  // Start trimming above this
 
 // ── Retry budgets ──
-const MAX_SPREAD_RETRIES = 4;       // Per-spread QA retry limit (within session)
+const MAX_SPREAD_RETRIES = 6;       // Per-spread QA retry limit (within session)
 const MAX_REGEN_SPREADS = 3;        // Max spreads to regenerate after cross-spread QA
 
 // ── Book structure ──

@@ -241,12 +241,29 @@ ${prompt}`;
             Object.assign(anatomyCheck, reAnatomyCheck);
           } catch (retryErr) {
             log('warn', `Spread ${i + 1} correction retry ${qaRetries} failed: ${retryErr.message}`);
+            // Transient errors (503, timeout, network) — wait and continue retrying
+            // instead of breaking out of the loop
+            const isTransient = retryErr.message && (
+              retryErr.message.includes('503') ||
+              retryErr.message.includes('429') ||
+              retryErr.message.includes('timeout') ||
+              retryErr.message.includes('UNAVAILABLE') ||
+              retryErr.message.includes('Deadline') ||
+              retryErr.message.includes('ECONNRESET') ||
+              retryErr.message.includes('fetch failed')
+            );
+            if (isTransient && qaRetries < MAX_SPREAD_RETRIES) {
+              const backoffMs = 3000 * qaRetries;
+              log('info', `Spread ${i + 1} transient error — waiting ${backoffMs}ms before retry ${qaRetries + 1}`);
+              await new Promise(r => setTimeout(r, backoffMs));
+              continue;
+            }
             break;
           }
         }
 
         // If anatomy still fails after correction retries, attempt one fresh generation
-        if (!anatomyCheck.pass && qaRetries >= MAX_SPREAD_RETRIES) {
+        if (!anatomyCheck.pass && qaRetries > 0) {
           log('warn', `Spread ${i + 1} anatomy still failing after ${qaRetries} corrections — attempting fresh generation`);
           try {
             const freshPrompt = `Please generate a completely fresh illustration for spread ${i + 1}. Disregard previous attempts — start fresh with the original scene. Pay special attention to anatomy: every person must have exactly 2 arms and 2 hands visible.\n\n${prompt}`;
