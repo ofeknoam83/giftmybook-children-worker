@@ -97,11 +97,26 @@ Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%
 
     if (match) {
       const result = JSON.parse(match[0]);
+      const issues = result.issues || [];
+      let pass = !!result.pass;
+
+      // Deterministic duplication safety net: if extracted text is much longer
+      // than expected, the same text was likely rendered twice in the image
+      const extracted = (result.extractedText || '').trim();
+      if (extracted && expectedText) {
+        const expectedWords = expectedText.trim().split(/\s+/).length;
+        const extractedWords = extracted.split(/\s+/).length;
+        if (extractedWords > expectedWords * 1.5 && expectedWords >= 4) {
+          pass = false;
+          issues.push('DUPLICATED text: extracted text is significantly longer than expected, suggesting the same text was rendered multiple times');
+        }
+      }
+
       return {
-        pass: !!result.pass,
-        issues: result.issues || [],
-        score: typeof result.score === 'number' ? result.score : (result.pass ? 1.0 : 0.5),
-        extractedText: result.extractedText || '',
+        pass,
+        issues,
+        score: typeof result.score === 'number' ? result.score : (pass ? 1.0 : 0.5),
+        extractedText: extracted,
       };
     }
   } catch (e) {

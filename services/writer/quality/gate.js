@@ -11,6 +11,7 @@
  *   - readAloud: Would this sound good read aloud? Rhythm variation?
  *   - emotionalArc: Does it follow the beat structure? Emotional progression?
  *   - specificity: Concrete nouns? Actions over declarations? No greeting card language?
+ *   - variety: Do spreads cover distinct activities/settings, or repeat the same scene?
  *   - wordCount: Total and per-spread within limits? (deterministic)
  */
 
@@ -38,7 +39,7 @@ class QualityGate {
       return {
         pass: false,
         overallScore: 0,
-        scores: { pronouns: 0, wordCount: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0 },
+        scores: { pronouns: 0, wordCount: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0 },
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
       };
     }
@@ -56,6 +57,7 @@ class QualityGate {
       scores.emotionalArc = llmScores.emotionalArc || 7;
       scores.specificity = llmScores.specificity || 7;
       scores.creativity = llmScores.creativity || 7;
+      scores.variety = llmScores.variety || 7;
     } catch (err) {
       console.warn(`[writerV2] LLM quality checks failed, using defaults: ${err.message}`);
       scores.rhyme = 7;
@@ -64,6 +66,7 @@ class QualityGate {
       scores.emotionalArc = 7;
       scores.specificity = 7;
       scores.creativity = 7;
+      scores.variety = 7;
     }
 
     const scoreValues = Object.values(scores);
@@ -133,7 +136,9 @@ class QualityGate {
 
 5. SPECIFICITY: Are there concrete, specific nouns (not vague categories)? Do emotions emerge from actions rather than declarations? Is there at least one surprise per spread? Would any line work in a greeting card? (if yes, that's bad)
 
-6. CREATIVITY: Does the story contain at least one imaginative leap or metaphor (the child transforms the ordinary into something magical)? Does the refrain deepen in meaning across repetitions rather than just repeating? Are there unexpected images or rhyme pairs? Score 1 if the story reads like a flat documentary of activities, 10 if it surprises and delights.
+6. CREATIVITY: Does the story contain at least one imaginative leap or metaphor (the child transforms the ordinary into something magical)? Does the refrain deepen in meaning across repetitions rather than just repeating? Are there unexpected images or rhyme pairs? Score 1-4 if multiple spreads describe essentially the same activity (e.g., sharing food 3 times, or multiple "snack" scenes). Score 1 if the story reads like a flat documentary of activities, 10 if it surprises and delights.
+
+7. VARIETY: Count how many DISTINCT activities, settings, or scenes appear across all spreads. Each spread should feel like a different moment — reading, cooking, playing outside, bath time, drawing, etc. Score 1-3 if more than 3 spreads describe the same core activity (e.g., giving food to someone repeatedly). Score 4-5 if 3 spreads repeat an activity. Score 6-7 if there is moderate variety but some repetition. Score 8-10 if every spread covers a genuinely different scene or activity.
 
 Return a JSON object:
 {
@@ -143,6 +148,7 @@ Return a JSON object:
   "emotionalArc": <score 1-10>,
   "specificity": <score 1-10>,
   "creativity": <score 1-10>,
+  "variety": <score 1-10>,
   "notes": "brief notes on the biggest issues"
 }`;
 
@@ -162,6 +168,7 @@ Return a JSON object:
         emotionalArc: Math.max(1, Math.min(10, parsed.emotionalArc || 7)),
         specificity: Math.max(1, Math.min(10, parsed.specificity || 7)),
         creativity: Math.max(1, Math.min(10, parsed.creativity || 7)),
+        variety: Math.max(1, Math.min(10, parsed.variety || 7)),
         _notes: parsed.notes || '',
       };
     } catch (err) {
@@ -211,6 +218,12 @@ Return a JSON object:
       feedback.push('CREATIVITY: The story reads as a flat list of activities without imaginative surprise. Add at least one moment where the child transforms something ordinary into something magical. The refrain should deepen in meaning, not just repeat. Find fresher rhyme pairs and unexpected images.');
     } else if (scores.creativity < 7) {
       feedback.push('CREATIVITY: The story could use more imaginative leaps. Add a moment of whimsy — the child\'s imagination transforming the ordinary. Vary the refrain\'s context so it lands differently each time.');
+    }
+
+    if (scores.variety < minDimensionScore) {
+      feedback.push('VARIETY: Multiple spreads describe the same activity or scene. Each spread must cover a DISTINCT moment — different action, different setting, or different emotional beat. Replace repeated scenes (e.g., sharing food multiple times) with varied activities like reading, playing outside, cooking, drawing, bath time, dancing, exploring, building, etc.');
+    } else if (scores.variety < 7) {
+      feedback.push('VARIETY: Some spreads feel repetitive — they describe similar activities or settings. Diversify the scenes so each spread feels like a fresh, distinct moment in the story.');
     }
 
     if (scores.wordCount < minDimensionScore) {

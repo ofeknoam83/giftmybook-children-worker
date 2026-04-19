@@ -52,7 +52,7 @@ const WRITER_CONFIG = {
   },
 
   qualityThresholds: {
-    passScore: 7.0,
+    passScore: 7.5,
     minDimensionScore: 5,
   },
 };
