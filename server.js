@@ -2429,6 +2429,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     scenePrompts, childPhotoUrl, characterDescription, characterAnchorUrl,
     synopsis, age, sceneCount,
     pagesOnly = false,
+    parentCoverImageUrl,
   } = req.body;
 
   if (!bookId) {
@@ -2451,15 +2452,27 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
   console.log(`[server] /generate-coloring-book: bookId=${bookId}, mode=${mode}`);
 
   try {
-    const { generateColoringPages, generateOriginalColoringPages, planColoringScenes, generateCoverArt } = require('./services/coloringBookGenerator');
+    const { generateColoringPages, generateOriginalColoringPages, planColoringScenes, generateCoverArtFromParent } = require('./services/coloringBookGenerator');
     const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
     const { buildColoringBookPdf, buildInteriorPdf, buildCoverWrapPdf, generateCoverThumbnailPng, imageToPreviewPng } = require('./services/coloringBookLayout');
     const { uploadBuffer } = require('./services/gcsStorage');
 
+    // Download parent cover for coloring-edition derivation (if provided)
+    let parentCoverBuffer = null;
+    if (parentCoverImageUrl && !pagesOnly) {
+      try {
+        const photo = await downloadPhotoAsBase64(parentCoverImageUrl);
+        parentCoverBuffer = Buffer.from(photo.base64, 'base64');
+        console.log(`[server] Downloaded parent cover for coloring derivation (${Math.round(parentCoverBuffer.length / 1024)}KB)`);
+      } catch (err) {
+        console.warn(`[server] Could not download parent cover, will generate from scratch: ${err.message}`);
+      }
+    }
+
     // Start cover art generation in parallel with coloring pages
     let coverArtPromise = null;
     if (!pagesOnly) {
-      coverArtPromise = generateCoverArt({ childName, title, age, characterDescription })
+      coverArtPromise = generateCoverArtFromParent({ childName, title, age, characterDescription, parentCoverBuffer })
         .catch(err => {
           console.warn(`[server] Cover art generation failed, will fall back to programmatic covers: ${err.message}`);
           return null;

@@ -379,7 +379,99 @@ Return ONLY valid JSON, no markdown.`;
   });
 }
 
-// ── Cover art generation ──
+// ── Cover derivation from parent book cover ──
+
+/**
+ * Convert a parent children's book cover into a coloring-edition cover.
+ * Keeps the same composition/characters but re-renders in a whimsical,
+ * colorful "coloring book cover" style — NOT pure B&W line art.
+ * @param {Buffer} parentCoverBuffer - original cover image buffer
+ * @returns {Promise<Buffer>}
+ */
+async function convertCoverToColoringStyle(parentCoverBuffer) {
+  const MAX_ATTEMPTS = 3;
+  let lastError;
+
+  const base64 = parentCoverBuffer.toString('base64');
+  const prompt = `You are given a children's book cover. Re-create it as a COLORING BOOK COVER:
+
+- Keep the SAME characters, composition, and scene from the original cover
+- Re-draw in a bright, playful, whimsical COLORING BOOK cover style
+- Use vibrant, cheerful colors — this is a COVER (not an interior B&W page)
+- Simplify fine details into bold, clean shapes suitable for a coloring book aesthetic
+- PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
+- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
+- Leave a CLEAN area at the TOP (top 15%) for title text overlay
+- Leave a CLEAN area at the BOTTOM (bottom 10%) for branding text overlay
+- High quality, professional children's coloring book cover art`;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const parts = [
+        { text: prompt },
+        { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+      ];
+      const buf = await callGeminiImage(parts, 120000);
+      console.log(`[coverArt] convertCoverToColoringStyle done (${Math.round(buf.length / 1024)}KB) on attempt ${attempt}`);
+      return buf;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[coverArt] convertCoverToColoringStyle attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 2000));
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Generate cover art, preferring derivation from the parent book's cover.
+ * Falls back to generating from scratch if no parent cover is available.
+ * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string, parentCoverBuffer?: Buffer }} opts
+ * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer }>}
+ */
+async function generateCoverArtFromParent(opts = {}) {
+  const { parentCoverBuffer, ...rest } = opts;
+
+  if (parentCoverBuffer) {
+    console.log(`[coverArt] Deriving coloring cover from parent book cover`);
+    const backPrompt = buildBackCoverPrompt(rest);
+
+    const [frontCoverBuffer, backCoverBuffer] = await Promise.all([
+      convertCoverToColoringStyle(parentCoverBuffer),
+      generateCoverArtSingle(backPrompt, 'back cover'),
+    ]);
+
+    return { frontCoverBuffer, backCoverBuffer };
+  }
+
+  return generateCoverArt(rest);
+}
+
+/**
+ * Generate a single cover image with retries.
+ * @param {string} promptText
+ * @param {string} label
+ * @returns {Promise<Buffer>}
+ */
+async function generateCoverArtSingle(promptText, label) {
+  const MAX_ATTEMPTS = 3;
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const parts = [{ text: promptText }];
+      const buf = await callGeminiImage(parts, 120000);
+      console.log(`[coverArt] ${label} generated (${Math.round(buf.length / 1024)}KB) on attempt ${attempt}`);
+      return buf;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[coverArt] ${label} attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 2000));
+    }
+  }
+  throw lastError;
+}
+
+// ── Cover art generation (from scratch, no parent cover) ──
 
 /**
  * Build a Gemini prompt for the front cover illustration.
@@ -425,37 +517,17 @@ STYLE REQUIREMENTS:
 }
 
 /**
- * Generate front and back cover art via Gemini image generation.
+ * Generate front and back cover art from scratch via Gemini image generation.
  * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string }} opts
  * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer }>}
  */
 async function generateCoverArt(opts = {}) {
-  const MAX_ATTEMPTS = 3; // initial + 2 retries
-
-  async function generateSingle(promptText, label) {
-    let lastError;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      try {
-        const parts = [{ text: promptText }];
-        const buf = await callGeminiImage(parts, 120000);
-        console.log(`[coverArt] ${label} generated (${Math.round(buf.length / 1024)}KB) on attempt ${attempt}`);
-        return buf;
-      } catch (err) {
-        lastError = err;
-        console.warn(`[coverArt] ${label} attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
-        if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 2000));
-      }
-    }
-    throw lastError;
-  }
-
   const frontPrompt = buildFrontCoverPrompt(opts);
   const backPrompt = buildBackCoverPrompt(opts);
 
-  // Generate front and back covers in parallel
   const [frontCoverBuffer, backCoverBuffer] = await Promise.all([
-    generateSingle(frontPrompt, 'front cover'),
-    generateSingle(backPrompt, 'back cover'),
+    generateCoverArtSingle(frontPrompt, 'front cover'),
+    generateCoverArtSingle(backPrompt, 'back cover'),
   ]);
 
   return { frontCoverBuffer, backCoverBuffer };
@@ -468,4 +540,6 @@ module.exports = {
   generateOriginalColoringPage,
   planColoringScenes,
   generateCoverArt,
+  generateCoverArtFromParent,
+  convertCoverToColoringStyle,
 };

@@ -423,6 +423,13 @@ async function buildInteriorPdf(pages, opts = {}) {
   // 4. Back matter page
   addInteriorBackMatterPage(pdfDoc, fonts, { childName });
 
+  // Lulu saddle-stitch requires page count to be a multiple of 4, minimum 8
+  const MIN_PAGES = 8;
+  while (pdfDoc.getPageCount() < MIN_PAGES || pdfDoc.getPageCount() % 4 !== 0) {
+    const blankPage = pdfDoc.addPage([INTERIOR_W_PT, INTERIOR_H_PT]);
+    blankPage.drawRectangle({ x: 0, y: 0, width: INTERIOR_W_PT, height: INTERIOR_H_PT, color: rgb(1, 1, 1) });
+  }
+
   return Buffer.from(await pdfDoc.save());
 }
 
