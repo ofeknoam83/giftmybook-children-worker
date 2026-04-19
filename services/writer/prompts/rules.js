@@ -9,16 +9,17 @@ const RULES_BY_TIER = {
   'young-picture': {
     label: 'Young Picture Book (ages 0-3)',
     structure: [
-      'Full narrative arc across exactly 13 spreads.',
+      'Full narrative arc across exactly 13 spreads organized into 4 SCENES. Beats within a scene share the same location.',
       '200-350 total words, 10-30 words per spread.',
-      'Act 1 (setup): Spreads 1-3, ~20% of total words.',
-      'Act 2 (escalation): Spreads 4-9, ~60% of total words.',
-      'Act 3 (resolution): Spreads 10-13, ~20% of total words.',
-      'The climax spread (10) should have the FEWEST words.',
+      'Scene A (home): Spreads 1-3, ~20% of total words. Setup and departure anticipation.',
+      'Scene B (journey/adventure): Spreads 4-7, ~35% of total words. Escalation.',
+      'Scene C (destination/peak): Spreads 8-11, ~30% of total words. Climax and emotional peak.',
+      'Scene D (heading home): Spreads 12-13, ~15% of total words. Warm resolution.',
       'Pattern with variation — the same emotional structure repeated with new content.',
       'Repetition is a strength at this age — use it as a rhythmic engine.',
       'Page turns are tools: end each spread with something that compels the next turn.',
       'Imagery must match the scene\'s time of day — no moon at noon, no sunrise at bedtime.',
+      'NARRATIVE FLOW: Each spread must connect to the previous. A 3-year-old must be able to follow every transition. Do NOT write a slideshow of unrelated activities.',
     ],
     language: [
       'Simple, musical sentences — parents read this aloud, so it must SOUND beautiful.',
@@ -52,14 +53,15 @@ const RULES_BY_TIER = {
   'picture-book': {
     label: 'Picture Book (ages 4-6)',
     structure: [
-      'Full narrative arc: three-act structure across exactly 13 spreads.',
+      'Full narrative arc across exactly 13 spreads organized into 4 SCENES. Beats within a scene share the same location.',
       '300-500 total words, 15-40 words per spread.',
-      'Act 1 (setup): Spreads 1-3, ~20% of total words.',
-      'Act 2 (escalation): Spreads 4-9, ~60% of total words.',
-      'Act 3 (resolution): Spreads 10-13, ~20% of total words.',
-      'The climax spread (10) should have the FEWEST words.',
+      'Scene A (home): Spreads 1-3, ~20% of total words. Setup and departure anticipation.',
+      'Scene B (journey/adventure): Spreads 4-7, ~35% of total words. Escalation.',
+      'Scene C (destination/peak): Spreads 8-11, ~30% of total words. Climax and emotional peak.',
+      'Scene D (heading home): Spreads 12-13, ~15% of total words. Warm resolution.',
       'Page turns are tools: end each spread with something that compels the next turn.',
       'Imagery must match the scene\'s time of day — no moon at noon, no sunrise at bedtime.',
+      'NARRATIVE FLOW: Each spread must connect to the previous. Do NOT write a slideshow of unrelated activities. The reader should always know WHERE the characters are and WHY.',
     ],
     language: [
       'Compound sentences, emerging narrative — the story can carry more complexity.',

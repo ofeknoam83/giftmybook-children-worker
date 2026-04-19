@@ -39,7 +39,7 @@ class QualityGate {
       return {
         pass: false,
         overallScore: 0,
-        scores: { pronouns: 0, wordCount: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0 },
+        scores: { pronouns: 0, wordCount: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0 },
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
       };
     }
@@ -58,6 +58,7 @@ class QualityGate {
       scores.specificity = llmScores.specificity || 7;
       scores.creativity = llmScores.creativity || 7;
       scores.variety = llmScores.variety || 7;
+      scores.narrativeCoherence = llmScores.narrativeCoherence || 7;
     } catch (err) {
       console.warn(`[writerV2] LLM quality checks failed, using defaults: ${err.message}`);
       scores.rhyme = 7;
@@ -67,6 +68,7 @@ class QualityGate {
       scores.specificity = 7;
       scores.creativity = 7;
       scores.variety = 7;
+      scores.narrativeCoherence = 7;
     }
 
     const scoreValues = Object.values(scores);
@@ -140,6 +142,8 @@ class QualityGate {
 
 7. VARIETY: Count how many DISTINCT activities, settings, or scenes appear across all spreads. Each spread should feel like a different moment — reading, cooking, playing outside, bath time, drawing, etc. Score 1-3 if more than 3 spreads describe the same core activity (e.g., giving food to someone repeatedly). Score 4-5 if 3 spreads repeat an activity. Score 6-7 if there is moderate variety but some repetition. Score 8-10 if every spread covers a genuinely different scene or activity.
 
+8. NARRATIVE_COHERENCE: Does the story have a clear through-line that connects all spreads? Can a 3-year-old follow the sequence? The story should follow ~4 scenes (e.g., home → journey → destination → heading home). Score 1-3 if it reads as a random slideshow of unrelated activities with no connecting thread. Score 4-5 if there are some transitions but spreads still feel disconnected (e.g., suddenly at the park, then suddenly in the kitchen). Score 6-7 if the narrative mostly flows but has 1-2 jarring jumps. Score 8-10 if every spread connects naturally to the next and the reader always knows WHERE the characters are.
+
 Return a JSON object:
 {
   "rhyme": <score 1-10>,
@@ -149,6 +153,7 @@ Return a JSON object:
   "specificity": <score 1-10>,
   "creativity": <score 1-10>,
   "variety": <score 1-10>,
+  "narrativeCoherence": <score 1-10>,
   "notes": "brief notes on the biggest issues"
 }`;
 
@@ -169,6 +174,7 @@ Return a JSON object:
         specificity: Math.max(1, Math.min(10, parsed.specificity || 7)),
         creativity: Math.max(1, Math.min(10, parsed.creativity || 7)),
         variety: Math.max(1, Math.min(10, parsed.variety || 7)),
+        narrativeCoherence: Math.max(1, Math.min(10, parsed.narrativeCoherence || 7)),
         _notes: parsed.notes || '',
       };
     } catch (err) {
@@ -224,6 +230,12 @@ Return a JSON object:
       feedback.push('VARIETY: Multiple spreads describe the same activity or scene. Each spread must cover a DISTINCT moment — different action, different setting, or different emotional beat. Replace repeated scenes (e.g., sharing food multiple times) with varied activities like reading, playing outside, cooking, drawing, bath time, dancing, exploring, building, etc.');
     } else if (scores.variety < 7) {
       feedback.push('VARIETY: Some spreads feel repetitive — they describe similar activities or settings. Diversify the scenes so each spread feels like a fresh, distinct moment in the story.');
+    }
+
+    if (scores.narrativeCoherence < minDimensionScore) {
+      feedback.push('NARRATIVE COHERENCE: The story reads as a disconnected slideshow of activities. It MUST follow a clear through-line — e.g., the child and parent prepare at home, travel somewhere, enjoy the destination, then head home. Every spread must connect to the one before it. The reader must always know WHERE the characters are. Rewrite to follow this 4-scene structure: Home (1-3) → Journey (4-7) → Destination (8-11) → Heading Home (12-13). Each spread within a scene must share the same location.');
+    } else if (scores.narrativeCoherence < 7) {
+      feedback.push('NARRATIVE COHERENCE: Some spreads feel disconnected from the narrative flow. Make sure every transition is clear — the reader should never wonder "wait, where are we now?" or "how did we get here?" Strengthen the scene-to-scene transitions.');
     }
 
     if (scores.wordCount < minDimensionScore) {

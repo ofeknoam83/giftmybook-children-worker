@@ -195,19 +195,23 @@ class FathersDayWriter extends BaseThemeWriter {
    */
   _buildYoungPictureBeats(child, parentName) {
     return [
-      { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific morning moment. Simple, vivid, particular.`, wordTarget: 20 },
-      { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — building, fixing, or making something side by side. Concrete nouns, sensory detail.`, wordTarget: 22 },
-      { spread: 3, beat: 'ACTIVITY_2', description: `Physical play — ${parentName} lifting ${child.name} high, racing, or rough-housing. Show ${parentName}'s strength and gentleness.`, wordTarget: 22 },
-      { spread: 4, beat: 'ACTIVITY_3', description: `A teaching moment — riding a bike, tying shoes, or learning something new. Use child's interests if available.`, wordTarget: 22 },
-      { spread: 5, beat: 'DEEPENING_1', description: `${parentName} noticing something specific about ${child.name}. The shift from activities to connection.`, wordTarget: 22 },
-      { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — a specific gesture, habit, or look that ${child.name} has.`, wordTarget: 22 },
-      { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName}'s quiet softness — the way he watches when ${child.name} isn't looking.`, wordTarget: 20 },
-      { spread: 8, beat: 'SURPRISE', description: `${child.name} does something sweet or unexpected for ${parentName} — a drawing, a made-up gift, a silly salute. Warm and funny.`, wordTarget: 22 },
-      { spread: 9, beat: 'ADVENTURE', description: `They go on a little adventure together — exploring, building something big, a backyard quest. Bright, active, joyful.`, wordTarget: 22 },
-      { spread: 10, beat: 'CELEBRATION', description: `Something special they share — a high-five, a victory dance, a silly game. Pure happiness and laughter.`, wordTarget: 22 },
-      { spread: 11, beat: 'TOGETHER', description: `Side by side doing their favorite thing. The ordinary IS the gift. Warm, vivid, full of life.`, wordTarget: 22 },
-      { spread: 12, beat: 'CLIMAX', description: `The warmest moment — a big bear hug, laughter still in the air. WARM, not quiet. Full of love and light.`, wordTarget: 20 },
-      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful and warm. A parent should want to read it twice.`, wordTarget: 14 },
+      // SCENE A — HOME / LAUNCH (spreads 1-3)
+      { spread: 1, beat: 'HOME_OPENING', description: `Place ${child.name} and ${parentName} in a specific moment at home — mid-action, not waking up. Establish the bond AND hint at a plan (building something, going somewhere). Simple, vivid, particular.`, wordTarget: 20 },
+      { spread: 2, beat: 'HOME_PREPARING', description: `The plan takes shape — gathering tools, putting on shoes, starting the project. A moment that shows how they work together. Use child's anecdote if available. Same location.`, wordTarget: 22 },
+      { spread: 3, beat: 'HOME_RITUAL', description: `Something only THIS pair does — a funny handshake, a silly ritual, ${parentName}'s signature move. Woven into the preparation, not a standalone scene.`, wordTarget: 22 },
+      // SCENE B — THE ADVENTURE (spreads 4-7)
+      { spread: 4, beat: 'ADVENTURE_START', description: `They head out or the project deepens — show the transition. The world opens up. Anticipation and excitement. ${parentName} is visible.`, wordTarget: 22 },
+      { spread: 5, beat: 'ADVENTURE_SKILL', description: `${parentName} does something that amazes ${child.name} — a skill, a trick, lifting something heavy, fixing something broken. Connected to the adventure/project.`, wordTarget: 22 },
+      { spread: 6, beat: 'ADVENTURE_LAUGHTER', description: `A funny or playful moment within the adventure — physical comedy, a shared joke, something goes slightly sideways in a fun way. Still in the same scene.`, wordTarget: 22 },
+      { spread: 7, beat: 'ADVENTURE_QUIET', description: `A quieter beat — working side by side, watching something together, a moment of focus. The story breathes before the peak. Still in the same place.`, wordTarget: 20 },
+      // SCENE C — THE PEAK (spreads 8-11)
+      { spread: 8, beat: 'BIG_MOMENT', description: `The adventure reaches its destination or the project nears completion. The payoff of what they've been building toward. ${child.name} is excited.`, wordTarget: 22 },
+      { spread: 9, beat: 'PEAK_JOY', description: `The best moment — triumphant, exciting. A high-five, a victory dance, the finished thing. Maximum energy. Physical, joyful, specific.`, wordTarget: 22 },
+      { spread: 10, beat: 'CHILD_LEADS', description: `${child.name} does something that surprises or impresses ${parentName} — shows what they learned, takes a turn, makes a gift. Warm, funny role reversal.`, wordTarget: 22 },
+      { spread: 11, beat: 'PROUD', description: `${parentName} and ${child.name} share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper, not louder.`, wordTarget: 22 },
+      // SCENE D — HEADING HOME (spreads 12-13)
+      { spread: 12, beat: 'HEADING_HOME', description: `The journey home or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime. Still full of the day's warmth.`, wordTarget: 20 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful, warm, concrete. NOT a goodnight. A parent should want to read it twice.`, wordTarget: 14 },
     ];
   }
 
@@ -217,19 +221,23 @@ class FathersDayWriter extends BaseThemeWriter {
    */
   _buildPictureBookBeats(child, parentName) {
     return [
-      { spread: 1, beat: 'OPENING', description: `Place ${child.name} and ${parentName} in a specific moment. Establish tone. The world is vivid and particular.`, wordTarget: 30 },
-      { spread: 2, beat: 'ACTIVITY_1', description: `First activity together — building something, a shared project. Concrete nouns, specific actions.`, wordTarget: 30 },
-      { spread: 3, beat: 'ACTIVITY_2', description: `Physical play — backyard adventures, stick swords, racing. Show ${parentName}'s playful side.`, wordTarget: 30 },
-      { spread: 4, beat: 'ACTIVITY_3', description: `A teaching moment — the big bike ride, the letting-go moment when ${parentName} releases the seat. Use child's interests if available.`, wordTarget: 28 },
-      { spread: 5, beat: 'DEEPENING_1', description: `${parentName} begins noticing specific things about ${child.name}. The shift from activities to emotional connection.`, wordTarget: 28 },
-      { spread: 6, beat: 'DEEPENING_2', description: `${parentName} knows something nobody else knows — the specific laugh, the particular habit, the invented game.`, wordTarget: 28 },
-      { spread: 7, beat: 'DEEPENING_3', description: `The noticing IS the love. ${parentName}'s perspective feels earned — he saw something specific; that seeing is the love.`, wordTarget: 25 },
-      { spread: 8, beat: 'SURPRISE', description: `${child.name} does something sweet or unexpected for ${parentName} — a handmade card, a silly gift, a proud show-and-tell. Warm and funny.`, wordTarget: 25 },
-      { spread: 9, beat: 'ADVENTURE', description: `They go on a little adventure together — exploring, building something big, a backyard quest. Bright, active, joyful.`, wordTarget: 25 },
-      { spread: 10, beat: 'CELEBRATION', description: `A shared moment of pure joy — a victory dance, a high-five, laughing together. Bright, warm, happy.`, wordTarget: 25 },
-      { spread: 11, beat: 'TOGETHER', description: `The best part of the day. Doing what they love most together. Happy, vivid, full of energy and warmth.`, wordTarget: 25 },
-      { spread: 12, beat: 'CLIMAX', description: `The warmest moment — not quiet, FULL. A big bear hug. Laughter in the air. Full of love and light.`, wordTarget: 20 },
-      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful, warm, celebratory. A parent should want to read it twice.`, wordTarget: 15 },
+      // SCENE A — HOME / LAUNCH (spreads 1-3)
+      { spread: 1, beat: 'HOME_OPENING', description: `Place ${child.name} and ${parentName} in a specific moment — mid-action, not waking up. Establish tone AND hint at a plan (building something, going somewhere together). Vivid and particular.`, wordTarget: 30 },
+      { spread: 2, beat: 'HOME_PREPARING', description: `The plan takes shape — gathering tools, loading the car, mapping the route, starting the project. A moment showing how they work together. Use child's anecdote. Same location.`, wordTarget: 30 },
+      { spread: 3, beat: 'HOME_RITUAL', description: `Something only THIS pair does — a funny handshake, ${parentName}'s signature move, a shared joke from the questionnaire. Woven into the preparation, not a standalone scene.`, wordTarget: 30 },
+      // SCENE B — THE ADVENTURE (spreads 4-7)
+      { spread: 4, beat: 'ADVENTURE_START', description: `They head out or the project deepens — show the transition clearly. The world opens up. Anticipation and excitement build.`, wordTarget: 28 },
+      { spread: 5, beat: 'ADVENTURE_SKILL', description: `${parentName} does something that amazes ${child.name} — a skill, a trick, strength, gentleness. The moment that makes ${parentName} a hero. Connected to the adventure/project.`, wordTarget: 28 },
+      { spread: 6, beat: 'ADVENTURE_LAUGHTER', description: `A funny or playful moment within the adventure — physical comedy, stick swords, a shared joke, something goes slightly sideways. Still in the same scene.`, wordTarget: 28 },
+      { spread: 7, beat: 'ADVENTURE_QUIET', description: `A quieter beat — working side by side, watching something together, a teaching moment. The story breathes before the peak. Still in the same place.`, wordTarget: 25 },
+      // SCENE C — THE PEAK (spreads 8-11)
+      { spread: 8, beat: 'BIG_MOMENT', description: `The adventure reaches its destination or the project nears completion. The payoff they've been building toward. Use meaningful_moment from questionnaire.`, wordTarget: 25 },
+      { spread: 9, beat: 'PEAK_JOY', description: `The best moment — triumphant, exciting. A high-five, a victory dance, the big reveal. Maximum energy. Physical, joyful, specific.`, wordTarget: 25 },
+      { spread: 10, beat: 'CHILD_LEADS', description: `${child.name} does something that surprises or impresses ${parentName} — shows what they learned, takes a turn, makes a gift. A warm role reversal.`, wordTarget: 25 },
+      { spread: 11, beat: 'PROUD', description: `${parentName} and ${child.name} share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper, not louder.`, wordTarget: 25 },
+      // SCENE D — HEADING HOME (spreads 12-13)
+      { spread: 12, beat: 'HEADING_HOME', description: `The journey home or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime.`, wordTarget: 20 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Concrete and specific, not abstract. Beautiful, warm, celebratory. A parent should want to read it twice.`, wordTarget: 15 },
     ];
   }
 
@@ -253,11 +261,17 @@ class FathersDayWriter extends BaseThemeWriter {
 
     const systemPrompt = `You are a children's book story planner specializing in Father's Day picture books. Your job is to weave specific, real details about this child into the story beat structure.
 
+NARRATIVE STRUCTURE (CRITICAL):
+- The beats are organized into 4 SCENES (Home, Adventure, Peak, Heading Home). Keep this structure intact.
+- Consecutive beats within a scene MUST share the same location. Do NOT jump between unrelated places.
+- A 3-year-old listener must be able to follow every transition between beats.
+
 RULES:
-- Keep every beat's purpose intact
+- Keep every beat's purpose and SCENE grouping intact
 - Replace generic placeholders with specific anecdotes from the child's real life
 - Use concrete nouns and actions, never abstract claims
-- The anecdotes should feel natural in the story, not forced in`;
+- The anecdotes should feel natural in the story, not forced in
+- When enriching, keep beats within the same scene connected to each other`;
 
     const userPrompt = `Here are the story beats for a ${ageTier} Father's Day book about ${child.name} (age ${child.age}) and ${parentName}:
 
@@ -334,9 +348,16 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`Spread ${b.spread} (${b.beat}): ${b.description} [~${b.wordTarget} words]`);
     });
 
+    sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);
+    sections.push(`- The beats are organized into 4 SCENES: Home (1-3), Adventure (4-7), Peak (8-11), Heading Home (12-13).`);
+    sections.push(`- Within each scene, the characters stay in the SAME PLACE. Do NOT jump to a new location within a scene.`);
+    sections.push(`- Scene transitions (3→4, 7→8, 11→12) must show the characters MOVING. The reader must know WHERE they are.`);
+    sections.push(`- This story has ONE through-line: ${child.name} and ${parentName} do something together. Every spread connects to this adventure.`);
+    sections.push(`- Do NOT write a slideshow of unrelated activities. Each spread flows from the one before it.`);
+    sections.push(`- CLARITY: Every image and metaphor must be literal enough for a 3-year-old to picture. If you mix imagination and reality, signal the shift clearly.`);
+
     sections.push(`\n## CRITICAL REMINDERS\n`);
     sections.push(`- AABB couplets throughout — every line pair must rhyme`);
-    sections.push(`- The climax spread (${plan.beats.find(b => b.beat === 'CLIMAX')?.spread || 10}) should have the FEWEST words`);
     sections.push(`- This is a CELEBRATION book, not a bedtime book. EVERY spread must be WARM, JOYFUL, and POSITIVE. No anger, crying, tantrums, frustration, tiredness, sleeping, winding down, or negative emotions at any point. The entire book should feel happy and loving from start to finish.`);
     sections.push(`- Close on an IMAGE, not a declaration — no "I love you" as the last line`);
     sections.push(`- Every spread needs at least one concrete, specific noun`);
