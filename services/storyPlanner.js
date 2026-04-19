@@ -857,6 +857,10 @@ Do NOT invent other family members beyond what is listed above.`
     : `ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES:
 Story text MAY mention family members by name. However, family members must NEVER appear as visible characters in illustrations — we only have the child's photo. Design beats so scenes center the child visually.`)}
 
+INTERESTS vs. VISUAL THEMES (CRITICAL):
+When the child's interests include character names (Bluey, Pinkalicious, Peppa Pig, Spider-Man, Elsa, etc.), these are CHARACTERS the child likes — NOT literal color or visual themes. "Pinkalicious" means the child enjoys those books, not "make everything pink." "Bluey" means the child watches that show, not "make everything blue." Use these interests as INSPIRATION for tone, energy, or a subtle nod — but NEVER flood the story with a single color or visual motif. The story should have a natural, varied color palette. A subtle reference is charming; saturation is overwhelming.
+Similarly, if a color is listed as an interest (e.g., "pink", "blue"), it can appear as ONE detail (a favorite shirt, a special object) — but it should NOT dominate every spread's setting, objects, and imagery.
+
 Be ORIGINAL. The child's name, age, interests, and custom details must make this feel like it was written for exactly this child and no one else.
 
 STYLE MODE SELECTION:

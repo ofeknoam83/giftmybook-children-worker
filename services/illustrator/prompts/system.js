@@ -71,6 +71,7 @@ function buildSystemInstruction(opts) {
   parts.push('- All content must be age-appropriate for children ages 2-8');
   parts.push('- Wholesome, warm, family-friendly');
   parts.push('- No scary imagery, no violence, no dark themes');
+  parts.push('- COLOR VARIETY: Even if the scene mentions a favorite color, the illustration should have a natural, varied palette. Do NOT flood the entire scene with one color. A pink dress is fine; an all-pink world is not.');
   parts.push('');
 
   // Parent visibility

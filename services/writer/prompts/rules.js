@@ -117,6 +117,7 @@ const TEN_COMMANDMENTS = [
   'Read it aloud. If you stumble, rewrite. A parent should never trip over a word.',
   'NEVER invent character names, place names, or personal details that were not provided in the input. Use only the names and details given to you.',
   'NEVER use dashes, hyphens, or em dashes in the story text. No "\u2014", no "-" between words. Rewrite the sentence to avoid them. Use commas, periods, or line breaks instead.',
+  'INTERESTS ARE INSPIRATION, NOT THEMES: If the child likes a character (Pinkalicious, Bluey, etc.) or a color, use it as a subtle detail — NOT as a visual motif that saturates every spread. One pink ribbon is charming; pink fish, pink flowers, pink sky, and pink everything is overwhelming. Vary your imagery.',
 ];
 
 /**
