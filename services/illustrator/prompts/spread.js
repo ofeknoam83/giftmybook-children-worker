@@ -57,7 +57,7 @@ function buildSpreadPrompt(opts) {
   parts.push('- HAIR: Same color, length, style, texture as on the cover — do NOT change hairstyle');
   parts.push('- OUTFIT: Same clothes and colors as on the cover — no costume changes for any reason');
   parts.push('- FACE: Same face shape, skin tone, and features as the reference');
-  parts.push('- ANATOMY: Exactly 2 hands, 2 arms, 2 legs per person. 5 fingers per hand. Count before generating.');
+  parts.push('- ANATOMY: Exactly 2 hands, 2 arms, 2 legs per person. Keep hands simple — fists, cupped, or gently gripping. AVOID spread-out fingers.');
 
   if (hasParentOnCover) {
     parts.push('- Parent can appear and must match their cover appearance exactly');

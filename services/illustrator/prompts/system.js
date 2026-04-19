@@ -48,6 +48,8 @@ function buildSystemInstruction(opts) {
   parts.push('- Every person has EXACTLY 2 hands, 2 arms, 2 legs, 2 feet — NO MORE, NO LESS');
   parts.push('- Every hand has EXACTLY 5 fingers — count them before finalizing');
   parts.push('- NEVER generate 3 hands, 3 arms, or any extra limbs');
+  parts.push('- When hands are visible, keep them SIMPLE — fists, cupped, relaxed, or wrapped around objects. AVOID showing individual spread-out fingers.');
+  parts.push('- If the child is holding something, show the object clearly and keep the grip natural — do not splay fingers.');
   parts.push('- Proportions appropriate for a young child');
   parts.push('- No merged body parts, no distorted limbs, no body horror');
   parts.push('');
@@ -108,7 +110,7 @@ function buildSystemInstruction(opts) {
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
-  parts.push(`- CENTER EXCLUSION ZONE (CRITICAL): Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. All text must be in the outer ${50 - TEXT_RULES.centerExclusionPercent}% of the image — the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}%. NEVER place text in the middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image. This image will be split into two pages at the center.`);
+  parts.push('- CENTER EXCLUSION ZONE (CRITICAL): This image will be split into LEFT and RIGHT pages at the exact center. Place ALL text entirely on ONE SIDE — either the LEFT THIRD or the RIGHT THIRD. NEVER place any text near the center. If in doubt, push text further toward the edge.');
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left, right, and top edges`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`);
   parts.push('- Main characters and key action should not be hidden behind text');
