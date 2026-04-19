@@ -57,6 +57,7 @@ class IllustratorEngine {
     // Determine parent visibility
     const hasParentOnCover = !!(additionalCoverCharacters);
     const isParentTheme = theme && PARENT_THEMES.has(theme);
+    const parentOutfit = storyPlan?.parentOutfit || null;
 
     // ── Step 1: Session Setup ──
     log('info', 'Step 1: Creating chat session and establishing character');
@@ -72,6 +73,7 @@ class IllustratorEngine {
         hasParentOnCover,
         additionalCoverCharacters,
         theme,
+        parentOutfit,
       });
 
       await establishCharacterReferences(session);
@@ -129,6 +131,7 @@ class IllustratorEngine {
           additionalCoverCharacters,
           theme,
           style,
+          parentOutfit,
         });
 
         // Generate within session (retry up to 2 times on failure)
@@ -311,6 +314,7 @@ ${buildSpreadPrompt({
   additionalCoverCharacters,
   theme,
   style,
+  parentOutfit,
 })}`;
 
           const result = await sendCorrection(session, correctionPrompt, failed.index);

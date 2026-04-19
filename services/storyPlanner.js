@@ -783,10 +783,25 @@ Describe Mom warmly and consistently each time.
 ADDITIONALLY, the uploaded photo contains a secondary person:
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
-    : `MOTHER'S DAY — MOM IN ILLUSTRATIONS:
+    : `MOTHER'S DAY — MOM IN ILLUSTRATIONS (IMPLIED PRESENCE — NO FACE):
 Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
 When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
-Describe Mom warmly and consistently each time. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`)
+CRITICAL: We have NO reference image for Mom. She is FEMALE (a woman — never draw a man). Her face must NEVER be shown in illustrations. Always describe her with HIDDEN FACE: back view, side view with face turned away, hands reaching in, silhouette, or partially out of frame. NEVER describe her facial features. Show her warmth through body language, hands, and posture.
+Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`)
+  : theme === 'fathers_day'
+  ? (additionalCoverCharacters
+    ? `FATHER'S DAY — DAD IN ILLUSTRATIONS + SECONDARY CHARACTERS:
+Dad is a co-protagonist in this story. He MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Dad, note his presence explicitly so downstream illustration prompts can include him.
+Describe Dad warmly and consistently each time.
+ADDITIONALLY, the uploaded photo contains a secondary person:
+${additionalCoverCharacters}
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+    : `FATHER'S DAY — DAD IN ILLUSTRATIONS (IMPLIED PRESENCE — NO FACE):
+Dad is a co-protagonist in this story. He MUST appear in beats for at least 6 of 13 spreads.
+When writing beats that include Dad, note his presence explicitly so downstream illustration prompts can include him.
+CRITICAL: We have NO reference image for Dad. He is MALE (a man — never draw a woman). His face must NEVER be shown in illustrations. Always describe him with HIDDEN FACE: back view, side view with face turned away, hands reaching in, silhouette, or partially out of frame. NEVER describe his facial features. Show his warmth through body language, hands, and posture.
+Other family members (siblings, grandparents, mom) must NOT appear in illustrations — text only.`)
   : (additionalCoverCharacters
     ? `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.
@@ -1150,7 +1165,7 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   if (style_mode) briefVars.style_mode = style_mode;
   if (techniques) briefVars.techniques = techniques;
 
-  let systemPrompt = buildStoryWriterSystem(briefVars, theme);
+  let systemPrompt = buildStoryWriterSystem(briefVars, theme, additionalCoverCharacters);
 
   // ── Inject prompt-level quality improvements (W1, W2, W4, W5, W6) ──
   // W1: Beat structure — BEFORE existing writing rules
@@ -1173,11 +1188,21 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     systemPrompt += '\n\n' + writerPatternBlock;
   }
 
-  let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars);
+  let userPrompt = STORY_WRITER_USER(childDetails, theme, customDetails, v2Vars, additionalCoverCharacters);
 
-  // Always allow/require Mom for Mother's Day stories, even if a secondary person was detected.
+  // Allow/require the parent for parent-themed stories
   if (theme === 'mothers_day') {
-    systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+    if (additionalCoverCharacters) {
+      systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+    } else {
+      systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE — IMPLIED PRESENCE (NO FACE): Mom is a co-protagonist and MUST appear in illustration prompts for at least 6 of 13 spreads. However, we have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. In every spread_image_prompt where Mom appears, describe her with HIDDEN FACE: back view, hands reaching in, side view with face turned away, silhouette, or cropped at frame edge. NEVER describe her facial features or expression. Her warmth comes through body language and actions. Other family members — text only, never illustrated.`;
+    }
+  } else if (theme === 'fathers_day') {
+    if (additionalCoverCharacters) {
+      systemPrompt += `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Dad only. When writing scenes where Dad appears, describe his presence explicitly (his position, gesture, expression) so illustration prompts can include him. Describe Dad warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+    } else {
+      systemPrompt += `\n\n⚠️ FATHER'S DAY OVERRIDE — IMPLIED PRESENCE (NO FACE): Dad is a co-protagonist and MUST appear in illustration prompts for at least 6 of 13 spreads. However, we have NO reference image for Dad. He is MALE (a man). His face must NEVER be shown in illustrations. In every spread_image_prompt where Dad appears, describe him with HIDDEN FACE: back view, hands reaching in, side view with face turned away, silhouette, or cropped at frame edge. NEVER describe his facial features or expression. His warmth comes through body language and actions. Other family members — text only, never illustrated.`;
+    }
   }
 
   // Override the "no family in illustrations" rule when secondary characters are detected
@@ -3085,7 +3110,11 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   if (theme === 'mothers_day') {
     familyConstraint = additionalCoverCharacters
       ? `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
-      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. Show her through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe her facial features. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+  } else if (theme === 'fathers_day') {
+    familyConstraint = additionalCoverCharacters
+      ? `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist. He MUST appear in chapter illustrations frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+      : `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist. He MUST appear in chapter illustrations frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Dad. He is MALE (a man). His face must NEVER be shown in illustrations. Show him through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe his facial features. Other family members (siblings, grandparents, mom) must NOT appear in illustrations — text only.`;
   } else if (additionalCoverCharacters) {
     familyConstraint = `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene. Do NOT invent other family members beyond what is listed above.`;
   } else {
@@ -3744,7 +3773,11 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   if (theme === 'mothers_day') {
     familyConstraint = additionalCoverCharacters
       ? `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
-      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. Show her through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe her facial features. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+  } else if (theme === 'fathers_day') {
+    familyConstraint = additionalCoverCharacters
+      ? `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist. He MUST appear in scenes and illustration prompts frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+      : `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist. He MUST appear in scenes and illustration prompts frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Dad. He is MALE (a man). His face must NEVER be shown in illustrations. Show him through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe his facial features. Other family members (siblings, grandparents, mom) must NOT appear in illustrations — text only.`;
   } else if (additionalCoverCharacters) {
     familyConstraint = `\n\n⚠️ COVER PHOTO OVERRIDE: The uploaded photo contains a secondary person (e.g. a parent/family member). This overrides the "no family in illustrations" rule for THIS book only. The following secondary character IS allowed in illustrations and must appear consistently:\n${additionalCoverCharacters}\nWrite their description into illustration prompts whenever they appear naturally in the scene. Do NOT invent other family members beyond what is listed above.`;
   } else {

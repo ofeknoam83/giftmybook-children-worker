@@ -78,11 +78,19 @@ function buildSystemInstruction(opts) {
     parts.push('- Same face, hair, skin tone, outfit as on the cover');
     parts.push('');
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    parts.push('PARENT CHARACTER (NO FACE):');
-    parts.push('- The story references a parent but we have NO reference image');
-    parts.push('- NEVER show the parent\'s full face — it would look different on every page');
-    parts.push('- Show parent through: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge');
-    parts.push('- The parent should feel warm and physically present — just with face hidden');
+    const isMother = opts.theme === 'mothers_day';
+    const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
+    const parentPronoun = isMother ? 'her' : 'his';
+    parts.push(`PARENT CHARACTER — ${parentLabel} (NO FACE):`);
+    parts.push(`- The story references the child's ${isMother ? 'mother' : 'father'} but we have NO reference image`);
+    parts.push(`- The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}`);
+    parts.push(`- NEVER show the parent's full face — it would look different on every page`);
+    parts.push(`- Show ${isMother ? 'her' : 'him'} through: hands, arms, back view, side view with face turned away, silhouette, or cropped at frame edge`);
+    parts.push(`- The ${isMother ? 'mother' : 'father'} should feel warm and physically present — just with ${parentPronoun} face hidden`);
+    if (opts.parentOutfit) {
+      parts.push(`- PARENT OUTFIT LOCK (CRITICAL): The ${isMother ? 'mother' : 'father'} MUST wear EXACTLY this outfit in EVERY illustration — no exceptions: ${opts.parentOutfit}`);
+      parts.push(`- Do NOT change the parent's outfit for any reason. Same garments, same colors, every single page.`);
+    }
     parts.push('');
   } else {
     parts.push('NO FAMILY MEMBERS:');
@@ -101,7 +109,8 @@ function buildSystemInstruction(opts) {
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
   parts.push(`- CENTER EXCLUSION ZONE (CRITICAL): Text must stay at least ${TEXT_RULES.centerExclusionPercent}% away from the vertical center line. All text must be in the outer ${50 - TEXT_RULES.centerExclusionPercent}% of the image — the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}%. NEVER place text in the middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image. This image will be split into two pages at the center.`);
-  parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from ALL edges`);
+  parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left, right, and top edges`);
+  parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`);
   parts.push('- Main characters and key action should not be hidden behind text');
   parts.push('');
 

@@ -121,9 +121,11 @@ async function splitSpreadImage(buf, pw, ph) {
   const meta = await sharp(buf).metadata();
   const scaledH = Math.round(meta.height * spreadW / meta.width);
 
-  // Center crop vertically
+  // Bias crop toward the top to preserve text near the bottom edge.
+  // 16:9 images are taller than the 2:1 spread ratio, so we must crop vertically.
+  // Text is typically placed near the bottom; cropping 65% from the top keeps it safe.
   const excessH = Math.max(0, scaledH - hp);
-  const cropTop = Math.floor(excessH / 2);
+  const cropTop = Math.floor(excessH * 0.65);
 
   // Scale + crop in one sharp operation
   const spreadBuf = await sharp(buf)
