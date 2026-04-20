@@ -95,6 +95,39 @@ const OBJECT_PROMPTS = {
   spoon:    'a cheerful silver soup spoon standing upright',
   chef_hat: 'a fluffy tall white chef\'s toque hat with a curved top',
   pizza:    'a small cheerful whole pizza pie with tomato sauce and cheese, no readable text',
+
+  // ── Theme signature items (M1). Kept generic / wordless; match book style. ──
+  // Mother's Day
+  mothers_day_card: 'a folded greeting card with a big coral heart on the cover, pastel pink background, handmade feel, NO text',
+  bouquet:          'a cheerful bouquet of assorted cartoon flowers (pink, yellow, peach) wrapped in paper',
+  family_photo:     'a wooden framed photo-frame (picture side facing camera) showing a simple abstract silhouette of a family, no readable details',
+  // Father's Day
+  dad_mug:          'a light-blue coffee mug with a tiny red heart on the front, wisps of steam rising',
+  tie:              'a classic neck-tie shape, navy-and-butter striped, lying flat',
+  toolbox:          'a coral-red toolbox with a sturdy handle on top, closed lid, clean cartoon style',
+  // Birthday
+  birthday_cake:    'a small two-tier birthday cake, pink frosting, one lit candle on top, white frosting drips',
+  present:          'a wrapped gift box with berry-colored paper and a butter-yellow ribbon with a big bow',
+  party_hat:        'a cone party hat, coral with polka dots, pom-pom on the tip',
+  balloon:          'a single coral-colored helium balloon with a short white string, slight highlight for volume',
+  // Bedtime wonder
+  storybook:        'an open storybook with soft illustrations (a star + a moon) on its pages, no readable letters',
+  nightlight:       'a small children\'s nightlight lamp with a warm butter-yellow glow, cute star cut-out on the shade',
+  teddy_special:    'a soft blue plush keepsake teddy bear with a yellow star embroidered on its tummy',
+  // Adventure
+  map:              'a rolled-out treasure map, aged cream paper, dashed path and a red X, NO readable text',
+  compass:          'a wooden-ringed compass with a red/white needle pointing north, vintage friendly style',
+  binoculars:       'a pair of kid\'s binoculars, berry-colored barrels with sky-blue eyepieces',
+  // Learning / discovery
+  magnifier:        'a cartoon magnifying glass with a wooden handle, light glint on the lens',
+  globe:            'a small desk globe on a wooden stand, blue oceans with soft green continents',
+  // Creative arts
+  crayons:          'a neat row of five chunky crayons (pink, yellow, mint, sky-blue, berry) with paper labels',
+  easel:            'a small child\'s wooden easel with a canvas showing a bright sun and a tree, no text',
+  music_note:       'a single cheerful berry-colored eighth note with a rounded flag',
+  // Friendship
+  friendship_bracelet: 'a colorful beaded friendship bracelet in a loose circle, multi-colored beads on a coral string',
+  letter:           'a cream envelope slightly opened, with a tiny coral heart wax seal, no readable text',
 };
 
 function framing(assetKind, assetDescription) {

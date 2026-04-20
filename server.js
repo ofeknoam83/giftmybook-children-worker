@@ -2499,6 +2499,69 @@ app.post('/generate-game-world', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /generate-game-dialogue ──────────────────────────────────────────────
+// Generate a dialogue line map for a given book's narrative using the OpenAI
+// chat completions JSON mode. Cheap (~$0.01/book); callers cache on the DB.
+app.post('/generate-game-dialogue', authenticate, async (req, res) => {
+  const { bookId, narrative, recipeIds, npcKinds } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+
+  console.log(`[server] /generate-game-dialogue: bookId=${bookId}, recipeIds=${(recipeIds||[]).length}, npcKinds=${(npcKinds||[]).join(',')}`);
+
+  try {
+    const { generateGameDialogue } = require('./services/gameDialogue');
+    const result = await generateGameDialogue({ bookId, narrative, recipeIds, npcKinds });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-dialogue failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-game-voices ────────────────────────────────────────────────
+// Synthesize all dialogue lines to MP3 via Google Cloud TTS and upload to GCS.
+// Returns a manifest { [lineId]: signedUrl }.
+app.post('/generate-game-voices', authenticate, async (req, res) => {
+  const { bookId, dialogues, gender } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!dialogues || typeof dialogues !== 'object') {
+    return res.status(400).json({ success: false, error: 'dialogues map is required' });
+  }
+
+  console.log(`[server] /generate-game-voices: bookId=${bookId}, lines=${Object.keys(dialogues).length}, gender=${gender || 'any'}`);
+
+  try {
+    const { generateGameVoices } = require('./services/gameVoices');
+    const result = await generateGameVoices({ bookId, dialogues, gender });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-voices failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-game-pose-anims ────────────────────────────────────────────
+// Generates 2×2 animation grids (walk / jump / cheer) and slices them into
+// per-frame PNGs on GCS. Returns manifest of { anims: { name: { frames, fps, loop } } }.
+app.post('/generate-game-pose-anims', authenticate, async (req, res) => {
+  const { bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl, style, childDetails, anims } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+
+  console.log(`[server] /generate-game-pose-anims: bookId=${bookId}, anims=${(anims || ['walk','jump','cheer']).join(',')}`);
+
+  try {
+    const { generateGamePoseAnims } = require('./services/gamePoseAnims');
+    const result = await generateGamePoseAnims({
+      bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl,
+      style, childDetails, anims,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-pose-anims failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /generate-coloring-book ──────────────────────────────────────────────
 // Async endpoint: returns 202 immediately, processes in background, reports via callbackUrl.
 // mode=trace  (default): converts existing spread illustrations to coloring pages.

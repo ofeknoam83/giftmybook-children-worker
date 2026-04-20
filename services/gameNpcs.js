@@ -16,7 +16,7 @@ const { GEMINI_IMAGE_MODEL, CHAT_API_BASE } = require('./illustrator/config');
 const { fetchWithTimeout, downloadPhotoAsBase64 } = require('./illustrationGenerator');
 const { uploadBuffer } = require('./gcsStorage');
 
-const NPC_TYPES = ['mom', 'dad', 'cat'];
+const NPC_TYPES = ['mom', 'dad', 'cat', 'dog', 'bunny', 'sibling'];
 
 function pickApiKey() {
   const keys = [];
@@ -37,13 +37,21 @@ function buildPrompt(characters, style, briefMoments) {
   const labels = characters.map(c => c.toUpperCase()).join(', ');
 
   const descLines = {
-    mom: 'MOM: a warm smiling mother figure, standing relaxed, arms soft at sides, gentle welcoming expression. Clothing in the palette of the reference.',
-    dad: 'DAD: a warm smiling father figure, standing relaxed, arms soft at sides, friendly expression. Clothing in the palette of the reference.',
-    cat: 'CAT: a friendly small house cat sitting upright, tail curled around paws, bright eyes, soft furry body. Same illustrated style as the reference.',
+    mom:     'MOM: a warm smiling mother figure, standing relaxed, arms soft at sides, gentle welcoming expression. Clothing in the palette of the reference.',
+    dad:     'DAD: a warm smiling father figure, standing relaxed, arms soft at sides, friendly expression. Clothing in the palette of the reference.',
+    cat:     'CAT: a friendly small house cat sitting upright, tail curled around paws, bright eyes, soft furry body. Same illustrated style as the reference.',
+    dog:     'DOG: a friendly small family dog sitting upright, tongue slightly out, waggy tail, soft fur. Same illustrated style as the reference.',
+    bunny:   'BUNNY: a friendly cartoon rabbit sitting upright, long soft ears, fluffy tail, bright eyes. Same illustrated style as the reference.',
+    sibling: 'SIBLING: a warm smiling child (younger or older sibling of the protagonist), standing relaxed, friendly expression. Clothing in the palette of the reference.',
   };
 
-  const hintBlock = briefMoments && briefMoments.momName
-    ? `The mother is called "${briefMoments.momName}" in the book but DON'T include any text.`
+  const hintParts = [];
+  if (briefMoments?.momName) hintParts.push(`The mother is called "${briefMoments.momName}" in the book`);
+  if (briefMoments?.dadName) hintParts.push(`the father is called "${briefMoments.dadName}"`);
+  if (briefMoments?.petName) hintParts.push(`the pet is called "${briefMoments.petName}"`);
+  if (briefMoments?.siblingName) hintParts.push(`the sibling is called "${briefMoments.siblingName}"`);
+  const hintBlock = hintParts.length
+    ? `${hintParts.join('; ')} but DON'T include any text.`
     : '';
 
   return [
