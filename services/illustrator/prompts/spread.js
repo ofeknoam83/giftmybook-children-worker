@@ -42,6 +42,13 @@ function buildSpreadPrompt(opts) {
   const cameraHint = BEAT_CAMERA[beat];
   const parts = [];
 
+  // Critical rules — read before anything else
+  parts.push('### CRITICAL RULES — READ BEFORE DRAWING');
+  parts.push('- ONE HERO: The main child appears EXACTLY ONCE in this image. No duplicates, no twin, no reflection/photo copy, no before-and-after sequence of the same child.');
+  parts.push('- ONE MOMENT: This is ONE single moment in time — not a comic strip, not a diptych, not two scenes side by side.');
+  parts.push('- ONE SEAMLESS PAINTING: No vertical seam, no mid-frame background or lighting change. Same room, same light, continuous edge-to-edge.');
+  parts.push('');
+
   // Header
   parts.push(`## SPREAD ${spreadIndex + 1} OF ${totalSpreads}`);
   parts.push('');
@@ -78,12 +85,10 @@ function buildSpreadPrompt(opts) {
   parts.push('- No duplicate characters — the child appears ONCE');
   parts.push('');
 
-  // Format — seamless painting
-  parts.push('### FORMAT (CRITICAL — READ BEFORE DRAWING)');
-  parts.push('- THIS IS ONE SINGLE SEAMLESS PAINTING — like a wide movie still or a panoramic photograph.');
-  parts.push('- The scene flows continuously from the left edge to the right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break at the center or anywhere else.');
-  parts.push('- Do NOT treat this as two separate images side by side. There must be ZERO visual indication that this image will be split into two pages. Paint it as ONE unified wide scene.');
-  parts.push('- ONE continuous background, ONE unified lighting, ONE seamless composition.');
+  // Format — seamless painting (see CRITICAL RULES above for the full anti-split/anti-duplication rules)
+  parts.push('### FORMAT');
+  parts.push('- Wide cinematic panoramic landscape illustration, like a wide movie still.');
+  parts.push('- Honor the ONE HERO / ONE MOMENT / ONE SEAMLESS PAINTING rules from CRITICAL RULES above — no seams, no duplicate hero, no side-by-side scenes.');
   parts.push('');
 
   // Composition

@@ -193,17 +193,36 @@ class IllustratorEngine {
           ];
           log('warn', `Spread ${i + 1} QA failed (retry ${qaRetries}/${MAX_SPREAD_RETRIES}): ${issues.join('; ')}`);
 
-          // Build correction prompt — use focused language for text issues
+          // Build correction prompt — prefer QA tags, fall back to substring sniffing
+          const qaTags = new Set([
+            ...(Array.isArray(textCheck.tags) ? textCheck.tags : []),
+            ...(Array.isArray(anatomyCheck.tags) ? anatomyCheck.tags : []),
+          ]);
           const hasTextIssues = issues.some(iss => iss.startsWith('[text]'));
           const hasAnatomyIssues = issues.some(iss => iss.startsWith('[anatomy]'));
-          const hasSplitPanel = issues.some(iss => iss.toLowerCase().includes('split panel'));
-          const hasDuplication = issues.some(iss => iss.toLowerCase().includes('duplicat'));
+          const hasSplitPanel = qaTags.has('split_panel')
+            || issues.some(iss => iss.toLowerCase().includes('split panel'));
+          const hasDuplicatedHero = qaTags.has('duplicated_hero')
+            || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
+          const hasTextDuplication = issues.some(iss => iss.toLowerCase().includes('duplicat') && iss.startsWith('[text]'));
           const hasCenterViolation = issues.some(iss => iss.toLowerCase().includes('center'));
           const hasEdgeViolation = issues.some(iss => iss.toLowerCase().includes('edge'));
 
           let correctionPrompt;
 
-          if (hasSplitPanel) {
+          if (hasDuplicatedHero) {
+            correctionPrompt = `REGENERATE spread ${i + 1} COMPLETELY. The previous image drew the main child MORE THAN ONCE — this is WRONG.
+
+CRITICAL: The hero (the main child this book is about) must appear EXACTLY ONCE in the image.
+- No twin sibling, no second identical child standing next to the hero.
+- No before/after pose of the same child.
+- No mirror reflection or framed-photo copy of the child (unless a physical mirror or picture frame is clearly drawn).
+- If a parent, friend, or other character is in the scene, they must look clearly different from the hero — never a second copy of the hero.
+
+Keep the same scene content and style, but draw the hero exactly once.
+
+${prompt}`;
+          } else if (hasSplitPanel) {
             correctionPrompt = `REGENERATE spread ${i + 1} COMPLETELY. The previous image was SPLIT INTO TWO SEPARATE PANELS — this is WRONG.
 
 CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph. ONE continuous background, ONE unified lighting, ONE seamless composition from left edge to right edge. NO divider, NO seam, NO panel split, NO two separate scenes side by side.
@@ -213,7 +232,7 @@ ${prompt}`;
             const placement = getTextPlacement(i);
             const safePct = 50 - TEXT_RULES.centerExclusionPercent;
             const textFixes = [];
-            if (hasDuplication) textFixes.push('The text appeared MORE THAN ONCE. Render it EXACTLY ONE TIME in ONE location.');
+            if (hasTextDuplication) textFixes.push('The text appeared MORE THAN ONCE. Render it EXACTLY ONE TIME in ONE location.');
             if (hasCenterViolation) textFixes.push(`Text was too close to the center. Move ALL text to the ${placement.side.toUpperCase()} side — within the ${placement.side} ${safePct}% of the image.`);
             if (hasEdgeViolation) textFixes.push(`Text was too close to the edge. Keep at least ${TEXT_RULES.edgePaddingPercent}% from sides/top and ${TEXT_RULES.bottomPaddingPercent}% from the bottom.`);
             if (textFixes.length === 0) textFixes.push(...issues.map(iss => iss.replace(/^\[text\]\s*/, '')));
@@ -593,7 +612,32 @@ ${buildSpreadPrompt({
       ];
       log('warn', `QA failed (retry ${qaRetries}/${MAX_SPREAD_RETRIES}): ${issues.join('; ')}`);
 
-      const correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
+      const qaTags = new Set([
+        ...(Array.isArray(textCheck.tags) ? textCheck.tags : []),
+        ...(Array.isArray(anatomyCheck.tags) ? anatomyCheck.tags : []),
+      ]);
+      const hasSplitPanel = qaTags.has('split_panel')
+        || issues.some(iss => iss.toLowerCase().includes('split panel'));
+      const hasDuplicatedHero = qaTags.has('duplicated_hero')
+        || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
+
+      let correctionPrompt;
+      if (hasDuplicatedHero) {
+        correctionPrompt = `REGENERATE this spread COMPLETELY. The previous image drew the main child MORE THAN ONCE — this is WRONG.
+
+CRITICAL: The hero must appear EXACTLY ONCE. No twin sibling, no before/after pose of the same child, no mirror/photo copy.
+If a parent or other character is in the scene, they must look clearly different from the hero.
+
+${prompt}`;
+      } else if (hasSplitPanel) {
+        correctionPrompt = `REGENERATE this spread COMPLETELY. The previous image was SPLIT INTO TWO SEPARATE PANELS — this is WRONG.
+
+CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — one continuous background, one unified lighting, no divider, no seam, no two scenes side by side.
+
+${prompt}`;
+      } else {
+        correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
+      }
 
       try {
         const retryResult = await sendCorrection(session, correctionPrompt, spreadIndex);

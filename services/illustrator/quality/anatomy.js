@@ -53,6 +53,14 @@ STEP-BY-STEP PROCEDURE (follow exactly):
    Be suspicious of hands near bags, objects, or overlapping areas — these are where extra-hand artifacts hide.
    Partially hidden or cropped limbs are OK. But if you can see 3 distinct hands attached to or near one person's body, that is a defect.
 
+2b. HERO COUNT — MAIN CHILD DUPLICATION (CRITICAL):
+    Identify the main child (the hero — the young child the book is about).
+    How many times does THAT SAME child appear in this image?
+    The hero must appear EXACTLY ONCE. If you see two children that share the same face, hair, outfit, age, and build, the hero has been duplicated — this is a FAIL. Tag as "duplicated_hero".
+    Watch for: a twin sibling in matching clothes, a before/after pose of the same child, a second identical child standing next to the main one.
+    A reflection in a mirror or a framed photograph of the child is OK ONLY IF it is clearly framed as such (visible mirror frame, visible photo frame). Otherwise treat it as duplication.
+    If a parent/adult or a clearly different-looking child is present, that is NOT duplication.
+
 3. FINGERS: Do visible hands have 5 fingers each? Flag extra or missing fingers.
 
 4. BODY HORROR: Merged limbs, distorted faces, extra body parts, arms splitting into two, hands growing from wrong positions.
@@ -61,13 +69,20 @@ STEP-BY-STEP PROCEDURE (follow exactly):
 
 6. CHILD APPEARANCE: Does the child look like a young child? Flag if they look adult.
 
-7. SEAMLESS COMPOSITION (CRITICAL): This should be ONE continuous panoramic painting. Flag "SPLIT PANEL" if: there is a visible vertical divider or seam near the center, two clearly different scenes/backgrounds on left vs right, or an abrupt lighting/color change at the center.
+7. SEAMLESS COMPOSITION (CRITICAL): This should be ONE continuous panoramic painting — one moment, one camera, one unified lighting and background from edge to edge. Tag as "split_panel" and FAIL if ANY of the following are visible:
+   - A vertical divider, seam, gutter, or frame line anywhere (especially near the center)
+   - Two clearly different scenes, rooms, or backgrounds meeting mid-image
+   - Two distinct action moments of the same character shown side by side (a before/after or left-scene/right-scene layout)
+   - An abrupt lighting, color-temperature, or palette change that reads as a panel boundary
+   - Any vertical band of lighting or color that makes the image feel like a diptych or comic strip
+   A subtle environmental gradient (window light falling off) is fine; a clear hand-off from one setting to another is NOT.
 ${sceneCoherenceBlock}
 Do NOT flag: stylistic exaggeration (large eyes, simplified features), left/right mirroring, or artistic proportions.
 
 Return ONLY valid JSON:
-{"pass": true/false, "issues": ["list of specific issues"]}
-Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, SPLIT PANEL, or ACTION MISMATCH.`;
+{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, extra_hands, extra_fingers, body_horror, duplicate_items, action_mismatch"]}
+Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, DUPLICATED HERO, SPLIT PANEL, or ACTION MISMATCH.
+Always include the relevant tags when pass=false so downstream tooling can route a specific correction.`;
 
   try {
     const resp = await fetchWithTimeout(url, {
@@ -95,7 +110,7 @@ Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body ho
 
     if (!resp.ok) {
       console.warn(`[illustrator/quality/anatomy] API error ${resp.status} — accepting`);
-      return { pass: true, issues: [] };
+      return { pass: true, issues: [], tags: [] };
     }
 
     const data = await resp.json();
@@ -107,16 +122,22 @@ Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body ho
 
     if (match) {
       const result = JSON.parse(match[0]);
+      const rawTags = Array.isArray(result.tags) ? result.tags : [];
+      const tags = rawTags
+        .filter(t => typeof t === 'string')
+        .map(t => t.toLowerCase().trim())
+        .filter(Boolean);
       return {
         pass: !!result.pass,
         issues: result.issues || [],
+        tags,
       };
     }
   } catch (e) {
     console.warn(`[illustrator/quality/anatomy] Error: ${e.message} — accepting`);
   }
 
-  return { pass: true, issues: [] };
+  return { pass: true, issues: [], tags: [] };
 }
 
 module.exports = { checkAnatomy };
