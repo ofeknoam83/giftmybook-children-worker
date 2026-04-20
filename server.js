@@ -2562,6 +2562,53 @@ app.post('/generate-game-pose-anims', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /generate-game-character-atlas ───────────────────────────────────────
+// Generates a single 4×4 Gemini grid of character parts (head poses, eyes,
+// mouths, body+arms+hair). Returns a manifest with part URLs + anchor points
+// the client uses to assemble a rigged multi-part character.
+app.post('/generate-game-character-atlas', authenticate, async (req, res) => {
+  const { bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl, style, childDetails } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+
+  console.log(`[server] /generate-game-character-atlas: bookId=${bookId}`);
+
+  try {
+    const { generateGameCharacterAtlas } = require('./services/gameCharacterAtlas');
+    const result = await generateGameCharacterAtlas({
+      bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl,
+      style, childDetails,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-character-atlas failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-game-object-variants ───────────────────────────────────────
+// Generates per-hero-object AI art variants (stove:off/flames/pot-cooking, etc)
+// as strip-grids, slices them, and returns a manifest of { objectId: { variant: url } }.
+app.post('/generate-game-object-variants', authenticate, async (req, res) => {
+  const { bookId, heroObjects, coverImageUrl, childPhotoUrl, style, theme } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!Array.isArray(heroObjects) || heroObjects.length === 0) {
+    return res.status(400).json({ success: false, error: 'heroObjects array is required' });
+  }
+
+  console.log(`[server] /generate-game-object-variants: bookId=${bookId}, objects=${heroObjects.map((h) => h.id).join(',')}`);
+
+  try {
+    const { generateGameObjectVariants } = require('./services/gameObjectVariants');
+    const result = await generateGameObjectVariants({
+      bookId, heroObjects, coverImageUrl, childPhotoUrl, style, theme,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-object-variants failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /generate-coloring-book ──────────────────────────────────────────────
 // Async endpoint: returns 202 immediately, processes in background, reports via callbackUrl.
 // mode=trace  (default): converts existing spread illustrations to coloring pages.
