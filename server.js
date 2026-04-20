@@ -61,6 +61,7 @@ const { generateIllustration, downloadPhotoAsBase64 } = require('./services/illu
 // V3: compositeTextOnIllustration removed (V1 illustration pipeline)
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
+const { computeCoverPdfMetadata } = require('./services/coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
@@ -2095,44 +2096,22 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       try {
         bookContext.log('info', 'Building cover PDF...');
         reportProgressForce(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.95, message: 'Building cover PDF...', logs: bookContext.logs }).catch(() => {});
-        // Calculate actual interior page count for spine width
-        let pageCount;
-        if (isGraphicNovel || storyPlan.isGraphicNovel) {
-          // Graphic novel: title + dedication + scene pages (panel-count driven) + end page
-          const panelCount = (storyPlan.allPanels || []).length;
-          pageCount = 2 + Math.ceil(panelCount / 2) + 1;
-          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
-        } else if (isChapterBook || storyPlan.isChapterBook) {
-          // Chapter book: estimate from chapters (title + dedication + 5*(title page + ~3 text pages) + end page)
-          pageCount = 2 + storyPlan.chapters.length * 4 + 1;
-          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
-        } else {
-          pageCount = 0;
-          for (const entry of entriesWithBuffers) {
-            if (entry.type === 'spread') pageCount += 2;
-            else pageCount += 1;
-          }
-          pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
-        }
-        // Build synopsis from story plan for back cover
-        let synopsis;
-        if (isGraphicNovel || storyPlan.isGraphicNovel) {
-          synopsis = storyPlan.synopsis
-            || storyPlan.storyBible?.logline
-            || storyPlan.storyBible?.audiencePromise
-            || (Array.isArray(storyPlan.storyBible?.sceneBlueprints) && storyPlan.storyBible.sceneBlueprints.length >= 2
-              ? storyPlan.storyBible.sceneBlueprints.slice(0, 3).map(s => s.purpose || s.sceneTitle || '').filter(Boolean).join(' ')
-              : null)
-            || storyPlan.tagline
-            || `A personalized graphic novel for ${childDetails.name}`;
-        } else if (isChapterBook || storyPlan.isChapterBook) {
-          synopsis = storyPlan.chapters.slice(0, 2).map(ch => ch.synopsis).join(' ')
-            || `A personalized chapter book for ${childDetails.name}`;
-        } else {
-          synopsis = storyPlan.synopsis
-            || (storyPlan.entries || []).filter(e => e.type === 'spread').slice(0, 2).map(e => [e.left?.text, e.right?.text].filter(Boolean).join(' ')).join(' ')
-            || `A personalized bedtime story for ${childDetails.name}`;
-        }
+        // Calculate interior page count + back-cover synopsis using the
+        // shared helper so the admin rebuild flow produces identical output.
+        // For regular books the helper needs `entries` to derive pageCount,
+        // so we hand it a synthetic source that mirrors storyPlan but with
+        // entriesWithBuffers (has the authoritative page layout for this run).
+        const coverMetaSource = (isGraphicNovel || storyPlan.isGraphicNovel || isChapterBook || storyPlan.isChapterBook)
+          ? storyPlan
+          : { ...storyPlan, entries: entriesWithBuffers };
+        const { pageCount, synopsis } = computeCoverPdfMetadata(
+          coverMetaSource,
+          childDetails,
+          {
+            isChapterBook:  isChapterBook  || storyPlan.isChapterBook,
+            isGraphicNovel: isGraphicNovel || storyPlan.isGraphicNovel,
+          },
+        );
 
         coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
@@ -2434,6 +2413,9 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     synopsis, age, sceneCount,
     pagesOnly = false,
     parentCoverImageUrl,
+    parentCoverMime,
+    storyMoments,
+    questionnaire,
     callbackUrl,
     progressCallbackUrl,
   } = req.body;
@@ -2481,19 +2463,48 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       await reportProgress('planning', 0.05, 'Preparing coloring book generation');
 
       let parentCoverBuffer = null;
+      let parentCoverMimeResolved = parentCoverMime || null;
       if (parentCoverImageUrl && !pagesOnly) {
         try {
           const photo = await downloadPhotoAsBase64(parentCoverImageUrl);
           parentCoverBuffer = Buffer.from(photo.base64, 'base64');
-          console.log(`[server] Downloaded parent cover for coloring derivation (${Math.round(parentCoverBuffer.length / 1024)}KB)`);
+          if (!parentCoverMimeResolved) parentCoverMimeResolved = photo.mimeType;
+          console.log(`[server] Downloaded parent cover for coloring derivation (${Math.round(parentCoverBuffer.length / 1024)}KB, ${parentCoverMimeResolved || 'unknown mime'})`);
         } catch (err) {
           console.warn(`[server] Could not download parent cover, will generate from scratch: ${err.message}`);
         }
       }
 
+      // Pre-download the child photo + character anchor once so they can be
+      // shared across cover generation (back cover needs the child face) and
+      // interior page generation.
+      let characterRef = null;
+      if (childPhotoUrl) {
+        try {
+          characterRef = await downloadPhotoAsBase64(childPhotoUrl);
+        } catch (err) {
+          console.warn(`[server] Could not download child photo: ${err.message}`);
+        }
+      }
+      let characterAnchor = null;
+      if (characterAnchorUrl) {
+        try {
+          characterAnchor = await downloadPhotoAsBase64(characterAnchorUrl);
+        } catch (err) {
+          console.warn(`[server] Could not download character anchor: ${err.message}`);
+        }
+      }
+
       let coverArtPromise = null;
       if (!pagesOnly) {
-        coverArtPromise = generateCoverArtFromParent({ childName, title, age, characterDescription, parentCoverBuffer })
+        coverArtPromise = generateCoverArtFromParent({
+          childName, title, age, characterDescription,
+          parentCoverBuffer,
+          parentCoverMime: parentCoverMimeResolved,
+          questionnaire,
+          characterRef,
+          characterAnchor,
+        })
           .catch(err => {
             console.warn(`[server] Cover art generation failed, will fall back to programmatic covers: ${err.message}`);
             return null;
@@ -2514,29 +2525,12 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
           resolvedScenePrompts = await planColoringScenes({
             title, synopsis, characterDescription, childName, age,
             count: sceneCount || 12,
+            storyMoments: Array.isArray(storyMoments) ? storyMoments : undefined,
           });
-          console.log(`[server] Planned ${resolvedScenePrompts.length} coloring scenes`);
+          console.log(`[server] Planned ${resolvedScenePrompts.length} coloring scenes${Array.isArray(storyMoments) && storyMoments.length ? ` (grounded in ${storyMoments.length} parent story moments)` : ''}`);
         }
         totalScenes = resolvedScenePrompts.length;
         await reportProgress('illustration', 0.10, `Generating ${totalScenes} coloring pages`);
-
-        let characterRef = null;
-        if (childPhotoUrl) {
-          try {
-            characterRef = await downloadPhotoAsBase64(childPhotoUrl);
-          } catch (err) {
-            console.warn(`[server] Could not download child photo for coloring generate: ${err.message}`);
-          }
-        }
-
-        let characterAnchor = null;
-        if (characterAnchorUrl) {
-          try {
-            characterAnchor = await downloadPhotoAsBase64(characterAnchorUrl);
-          } catch (err) {
-            console.warn(`[server] Could not download character anchor for coloring generate: ${err.message}`);
-          }
-        }
 
         pages = await generateOriginalColoringPages(resolvedScenePrompts, characterRef, {
           characterDescription,
@@ -2804,29 +2798,75 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 });
 
 // ── POST /rebuild-cover-pdf — Rebuild cover PDF only (binding-aware) ──
+//
+// Rebuilds the Lulu wrap-around cover PDF using the exact same pipeline as
+// initial book generation (services/coverGenerator.generateCover), so that
+// flipping the binding type (paperback ↔ hardcover) or re-running after an
+// edit produces bit-for-bit equivalent output.
+//
+// The admin caller is expected to pass the persisted `storyContent` so that
+// pageCount (spine width) and synopsis (back cover) match what the main
+// pipeline would have produced. The `isChapterBook` / `isGraphicNovel`
+// flags let us pick the right branch when storyContent doesn't encode them.
 app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
-  const { bookId, title, childDetails, coverImageUrl, bindingType, bookFormat, pageCount, synopsis, heartfeltNote, bookFrom } = req.body;
+  const {
+    bookId,
+    title,
+    childDetails,
+    coverImageUrl,
+    bindingType,
+    bookFormat,
+    storyContent,
+    isChapterBook,
+    isGraphicNovel,
+    heartfeltNote,
+    bookFrom,
+    // Legacy fields (still accepted for backward compatibility with older clients):
+    pageCount: legacyPageCount,
+    synopsis: legacySynopsis,
+  } = req.body;
+
   if (!bookId || !coverImageUrl) {
     return res.status(400).json({ error: 'bookId and coverImageUrl required' });
   }
+
   try {
     console.log(`[rebuild-cover-pdf] Starting for book ${bookId}, binding=${bindingType}`);
     const preGeneratedCoverBuffer = await downloadBuffer(coverImageUrl);
-    const resolvedPageCount = pageCount || 32;
-    const coverData = await generateCover(title || 'My Story', childDetails || {}, null, bookFormat || 'PICTURE_BOOK', {
-      bookId,
-      preGeneratedCoverBuffer,
-      pageCount: resolvedPageCount,
-      synopsis: synopsis || '',
-      heartfeltNote: heartfeltNote || '',
-      bookFrom: bookFrom || '',
-      bindingType: bindingType || '',
-    });
+
+    // Prefer computing from storyContent so the result matches initial
+    // generation exactly; fall back to legacy fields if the caller is on an
+    // older contract.
+    const resolvedChildDetails = childDetails || {};
+    const flags = { isChapterBook: !!isChapterBook, isGraphicNovel: !!isGraphicNovel };
+    const computed = storyContent
+      ? computeCoverPdfMetadata(storyContent, resolvedChildDetails, flags)
+      : null;
+
+    const pageCount = computed?.pageCount || legacyPageCount || 32;
+    const synopsis  = computed?.synopsis  || legacySynopsis  || '';
+
+    const coverData = await generateCover(
+      title || 'My Story',
+      resolvedChildDetails,
+      null, // characterRefUrl unused when preGeneratedCoverBuffer is supplied
+      bookFormat || 'PICTURE_BOOK',
+      {
+        bookId,
+        preGeneratedCoverBuffer,
+        pageCount,
+        synopsis,
+        heartfeltNote: heartfeltNote || '',
+        bookFrom: bookFrom || '',
+        bindingType: bindingType || '',
+      },
+    );
     if (!coverData?.coverPdfBuffer) throw new Error('generateCover returned no buffer');
+
     const coverPath = `children-jobs/${bookId}/cover.pdf`;
     await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
     const coverPdfUrl = await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000);
-    console.log(`[rebuild-cover-pdf] Done for book ${bookId}: ${coverPdfUrl}`);
+    console.log(`[rebuild-cover-pdf] Done for book ${bookId}: ${coverPdfUrl} (pages=${pageCount}, binding=${bindingType || 'paperback'})`);
     return res.json({ success: true, coverPdfUrl });
   } catch (err) {
     console.error(`[rebuild-cover-pdf] Error:`, err.message);
@@ -2836,7 +2876,7 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
 
 // ── POST /rebuild-coloring-cover-pdf — Regenerate cover art + wrap PDF for a coloring book ──
 app.post('/rebuild-coloring-cover-pdf', authenticate, async (req, res) => {
-  const { bookId, title, childName, age, characterDescription, parentCoverImageUrl } = req.body;
+  const { bookId, title, childName, age, characterDescription, parentCoverImageUrl, parentCoverMime, questionnaire, childPhotoUrl, characterAnchorUrl } = req.body;
   if (!bookId) {
     return res.status(400).json({ error: 'bookId is required' });
   }
@@ -2846,17 +2886,39 @@ app.post('/rebuild-coloring-cover-pdf', authenticate, async (req, res) => {
     const { buildCoverWrapPdf, generateCoverThumbnailPng } = require('./services/coloringBookLayout');
 
     let parentCoverBuffer = null;
+    let parentCoverMimeResolved = parentCoverMime || null;
     if (parentCoverImageUrl) {
       try {
         const photo = await downloadPhotoAsBase64(parentCoverImageUrl);
         parentCoverBuffer = Buffer.from(photo.base64, 'base64');
-        console.log(`[rebuild-coloring-cover-pdf] Downloaded parent cover (${Math.round(parentCoverBuffer.length / 1024)}KB)`);
+        if (!parentCoverMimeResolved) parentCoverMimeResolved = photo.mimeType;
+        console.log(`[rebuild-coloring-cover-pdf] Downloaded parent cover (${Math.round(parentCoverBuffer.length / 1024)}KB, ${parentCoverMimeResolved || 'unknown mime'})`);
       } catch (err) {
         console.warn(`[rebuild-coloring-cover-pdf] Could not download parent cover, generating from scratch: ${err.message}`);
       }
     }
 
-    const coverArt = await generateCoverArtFromParent({ childName, title, age, characterDescription, parentCoverBuffer });
+    // Pull the child photo + optional character anchor so the back cover's
+    // pencil sketch can feature the same child face as the chosen front cover.
+    let characterRef = null;
+    if (childPhotoUrl) {
+      try { characterRef = await downloadPhotoAsBase64(childPhotoUrl); }
+      catch (err) { console.warn(`[rebuild-coloring-cover-pdf] child photo fetch failed: ${err.message}`); }
+    }
+    let characterAnchor = null;
+    if (characterAnchorUrl) {
+      try { characterAnchor = await downloadPhotoAsBase64(characterAnchorUrl); }
+      catch (err) { console.warn(`[rebuild-coloring-cover-pdf] character anchor fetch failed: ${err.message}`); }
+    }
+
+    const coverArt = await generateCoverArtFromParent({
+      childName, title, age, characterDescription,
+      parentCoverBuffer,
+      parentCoverMime: parentCoverMimeResolved,
+      questionnaire,
+      characterRef,
+      characterAnchor,
+    });
     const frontCoverBuffer = coverArt?.frontCoverBuffer;
     const backCoverBuffer = coverArt?.backCoverBuffer;
     if (frontCoverBuffer) {

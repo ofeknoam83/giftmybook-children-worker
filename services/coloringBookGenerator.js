@@ -328,17 +328,25 @@ async function planColoringScenes(meta) {
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured for scene planner');
 
   const storyBlock = storyMoments && storyMoments.length > 0
-    ? `Story moments from the book:\n${storyMoments.join('\n')}\n\nPlan scenes that feel like BONUS CHAPTERS of this exact story — same world, same adventure, new moments. Reference specific locations, objects, and events from the story above.`
-    : 'Plan fun, varied adventure scenes for this child.';
+    ? `Story moments from the parent picture book (in order):
+${storyMoments.map((m, i) => `${i + 1}. ${m}`).join('\n')}
 
-  const systemPrompt = `You are planning ${count} original coloring book pages for a children's book.
+EACH coloring scene must COMPLEMENT — not duplicate — one of these story moments. Think of them as "what happened just before / just after / the next day / a quieter parallel moment" for each spread. Reference specific locations, props, and characters named above so the coloring book feels like the same world. Do NOT simply retell the same scene the child already saw in color in the parent book.`
+    : 'Plan fun, varied adventure scenes for this child that would feel at home in a gentle picture-book world.';
+
+  const systemPrompt = `You are planning ${count} original coloring book pages that accompany a children's picture book.
 Book title: "${title}"
 Child's name: ${childName || 'the child'}, age ${age || 5}
 ${storyBlock}
 
 For each scene provide:
 - "title": short fun label, max 5 words (e.g. "Isabella Finds the Map")
-- "prompt": detailed image generation prompt for the coloring page scene
+- "prompt": detailed image generation prompt describing the coloring-page scene in one paragraph. Always name the child in the prompt and describe concrete actions, setting, and props.
+
+Hard rules:
+- Every scene features the same child as the hero.
+- Scenes must be varied (different setting, pose, time of day, or activity from scene to scene).
+- Keep scenes gentle, wholesome, age-appropriate; no peril, no dark imagery.
 
 Return a JSON array: [{"title":"...","prompt":"..."}, ...]
 Return ONLY valid JSON, no markdown.`;
@@ -386,35 +394,57 @@ Return ONLY valid JSON, no markdown.`;
 // ── Cover derivation from parent book cover ──
 
 /**
- * Convert a parent children's book cover into a coloring-page cover.
- * Keeps the same composition/characters but re-renders as clean B&W line art
- * that a child can color in — matching the interior coloring page style.
- * @param {Buffer} parentCoverBuffer - original cover image buffer
+ * Detect an image MIME type from a raw buffer by inspecting the magic bytes.
+ * Falls back to image/jpeg if the header isn't recognized.
+ */
+function detectImageMime(buf) {
+  if (!buf || buf.length < 12) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46
+      && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+  return 'image/jpeg';
+}
+
+/**
+ * Convert a parent children's book cover into a PENCIL-SKETCH cover for the
+ * coloring book. Unlike interior pages (pure B&W coloring line-art), the cover
+ * is decorative graphite-pencil artwork so the book still looks like a finished
+ * product. Keeps the parent cover's composition, characters, and poses but
+ * re-renders in graphite; re-frames from the parent's square (8.5x8.5) into
+ * 3:4 portrait to fit the coloring book's 8.5x11 trim.
+ *
+ * @param {Buffer} parentCoverBuffer
+ * @param {string} [parentCoverMime] - optional mime override; otherwise detected
  * @returns {Promise<Buffer>}
  */
-async function convertCoverToColoringStyle(parentCoverBuffer) {
+async function convertCoverToColoringStyle(parentCoverBuffer, parentCoverMime) {
   const MAX_ATTEMPTS = 3;
   let lastError;
 
   const base64 = parentCoverBuffer.toString('base64');
-  const prompt = `You are given a children's book cover. Re-create it as a COLORING PAGE that a child can color in:
+  const mimeType = parentCoverMime || detectImageMime(parentCoverBuffer);
+  const prompt = `You are given a children's book cover. Re-create it as a GRAPHITE PENCIL DRAWING suitable as the cover of a coloring book companion to this same book.
 
-- Keep the SAME characters, composition, and scene from the original cover
-- Render as CLEAN BLACK OUTLINES on a pure WHITE background — this must look like a coloring page
-- Bold, well-defined line art with clear shapes and smooth outlines
-- Simplify fine details into thick, child-friendly outlines (no thin or fiddly lines)
-- NO shading, NO gradients, NO fills, NO colors — only black outlines on white
-- PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
-- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
-- Leave a CLEAN WHITE area at the TOP (top 15%) for title text overlay
-- Leave a CLEAN WHITE area at the BOTTOM (bottom 10%) for branding text overlay
-- Professional quality line art suitable for a printed coloring book cover`;
+- Keep the SAME characters, SAME composition, SAME poses, SAME outfits, SAME background elements as the original cover — this must clearly be the same cover, just in pencil-drawing form
+- Render in HAND-DRAWN PENCIL style: graphite-on-paper look with soft tonal shading, visible fine hatching and cross-hatching, delicate pencil strokes
+- Tones allowed: black, dark grey, mid grey, light grey, and white paper. Subtle gradients and soft shadows are fine — this is NOT a coloring page, it is finished pencil artwork.
+- Avoid bold cartoon coloring-book outlines. Use sketchy, artist-quality pencil linework with natural variation in line weight.
+- No color. Pure monochrome pencil drawing.
+- RE-FRAME into PORTRAIT orientation (taller than wide, 3:4 aspect ratio). The source cover is square (1:1). Extend the scene naturally at the top and bottom so nothing important is cropped — do NOT letterbox or add blank bars, paint a pencil extension of the environment.
+
+TITLE TEXT RULE:
+- If the original cover already contains a title, name, or any typography, PRESERVE it exactly as it appears — reproduce those words in the same position and style, hand-lettered in pencil. This cover must keep its original title.
+- Do NOT add any new text, labels, subtitles, author names, or logos that were not already in the source cover. Never invent a title. No "Coloring Book" stamp, no branding, no extra words.
+
+Professional pencil-drawing quality suitable for a printed coloring book cover. The cover wrap PDF will embed this image full-bleed with no additional overlays — what you draw is what prints.`;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const parts = [
         { text: prompt },
-        { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+        { inline_data: { mime_type: mimeType, data: base64 } },
       ];
       const buf = await callGeminiImage(parts, 120000);
       console.log(`[coverArt] convertCoverToColoringStyle done (${Math.round(buf.length / 1024)}KB) on attempt ${attempt}`);
@@ -429,27 +459,193 @@ async function convertCoverToColoringStyle(parentCoverBuffer) {
 }
 
 /**
+ * Flatten a questionnaire object into a short textual summary suitable for
+ * an LLM scene planner. Keeps each field labeled; clips obviously long fields.
+ */
+function summarizeQuestionnaire(q = {}) {
+  const lines = [];
+  const push = (label, val) => {
+    if (val == null) return;
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed) lines.push(`${label}: ${trimmed.slice(0, 500)}`);
+      return;
+    }
+    if (Array.isArray(val)) {
+      const joined = val.filter(x => typeof x === 'string' && x.trim()).join(', ');
+      if (joined) lines.push(`${label}: ${joined}`);
+      return;
+    }
+    if (typeof val === 'object') {
+      const s = JSON.stringify(val);
+      if (s && s !== '{}' && s !== '[]') lines.push(`${label}: ${s.slice(0, 500)}`);
+    }
+  };
+  push('Interests', q.childInterests);
+  push('Custom details', q.customDetails);
+  push('Brief', q.brief);
+  push('Emotion intake', q.emotionIntakeData);
+  push('Emotional situation', q.emotionalSituation);
+  push('Parent goal', q.emotionalParentGoal);
+  push('Coping resource hint', q.copingResourceHint);
+  push('Child appearance', q.childAppearance);
+  return lines.join('\n');
+}
+
+const BACK_COVER_PLANNER_MODEL = 'gemini-2.5-flash';
+
+/**
+ * Pick ONE personal, heart-warming detail from the questionnaire and turn it
+ * into a pencil-sketch back-cover scene featuring the child. Returns a fallback
+ * on any LLM failure so a back cover can always be rendered.
+ *
+ * @param {{ childName?: string, age?: number|string, questionnaire?: object }} opts
+ * @returns {Promise<{ chosenDetail: string, scenePrompt: string, rationale: string }>}
+ */
+async function planBackCoverScene(opts = {}) {
+  const { childName, age, questionnaire = {} } = opts;
+  const summary = summarizeQuestionnaire(questionnaire);
+  const fallbackScene = (() => {
+    const firstInterest = Array.isArray(questionnaire.childInterests)
+      ? questionnaire.childInterests.find(i => typeof i === 'string' && i.trim())
+      : null;
+    const firstCustom = typeof questionnaire.customDetails === 'string'
+      ? questionnaire.customDetails.split(/[.\n]/).map(s => s.trim()).find(Boolean)
+      : null;
+    const detail = firstInterest || firstCustom || 'playing outdoors';
+    return {
+      chosenDetail: detail,
+      scenePrompt: `${childName || 'The child'} enjoying ${detail}, warm and wholesome, simple composition centered on the child`,
+      rationale: 'deterministic fallback',
+    };
+  })();
+
+  if (!summary) return fallbackScene;
+
+  const apiKey = getNextApiKey();
+  if (!apiKey) return fallbackScene;
+
+  const systemPrompt = `You are designing the BACK COVER of a personalized children's coloring book for ${childName || 'the child'}${age ? `, age ${age}` : ''}.
+
+Read the questionnaire below. Pick ONE small, concrete, heart-warming detail about this specific child that would make a charming pencil-sketch back-cover scene. Prefer unique personal details (a pet by name, a favorite toy, a cherished activity, a special place) over generic interests. Avoid sensitive or sad content.
+
+Then describe a single calm pencil-sketch scene that features the child doing/holding/being-with that detail. The scene should complement the book cover — same child, gentle mood, one clear focal point.
+
+Return ONLY valid JSON:
+{
+  "chosenDetail": "one short phrase naming the detail you picked",
+  "scenePrompt": "one sentence describing the scene to draw, featuring the child and the chosen detail",
+  "rationale": "one short sentence explaining why this detail is a good fit"
+}`;
+
+  try {
+    const url = `${GEMINI_BASE}/${BACK_COVER_PLANNER_MODEL}:generateContent?key=${apiKey}`;
+    const resp = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: summary }] }],
+        generationConfig: {
+          temperature: 0.6,
+          maxOutputTokens: 400,
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    }, 30000);
+
+    if (!resp.ok) {
+      console.warn(`[coverArt] planBackCoverScene API ${resp.status} — using fallback`);
+      return fallbackScene;
+    }
+
+    const data = await resp.json();
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const cleaned = raw.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return fallbackScene;
+
+    const parsed = JSON.parse(match[0]);
+    const chosenDetail = typeof parsed.chosenDetail === 'string' ? parsed.chosenDetail.trim() : '';
+    const scenePrompt = typeof parsed.scenePrompt === 'string' ? parsed.scenePrompt.trim() : '';
+    if (!scenePrompt) return fallbackScene;
+    return {
+      chosenDetail: chosenDetail || fallbackScene.chosenDetail,
+      scenePrompt,
+      rationale: typeof parsed.rationale === 'string' ? parsed.rationale.trim() : '',
+    };
+  } catch (err) {
+    console.warn(`[coverArt] planBackCoverScene error: ${err.message} — using fallback`);
+    return fallbackScene;
+  }
+}
+
+/**
  * Generate cover art, preferring derivation from the parent book's cover.
  * Falls back to generating from scratch if no parent cover is available.
- * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string, parentCoverBuffer?: Buffer }} opts
- * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer }>}
+ * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string, parentCoverBuffer?: Buffer, parentCoverMime?: string, questionnaire?: object, characterRef?: {base64: string, mimeType: string}, characterAnchor?: {base64: string, mimeType: string} }} opts
+ * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer, backCoverMeta?: {chosenDetail: string, scenePrompt: string, rationale: string} }>}
  */
 async function generateCoverArtFromParent(opts = {}) {
-  const { parentCoverBuffer, ...rest } = opts;
+  const { parentCoverBuffer, parentCoverMime, questionnaire, characterRef, characterAnchor, ...rest } = opts;
 
   if (parentCoverBuffer) {
     console.log(`[coverArt] Deriving coloring cover from parent book cover`);
-    const backPrompt = buildBackCoverPrompt(rest);
 
-    const [frontCoverBuffer, backCoverBuffer] = await Promise.all([
-      convertCoverToColoringStyle(parentCoverBuffer),
-      generateCoverArtSingle(backPrompt, 'back cover'),
+    // Plan the back-cover scene from the questionnaire in parallel with the
+    // front cover conversion so total latency stays low.
+    const [backPlan, frontCoverBuffer] = await Promise.all([
+      planBackCoverScene({ childName: rest.childName, age: rest.age, questionnaire }),
+      convertCoverToColoringStyle(parentCoverBuffer, parentCoverMime),
     ]);
+    console.log(`[coverArt] Back-cover scene chosen: "${backPlan.chosenDetail}" — ${backPlan.rationale}`);
 
-    return { frontCoverBuffer, backCoverBuffer };
+    const backCoverBuffer = await generateBackCoverImage({
+      ...rest,
+      scenePrompt: backPlan.scenePrompt,
+      chosenDetail: backPlan.chosenDetail,
+      characterRef,
+      characterAnchor,
+    });
+
+    return { frontCoverBuffer, backCoverBuffer, backCoverMeta: backPlan };
   }
 
-  return generateCoverArt(rest);
+  return generateCoverArt({ ...rest, questionnaire, characterRef, characterAnchor });
+}
+
+/**
+ * Render the back cover as a pencil sketch of the child inside a questionnaire-
+ * driven scene. Uses the child's photo (and optionally the parent's character
+ * reference illustration) so the child look matches the chosen front cover.
+ */
+async function generateBackCoverImage(opts = {}) {
+  const prompt = buildBackCoverPrompt(opts);
+  const parts = [{ text: prompt }];
+  if (opts.characterRef?.base64) {
+    parts.push({ text: 'Here is a photo of the child — the child in the scene must match this face, hair, and build:' });
+    parts.push({ inline_data: { mime_type: opts.characterRef.mimeType || 'image/jpeg', data: opts.characterRef.base64 } });
+  }
+  if (opts.characterAnchor?.base64) {
+    parts.push({ text: 'Here is the character reference illustration from the parent book — match this exact character look, translated into pencil style:' });
+    parts.push({ inline_data: { mime_type: opts.characterAnchor.mimeType || 'image/jpeg', data: opts.characterAnchor.base64 } });
+  }
+
+  const MAX_ATTEMPTS = 3;
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const buf = await callGeminiImage(parts, 120000);
+      console.log(`[coverArt] back cover generated (${Math.round(buf.length / 1024)}KB) on attempt ${attempt}`);
+      return buf;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[coverArt] back cover attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 2000));
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -481,67 +677,88 @@ async function generateCoverArtSingle(promptText, label) {
 /**
  * Build a Gemini prompt for the front cover illustration.
  */
-function buildFrontCoverPrompt({ childName, title, age, characterDescription }) {
+function buildFrontCoverPrompt({ childName, age, characterDescription }) {
   const charBlock = characterDescription
     ? `\nThe main character looks like this: ${characterDescription}`
     : '';
-  return `Create a children's coloring book COVER as a COLORING PAGE that a child can color in.
-Book title: "${title || 'My Coloring Book'}"
+  return `Create a children's coloring book FRONT COVER as a GRAPHITE PENCIL DRAWING.
 Child's name: ${childName || 'a child'}, age ${age || 5}${charBlock}
 
 STYLE REQUIREMENTS:
-- CLEAN BLACK OUTLINES on a pure WHITE background — this must look like a coloring page
-- Bold, well-defined line art with clear shapes and smooth outlines
-- Whimsical, inviting composition with fun characters and magical elements
-- Simplify details into thick, child-friendly outlines (no thin or fiddly lines)
-- NO shading, NO gradients, NO fills, NO colors — only black outlines on white
+- HAND-DRAWN PENCIL style: graphite-on-paper look with soft tonal shading, visible fine hatching and cross-hatching, delicate pencil strokes
+- Tones allowed: black, dark grey, mid grey, light grey, and white paper. Subtle gradients and soft shadows are fine — this is finished pencil artwork.
+- Whimsical, inviting composition with fun characters — the child should be the clear focal point
+- No color. Pure monochrome pencil drawing.
 - PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
-- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
-- Leave a CLEAN WHITE area at the TOP of the image (top 15%) for title text overlay
-- Leave a CLEAN WHITE area at the BOTTOM of the image (bottom 10%) for branding text overlay
-- The middle portion should be rich, detailed, and eye-catching line art
-- Professional quality suitable for a printed coloring book cover`;
+- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image — no title, no author name, no subtitles, no branding
+- The pencil drawing should fill the frame naturally — no reserved text boxes or clear bands
+- Professional pencil-drawing quality suitable for a printed coloring book cover`;
 }
 
 /**
- * Build a Gemini prompt for the back cover illustration.
+ * Build a Gemini prompt for the back cover — a graphite pencil sketch of
+ * the child inside a scene chosen from the questionnaire. Matches the
+ * pencil-drawing style used on the front cover (which is a pencil rendering
+ * of the parent book's cover).
+ *
+ * @param {{ childName?: string, age?: number|string, characterDescription?: string, scenePrompt?: string, chosenDetail?: string }} opts
  */
-function buildBackCoverPrompt({ childName, title, age, characterDescription }) {
+function buildBackCoverPrompt({ childName, age, characterDescription, scenePrompt, chosenDetail }) {
   const charBlock = characterDescription
-    ? `\nThe characters look like this: ${characterDescription}`
+    ? `\nThe child looks like this: ${characterDescription}`
     : '';
-  return `Create a back cover for a children's coloring book as a COLORING PAGE with black outlines on white.
-Book title: "${title || 'My Coloring Book'}"
-Child's name: ${childName || 'a child'}${charBlock}
+  const scene = scenePrompt
+    || `${childName || 'The child'} enjoying ${chosenDetail || 'a favorite moment'}, warm and wholesome`;
+  return `Create the BACK COVER of a children's coloring book as a GRAPHITE PENCIL DRAWING.
+
+SCENE TO DRAW:
+${scene}
+
+The child (${childName || 'the child'}${age ? `, age ${age}` : ''}) must be the clear focal point, featured prominently in the scene.${charBlock}
 
 STYLE REQUIREMENTS:
-- CLEAN BLACK OUTLINES on a pure WHITE background — matching coloring-page line-art style
-- Simpler and calmer than the front cover — a gentle border/frame of decorative elements
-- Scattered whimsical coloring elements around the edges: stars, hearts, flowers, swirls, small animals, butterflies, clouds
-- The CENTER of the image should be mostly EMPTY/WHITE — leave a large clear area in the middle for text overlay
-- Elements should frame the edges like a decorative border, leaving the middle open
-- Bold, child-friendly outlines — no thin lines, no shading, no fills
+- HAND-DRAWN PENCIL style: graphite-on-paper look with soft tonal shading, visible fine hatching and cross-hatching, delicate pencil strokes
+- Tones allowed: black, dark grey, mid grey, light grey, white paper. Subtle gradients and soft shadows are fine — this is NOT a coloring page, it is finished pencil artwork.
+- Match the style of the FRONT cover exactly so both covers look like the same artist drew them.
+- Avoid bold cartoon coloring-book outlines. Use sketchy, artist-quality pencil linework with natural variation in line weight.
+- No color. Pure monochrome pencil drawing.
+- Calmer and simpler than the front cover — ONE clear focal point (the child + the scene element), uncluttered background, plenty of clean paper.
+
+COMPOSITION:
 - PORTRAIT orientation (taller than wide, 3:4 aspect ratio)
-- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image
-- Leave the LOWER-RIGHT area (bottom-right, roughly 2 inches by 1.2 inches) COMPLETELY CLEAR/WHITE for a barcode
-- Professional quality line art matching the front cover style`;
+- The child must be clearly depicted and recognizable as the same child on the front cover
+- The pencil drawing should fill the frame naturally — no reserved white boxes, no barcode clear-zone, no ISBN area. We do not print a barcode or ISBN on this book.
+
+STRICT:
+- ABSOLUTELY NO TEXT, LETTERS, WORDS, NUMBERS, or LOGOS anywhere in the image — no title, no author name, no taglines, no back-cover blurb
+- No frames, no borders, no decorative stickers — just the pencil scene on paper`;
 }
 
 /**
  * Generate front and back cover art from scratch via Gemini image generation.
- * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string }} opts
- * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer }>}
+ * Used as a fallback when no parent cover is available.
+ * @param {{ childName?: string, title?: string, age?: number|string, characterDescription?: string, questionnaire?: object, characterRef?: {base64:string,mimeType:string}, characterAnchor?: {base64:string,mimeType:string} }} opts
+ * @returns {Promise<{ frontCoverBuffer: Buffer, backCoverBuffer: Buffer, backCoverMeta?: object }>}
  */
 async function generateCoverArt(opts = {}) {
   const frontPrompt = buildFrontCoverPrompt(opts);
-  const backPrompt = buildBackCoverPrompt(opts);
+  const backPlan = await planBackCoverScene({
+    childName: opts.childName,
+    age: opts.age,
+    questionnaire: opts.questionnaire,
+  });
+  console.log(`[coverArt] (scratch) back-cover scene: "${backPlan.chosenDetail}" — ${backPlan.rationale}`);
 
   const [frontCoverBuffer, backCoverBuffer] = await Promise.all([
     generateCoverArtSingle(frontPrompt, 'front cover'),
-    generateCoverArtSingle(backPrompt, 'back cover'),
+    generateBackCoverImage({
+      ...opts,
+      scenePrompt: backPlan.scenePrompt,
+      chosenDetail: backPlan.chosenDetail,
+    }),
   ]);
 
-  return { frontCoverBuffer, backCoverBuffer };
+  return { frontCoverBuffer, backCoverBuffer, backCoverMeta: backPlan };
 }
 
 module.exports = {
@@ -552,5 +769,10 @@ module.exports = {
   planColoringScenes,
   generateCoverArt,
   generateCoverArtFromParent,
+  generateBackCoverImage,
   convertCoverToColoringStyle,
+  buildBackCoverPrompt,
+  planBackCoverScene,
+  summarizeQuestionnaire,
+  detectImageMime,
 };
