@@ -33,6 +33,7 @@ const TOTAL_SPREADS = 13;
 const TEXT_RULES = {
   maxWordsPerLine: 6,
   edgePaddingPercent: 10,
+  topPaddingPercent: 15, // Slightly more breathing room at the top so text doesn't feel cramped against the upper edge
   bottomPaddingPercent: 15, // Extra bottom padding — vertical crop during PDF assembly removes bottom content
   centerExclusionPercent: 15, // 15% on each side of center = middle 30% no-text zone
   fontStyle: 'Georgia serif font — plain, clean, traditional serif with round letterforms and moderate x-height. NO decorative fonts, NO swashes, NO italic, NO condensed, NO handwritten, NO display fonts',

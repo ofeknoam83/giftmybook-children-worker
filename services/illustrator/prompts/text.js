@@ -51,7 +51,8 @@ function buildTextInstruction(text, opts = {}) {
   parts.push(`- TEXT POSITION: Place ALL text in the ${placement.anchor} of the image — the ${placement.side.toUpperCase()} side, ${placement.vertical} portion.`);
   parts.push(`- Render the text EXACTLY ONCE in a single block. ONE text block only — NEVER duplicate or repeat the text anywhere else in the image.`);
   parts.push(`- CENTER NO-TEXT ZONE (THIS IS THE MOST COMMON MISTAKE): This image will be printed as a two-page spread. It is folded at the EXACT CENTER. Any text near the center will disappear into the book's spine. ALL text must be placed entirely within the ${placement.side.toUpperCase()} ${safePct}% of the image. The middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image is FORBIDDEN for text. If you are unsure, push the text further toward the ${placement.side} edge.`);
-  parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left, right, and top edges`);
+  parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`);
+  parts.push(`- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — do not place text flush against the top; leave comfortable breathing room above the text.`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Keep text well above the bottom ${TEXT_RULES.bottomPaddingPercent}%.`);
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);

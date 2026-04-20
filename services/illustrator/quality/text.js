@@ -44,7 +44,7 @@ Check ALL of the following:
 
 2. TEXT PLACEMENT — CENTER EXCLUSION ZONE (CRITICAL): This image will be printed as a two-page spread, folded at the EXACT horizontal midpoint. Text near the center will vanish into the spine. Imagine a vertical line at the exact center of the image. The center ${TEXT_RULES.centerExclusionPercent * 2}% (${TEXT_RULES.centerExclusionPercent}% left of center + ${TEXT_RULES.centerExclusionPercent}% right of center) is a NO-TEXT ZONE. ALL text must be completely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. Flag as HARD FAIL if ANY text character or word appears in or crosses the center ${TEXT_RULES.centerExclusionPercent * 2}% strip. A single word crossing the center counts as a failure. Vertical position (top/bottom) does not matter.
 
-3. EDGE MARGINS: Is the text at least ${TEXT_RULES.edgePaddingPercent}% away from left, right, and top edges, and at least ${TEXT_RULES.bottomPaddingPercent}% away from the bottom edge? Flag if text is too close to any edge.
+3. EDGE MARGINS: Is the text at least ${TEXT_RULES.edgePaddingPercent}% away from left and right edges, at least ${TEXT_RULES.topPaddingPercent}% away from the top edge, and at least ${TEXT_RULES.bottomPaddingPercent}% away from the bottom edge? Flag if text is too close to any edge.
 
 4. FONT SIZE: Is the text small and subtitle-like? Or is it large/headline-sized? Flag if text looks like a title or headline.
 

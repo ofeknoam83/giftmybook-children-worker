@@ -234,7 +234,7 @@ ${prompt}`;
             const textFixes = [];
             if (hasTextDuplication) textFixes.push('The text appeared MORE THAN ONCE. Render it EXACTLY ONE TIME in ONE location.');
             if (hasCenterViolation) textFixes.push(`Text was too close to the center. Move ALL text to the ${placement.side.toUpperCase()} side — within the ${placement.side} ${safePct}% of the image.`);
-            if (hasEdgeViolation) textFixes.push(`Text was too close to the edge. Keep at least ${TEXT_RULES.edgePaddingPercent}% from sides/top and ${TEXT_RULES.bottomPaddingPercent}% from the bottom.`);
+            if (hasEdgeViolation) textFixes.push(`Text was too close to the edge. Keep at least ${TEXT_RULES.edgePaddingPercent}% from the left/right sides, at least ${TEXT_RULES.topPaddingPercent}% from the top, and at least ${TEXT_RULES.bottomPaddingPercent}% from the bottom.`);
             if (textFixes.length === 0) textFixes.push(...issues.map(iss => iss.replace(/^\[text\]\s*/, '')));
 
             correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. Fix ONLY the text:
