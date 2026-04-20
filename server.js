@@ -2834,6 +2834,59 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /rebuild-coloring-cover-pdf — Regenerate cover art + wrap PDF for a coloring book ──
+app.post('/rebuild-coloring-cover-pdf', authenticate, async (req, res) => {
+  const { bookId, title, childName, age, characterDescription, parentCoverImageUrl } = req.body;
+  if (!bookId) {
+    return res.status(400).json({ error: 'bookId is required' });
+  }
+  try {
+    console.log(`[rebuild-coloring-cover-pdf] Starting for book ${bookId}`);
+    const { generateCoverArtFromParent } = require('./services/coloringBookGenerator');
+    const { buildCoverWrapPdf, generateCoverThumbnailPng } = require('./services/coloringBookLayout');
+
+    let parentCoverBuffer = null;
+    if (parentCoverImageUrl) {
+      try {
+        const photo = await downloadPhotoAsBase64(parentCoverImageUrl);
+        parentCoverBuffer = Buffer.from(photo.base64, 'base64');
+        console.log(`[rebuild-coloring-cover-pdf] Downloaded parent cover (${Math.round(parentCoverBuffer.length / 1024)}KB)`);
+      } catch (err) {
+        console.warn(`[rebuild-coloring-cover-pdf] Could not download parent cover, generating from scratch: ${err.message}`);
+      }
+    }
+
+    const coverArt = await generateCoverArtFromParent({ childName, title, age, characterDescription, parentCoverBuffer });
+    const frontCoverBuffer = coverArt?.frontCoverBuffer;
+    const backCoverBuffer = coverArt?.backCoverBuffer;
+    if (frontCoverBuffer) {
+      console.log(`[rebuild-coloring-cover-pdf] Cover art generated — front: ${Math.round(frontCoverBuffer.length / 1024)}KB, back: ${Math.round((backCoverBuffer?.length || 0) / 1024)}KB`);
+    }
+
+    const coverPdfBuffer = await buildCoverWrapPdf({ title: title || 'My Coloring Book', childName: childName || '', frontCoverBuffer, backCoverBuffer });
+    if (!coverPdfBuffer) throw new Error('buildCoverWrapPdf returned no buffer');
+
+    const gcsBase = `children-jobs/${bookId}/coloring`;
+    await uploadBuffer(coverPdfBuffer, `${gcsBase}/cover.pdf`, 'application/pdf');
+    const coverPdfUrl = await getSignedUrl(`${gcsBase}/cover.pdf`, 30 * 24 * 60 * 60 * 1000);
+
+    let coverImageUrl;
+    try {
+      const thumbnailPng = await generateCoverThumbnailPng({ title: title || 'My Coloring Book', childName: childName || '', frontCoverBuffer });
+      await uploadBuffer(thumbnailPng, `${gcsBase}/cover-thumbnail.png`, 'image/png');
+      coverImageUrl = await getSignedUrl(`${gcsBase}/cover-thumbnail.png`, 30 * 24 * 60 * 60 * 1000);
+    } catch (err) {
+      console.warn(`[rebuild-coloring-cover-pdf] Thumbnail generation failed (non-fatal): ${err.message}`);
+    }
+
+    console.log(`[rebuild-coloring-cover-pdf] Done for book ${bookId}`);
+    return res.json({ success: true, coverPdfUrl, coverImageUrl });
+  } catch (err) {
+    console.error(`[rebuild-coloring-cover-pdf] Error:`, err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /manage-checkpoint — Read or reset a book checkpoint ──
 // Used by standalone (no GCS creds) to read/modify checkpoints for regenerate-phase.
 app.post('/manage-checkpoint', authenticate, async (req, res) => {
