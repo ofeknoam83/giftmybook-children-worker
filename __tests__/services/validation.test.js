@@ -246,3 +246,62 @@ describe('validateFinalizeBookRequest', () => {
     expect(result.valid).toBe(false);
   });
 });
+
+describe('validateGenerateBookRequest — playSlug / playBaseUrl', () => {
+  const baseBody = {
+    bookId: 'book-123',
+    childName: 'Ada',
+    childPhotoUrls: ['https://cdn.example.com/a.jpg'],
+  };
+
+  test('accepts valid playSlug and playBaseUrl', () => {
+    const result = validateGenerateBookRequest({
+      ...baseBody,
+      playSlug: 'ABC123XYZ',
+      playBaseUrl: 'https://giftmybook.com',
+    });
+    expect(result.valid).toBe(true);
+    expect(result.sanitized.playSlug).toBe('ABC123XYZ');
+    expect(result.sanitized.playBaseUrl).toBe('https://giftmybook.com');
+  });
+
+  test('rejects lowercase playSlug (sets null, does not error)', () => {
+    const result = validateGenerateBookRequest({
+      ...baseBody,
+      playSlug: 'abc123xyz',
+    });
+    expect(result.valid).toBe(true);
+    expect(result.sanitized.playSlug).toBeNull();
+  });
+
+  test('rejects too-short playSlug', () => {
+    const result = validateGenerateBookRequest({
+      ...baseBody,
+      playSlug: 'ABC12',
+    });
+    expect(result.sanitized.playSlug).toBeNull();
+  });
+
+  test('rejects too-long playSlug', () => {
+    const result = validateGenerateBookRequest({
+      ...baseBody,
+      playSlug: 'ABCDEFGHIJKLMNOPQ',
+    });
+    expect(result.sanitized.playSlug).toBeNull();
+  });
+
+  test('rejects non-https playBaseUrl', () => {
+    const result = validateGenerateBookRequest({
+      ...baseBody,
+      playBaseUrl: 'http://giftmybook.com',
+    });
+    expect(result.sanitized.playBaseUrl).toBeNull();
+  });
+
+  test('omitted fields default to null', () => {
+    const result = validateGenerateBookRequest(baseBody);
+    expect(result.valid).toBe(true);
+    expect(result.sanitized.playSlug).toBeNull();
+    expect(result.sanitized.playBaseUrl).toBeNull();
+  });
+});

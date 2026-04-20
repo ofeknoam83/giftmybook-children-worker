@@ -476,6 +476,51 @@ function buildAdultNotePage(pdfDoc, pw, ph, fonts, opts) {
   }
 }
 
+// Step Into Your Story: QR "scan to play" page
+async function buildPlayQrPage(pdfDoc, pw, ph, fonts, opts = {}) {
+  const { playfair, playfairBold, helv } = fonts;
+  const { playSlug, childName, playBaseUrl } = opts;
+  if (!playSlug) return;
+  const url = `${(playBaseUrl || 'https://giftmybook.com').replace(/\/$/, '')}/play/${playSlug}`;
+
+  const QRCode = require('qrcode');
+  const qrPngBuffer = await QRCode.toBuffer(url, {
+    errorCorrectionLevel: 'H',
+    type: 'png',
+    margin: 1,
+    width: 900,
+    color: { dark: '#2E3A59', light: '#FFFFFF' },
+  });
+  const qrImage = await pdfDoc.embedPng(qrPngBuffer);
+
+  const p = pdfDoc.addPage([pw, ph]);
+  const maxW = pw - SAFE * 2;
+  const first = (childName || 'friend').split(/\s+/)[0];
+
+  drawCentered(p, 'Scan to Play', playfairBold || playfair || helv, 28, ph - SAFE - 48, C.black);
+  goldRule(p, ph - SAFE - 72, 80);
+  drawCentered(p, `${first}'s adventure continues on your phone.`, playfair || helv, 14, ph - SAFE - 100, C.brownMid);
+
+  const qrSize = Math.min(maxW * 0.55, ph * 0.45);
+  const qrX = (pw - qrSize) / 2;
+  const qrY = (ph - qrSize) / 2 - 10;
+  p.drawRectangle({
+    x: qrX - 18, y: qrY - 18,
+    width: qrSize + 36, height: qrSize + 36,
+    color: C.white, borderColor: C.grayLight, borderWidth: 1,
+  });
+  p.drawImage(qrImage, { x: qrX, y: qrY, width: qrSize, height: qrSize });
+
+  const stepsY = qrY - 42;
+  drawCentered(p, '1. Point your phone camera at this code', helv, 11, stepsY, C.black);
+  drawCentered(p, '2. Tap the link that appears',          helv, 11, stepsY - 16, C.black);
+  drawCentered(p, '3. Step into your story',               helv, 11, stepsY - 32, C.black);
+
+  const shortUrl = url.replace(/^https?:\/\//, '');
+  drawCentered(p, shortUrl, helv, 10, SAFE + 28, C.brownMid);
+  drawCentered(p, 'or type this link into any browser', helv, 8, SAFE + 14, C.grayLight);
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -544,6 +589,18 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       if (!entry.leftIllustrationBuffer && !entry.rightIllustrationBuffer && entry.spreadIllustrationBuffer) {
         await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.spreadIllustrationBuffer);
       }
+    }
+  }
+  // Step Into Your Story QR (before closing)
+  if (opts.playSlug) {
+    try {
+      await buildPlayQrPage(pdfDoc, pw, ph, fonts, {
+        playSlug: opts.playSlug,
+        childName: opts.childName,
+        playBaseUrl: opts.playBaseUrl,
+      });
+    } catch (qrErr) {
+      console.warn(`[layoutEngine] QR page failed (non-blocking): ${qrErr.message}`);
     }
   }
   // ── Closing ───────────────────────────────────────────────────────────────

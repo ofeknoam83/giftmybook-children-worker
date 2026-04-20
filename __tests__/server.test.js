@@ -258,3 +258,35 @@ describe('POST /finalize-book validation', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /build-game (Step Into Your Story)', () => {
+  test('rejects requests without API key', async () => {
+    const res = await request(app).post('/build-game').send({});
+    expect(res.status).toBe(403);
+  });
+
+  test('rejects missing bookId', async () => {
+    const res = await request(app)
+      .post('/build-game')
+      .set('x-api-key', 'test-api-key')
+      .send({ slug: 'ABC12345' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  test('rejects missing slug', async () => {
+    const res = await request(app)
+      .post('/build-game')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'book-123' });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects invalid slug format', async () => {
+    const res = await request(app)
+      .post('/build-game')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'book-123', slug: 'bad slug!' });
+    expect(res.status).toBe(400);
+  });
+});

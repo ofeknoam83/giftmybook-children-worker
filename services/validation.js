@@ -185,6 +185,9 @@ function validateGenerateBookRequest(body) {
     emotionalParentGoal: body.emotionalParentGoal || null,
     copingResourceHint: sanitizeForPrompt(body.copingResourceHint || '', 500),
     confirmedCharacters: Array.isArray(body.confirmedCharacters) ? body.confirmedCharacters : null,
+    // Step Into Your Story: QR page fields (both optional)
+    playSlug: typeof body.playSlug === 'string' && /^[A-Z0-9]{6,16}$/.test(body.playSlug) ? body.playSlug : null,
+    playBaseUrl: isValidHttpsUrl(body.playBaseUrl) ? body.playBaseUrl : null,
   };
 
   return { valid: true, errors: [], sanitized };

@@ -1007,6 +1007,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
     approvedCoverUrl, childAnecdotes,
+    playSlug, playBaseUrl,
   } = sanitized;
   let { approvedTitle } = sanitized;
   const heartfeltNote = req.body.heartfeltNote || null;
@@ -2068,6 +2069,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookId,
           upsellCovers: upsellCoversWithBuffers,
           minPages: emotionalTierInfo ? emotionalTierInfo.minPages : 32,
+          playSlug,
+          playBaseUrl,
         });
 
         previewImageUrls = entriesWithIllustrations
@@ -3049,6 +3052,77 @@ app.post('/upload-cover-pdf', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── POST /build-game ─ Step Into Your Story: build sprite sheet + narration + backgrounds
+app.post('/build-game', authenticate, async (req, res) => {
+  const startedAt = Date.now();
+  const {
+    bookId, slug, childName, title, artStyle,
+    characterRefUrl, spreads, storyBeats, callbackUrl,
+    apiKeys,
+  } = req.body || {};
+
+  if (!bookId || typeof bookId !== 'string') {
+    return res.status(400).json({ error: 'bookId is required and must be a string' });
+  }
+  if (slug && !/^[A-Z0-9]{6,16}$/.test(slug)) {
+    return res.status(400).json({ error: 'slug must match /^[A-Z0-9]{6,16}$/' });
+  }
+  if (!characterRefUrl || !Array.isArray(spreads) || spreads.length === 0) {
+    return res.status(400).json({ error: 'characterRefUrl and non-empty spreads are required' });
+  }
+
+  // Ack within the request budget — do the build async, callback when done.
+  res.status(202).json({ accepted: true, bookId, startedAt });
+
+  (async () => {
+    try {
+      console.log(`[build-game] START bookId=${bookId} slug=${slug} spreads=${spreads.length}`);
+      const { buildGameAssets } = require('./services/gameBuilder');
+      const keys = (apiKeys && apiKeys.length) ? apiKeys : getApiKeys();
+      const gameAssets = await buildGameAssets({
+        bookId, slug, childName, title, artStyle,
+        characterRefUrl,
+        spreads: spreads.map((s, i) => ({ index: s.index ?? i, imageUrl: s.imageUrl || null })),
+        storyBeats: Array.isArray(storyBeats) ? storyBeats : [],
+        apiKeys: keys,
+      });
+      console.log(`[build-game] DONE bookId=${bookId} in ${Date.now() - startedAt}ms`);
+      if (callbackUrl) {
+        await fetch(callbackUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.API_KEY || process.env.CHILDREN_WORKER_API_KEY || '',
+          },
+          body: JSON.stringify({ bookId, success: true, gameAssets }),
+        }).catch(err => console.error(`[build-game] callback failed: ${err.message}`));
+      }
+    } catch (err) {
+      console.error(`[build-game] FAILED bookId=${bookId}: ${err.message}`);
+      if (callbackUrl) {
+        fetch(callbackUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.API_KEY || process.env.CHILDREN_WORKER_API_KEY || '',
+          },
+          body: JSON.stringify({ bookId, success: false, error: err.message }),
+        }).catch(() => {});
+      }
+    }
+  })();
+});
+
+// Helper used by /build-game to resolve the Gemini API keys in the same way /generate-book does.
+function getApiKeys() {
+  const keys = [];
+  for (const envName of ['GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4', 'GOOGLE_AI_STUDIO_KEY', 'GEMINI_API_KEY_1']) {
+    const v = process.env[envName];
+    if (v && !keys.includes(v)) keys.push(v);
+  }
+  return keys;
+}
 
 // ─── POST /upload-image ─── Accept base64 image, upload to GCS, return signed URL
 app.post('/upload-image', authenticate, async (req, res) => {
