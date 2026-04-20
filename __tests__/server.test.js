@@ -204,12 +204,12 @@ describe('POST /generate-book validation', () => {
     expect(res.status).toBe(400);
   });
 
-  test('accepts valid request with 202', async () => {
+  test('accepts valid request with 202 when sync=false (legacy fire-and-forget mode)', async () => {
     const res = await request(app)
-      .post('/generate-book')
+      .post('/generate-book?sync=false')
       .set('x-api-key', 'test-api-key')
       .send({
-        bookId: 'test-book-valid',
+        bookId: 'test-book-valid-async',
         childName: 'Emma',
         childPhotoUrls: ['https://example.com/photo.jpg'],
         childAge: 5,
@@ -219,7 +219,7 @@ describe('POST /generate-book validation', () => {
       });
     expect(res.status).toBe(202);
     expect(res.body.success).toBe(true);
-    expect(res.body.bookId).toBe('test-book-valid');
+    expect(res.body.bookId).toBe('test-book-valid-async');
   });
 });
 

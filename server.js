@@ -1094,8 +1094,21 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
   const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
 
-  // Respond 202 immediately, process in background
-  res.status(202).json({ success: true, status: 'processing', bookId });
+  // Sync mode: hold the HTTP request open until generation completes.
+  // This is critical for Cloud Run autoscaling — fire-and-forget 202s finish
+  // in ~20ms so the autoscaler sees "no in-flight requests" and never spawns
+  // new instances, causing parallel books to pile onto one container and OOM.
+  // Holding the request open lets Cloud Run count each book as an in-flight
+  // request and scale out properly.
+  //
+  // Default is SYNC (waits for completion, returns 200/500). Callers that
+  // explicitly need the legacy fast-202 behavior can pass sync=false via
+  // query param or body (used by cron and admin retry helpers that run
+  // inside sequential loops where holding 30min connections is undesirable).
+  const syncMode = !(req.query.sync === 'false' || req.body.sync === false);
+  if (!syncMode) {
+    res.status(202).json({ success: true, status: 'processing', bookId });
+  }
 
   let absoluteTimer = null;
   let heartbeatInterval = null;
@@ -2286,8 +2299,14 @@ Be concise. Only describe adults/secondary people, not the main child.` },
     hardTimeoutId = setTimeout(() => reject(new Error('Generation exceeded 90 minute hard limit')), 90 * 60 * 1000);
   });
 
-  Promise.race([generationWork, hardTimeout]).catch(async (err) => {
-    console.error(`[server] Book ${bookId} hit hard timeout: ${err.message}`);
+  try {
+    await Promise.race([generationWork, hardTimeout]);
+    // Success path — only respond if we haven't already (sync mode)
+    if (syncMode && !res.headersSent) {
+      res.status(200).json({ success: true, status: 'completed', bookId });
+    }
+  } catch (err) {
+    console.error(`[server] Book ${bookId} hit hard timeout or error: ${err.message}`);
     bookContext.log('error', 'Hard timeout reached', { error: err.message });
     const timeoutPayload = { success: false, bookId, error: err.message, logs: bookContext.logs };
     if (callbackUrl) {
@@ -2308,7 +2327,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
     clearInterval(heartbeatInterval);
     clearTimeout(absoluteTimer);
     removeBookContext(bookId);
-  });
+    // Sync mode: surface the error to the caller
+    if (syncMode && !res.headersSent) {
+      res.status(500).json({ success: false, status: 'failed', bookId, error: err.message });
+    }
+  }
 });
 
 // ── POST /regenerate-illustration ──

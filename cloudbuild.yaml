@@ -15,8 +15,14 @@ steps:
       - --region=europe-west1
       - --platform=managed
       - --no-cpu-throttling
+      - --cpu=4
+      - --memory=8Gi
+      - --concurrency=1
+      - --timeout=3600
       - --min-instances=1
-      - --max-instances=5
+      - --max-instances=20
+      - --execution-environment=gen2
+      - --cpu-boost
       - --no-allow-unauthenticated
 
 images:
