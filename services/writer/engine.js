@@ -21,7 +21,7 @@ class WriterEngine {
    * @returns {{ story: { spreads: [...] }, metadata: { writerVersion, timestamp, model, qualityScore, ... } }}
    */
   static async generate(bookJson, opts = {}) {
-    const { onProgress, maxRetries } = opts;
+    const { onProgress, maxRetries, storySeed } = opts;
 
     // Pipeline transparency: record stages, context, and LLM calls
     const pipeline = {
@@ -53,7 +53,7 @@ class WriterEngine {
     // 2. Plan the story
     onProgress?.({ step: 'planning', message: 'Planning story beats...' });
     console.log(`[writerV2] Planning story for ${child.name}, age ${child.age}, theme ${book.theme}`);
-    const plan = await themeWriter.plan(child, book);
+    const plan = await themeWriter.plan(child, book, { storySeed });
     console.log(`[writerV2] Plan complete: ${plan.beats.length} beats, tier ${plan.ageTier}, target ${plan.wordTargets.total} words`);
     pipeline.stages.push({
       name: 'plan',

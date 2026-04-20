@@ -1432,6 +1432,19 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             }
           },
           maxRetries: 2,
+          // Wire the brainstormed story seed so Writer V2 uses it as the beat backbone
+          // instead of picking a random plot template. Falls back to templates if beats missing.
+          storySeed: {
+            narrative_spine: storySeed?.narrative_spine || null,
+            beats: v2Vars.beats,
+            favorite_object: v2Vars.favorite_object,
+            fear: v2Vars.fear,
+            setting: v2Vars.setting,
+            repeated_phrase: v2Vars.repeated_phrase,
+            phrase_arc: v2Vars.phrase_arc,
+            storySeed: storySeed?.storySeed || '',
+            emotional_core: storySeed?.emotional_core || null,
+          },
         });
         bookContext.touchActivity();
         const stage3Ms = Date.now() - stage3Start;

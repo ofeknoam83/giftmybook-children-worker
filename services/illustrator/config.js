@@ -36,7 +36,7 @@ const TEXT_RULES = {
   topPaddingPercent: 15, // Slightly more breathing room at the top so text doesn't feel cramped against the upper edge
   bottomPaddingPercent: 15, // Extra bottom padding — vertical crop during PDF assembly removes bottom content
   centerExclusionPercent: 15, // 15% on each side of center = middle 30% no-text zone
-  fontStyle: 'Georgia serif font — plain, clean, traditional serif with round letterforms and moderate x-height. NO decorative fonts, NO swashes, NO italic, NO condensed, NO handwritten, NO display fonts',
+  fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, or stenciled fonts. If in doubt, render it as plain Georgia regular.',
   fontColor: 'white/cream with subtle drop shadow',
   fontSize: 'very small, like movie subtitles — MUCH smaller than a headline or title. If in doubt, make the text smaller.',
 };

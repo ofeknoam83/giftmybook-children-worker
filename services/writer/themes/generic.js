@@ -48,32 +48,48 @@ class GenericThemeWriter extends BaseThemeWriter {
   // plan()
   // ──────────────────────────────────────────
 
-  async plan(child, book) {
+  async plan(child, book, opts = {}) {
     const ageTier = this.getAgeTier(child.age);
     const spreadCount = this.getSpreadCount(child.age);
     const wordLimits = this.getWordLimits(child.age);
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
 
-    let titleMatchFailed = false;
-    if (!book.plotId && book.title && this.category !== 'emotional') {
-      try {
-        const matchedId = await matchTitleToPlot(book.title, this.themeName);
-        if (matchedId) {
-          book = { ...book, plotId: matchedId };
-        } else {
+    // ── Seed backbone path ──
+    // If the caller (server.js) handed us a validated brainstormStorySeed with 13 beats,
+    // use those as the beat backbone instead of selecting a random plot template.
+    // This keeps the creative seed work (narrative_spine, beats, favorite_object, etc.)
+    // from being discarded. Falls back to template flow if seed is missing/invalid.
+    const seedBeats = this._normalizeSeedBeats(opts.storySeed?.beats, ageTier);
+    let beats;
+    let usedSeed = false;
+    if (seedBeats && this.category !== 'emotional') {
+      this._selectedPlot = null;
+      this._storySeed = opts.storySeed;
+      beats = seedBeats;
+      usedSeed = true;
+    } else {
+      let titleMatchFailed = false;
+      if (!book.plotId && book.title && this.category !== 'emotional') {
+        try {
+          const matchedId = await matchTitleToPlot(book.title, this.themeName);
+          if (matchedId) {
+            book = { ...book, plotId: matchedId };
+          } else {
+            titleMatchFailed = true;
+          }
+        } catch (err) {
+          console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
           titleMatchFailed = true;
         }
-      } catch (err) {
-        console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
-        titleMatchFailed = true;
       }
+
+      beats = titleMatchFailed
+        ? await this._buildBeatsWithCustomFallback(ageTier, child, parentName, book)
+        : this._buildBeats(ageTier, child, parentName, book);
     }
 
-    const beats = titleMatchFailed
-      ? await this._buildBeatsWithCustomFallback(ageTier, child, parentName, book)
-      : this._buildBeats(ageTier, child, parentName, book);
-    const refrain = this._chooseRefrain(child, parentName);
+    const refrain = this._chooseRefrain(child, parentName, opts.storySeed);
 
     let enrichedBeats = beats;
     if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
@@ -85,6 +101,7 @@ class GenericThemeWriter extends BaseThemeWriter {
     }
 
     const plot = this._selectedPlot;
+    const seed = usedSeed ? opts.storySeed : null;
     return {
       beats: enrichedBeats,
       refrain,
@@ -98,8 +115,50 @@ class GenericThemeWriter extends BaseThemeWriter {
       category: this.category,
       plotId: plot?.id || null,
       plotName: plot?.name || null,
-      plotSynopsis: plot?.synopsis || null,
+      plotSynopsis: plot?.synopsis || (seed?.narrative_spine || null),
+      storySeed: seed,
+      usedSeed,
     };
+  }
+
+  /**
+   * Convert the brainstormed `beats` (array of 13 one-line strings) into the
+   * Writer V2 beat-object shape: { spread, beat, description, wordTarget }.
+   * Returns null if the seed beats aren't usable (missing, too few, wrong shape).
+   */
+  _normalizeSeedBeats(rawBeats, ageTier) {
+    if (!Array.isArray(rawBeats) || rawBeats.length < 10) return null;
+    const isYoung = ageTier === 'young-picture';
+    const wt = isYoung ? 16 : 28;
+    // Canonical beat labels for a 13-spread arc (fallback when seed lacks them)
+    const DEFAULT_LABELS = [
+      'HOOK', 'DISCOVERY', 'RISING_1', 'RISING_2', 'DEEP_EXPLORE',
+      'CHALLENGE', 'CLEVERNESS', 'TRIUMPH', 'WONDER', 'GIFT',
+      'HOMECOMING', 'REFLECTION', 'CLOSING',
+    ];
+    const normalized = rawBeats.slice(0, 13).map((b, i) => {
+      const spread = i + 1;
+      const label = DEFAULT_LABELS[i] || `SPREAD_${spread}`;
+      let description = '';
+      if (typeof b === 'string') {
+        description = b.trim();
+      } else if (b && typeof b === 'object') {
+        description = (b.description || b.text || b.beat || '').toString().trim();
+      }
+      if (!description) return null;
+      // Strip a leading "Spread N:" / "Spread N -" / "Spread N (LABEL):" prefix if present
+      description = description
+        .replace(/^\s*spread\s*\d+\s*[:\-\u2014]\s*/i, '')
+        .replace(/^\s*spread\s*\d+\s*\([^)]*\)\s*[:\-\u2014]?\s*/i, '')
+        .trim();
+      // Pick a slightly smaller word target for the quiet/wish/closing beats
+      const quietBeats = new Set(['WONDER', 'CLOSING']);
+      const wordTarget = quietBeats.has(label) ? (isYoung ? 12 : 15) : wt;
+      return { spread, beat: label, description, wordTarget };
+    }).filter(Boolean);
+    // Require at least 10 valid beats; pad to 13 from canonical adventure fallback if short
+    if (normalized.length < 10) return null;
+    return normalized;
   }
 
   // ──────────────────────────────────────────
@@ -123,6 +182,36 @@ class GenericThemeWriter extends BaseThemeWriter {
       const retrySpreads = this.parseSpreads(retryResult.text);
       if (retrySpreads.length >= plan.spreadCount.min) {
         spreads = retrySpreads;
+      }
+    }
+
+    // ── Title-coherence check: ensure at least one of the title's keywords appears in the text ──
+    // If none of the meaningful title words show up anywhere, the book is disconnected from its cover.
+    // One retry with stronger title-anchoring instructions is cheap insurance.
+    if (book.title && !isPlaceholderTitle(book.title)) {
+      const titleKeywords = this._extractTitleKeywords(book.title, child.name);
+      if (titleKeywords.length > 0) {
+        const combined = spreads.map(s => (s.text || '')).join(' ').toLowerCase();
+        const matches = titleKeywords.filter(k => combined.includes(k));
+        if (matches.length === 0) {
+          console.warn(`[writerV2] Title-coherence check FAILED for "${book.title}" — none of [${titleKeywords.join(', ')}] in story text. Retrying with stronger anchoring.`);
+          const anchorAddendum = `\n\nCRITICAL TITLE ANCHOR — READ BEFORE REWRITING:\nThe book's cover title is "${book.title}". The previous draft did NOT include the title's core concept. In this rewrite, at least TWO of these title keywords MUST appear literally in the story text: ${titleKeywords.map(k => `"${k}"`).join(', ')}. The title's subject MUST be concretely present in spread 1 or 2, at the climax around spread 7, and in the final spread. Do NOT write a generic theme story — the text must clearly belong under this cover.`;
+          try {
+            const retryResult = await this.callLLM('writer', systemPrompt, userPrompt + anchorAddendum, { maxTokens: 4000, temperature: 0.85 });
+            const retrySpreads = this.parseSpreads(retryResult.text);
+            if (retrySpreads.length >= plan.spreadCount.min) {
+              const retryCombined = retrySpreads.map(s => (s.text || '')).join(' ').toLowerCase();
+              const retryMatches = titleKeywords.filter(k => retryCombined.includes(k));
+              // Prefer the retry if it improves keyword coverage OR ties; otherwise keep original.
+              if (retryMatches.length >= matches.length) {
+                spreads = retrySpreads;
+                console.log(`[writerV2] Title-coherence retry succeeded: ${retryMatches.length}/${titleKeywords.length} title keywords present.`);
+              }
+            }
+          } catch (err) {
+            console.warn(`[writerV2] Title-coherence retry failed: ${err.message}`);
+          }
+        }
       }
     }
 
@@ -382,7 +471,19 @@ class GenericThemeWriter extends BaseThemeWriter {
   // Refrain
   // ──────────────────────────────────────────
 
-  _chooseRefrain(child, parentName) {
+  _chooseRefrain(child, parentName, storySeed) {
+    // If the brainstormed seed provided a concrete repeated_phrase, prefer it.
+    if (storySeed?.repeated_phrase && typeof storySeed.repeated_phrase === 'string') {
+      const phrase = storySeed.repeated_phrase.trim();
+      if (phrase && phrase.length < 60) {
+        return {
+          parentWord: parentName || null,
+          suggestions: [phrase],
+          fromSeed: true,
+        };
+      }
+    }
+
     if (this.category === 'parent') {
       const word = parentName || 'Daddy';
       return {
@@ -547,15 +648,33 @@ Refine each beat description to incorporate specific details from the anecdotes.
     }
 
     if (book.title && !isPlaceholderTitle(book.title)) {
-      sections.push(`\n## BOOK TITLE\n`);
+      const titleKeywords = this._extractTitleKeywords(book.title, child.name);
+      sections.push(`\n## BOOK TITLE — TITLE COHERENCE IS MANDATORY\n`);
       sections.push(`The approved cover title is: "${book.title}"`);
-      sections.push('The story text must feel like it belongs under this title. Do not contradict the title\'s premise.');
+      sections.push(`The title's core concept MUST be concretely present in AT LEAST three spreads:`);
+      sections.push(`- Spread 1 or 2 (the HOOK): introduce the title's subject or setting so a reader opening the book immediately sees why it's called "${book.title}".`);
+      sections.push(`- Around spread 7 (the climax/peak): the title's concept pays off — this is the moment the cover is promising.`);
+      sections.push(`- Spread 12 or 13 (the ending): echo the title one last time so the closing image clearly belongs under "${book.title}".`);
+      if (titleKeywords.length > 0) {
+        sections.push(`Keywords from the title that must appear (or be clearly represented) somewhere in the text: ${titleKeywords.map(k => `"${k}"`).join(', ')}.`);
+      }
+      sections.push('Do NOT write a generic theme story that happens to sit under this cover. The story must feel commissioned FOR this title.');
     }
 
     if (plan.plotSynopsis) {
       sections.push(`\n## PLOT CONCEPT\n`);
       sections.push(plan.plotSynopsis);
       sections.push('\nFollow this specific story arc. The beat structure below gives you the scene-by-scene breakdown — lean into THIS plot, not a generic version of the theme.');
+    }
+
+    // ── Mandatory personalization checklist ──
+    // Enumerate every non-empty personalization field and require each to appear concretely.
+    const personalizationItems = this._buildPersonalizationChecklist(child, book, plan);
+    if (personalizationItems.length > 0) {
+      sections.push(`\n## MANDATORY PERSONALIZATION CHECKLIST\n`);
+      sections.push(`The following real details were provided by the parent. EACH item must appear concretely in AT LEAST ONE spread — as a named object, action, place, food, or person. Do NOT generalize them away. Do NOT list them all in one spread. Spread them across the 13 beats so the book feels personally woven for this child:`);
+      personalizationItems.forEach(item => sections.push(`- ${item}`));
+      sections.push(`After writing, silently verify: every checklist item above is concretely present somewhere in the final story text. If any item is missing, rewrite the affected spread to include it naturally.`);
     }
 
     sections.push(`\n## STORY PLAN\n`);
@@ -638,6 +757,67 @@ Refine each beat description to incorporate specific details from the anecdotes.
   // ──────────────────────────────────────────
   // Anecdote formatting
   // ──────────────────────────────────────────
+
+  /**
+   * Extract meaningful nouns/keywords from the title (excluding the child's name
+   * and common filler words) so we can enforce title coherence in prose + checks.
+   */
+  _extractTitleKeywords(title, childName) {
+    if (!title) return [];
+    const stop = new Set([
+      'the', 'a', 'an', 'and', 'of', 'in', 'on', 'to', 'for', 'with', 'at',
+      'is', 'it', 'its', 'his', 'her', 'their', 'my', 'our', 'your',
+      's', 'i', 'me', 'we', 'they', 'he', 'she',
+      'story', 'book', 'tale', 'adventures', 'adventure',
+    ]);
+    const nameLower = (childName || '').toLowerCase();
+    const tokens = title
+      .toLowerCase()
+      .replace(/[^a-z0-9'\- ]/g, ' ')
+      .split(/\s+/)
+      .map(t => t.replace(/^'+|'+$/g, '').replace(/'s$/, ''))
+      .filter(Boolean);
+    const out = [];
+    for (const tok of tokens) {
+      if (tok.length < 3) continue;
+      if (stop.has(tok)) continue;
+      if (nameLower && tok === nameLower) continue;
+      if (!out.includes(tok)) out.push(tok);
+    }
+    return out.slice(0, 6);
+  }
+
+  /**
+   * Build a flat list of specific personalization items that MUST appear in the story.
+   * Pulls from anecdotes (all non-empty fields), interests, and the seed's favorite_object.
+   */
+  _buildPersonalizationChecklist(child, book, plan) {
+    const items = [];
+    const a = child.anecdotes || {};
+    if (a.favorite_activities) items.push(`Favorite activities: ${a.favorite_activities}`);
+    if (a.funny_thing) items.push(`A funny thing they do: ${a.funny_thing}`);
+    if (a.meaningful_moment) items.push(`Meaningful moment: ${a.meaningful_moment}`);
+    if (a.moms_favorite_moment) items.push(`Mom's favorite moment: ${a.moms_favorite_moment}`);
+    if (a.favorite_food) items.push(`Favorite food: ${a.favorite_food}`);
+    if (a.favorite_cake_flavor) items.push(`Favorite cake flavor: ${a.favorite_cake_flavor}`);
+    if (a.favorite_toys) items.push(`Favorite toys: ${a.favorite_toys}`);
+    if (a.other_detail) items.push(`Other detail: ${a.other_detail}`);
+    if (a.anything_else) items.push(`Additional detail: ${a.anything_else}`);
+    if (Array.isArray(child.interests) && child.interests.length) {
+      items.push(`Interests to weave in: ${child.interests.join(', ')}`);
+    }
+    const seed = plan?.storySeed || this._storySeed;
+    if (seed?.favorite_object && typeof seed.favorite_object === 'string' && seed.favorite_object.trim()) {
+      items.push(`Story object/companion: ${seed.favorite_object}`);
+    }
+    if (seed?.setting && typeof seed.setting === 'string' && seed.setting.trim()) {
+      items.push(`World/setting: ${seed.setting}`);
+    }
+    if (book.customDetails && typeof book.customDetails === 'string' && book.customDetails.trim()) {
+      items.push(`Parent-written custom details (every specific noun/person/place here must land somewhere concrete): ${book.customDetails.trim()}`);
+    }
+    return items;
+  }
 
   _formatAnecdotes(anecdotes) {
     if (!anecdotes) return '';

@@ -108,8 +108,13 @@ function buildSystemInstruction(opts) {
 
   // Text rendering rules
   parts.push('TEXT RENDERING RULES:');
+  parts.push('FONT IS A HARD CONSTRAINT (MOST COMMON QA FAILURE — READ TWICE):');
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
-  parts.push('- The font MUST be IDENTICAL on every single page — same font family, same weight, same size. If in doubt, use a plain clean serif. NEVER switch fonts between pages.');
+  parts.push('- The font MUST be PIXEL-IDENTICAL on every single page of this book. Same family, same weight, same slant, same x-height, same stroke contrast, same letter spacing. Treat spread 1\'s font as a locked reference — every subsequent spread must match it exactly.');
+  parts.push('- NEVER switch fonts between pages. Do NOT vary the font for emphasis, for different moods, or to match the illustration.');
+  parts.push('- NEVER use: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded, Comic Sans, Papyrus, Chalkboard, Impact, Marker, Dancing Script, decorative, thin modern sans, condensed, or stenciled fonts. If any text in this book looks playful, hand-drawn, or decorative, that is a FAILURE and must be regenerated.');
+  parts.push('- Upright only — never italic, never oblique.');
+  parts.push('- When in doubt, render as plain Georgia regular weight.');
   parts.push(`- Size: ${TEXT_RULES.fontSize}. The illustration is the star.`);
   parts.push(`- Color: ${TEXT_RULES.fontColor}`);
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
@@ -119,7 +124,7 @@ function buildSystemInstruction(opts) {
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`);
   parts.push(`- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — text should never feel cramped against the top of the image.`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`);
-  parts.push('- Main characters and key action should not be hidden behind text');
+  parts.push('- Main characters and key action should not be hidden behind text. NEVER place text over the hero\'s head, face, or eyes.');
   parts.push('');
 
   // Duplicate item detection
