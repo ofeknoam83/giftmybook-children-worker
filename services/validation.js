@@ -13,6 +13,31 @@ const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday
 ];
 const VALID_GENDERS = ['male', 'female', 'neutral'];
 
+/**
+ * Normalise an incoming gender string to the internal vocabulary
+ * ('male' | 'female' | 'neutral').
+ *
+ * The standalone client stores gender as 'boy' / 'girl' / 'other' (see
+ * ChildrenCreate.jsx), but every downstream prompt and helper in this
+ * worker checks `gender === 'male'` / `'female'`. Without this mapping,
+ * a raw whitelist check silently coerced every 'boy'/'girl' payload to
+ * 'neutral', which in turn broke upsell cover gender, pronoun selection,
+ * face descriptions, and story text.
+ *
+ * Accepts any casing, plus the common synonyms: boy, girl, male, female,
+ * man, woman, other. Anything else returns 'neutral'.
+ *
+ * @param {unknown} raw
+ * @returns {'male' | 'female' | 'neutral'}
+ */
+function normaliseGender(raw) {
+  if (typeof raw !== 'string') return 'neutral';
+  const g = raw.trim().toLowerCase();
+  if (g === 'male' || g === 'boy' || g === 'm' || g === 'man') return 'male';
+  if (g === 'female' || g === 'girl' || g === 'f' || g === 'woman') return 'female';
+  return 'neutral';
+}
+
 const MAX_BOOK_ID_LENGTH = 100;
 const MAX_NAME_LENGTH = 50;
 const MAX_PHOTO_URLS = 5;
@@ -167,7 +192,7 @@ function validateGenerateBookRequest(body) {
     childName: sanitizeForPrompt(body.childName.trim(), MAX_NAME_LENGTH),
     childPhotoUrls: body.childPhotoUrls,
     childAge: clampAge(body.childAge),
-    childGender: VALID_GENDERS.includes(body.childGender) ? body.childGender : 'neutral',
+    childGender: normaliseGender(body.childGender),
     childAppearance: sanitizeForPrompt(body.childAppearance || '', 300),
     childInterests: sanitizeInterests(body.childInterests),
     bookFormat: VALID_FORMATS.includes(body.bookFormat) ? (FORMAT_NORMALIZE[body.bookFormat] || body.bookFormat) : 'picture_book',
@@ -258,4 +283,5 @@ module.exports = {
   VALID_ART_STYLES,
   VALID_THEMES,
   VALID_GENDERS,
+  normaliseGender,
 };

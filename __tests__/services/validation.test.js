@@ -4,6 +4,7 @@ const {
   validateFinalizeBookRequest,
   sanitizeForPrompt,
   isValidHttpsUrl,
+  normaliseGender,
 } = require('../../services/validation');
 
 describe('sanitizeForPrompt', () => {
@@ -60,6 +61,33 @@ describe('isValidHttpsUrl', () => {
   });
 });
 
+describe('normaliseGender', () => {
+  test('maps client vocabulary boy/girl/other to male/female/neutral', () => {
+    expect(normaliseGender('boy')).toBe('male');
+    expect(normaliseGender('girl')).toBe('female');
+    expect(normaliseGender('other')).toBe('neutral');
+  });
+
+  test('passes through canonical values', () => {
+    expect(normaliseGender('male')).toBe('male');
+    expect(normaliseGender('female')).toBe('female');
+    expect(normaliseGender('neutral')).toBe('neutral');
+  });
+
+  test('is case and whitespace insensitive', () => {
+    expect(normaliseGender(' Boy ')).toBe('male');
+    expect(normaliseGender('GIRL')).toBe('female');
+  });
+
+  test('defaults unknown/missing values to neutral', () => {
+    expect(normaliseGender(undefined)).toBe('neutral');
+    expect(normaliseGender(null)).toBe('neutral');
+    expect(normaliseGender('')).toBe('neutral');
+    expect(normaliseGender('martian')).toBe('neutral');
+    expect(normaliseGender(42)).toBe('neutral');
+  });
+});
+
 describe('validateGenerateBookRequest', () => {
   const validBody = {
     bookId: 'book-123',
@@ -70,6 +98,16 @@ describe('validateGenerateBookRequest', () => {
     artStyle: 'watercolor',
     theme: 'adventure',
   };
+
+  test('normalises client boy/girl gender so downstream prompts see male/female', () => {
+    // Regression test: pre-fix, the whitelist silently coerced 'boy'/'girl'
+    // payloads from the standalone client to 'neutral', breaking upsell cover
+    // gender, pronouns, faces, and story text.
+    expect(validateGenerateBookRequest({ ...validBody, childGender: 'boy' }).sanitized.childGender).toBe('male');
+    expect(validateGenerateBookRequest({ ...validBody, childGender: 'girl' }).sanitized.childGender).toBe('female');
+    expect(validateGenerateBookRequest({ ...validBody, childGender: 'other' }).sanitized.childGender).toBe('neutral');
+    expect(validateGenerateBookRequest({ ...validBody, childGender: undefined }).sanitized.childGender).toBe('neutral');
+  });
 
   test('accepts valid request', () => {
     const result = validateGenerateBookRequest(validBody);

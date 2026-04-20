@@ -2710,7 +2710,12 @@ app.post('/finalize-book', authenticate, async (req, res) => {
       try {
         console.log(`[finalize-book] No upsell covers provided — generating from cover image for ${bookId}`);
         const coverBuffer = await downloadBuffer(coverImageUrl);
-        const details = childDetails || { name: childName, age: 5, gender: 'neutral' };
+        const { normaliseGender } = require('./services/validation');
+        const details = childDetails || { name: childName, age: 5 };
+        // Normalise incoming gender ('boy' | 'girl' | 'other' from the client DB)
+        // to the internal vocabulary so the upsell AI prompts render the child
+        // with the correct gender.
+        details.gender = normaliseGender(details.childGender || details.gender);
         const generated = await generateUpsellCovers(bookId, details, coverBuffer, title || 'My Story', {});
         if (generated && generated.length > 0) {
           const entries = await Promise.all(generated.map(async uc => {

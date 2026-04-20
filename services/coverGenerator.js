@@ -42,6 +42,31 @@ function softenColor(color, amount = 0.5) {
 }
 
 /**
+ * Build a Lulu-safe-zone instruction for cover AI prompts.
+ *
+ * Lulu casewrap wraps 0.875" over the boards on hardcover, and paperbacks
+ * trim 0.125" with a ~0.25" critical-content safe zone. Since we now embed
+ * the AI image to EXACTLY fill the trim area (with mirrored edges into the
+ * bleed/wrap), the AI's own image frame maps to the trim line — so we ask
+ * for a generous interior safety buffer against minor trim variance and
+ * the mirrored edge extension.
+ *
+ * @param {boolean} isHardcover
+ * @returns {string} Multi-line instruction appended to the AI prompt
+ */
+function buildCoverSafeZoneInstruction(isHardcover) {
+  const edgePct = isHardcover ? 12 : 8;
+  const topPct = isHardcover ? 15 : 10;
+  return [
+    `COVER PRINT SAFETY (CRITICAL — Lulu ${isHardcover ? 'hardcover casewrap' : 'paperback'}):`,
+    `- The outer ~${edgePct}% of every edge of this image will be TRIMMED, BLED, OR WRAPPED around the book during printing. Anything placed there WILL BE CUT OFF or hidden on the inside of the cover.`,
+    `- Keep ALL title text, the child's face, logos, subtitles, and any critical element at least ${topPct}% away from the TOP edge and at least ${edgePct}% away from the bottom, left, and right edges.`,
+    `- Place the title with generous top margin — the top of every letter (including tall letters like D, R, W, L, h) must sit well below the top ${topPct}% of the image. If the title is long, make it SMALLER rather than pushing it closer to the top.`,
+    `- The background/illustration itself should still extend edge-to-edge (no white borders) — ONLY the critical content needs to stay inside the safe zone.`,
+  ].join('\n');
+}
+
+/**
  * Generate back cover illustration using Gemini, matching the front cover style.
  *
  * @param {Buffer} frontCoverBuffer - Front cover image
@@ -49,7 +74,7 @@ function softenColor(color, amount = 0.5) {
  * @returns {Promise<Buffer|null>} Back cover image buffer, or null on failure
  */
 async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
-  const { title, childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat } = opts;
+  const { title, childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat, isHardcover } = opts;
   const isSquare = (bookFormat || '').toLowerCase() === 'picture_book';
 
   // Resize front cover to use as style reference
@@ -95,7 +120,9 @@ TEXT RULES:
 - Text should feel integrated into the illustration, not overlaid
 - The overall feel should be warm, cozy, and premium
 
-FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide'}.`;
+FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide'}.
+
+${buildCoverSafeZoneInstruction(!!isHardcover)}`;
 
   const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -221,6 +248,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
     const childAge = childDetails.childAge || childDetails.age || 5;
     const childName = childDetails.childName || childDetails.name;
+    const safeZoneInstruction = buildCoverSafeZoneInstruction(isHardcover);
     const coverScene = isGraphicNovel
       ? `A dramatic graphic novel cover illustration in a cinematic ${artStyle} style. `
         + `The main character is a ${childAge}-year-old child named ${childName}. `
@@ -228,13 +256,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         + `The child should be prominently featured in a heroic or dramatic pose. `
         + `Background should be thematic with bold, graphic elements and dramatic lighting. `
         + `Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide. `
-        + `Style: graphic novel / comic book cover aesthetic with strong composition.`
+        + `Style: graphic novel / comic book cover aesthetic with strong composition.\n\n`
+        + safeZoneInstruction
       : `A beautiful ${artStyle} children's book cover illustration. `
         + `The main character is a ${childAge}-year-old child named ${childName}. `
         + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
         + `The child should be centered, looking happy and confident. `
         + `Background should be thematic and whimsical. `
-        + aspectHint;
+        + aspectHint + '\n\n'
+        + safeZoneInstruction;
 
     try {
       const imageUrl = await generateIllustration(
@@ -279,6 +309,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       bookFrom,
       costTracker: opts.costTracker,
       bookFormat,
+      isHardcover,
     });
   }
 
@@ -311,12 +342,24 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // ═══════════════════════════════════════
 
   if (backCoverBuffer) {
-    // Use Gemini-generated back cover illustration
+    // Use Gemini-generated back cover illustration.
+    //
+    // Same trim-fit + mirrored-extend strategy as the front cover, but
+    // mirrored horizontally: the spine side is the RIGHT edge of the back
+    // cover, so bleed/wrap goes on the LEFT (outer) side instead.
     try {
-      const targetPx = Math.round(backWidth / 72 * 300);
-      const targetHPx = Math.round(totalHeight / 72 * 300);
+      const trimWpx = Math.round(trimWidth / 72 * 300);
+      const trimHpx = Math.round(trimHeight / 72 * 300);
+      const bleedPx = Math.round(edgeBleed / 72 * 300);
       const resized = await sharp(backCoverBuffer)
-        .resize(targetPx, targetHPx, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+        .resize(trimWpx, trimHpx, { fit: 'cover', position: 'center' })
+        .extend({
+          top: bleedPx,
+          bottom: bleedPx,
+          left: bleedPx,
+          right: 0,
+          extendWith: 'mirror',
+        })
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
@@ -412,13 +455,31 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
   });
 
-  // Embed front cover illustration at 300 DPI
+  // Embed front cover illustration at 300 DPI.
+  //
+  // Print safety: we resize the AI image to EXACTLY fill the trim area, then
+  // mirror-extend the pixels outward to fill the bleed (paperback) or wrap
+  // (hardcover casewrap) area. This guarantees the AI's composition —
+  // especially the title baked into the image — lives entirely inside the
+  // visible trimmed face of the book, and the mirrored pixels fill the
+  // wrap/bleed zone without introducing white bars or distorted content.
+  //
+  // Front cover bleed layout: spine-side (left) flush, outer (right), top,
+  // bottom all need bleed/wrap.
   if (frontCoverBuffer) {
     try {
-      const targetWidthPx = Math.round(frontWidth / 72 * 300);
-      const targetHeightPx = Math.round(totalHeight / 72 * 300);
+      const trimWpx = Math.round(trimWidth / 72 * 300);
+      const trimHpx = Math.round(trimHeight / 72 * 300);
+      const bleedPx = Math.round(edgeBleed / 72 * 300);
       const resized = await sharp(frontCoverBuffer)
-        .resize(targetWidthPx, targetHeightPx, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+        .resize(trimWpx, trimHpx, { fit: 'cover', position: 'center' })
+        .extend({
+          top: bleedPx,
+          bottom: bleedPx,
+          left: 0,
+          right: bleedPx,
+          extendWith: 'mirror',
+        })
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
@@ -474,7 +535,7 @@ const UPSELL_STYLE_LABELS = {
 /**
  * Generate 4 upsell cover titles using GPT 5.4.
  */
-async function generateUpsellTitles(childName, childAge, approvedTitle, openaiApiKey, costTracker) {
+async function generateUpsellTitles(childName, childAge, approvedTitle, openaiApiKey, costTracker, childGender) {
   const key = openaiApiKey || process.env.OPENAI_API_KEY;
   if (!key) return null;
 
@@ -484,7 +545,12 @@ Titles should be warm, specific, and emotionally evocative.
 Do NOT use the word "adventure". Do NOT copy the original title.
 Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
 
-  const user = `Child: ${childName}, age ${childAge}. Original book title: "${approvedTitle}". Generate 4 completely different titles for their next book.`;
+  const genderNote = childGender === 'male'
+    ? ' The child is a boy — any pronouns or gendered words in the title must be masculine (him/his, prince, brother, etc.).'
+    : childGender === 'female'
+      ? ' The child is a girl — any pronouns or gendered words in the title must be feminine (her/hers, princess, sister, etc.).'
+      : '';
+  const user = `Child: ${childName}, age ${childAge}.${genderNote} Original book title: "${approvedTitle}". Generate 4 completely different titles for their next book.`;
 
   try {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -650,10 +716,10 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
     momDescription: opts.momDescription || null,
   };
 
-  console.log(`[coverGenerator] Generating upsell covers for ${childName}...`);
+  console.log(`[coverGenerator] Generating upsell covers for ${childName} (age=${childAge}, gender=${childGender})...`);
 
   // Step 1: Generate 4 unique titles
-  let titles = await generateUpsellTitles(childName, childAge, approvedTitle, openaiApiKey, opts.costTracker);
+  let titles = await generateUpsellTitles(childName, childAge, approvedTitle, openaiApiKey, opts.costTracker, childGender);
   if (!titles || titles.length < 4) {
     // Fallback titles
     titles = [
