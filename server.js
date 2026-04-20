@@ -2414,6 +2414,91 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
 
 // /generate-spread removed — V2 pipeline generates sequentially, this endpoint was unused.
 
+// ── POST /generate-game-character ─────────────────────────────────────────────
+// Admin-only Children Web Game support. Generates a clean full-body standalone
+// character sprite (PNG with alpha) in the book's art style, for injection
+// into the sandbox game. Single-shot + chromakey; typically <20s.
+app.post('/generate-game-character', authenticate, async (req, res) => {
+  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails } = req.body || {};
+
+  if (!bookId) {
+    return res.status(400).json({ success: false, error: 'bookId is required' });
+  }
+  if (!characterRefUrl && !coverImageUrl && !childPhotoUrl) {
+    return res.status(400).json({
+      success: false,
+      error: 'At least one of characterRefUrl / coverImageUrl / childPhotoUrl is required',
+    });
+  }
+
+  console.log(`[server] /generate-game-character: bookId=${bookId}, style=${style || 'default'}`);
+
+  try {
+    const { generateGameCharacter } = require('./services/gameCharacter');
+    const result = await generateGameCharacter({
+      bookId,
+      characterRefUrl,
+      childPhotoUrl,
+      coverImageUrl,
+      style,
+      childDetails,
+      poses: req.body?.poses,   // optional filter for partial regen
+    });
+
+    res.json({
+      success: true,
+      bookId,
+      gameSpriteUrl: result.gameSpriteUrl,
+      gamePoseAtlasUrl: result.gamePoseAtlasUrl,
+      poses: result.poses,
+      tookMs: result.tookMs,
+    });
+  } catch (err) {
+    console.error(`[server] generate-game-character failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-game-npcs ──────────────────────────────────────────────────
+// Generate AI-styled NPC sprites (mom / dad / cat) in the book's art style
+// so they don't visually clash with the injected child character.
+app.post('/generate-game-npcs', authenticate, async (req, res) => {
+  const { bookId, characters, characterRefUrl, coverImageUrl, style, briefMoments } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  console.log(`[server] /generate-game-npcs: bookId=${bookId}, characters=${(characters||['mom','cat']).join(',')}`);
+  try {
+    const { generateGameNpcs } = require('./services/gameNpcs');
+    const result = await generateGameNpcs({
+      bookId, characters, characterRefUrl, coverImageUrl, style, briefMoments,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-npcs failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-game-world ─────────────────────────────────────────────────
+// Generate a room background + set of object sprites under the book's art style.
+app.post('/generate-game-world', authenticate, async (req, res) => {
+  const { bookId, room, objects, characterRefUrl, coverImageUrl, style } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!room)   return res.status(400).json({ success: false, error: 'room is required' });
+
+  console.log(`[server] /generate-game-world: bookId=${bookId}, room=${room}, objectCount=${(objects||[]).length}`);
+
+  try {
+    const { generateWorldAssets } = require('./services/gameWorldAssets');
+    const result = await generateWorldAssets({
+      bookId, room, objects, characterRefUrl, coverImageUrl, style,
+    });
+    res.json({ success: true, bookId, room, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-world failed for ${bookId}/${room}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /generate-coloring-book ──────────────────────────────────────────────
 // Async endpoint: returns 202 immediately, processes in background, reports via callbackUrl.
 // mode=trace  (default): converts existing spread illustrations to coloring pages.
