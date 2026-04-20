@@ -20,6 +20,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Fetch the last few commits so scripts/captureCommits.js can record
+          # the last 3 subjects into commits.json before the image is built.
+          fetch-depth: 10
+
+      - name: Capture last 3 commits
+        run: node scripts/captureCommits.js
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

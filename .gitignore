@@ -1,2 +1,4 @@
 node_modules/
 coverage/
+# generated at deploy time by scripts/captureCommits.js
+commits.json

@@ -2,7 +2,16 @@
 const mockFetch = jest.fn().mockResolvedValue({ ok: true });
 global.fetch = mockFetch;
 
+const mockCommits = [
+  { sha: 'abc1234def', shortSha: 'abc1234', subject: 'fix: illustration split panel', author: 'dev', authorDate: '2026-04-20T00:00:00Z' },
+  { sha: 'def5678abc', shortSha: 'def5678', subject: 'feat: hero duplication check', author: 'dev', authorDate: '2026-04-19T00:00:00Z' },
+];
+jest.mock('../../services/workerCommits', () => ({
+  getWorkerCommits: jest.fn(() => mockCommits),
+}));
+
 const { reportProgress, reportComplete, reportError } = require('../../services/progressReporter');
+const { getWorkerCommits } = require('../../services/workerCommits');
 
 describe('progressReporter', () => {
   beforeEach(() => {
@@ -73,5 +82,45 @@ describe('progressReporter', () => {
     const bookId = `test-error-handling-${Date.now()}`;
     // Should not throw
     await reportProgress('https://example.com/callback', { bookId, progress: 0.5 });
+  });
+
+  test('reportProgress attaches workerCommits to the callback body', async () => {
+    const bookId = `test-commits-progress-${Date.now()}`;
+    await reportProgress('https://example.com/callback', { bookId, stage: 'test', progress: 0.1 });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.workerCommits).toEqual(mockCommits);
+  });
+
+  test('reportComplete attaches workerCommits to the callback body', async () => {
+    await reportComplete('https://example.com/callback', {
+      bookId: `test-commits-complete-${Date.now()}`,
+      interiorPdfUrl: 'https://example.com/pdf',
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.workerCommits).toEqual(mockCommits);
+    expect(body.success).toBe(true);
+  });
+
+  test('reportError attaches workerCommits to the callback body', async () => {
+    await reportError('https://example.com/callback', {
+      bookId: `test-commits-error-${Date.now()}`,
+      error: 'boom',
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.workerCommits).toEqual(mockCommits);
+    expect(body.success).toBe(false);
+  });
+
+  test('omits workerCommits when commits are unavailable', async () => {
+    getWorkerCommits.mockReturnValueOnce([]);
+    await reportComplete('https://example.com/callback', {
+      bookId: `test-no-commits-${Date.now()}`,
+      interiorPdfUrl: 'https://example.com/pdf',
+    });
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.workerCommits).toBeUndefined();
   });
 });

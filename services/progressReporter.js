@@ -2,9 +2,19 @@
  * Progress Reporter — sends progress updates + completion callbacks to standalone app
  */
 
+const { getWorkerCommits } = require('./workerCommits');
+
 const THROTTLE_MS = 3_000; // 3 seconds between progress updates
 const lastReportTimes = new Map();
 const API_KEY = process.env.API_KEY || '';
+
+/** Attach the last 3 worker commits to every outgoing callback so the admin
+ * monitor can display what was fixed in this worker version. */
+function withWorkerCommits(data) {
+  const workerCommits = getWorkerCommits();
+  if (!workerCommits || workerCommits.length === 0) return data;
+  return { ...data, workerCommits };
+}
 
 /**
  * Report generation progress to the standalone app (throttled).
@@ -25,7 +35,7 @@ async function reportProgress(callbackUrl, data) {
     const res = await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify(data),
+      body: JSON.stringify(withWorkerCommits(data)),
     });
     const body = await res.json().catch(() => null);
     return body;
@@ -47,7 +57,7 @@ async function reportProgressForce(callbackUrl, data) {
     const res = await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify(data),
+      body: JSON.stringify(withWorkerCommits(data)),
     });
     const body = await res.json().catch(() => null);
     return body;
@@ -69,7 +79,7 @@ async function reportComplete(callbackUrl, data) {
     await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ...data, success: true }),
+      body: JSON.stringify(withWorkerCommits({ ...data, success: true })),
     });
     console.log(`[ProgressReporter] Reported completion for ${data.bookId}`);
   } catch (err) {
@@ -89,7 +99,7 @@ async function reportError(callbackUrl, data) {
     await fetch(callbackUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ...data, success: false }),
+      body: JSON.stringify(withWorkerCommits({ ...data, success: false })),
     });
     console.log(`[ProgressReporter] Reported error for ${data.bookId}`);
   } catch (err) {

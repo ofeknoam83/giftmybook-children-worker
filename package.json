@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "jest --coverage"
+    "test": "jest --coverage",
+    "capture-commits": "node scripts/captureCommits.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.7.0",
