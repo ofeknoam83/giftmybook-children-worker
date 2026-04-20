@@ -121,11 +121,13 @@ async function splitSpreadImage(buf, pw, ph) {
   const meta = await sharp(buf).metadata();
   const scaledH = Math.round(meta.height * spreadW / meta.width);
 
-  // Bias crop toward the top to preserve text near the bottom edge.
-  // 16:9 images are taller than the 2:1 spread ratio, so we must crop vertically.
-  // Text is typically placed near the bottom; cropping 65% from the top keeps it safe.
+  // Balanced vertical crop. 16:9 images are taller than the 2:1 spread ratio, so
+  // we must crop vertically. Earlier we biased 65% off the top to preserve bottom text,
+  // but that regularly clipped the hero's head. A 50/50 split pairs with the illustrator's
+  // 22% top-padding + 15% bottom-padding text rules and the hero-safe-zone prompt rule to
+  // keep both heads and text safe post-crop.
   const excessH = Math.max(0, scaledH - hp);
-  const cropTop = Math.floor(excessH * 0.65);
+  const cropTop = Math.floor(excessH * 0.5);
 
   // Scale + crop in one sharp operation
   const spreadBuf = await sharp(buf)

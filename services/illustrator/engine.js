@@ -17,6 +17,7 @@ const { buildSpreadPrompt } = require('./prompts/spread');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
 const { checkCrossSpreadConsistency } = require('./quality/consistency');
+const { buildStoryBible } = require('./storyBible');
 const { stripMetadata } = require('./postprocess/strip');
 const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
@@ -101,6 +102,27 @@ class IllustratorEngine {
 
     log('info', `Found ${spreadEntries.length} spreads to generate`);
 
+    // Build story bible once (named secondary characters + locations + objects)
+    // so continuity descriptions can be injected into every spread prompt.
+    // Graceful fallback: if the bible call fails, we continue with an empty bible.
+    let storyBible = { characters: [], locations: [], objects: [] };
+    try {
+      const bibleStart = Date.now();
+      storyBible = await buildStoryBible({
+        spreadEntries,
+        childName: childDetails?.name || childDetails?.childName,
+        theme,
+        costTracker,
+      });
+      const bibleMs = Date.now() - bibleStart;
+      const charCount = storyBible.characters.length;
+      const locCount = storyBible.locations.length;
+      const objCount = storyBible.objects.length;
+      log('info', `Story bible built in ${bibleMs}ms: ${charCount} characters, ${locCount} locations, ${objCount} objects`);
+    } catch (bibleErr) {
+      log('warn', `Story bible build failed: ${bibleErr.message} — continuing without bible`);
+    }
+
     // Results array — shallow copy of all entries
     const results = entries.map(e => ({ ...e }));
 
@@ -152,6 +174,7 @@ class IllustratorEngine {
           theme,
           style,
           parentOutfit,
+          storyBible,
         });
 
         // Generate within session (retry up to 2 times on failure)
@@ -204,6 +227,12 @@ class IllustratorEngine {
             || issues.some(iss => iss.toLowerCase().includes('split panel'));
           const hasDuplicatedHero = qaTags.has('duplicated_hero')
             || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
+          const hasHeadCropped = qaTags.has('head_cropped')
+            || issues.some(iss => /head\s+(is\s+)?crop|face\s+(is\s+)?crop|head\s+cut\s+off/i.test(iss));
+          const hasTextOverFace = qaTags.has('text_over_face')
+            || issues.some(iss => /text\s+over\s+(the\s+)?(face|head|hero)|text\s+on\s+(the\s+)?(face|head)/i.test(iss));
+          const hasTextTopEdge = qaTags.has('text_top_edge')
+            || issues.some(iss => iss.toLowerCase().includes('top edge') || iss.toLowerCase().includes('top of'));
           const hasTextDuplication = issues.some(iss => iss.toLowerCase().includes('duplicat') && iss.startsWith('[text]'));
           const hasCenterViolation = issues.some(iss => iss.toLowerCase().includes('center'));
           const hasEdgeViolation = issues.some(iss => iss.toLowerCase().includes('edge'));
@@ -228,12 +257,20 @@ ${prompt}`;
 CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph. ONE continuous background, ONE unified lighting, ONE seamless composition from left edge to right edge. NO divider, NO seam, NO panel split, NO two separate scenes side by side.
 
 ${prompt}`;
+          } else if (hasHeadCropped) {
+            correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. The previous image CROPPED THE HERO'S HEAD at the edge of the frame — this is WRONG.
+
+CRITICAL: The main child's head and full face MUST be fully inside the frame. Leave at least 8% of image height ABOVE the top of the child's head. Never crop the hero's head at the top, bottom, left, or right edge. Frame the hero so the entire head is comfortably inside the middle 80% of the image.
+
+${prompt}`;
           } else if (hasTextIssues && !hasAnatomyIssues) {
             const placement = getTextPlacement(i);
             const safePct = 50 - TEXT_RULES.centerExclusionPercent;
             const textFixes = [];
             if (hasTextDuplication) textFixes.push('The text appeared MORE THAN ONCE. Render it EXACTLY ONE TIME in ONE location.');
             if (hasCenterViolation) textFixes.push(`Text was too close to the center. Move ALL text to the ${placement.side.toUpperCase()} side — within the ${placement.side} ${safePct}% of the image.`);
+            if (hasTextOverFace) textFixes.push('Text was placed OVER the hero\'s face/head. Move the text so it does NOT overlap the hero\'s head, face, hair, or eyes. Place it in an empty area of the scene.');
+            if (hasTextTopEdge) textFixes.push(`Text was TOO CLOSE to the top edge and will be cut off by print cropping. Move the text down so it sits at least ${TEXT_RULES.topPaddingPercent}% below the top edge.`);
             if (hasEdgeViolation) textFixes.push(`Text was too close to the edge. Keep at least ${TEXT_RULES.edgePaddingPercent}% from the left/right sides, at least ${TEXT_RULES.topPaddingPercent}% from the top, and at least ${TEXT_RULES.bottomPaddingPercent}% from the bottom.`);
             if (textFixes.length === 0) textFixes.push(...issues.map(iss => iss.replace(/^\[text\]\s*/, '')));
 
@@ -418,7 +455,7 @@ ${prompt}`;
     let consistencyResult = { overallScore: 1.0, failedSpreads: [] };
     try {
       if (generatedImages.length >= 2) {
-        consistencyResult = await checkCrossSpreadConsistency(generatedImages, { costTracker });
+        consistencyResult = await checkCrossSpreadConsistency(generatedImages, { costTracker, storyBible });
         log('info', `Cross-spread QA: score=${(consistencyResult.overallScore * 100).toFixed(0)}%, failed=${consistencyResult.failedSpreads.length}`);
       }
     } catch (qaErr) {
@@ -455,6 +492,7 @@ ${buildSpreadPrompt({
   theme,
   style,
   parentOutfit,
+  storyBible,
 })}`;
 
           const result = await sendCorrection(session, correctionPrompt, failed.index);
@@ -620,6 +658,8 @@ ${buildSpreadPrompt({
         || issues.some(iss => iss.toLowerCase().includes('split panel'));
       const hasDuplicatedHero = qaTags.has('duplicated_hero')
         || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
+      const hasHeadCropped = qaTags.has('head_cropped')
+        || issues.some(iss => /head\s+(is\s+)?crop|face\s+(is\s+)?crop|head\s+cut\s+off/i.test(iss));
 
       let correctionPrompt;
       if (hasDuplicatedHero) {
@@ -633,6 +673,12 @@ ${prompt}`;
         correctionPrompt = `REGENERATE this spread COMPLETELY. The previous image was SPLIT INTO TWO SEPARATE PANELS — this is WRONG.
 
 CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — one continuous background, one unified lighting, no divider, no seam, no two scenes side by side.
+
+${prompt}`;
+      } else if (hasHeadCropped) {
+        correctionPrompt = `REGENERATE this spread with the SAME scene. The previous image CROPPED THE HERO'S HEAD at the edge of the frame — this is WRONG.
+
+CRITICAL: The main child's head and full face MUST be fully inside the frame. Leave at least 8% of image height ABOVE the top of the child's head. Never crop the hero's head at any edge.
 
 ${prompt}`;
       } else {

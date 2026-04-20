@@ -33,7 +33,7 @@ const TOTAL_SPREADS = 13;
 const TEXT_RULES = {
   maxWordsPerLine: 6,
   edgePaddingPercent: 10,
-  topPaddingPercent: 15, // Slightly more breathing room at the top so text doesn't feel cramped against the upper edge
+  topPaddingPercent: 22, // Extra top padding — PDF assembly crops the 16:9 image vertically and the top can lose several percent; 22% leaves safe room after crop
   bottomPaddingPercent: 15, // Extra bottom padding — vertical crop during PDF assembly removes bottom content
   centerExclusionPercent: 15, // 15% on each side of center = middle 30% no-text zone
   fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, or stenciled fonts. If in doubt, render it as plain Georgia regular.',

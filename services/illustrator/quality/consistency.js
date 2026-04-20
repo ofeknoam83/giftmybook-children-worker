@@ -66,12 +66,13 @@ async function checkCrossSpreadConsistency(spreads, opts = {}) {
 
   const failedSpreadMap = new Map(); // index -> issues[]
   const checkResults = [];
+  const bibleBlock = _formatBibleForQa(opts.storyBible);
 
   // ── Check 1: Character consistency (overlapping windows of 4, stride 3) ──
   const batches = overlappingWindows(spreads, MAX_IMAGES_PER_BATCH, CHARACTER_BATCH_STRIDE);
   for (const batch of batches) {
     try {
-      const result = await _checkBatchCharacterConsistency(batch, opts);
+      const result = await _checkBatchCharacterConsistency(batch, { ...opts, bibleBlock });
       checkResults.push(result);
       if (result.failedIndices) {
         for (const { index, issues } of result.failedIndices) {
@@ -148,8 +149,12 @@ async function _checkBatchCharacterConsistency(batch, opts) {
 
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
+  const bibleGroundTruth = opts?.bibleBlock
+    ? `\n\nGROUND TRUTH — STORY BIBLE (these descriptions are the locked reference. Flag any image that contradicts them):\n${opts.bibleBlock}\n`
+    : '';
+
   const parts = [{
-    text: `These are ${batch.length} illustrations from the same children's book. The SAME child appears in every image.
+    text: `These are ${batch.length} illustrations from the same children's book. The SAME child appears in every image; named secondary characters must look identical whenever they appear.
 
 Check character consistency across ALL images — be STRICT:
 1. HAIR: Is the hair color, length, and style the SAME in every image? Flag if hair changes color (e.g., dark to light), changes length (short to long), or changes style (curly to straight, ponytail to loose).
@@ -157,9 +162,11 @@ Check character consistency across ALL images — be STRICT:
 3. FACE: Same face shape and skin tone across all?
 4. AGE & PROPORTIONS: Does the child look the SAME AGE in every image? Flag if the child looks like a toddler in one image but a 5-6 year old in another. Body proportions (height, head-to-body ratio, limb length) must be consistent. This is CRITICAL — age drift between spreads is a major defect.
 5. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts.
+6. SECONDARY CHARACTERS: if any named secondary character (a friend, animal companion, adult, etc.) appears across multiple images, their appearance must match across those images — same species, same face/fur, same outfit, same colors. Flag any image where a secondary character's appearance drifts.
+7. SETTINGS: if multiple images take place in the same named location, the setting must match (same room, same landmarks, same color palette baseline). Flag a location mismatch only when the text/scene says it's the SAME place but the visuals disagree.${bibleGroundTruth}
 
-Do NOT flag: left/right mirroring, minor lighting/shadow differences, eye open/closed state, minor pose differences.
-DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any age/proportion shift, any anatomy errors.
+Do NOT flag: left/right mirroring, minor lighting/shadow differences, eye open/closed state, minor pose differences, or intentional location changes between scenes.
+DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any age/proportion shift, any anatomy errors, any secondary character drift, or any location mismatch that contradicts the ground truth.
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}
@@ -208,20 +215,25 @@ async function _checkBatchFontConsistency(batch, opts) {
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
   const parts = [{
-    text: `These are ${batch.length} pages from the same children's book.
+    text: `These are ${batch.length} pages from the same children's book. The text font on every page MUST be PIXEL-IDENTICAL — same typeface, same weight, same slant, same x-height, same stroke contrast.
 
-Compare the text rendering — the font must be IDENTICAL across all pages:
-1. Font family — is it clearly the same serif font on every page? Different serif families count as a FAIL.
-2. Font size (relative to page) — consistent?
-3. Font weight/boldness — consistent?
-4. Text color — same?
+Be STRICT. Do NOT give the benefit of the doubt. Flag ANY visible font difference:
+1. Font FAMILY — must be clearly the same typeface on every page. Two different serifs = FAIL. A serif on one page and a sans on another = FAIL. A script, handwritten, bubble, or decorative font on any page = FAIL.
+2. SLANT — all pages must be upright. ANY italic or oblique rendering = FAIL.
+3. WEIGHT — all pages must be the same weight (all regular OR all bold). Mixed weights = FAIL.
+4. X-HEIGHT and letter shapes — lowercase letters must look the same size and shape on every page. Different x-heights = FAIL.
+5. SIZE (relative to page) — must be visibly consistent. Sizes that vary noticeably = FAIL.
+6. COLOR — must be the same color/treatment (same hue, same drop shadow) on every page.
 
-Find the MAJORITY style. Flag any page that uses a visibly different font family, weight, or size.
-The font should look like the same typeface was used — not just "both are serifs."
+ACCEPTABLE fonts: plain traditional book serifs (Georgia, Book Antiqua, Times-like). Nothing else.
+UNACCEPTABLE on ANY page (instant fail for that page): handwritten, script, cursive, italic, bubble, rounded, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, stenciled, condensed, display.
+
+Find the MAJORITY font (or spread 1's font if no majority) and flag EVERY page that drifts. Err on the side of flagging — font drift is a hard defect.
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}
-outlierImages = 1-based indices of pages that differ from the majority.`,
+outlierImages = 1-based indices of pages whose font drifts from the majority/reference.
+issues = short human-readable reasons for each flagged page.`,
   }];
 
   for (const spread of batch) {
@@ -314,6 +326,29 @@ outlierImages = 1-based indices that break the style.`,
   }
 
   return { passed: true, failedIndices: [] };
+}
+
+/**
+ * Render the story bible into a compact text block for vision QA ground truth.
+ */
+function _formatBibleForQa(bible) {
+  if (!bible) return '';
+  const lines = [];
+  if (bible.characters?.length) {
+    lines.push('Characters:');
+    bible.characters.forEach((c) => lines.push(`- ${c.name}: ${c.description}`));
+  }
+  if (bible.locations?.length) {
+    if (lines.length) lines.push('');
+    lines.push('Locations:');
+    bible.locations.forEach((l) => lines.push(`- ${l.name}: ${l.description}`));
+  }
+  if (bible.objects?.length) {
+    if (lines.length) lines.push('');
+    lines.push('Objects:');
+    bible.objects.forEach((o) => lines.push(`- ${o.name}: ${o.description}`));
+  }
+  return lines.join('\n');
 }
 
 module.exports = { checkCrossSpreadConsistency };

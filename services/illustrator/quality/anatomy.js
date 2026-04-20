@@ -69,19 +69,30 @@ STEP-BY-STEP PROCEDURE (follow exactly):
 
 6. CHILD APPEARANCE: Does the child look like a young child? Flag if they look adult.
 
-7. SEAMLESS COMPOSITION (CRITICAL): This should be ONE continuous panoramic painting — one moment, one camera, one unified lighting and background from edge to edge. Tag as "split_panel" and FAIL if ANY of the following are visible:
-   - A vertical divider, seam, gutter, or frame line anywhere (especially near the center)
-   - Two clearly different scenes, rooms, or backgrounds meeting mid-image
-   - Two distinct action moments of the same character shown side by side (a before/after or left-scene/right-scene layout)
+6b. HERO FRAMING — HEAD CROPPING (CRITICAL — HARD FAIL, tag "head_cropped"):
+    Look at the main child (the hero). Is the hero's HEAD and FACE fully inside the frame?
+    - Flag as HARD FAIL if the top of the hero's head is cut off by the TOP edge of the image.
+    - Flag as HARD FAIL if part of the hero's face is cut off by the BOTTOM, LEFT, or RIGHT edge.
+    - Flag as HARD FAIL if there is NO visible space above the top of the hero's head (the head touches or exceeds the top edge).
+    An adult or parent whose face is intentionally hidden (back view, face cropped out on purpose) is OK — that rule applies only to the MAIN CHILD (the hero).
+
+7. SEAMLESS COMPOSITION (CRITICAL — HARD FAIL): This must be ONE continuous panoramic painting — one moment, one camera, one unified lighting and background from left edge to right edge. Tag as "split_panel" and FAIL if ANY of the following are visible:
+   - A vertical divider, seam, gutter, border, or frame line anywhere (especially near the center)
+   - A diptych layout — two compositions joined into one image
+   - Mirrored halves (one side is an obvious mirror of the other)
+   - Two clearly different scenes, rooms, backgrounds, or settings meeting mid-image
+   - Two distinct action moments of the same character shown side by side (before/after, left-scene/right-scene, sequence)
    - An abrupt lighting, color-temperature, or palette change that reads as a panel boundary
    - Any vertical band of lighting or color that makes the image feel like a diptych or comic strip
-   A subtle environmental gradient (window light falling off) is fine; a clear hand-off from one setting to another is NOT.
+   - A filmstrip, comic grid, or panel arrangement of any kind
+   CONTINUITY TEST: drawing an imaginary vertical line anywhere in the image — if the two halves of that line would not be the same room / same outdoor setting / same lighting / same time of day, that is a split panel and must fail.
+   A subtle environmental gradient (window light falling off, natural sunset blend) is fine; a clear hand-off from one setting to another is NOT.
 ${sceneCoherenceBlock}
 Do NOT flag: stylistic exaggeration (large eyes, simplified features), left/right mirroring, or artistic proportions.
 
 Return ONLY valid JSON:
-{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, extra_hands, extra_fingers, body_horror, duplicate_items, action_mismatch"]}
-Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, DUPLICATED HERO, SPLIT PANEL, or ACTION MISMATCH.
+{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, head_cropped, extra_hands, extra_fingers, body_horror, duplicate_items, action_mismatch"]}
+Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, DUPLICATED HERO, SPLIT PANEL, HEAD CROPPED, or ACTION MISMATCH.
 Always include the relevant tags when pass=false so downstream tooling can route a specific correction.`;
 
   try {

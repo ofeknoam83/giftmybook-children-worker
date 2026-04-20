@@ -59,8 +59,11 @@ function buildSystemInstruction(opts) {
   parts.push('- EVERY illustration is ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph.');
   parts.push('- The scene flows continuously from left edge to right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break ANYWHERE.');
   parts.push('- NEVER draw two separate images side by side. NEVER split into left panel and right panel. There must be ZERO visual indication of a center divide.');
+  parts.push('- NEVER draw a diptych, a before-and-after, mirrored halves, a filmstrip, or a comic-style panel grid.');
   parts.push('- ONE continuous background, ONE unified lighting, ONE seamless composition across the full width.');
+  parts.push('- CONTINUITY TEST: drawing an imaginary vertical line anywhere in the image must NOT split it into two differently-lit or differently-placed scenes. Both halves of any vertical slice must show the SAME room / SAME outdoor setting / SAME time of day.');
   parts.push('- Each illustration is one single moment — not a comic strip or sequence');
+  parts.push('- HERO SAFE ZONE: the main character\'s head and full face must sit inside the middle 80% of the frame. NEVER crop the hero\'s head at the top, bottom, left, or right edge. Leave at least 8% of image height above the top of the hero\'s head.');
   parts.push('- Fill the entire canvas edge to edge — no blank areas');
   parts.push('- Wide cinematic 16:9 panoramic format');
   parts.push('- Important elements should NOT be placed at the exact left-right center');

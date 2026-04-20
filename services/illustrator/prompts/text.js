@@ -55,11 +55,16 @@ function buildTextInstruction(text, opts = {}) {
   parts.push(`- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — do not place text flush against the top; leave comfortable breathing room above the text.`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Keep text well above the bottom ${TEXT_RULES.bottomPaddingPercent}%.`);
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
+  parts.push('');
+  parts.push('### FONT (HARD CONSTRAINT — MUST MATCH EVERY OTHER SPREAD IN THIS BOOK)');
   parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
-  parts.push('- The font must be IDENTICAL to all other pages — same family, same weight, same size. NEVER change fonts.');
+  parts.push('- The font must be PIXEL-IDENTICAL to every other spread in this book — same family, same weight, same slant, same x-height, same stroke contrast, same letter spacing. Treat the font used on spread 1 as the locked reference.');
+  parts.push('- Upright only. NEVER italic, NEVER script, NEVER handwritten, NEVER decorative, NEVER bubble, NEVER condensed. If the text on this spread looks different from earlier spreads in this book, that is a FAILURE.');
+  parts.push('- When in doubt, render as plain Georgia regular weight.');
   parts.push(`- Size: ${TEXT_RULES.fontSize}. The illustration is the star.`);
   parts.push(`- Color: ${TEXT_RULES.fontColor}`);
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
+  parts.push('- NEVER place text over the main character\'s face, head, or eyes.');
 
   return parts.join('\n');
 }

@@ -34,6 +34,11 @@ async function verifySpreadText(imageBase64, expectedText, opts = {}) {
 
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
+  // The 16:9 image will be vertically cropped during PDF assembly (top bias).
+  // The effective top margin after crop is roughly 65% of the original topPadding.
+  // Fail hard if text crosses ~55% of the target topPadding (worst-case post-crop).
+  const hardTopMarginPct = Math.max(8, Math.floor(TEXT_RULES.topPaddingPercent * 0.55));
+
   const prompt = `Analyze the text in this children's book illustration.
 
 EXPECTED TEXT: "${expectedText}"
@@ -44,22 +49,28 @@ Check ALL of the following:
 
 2. TEXT PLACEMENT — CENTER EXCLUSION ZONE (CRITICAL): This image will be printed as a two-page spread, folded at the EXACT horizontal midpoint. Text near the center will vanish into the spine. Imagine a vertical line at the exact center of the image. The center ${TEXT_RULES.centerExclusionPercent * 2}% (${TEXT_RULES.centerExclusionPercent}% left of center + ${TEXT_RULES.centerExclusionPercent}% right of center) is a NO-TEXT ZONE. ALL text must be completely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. Flag as HARD FAIL if ANY text character or word appears in or crosses the center ${TEXT_RULES.centerExclusionPercent * 2}% strip. A single word crossing the center counts as a failure. Vertical position (top/bottom) does not matter.
 
-3. EDGE MARGINS: Is the text at least ${TEXT_RULES.edgePaddingPercent}% away from left and right edges, at least ${TEXT_RULES.topPaddingPercent}% away from the top edge, and at least ${TEXT_RULES.bottomPaddingPercent}% away from the bottom edge? Flag if text is too close to any edge.
+3. EDGE MARGINS:
+   - Left and right: text must be at least ${TEXT_RULES.edgePaddingPercent}% away from the left and right edges.
+   - TOP (CRITICAL — print crop removes the top ~7% of this image): text must be at least ${TEXT_RULES.topPaddingPercent}% from the top edge. Flag with tag "text_top_edge" as a HARD FAIL if the TOP of any letter is within ${hardTopMarginPct}% of the top edge — at that distance it will be cut off after printing.
+   - Bottom: text must be at least ${TEXT_RULES.bottomPaddingPercent}% from the bottom edge.
 
-4. FONT SIZE: Is the text small and subtitle-like? Or is it large/headline-sized? Flag if text looks like a title or headline.
+4. TEXT OVER HERO'S FACE/HEAD (HARD FAIL — tag "text_over_face"): Identify the main child (the hero). Does the text overlap, touch, or sit directly on top of the hero's face, head, hair, or eyes? Flag as HARD FAIL if ANY text character is over the hero's head or face. Partial overlap with the hero's body (below the shoulders) is OK if unavoidable; overlap with the head/face is NEVER OK.
 
-5. LEGIBILITY: Is the text crisp, sharp, and readable? Flag if blurry, fuzzy, or low contrast.
+5. FONT SIZE: Is the text small and subtitle-like? Or is it large/headline-sized? Flag if text looks like a title or headline.
+
+6. LEGIBILITY: Is the text crisp, sharp, and readable? Flag if blurry, fuzzy, or low contrast.
 
 Return ONLY valid JSON:
 {
   "pass": true/false,
   "extractedText": "the exact text you read from the image",
   "issues": ["list of specific issues found"],
+  "tags": ["zero or more of: text_top_edge, text_over_face, text_center, text_duplicated, text_garbled, text_too_large, text_illegible"],
   "score": 0.0-1.0
 }
 
 Score guide: 1.0 = perfect, 0.8+ = minor issues, 0.5-0.8 = significant issues, <0.5 = major problems.
-Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%, text crossing the center, duplicated text, missing/garbled text, or text too close to edges.`;
+Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%, text crossing the center, duplicated text, missing/garbled text, text over the hero's face/head, or text within ${hardTopMarginPct}% of the top edge.`;
 
   try {
     const resp = await fetchWithTimeout(url, {
@@ -98,6 +109,8 @@ Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%
     if (match) {
       const result = JSON.parse(match[0]);
       const issues = result.issues || [];
+      const rawTags = Array.isArray(result.tags) ? result.tags : [];
+      const tags = rawTags.filter(t => typeof t === 'string').map(t => t.toLowerCase().trim()).filter(Boolean);
       let pass = !!result.pass;
 
       // Deterministic duplication safety net: if extracted text is much longer
@@ -109,12 +122,14 @@ Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%
         if (extractedWords > expectedWords * 1.5 && expectedWords >= 4) {
           pass = false;
           issues.push('DUPLICATED text: extracted text is significantly longer than expected, suggesting the same text was rendered multiple times');
+          if (!tags.includes('text_duplicated')) tags.push('text_duplicated');
         }
       }
 
       return {
         pass,
         issues,
+        tags,
         score: typeof result.score === 'number' ? result.score : (pass ? 1.0 : 0.5),
         extractedText: extracted,
       };
@@ -123,7 +138,7 @@ Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%
     console.warn(`[illustrator/quality/text] Error: ${e.message} — accepting`);
   }
 
-  return { pass: true, issues: [], score: 1.0 };
+  return { pass: true, issues: [], tags: [], score: 1.0 };
 }
 
 module.exports = { verifySpreadText };

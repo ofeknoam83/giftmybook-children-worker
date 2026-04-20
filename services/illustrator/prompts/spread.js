@@ -8,6 +8,7 @@
 
 const { getEmotionalBeat, BEAT_CAMERA, PARENT_THEMES, ART_STYLE_CONFIG } = require('../config');
 const { buildTextInstruction } = require('./text');
+const { selectBibleEntriesForSpread, renderBibleSection } = require('../storyBible');
 
 /**
  * Build the per-spread generation prompt.
@@ -36,6 +37,7 @@ function buildSpreadPrompt(opts) {
     theme,
     style,
     parentOutfit,
+    storyBible,
   } = opts;
 
   const beat = getEmotionalBeat(spreadIndex, totalSpreads);
@@ -45,8 +47,10 @@ function buildSpreadPrompt(opts) {
   // Critical rules — read before anything else
   parts.push('### CRITICAL RULES — READ BEFORE DRAWING');
   parts.push('- ONE HERO: The main child appears EXACTLY ONCE in this image. No duplicates, no twin, no reflection/photo copy, no before-and-after sequence of the same child.');
-  parts.push('- ONE MOMENT: This is ONE single moment in time — not a comic strip, not a diptych, not two scenes side by side.');
-  parts.push('- ONE SEAMLESS PAINTING: No vertical seam, no mid-frame background or lighting change. Same room, same light, continuous edge-to-edge.');
+  parts.push('- ONE MOMENT: This is ONE single moment in time — not a comic strip, not a diptych, not two scenes side by side, not a before/after, not a split-panel.');
+  parts.push('- ONE SEAMLESS PAINTING (NON-NEGOTIABLE): A single continuous panoramic illustration. NO vertical seam anywhere in the image. NO mid-frame background change. NO lighting break. NO color-palette break. NO horizon jump. NO mirrored halves. NO border, divider, frame, or gutter between left and right halves.');
+  parts.push('- CONTINUITY TEST: If you mentally draw a vertical line anywhere in this image, BOTH sides of that line must show the SAME room, SAME background, SAME time of day, SAME weather, and the SAME lighting. If any vertical line would split the image into two differently-lit or differently-placed scenes, you have FAILED and must recompose as one scene.');
+  parts.push('- HERO SAFE ZONE: The main character\'s head and full face must be inside the middle 80% of the image — never cropped at the top, bottom, left, or right edge. Leave at least 8% of image height above the top of the hero\'s head. Do NOT let text cover the hero\'s head, face, or eyes.');
   parts.push('');
 
   // Header
@@ -57,6 +61,16 @@ function buildSpreadPrompt(opts) {
   parts.push('### SCENE');
   parts.push(scenePrompt);
   parts.push('');
+
+  // Story bible — inject only entries that are referenced in THIS spread
+  if (storyBible) {
+    const selected = selectBibleEntriesForSpread(storyBible, scenePrompt, [leftText, rightText].filter(Boolean).join(' '));
+    const bibleBlock = renderBibleSection(selected);
+    if (bibleBlock) {
+      parts.push(bibleBlock);
+      parts.push('');
+    }
+  }
 
   // Character rules (image-based — no text descriptions)
   parts.push('### CHARACTER RULES');
