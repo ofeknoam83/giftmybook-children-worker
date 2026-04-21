@@ -13,10 +13,12 @@ const WRITER_CONFIG = {
 
   retries: {
     maxWriteAttempts: 3,
-    // Bumped from 2 → 3 so the gate has budget to actually recover after
-    // the raised passScore. Revision is ~30s with GPT-5.4 so worst-case
-    // this adds ~2 minutes to a book that genuinely needs three passes.
-    maxQualityRetries: 3,
+    // Quality is judged entirely by an LLM critic; the writer retries
+    // until the critic says ship=true. This budget is the safety cap —
+    // worst case we pay ~1 min per retry (revise + critic), so 6 means
+    // the generator can spend ~6 extra minutes fighting for a pass
+    // before we ship best-of-N.
+    maxQualityRetries: 6,
   },
 
   timeouts: {
@@ -55,32 +57,11 @@ const WRITER_CONFIG = {
   },
 
   qualityThresholds: {
-    // Raised from 7.5 → 8.5. Books scoring in the high 7s were clearing
-    // the old gate despite real personalization misses (age mismatch,
-    // dropped anecdotes, overridden favorite object). 8.5 is high enough
-    // to trigger at least one revision on most first drafts while still
-    // being achievable on a genuinely good story.
+    // The LLM critic applies these thresholds directly inside its prompt
+    // when deciding ship=true/false. They are included here so the values
+    // stay tunable in one place; the critic prompt interpolates them.
     passScore: 8.5,
-    // Raised from 5 → 6. At 5 a dimension with "half of checks missed"
-    // still cleared the floor; 6 requires at least "mostly correct".
     minDimensionScore: 6,
-    // Dimensions that must score at least this high regardless of the
-    // weighted average. These are the ones where a low score indicates
-    // a book you would NOT want to ship no matter how creative it is:
-    //   - anecdoteUsage: fails → the questionnaire answers were ignored
-    //   - pronouns:      fails → the child is referred to as the wrong gender
-    //   - wordCount:     fails → too long/short to read aloud at age
-    //   - endingAppropriateness: fails → celebration ends with bedtime
-    //   - nameDiscipline: fails → parent's real name used more than once
-    //     (should appear at most once for a dedication-style beat)
-    // All other dimensions fall under the generic minDimensionScore floor.
-    criticalDimensions: {
-      anecdoteUsage: 7,
-      pronouns: 9,
-      wordCount: 7,
-      endingAppropriateness: 7,
-      nameDiscipline: 6,
-    },
   },
 };
 

@@ -1505,80 +1505,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         storyPlan = convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle);
         storyPlan._writerV2Metadata = writerResult.metadata;
 
-        // ── Post-hoc custom-details check + conditional revision ──
-        // The external `checkCustomDetailsUsage` catches misses the internal
-        // QualityGate's deterministic anecdote scorer can't (e.g. narrative
-        // references that require semantic judgement). The deterministic
-        // MUST-LAND funny_thing check is layered on top because the LLM
-        // check only surfaces the 5 "most important" details and has been
-        // observed to drop funny_thing on its own.
-        let postHocDetails = null;
-        try {
-          const { checkCustomDetailsUsage } = require('./services/qualityGates');
-          postHocDetails = await checkCustomDetailsUsage(storyPlan.entries, enrichedCustomDetails || customDetails, { costTracker });
-          bookContext.log('info', 'Custom details usage check', {
-            score: postHocDetails.score,
-            missing: postHocDetails.missingCritical,
-          });
-        } catch (qgErr) {
-          bookContext.log('warn', 'Custom details check failed (non-blocking)', { error: qgErr.message });
-        }
-
-        // Pull every anecdote the QualityGate reported as strict-mode
-        // (MUST-LAND) and didn't land. These join the LLM's missingCritical
-        // list so the revision loop sees BOTH signals.
-        const det = writerResult?.metadata?.qualityDetails?.anecdoteUsage
-          || (writerResult?.metadata?.qualityScoreBreakdown?.anecdoteUsage);
-        // Fall back to re-running the deterministic scorer directly: the
-        // metadata stamp may not include requiredItems in all callers.
-        let mustLandMisses = [];
-        try {
-          const { QualityGate } = require('./services/writer/quality/gate');
-          const au = QualityGate._scoreAnecdoteUsage(
-            writerResult.story.spreads,
-            writerResult.plan,
-            writerResult.child,
-          );
-          mustLandMisses = (au.requiredItems || [])
-            .filter(r => r.strict && !r.landed)
-            .map(r => `${r.key || 'anecdote'}: "${r.value}"`);
-        } catch (auErr) {
-          bookContext.log('warn', 'Deterministic anecdote recheck failed', { error: auErr.message });
-        }
-        void det;
-
-        const missingCritical = Array.from(new Set([
-          ...(postHocDetails?.missingCritical || []),
-          ...mustLandMisses,
-        ]));
-        if (missingCritical.length > 0) {
-          try {
-            bookContext.log('info', 'Triggering post-hoc revision for missing critical details', {
-              llm: postHocDetails?.missingCritical || [],
-              mustLand: mustLandMisses,
-            });
-            const feedback = `CRITICAL DETAILS MISSING from the story — these MUST appear concretely in the prose:\n- ${missingCritical.join('\n- ')}\n\nRewrite the affected spreads to name these details naturally. Do NOT replace them with generic stand-ins. Do NOT invent details that contradict the questionnaire answers. IMPORTANT: this is a targeted polish pass — preserve everything that was already working (rhyme, meter, anecdotes that DID land, setting variety). Only change what is needed to close these specific gaps.`;
-            const revised = await WriterEngine.reviseWithFeedback(writerResult, feedback, {
-              missingCritical,
-              maxAttempts: 2,
-            });
-            if (revised && revised.story && revised.story.spreads && revised.story.spreads.length > 0) {
-              storyPlan = convertWriterV2ToLegacyPlan(revised, childDetails, theme, approvedTitle);
-              storyPlan._writerV2Metadata = revised.metadata;
-              // Refresh the plan we snapshot to the DB below too.
-              writerResult.metadata = revised.metadata;
-              writerResult.story = revised.story;
-              const originalScore = postHocDetails ? writerResult.metadata?.qualityScore : null;
-              bookContext.log('info', 'Post-hoc revision complete', {
-                qualityScore: revised.metadata?.qualityScore,
-                spreads: revised.story.spreads.length,
-                note: originalScore != null ? `best-of-N selected (see [writerV2] logs for which attempt)` : undefined,
-              });
-            }
-          } catch (revErr) {
-            bookContext.log('warn', 'Post-hoc revision failed (continuing with original)', { error: revErr.message });
-          }
-        }
+        // All quality judgment lives inside WriterEngine now — the LLM
+        // critic decides ship/revise in a single call, and the engine
+        // retries until the critic passes (or exhausts its budget and
+        // ships best-of-N). No post-hoc check needed here.
 
         // Save story content to DB. We persist the plan.manifest alongside the
         // entries so downstream tooling (and humans reviewing a book) can see
