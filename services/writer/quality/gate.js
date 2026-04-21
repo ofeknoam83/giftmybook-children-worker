@@ -142,7 +142,9 @@ You rate the book across 15 dimensions, each 1-10. You also decide a single bool
 10. anecdoteUsage — Every anecdote the questionnaire provided must land concretely somewhere in the story. Euphemisms and natural picture-book phrasing count (a "toot" or "Pffft" lands a "farts"). But the ACTION / PERSON / OBJECT / MOMENT must be recognizably present. Score by ratio landed:
      ratio=1.0 → 10, >=0.8 → 9, >=0.6 → 7, >=0.4 → 5, <0.4 → 3.
 11. settingVariety — Across the 13 spreads, 2-4 distinct physical locations. If 8+ spreads read as "at home" / "in the living room" that is a FAIL (score 1-3).
-12. pronouns — Pronouns for the child match the child\'s stated gender in every reference. Any mismatch → score ≤ 4.
+12. pronouns — Two rules, both enforced:
+     (a) Pronouns for the child match the child\'s stated gender in every reference. Any mismatch → score ≤ 4.
+     (b) Object vs. possessive grammar is correct: "his hair", "his arm", "her hand", "their toys" — NEVER "him hair", "him arm", "he hand", "them toys". Object pronouns used in possessive position are a HARD FAIL → score ≤ 3. This rule applies even when the error fits the meter.
 13. endingAppropriateness — ${endingRule}
 14. parentNameDiscipline — ${parentNameRule} Score 10 for 0-1 uses; 6 for 2; 3 for 3; 1 for 4+.
 15. wordCount — Word count per spread and total are within the age-tier limits (the writer was given these). Penalize oversized spreads proportionally.
