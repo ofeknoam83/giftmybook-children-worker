@@ -26,7 +26,7 @@ const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, MAX_REGEN_SPREADS, MAX_CONSISTENCY_ROUNDS, TEXT_RULES } = require('./config');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, MAX_REGEN_SPREADS, MAX_CONSISTENCY_ROUNDS, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS } = require('./config');
 const { getTextPlacement } = require('./prompts/text');
 
 class IllustratorEngine {
@@ -191,8 +191,7 @@ class IllustratorEngine {
           storyBible,
         });
 
-        // Generate within session (retry up to 2 times on failure)
-        const MAX_GENERATION_RETRIES = 2;
+        // Generate within session — retry with exponential backoff up to MAX_GENERATION_RETRIES
         let result = null;
         let imageBase64 = null;
         let imageBuffer = null;
@@ -204,8 +203,9 @@ class IllustratorEngine {
             break;
           } catch (genErr) {
             if (genRetry < MAX_GENERATION_RETRIES) {
-              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in 2s`);
-              await new Promise(r => setTimeout(r, 2000));
+              const delayMs = Math.min(GENERATION_RETRY_BASE_DELAY_MS * Math.pow(2, genRetry), 30000);
+              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in ${delayMs}ms`);
+              await new Promise(r => setTimeout(r, delayMs));
             } else {
               throw genErr; // Final attempt failed — outer catch handles it
             }

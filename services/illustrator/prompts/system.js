@@ -31,10 +31,20 @@ function buildSystemInstruction(opts) {
   parts.push('');
 
   // Art style
+  const LOCKED_3D_STYLES = new Set(['pixar_premium', 'cinematic_3d', 'graphic_novel_cinematic']);
+  const isLocked3D = LOCKED_3D_STYLES.has(opts.style);
+
   parts.push(`ART STYLE (NON-NEGOTIABLE): ${styleConfig.prefix} ${styleConfig.suffix}`);
   parts.push('This art style is MANDATORY for every single illustration. Do NOT deviate to any other rendering technique.');
   parts.push('Every illustration must use the EXACT SAME rendering technique — if the style says 3D/CGI, every page must be 3D/CGI rendered. If it says watercolor, every page must be watercolor.');
-  parts.push('Match the rendering style shown in the approved cover image provided in Turn 1.');
+  if (isLocked3D) {
+    // For locked 3D styles the mandatory rendering medium overrides the cover's visual medium.
+    // Match the cover ONLY for character identity (face, outfit, hair, skin tone, colour family) —
+    // NOT for brush style, paint texture, or any 2D/painted look the cover may have.
+    parts.push('The approved cover image is your reference for CHARACTER IDENTITY ONLY (face, hair, skin tone, outfit, colour palette). DO NOT match the cover\'s rendering medium or brush style — the rendering medium is locked to premium 3D CGI as stated above, regardless of how the cover looks.');
+  } else {
+    parts.push('Match the rendering style shown in the approved cover image provided in Turn 1.');
+  }
   parts.push('');
 
   // Character consistency (image-based, no text descriptions)

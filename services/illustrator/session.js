@@ -15,6 +15,7 @@ const {
   ESTABLISHMENT_TIMEOUT_MS,
   SLIDING_WINDOW_SIZE,
   MAX_HISTORY_IMAGES,
+  GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
 } = require('./config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
 const { buildSystemInstruction } = require('./prompts/system');
@@ -363,6 +364,7 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
     generationConfig.responseModalities = ['TEXT'];
   } else {
     generationConfig.responseModalities = ['TEXT', 'IMAGE'];
+    generationConfig.maxOutputTokens = GEMINI_IMAGE_MAX_OUTPUT_TOKENS;
   }
   if (genConfigOpts.aspectRatio) {
     generationConfig.imageConfig = { aspectRatio: genConfigOpts.aspectRatio };
@@ -437,6 +439,14 @@ function _extractImage(response, spreadIndex) {
   const imagePart = parts.find(p => p.inlineData);
 
   if (!imagePart) {
+    const candidate = response?.candidates?.[0] || {};
+    const finishReason = candidate.finishReason || 'unknown';
+    const textSnippet = (parts.find(p => p.text)?.text || '').slice(0, 200);
+    const hasCandidates = Array.isArray(response?.candidates) && response.candidates.length > 0;
+    console.warn(
+      `[illustrator/session] No image for spread ${spreadIndex + 1}: finishReason=${finishReason}, hasCandidates=${hasCandidates}, parts=${parts.length}` +
+      (textSnippet ? `, textSnippet="${textSnippet}"` : ''),
+    );
     throw new Error(`No image in response for spread ${spreadIndex + 1}`);
   }
 

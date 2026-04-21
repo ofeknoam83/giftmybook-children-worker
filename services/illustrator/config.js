@@ -22,11 +22,16 @@ const SLIDING_WINDOW_SIZE = 4;  // Keep last 4 generated spread images for bette
 const MAX_HISTORY_IMAGES = 14;  // Start trimming above this
 
 // ── Retry budgets ──
-const MAX_SPREAD_RETRIES = 6;       // Per-spread QA retry limit (within session)
-const MAX_FRESH_SESSION_RETRIES = 5; // Fresh-session fallbacks when in-session retries exhausted
-const MAX_REGEN_SPREADS = 13;       // Regenerate all flagged spreads per consistency round (bounded by MAX_CONSISTENCY_ROUNDS)
-const MAX_CONSISTENCY_ROUNDS = 6;  // Cross-spread regen + re-check loops
-const QA_HTTP_ATTEMPTS = 3;        // Retries per vision QA HTTP call before fail-closed
+const MAX_SPREAD_RETRIES = 6;           // Per-spread QA retry limit (within session)
+const MAX_FRESH_SESSION_RETRIES = 5;    // Fresh-session fallbacks when in-session retries exhausted
+const MAX_REGEN_SPREADS = 13;          // Regenerate all flagged spreads per consistency round (bounded by MAX_CONSISTENCY_ROUNDS)
+const MAX_CONSISTENCY_ROUNDS = 6;      // Cross-spread regen + re-check loops
+const QA_HTTP_ATTEMPTS = 3;            // Retries per vision QA HTTP call before fail-closed
+const MAX_GENERATION_RETRIES = 5;      // Raw image generation attempts before aborting a spread (6 total: attempt 0..5)
+const GENERATION_RETRY_BASE_DELAY_MS = 3000;  // Base delay for exponential backoff between generation attempts
+
+// ── Image generation token budget ──
+const GEMINI_IMAGE_MAX_OUTPUT_TOKENS = 8192; // maxOutputTokens for spread image turns (TEXT+IMAGE)
 
 // ── Book structure ──
 const TOTAL_SPREADS = 13;
@@ -78,6 +83,9 @@ module.exports = {
   MAX_REGEN_SPREADS,
   MAX_CONSISTENCY_ROUNDS,
   QA_HTTP_ATTEMPTS,
+  MAX_GENERATION_RETRIES,
+  GENERATION_RETRY_BASE_DELAY_MS,
+  GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   TOTAL_SPREADS,
   TEXT_RULES,
   ART_STYLE_CONFIG,
