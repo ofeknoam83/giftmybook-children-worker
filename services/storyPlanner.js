@@ -90,7 +90,7 @@ const THEME_RULES = {
 - Ending: the child drifts peacefully to sleep — dreamy, warm, safe
 - Use dreamy imagery: stars, moonlight, soft glow, warm blankets`,
 
-  mothers_day: `MOTHER'S DAY THEME — a love letter from child to mom:
+  mothers_day: `LOVE TO MOM THEME — a love letter from child to mom:
 - Mom is a NAMED CHARACTER — use the name from customDetails (calls_mom / mom_name). If not provided, use "Mommy"
 - Mom MUST appear in at least 6 of 13 spreads — she is co-protagonist
 - Story is told from the child's perspective of love and gratitude for mom
@@ -773,21 +773,21 @@ ${beatStructure}
 STORY ARC RULE:
 - Build the story DIRECTLY from the user's questionnaire answers. Every spread should reference specific details the parent provided.
 - Prefer concrete, human-scale stakes from those details over generic "magical quest" filler — but you MAY invent specific scenes, props, and surprises that fit the theme and age; originality is encouraged.
-- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION — no villain, no tragic loss, no cruel doubt. Small real feelings (nervousness, anticipation, a comedic mishap) are fine. The narrative_spine field must drive every beat.
+- For occasion themes (Love to mom, Father's Day, Birthday): the story is a CELEBRATION — no villain, no tragic loss, no cruel doubt. Small real feelings (nervousness, anticipation, a comedic mishap) are fine. The narrative_spine field must drive every beat.
 
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
 
 ${theme === 'mothers_day'
   ? (additionalCoverCharacters
-    ? `MOTHER'S DAY — MOM IN ILLUSTRATIONS + SECONDARY CHARACTERS:
+    ? `LOVE TO MOM — MOM IN ILLUSTRATIONS + SECONDARY CHARACTERS:
 Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
 When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
 Describe Mom warmly and consistently each time.
 ADDITIONALLY, the uploaded photo contains a secondary person:
 ${additionalCoverCharacters}
 CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
-    : `MOTHER'S DAY — MOM IN ILLUSTRATIONS (FACE COMPLETELY HIDDEN):
+    : `LOVE TO MOM — MOM IN ILLUSTRATIONS (FACE COMPLETELY HIDDEN):
 Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
 When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
 CRITICAL: We have NO reference image for Mom. She is FEMALE (a woman — never draw a man). Her face must NEVER be visible in ANY illustration — no eyes, no mouth, no facial features. In EVERY beat where Mom appears, describe a specific hidden-face pose: "Mom's hands wrap around the child from behind", "seen from behind, Mom kneels beside...", "Mom's arm reaches in from the side". NEVER write "Mom smiles" or "Mom looks at" — these cause the illustrator to draw her face. Her warmth comes through body language, hands, and posture only.
@@ -1217,9 +1217,9 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
   // Allow/require the parent for parent-themed stories
   if (theme === 'mothers_day') {
     if (additionalCoverCharacters) {
-      systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
+      systemPrompt += `\n\n⚠️ LOVE TO MOM OVERRIDE: Mom is a co-protagonist in this story and MUST appear in illustration prompts for at least 6 of 13 spreads. This overrides the "no family in illustrations" rule for Mom only. When writing scenes where Mom appears, describe her presence explicitly (her position, gesture, expression) so illustration prompts can include her. Describe Mom warmly and consistently. Other family members still follow the standard rule — text only, never illustrated.`;
     } else {
-      systemPrompt += `\n\n⚠️ MOTHER'S DAY OVERRIDE — IMPLIED PRESENCE (FACE COMPLETELY HIDDEN): Mom is a co-protagonist and MUST appear in illustration prompts for at least 6 of 13 spreads. However, we have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in ANY illustration — no eyes, no mouth, no facial features.\n\nIn EVERY spread_image_prompt where Mom appears, you MUST explicitly describe a hidden-face pose. Examples:\n- "Mom's hands gently wrap around the child from behind"\n- "Mom kneels beside the child, her face just above the frame edge"\n- "We see Mom from behind, her arm around the child's shoulder"\n- "Mom's arm reaches in from the left side of the frame"\nNEVER write prompts like "Mom smiles at the child" or "Mom looks at the child lovingly" — these will cause the illustrator to draw her face. Her warmth comes through body language ONLY. Other family members — text only, never illustrated.`;
+      systemPrompt += `\n\n⚠️ LOVE TO MOM OVERRIDE — IMPLIED PRESENCE (FACE COMPLETELY HIDDEN): Mom is a co-protagonist and MUST appear in illustration prompts for at least 6 of 13 spreads. However, we have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in ANY illustration — no eyes, no mouth, no facial features.\n\nIn EVERY spread_image_prompt where Mom appears, you MUST explicitly describe a hidden-face pose. Examples:\n- "Mom's hands gently wrap around the child from behind"\n- "Mom kneels beside the child, her face just above the frame edge"\n- "We see Mom from behind, her arm around the child's shoulder"\n- "Mom's arm reaches in from the left side of the frame"\nNEVER write prompts like "Mom smiles at the child" or "Mom looks at the child lovingly" — these will cause the illustrator to draw her face. Her warmth comes through body language ONLY. Other family members — text only, never illustrated.`;
     }
   } else if (theme === 'fathers_day') {
     if (additionalCoverCharacters) {
@@ -3133,8 +3133,8 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   let familyConstraint = '';
   if (theme === 'mothers_day') {
     familyConstraint = additionalCoverCharacters
-      ? `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
-      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. Show her through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe her facial features. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+      ? `\n\n⚠️ LOVE TO MOM OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+      : `\n\n⚠️ LOVE TO MOM OVERRIDE: Mom is a co-protagonist. She MUST appear in chapter illustrations frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. Show her through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe her facial features. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
   } else if (theme === 'fathers_day') {
     familyConstraint = additionalCoverCharacters
       ? `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist. He MUST appear in chapter illustrations frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
@@ -3796,8 +3796,8 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   let familyConstraint = '';
   if (theme === 'mothers_day') {
     familyConstraint = additionalCoverCharacters
-      ? `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
-      : `\n\n⚠️ MOTHER'S DAY OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. Show her through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe her facial features. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
+      ? `\n\n⚠️ LOVE TO MOM OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+      : `\n\n⚠️ LOVE TO MOM OVERRIDE: Mom is a co-protagonist. She MUST appear in scenes and illustration prompts frequently — but with IMPLIED PRESENCE ONLY (no face). We have NO reference image for Mom. She is FEMALE (a woman). Her face must NEVER be shown in illustrations. Show her through: back view, hands, arms, silhouette, side view with face turned away, or cropped at frame edge. NEVER describe her facial features. Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`;
   } else if (theme === 'fathers_day') {
     familyConstraint = additionalCoverCharacters
       ? `\n\n⚠️ FATHER'S DAY OVERRIDE: Dad is a co-protagonist. He MUST appear in scenes and illustration prompts frequently. Additionally, the uploaded photo contains a secondary person:\n${additionalCoverCharacters}\nOnly Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`

@@ -135,7 +135,7 @@ const ANECDOTE_FIELDS = [
   'other_detail',
   'anything_else',
   'meaningful_moment',
-  // Mother's Day
+  // Love to mom
   'calls_mom',
   'mom_name',
   'moms_favorite_moment',

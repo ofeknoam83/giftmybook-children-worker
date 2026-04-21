@@ -97,7 +97,7 @@ const OBJECT_PROMPTS = {
   pizza:    'a small cheerful whole pizza pie with tomato sauce and cheese, no readable text',
 
   // ── Theme signature items (M1). Kept generic / wordless; match book style. ──
-  // Mother's Day
+  // Love to mom
   mothers_day_card: 'a folded greeting card with a big coral heart on the cover, pastel pink background, handmade feel, NO text',
   bouquet:          'a cheerful bouquet of assorted cartoon flowers (pink, yellow, peach) wrapped in paper',
   family_photo:     'a wooden framed photo-frame (picture side facing camera) showing a simple abstract silhouette of a family, no readable details',

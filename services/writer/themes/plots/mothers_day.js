@@ -1,5 +1,5 @@
 /**
- * Mother's Day plot templates — 12 structurally distinct story arcs.
+ * Love to mom plot templates — 12 structurally distinct story arcs.
  *
  * Each template returns 13 spreads in 4-scene (A/B/C/D) grouping.
  * opts: { child, isYoung, wt, parentName, book, theme }

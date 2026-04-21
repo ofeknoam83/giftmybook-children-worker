@@ -1,5 +1,5 @@
 /**
- * Father's Day ThemeWriter — mirrors Mother's Day structure for dads.
+ * Father's Day ThemeWriter — mirrors Love to mom structure for dads.
  *
  * Based on children's writing craft research:
  * - AABB couplets in iambic tetrameter (ages 2-5), looser rhythm for 0-2

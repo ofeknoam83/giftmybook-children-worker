@@ -1,5 +1,5 @@
 /**
- * Mother's Day ThemeWriter — first Writer V2 implementation.
+ * Love to mom ThemeWriter — first Writer V2 implementation.
  *
  * Based on children's writing craft research:
  * - AABB couplets in iambic tetrameter (ages 2-5), looser rhythm for 0-2
@@ -21,7 +21,7 @@ class MothersDayWriter extends BaseThemeWriter {
   }
 
   /**
-   * Plan the story beats for a Mother's Day book.
+   * Plan the story beats for a Love to mom book.
    * @param {object} child - { name, age, gender, anecdotes, ... }
    * @param {object} book - { theme, format, ... }
    * @param {object} [opts]
@@ -319,7 +319,7 @@ class MothersDayWriter extends BaseThemeWriter {
     const anecdoteText = this._formatAnecdotes(child.anecdotes);
     if (!anecdoteText) return beats;
 
-    const systemPrompt = `You are a children's book story planner specializing in Mother's Day picture books. Your job is to weave specific, real details about this child into the story beats.
+    const systemPrompt = `You are a children's book story planner specializing in Love to mom picture books. Your job is to weave specific, real details about this child into the story beats.
 
 NARRATIVE SHAPE:
 - The beats below are SOFT INSPIRATION, not a rigid scene template. The writer will be told to invent the arc.
@@ -333,7 +333,7 @@ RULES:
 - Use concrete nouns and actions, never abstract claims
 - The anecdotes should feel natural in the story, not forced in`;
 
-    const userPrompt = `Here are the story beats for a ${ageTier} Mother's Day book about ${child.name} (age ${child.age}) and ${parentName}:
+    const userPrompt = `Here are the story beats for a ${ageTier} Love to mom book about ${child.name} (age ${child.age}) and ${parentName}:
 
 ${beats.map(b => `Spread ${b.spread} (${b.beat}): ${b.description}`).join('\n')}
 

@@ -1309,7 +1309,7 @@ describe('planGraphicNovel robustness', () => {
   }, 15000);
 });
 
-// ── Mother's Day theme-specific prompt tests ──
+// ── Love to mom theme-specific prompt tests ──
 describe('buildStoryPlannerSystem — mothers_day theme', () => {
   const { buildStoryPlannerSystem } = require('../../prompts/pictureBook');
 
@@ -1321,7 +1321,7 @@ describe('buildStoryPlannerSystem — mothers_day theme', () => {
 
   test('without additionalCoverCharacters: other family members are still blocked', () => {
     const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'mothers_day');
-    expect(system).toMatch(/siblings.*grandparents.*dad.*must NOT appear in illustrations/i);
+    expect(system).toMatch(/siblings, grandparents, dad\).*never illustrated/is);
   });
 
   test('with additionalCoverCharacters: Mom is still required alongside detected secondary character', () => {
@@ -1363,7 +1363,7 @@ describe('buildStoryPlannerSystem — fathers_day theme', () => {
 
   test('without additionalCoverCharacters: other family members are still blocked', () => {
     const system = buildStoryPlannerSystem({ name: 'Lily', age: 5 }, null, 'fathers_day');
-    expect(system).toMatch(/siblings.*grandparents.*mom.*must NOT appear in illustrations/i);
+    expect(system).toMatch(/siblings, grandparents, mom\).*never illustrated/is);
   });
 
   test('with additionalCoverCharacters: Dad is still required alongside detected secondary character', () => {
@@ -1417,7 +1417,7 @@ describe('generateStoryText (writer system prompt) — mothers_day theme', () =>
     }).catch(() => {});
     const sys = getSystemPrompt();
     if (sys) {
-      expect(sys).toMatch(/MOTHER'S DAY OVERRIDE/i);
+      expect(sys).toMatch(/LOVE TO MOM OVERRIDE/i);
     }
   });
 
@@ -1433,7 +1433,7 @@ describe('generateStoryText (writer system prompt) — mothers_day theme', () =>
     }).catch(() => {});
     const sys = getSystemPrompt();
     if (sys) {
-      expect(sys).toMatch(/MOTHER'S DAY OVERRIDE/i);
+      expect(sys).toMatch(/LOVE TO MOM OVERRIDE/i);
       expect(sys).toMatch(/COVER PHOTO OVERRIDE/i);
       expect(sys).toContain(momDesc);
     }

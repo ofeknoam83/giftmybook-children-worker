@@ -1821,7 +1821,7 @@ function buildStructureBrief(vars) {
   if (theme === 'mothers_day') {
     brief = brief.replace(
       /- NEVER depict family members \(parents, siblings, grandparents\) in any illustration prompt\.[^\n]*/,
-      '- Mom MAY appear in illustration prompts for this Mother\'s Day book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.'
+      '- Mom MAY appear in illustration prompts for this Love to mom book. Describe her warmly and consistently. Other family members (siblings, grandparents, dad) must NOT appear in illustrations.'
     );
   } else if (theme === 'fathers_day') {
     brief = brief.replace(

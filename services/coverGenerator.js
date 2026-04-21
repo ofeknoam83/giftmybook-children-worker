@@ -602,7 +602,7 @@ function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyl
     parts.push(`GENDER (AUTHORITATIVE): ${childName} is a ${genderWord}. ${childGender === 'male' ? 'Depict a boy.' : childGender === 'female' ? 'Depict a girl.' : 'Depict a young child without inventing gendered cues not present in the reference.'}`);
     const momDesc = identity.momDescription || 'a warm, loving woman with a gentle smile';
     const momRefNote = identity.momDescription ? ' Mom must look consistent with the reference photo.' : ' No secondary character was detected in the uploaded photo, so use a warm, generic appearance for Mom.';
-    parts.push(`MOTHER'S DAY COVER: This is a Mother's Day book. The cover MUST show BOTH ${childName} AND Mom together. Mom's appearance: ${momDesc}. Show a warm, loving moment between child and mother — holding hands, hugging, or side by side.${momRefNote}`);
+    parts.push(`LOVE TO MOM COVER: This is a Love to mom book. The cover MUST show BOTH ${childName} AND Mom together. Mom's appearance: ${momDesc}. Show a warm, loving moment between child and mother — holding hands, hugging, or side by side.${momRefNote}`);
   } else {
     parts.push(`GENDER (AUTHORITATIVE): ${childName} is a ${genderWord}. ${childGender === 'male' ? 'Depict a boy.' : childGender === 'female' ? 'Depict a girl.' : 'Depict a young child without inventing gendered cues not present in the reference.'} If the reference image shows multiple people, ONLY depict ${childName} — the main child matching this stated gender. Do NOT include siblings or secondary figures from the reference.`);
   }
