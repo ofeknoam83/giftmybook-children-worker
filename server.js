@@ -2513,6 +2513,46 @@ app.post('/generate-character-face', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /generate-avatar-face ────────────────────────────────────────────────
+// Generate a 1024x1024 cartoon 3D stylized portrait of the child for the
+// R3F avatar's face-plane UV. Used by the 3D game's CharacterAvatar.
+app.post('/generate-avatar-face', authenticate, async (req, res) => {
+  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, childDetails } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  console.log(`[server] /generate-avatar-face: bookId=${bookId}`);
+  try {
+    const { generateAvatarFace } = require('./services/gameCharacter');
+    const result = await generateAvatarFace({
+      bookId, characterRefUrl, childPhotoUrl, coverImageUrl, childDetails,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-avatar-face failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-hero-props ─────────────────────────────────────────────────
+// Generate book-specific 3D hero props via Meshy.ai (text-to-3D). Accepts an
+// array of { id, name, prompt, itemId?, roomId?, interaction? } and returns a
+// manifest of { glbUrl, thumbUrl, interaction } entries the 3D client loads.
+app.post('/generate-hero-props', authenticate, async (req, res) => {
+  const { bookId, props } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!Array.isArray(props) || props.length === 0) {
+    return res.status(400).json({ success: false, error: 'props array is required' });
+  }
+  console.log(`[server] /generate-hero-props: bookId=${bookId}, props=${props.length}`);
+  try {
+    const { generateHeroProps } = require('./services/gameHeroProps');
+    const result = await generateHeroProps({ bookId, props });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-hero-props failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /generate-game-stylesheet ────────────────────────────────────────────
 // Generate one coordinated ~80-item sticker sheet for a book's art style, slice
 // into transparent per-item PNGs on GCS. Replaces per-room object generation.

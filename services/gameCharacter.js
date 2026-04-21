@@ -618,4 +618,81 @@ async function generateCharacterFace({ bookId, characterRefUrl, childPhotoUrl, c
   return { faceUrl, size: DISC_SIZE };
 }
 
-module.exports = { generateGameCharacter, generateCharacterFace, POSES };
+/**
+ * Generate a 1024×1024 stylized cartoon portrait of the child for the 3D
+ * avatar's face-plane UV.
+ *
+ * Unlike `generateCharacterFace` (which chromakeys a photoreal portrait onto
+ * a small disc for the 2D Rive rig), this function asks Gemini to *restyle*
+ * the child as a low-poly / cartoon portrait that matches the 3D world's
+ * toon-shaded aesthetic. The transparent background and square aspect ratio
+ * let us sample it directly as the avatar head diffuse map.
+ *
+ * Input:  { bookId, characterRefUrl | childPhotoUrl | coverImageUrl, childDetails }
+ * Output: { faceUrl, size }  — 1024×1024 transparent PNG on GCS.
+ */
+async function generateAvatarFace({ bookId, characterRefUrl, childPhotoUrl, coverImageUrl, childDetails }) {
+  if (!bookId) throw new Error('bookId is required');
+  const sourceUrl = characterRefUrl || childPhotoUrl || coverImageUrl;
+  if (!sourceUrl) throw new Error('characterRefUrl or childPhotoUrl is required');
+
+  const apiKey = pickApiKey();
+  const refs = await collectRefs({ characterRefUrl, coverImageUrl, childPhotoUrl });
+  if (refs.length === 0) throw new Error('Could not download any reference image');
+
+  const name = childDetails?.name || 'the child';
+  const prompt = [
+    `Generate a SINGLE stylized cartoon-3D portrait of "${name}" from the reference images.`,
+    'The portrait will be mapped onto the face of a low-poly cartoon 3D avatar.',
+    '',
+    'STYLE (critical):',
+    '- Cartoon 3D / Two Point Hospital / Sims-lite aesthetic.',
+    '- Flat shading with a soft gradient, bold dark outline around the silhouette.',
+    '- Big friendly eyes, warm smile, pastel-saturated palette.',
+    '- NOT photoreal — stylized. Identity must still be recognisable (same hair, skin, eye color, proportions).',
+    '',
+    'COMPOSITION (critical):',
+    '- Tight head-and-shoulders crop, face centred in the frame.',
+    '- Square 1:1 aspect ratio.',
+    '- Top of hair ~10% from the top edge; chin at ~65% from the top.',
+    '- Facing the camera head-on; both eyes visible.',
+    '',
+    'BACKGROUND (ABSOLUTELY CRITICAL — we will chromakey this out):',
+    '- Every non-character pixel is pure flat white (#FFFFFF).',
+    '- No gradient, no off-white, no shadow, no rim-light.',
+    '- Crisp character edges with no outer halo.',
+    '',
+    'Output: ONE portrait image only. No text, no watermark, no border, no accessories that cover the face.',
+  ].join('\n');
+
+  let imgBuf;
+  try {
+    imgBuf = await callGeminiGrid({ apiKey, prompt, refs });
+  } catch (err) {
+    throw new Error(`Avatar face generation failed: ${err.message}`);
+  }
+
+  const keyed = await softChromakeyWhiteToTransparent(imgBuf);
+  const trimmed = await trimToAlpha(keyed, 16);
+
+  const SIZE = 1024;
+  const square = await sharp(trimmed)
+    .resize(SIZE, SIZE, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+
+  const faceUrl = await uploadBuffer(
+    square,
+    `game-avatars/${bookId}/face.png`,
+    'image/png'
+  );
+
+  return { faceUrl, size: SIZE };
+}
+
+module.exports = {
+  generateGameCharacter,
+  generateCharacterFace,
+  generateAvatarFace,
+  POSES,
+};
