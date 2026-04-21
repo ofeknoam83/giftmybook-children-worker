@@ -649,73 +649,32 @@ function getThemeBeatStructure(theme, age) {
    - Spread 13: At the window or doorstep, something the friend gave them in hand. The world is full.`;
 
     case 'mothers_day':
-      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this MOTHER'S DAY arc:
-   MOM AS CO-PROTAGONIST RULE: Mom is a NAMED, VISIBLE character in this story. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must be described consistently every time she is in an illustration prompt.
-   EMOTIONAL ARC: This is a love letter from the child to their mother. Every spread should feel warm and deeply personal. The story builds emotional warmth steadily — from a quiet opening to joyful peak to tender close.
-   CELEBRATION RULE: This story is a CELEBRATION — NO villain, NO loss, NO tantrums, NO crying, NO anger, NO bedtime, NO sleeping. However, the story MUST still have forward momentum: anticipation, a small goal, curiosity, or a surprise. The reader must want to turn the page. A story where every spread feels the same is not a celebration — it is a list.
-   NARRATIVE SPINE RULE (CRITICAL): The story MUST follow ONE simple through-line that connects all 13 spreads. Choose ONE of these spines:
-   A) A JOURNEY — child and Mom go somewhere together (a walk to the park, a trip to the market, a bus ride to a special place). Spreads follow the journey from leaving home to arriving.
-   B) A PROJECT — child and Mom make or do something together (bake a cake, plant a garden, build a fort). Spreads follow the project from start to finish.
-   C) A GIFT — child prepares something for Mom (a drawing, a surprise breakfast, a treasure hunt). Spreads follow the preparation and reveal.
-   Every spread must connect to the spine. No standalone vignettes. A 3-year-old should be able to answer "what is this book about?" in one sentence.
-   SCENE PACING: The 13 spreads should contain NO MORE than 3-4 distinct locations or activities. Each location/activity gets 2-4 spreads of development. Single-spread activities create a slideshow, not a story.
-   CREATIVITY RULE: At least 2 spreads must use the child's IMAGINATION — transforming something ordinary into something magical. Include one spread where the child tries to take care of Mom (a reversal). These moments must happen WITHIN the spine, not as detours.
-   TRANSITION RULE: Every spread-to-spread transition must be followable by a 3-year-old. The reader must always know WHERE the characters are and HOW they got there. If the location changes, show the movement.
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. YOU invent the arc — do not follow a fixed Scene A/B/C/D template.
 
-   SCENE A — HOME (Spreads 1-3): Mom is VISIBLE in all.
-   - Spread 1 (THE OPENING): Child and Mom in a specific moment at home — mid-action, not waking up. Establish the warm world AND hint at what the day holds (the spine).
-   - Spread 2 (SETTLING IN): The spine takes shape — the shared activity begins, or preparation for the journey starts. Use favorite_activities from questionnaire. A small moment that reveals their bond.
-   - Spread 3 (SOMETHING SPECIAL): A detail that makes THIS mother-child pair unique — a secret language, an inside joke, a private ritual from the questionnaire. Woven into the ongoing activity, not a standalone scene.
+   MOM AS CO-PROTAGONIST: Mom is a NAMED, VISIBLE character. She MUST appear in the illustration prompts for at least 6 of the 13 spreads. When she appears, describe her presence explicitly (e.g. "Mom kneels beside the child", "Mom's hand rests on the child's shoulder"). Her appearance must stay consistent.
+   EMOTION: A love letter from child to mother — warm, personal, page-turning. Build from quiet → peak joy → tender close, but HOW you get there is open.
+   CELEBRATION: NO villain, NO tragic loss, NO tantrums-as-plot, NO bedtime/sleep ending. Forward momentum every spread (curiosity, anticipation, a small goal, a funny hitch).
+   CREATIVE FREEDOM: Valid spines include — but are not limited to — a journey, a project, a gift prep, a single location that transforms, a community outing, a weather twist, a silly build, a nature discovery. Avoid the generic default "list of ordinary home rooms" unless the parent's questionnaire explicitly centers that. At least ONE beat should feel surprising or specific (not filler).
+   CHILD-CARES-FOR-MOM: At least one beat where the child earnestly tries to take care of Mom (funny or tender), woven into YOUR spine.
+   ANTI-SLIDESHOW: Each beat causes the next — not thirteen disconnected tableaux. A young listener should feel WHY the day moves forward.
+   TRANSITIONS: When locations change, the movement must be followable (not teleporting).
+   ENDING: Spread 13 in daylight or bright warmth — concrete image, celebratory — NOT bedtime, NOT "heading home" as the only closing note unless the spine truly needs it.
 
-   SCENE B — THE ADVENTURE (Spreads 4-7): Mom is VISIBLE in all.
-   - Spread 4 (SETTING OFF / DEEPENING): If journey spine: they leave home — show the transition. If project/gift spine: the activity deepens, something unexpected happens. Anticipation builds.
-   - Spread 5 (IMAGINATION): Child transforms something ordinary into something magical — Mom plays along. This must connect to the spine (e.g. a puddle on the walk becomes an ocean, the cake batter becomes a potion).
-   - Spread 6 (THE REVERSAL): Child tries to take care of Mom — earnest, funny, tender. Within the context of the spine (e.g. child "helps" navigate, child stirs the batter, child carries Mom's bag).
-   - Spread 7 (MOM NOTICES): Mom sees something specific and wonderful about the child. The noticing IS the love. A quiet beat before the peak — the story breathes here.
-
-   SCENE C — THE PEAK (Spreads 8-11): Mom is VISIBLE in at least 3.
-   - Spread 8 (ARRIVING / COMPLETING): The journey reaches its destination, OR the project nears completion. The world opens up.
-   - Spread 9 (PEAK JOY): The best moment of the day — physical, joyful, specific. Spinning, running, laughing, the thing they came here to do. Maximum energy.
-   - Spread 10 (THE GIFT): Child gives Mom something imperfect and precious — a dandelion, a lopsided drawing, a found pebble. The gesture is small but it lands. Can happen at the destination or as part of the project.
-   - Spread 11 (TOGETHER): Side by side, savoring the moment. Happy, vivid, warm. The emotional high point — not louder than spread 9, but deeper.
-
-   SCENE D — THE CLOSE (Spreads 12-13): Mom is VISIBLE in both.
-   - Spread 12 (HEADING HOME / WINDING DOWN): The journey home, or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime.
-   - Spread 13 (THE LAST LINE): One perfect closing image — warm, bright, celebratory. End in DAYLIGHT with togetherness. Concrete and specific, not abstract. A parent should want to read it twice.`;
+   Each beat = one line naming WHERE (specific) and WHAT (action), tied to the narrative_spine you wrote above.`;
 
     case 'fathers_day':
-      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this FATHER'S DAY arc:
-   DAD AS CO-PROTAGONIST RULE: Dad is a NAMED, VISIBLE character in this story. He MUST appear in the illustration prompts for at least 6 of the 13 spreads. When he appears, describe his presence explicitly (e.g. "Dad lifts the child onto his shoulders", "Dad's hand steadies the child"). His appearance must be described consistently every time he is in an illustration prompt.
-   EMOTIONAL ARC: This is a love letter from the child to their father. Every spread should feel warm, adventurous, and deeply personal. The story builds emotional warmth steadily — from a quiet opening to adventurous peak to heartfelt close.
-   CELEBRATION RULE: This story is a CELEBRATION — NO villain, NO loss, NO tantrums, NO crying, NO anger, NO bedtime. However, the story MUST still have forward momentum: anticipation, a small goal, curiosity, or excitement about what comes next. The reader must want to turn the page.
-   NARRATIVE SPINE RULE (CRITICAL): The story MUST follow ONE simple through-line that connects all 13 spreads. Choose ONE of these spines:
-   A) AN ADVENTURE — child and Dad go somewhere together (a hike, a fishing trip, the workshop, the ball field). Spreads follow the outing from start to finish.
-   B) A PROJECT — child and Dad build or make something together (a treehouse, a go-kart, a meal, a garden bed). Spreads follow the project from start to finish.
-   C) A CHALLENGE — child and Dad tackle something together (learn to ride a bike, fix something broken, explore a new place). Spreads follow the attempt from start to finish.
-   Every spread must connect to the spine. No standalone vignettes. A 3-year-old should be able to answer "what is this book about?" in one sentence.
-   SCENE PACING: The 13 spreads should contain NO MORE than 3-4 distinct locations or activities. Each location/activity gets 2-4 spreads of development. Single-spread activities create a slideshow, not a story.
-   TRANSITION RULE: Every spread-to-spread transition must be followable by a 3-year-old. The reader must always know WHERE the characters are and HOW they got there.
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. YOU invent the arc — do not follow a fixed Scene A/B/C/D template.
 
-   SCENE A — HOME / LAUNCH (Spreads 1-3): Dad is VISIBLE in all.
-   - Spread 1 (THE OPENING): Child and Dad in a specific moment — mid-action, not waking up. Establish the bond AND hint at what the day holds (the spine).
-   - Spread 2 (GETTING READY): The spine takes shape — preparing for the adventure or starting the project. Use favorite_activities from questionnaire. A moment that shows how they work together.
-   - Spread 3 (SOMETHING ONLY THEY DO): A detail that makes THIS father-child pair unique — a funny ritual, a shared joke, Dad's signature move from the questionnaire. Woven into the ongoing activity, not a standalone scene.
+   DAD AS CO-PROTAGONIST: Dad is a NAMED, VISIBLE character. He MUST appear in the illustration prompts for at least 6 of the 13 spreads. When he appears, describe his presence explicitly (e.g. "Dad lifts the child onto his shoulders", "Dad's hand steadies the child"). His appearance must stay consistent.
+   EMOTION: A love letter from child to father — warm, lively, page-turning. Build adventure/playfulness and heart; the SHAPE of the day is yours.
+   CELEBRATION: NO villain, NO tragic loss, NO tantrums-as-plot, NO bedtime/sleep ending. Forward momentum every spread.
+   CREATIVE FREEDOM: Valid spines include — but are not limited to — an outing, a workshop project, a sport or skill moment, a fix-it job, a silly competition, a nature challenge, a parade or fair, one epic backyard build. Avoid a generic "list of rooms" day unless the questionnaire demands it. At least ONE beat should feel fresh and specific.
+   ROLE REVERSAL: At least one beat where the child leads, teaches, or surprises Dad (earned, funny, or proud).
+   ANTI-SLIDESHOW: Each beat causes the next — coherent through-line, not random vignettes.
+   TRANSITIONS: When locations change, followable cause-and-effect.
+   ENDING: Spread 13 — triumphant or deeply warm concrete image. NOT bedtime. NOT "heading home" as default filler unless the spine requires it.
 
-   SCENE B — THE ADVENTURE (Spreads 4-7): Dad is VISIBLE in all.
-   - Spread 4 (SETTING OFF / DEEPENING): If adventure spine: they head out — show the transition and anticipation. If project spine: things get interesting, a new challenge within the task.
-   - Spread 5 (DAD'S SUPERPOWER): Something Dad does that amazes the child — a skill, a trick, a moment of strength or gentleness. Use other_detail or funny_thing. Connected to the spine.
-   - Spread 6 (LAUGHTER): A funny or playful moment within the adventure/project. Physical comedy, a shared joke, something goes slightly sideways in a fun way. Dad is VISIBLE.
-   - Spread 7 (SIDE BY SIDE): A quieter beat — working together, watching something, a moment of focus. The story breathes here before the peak. Dad is VISIBLE.
-
-   SCENE C — THE PEAK (Spreads 8-11): Dad is VISIBLE in at least 3.
-   - Spread 8 (THE BIG MOMENT): The adventure reaches its destination, OR the project nears completion. Use meaningful_moment from questionnaire.
-   - Spread 9 (PEAK JOY): The best moment — triumphant, exciting, the payoff. Maximum energy. Incorporate favorite food, toys, or activities from questionnaire.
-   - Spread 10 (THE CHILD LEADS): The child does something that surprises or impresses Dad — shows what they have learned, takes a turn, steps up. A role reversal.
-   - Spread 11 (PROUD): Dad and child share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper than spread 9, not louder.
-
-   SCENE D — THE CLOSE (Spreads 12-13): Dad is VISIBLE in both.
-   - Spread 12 (HEADING HOME / FINISHING UP): The journey home, or the completed project admired. One warm transitional beat. NOT sleepy, NOT bedtime.
-   - Spread 13 (THE LAST LINE): One perfect closing image of father-child love. Concrete and specific, not abstract. The most beautiful sentence. Dad is VISIBLE.`;
+   Each beat = one line naming WHERE (specific) and WHAT (action), tied to the narrative_spine you wrote above.`;
 
     case 'birthday_magic':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this BIRTHDAY MAGIC arc:
@@ -737,16 +696,11 @@ function getThemeBeatStructure(theme, age) {
    - Spread 13 (THE LAST LINE): One perfect closing image of birthday magic. The most beautiful sentence. The child's eyes are bright, the cake still glowing, the world still humming with celebration.`;
 
     default: // adventure, bedtime
-      return `8. beats: An array of exactly 13 one-line descriptions — one per spread — mapping the emotional journey. Each beat must name the SPECIFIC LOCATION and the ACTION that happens there. Follow this structure:
-   QUEST RULE: This is an adventure story. The child's specific goal MUST be named in spread 1 — concrete, visual, and achievable. "Go on an adventure" is not a quest. A quest has a specific target: an object to find, a place to reach, a creature to help, a mystery to solve. The entire story builds toward this goal. Spread 13 resolves it with success.
-   - Spread 1: THE QUEST IS NAMED — state the specific mission the child is setting out to do, find, or reach. It must be concrete and named (e.g. "find the lost color", "reach the top of Ember Hill", "return the golden acorn to the ancient tree"). The child sets off with clear intention. Do NOT start with "waking up" — start with the quest already beginning.
-   - Spread 2: First steps into the adventure — the world opens up, first wonder or obstacle.
-   - Spreads 3-5: Rising action (new locations, each with its own obstacle)
-   - Spread 6: THE HINGE — child is stuck, blocked, or almost fails (this is the most important beat — make it specific and tense)
-   - Spreads 7-9: Breakthrough (child uses the favorite object or courage to overcome the hinge obstacle, victory builds)
-   - Spreads 10-11: Resolution (final challenge solved, journey home begins)
-   - Spread 12: Homecoming — one quiet settling line (child arrives home, changed)
-   - Spread 13: MISSION COMPLETE — the child has achieved exactly what they set out to do. The final image is triumphant stillness — they did it. The world is bigger because the quest succeeded. NOT rest, NOT sleep, NOT bedroom.`;
+      return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Invent a tight, original arc — not a mandatory "home → journey → hinge → home" template.
+
+   QUEST RULE: Name a concrete goal early (spread 1): something to find, reach, help, or solve. "Go on an adventure" is not enough — the goal must be visual and specific. The story builds toward resolving that goal; spread 13 lands the success in a vivid final image (NOT sleep/bedroom as default).
+   PACING: Rising tension through the middle (include a real hinge — spread 5-8 — where success feels unsure), then breakthrough and resolution. Locations and obstacles are YOUR choices as long as causality is clear beat-to-beat.
+   Each beat: specific WHERE + specific ACTION. Avoid formulaic "heading home" as the only climax unless the story truly earns it.`;
   }
 }
 
@@ -768,16 +722,20 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
 
   const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (${spreadCount} spreads).
 
-NARRATIVE STRUCTURE (READ THIS FIRST — it overrides all other instructions):
-- The story MUST follow ONE simple through-line: a journey, a project, or a gift. This is the "spine."
-- The ${spreadCount} beats must contain NO MORE than 3-4 distinct locations or activities.
-- Each location/activity spans 2-4 consecutive beats. Single-beat activities are FORBIDDEN.
-- Beats must be grouped into SCENES (e.g. Scene A: home, Scene B: the walk, Scene C: the park, Scene D: heading home) — NOT ${spreadCount} standalone vignettes.
-- If your beats read like a list of unrelated activities (reading, then eating, then drawing, then riding a bus, then jumping in puddles), STOP and restructure around the spine.
-- A 3-year-old listener must be able to follow every transition. The reader should always know WHERE the characters are.
-- Test: can you describe this story in one sentence? ("They walk to the park together." / "She bakes Dad a surprise cake.") If not, the spine is missing.
+CREATIVITY FIRST (this step is generative — not a template):
+- Surprise yourself. Reject the first idea if it smells like a default: for parent holidays, that often means "ordinary day at home → rooms → cuddles → tiny gift anxiety." Only use that shape if the parent's questionnaire clearly centers home routines.
+- You must still deliver ONE clear through-line from spread 1 to ${spreadCount} — but the SHAPE is yours: one location that transforms, a multi-stop day, a project, a discovery, a community event, a playful mission, a silly build, an outdoor adventure, a quiet ritual, anything coherent and specific to THIS child.
+- Consecutive beats should cause-and-effect into each other (a young listener can follow WHY the day moves forward). That does NOT require exactly 3–4 locations, a Scene A/B/C/D pattern, or a "heading home" beat.
+- Single-location and multi-location stories are both valid. Avoid ${spreadCount} unrelated vignettes with no causal chain — that is the only structural failure mode.
 
-You will receive details about a child and a THEME. The theme is NOT optional context — it is the structural backbone of the story. Every field you return must serve the theme.
+FIELD DISTINCTNESS (avoid repeating the same idea in every string):
+- favorite_object: a concrete prop or companion — not a paragraph that restates the whole plot.
+- fear: internal worry or emotional friction for this story — NOT a plot summary, NOT a second copy of storySeed.
+- setting: WHERE / atmosphere in one vivid sentence — not a list of every room or every beat.
+- storySeed: the inner emotional journey in ONE sentence.
+- narrative_spine: the external what-happens plot in ONE sentence (concrete actions). May but need not follow "[Name] and [parent] …" — any clear logline is fine.
+
+You will receive details about a child and a THEME. The theme is NOT optional context — it is the backbone of the celebration or adventure. Every field you return must serve the theme.
 
 THEME: ${theme || 'adventure'}
 
@@ -789,9 +747,9 @@ Return a JSON object with these fields:
 
 3. setting: A vivid, specific world matching the theme. One sentence describing the overall world (e.g. "a glittering undersea kingdom beneath the bay at the end of their street"). The beats will name the specific locations within it.
 
-4. storySeed: One sentence describing the unique emotional journey. Must reflect the theme's arc.
+4. storySeed: One sentence — the unique emotional journey (inner arc). Must reflect the theme. Do not paste the same wording as narrative_spine.
 
-5. narrative_spine: One sentence describing the SINGLE through-line of the story. This is the answer to "what is this book about?" Format: "[Child] and [person] [do one thing]." Examples: "Logan and Mama walk to the park together", "Gianna bakes Mama a surprise cake", "Liam and Dad build a birdhouse in the backyard." The spine must be concrete and specific — not "they have a nice day" or "they share love." Every beat must connect to this spine.
+5. narrative_spine: One sentence — the external plot thread (what happens). Answer "what is this book about?" with concrete actions. Examples: "Logan and Mama walk to the park together", "Gianna bakes Mama a surprise cake", "They turn a thunderstorm into a living-room fort day." Every beat must connect to this spine.
 
 6. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
 
@@ -814,8 +772,8 @@ ${beatStructure}
 
 STORY ARC RULE:
 - Build the story DIRECTLY from the user's questionnaire answers. Every spread should reference specific details the parent provided.
-- Do NOT invent abstract conflicts, metaphorical bridges, missing-item quests, or mysterious challenges unless they come from the user's input.
-- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION — no villain, no doubt, no loss. But remember: the NARRATIVE STRUCTURE rules above still apply. The narrative_spine field must drive every beat.
+- Prefer concrete, human-scale stakes from those details over generic "magical quest" filler — but you MAY invent specific scenes, props, and surprises that fit the theme and age; originality is encouraged.
+- For occasion themes (Mother's Day, Father's Day, Birthday): the story is a CELEBRATION — no villain, no tragic loss, no cruel doubt. Small real feelings (nervousness, anticipation, a comedic mishap) are fine. The narrative_spine field must drive every beat.
 
 MANDATORY PERSONALIZATION:
 If the customer provided specific details (a real person, a specific place, a family quirk, a pet's name, a real fear), these MUST appear concretely in the beats. Do not treat them as optional flavor. Weave them into the specific locations and actions.
@@ -929,7 +887,7 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   const response = await callLLM(systemPrompt, userPrompt, {
     openaiApiKey: openaiKey,
     maxTokens: 1500,
-    temperature: 0.9,
+    temperature: 1,
     jsonMode: true,
     costTracker,
   });
@@ -1022,8 +980,7 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
       if (i.reason === 'too_generic') return `- setting: "${seed.setting}" is too vague. Make the setting vivid and specific — one sentence with color, texture, or atmosphere.`;
       if (i.reason === 'default_fear_for_non_bedtime') return `- fear: "the dark" is the default fear. Choose a fear that fits the ${theme} theme specifically.`;
       if (i.reason === 'wrong_length') return `- repeated_phrase: "${seed.repeated_phrase}" is the wrong length (must be 2-8 words).`;
-      if (i.reason === 'missing_spine') return `- narrative_spine: Missing or too vague. Provide a concrete one-sentence spine in the format "[Child] and [person] [do one thing]." Example: "Logan and Mama walk to the park together."`;
-      if (i.reason === 'too_many_scenes') return `- beats: The beats describe too many unrelated scenes (${i.detail || 'too many scene breaks'}). Restructure ALL beats around the narrative_spine. Group beats into 3-4 connected scenes (e.g. Scene A: home, Scene B: walking, Scene C: at the park, Scene D: heading home). Consecutive beats should share the same location or activity. Do NOT write 13 different standalone activities.`;
+      if (i.reason === 'missing_spine') return `- narrative_spine: Missing or too vague. Provide one concrete sentence — the external plot (what happens). Example: "Logan and Mama walk to the park together" OR "They build a cardboard city while the storm rages outside."`;
       return `- ${i.field}: ${i.reason}`;
     });
 
@@ -1051,11 +1008,6 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
       }
       if (retrySeed && retrySeed.favorite_object) {
         const flaggedFields = new Set(seedValidation.issues.map(i => i.field).filter(Boolean));
-        // When beats have too many scenes, ensure both beats and spine are replaced
-        if (seedValidation.issues.some(i => i.reason === 'too_many_scenes')) {
-          flaggedFields.add('beats');
-          flaggedFields.add('narrative_spine');
-        }
         const mergedRetrySeed = { ...seed };
         for (const field of flaggedFields) {
           if (Object.prototype.hasOwnProperty.call(retrySeed, field)) {
@@ -1159,53 +1111,8 @@ function validateSeedQuality(seed, theme, age) {
     issues.push({ field: 'narrative_spine', reason: 'missing_spine' });
   }
 
-  // Narrative coherence: detect slideshow beats (too many unrelated scenes)
-  const SPINE_THEMES = new Set(['mothers_day', 'fathers_day', 'birthday_magic', 'birthday']);
-  if (SPINE_THEMES.has(theme) && Array.isArray(seed.beats) && seed.beats.length >= 8) {
-    const STOPWORDS = new Set([
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-      'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
-      'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-      'should', 'may', 'might', 'must', 'shall', 'can', 'this', 'that',
-      'these', 'those', 'it', 'its', 'they', 'them', 'their', 'he', 'she',
-      'his', 'her', 'we', 'our', 'you', 'your', 'i', 'me', 'my', 'not',
-      'no', 'so', 'up', 'out', 'if', 'then', 'than', 'too', 'very', 'just',
-      'about', 'into', 'over', 'after', 'before', 'between', 'through',
-      'during', 'each', 'all', 'both', 'some', 'as', 'while', 'where',
-      'when', 'how', 'what', 'who', 'which', 'there', 'here', 'also',
-      'more', 'most', 'other', 'only', 'still', 'now', 'even',
-      'mom', 'mama', 'mommy', 'dad', 'daddy', 'child', 'visible',
-    ]);
-
-    const extractKeywords = (text) => {
-      if (typeof text !== 'string') return new Set();
-      return new Set(
-        text.toLowerCase()
-          .replace(/[^a-z\s]/g, ' ')
-          .split(/\s+/)
-          .filter(w => w.length > 2 && !STOPWORDS.has(w))
-      );
-    };
-
-    let sceneBreaks = 0;
-    for (let i = 1; i < seed.beats.length; i++) {
-      const prevKeywords = extractKeywords(seed.beats[i - 1]);
-      const currKeywords = extractKeywords(seed.beats[i]);
-      let shared = 0;
-      for (const word of currKeywords) {
-        if (prevKeywords.has(word)) { shared++; break; }
-      }
-      if (shared === 0) sceneBreaks++;
-    }
-
-    if (sceneBreaks > 4) {
-      issues.push({
-        field: 'beats',
-        reason: 'too_many_scenes',
-        detail: `${sceneBreaks} scene breaks detected across ${seed.beats.length} beats (max 4). Beats should share locations/activities with their neighbors.`,
-      });
-    }
-  }
+  // (Intentionally no "too_many_scenes" check here — crude keyword overlap was
+  // forcing retries into a 3–4-location template and stifling brainstorm creativity.)
 
   return { valid: issues.length === 0, issues };
 }
