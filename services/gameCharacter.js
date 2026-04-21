@@ -535,4 +535,87 @@ async function sendTurn(session, userParts) {
   return Buffer.from(b64, 'base64');
 }
 
-module.exports = { generateGameCharacter, POSES };
+/**
+ * Generate a tight circular face-disc crop of the child reference, with the
+ * background chromakeyed out. Used by the Rive rig as a face overlay so the
+ * AI-generated identity rides on top of the vector body.
+ *
+ * Input:
+ *   - characterRefUrl OR childPhotoUrl (we prefer characterRefUrl — it's
+ *     already stylised to match the book).
+ *   - bookId (for GCS path).
+ *
+ * Output:
+ *   - { faceUrl, size }  — 256×256 transparent PNG on GCS.
+ */
+async function generateCharacterFace({ bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails }) {
+  if (!bookId) throw new Error('bookId is required');
+  const sourceUrl = characterRefUrl || childPhotoUrl || coverImageUrl;
+  if (!sourceUrl) throw new Error('characterRefUrl or childPhotoUrl is required');
+
+  const apiKey = pickApiKey();
+  const refs = await collectRefs({ characterRefUrl, coverImageUrl, childPhotoUrl });
+  if (refs.length === 0) throw new Error('Could not download any reference image');
+
+  const name = childDetails?.name || 'the child';
+  const facePrompt = [
+    `Generate a SINGLE head-and-shoulders portrait of the same character "${name}" from the reference images.`,
+    'Same identity (face, skin tone, eyes, hair, expression) — match exactly.',
+    '',
+    'COMPOSITION (critical):',
+    '- Tight head-and-shoulders crop, face centred in the frame.',
+    '- The top of the hair is ~10% from the top edge.',
+    '- The chin is ~60% from the top (so the whole face fits a face disc).',
+    '- Character facing the camera, soft warm smile, both eyes visible.',
+    '',
+    'BACKGROUND (ABSOLUTELY CRITICAL — we will chromakey this out):',
+    '- Every non-character pixel is pure flat white (#FFFFFF).',
+    '- No gradient, no off-white, no shadow, no rim-light.',
+    '- Crisp character edges with no outer halo.',
+    '',
+    `Style: ${style || 'pixar_premium'}, same illustrated style as the references.`,
+    'Output: ONE portrait image only. No text, no watermark, no border.',
+  ].join('\n');
+
+  let imgBuf;
+  try {
+    imgBuf = await callGeminiGrid({ apiKey, prompt: facePrompt, refs });
+  } catch (err) {
+    throw new Error(`Face portrait generation failed: ${err.message}`);
+  }
+
+  const keyed = await softChromakeyWhiteToTransparent(imgBuf);
+  const trimmed = await trimToAlpha(keyed, 12);
+
+  const DISC_SIZE = 256;
+  const metadata = await sharp(trimmed).metadata();
+  const srcW = metadata.width || DISC_SIZE;
+  const srcH = metadata.height || DISC_SIZE;
+  const side = Math.min(srcW, srcH);
+  const left = Math.max(0, Math.floor((srcW - side) / 2));
+  const top = Math.max(0, Math.floor((srcH - side) / 3));
+  const square = await sharp(trimmed)
+    .extract({ left, top, width: Math.min(side, srcW - left), height: Math.min(side, srcH - top) })
+    .resize(DISC_SIZE, DISC_SIZE, { fit: 'cover' })
+    .toBuffer();
+
+  const discMask = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${DISC_SIZE}" height="${DISC_SIZE}">` +
+      `<circle cx="${DISC_SIZE / 2}" cy="${DISC_SIZE / 2}" r="${DISC_SIZE / 2 - 2}" fill="#fff"/>` +
+    `</svg>`
+  );
+  const discPng = await sharp(square)
+    .composite([{ input: discMask, blend: 'dest-in' }])
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+
+  const faceUrl = await uploadBuffer(
+    discPng,
+    `game-characters/${bookId}/face-disc.png`,
+    'image/png'
+  );
+
+  return { faceUrl, size: DISC_SIZE };
+}
+
+module.exports = { generateGameCharacter, generateCharacterFace, POSES };

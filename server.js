@@ -2459,6 +2459,47 @@ app.post('/generate-game-character', authenticate, async (req, res) => {
   }
 });
 
+// ── POST /generate-character-face ─────────────────────────────────────────────
+// Crop the child's stylised reference to a circular 256×256 face disc that the
+// Rive rig uses as a facial overlay (vector body + AI identity face).
+app.post('/generate-character-face', authenticate, async (req, res) => {
+  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  console.log(`[server] /generate-character-face: bookId=${bookId}`);
+  try {
+    const { generateCharacterFace } = require('./services/gameCharacter');
+    const result = await generateCharacterFace({
+      bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-character-face failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-game-stylesheet ────────────────────────────────────────────
+// Generate one coordinated ~80-item sticker sheet for a book's art style, slice
+// into transparent per-item PNGs on GCS. Replaces per-room object generation.
+app.post('/generate-game-stylesheet', authenticate, async (req, res) => {
+  const { bookId, coverImageUrl, characterRefUrl, items, style } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ success: false, error: 'items array is required' });
+  }
+  console.log(`[server] /generate-game-stylesheet: bookId=${bookId}, items=${items.length}`);
+  try {
+    const { generateGameStylesheet } = require('./services/gameObjects');
+    const result = await generateGameStylesheet({
+      bookId, coverImageUrl, characterRefUrl, items, style,
+    });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-game-stylesheet failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /generate-game-npcs ──────────────────────────────────────────────────
 // Generate AI-styled NPC sprites (mom / dad / cat) in the book's art style
 // so they don't visually clash with the injected child character.
