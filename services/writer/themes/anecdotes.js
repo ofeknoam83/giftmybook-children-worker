@@ -91,8 +91,37 @@ function buildPersonalizationChecklist(child, book, plan) {
   return items;
 }
 
+/**
+ * Build the FAVORITE OBJECT LOCK block for a writer prompt.
+ *
+ * When the upstream brainstorm identified a specific companion object (a
+ * stuffed animal, a toy, a comfort item), we require the writer to carry
+ * it through the book as a recurring visual. The V2 writer previously
+ * discarded the seed's "small floppy blue bunny" and silently replaced
+ * it with a different animal — this block makes the object non-negotiable.
+ *
+ * Returns '' if no favorite_object is set.
+ *
+ * @param {object} plan
+ * @returns {string}
+ */
+function buildFavoriteObjectLock(plan) {
+  const seed = plan && plan.storySeed ? plan.storySeed : null;
+  const fav = seed && typeof seed.favorite_object === 'string' ? seed.favorite_object.trim() : '';
+  if (!fav) return '';
+  return [
+    '## FAVORITE OBJECT LOCK (NON-NEGOTIABLE)',
+    '',
+    `The child's story companion is: "${fav}".`,
+    `This specific object MUST appear by name in at least TWO spreads as the child's companion.`,
+    `Do NOT substitute a different toy, animal, or comfort item. If the brainstorm names "a small floppy blue bunny", the child brings the blue bunny — not a duck, not bears, not a generic stuffed animal.`,
+    `Use the object's specific descriptors (color, texture, size) when describing it so the illustrator can render the same object across spreads.`,
+  ].join('\n');
+}
+
 module.exports = {
   ANECDOTE_FIELDS,
   formatAnecdotes,
   buildPersonalizationChecklist,
+  buildFavoriteObjectLock,
 };

@@ -30,12 +30,16 @@ class QualityGate {
    * @param {object} story - { spreads: [{ spread, text }], _model, _ageTier }
    * @param {object} child - { name, age, gender, ... }
    * @param {object} book - { theme, ... }
-   * @param {object} [opts] - { plan } — the writer's plan, used for manifest + beat locations
+   * @param {object} [opts] - { plan, missingCritical } — the writer's plan (used for
+   *   manifest + beat locations) plus any anecdotes the external custom-details check
+   *   flagged as missing; these are appended to the feedback so the revision loop can
+   *   address them alongside the gate's own findings.
    * @returns {{ pass: boolean, overallScore: number, scores: object, feedback: string }}
    */
   static async check(story, child, book, opts = {}) {
     const spreads = story.spreads || [];
     const plan = opts.plan || null;
+    const missingCritical = Array.isArray(opts.missingCritical) ? opts.missingCritical : [];
     const scores = {};
     const meta = {}; // extra context for feedback builder
 
@@ -90,12 +94,65 @@ class QualityGate {
     const overallScore = scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length;
     const minScore = Math.min(...scoreValues);
 
-    const pass = overallScore >= WRITER_CONFIG.qualityThresholds.passScore
+    // Funny-thing hard rule: if the questionnaire provided a `funny_thing`
+    // and the anecdote scorer says it did not land, force a fail regardless
+    // of the weighted overall score. This is called out in product review
+    // as non-negotiable for personalization.
+    const funnyThingMiss = QualityGate._funnyThingMissed(child, meta.anecdoteUsage);
+
+    // Custom-details (external check) miss — same story: if a caller
+    // already detected that a critical anecdote did not reach the prose,
+    // we refuse to pass so the revision loop runs at least once more.
+    const hasMissingCritical = missingCritical.length > 0;
+
+    // Critical-dimension floors: some dimensions (anecdoteUsage, pronouns,
+    // wordCount, endingAppropriateness) are so important that a low score
+    // alone must trigger a revision, even if the weighted overall average
+    // is high. Collect every failure so the revision feedback can be
+    // specific about which dimensions need the most work.
+    const critThresholds = WRITER_CONFIG.qualityThresholds.criticalDimensions || {};
+    const criticalFailures = [];
+    for (const [dim, floor] of Object.entries(critThresholds)) {
+      const v = scores[dim];
+      if (typeof v === 'number' && v < floor) {
+        criticalFailures.push({ dimension: dim, score: v, floor });
+      }
+    }
+
+    const pass = !funnyThingMiss
+              && !hasMissingCritical
+              && criticalFailures.length === 0
+              && overallScore >= WRITER_CONFIG.qualityThresholds.passScore
               && minScore >= WRITER_CONFIG.qualityThresholds.minDimensionScore;
 
-    const feedback = pass ? '' : QualityGate._buildFeedback(scores, spreads, meta);
+    const feedback = pass ? '' : QualityGate._buildFeedback(scores, spreads, meta, {
+      funnyThingMiss,
+      missingCritical,
+      criticalFailures,
+      overallScore,
+      child,
+    });
 
     return { pass, overallScore: Math.round(overallScore * 10) / 10, scores, feedback };
+  }
+
+  /**
+   * Return the questionnaire value of `funny_thing` when it exists but
+   * did not land in the story (per `meta.anecdoteUsage.requiredItems`).
+   * Falls back to scanning the story text for the anecdote's keywords if
+   * the scorer's manifest path hid the result.
+   */
+  static _funnyThingMissed(child, anecdoteUsage) {
+    const funnyVal = child?.anecdotes?.funny_thing;
+    if (!funnyVal || typeof funnyVal !== 'string' || !funnyVal.trim()) return null;
+    if (!anecdoteUsage || !Array.isArray(anecdoteUsage.requiredItems)) return null;
+    const match = anecdoteUsage.requiredItems.find(x => {
+      if (x.kind === 'anecdote' && x.key === 'funny_thing') return true;
+      if (x.kind === 'manifest' && x.key === 'funny_thing') return true;
+      return false;
+    });
+    if (!match) return funnyVal.trim(); // not even scored → treat as missed
+    return match.landed ? null : funnyVal.trim();
   }
 
   /**
@@ -198,6 +255,21 @@ class QualityGate {
     const manifest = plan && Array.isArray(plan.manifest) ? plan.manifest : null;
     const combinedText = spreads.map(s => (s.text || '')).join(' \n ').toLowerCase();
 
+    // The child's own name — and the parent's common labels — appear in
+    // almost every spread of every book. If those tokens are allowed to
+    // count as "anecdote keywords" they'll incidentally satisfy any
+    // anecdote that happens to include the child's/parent's name (e.g. the
+    // canned "Mason sprawls out and farts on her" scores as landed because
+    // "mason" matches somewhere). We drop them up front.
+    const excludeTokens = new Set();
+    const childName = (child?.name || '').toLowerCase().trim();
+    if (childName && childName.length >= 3) excludeTokens.add(childName);
+    const momCalls = (child?.anecdotes?.calls_mom || '').toLowerCase().trim();
+    const dadCalls = (child?.anecdotes?.calls_dad || '').toLowerCase().trim();
+    for (const t of [momCalls, dadCalls, 'mama', 'mommy', 'mom', 'mum', 'mommy', 'daddy', 'dad', 'papa']) {
+      if (t && t.length >= 3) excludeTokens.add(t);
+    }
+
     let requiredItems = [];
     let hits = [];
     let misses = [];
@@ -206,23 +278,42 @@ class QualityGate {
       for (const m of manifest) {
         const value = String(m.anecdote_value || '').trim();
         if (!value) continue;
-        const keywords = QualityGate._extractKeywords(value);
+        const keywords = QualityGate._extractKeywords(value, excludeTokens);
         if (keywords.length === 0) continue;
-        const landed = keywords.some(k => combinedText.includes(k));
-        requiredItems.push({ kind: 'manifest', spread: m.spread, value, landed, keywords });
+        const landed = QualityGate._majorityLanded(keywords, combinedText);
+        requiredItems.push({ kind: 'manifest', spread: m.spread, key: m.anecdote_key, value, landed, keywords });
         if (landed) hits.push(`spread ${m.spread}: "${value}"`);
         else misses.push(`spread ${m.spread}: "${value}"`);
       }
     } else {
       // Fall back to anecdotes directly
       const a = child?.anecdotes || {};
-      const anecFields = ['favorite_activities', 'funny_thing', 'meaningful_moment', 'moms_favorite_moment', 'favorite_food', 'favorite_cake_flavor', 'favorite_toys', 'other_detail', 'anything_else'];
+      // Full list kept in sync with services/writer/themes/anecdotes.js
+      // ANECDOTE_FIELDS. Explicitly includes mom_name/dad_name/calls_mom/
+      // calls_dad — these used to be silently excluded so the gate would
+      // score 10/10 even when the parent's real name ("Alexis") never
+      // appeared in the book.
+      const anecFields = [
+        'favorite_activities', 'funny_thing', 'meaningful_moment',
+        'moms_favorite_moment', 'dads_favorite_moment',
+        'favorite_food', 'favorite_cake_flavor', 'favorite_toys',
+        'mom_name', 'dad_name', 'calls_mom', 'calls_dad',
+        'other_detail', 'anything_else',
+      ];
       for (const key of anecFields) {
         const val = a[key];
         if (!val || typeof val !== 'string' || !val.trim()) continue;
-        const keywords = QualityGate._extractKeywords(val);
+        // For *name* fields, the value IS the keyword (Alexis → alexis).
+        // Bypass the exclude-list for those — otherwise "calls_mom=Mama"
+        // would immediately get dropped and the field would always score
+        // neutral. The parent-label exclude-list only protects anecdote
+        // VALUES that happen to contain "mama".
+        const isNameField = key === 'mom_name' || key === 'dad_name' || key === 'calls_mom' || key === 'calls_dad';
+        const keywords = isNameField
+          ? QualityGate._extractKeywords(val, new Set())
+          : QualityGate._extractKeywords(val, excludeTokens);
         if (keywords.length === 0) continue;
-        const landed = keywords.some(k => combinedText.includes(k));
+        const landed = QualityGate._majorityLanded(keywords, combinedText);
         requiredItems.push({ kind: 'anecdote', key, value: val, landed, keywords });
         if (landed) hits.push(`${key}: "${val}"`);
         else misses.push(`${key}: "${val}"`);
@@ -247,8 +338,27 @@ class QualityGate {
       hits,
       misses,
       total: requiredItems.length,
+      requiredItems,
       source: manifest ? 'manifest' : 'anecdotes',
     };
+  }
+
+  /**
+   * A keyword list "lands" when a majority of its tokens appear as
+   * substrings of the combined story text. For a 1-keyword list the only
+   * token must match; for 2+ keywords at least ceil(n/2) must. This is
+   * stricter than the previous `some()` predicate which let a single
+   * incidental match paper over a missing anecdote.
+   */
+  static _majorityLanded(keywords, combinedText) {
+    if (!Array.isArray(keywords) || keywords.length === 0) return false;
+    const need = keywords.length === 1 ? 1 : Math.ceil(keywords.length / 2);
+    let matches = 0;
+    for (const k of keywords) {
+      if (combinedText.includes(k)) matches++;
+      if (matches >= need) return true;
+    }
+    return false;
   }
 
   /**
@@ -256,7 +366,7 @@ class QualityGate {
    * "pancakes with blueberries" -> ["pancake", "blueberr"]
    * "sings to the cat" -> ["sing", "cat"]
    */
-  static _extractKeywords(value) {
+  static _extractKeywords(value, excludeTokens = new Set()) {
     const STOP = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'is', 'are', 'was', 'be', 'her', 'his', 'their', 'my', 'our', 'your', 'me', 'we', 'they', 'he', 'she', 'it', 'that', 'this', 'these', 'those', 'when', 'where', 'how', 'what', 'why', 'very', 'really', 'loves', 'love', 'like', 'likes', 'always', 'every', 'just', 'from', 'about', 'into', 'over', 'under', 'has', 'have', 'had', 'so', 'then']);
     const tokens = value
       .toLowerCase()
@@ -267,12 +377,14 @@ class QualityGate {
     for (const t of tokens) {
       if (t.length < 4) continue;
       if (STOP.has(t)) continue;
+      if (excludeTokens && excludeTokens.has(t)) continue;
       // Trim plural + common endings so "pancakes" matches "pancake"
       let stem = t;
       if (stem.endsWith('ies') && stem.length > 4) stem = stem.slice(0, -3) + 'i';
       else if (stem.endsWith('es') && stem.length > 4) stem = stem.slice(0, -2);
       else if (stem.endsWith('s') && stem.length > 4) stem = stem.slice(0, -1);
       else if (stem.endsWith('ing') && stem.length > 5) stem = stem.slice(0, -3);
+      if (excludeTokens && excludeTokens.has(stem)) continue;
       if (!out.includes(stem)) out.push(stem);
       if (out.length >= 3) break;
     }
@@ -445,9 +557,27 @@ Return a JSON object:
   /**
    * Build specific revision feedback from scores.
    */
-  static _buildFeedback(scores, spreads, meta = {}) {
+  static _buildFeedback(scores, spreads, meta = {}, hardRules = {}) {
     const feedback = [];
     const { passScore, minDimensionScore } = WRITER_CONFIG.qualityThresholds;
+
+    // Hard rules come first so the revision loop can't miss them even if
+    // the model ignores later bullets.
+    if (hardRules.funnyThingMiss) {
+      feedback.push(`FUNNY_THING: The questionnaire's "funny thing" ("${hardRules.funnyThingMiss}") must appear somewhere in spreads 3-11, translated into picture-book prose (concrete action, not an abstract reference). Never put it in spread 13 — the ending must be warm, not a punchline. This is non-negotiable for personalization.`);
+    }
+    if (Array.isArray(hardRules.missingCritical) && hardRules.missingCritical.length > 0) {
+      feedback.push(`CUSTOM DETAILS MISSING (critical): ${hardRules.missingCritical.join(', ')}. Rewrite the affected spreads to name these details naturally. Do NOT replace them with generic stand-ins, and do NOT invent new details that contradict the questionnaire answers.`);
+    }
+    if (Array.isArray(hardRules.criticalFailures) && hardRules.criticalFailures.length > 0) {
+      const lines = hardRules.criticalFailures
+        .map(f => `  - ${f.dimension} scored ${f.score}/10 (required: ${f.floor}+)`)
+        .join('\n');
+      feedback.push(`CRITICAL DIMENSIONS BELOW FLOOR — these are must-pass for shipping, low scores alone force a revision:\n${lines}\nRewrite aggressively to bring each one over its floor. The specific feedback for each dimension follows below.`);
+    }
+    if (typeof hardRules.overallScore === 'number' && hardRules.overallScore < passScore) {
+      feedback.push(`OVERALL QUALITY: Weighted score is ${Math.round(hardRules.overallScore * 10) / 10}/10 — below the ${passScore} pass threshold. The book is "okay" but not shippable. Treat this revision as a full polish pass: sharpen imagery, tighten rhymes, fix any spread that feels like a placeholder or a paraphrase of the questionnaire rather than a real beat in a real story.`);
+    }
 
     if (scores.rhyme < minDimensionScore) {
       feedback.push('RHYME: Several couplets do not rhyme or have broken meter. Rewrite lines where rhymes are forced, near-rhymes are presented as true rhymes, or the stress pattern is inconsistent. Every line pair must have a natural, satisfying end-rhyme.');

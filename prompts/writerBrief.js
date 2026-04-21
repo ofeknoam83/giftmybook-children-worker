@@ -91,7 +91,21 @@ const AGE_TIERS = {
  * @returns {{ tier: number, config: object }}
  */
 function getAgeTier(age) {
-  const a = Number(age) || 5;
+  const n = Number(age);
+  let a;
+  if (Number.isFinite(n) && n >= 0) {
+    a = n;
+  } else {
+    a = 5;
+    console.warn(`[writerBrief] getAgeTier called with non-finite age=${JSON.stringify(age)} — defaulting to 5 (tier 2). Caller should pass a numeric age or a DOB-derived age.`);
+  }
+  // Infants (<2) currently share tier 1 with toddlers. Flag so we can spot
+  // books generated for babies that are probably being read *to* them; the
+  // writer can then soften vocabulary and drop child-dialogue lines. We do
+  // NOT block generation here per product decision.
+  if (a < 2) {
+    console.warn(`[writerBrief] age=${a} below picture-book floor — treating as tier 1 (ages 0-2). Content may read as toddler-directed.`);
+  }
   if (a <= 2) return { tier: 1, config: AGE_TIERS[1] };
   if (a <= 5) return { tier: 2, config: AGE_TIERS[2] };
   if (a <= 8) return { tier: 3, config: AGE_TIERS[3] };

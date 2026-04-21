@@ -13,7 +13,10 @@ const WRITER_CONFIG = {
 
   retries: {
     maxWriteAttempts: 3,
-    maxQualityRetries: 2,
+    // Bumped from 2 → 3 so the gate has budget to actually recover after
+    // the raised passScore. Revision is ~30s with GPT-5.4 so worst-case
+    // this adds ~2 minutes to a book that genuinely needs three passes.
+    maxQualityRetries: 3,
   },
 
   timeouts: {
@@ -52,8 +55,29 @@ const WRITER_CONFIG = {
   },
 
   qualityThresholds: {
-    passScore: 7.5,
-    minDimensionScore: 5,
+    // Raised from 7.5 → 8.5. Mason's Mother's-Day book scored 7.6 and
+    // passed without any revision, but was clearly not good enough (age
+    // mismatch, dropped anecdotes, overridden favorite object). 8.5 is
+    // high enough to trigger at least one revision on most first drafts
+    // while still being achievable on a genuinely good story.
+    passScore: 8.5,
+    // Raised from 5 → 6. At 5 a dimension with "half of checks missed"
+    // still cleared the floor; 6 requires at least "mostly correct".
+    minDimensionScore: 6,
+    // Dimensions that must score at least this high regardless of the
+    // weighted average. These are the ones where a low score indicates
+    // a book you would NOT want to ship no matter how creative it is:
+    //   - anecdoteUsage: fails → the questionnaire answers were ignored
+    //   - pronouns:      fails → the child is referred to as the wrong gender
+    //   - wordCount:     fails → too long/short to read aloud at age
+    //   - endingAppropriateness: fails → celebration ends with bedtime
+    // All other dimensions fall under the generic minDimensionScore floor.
+    criticalDimensions: {
+      anecdoteUsage: 7,
+      pronouns: 9,
+      wordCount: 7,
+      endingAppropriateness: 7,
+    },
   },
 };
 

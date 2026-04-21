@@ -1505,7 +1505,53 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         storyPlan = convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle);
         storyPlan._writerV2Metadata = writerResult.metadata;
 
-        // Save story content to DB
+        // ── Post-hoc custom-details check + conditional revision ──
+        // The external `checkCustomDetailsUsage` catches misses the internal
+        // QualityGate's deterministic anecdote scorer can't (e.g. narrative
+        // references that require semantic judgement). If it flags any
+        // critical misses, trigger ONE additional revision pass. This turns
+        // a log-only signal into an enforcement hook without opening an
+        // unbounded revision loop.
+        let postHocDetails = null;
+        try {
+          const { checkCustomDetailsUsage } = require('./services/qualityGates');
+          postHocDetails = await checkCustomDetailsUsage(storyPlan.entries, enrichedCustomDetails || customDetails, { costTracker });
+          bookContext.log('info', 'Custom details usage check', {
+            score: postHocDetails.score,
+            missing: postHocDetails.missingCritical,
+          });
+        } catch (qgErr) {
+          bookContext.log('warn', 'Custom details check failed (non-blocking)', { error: qgErr.message });
+        }
+
+        if (postHocDetails && Array.isArray(postHocDetails.missingCritical) && postHocDetails.missingCritical.length > 0) {
+          try {
+            bookContext.log('info', 'Triggering post-hoc revision for missing critical details', {
+              missing: postHocDetails.missingCritical,
+            });
+            const feedback = `CUSTOM DETAILS MISSING (critical): ${postHocDetails.missingCritical.join(', ')}. Rewrite the affected spreads to name these details naturally. Do NOT replace them with generic stand-ins, and do NOT invent details that contradict the questionnaire answers.`;
+            const revised = await WriterEngine.reviseWithFeedback(writerResult, feedback, {
+              missingCritical: postHocDetails.missingCritical,
+            });
+            if (revised && revised.story && revised.story.spreads && revised.story.spreads.length > 0) {
+              storyPlan = convertWriterV2ToLegacyPlan(revised, childDetails, theme, approvedTitle);
+              storyPlan._writerV2Metadata = revised.metadata;
+              // Refresh the plan we snapshot to the DB below too.
+              writerResult.metadata = revised.metadata;
+              writerResult.story = revised.story;
+              bookContext.log('info', 'Post-hoc revision accepted', {
+                qualityScore: revised.metadata?.qualityScore,
+                spreads: revised.story.spreads.length,
+              });
+            }
+          } catch (revErr) {
+            bookContext.log('warn', 'Post-hoc revision failed (continuing with original)', { error: revErr.message });
+          }
+        }
+
+        // Save story content to DB. We persist the plan.manifest alongside the
+        // entries so downstream tooling (and humans reviewing a book) can see
+        // exactly which anecdotes were supposed to land in which spreads.
         if (progressCallbackUrl) {
           const storyContentForDb = {
             title: storyPlan.title,
@@ -1513,6 +1559,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             characterDescription: storyPlan.characterDescription || null,
             characterOutfit: storyPlan.characterOutfit || null,
             writerV2Metadata: writerResult.metadata,
+            manifest: (writerResult.plan && Array.isArray(writerResult.plan.manifest)) ? writerResult.plan.manifest : null,
           };
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
@@ -1521,18 +1568,6 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       }
 
       // V2: Text is already in the story plan — no separate text generation needed.
-
-      // ── W3: Check custom details usage (non-blocking, informational) ──
-      // Writer V2 has its own QualityGate — no need for V1 criticStory/masterCritic
-      if (!isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
-        try {
-          const { checkCustomDetailsUsage } = require('./services/qualityGates');
-          const detailsCheck = await checkCustomDetailsUsage(storyPlan.entries, enrichedCustomDetails || customDetails, { costTracker });
-          bookContext.log('info', 'Custom details usage check', { score: detailsCheck.score, missing: detailsCheck.missingCritical });
-        } catch (qgErr) {
-          bookContext.log('warn', 'Custom details check failed (non-blocking)', { error: qgErr.message });
-        }
-      }
 
       // Stage 3: Prepare cover + character reference
       const stage6Start = Date.now();

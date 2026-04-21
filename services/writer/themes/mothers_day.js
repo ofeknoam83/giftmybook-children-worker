@@ -13,6 +13,7 @@ const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
+const { buildFavoriteObjectLock } = require('./anecdotes');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -56,6 +57,7 @@ class MothersDayWriter extends BaseThemeWriter {
           isYoung,
           wt,
           writer: this,
+          storySeed,
         });
         if (anecdotePlot) {
           this._selectedPlot = anecdotePlot;
@@ -119,7 +121,11 @@ class MothersDayWriter extends BaseThemeWriter {
       plotName: plot?.name || null,
       plotSynopsis: plot?.synopsis || null,
       manifest: anecdotePlot?.manifest || null,
-      storySeed: usedSeed ? storySeed : null,
+      // Always surface the upstream seed so downstream prompt builders
+      // (e.g. FAVORITE OBJECT LOCK) can read it. `usedSeed` only indicates
+      // whether we adopted the seed's *beats* — the seed's favorite_object
+      // and setting are valuable regardless.
+      storySeed: storySeed || null,
     };
   }
 
@@ -378,7 +384,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
 
     sections.push(`\n## THE MOTHER\n`);
     sections.push(`The child calls her: ${parentName}`);
-    if (child.anecdotes?.mom_name) sections.push(`Mom's name: ${child.anecdotes.mom_name}`);
+    const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
+    if (momRealName) sections.push(`Mom's name: ${momRealName}`);
+    if (momRealName && momRealName.toLowerCase() !== parentName.toLowerCase()) {
+      sections.push(`\n## OPTIONAL PERSONAL TOUCH (use at most ONCE)\n`);
+      sections.push(`The mother's real first name is "${momRealName}". You MAY surface this name exactly ONCE — ideally in the dedication, or in a single spread where a narrator, sibling, or neighbor calls her by her grown-up name. A line like "When grown-ups call her ${momRealName}, to you she's just ${parentName}." works well.`);
+      sections.push(`Every other reference to the mother must use "${parentName}" — do NOT sprinkle "${momRealName}" through the rest of the book, and do NOT invent a nickname.`);
+    }
 
     if (anecdoteText) {
       sections.push(`\n## REAL DETAILS ABOUT THIS CHILD AND THEIR MOM\n`);
@@ -446,6 +458,11 @@ Refine each beat description to incorporate specific details from the anecdotes.
       plan.manifest.forEach(m => {
         sections.push(`- Spread ${m.spread}: "${m.anecdote_value}" (${m.anecdote_key}) — ${m.use}`);
       });
+    }
+
+    const favoriteObjectLock = buildFavoriteObjectLock(plan);
+    if (favoriteObjectLock) {
+      sections.push(`\n${favoriteObjectLock}`);
     }
 
     sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);

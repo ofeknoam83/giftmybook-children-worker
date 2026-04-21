@@ -133,20 +133,108 @@ class WriterEngine {
 
     onProgress?.({ step: 'complete', message: 'Story generation complete.' });
 
-    return { story, metadata, pipeline, plan };
+    return { story, metadata, pipeline, plan, child, book, themeWriter };
   }
+
+  /**
+   * Run one additional revision pass and re-score. Used by server.js when
+   * an out-of-band check (e.g. custom-details usage) flags critical
+   * misses after the main loop has finished. Returns a new writerResult
+   * shape compatible with the original return.
+   */
+  static async reviseWithFeedback(writerResult, feedback, opts = {}) {
+    const { themeWriter, story, plan, child, book } = writerResult;
+    if (!themeWriter || !feedback) return writerResult;
+    const missingCritical = Array.isArray(opts.missingCritical) ? opts.missingCritical : [];
+
+    console.log(`[writerV2] Post-hoc revision requested: ${feedback.slice(0, 160)}`);
+    let revisedStory;
+    try {
+      revisedStory = await themeWriter.revise(story, feedback, child, book);
+    } catch (err) {
+      console.warn(`[writerV2] Post-hoc revision failed: ${err.message} — keeping original story`);
+      return writerResult;
+    }
+    if (!revisedStory || !Array.isArray(revisedStory.spreads) || revisedStory.spreads.length === 0) {
+      console.warn('[writerV2] Post-hoc revision produced 0 spreads — keeping original story');
+      return writerResult;
+    }
+
+    let quality;
+    try {
+      quality = await QualityGate.check(revisedStory, child, book, { plan, missingCritical });
+    } catch (err) {
+      console.warn(`[writerV2] Post-hoc QualityGate check failed: ${err.message}`);
+      quality = { pass: false, overallScore: 0, scores: {}, feedback: '' };
+    }
+
+    const metadata = stampBook(revisedStory, quality, book.theme);
+    console.log(`[writerV2] Post-hoc revision complete: v${metadata.writerVersion}, score ${metadata.qualityScore}`);
+
+    return {
+      story: revisedStory,
+      metadata,
+      pipeline: writerResult.pipeline,
+      plan,
+      child,
+      book,
+      themeWriter,
+    };
+  }
+}
+
+/**
+ * Compute full years elapsed between `dob` and now. Returns null on unparseable
+ * input, clamped to 0 (no negative ages for future-dated test payloads).
+ * Exported on the module for tests.
+ */
+function ageFromDOB(dob, now = new Date()) {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  let years = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) years--;
+  return Math.max(0, years);
 }
 
 /**
  * Convert legacy flat payload to child object.
  * Handles the current standalone payload format where everything is flat.
+ *
+ * Age resolution order:
+ *   1. brief.child.age (explicit numeric)
+ *   2. payload.childAge (explicit numeric)
+ *   3. brief.child.birth_date (derived)
+ *   4. null (writer defaults to tier 2 elsewhere, with a console.warn)
  */
 function buildChildFromLegacy(payload) {
   const brief = payload.brief && typeof payload.brief === 'object' ? payload.brief : {};
   const bc = brief.child || {};
+
+  const explicitAge = (() => {
+    if (bc.age != null && bc.age !== '') {
+      const n = Number(bc.age);
+      if (Number.isFinite(n)) return n;
+    }
+    if (payload.childAge != null && payload.childAge !== '') {
+      const n = Number(payload.childAge);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  })();
+  const derivedAge = explicitAge == null ? ageFromDOB(bc.birth_date) : null;
+  const finalAge = explicitAge != null ? explicitAge : derivedAge;
+
+  if (explicitAge == null && derivedAge != null) {
+    console.warn(`[writerV2] No explicit age supplied — derived age=${derivedAge} from birth_date="${bc.birth_date}" for child "${bc.name || payload.childName || 'unknown'}"`);
+  } else if (finalAge == null) {
+    console.warn(`[writerV2] No age and no birth_date for child "${bc.name || payload.childName || 'unknown'}" — writer will default to age-tier 2 (ages 3-5). Content may not fit the child.`);
+  }
+
   return {
     name: bc.name || payload.childName,
-    age: bc.age != null ? Number(bc.age) : payload.childAge,
+    age: finalAge,
     gender: bc.gender || payload.childGender,
     appearance: payload.childAppearance || '',
     interests: payload.childInterests || (bc.favorite_activities ? [bc.favorite_activities] : []),
@@ -175,6 +263,9 @@ function buildChildFromLegacy(payload) {
  * Convert legacy flat payload to book object.
  */
 function buildBookFromLegacy(payload) {
+  const brief = payload.brief && typeof payload.brief === 'object' ? payload.brief : {};
+  const bc = brief.child || {};
+  const anec = payload.childAnecdotes || {};
   return {
     format: payload.bookFormat || 'PICTURE_BOOK',
     theme: payload.theme || payload.occasionTheme || (payload.brief?.child?.theme) || 'adventure',
@@ -185,6 +276,13 @@ function buildBookFromLegacy(payload) {
     heartfeltNote: payload.heartfeltNote || null,
     bookFrom: payload.bookFrom || null,
     coverUrl: payload.approvedCoverUrl || null,
+    // Lift the parent's real first name onto the book object so prompt
+    // builders that don't walk child.anecdotes still see it. The Mother's
+    // Day prompt uses this for the "Optional Personal Touch" block that
+    // surfaces the parent's real name exactly once in the story. Sources
+    // are tried in order: top-level → flat brief.child → childAnecdotes.
+    mom_name: payload.mom_name || bc.mom_name || anec.mom_name || '',
+    dad_name: payload.dad_name || bc.dad_name || anec.dad_name || '',
     emotionalCategory: payload.emotionalCategory || null,
     emotionalSituation: payload.emotionalSituation || null,
     emotionalParentGoal: payload.emotionalParentGoal || null,
@@ -192,4 +290,4 @@ function buildBookFromLegacy(payload) {
   };
 }
 
-module.exports = { WriterEngine, buildChildFromLegacy, buildBookFromLegacy };
+module.exports = { WriterEngine, buildChildFromLegacy, buildBookFromLegacy, ageFromDOB };

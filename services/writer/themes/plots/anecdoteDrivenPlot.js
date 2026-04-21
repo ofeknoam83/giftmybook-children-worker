@@ -34,10 +34,10 @@
  * @returns {Promise<{ id, name, synopsis, beats, manifest, source } | null>}
  */
 async function generateAnecdoteDrivenPlot(args) {
-  const { theme, child, book = {}, parentName, isYoung, wt, writer } = args;
+  const { theme, child, book = {}, parentName, isYoung, wt, writer, storySeed = null } = args;
   if (!writer || typeof writer.callLLM !== 'function') return null;
 
-  const anecdoteItems = _collectAnecdoteItems(child, book);
+  const anecdoteItems = _collectAnecdoteItems(child, book, storySeed);
   if (anecdoteItems.length === 0) return null;
 
   const themeLabel = _themeLabel(theme);
@@ -46,14 +46,19 @@ async function generateAnecdoteDrivenPlot(args) {
   const isCelebration = theme === 'birthday' || theme === 'birthday_magic';
   const isParentTheme = theme === 'mothers_day' || theme === 'fathers_day';
 
+  // MUST-LAND list: fields the story is required to concretely depict. We
+  // validate after the LLM returns and retry once with explicit feedback
+  // if any are missing. Intentionally ordered by emotional weight.
+  const mustLandKeys = _computeMustLandKeys({ anecdoteItems, theme, isParentTheme, storySeed });
+
   // ──────────────────────────────────────────
-  // PASS 1 — MANIFEST
+  // PASS 1 — MANIFEST (with one retry if MUST-LAND fields are missing)
   // ──────────────────────────────────────────
   let manifest;
   try {
     manifest = await _runManifestPass({
       writer, theme, themeLabel, child, childAge, pronoun, parentName,
-      anecdoteItems, isCelebration, isParentTheme, book,
+      anecdoteItems, isCelebration, isParentTheme, book, mustLandKeys,
     });
   } catch (err) {
     console.warn(`[anecdoteDrivenPlot] Manifest pass failed: ${err.message}`);
@@ -62,6 +67,28 @@ async function generateAnecdoteDrivenPlot(args) {
   if (!manifest || !Array.isArray(manifest.assignments) || manifest.assignments.length < 3) {
     console.warn(`[anecdoteDrivenPlot] Manifest pass returned insufficient assignments`);
     return null;
+  }
+
+  const missingMustLand = _findMissingMustLandKeys(manifest.assignments, mustLandKeys);
+  if (missingMustLand.length > 0) {
+    console.warn(`[anecdoteDrivenPlot] Manifest missing MUST-LAND fields: ${missingMustLand.join(', ')} — retrying once`);
+    try {
+      const retry = await _runManifestPass({
+        writer, theme, themeLabel, child, childAge, pronoun, parentName,
+        anecdoteItems, isCelebration, isParentTheme, book, mustLandKeys,
+        retryMissing: missingMustLand,
+      });
+      if (retry && Array.isArray(retry.assignments) && retry.assignments.length >= 3) {
+        const stillMissing = _findMissingMustLandKeys(retry.assignments, mustLandKeys);
+        if (stillMissing.length < missingMustLand.length) {
+          manifest = retry;
+        } else {
+          console.warn(`[anecdoteDrivenPlot] Manifest retry still missing: ${stillMissing.join(', ')} — continuing with best-effort manifest`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[anecdoteDrivenPlot] Manifest retry failed: ${err.message} — continuing with first-pass manifest`);
+    }
   }
 
   // ──────────────────────────────────────────
@@ -105,20 +132,29 @@ async function _runManifestPass(ctx) {
   const {
     writer, theme, themeLabel, child, childAge, pronoun, parentName,
     anecdoteItems, isCelebration, isParentTheme, book,
+    mustLandKeys = [], retryMissing = null,
   } = ctx;
+
+  const mustLandBlock = mustLandKeys.length
+    ? `\n\nMUST-LAND FIELDS (non-negotiable — every one of these anecdote keys that appears in the provided list MUST get an assignment, even if you end up with more than 6 total):\n${mustLandKeys.map(k => `- ${k}`).join('\n')}\nIf you cannot find a spread for a MUST-LAND field, replace a lower-priority assignment with it. Missing any of these = rejected plan.`
+    : '';
+
+  const retryBlock = retryMissing && retryMissing.length
+    ? `\n\nRETRY CONTEXT: Your previous manifest was rejected because it did not assign these MUST-LAND fields: ${retryMissing.join(', ')}. Re-plan so every one of these keys has a concrete spread assignment. Drop less-critical anecdotes if necessary.`
+    : '';
 
   const systemPrompt = `You are a personal-story architect for children's picture books. Your job is NOT to write a generic story — it is to turn THIS child's specific real details into the backbone of a bespoke 13-spread picture book.
 
 You will be given a list of personal anecdotes (favorite activities, foods, funny things they do, meaningful moments, what they call their parents, favorite toys, etc.).
 
-Pick 4 to 6 of those anecdotes and HARD-ASSIGN each one to a specific spread (1-13) with a specific ROLE in that beat. Do NOT pick more than 6. Do NOT pick fewer than 4 if 4 good options exist.
+Pick 4 to 6 of those anecdotes and HARD-ASSIGN each one to a specific spread (1-13) with a specific ROLE in that beat. You MAY return up to 7 assignments if needed to cover every MUST-LAND field.
 
 ASSIGNMENT RULES:
 - Prefer anecdotes that create vivid, visual moments (a specific food, toy, activity, place, funny habit) over abstract ones.
 - Each assignment's "use" must be concrete: "the specific meal on the plate", "the central action of the beat", "the imagination leap", "the ritual they share", "the background detail in the room".
-- Spread assignments must make narrative sense — an opening anecdote (favorite ritual, morning habit) belongs early; a meaningful shared moment belongs around the emotional peak (spread 9-11); a funny thing can go anywhere.
+- Spread assignments must make narrative sense — an opening anecdote (favorite ritual, morning habit) belongs early; a meaningful shared moment belongs around the emotional peak (spread 9-11); a funny thing belongs on spreads 3-11 (never on spread 13 — the ending should be warm, not a punchline).
 - Do NOT double-book the same anecdote to two different spreads.
-- Do NOT assign more than ONE anecdote to the same spread unless they naturally co-occur (food + activity at the table is fine).
+- Do NOT assign more than ONE anecdote to the same spread unless they naturally co-occur (food + activity at the table is fine).${mustLandBlock}
 
 THEME CONSTRAINTS:
 ${_themeConstraintsForManifest(theme, isCelebration, isParentTheme, parentName, child)}
@@ -132,16 +168,16 @@ OUTPUT STRICT JSON:
   ]
 }
 
-Return 4-6 assignments total.`;
+Return 4-7 assignments total.`;
 
   const anecdoteBlock = anecdoteItems.map(a => `- ${a.key}: ${a.value}`).join('\n');
   const userPrompt = `Child: ${child.name}, age ${childAge}, pronouns ${pronoun}/${pronoun === 'she' ? 'her' : pronoun === 'he' ? 'him' : 'them'}
 Theme: ${themeLabel}${parentName ? `\nParent they address as: ${parentName}` : ''}${book.title ? `\nCover title (if already approved): "${book.title}"` : ''}${book.heartfeltNote ? `\nHeartfelt note from the person ordering the book: "${book.heartfeltNote}"` : ''}
 
 REAL ANECDOTES ABOUT THIS CHILD:
-${anecdoteBlock}
+${anecdoteBlock}${retryBlock}
 
-Pick 4-6 of these anecdotes and hard-assign each to a specific spread with a specific use. Return JSON only.`;
+Pick 4-7 of these anecdotes and hard-assign each to a specific spread with a specific use. Every MUST-LAND key above that appears in the list MUST be assigned. Return JSON only.`;
 
   const result = await writer.callLLM('planner', systemPrompt, userPrompt, {
     jsonMode: true,
@@ -341,7 +377,7 @@ function _themeConstraintsForBeats(theme, isCelebration, isParentTheme, parentNa
   return lines.join('\n');
 }
 
-function _collectAnecdoteItems(child, book) {
+function _collectAnecdoteItems(child, book, storySeed = null) {
   const items = [];
   const a = child?.anecdotes || {};
   const push = (k, v) => {
@@ -353,9 +389,12 @@ function _collectAnecdoteItems(child, book) {
   push('funny_thing', a.funny_thing);
   push('meaningful_moment', a.meaningful_moment);
   push('moms_favorite_moment', a.moms_favorite_moment);
+  push('dads_favorite_moment', a.dads_favorite_moment);
   push('favorite_food', a.favorite_food);
   push('favorite_cake_flavor', a.favorite_cake_flavor);
   push('favorite_toys', a.favorite_toys);
+  push('mom_name', a.mom_name);
+  push('dad_name', a.dad_name);
   push('calls_mom', a.calls_mom);
   push('calls_dad', a.calls_dad);
   push('other_detail', a.other_detail);
@@ -366,7 +405,56 @@ function _collectAnecdoteItems(child, book) {
   if (book?.customDetails && typeof book.customDetails === 'string') {
     push('custom_details', book.customDetails);
   }
+  // Seed-derived favorite object — the brainstorm identifies a specific
+  // companion toy/comfort item (e.g. "a small floppy blue bunny"). Surface
+  // it as an anecdote so the manifest planner treats it as a first-class
+  // detail and locks it into multiple spreads.
+  if (storySeed && typeof storySeed === 'object' && storySeed.favorite_object) {
+    const fav = String(storySeed.favorite_object).trim();
+    if (fav) items.push({ key: 'favorite_object', value: fav });
+  }
   return items;
+}
+
+/**
+ * Compute the MUST-LAND keys for a given theme + available anecdotes.
+ * Only return keys that are actually present in the collected items — we
+ * never ask the planner to land a field the child didn't provide.
+ */
+function _computeMustLandKeys({ anecdoteItems, theme, isParentTheme, storySeed }) {
+  const present = new Set(anecdoteItems.map(x => x.key));
+  const keys = [];
+
+  // Emotional weight fields — if the questionnaire filled them, land them.
+  if (present.has('meaningful_moment')) keys.push('meaningful_moment');
+  if (isParentTheme) {
+    if (theme === 'mothers_day' && present.has('moms_favorite_moment')) keys.push('moms_favorite_moment');
+    if (theme === 'fathers_day' && present.has('dads_favorite_moment')) keys.push('dads_favorite_moment');
+  }
+  if (present.has('funny_thing')) keys.push('funny_thing');
+
+  // storySeed.favorite_object is ALWAYS critical when present — it's the
+  // visual through-line for the book's central prop.
+  if (storySeed && storySeed.favorite_object && present.has('favorite_object')) {
+    keys.push('favorite_object');
+  }
+
+  return keys;
+}
+
+/**
+ * Returns the subset of `mustLandKeys` that do NOT appear as anecdote_key
+ * in the given assignments. Used both for first-pass validation and the
+ * retry-once feedback block.
+ */
+function _findMissingMustLandKeys(assignments, mustLandKeys) {
+  if (!Array.isArray(mustLandKeys) || mustLandKeys.length === 0) return [];
+  const assignedKeys = new Set(
+    (assignments || [])
+      .map(a => String(a.anecdote_key || '').trim())
+      .filter(Boolean),
+  );
+  return mustLandKeys.filter(k => !assignedKeys.has(k));
 }
 
 module.exports = { generateAnecdoteDrivenPlot };

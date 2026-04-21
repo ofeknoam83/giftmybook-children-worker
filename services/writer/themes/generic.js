@@ -17,6 +17,7 @@ const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, generateCustomPlot, generateAnecdoteDrivenPlot, isPlaceholderTitle } = require('./plots');
+const { buildFavoriteObjectLock } = require('./anecdotes');
 
 // ── Theme category membership ──
 
@@ -88,6 +89,7 @@ class GenericThemeWriter extends BaseThemeWriter {
           isYoung,
           wt,
           writer: this,
+          storySeed: opts.storySeed || null,
         });
       } catch (err) {
         console.warn(`[writerV2] Anecdote-driven plot generation failed for ${this.themeName}: ${err.message}`);
@@ -151,7 +153,11 @@ class GenericThemeWriter extends BaseThemeWriter {
     }
 
     const plot = this._selectedPlot;
-    const seed = usedSeed ? opts.storySeed : null;
+    // Always surface the upstream seed so downstream prompt builders
+    // (e.g. FAVORITE OBJECT LOCK) can read it. `usedSeed` only indicates
+    // whether we adopted the seed's *beats*. The seed's favorite_object
+    // and setting are valuable regardless of whether we kept the beats.
+    const seed = opts.storySeed || null;
     return {
       beats: enrichedBeats,
       refrain,
@@ -688,8 +694,18 @@ Refine each beat description to incorporate specific details from the anecdotes.
       const parentLabel = this.themeName === 'fathers_day' ? 'THE FATHER' : 'THE PARENT';
       sections.push(`\n## ${parentLabel}\n`);
       sections.push(`The child calls them: ${plan.parentName}`);
-      if (child.anecdotes?.dad_name) sections.push(`Dad's name: ${child.anecdotes.dad_name}`);
-      if (child.anecdotes?.mom_name) sections.push(`Mom's name: ${child.anecdotes.mom_name}`);
+      const dadRealName = (book.dad_name || child.anecdotes?.dad_name || '').toString().trim();
+      const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
+      if (dadRealName) sections.push(`Dad's name: ${dadRealName}`);
+      if (momRealName) sections.push(`Mom's name: ${momRealName}`);
+      const realName = this.themeName === 'fathers_day' ? dadRealName : momRealName;
+      const parentWord = this.themeName === 'fathers_day' ? 'father' : 'parent';
+      const pronoun = this.themeName === 'fathers_day' ? 'him' : 'them';
+      if (realName && realName.toLowerCase() !== plan.parentName.toLowerCase()) {
+        sections.push(`\n## OPTIONAL PERSONAL TOUCH (use at most ONCE)\n`);
+        sections.push(`The ${parentWord}'s real first name is "${realName}". You MAY surface this name exactly ONCE — ideally in the dedication, or in a single spread where a narrator, sibling, or neighbor calls ${pronoun} by ${this.themeName === 'fathers_day' ? 'his' : 'their'} grown-up name.`);
+        sections.push(`Every other reference to the ${parentWord} must use "${plan.parentName}" — do NOT sprinkle "${realName}" through the rest of the book, and do NOT invent a nickname.`);
+      }
     }
 
     // Theme-specific context
@@ -813,6 +829,11 @@ Refine each beat description to incorporate specific details from the anecdotes.
       plan.manifest.forEach(m => {
         sections.push(`- Spread ${m.spread}: "${m.anecdote_value}" (${m.anecdote_key}) — ${m.use}`);
       });
+    }
+
+    const favoriteObjectLock = buildFavoriteObjectLock(plan);
+    if (favoriteObjectLock) {
+      sections.push(`\n${favoriteObjectLock}`);
     }
 
     // Find the climax/quiet beat

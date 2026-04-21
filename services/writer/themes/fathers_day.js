@@ -13,6 +13,7 @@ const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
+const { buildFavoriteObjectLock } = require('./anecdotes');
 
 class FathersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -77,6 +78,7 @@ class FathersDayWriter extends BaseThemeWriter {
           isYoung,
           wt,
           writer: this,
+          storySeed,
         });
         if (anecdotePlot) {
           this._selectedPlot = anecdotePlot;
@@ -140,7 +142,9 @@ class FathersDayWriter extends BaseThemeWriter {
       plotName: plot?.name || null,
       plotSynopsis: plot?.synopsis || null,
       manifest: anecdotePlot?.manifest || null,
-      storySeed: usedSeed ? storySeed : null,
+      // Always surface the upstream seed so downstream prompt builders
+      // (e.g. FAVORITE OBJECT LOCK) can read it. See mothers_day.js.
+      storySeed: storySeed || null,
     };
   }
 
@@ -398,7 +402,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
 
     sections.push(`\n## THE FATHER\n`);
     sections.push(`The child calls him: ${parentName}`);
-    if (child.anecdotes?.dad_name) sections.push(`Dad's name: ${child.anecdotes.dad_name}`);
+    const dadRealName = (book.dad_name || child.anecdotes?.dad_name || '').toString().trim();
+    if (dadRealName) sections.push(`Dad's name: ${dadRealName}`);
+    if (dadRealName && dadRealName.toLowerCase() !== parentName.toLowerCase()) {
+      sections.push(`\n## OPTIONAL PERSONAL TOUCH (use at most ONCE)\n`);
+      sections.push(`The father's real first name is "${dadRealName}". You MAY surface this name exactly ONCE — ideally in the dedication, or in a single spread where a narrator, sibling, or neighbor calls him by his grown-up name. A line like "When grown-ups call him ${dadRealName}, to you he's just ${parentName}." works well.`);
+      sections.push(`Every other reference to the father must use "${parentName}" — do NOT sprinkle "${dadRealName}" through the rest of the book, and do NOT invent a nickname.`);
+    }
 
     if (anecdoteText) {
       sections.push(`\n## REAL DETAILS ABOUT THIS CHILD AND THEIR DAD\n`);
@@ -458,6 +468,19 @@ Refine each beat description to incorporate specific details from the anecdotes.
     plan.beats.forEach(b => {
       sections.push(`Spread ${b.spread} (${b.beat}): ${b.description} [~${b.wordTarget} words]`);
     });
+
+    if (plan.manifest && plan.manifest.length > 0) {
+      sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
+      sections.push(`Each of these real details MUST be concretely named in the exact spread listed — as a named object, action, place, food, or person. Do NOT paraphrase them away. Do NOT pile them all into one spread.`);
+      plan.manifest.forEach(m => {
+        sections.push(`- Spread ${m.spread}: "${m.anecdote_value}" (${m.anecdote_key}) — ${m.use}`);
+      });
+    }
+
+    const favoriteObjectLock = buildFavoriteObjectLock(plan);
+    if (favoriteObjectLock) {
+      sections.push(`\n${favoriteObjectLock}`);
+    }
 
     sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);
     sections.push(`- The beats are organized into 4 SCENES: Home (1-3), Adventure (4-7), Peak (8-11), Heading Home (12-13).`);
