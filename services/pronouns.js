@@ -100,6 +100,84 @@ function checkPronounConsistency(text, gender) {
 }
 
 /**
+ * Body-part nouns where "him <noun>" or "he <noun>" is essentially always
+ * the object-for-possessive grammatical error. Kept narrow on purpose:
+ *
+ *   - Only body parts (and body-adjacent words like "lap", "curls", "tummy").
+ *   - NOT possessions that can appear in dative indirect-object constructions
+ *     — e.g. "Mama gave him toys" has "him toys" adjacent but is grammatical
+ *     (dative "him" + direct object "toys"). Auto-repairing that to "his toys"
+ *     would be wrong.
+ *   - Body-part nouns effectively never appear as dative direct objects in a
+ *     picture book ("Mama gave him hair" is not a thing), so the FP risk is
+ *     negligible.
+ *
+ * Keep lowercase; match with the `i` flag.
+ */
+const POSSESSIVE_NOUN_WHITELIST = [
+  'hair', 'arm', 'arms', 'hand', 'hands', 'foot', 'feet', 'leg', 'legs',
+  'face', 'head', 'cheek', 'cheeks', 'chin', 'nose', 'ear', 'ears',
+  'eye', 'eyes', 'mouth', 'tooth', 'teeth', 'knee', 'knees', 'toe', 'toes',
+  'finger', 'fingers', 'lap', 'tummy', 'belly',
+  'shoulder', 'shoulders', 'curls', 'heart',
+];
+
+function _buildPossessiveErrorRegex() {
+  const nouns = POSSESSIVE_NOUN_WHITELIST.join('|');
+  // `\b(him|he)\s+(<noun>)\b` — object/subject pronoun followed by a
+  // possessive-context noun. Global + case-insensitive.
+  return new RegExp(`\\b(him|he)\\s+(${nouns})\\b`, 'gi');
+}
+
+/**
+ * Deterministically find object-for-possessive pronoun errors like
+ * "him hair", "him arm", "he toes". These are ALWAYS wrong in English
+ * and are a documented ship-blocker — but LLM critics still miss them,
+ * so we catch them with a narrow whitelist regex that has zero false
+ * positives (every whitelisted noun only takes a possessive in this position).
+ *
+ * @param {string} text
+ * @returns {Array<{ match: string, pronoun: string, noun: string, position: number, context: string }>}
+ */
+function findPossessivePronounErrors(text) {
+  if (!text || typeof text !== 'string') return [];
+  const re = _buildPossessiveErrorRegex();
+  const out = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    out.push({
+      match: m[0],
+      pronoun: m[1],
+      noun: m[2],
+      position: m.index,
+      context: text.substring(
+        Math.max(0, m.index - 20),
+        Math.min(text.length, m.index + m[0].length + 20)
+      ),
+    });
+  }
+  return out;
+}
+
+/**
+ * Auto-repair object-for-possessive pronoun errors in text. "him hair" →
+ * "his hair", "He hair" → "His hair". Preserves capitalization of the
+ * first letter. Safe because the whitelist only contains nouns where a
+ * possessive is the ONLY grammatical option.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function fixPossessivePronounErrors(text) {
+  if (!text || typeof text !== 'string') return text;
+  const re = _buildPossessiveErrorRegex();
+  return text.replace(re, (_full, pronoun, noun) => {
+    const his = pronoun[0] === pronoun[0].toUpperCase() ? 'His' : 'his';
+    return `${his} ${noun}`;
+  });
+}
+
+/**
  * Simple string replacement for protagonist pronouns.
  * Fast and free — used as first-pass correction before LLM fallback.
  *
@@ -135,4 +213,6 @@ module.exports = {
   buildPronounInstruction,
   checkPronounConsistency,
   simpleReplace,
+  findPossessivePronounErrors,
+  fixPossessivePronounErrors,
 };

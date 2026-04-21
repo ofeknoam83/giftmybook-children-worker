@@ -19,7 +19,13 @@ const { selectBibleEntriesForSpread, renderBibleSection } = require('../storyBib
  * @param {string} opts.scenePrompt - The spread_image_prompt from the writer
  * @param {string} [opts.leftText] - Text for the left page
  * @param {string} [opts.rightText] - Text for the right page
- * @param {boolean} opts.hasParentOnCover - Whether parent is on the cover
+ * @param {boolean} opts.hasParentOnCover - Whether the themed parent (woman for
+ *   mother's day, man for father's day) is actually on the cover. A sibling or
+ *   grandparent on a parent-themed cover does NOT count as the parent.
+ * @param {boolean} [opts.hasSecondaryOnCover] - Whether ANY non-child person is
+ *   on the cover (parent, sibling, grandparent, etc.). Independent of
+ *   hasParentOnCover — for a mother's-day cover with just a sibling,
+ *   hasSecondaryOnCover=true but hasParentOnCover=false.
  * @param {string} [opts.additionalCoverCharacters] - Description of secondary chars
  * @param {string} [opts.theme] - Book theme
  * @param {string} [opts.style] - Art style key (e.g. 'pixar_premium')
@@ -33,12 +39,19 @@ function buildSpreadPrompt(opts) {
     leftText,
     rightText,
     hasParentOnCover,
+    hasSecondaryOnCover,
     additionalCoverCharacters,
     theme,
     style,
     parentOutfit,
     storyBible,
   } = opts;
+  // Back-compat: if the caller didn't pass hasSecondaryOnCover, infer it from
+  // additionalCoverCharacters (matches the legacy semantics where a non-empty
+  // description implied a secondary was visible).
+  const secondaryOnCover = (typeof hasSecondaryOnCover === 'boolean')
+    ? hasSecondaryOnCover
+    : !!additionalCoverCharacters;
 
   const beat = getEmotionalBeat(spreadIndex, totalSpreads);
   const cameraHint = BEAT_CAMERA[beat];
@@ -81,20 +94,33 @@ function buildSpreadPrompt(opts) {
   parts.push('- FACE: Same face shape, skin tone, and features as the reference');
   parts.push('- ANATOMY: Exactly 2 hands, 2 arms, 2 legs per person. Keep hands simple — fists, cupped, or gently gripping. AVOID spread-out fingers.');
 
+  // Character rules — composed additively, no theme-specific gating on the
+  // secondary-must-match rule.
+  const isParentTheme = theme && PARENT_THEMES.has(theme);
+
+  // Universal rule: ANY non-child character visible on the cover must match
+  // their cover appearance exactly in every spread. This applies to every
+  // theme and fires whether or not the themed parent is among them.
+  if (secondaryOnCover) {
+    parts.push('- SECONDARY CHARACTERS (LOCKED): Every non-child character visible on the cover must appear in illustrations EXACTLY as shown on the cover — same face, hair, skin tone, outfit, build. This applies to each of them individually.');
+  }
   if (hasParentOnCover) {
-    parts.push('- Parent can appear and must match their cover appearance exactly');
-  } else if (additionalCoverCharacters) {
-    parts.push('- Secondary characters from the cover can appear and must match exactly');
-  } else if (theme && PARENT_THEMES.has(theme)) {
+    parts.push('- The themed parent IS among the cover characters and MAY appear in scenes where mentioned — treat them as one of the locked secondaries above.');
+  }
+
+  if (!hasParentOnCover && isParentTheme) {
     const isMother = theme === 'mothers_day';
-    parts.push(`- The parent is the child's ${isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)'} — ${isMother ? 'NEVER draw a man' : 'NEVER draw a woman'}`);
+    parts.push(`- The parent is the child's ${isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)'} — ${isMother ? 'NEVER draw a man as the mother' : 'NEVER draw a woman as the father'}`);
+    if (secondaryOnCover) {
+      parts.push(`- ⚠️ THE SECONDARY CHARACTER ON THE COVER IS NOT THE ${isMother ? 'MOTHER' : 'FATHER'}. Do NOT treat them as the parent. The ${isMother ? 'mother' : 'father'} is a SEPARATE character who has NO reference image.`);
+    }
     parts.push(`- ⚠️ PARENT FACE — COMPLETELY HIDDEN (NON-NEGOTIABLE): We have NO reference photo of the ${isMother ? 'mother' : 'father'}. ${isMother ? 'Her' : 'His'} face must NEVER appear in ANY illustration. Show the parent ONLY through: back view, hands/arms reaching in, kneeling with face cropped out of frame, or side view with face turned away. NEVER show eyes, mouth, nose, or any facial features. This is the #1 rule for the parent.`);
     parts.push('- BODY ORIENTATION: Even with face hidden, the parent must face TOWARD the child (leaning in, reaching, kneeling). NEVER facing away.');
     parts.push(`- ⚠️ FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin (hands, arms, neck, back of head, ears) MUST be the same skin tone as the child in the reference photo. Same ethnicity, same hair color family. A white child has a white parent; a Black child has a Black parent; an East Asian child has an East Asian parent; etc. Do NOT invent a different ethnicity for the parent.`);
     if (parentOutfit) {
       parts.push(`- PARENT OUTFIT (LOCKED): ${parentOutfit} — same outfit on EVERY spread, no changes`);
     }
-  } else {
+  } else if (!hasParentOnCover && !secondaryOnCover && !isParentTheme) {
     parts.push('- NO other human characters — the child is the ONLY person visible. Even if the text mentions a family member, do NOT draw them (no reference image exists).');
   }
 

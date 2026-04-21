@@ -273,23 +273,19 @@ class FathersDayWriter extends BaseThemeWriter {
    */
   _buildYoungPictureBeats(child, parentName) {
     return [
-      // SCENE A — HOME / LAUNCH (spreads 1-3)
-      { spread: 1, beat: 'HOME_OPENING', description: `Place ${child.name} and ${parentName} in a specific moment at home — mid-action, not waking up. Establish the bond AND hint at a plan (building something, going somewhere). Simple, vivid, particular.`, wordTarget: 16 },
-      { spread: 2, beat: 'HOME_PREPARING', description: `The plan takes shape — gathering tools, putting on shoes, starting the project. A moment that shows how they work together. Use child's anecdote if available. Same location.`, wordTarget: 18 },
-      { spread: 3, beat: 'HOME_RITUAL', description: `Something only THIS pair does — a funny handshake, a silly ritual, ${parentName}'s signature move. Woven into the preparation, not a standalone scene.`, wordTarget: 18 },
-      // SCENE B — THE ADVENTURE (spreads 4-7)
-      { spread: 4, beat: 'ADVENTURE_START', description: `They head out or the project deepens — show the transition. The world opens up. Anticipation and excitement. ${parentName} is visible.`, wordTarget: 18 },
-      { spread: 5, beat: 'ADVENTURE_SKILL', description: `${parentName} does something that amazes ${child.name} — a skill, a trick, lifting something heavy, fixing something broken. Connected to the adventure/project.`, wordTarget: 18 },
-      { spread: 6, beat: 'ADVENTURE_LAUGHTER', description: `A funny or playful moment within the adventure — physical comedy, a shared joke, something goes slightly sideways in a fun way. Still in the same scene.`, wordTarget: 18 },
-      { spread: 7, beat: 'ADVENTURE_QUIET', description: `A quieter beat — working side by side, watching something together, a moment of focus. The story breathes before the peak. Still in the same place.`, wordTarget: 16 },
-      // SCENE C — THE PEAK (spreads 8-11)
-      { spread: 8, beat: 'BIG_MOMENT', description: `The adventure reaches its destination or the project nears completion. The payoff of what they've been building toward. ${child.name} is excited.`, wordTarget: 18 },
-      { spread: 9, beat: 'PEAK_JOY', description: `The best moment — triumphant, exciting. A high-five, a victory dance, the finished thing. Maximum energy. Physical, joyful, specific.`, wordTarget: 18 },
-      { spread: 10, beat: 'CHILD_LEADS', description: `${child.name} does something that surprises or impresses ${parentName} — shows what they learned, takes a turn, makes a gift. Warm, funny role reversal.`, wordTarget: 18 },
-      { spread: 11, beat: 'PROUD', description: `${parentName} and ${child.name} share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper, not louder.`, wordTarget: 16 },
-      // SCENE D — HEADING HOME (spreads 12-13)
-      { spread: 12, beat: 'HEADING_HOME', description: `The journey home or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime. Still full of the day's warmth.`, wordTarget: 16 },
-      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Beautiful, warm, concrete. NOT a goodnight. A parent should want to read it twice.`, wordTarget: 12 },
+      { spread: 1, beat: 'OPENING', description: `Open OUT IN THE WORLD — NOT at home. Place ${child.name} and ${parentName} in a specific non-home location (park, splash pad, garden gate, workshop doorway, backyard, park path, meadow). Mid-action, sensory, concrete.`, wordTarget: 16 },
+      { spread: 2, beat: 'TOGETHERNESS', description: `Soft hint: a small moment showing how they work together. Use child's anecdote if available.`, wordTarget: 18 },
+      { spread: 3, beat: 'RITUAL', description: `Soft hint: something only THIS pair does — a funny handshake, ${parentName}'s signature move, a shared joke.`, wordTarget: 18 },
+      { spread: 4, beat: 'RISING', description: `Soft hint: the activity deepens or a new place opens up. Anticipation and excitement.`, wordTarget: 18 },
+      { spread: 5, beat: 'PARENT_SHINES', description: `Soft hint: ${parentName} does something that amazes ${child.name} — a skill, a trick, strength, gentleness.`, wordTarget: 18 },
+      { spread: 6, beat: 'LAUGHTER', description: `Soft hint: a funny or playful beat — physical comedy, a shared joke, something sideways.`, wordTarget: 18 },
+      { spread: 7, beat: 'BREATH', description: `Soft hint: a quieter beat — side-by-side, watching, focusing together. The story breathes before the peak.`, wordTarget: 16 },
+      { spread: 8, beat: 'BIG_MOMENT', description: `Soft hint: the payoff they've been building toward — a destination reached or a project nearly finished.`, wordTarget: 18 },
+      { spread: 9, beat: 'PEAK_JOY', description: `Soft hint: triumph. High-five, victory dance, the finished thing. Maximum energy. Physical, specific.`, wordTarget: 18 },
+      { spread: 10, beat: 'CHILD_LEADS', description: `Soft hint: ${child.name} surprises ${parentName} — shows what they learned, takes a turn, makes a gift. Warm role reversal.`, wordTarget: 18 },
+      { spread: 11, beat: 'BOND', description: `Soft hint: a shared look, a word, a gesture. Emotional high — deeper, not louder.`, wordTarget: 16 },
+      { spread: 12, beat: 'RESOLUTION_1', description: `Invent this beat. NOT a generic "journey home" / "heading home" / "walking home" shot (banned formula). A still moment at wherever they are, the finished project admired in place, a shared look, a kept token.`, wordTarget: 16 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Invent a concrete, specific closing image for THIS story. Beautiful, warm, awake. NO "heading home" formula. NOT a goodnight.`, wordTarget: 12 },
     ];
   }
 
@@ -299,23 +295,19 @@ class FathersDayWriter extends BaseThemeWriter {
    */
   _buildPictureBookBeats(child, parentName) {
     return [
-      // SCENE A — HOME / LAUNCH (spreads 1-3)
-      { spread: 1, beat: 'HOME_OPENING', description: `Place ${child.name} and ${parentName} in a specific moment — mid-action, not waking up. Establish tone AND hint at a plan (building something, going somewhere together). Vivid and particular.`, wordTarget: 30 },
-      { spread: 2, beat: 'HOME_PREPARING', description: `The plan takes shape — gathering tools, loading the car, mapping the route, starting the project. A moment showing how they work together. Use child's anecdote. Same location.`, wordTarget: 30 },
-      { spread: 3, beat: 'HOME_RITUAL', description: `Something only THIS pair does — a funny handshake, ${parentName}'s signature move, a shared joke from the questionnaire. Woven into the preparation, not a standalone scene.`, wordTarget: 30 },
-      // SCENE B — THE ADVENTURE (spreads 4-7)
-      { spread: 4, beat: 'ADVENTURE_START', description: `They head out or the project deepens — show the transition clearly. The world opens up. Anticipation and excitement build.`, wordTarget: 28 },
-      { spread: 5, beat: 'ADVENTURE_SKILL', description: `${parentName} does something that amazes ${child.name} — a skill, a trick, strength, gentleness. The moment that makes ${parentName} a hero. Connected to the adventure/project.`, wordTarget: 28 },
-      { spread: 6, beat: 'ADVENTURE_LAUGHTER', description: `A funny or playful moment within the adventure — physical comedy, stick swords, a shared joke, something goes slightly sideways. Still in the same scene.`, wordTarget: 28 },
-      { spread: 7, beat: 'ADVENTURE_QUIET', description: `A quieter beat — working side by side, watching something together, a teaching moment. The story breathes before the peak. Still in the same place.`, wordTarget: 25 },
-      // SCENE C — THE PEAK (spreads 8-11)
-      { spread: 8, beat: 'BIG_MOMENT', description: `The adventure reaches its destination or the project nears completion. The payoff they've been building toward. Use meaningful_moment from questionnaire.`, wordTarget: 25 },
-      { spread: 9, beat: 'PEAK_JOY', description: `The best moment — triumphant, exciting. A high-five, a victory dance, the big reveal. Maximum energy. Physical, joyful, specific.`, wordTarget: 25 },
-      { spread: 10, beat: 'CHILD_LEADS', description: `${child.name} does something that surprises or impresses ${parentName} — shows what they learned, takes a turn, makes a gift. A warm role reversal.`, wordTarget: 25 },
-      { spread: 11, beat: 'PROUD', description: `${parentName} and ${child.name} share a look, a word, a gesture. Admiration flows both ways. The emotional high point — deeper, not louder.`, wordTarget: 25 },
-      // SCENE D — HEADING HOME (spreads 12-13)
-      { spread: 12, beat: 'HEADING_HOME', description: `The journey home or the finished project admired. One warm transitional beat. NOT sleepy, NOT bedtime.`, wordTarget: 20 },
-      { spread: 13, beat: 'CLOSING', description: `The last line. Joyful echo of the opening. Concrete and specific, not abstract. Beautiful, warm, celebratory. A parent should want to read it twice.`, wordTarget: 15 },
+      { spread: 1, beat: 'OPENING', description: `Open OUT IN THE WORLD — NOT at home. Place ${child.name} and ${parentName} in a specific non-home location (park, workshop doorway, garden gate, path to a favorite spot, stream, backyard mid-project). Mid-action, vivid, particular.`, wordTarget: 30 },
+      { spread: 2, beat: 'TOGETHERNESS', description: `Soft hint: a moment showing how they work together. Use child's anecdote.`, wordTarget: 30 },
+      { spread: 3, beat: 'RITUAL', description: `Soft hint: something only THIS pair does — a funny handshake, ${parentName}'s signature move, a shared joke from the questionnaire.`, wordTarget: 30 },
+      { spread: 4, beat: 'RISING', description: `Soft hint: the activity deepens or a new place opens up. Anticipation and excitement build.`, wordTarget: 28 },
+      { spread: 5, beat: 'PARENT_SHINES', description: `Soft hint: ${parentName} does something that amazes ${child.name} — a skill, strength, gentleness. The hero beat.`, wordTarget: 28 },
+      { spread: 6, beat: 'LAUGHTER', description: `Soft hint: a funny or playful beat — physical comedy, stick swords, something sideways.`, wordTarget: 28 },
+      { spread: 7, beat: 'BREATH', description: `Soft hint: a quieter beat — side-by-side, watching, a teaching moment.`, wordTarget: 25 },
+      { spread: 8, beat: 'BIG_MOMENT', description: `Soft hint: the payoff — a destination reached or project nearly finished. Use meaningful_moment from questionnaire.`, wordTarget: 25 },
+      { spread: 9, beat: 'PEAK_JOY', description: `Soft hint: triumph. High-five, victory dance, the big reveal. Maximum energy. Physical, specific.`, wordTarget: 25 },
+      { spread: 10, beat: 'CHILD_LEADS', description: `Soft hint: ${child.name} surprises or impresses ${parentName} — shows what they learned, takes a turn, makes a gift. Warm role reversal.`, wordTarget: 25 },
+      { spread: 11, beat: 'BOND', description: `Soft hint: a shared look, a word, a gesture. Emotional high point — deeper, not louder.`, wordTarget: 25 },
+      { spread: 12, beat: 'RESOLUTION_1', description: `Invent this beat. NOT a generic "journey home" / "heading home" / "walking home" shot (banned formula). A still moment at wherever they are, the finished project admired in place, a shared look, a kept token.`, wordTarget: 20 },
+      { spread: 13, beat: 'CLOSING', description: `The last line. Invent a concrete, specific closing image for THIS story. Beautiful, warm, awake. NO "heading home" formula.`, wordTarget: 15 },
     ];
   }
 
@@ -345,19 +337,19 @@ class FathersDayWriter extends BaseThemeWriter {
     const anecdoteText = this._formatAnecdotes(child.anecdotes);
     if (!anecdoteText) return beats;
 
-    const systemPrompt = `You are a children's book story planner specializing in Father's Day picture books. Your job is to weave specific, real details about this child into the story beat structure.
+    const systemPrompt = `You are a children's book story planner specializing in Father's Day picture books. Your job is to weave specific, real details about this child into the story beats.
 
-NARRATIVE STRUCTURE (CRITICAL):
-- The beats are organized into 4 SCENES (Home, Adventure, Peak, Heading Home). Keep this structure intact.
-- Consecutive beats within a scene MUST share the same location. Do NOT jump between unrelated places.
-- A 3-year-old listener must be able to follow every transition between beats.
+NARRATIVE SHAPE:
+- The beats below are SOFT INSPIRATION, not a rigid scene template. The writer will be told to invent the arc.
+- There is NO prescribed Scene A / Scene B / Scene C / Scene D. Do NOT add scene labels or force a "home → adventure → peak → heading home" shape.
+- The story must NOT open at home. The closing must NOT default to a "walking home" / "heading home" / "back at home" formula.
+- A 3-year-old listener must still be able to follow every transition between beats.
 
 RULES:
-- Keep every beat's purpose and SCENE grouping intact
+- Keep the overall beat count. You may adjust any beat's description freely.
 - Replace generic placeholders with specific anecdotes from the child's real life
 - Use concrete nouns and actions, never abstract claims
-- The anecdotes should feel natural in the story, not forced in
-- When enriching, keep beats within the same scene connected to each other`;
+- The anecdotes should feel natural in the story, not forced in`;
 
     const userPrompt = `Here are the story beats for a ${ageTier} Father's Day book about ${child.name} (age ${child.age}) and ${parentName}:
 
@@ -433,7 +425,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     if (plan.plotSynopsis) {
       sections.push(`\n## PLOT CONCEPT\n`);
       sections.push(plan.plotSynopsis);
-      sections.push('\nFollow this specific story arc. The beat structure below gives you the scene-by-scene breakdown — lean into THIS plot, not a generic version of the theme.');
+      sections.push('\nUse this as the creative seed of the story — lean into THIS plot. The spread-by-spread shape is yours to invent (see INVENTED ARC below).');
     }
 
     sections.push(`\n## STORY PLAN\n`);
@@ -465,10 +457,16 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Suggested refrains (you may create your own):`);
     plan.refrain.suggestions.forEach(s => sections.push(`- "${s}"`));
 
-    sections.push(`\n## BEAT STRUCTURE\n`);
-    sections.push(`Write exactly ${plan.spreadCount.target} spreads following this structure:\n`);
+    sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
+    sections.push(`Write exactly ${plan.spreadCount.target} spreads. The beat sketches below are STARTING INSPIRATION only — you are expected to shape the arc yourself so it serves THIS child, THIS father, THESE anecdotes. Keep what helps, replace what doesn't. The only HARD constraints on shape are:`);
+    sections.push(`- Spread 1 must open OUT IN THE WORLD, in a specific non-home setting.`);
+    sections.push(`- The final spreads must land a warm, concrete image YOU invent — not a formulaic "walking home", "heading home", or "back at home" shot.`);
+    sections.push(`- There is NO prescribed Scene A / Scene B / Scene C / Scene D. Decide where tension builds, where the peak sits, and how the story resolves.`);
+    sections.push(`- Anecdote-assignment rules (if any) below are the only per-spread mandates.\n`);
+    sections.push(`Sketches:`);
     plan.beats.forEach(b => {
-      sections.push(`Spread ${b.spread} (${b.beat}): ${b.description} [~${b.wordTarget} words]`);
+      const desc = this._sanitizeBeatDescription(b.description);
+      sections.push(`Spread ${b.spread} (${b.beat}): ${desc} [~${b.wordTarget} words]`);
     });
 
     if (plan.manifest && plan.manifest.length > 0) {
@@ -485,11 +483,10 @@ Refine each beat description to incorporate specific details from the anecdotes.
     }
 
     sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);
-    sections.push(`- The beats are organized into 4 SCENES: Home (1-3), Adventure (4-7), Peak (8-11), Heading Home (12-13).`);
-    sections.push(`- Within each scene, the characters stay in the SAME PLACE. Do NOT jump to a new location within a scene.`);
-    sections.push(`- Scene transitions (3→4, 7→8, 11→12) must show the characters MOVING. The reader must know WHERE they are.`);
-    sections.push(`- This story has ONE through-line: ${child.name} and ${parentName} do something together. Every spread connects to this adventure.`);
-    sections.push(`- Do NOT write a slideshow of unrelated activities. Each spread flows from the one before it.`);
+    sections.push(`- Whatever arc you invent, each spread must connect to the one before it. No slideshow of unrelated activities.`);
+    sections.push(`- Group spreads that share a location or emotional space. Do NOT jump to a new location without narrating the transition.`);
+    sections.push(`- This story has ONE through-line: ${child.name} and ${parentName} together. Every spread connects to that bond.`);
+    sections.push(`- Keep the story concretely grounded in 1-4 distinct physical places across the 13 spreads. Staying in one vivid place is acceptable; hopscotching through 8 locations is not.`);
     sections.push(`- CLARITY: Every image and metaphor must be literal enough for a 3-year-old to picture. If you mix imagination and reality, signal the shift clearly.`);
 
     sections.push(`\n## CRITICAL REMINDERS\n`);

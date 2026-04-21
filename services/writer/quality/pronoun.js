@@ -9,10 +9,22 @@ const {
   buildPronounInstruction,
   checkPronounConsistency,
   simpleReplace,
+  findPossessivePronounErrors,
+  fixPossessivePronounErrors,
 } = require('../../pronouns');
 
 /**
  * Check all spreads for pronoun consistency and fix any issues.
+ *
+ * Fixes two classes of error:
+ *   (a) wrong-gender pronouns (e.g. "she" for a boy) — handled by
+ *       checkPronounConsistency + simpleReplace.
+ *   (b) object-for-possessive grammar (e.g. "him hair" → "his hair") —
+ *       handled by findPossessivePronounErrors + fixPossessivePronounErrors.
+ *       This runs for ALL genders because `simpleReplace` for male children
+ *       converts "her" → "him" (both spellings collapse) and can itself
+ *       produce "him hair" that we must repair downstream.
+ *
  * @param {Array<{ text: string }>} spreads
  * @param {string} gender - 'female', 'male', or 'neutral'
  * @returns {{ fixed: boolean, issues: Array<object> }}
@@ -27,6 +39,20 @@ function checkAndFixPronouns(spreads, gender) {
     if (!check.valid) {
       allIssues.push(...check.issues);
       spread.text = simpleReplace(spread.text, gender);
+      fixed = true;
+    }
+    const possessiveErrors = findPossessivePronounErrors(spread.text);
+    if (possessiveErrors.length > 0) {
+      for (const e of possessiveErrors) {
+        allIssues.push({
+          pronoun: e.pronoun,
+          type: 'object-as-possessive',
+          position: e.position,
+          context: e.context,
+          suggested: `his ${e.noun}`,
+        });
+      }
+      spread.text = fixPossessivePronounErrors(spread.text);
       fixed = true;
     }
   }

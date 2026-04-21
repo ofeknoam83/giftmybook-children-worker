@@ -176,6 +176,63 @@ class BaseThemeWriter {
   }
 
   /**
+   * Strip banned "heading home" / "walking home" formulas out of a beat
+   * description before it is rendered into the writer prompt. Legacy plot
+   * templates were built around a "Scene D = walk home" ending — we now
+   * let the LLM invent the final beat, so these phrases would leak through
+   * as an explicit instruction if we didn't scrub them.
+   *
+   * Keeps the rest of the description intact. If the description collapses
+   * to nothing meaningful, returns a generic "invent this beat" placeholder.
+   *
+   * @param {string} desc
+   * @returns {string}
+   */
+  _sanitizeBeatDescription(desc) {
+    if (!desc || typeof desc !== 'string') return desc;
+
+    // Patterns that make an entire sentence "heading-home formula". If any one
+    // of these matches a sentence, that whole sentence is dropped.
+    const bannedSentencePatterns = [
+      /\bheading home\b/i,
+      /\bwalking home\b/i,
+      /\bwalk home\b/i,
+      /\bwalks? home\b/i,
+      /\bwalked home\b/i,
+      /\bstroll(?:s|ed|ing)? home\b/i,
+      /\btrudg(?:e|es|ed|ing) home\b/i,
+      /\bsquelch(?:es|ed|ing) home\b/i,
+      /\bsprint(?:s|ed|ing) home\b/i,
+      /\bhurry(?:ing)? home\b/i,
+      /\bcarr(?:y|ies|ied|ying)\b[^.!?;]*?\bhome\b/i,
+      /\bback (?:at|to|toward|towards) home\b/i,
+      /\bback home\b/i,
+      /\bnear home\b/i,
+      /\bhomeward\b/i,
+      /\breturning home\b/i,
+      /\bthe (?:journey|walk|path|road|way) home\b/i,
+      /\bpoints? back home\b/i,
+      /\bturns? (?:back )?toward(?:s)? home\b/i,
+    ];
+
+    // Split on sentence terminators while keeping them attached.
+    const sentences = desc.match(/[^.!?]+[.!?]+|\s*[^.!?]+$/g) || [desc];
+    const kept = sentences.filter(s => {
+      const trimmed = s.trim();
+      if (!trimmed) return false;
+      return !bannedSentencePatterns.some(rx => rx.test(trimmed));
+    });
+
+    let out = kept.join(' ').replace(/\s{2,}/g, ' ').replace(/\s+([.,;!?])/g, '$1').trim();
+
+    // If nothing meaningful survived, fall back to a neutral "invent it" note.
+    if (!out || out.length < 12) {
+      return `Invent this beat — let the arc you're building dictate what happens. NOT a "heading home" / "walking home" shot.`;
+    }
+    return out;
+  }
+
+  /**
    * Get age tier name based on child's age.
    * Two tiers: young-picture (0-3) and picture-book (4-6).
    * Both produce 13-spread books; tier affects vocabulary, not structure.

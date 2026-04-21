@@ -1,10 +1,22 @@
 /**
- * QualityGate — a single LLM call is the sole arbiter of story quality.
+ * QualityGate — an LLM editor is the arbiter of story quality, with one
+ * narrow deterministic veto on top.
  *
- * Everything is delegated to a children's-book-editor LLM prompt. No
- * deterministic substring matching, keyword counting, or regex — those
- * produced false positives (euphemism "Pffft" vs. literal "fart") and
- * false negatives that sent the writer into pointless revision loops.
+ * Most judgement is delegated to a children's-book-editor LLM prompt.
+ * Deterministic substring / keyword checks were avoided for nuanced
+ * dimensions (e.g. anecdote presence, where euphemisms like "Pffft" land
+ * "fart") because they caused false positives and sent the writer into
+ * pointless revision loops.
+ *
+ * BUT — object-for-possessive pronoun errors ("him hair", "him arm",
+ * "he toes") are a documented ship-blocker with ZERO false-positive risk
+ * (every noun on the whitelist only takes a possessive in that position).
+ * PRE-SCAN B in the critic prompt is supposed to catch these, but the
+ * LLM critic has repeatedly missed them. So after the LLM scores the book
+ * we run a narrow regex over every spread and, if ANY possessive error is
+ * found, we hard-override the ship decision, clamp the pronouns score, and
+ * inject explicit per-spread feedback so the reviser knows exactly which
+ * lines to fix. This is the ONLY deterministic check in the gate.
  *
  * The critic returns:
  *   { pass, scores: { ...dimensions }, overallScore, issues: [{ ... }], feedback }
@@ -25,6 +37,7 @@
 
 const { WRITER_CONFIG } = require('../config');
 const { BaseThemeWriter } = require('../themes/base');
+const { findPossessivePronounErrors } = require('../../pronouns');
 
 const _llm = new BaseThemeWriter('_quality_gate');
 
@@ -74,16 +87,56 @@ class QualityGate {
     }
 
     const scores = QualityGate._clampScores(parsed.scores || {});
+    const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
+
+    // Deterministic veto: object-for-possessive pronoun errors ("him hair",
+    // "him arm", "he toes", etc.). PRE-SCAN B in the critic prompt is
+    // supposed to catch these, but the LLM critic has repeatedly let them
+    // ship — and they are a documented ship-blocker with zero false-positive
+    // risk (every whitelisted noun only takes a possessive in that position).
+    // We re-introduce a narrow regex check here as a hard override so the
+    // book CANNOT ship with "him hair" in it, and we inject explicit
+    // per-spread feedback so the reviser knows exactly which lines to fix.
+    const possessiveErrors = [];
+    for (const s of spreads) {
+      const errs = findPossessivePronounErrors(s?.text || '');
+      for (const e of errs) possessiveErrors.push({ spread: s.spread, ...e });
+    }
+    let vetoFeedback = '';
+    if (possessiveErrors.length > 0) {
+      scores.pronouns = Math.min(scores.pronouns || 3, 3);
+      for (const e of possessiveErrors) {
+        issues.push({
+          dimension: 'pronouns',
+          spread: e.spread,
+          note: `Object pronoun used as possessive: "${e.match}" — write "his ${e.noun}" (possessive), not "${e.pronoun} ${e.noun}".`,
+        });
+      }
+      const errorLines = possessiveErrors
+        .map(e => `  - Spread ${e.spread}: "${e.match}" → use "his ${e.noun}" (…${e.context.trim()}…)`)
+        .join('\n');
+      vetoFeedback =
+        'HARD FAIL — object pronoun used in possessive position (ship-blocker per PRE-SCAN B). '
+        + 'Fix EVERY instance below before re-submitting:\n'
+        + errorLines;
+    }
+
     const values = Object.values(scores);
     const overallScore = values.length
       ? values.reduce((a, b) => a + b, 0) / values.length
       : 0;
 
-    const pass = parsed.ship === true || parsed.pass === true;
-    const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
-    const feedback = typeof parsed.feedback === 'string' && parsed.feedback.trim()
+    const llmPass = parsed.ship === true || parsed.pass === true;
+    const pass = llmPass && possessiveErrors.length === 0;
+
+    let feedback = typeof parsed.feedback === 'string' && parsed.feedback.trim()
       ? parsed.feedback.trim()
       : QualityGate._synthesizeFeedback(issues);
+    if (vetoFeedback) {
+      feedback = feedback
+        ? `${vetoFeedback}\n\nAdditional editor notes:\n${feedback}`
+        : vetoFeedback;
+    }
 
     return {
       pass,
@@ -180,7 +233,16 @@ PRE-SCAN J — Ending rhyme & final-line image
     - The FINAL line must be a concrete image the illustrator can draw (a hug, a spin, toast on the table, a child tucked into bed for bedtime themes), not an abstract or vague phrase ("grin for more", "love so true", "feels so right").
   → On violation add an entry with dimension="endingAppropriateness" and force that score to ≤ 4.
 
-If any of A, B, C, D, E, F, G, H, I, or J find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change.
+PRE-SCAN K — Opening location (no home-openings allowed)
+  Inspect SPREAD 1 and decide whether the action is set AT HOME. Flags include: waking up in bed; in a bedroom; at the kitchen table / on a rug / in the living room / on the sofa / in the playroom; mother/father pouring breakfast; laundry, crib, cot, night light, pajamas at start-of-day.
+  Non-home openings are required: park, splash pad, meadow, beach, tidepool, bakery, market, garden, garden gate, forest path, bus stop, swim lesson, stroller walk, farmer's market, etc.
+  → If spread 1 opens at home, add an entry with dimension="narrativeCoherence", spread=1, note="Story opens at home — home openings are banned; rewrite spread 1 to start in a vivid non-home setting", and force narrativeCoherence score to ≤ 4. The feedback MUST tell the reviser to pick a specific non-home setting (suggest one) and rewrite the opening spreads there, keeping the rest of the arc intact.
+
+PRE-SCAN L — Closing must not default to "heading home"
+  Inspect the FINAL 2 spreads. A closing that is literally a journey-home shot ("they head home", "walking home", "back at home", "the long walk back") is a banned formula. The closing should be a specific image invented for THIS story — a moment at wherever the story ended up, a quiet shared gesture, a final found detail, etc. A return to home IS allowed if the story organically lives there, but the narration must not reduce the closing to a generic "heading home" transition beat.
+  → If the final spreads are dominated by a "heading home" / "walking home" / "back at home" formula, add an entry with dimension="endingAppropriateness", note="Closing defaults to a formulaic 'heading home' shot — invent a specific, concrete final image rooted in this story's own setting", and force endingAppropriateness to ≤ 4.
+
+If any of A, B, C, D, E, F, G, H, I, J, K, or L find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change.
 
 ## RATING DIMENSIONS
 

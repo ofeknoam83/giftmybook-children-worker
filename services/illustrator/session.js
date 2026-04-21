@@ -45,7 +45,11 @@ function pickSessionApiKey() {
  * @param {string} opts.coverMime - MIME type of cover
  * @param {string} [opts.childPhotoBase64] - Original uploaded child photo
  * @param {string} [opts.childPhotoMime] - MIME type of photo
- * @param {boolean} opts.hasParentOnCover - Whether parent is on the approved cover
+ * @param {boolean} opts.hasParentOnCover - Whether the themed parent (a woman
+ *   for mother's day, a man for father's day) is actually on the cover.
+ *   A sibling or grandparent on the cover does NOT count as the parent.
+ * @param {boolean} [opts.hasSecondaryOnCover] - Whether ANY non-child person is
+ *   on the cover. Independent of hasParentOnCover.
  * @param {string} [opts.additionalCoverCharacters] - Description of secondary chars
  * @param {string} [opts.theme] - Book theme
  * @returns {object} Session object
@@ -57,6 +61,7 @@ function createSession(opts) {
   const systemInstruction = buildSystemInstruction({
     style: opts.style,
     hasParentOnCover: opts.hasParentOnCover,
+    hasSecondaryOnCover: opts.hasSecondaryOnCover,
     theme: opts.theme,
     parentOutfit: opts.parentOutfit,
   });
@@ -114,17 +119,29 @@ async function establishCharacterReferences(session) {
     });
   }
 
-  // Parent visibility note
-  const { hasParentOnCover, additionalCoverCharacters, theme } = session.opts;
-  if (hasParentOnCover || additionalCoverCharacters) {
-    parts.push({
-      text: 'NOTE: The parent/secondary character visible on the cover should appear in scenes where mentioned. They must match their cover appearance exactly in every spread.',
-    });
-  } else if (theme === 'mothers_day' || theme === 'fathers_day') {
+  // Parent / secondary visibility notes — composed additively.
+  const { hasParentOnCover, hasSecondaryOnCover, additionalCoverCharacters, theme } = session.opts;
+  const isParentTheme = theme === 'mothers_day' || theme === 'fathers_day';
+  const secondaryOnCover = (typeof hasSecondaryOnCover === 'boolean') ? hasSecondaryOnCover : !!additionalCoverCharacters;
+
+  // Universal lock: any non-child on the cover (parent or otherwise, any
+  // theme) must appear identical to their cover appearance on every spread.
+  if (secondaryOnCover) {
+    let note = 'NOTE: Every non-child character visible on this cover must appear in illustrations EXACTLY as shown on the cover — same face, hair, skin tone, outfit, build. This rule applies to each of them individually.';
+    if (hasParentOnCover) {
+      note += ' The themed parent IS among these cover characters and falls under this same lock.';
+    } else if (isParentTheme) {
+      const isMother = theme === 'mothers_day';
+      note += ` IMPORTANT: The person visible on the cover is NOT the ${isMother ? 'mother' : 'father'} — they are a sibling, grandparent, or friend. Do NOT treat them as the parent.`;
+    }
+    parts.push({ text: note });
+  }
+
+  if (!hasParentOnCover && isParentTheme) {
     const isMother = theme === 'mothers_day';
     const parentLabel = isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)';
     const parentOutfit = session.opts.parentOutfit;
-    let note = `NOTE: The story references the child's ${parentLabel} but they are NOT on the cover. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER show the parent facing away or with their back to the child. FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin, hair color, and ethnicity MUST match the child in the reference photo — same skin tone, same hair-color family, same ethnicity. Never invent a different ethnicity for the parent.`;
+    let note = `NOTE: The story references the child's ${parentLabel} but the ${isMother ? 'mother' : 'father'} is NOT on the cover${secondaryOnCover ? ` (the character visible on the cover is a different person — a sibling, grandparent, or friend, NOT the ${isMother ? 'mother' : 'father'})` : ''}. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER show the parent facing away or with their back to the child. FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin, hair color, and ethnicity MUST match the child in the reference photo — same skin tone, same hair-color family, same ethnicity. Never invent a different ethnicity for the parent.`;
     if (parentOutfit) {
       note += ` PARENT OUTFIT LOCK: The ${isMother ? 'mother' : 'father'} wears EXACTLY this outfit in every illustration: ${parentOutfit}`;
     }

@@ -13,7 +13,11 @@ const { ART_STYLE_CONFIG, PARENT_THEMES, TEXT_RULES } = require('../config');
  *
  * @param {object} opts
  * @param {string} opts.style - Art style key
- * @param {boolean} opts.hasParentOnCover - Whether parent appears on the approved cover
+ * @param {boolean} opts.hasParentOnCover - Whether the themed parent (a woman
+ *   for mother's day, a man for father's day) appears on the approved cover.
+ *   A sibling/grandparent/friend on the cover does NOT count as the parent.
+ * @param {boolean} [opts.hasSecondaryOnCover] - Whether ANY non-child person
+ *   appears on the cover (independent of hasParentOnCover).
  * @param {string} [opts.theme] - Book theme (mothers_day, fathers_day, etc.)
  * @returns {string}
  */
@@ -78,18 +82,37 @@ function buildSystemInstruction(opts) {
   parts.push('- COLOR VARIETY: Even if the scene mentions a favorite color, the illustration should have a natural, varied palette. Do NOT flood the entire scene with one color. A pink dress is fine; an all-pink world is not.');
   parts.push('');
 
-  // Parent visibility
-  if (opts.hasParentOnCover) {
-    parts.push('PARENT CHARACTER:');
-    parts.push('- A parent appears on the approved cover and MAY appear in illustrations');
-    parts.push('- The parent must look IDENTICAL to their cover appearance in every spread');
-    parts.push('- Same face, hair, skin tone, outfit as on the cover');
+  // Parent / secondary visibility — rules compose additively.
+  const isParentTheme = opts.theme && PARENT_THEMES.has(opts.theme);
+  const hasSecondaryOnCover = (typeof opts.hasSecondaryOnCover === 'boolean')
+    ? opts.hasSecondaryOnCover
+    : !!opts.hasParentOnCover;
+
+  // Universal rule: any non-child on the cover must be locked to their cover
+  // appearance. Applies to every theme, whether or not the themed parent is
+  // among them.
+  if (hasSecondaryOnCover) {
+    parts.push('SECONDARY CHARACTERS ON COVER (LOCKED — APPLIES TO EVERY NON-CHILD ON THE COVER):');
+    parts.push('- Every non-child character visible on the approved cover must appear in illustrations EXACTLY as shown on the cover.');
+    parts.push('- Each of them, individually: same face shape, hair color/length/style, skin tone, outfit, build, distinguishing features. No variations across pages.');
+    if (isParentTheme && !opts.hasParentOnCover) {
+      const isMother = opts.theme === 'mothers_day';
+      parts.push(`- IMPORTANT: The person visible on the cover is NOT the ${isMother ? 'mother' : 'father'}. They are a different character (sibling, grandparent, friend). Do NOT treat them as the parent.`);
+    }
+    if (opts.hasParentOnCover) {
+      parts.push('- The themed parent IS among the cover characters and falls under this same lock — they appear in scenes where mentioned and must look identical to their cover appearance.');
+    }
     parts.push('');
-  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
+  }
+
+  if (!opts.hasParentOnCover && isParentTheme) {
     const isMother = opts.theme === 'mothers_day';
     const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
     const parentPronoun = isMother ? 'her' : 'his';
     parts.push(`⚠️ PARENT CHARACTER — ${parentLabel} (FACE COMPLETELY HIDDEN — #1 RULE):`);
+    if (hasSecondaryOnCover) {
+      parts.push(`- The person visible on the cover is NOT the ${isMother ? 'mother' : 'father'}. The ${isMother ? 'mother' : 'father'} is a SEPARATE character who has NO reference image.`);
+    }
     parts.push(`- The story references the child's ${isMother ? 'mother' : 'father'} but we have NO reference image`);
     parts.push(`- The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}`);
     parts.push(`- THE PARENT'S FACE MUST NEVER BE VISIBLE IN ANY ILLUSTRATION. No eyes, no mouth, no nose, no facial features. This is because we have no photo — showing a face would make it look different on every page.`);
@@ -102,7 +125,7 @@ function buildSystemInstruction(opts) {
       parts.push(`- Do NOT change the parent's outfit for any reason. Same garments, same colors, every single page.`);
     }
     parts.push('');
-  } else {
+  } else if (!opts.hasParentOnCover && !hasSecondaryOnCover && !isParentTheme) {
     parts.push('NO FAMILY MEMBERS (ABSOLUTE — NO EXCEPTIONS):');
     parts.push('- Do NOT draw any real human characters besides the child — no parents, grandparents, siblings, aunts, uncles, or any other family members.');
     parts.push('- This rule applies EVEN IF the story text mentions a family member by name. We have NO reference image for them, so drawing them would produce inconsistent faces across pages.');

@@ -47,6 +47,7 @@ class IllustratorEngine {
       bookContext,
       theme,
       additionalCoverCharacters,
+      coverParentPresent,
       costTracker,
     } = input;
 
@@ -56,9 +57,16 @@ class IllustratorEngine {
     log('info', `Illustrator V2 (${version.illustratorVersion}) starting for book ${bookId}`);
     const pipelineStart = Date.now();
 
-    // Determine parent visibility
-    const hasParentOnCover = !!(additionalCoverCharacters);
     const isParentTheme = theme && PARENT_THEMES.has(theme);
+    // Whether the themed parent is actually depicted on the chosen cover.
+    // For parent themes (mother's/father's day), we require the cover vision
+    // step to have detected a person of the parent's gender — a sibling or
+    // grandparent on a mother's-day cover does NOT count as "mom on cover".
+    // For non-parent themes, any secondary on the cover counts (legacy behavior).
+    const hasParentOnCover = isParentTheme
+      ? coverParentPresent === true
+      : !!additionalCoverCharacters;
+    const hasSecondaryOnCover = !!additionalCoverCharacters;
     const parentOutfit = storyPlan?.parentOutfit || null;
 
     // ── Step 1: Session Setup ──
@@ -73,6 +81,7 @@ class IllustratorEngine {
         childPhotoBase64,
         childPhotoMime: childPhotoMime || 'image/jpeg',
         hasParentOnCover,
+        hasSecondaryOnCover,
         additionalCoverCharacters,
         theme,
         parentOutfit,
@@ -170,6 +179,7 @@ class IllustratorEngine {
           leftText,
           rightText,
           hasParentOnCover,
+          hasSecondaryOnCover,
           additionalCoverCharacters,
           theme,
           style,
@@ -395,6 +405,7 @@ ${prompt}`;
                 childPhotoMime: childPhotoMime || 'image/jpeg',
                 theme,
                 additionalCoverCharacters,
+                coverParentPresent,
                 parentOutfit,
                 spreadIndex: i,
                 totalSpreads: spreadEntries.length,
@@ -506,6 +517,7 @@ ${buildSpreadPrompt({
   leftText: spreadEntry.leftText,
   rightText: spreadEntry.rightText,
   hasParentOnCover,
+  hasSecondaryOnCover,
   additionalCoverCharacters,
   theme,
   style,
@@ -574,6 +586,7 @@ ${buildSpreadPrompt({
       childPhotoMime = 'image/jpeg',
       theme,
       additionalCoverCharacters,
+      coverParentPresent,
       parentOutfit,
       spreadIndex = 0,
       totalSpreads = 13,
@@ -582,8 +595,15 @@ ${buildSpreadPrompt({
     } = input;
 
     const log = (level, msg) => console.log(`[illustrator/singleSpread] [${level}] ${msg}`);
-    const hasParentOnCover = !!(additionalCoverCharacters);
     const isParentTheme = theme && PARENT_THEMES.has(theme);
+    // For parent themes, "parent on cover" requires a person of the parent's
+    // gender (set by the cover vision step in server.js). A sibling or
+    // grandparent on the cover does NOT count as the parent being present.
+    // For non-parent themes, any secondary on the cover counts (legacy behavior).
+    const hasParentOnCover = isParentTheme
+      ? coverParentPresent === true
+      : !!additionalCoverCharacters;
+    const hasSecondaryOnCover = !!additionalCoverCharacters;
 
     // 1. Create session
     const session = createSession({
@@ -593,6 +613,7 @@ ${buildSpreadPrompt({
       childPhotoBase64: childPhotoBase64 || null,
       childPhotoMime,
       hasParentOnCover,
+      hasSecondaryOnCover,
       additionalCoverCharacters,
       theme,
       parentOutfit,
@@ -628,6 +649,7 @@ ${buildSpreadPrompt({
       leftText: leftText || spreadText,
       rightText: rightText || null,
       hasParentOnCover,
+      hasSecondaryOnCover,
       additionalCoverCharacters,
       theme,
       style,

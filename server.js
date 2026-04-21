@@ -402,6 +402,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       bookContext,
       theme,
       additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
+      coverParentPresent: storyPlan.coverParentPresent === true,
       costTracker,
     });
   }
@@ -1565,6 +1566,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           // Detect additional characters on cover (parent, grandparent, sibling, etc.)
           // Illustrator V2 sees the cover image directly for style/outfit/appearance,
           // but we still need to know if a secondary character is present for parent visibility logic.
+          //
+          // We also ask for each secondary's apparent gender/age so that for parent-themed
+          // books we can tell whether the parent (a woman for mother's day, a man for
+          // father's day) is actually depicted on the cover — vs. e.g. a sibling or
+          // grandparent who happens to be on the cover but is NOT the parent.
           try {
             const { getNextApiKey } = require('./services/illustrationGenerator');
             const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
@@ -1575,7 +1581,18 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ role: 'user', parts: [
-                    { text: `Look at this children's book cover. Are there any characters visible BESIDES the main child? If yes, for each one write:\n- [relationship if apparent, e.g. grandmother/elderly woman/adult man]: [brief appearance description — hair, skin, clothing, distinguishing features]\n\nIf the main child is the ONLY character, respond with exactly: NONE` },
+                    { text: `Look at this children's book cover. Are there any characters visible BESIDES the main child?
+
+If yes, for EACH non-child character, write ONE line in this exact format:
+- [relationship if apparent, e.g. grandmother/elderly woman/adult man/teen boy]: gender=[woman|man|boy|girl|unclear]; age=[adult|teen|child|elderly]; [brief appearance — hair, skin, clothing, distinguishing features]
+
+Rules for gender:
+- "woman" = adult female (any age 18+, including elderly).
+- "man" = adult male (any age 18+, including elderly).
+- "boy"/"girl" = a child or young teen.
+- "unclear" = genuinely ambiguous (back view, heavily obscured, androgynous).
+
+If the main child is the ONLY character, respond with exactly: NONE` },
                     { inline_data: { mime_type: 'image/jpeg', data: coverForIllustratorBase64 } },
                   ]}],
                   generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
@@ -1589,9 +1606,29 @@ Be concise. Only describe adults/secondary people, not the main child.` },
               const isNone = !addlText || /^none[.!]?$/i.test(addlText.trim()) || addlText.trim().length <= 5;
               if (addlText && !isNone) {
                 storyPlan.additionalCoverCharacters = addlText;
-                bookContext.log('info', 'Additional cover characters detected', { characters: addlText.slice(0, 300) });
+                // Classify detected secondaries by apparent gender so we can tell
+                // whether the themed parent is actually depicted on the cover.
+                const hasWoman = /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText);
+                const hasMan = /gender\s*=\s*man\b/i.test(addlText) || /\badult\s+(?:man|male)\b/i.test(addlText);
+                if (theme === 'mothers_day') {
+                  storyPlan.coverParentPresent = hasWoman;
+                } else if (theme === 'fathers_day') {
+                  storyPlan.coverParentPresent = hasMan;
+                } else {
+                  storyPlan.coverParentPresent = true;
+                }
+                bookContext.log('info', 'Additional cover characters detected', {
+                  characters: addlText.slice(0, 300),
+                  hasWoman, hasMan,
+                  coverParentPresent: storyPlan.coverParentPresent,
+                  theme,
+                });
+                if (PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
+                  bookContext.log('info', `Parent theme cover has a secondary character but NOT the ${theme === 'mothers_day' ? 'mother' : 'father'} — treating cover as "parent not depicted" while still locking the secondary's appearance in illustrations.`);
+                }
               } else {
                 storyPlan.additionalCoverCharacters = null;
+                storyPlan.coverParentPresent = false;
                 bookContext.log('info', 'No additional cover characters detected');
               }
             }
@@ -1605,20 +1642,20 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
       }
 
-      // ── Fix: For parent themes, if the cover does NOT contain the parent,
-      // ignore photo-detected secondary characters. The photo scan may have detected
-      // an adult's hand/arm in the child photo, but that should NOT override
-      // the implied-presence path when the parent is not on the chosen cover.
-      if (PARENT_THEMES.has(theme) && !storyPlan.additionalCoverCharacters) {
-        // Safety net: clear any lingering secondary character references for parent themes
+      // ── Fix: For parent themes, if the cover does NOT contain the parent
+      // (i.e. no woman for mother's day / no man for father's day), ignore
+      // photo-detected secondary characters AND any lingering
+      // secondaryCharacterDescription. The photo scan may have detected an
+      // adult's hand/arm in the child photo, and the cover may show a sibling
+      // or grandparent — but that should NOT override the implied-presence
+      // path when the parent themselves is not on the chosen cover.
+      if (PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
         if (detectedSecondaryCharacters) {
-          bookContext.log('info', 'Parent theme without cover parent — clearing residual detectedSecondaryCharacters', { was: detectedSecondaryCharacters.slice(0, 100) });
+          bookContext.log('info', 'Parent theme without parent-on-cover — clearing residual detectedSecondaryCharacters', { was: detectedSecondaryCharacters.slice(0, 100) });
           detectedSecondaryCharacters = null;
         }
-        // Also clear secondaryCharacterDescription if the story planner generated one—
-        // this would cause the illustration system to draw the parent explicitly
         if (storyPlan.secondaryCharacterDescription) {
-          bookContext.log('info', 'Parent theme without cover parent — clearing storyPlan.secondaryCharacterDescription (parent must not be drawn explicitly)', { was: storyPlan.secondaryCharacterDescription.slice(0, 100) });
+          bookContext.log('info', 'Parent theme without parent-on-cover — clearing storyPlan.secondaryCharacterDescription (parent must not be drawn explicitly)', { was: storyPlan.secondaryCharacterDescription.slice(0, 100) });
           storyPlan.secondaryCharacterDescription = null;
         }
       }
@@ -1811,9 +1848,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
         }
 
-        // Safety: For parent themes, ensure photo-detected characters don't override implied presence
-        // This catches cases where cover analysis didn't run (no approved cover yet)
-        if (PARENT_THEMES.has(theme) && !storyPlan.additionalCoverCharacters) {
+        // Safety: For parent themes, ensure photo-detected characters don't override implied presence.
+        // This catches cases where cover analysis didn't run (no approved cover yet) AND the case
+        // where the cover has a non-parent secondary (e.g. sibling on a mother's-day cover).
+        if (PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
           if (detectedSecondaryCharacters) {
             bookContext.log('info', 'Pre-illustration safety: nullifying photo-detected secondary chars for parent theme implied presence');
             detectedSecondaryCharacters = null;
@@ -1941,7 +1979,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
               characterDescription: storyPlan?.characterDescription || null,
               characterAnchor: storyPlan?.characterAnchor || null,
               theme: theme || null,
-              momDescription: (theme === 'mothers_day' && storyPlan?.additionalCoverCharacters) ? storyPlan.additionalCoverCharacters : null,
+              momDescription: (theme === 'mothers_day' && storyPlan?.coverParentPresent && storyPlan?.additionalCoverCharacters) ? storyPlan.additionalCoverCharacters : null,
             }).catch(e => {
               console.warn(`[server] Upsell covers background error: ${e.message}`);
               return [];
@@ -2049,7 +2087,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           try {
             bookContext.log('info', 'Generating upsell covers (4 styles)...');
             const upsellCostTracker = new CostTracker();
-            const parentDescription = ((theme === 'mothers_day' || theme === 'fathers_day') && storyPlan?.additionalCoverCharacters)
+            const parentDescription = ((theme === 'mothers_day' || theme === 'fathers_day') && storyPlan?.coverParentPresent && storyPlan?.additionalCoverCharacters)
               ? storyPlan.additionalCoverCharacters : null;
             const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
               apiKeys, costTracker: upsellCostTracker,
@@ -2344,7 +2382,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 // Called by admin "regenerate illustration" button.
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
-    additionalCoverCharacters, totalSpreads, theme, parentOutfit,
+    additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
     childPhotoUrl, cachedPhotoBase64, coverImageUrl, firstSpreadRefUrl } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
@@ -2421,6 +2459,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       childPhotoBase64: childPhotoB64,
       theme: theme || null,
       additionalCoverCharacters: additionalCoverCharacters || null,
+      coverParentPresent: coverParentPresent === true,
       parentOutfit: parentOutfit || null,
       spreadIndex,
       totalSpreads: totalSpreads || 13,
@@ -2513,31 +2552,47 @@ app.post('/generate-character-face', authenticate, async (req, res) => {
   }
 });
 
-// ── POST /generate-avatar-face ────────────────────────────────────────────────
-// Generate a 1024x1024 cartoon 3D stylized portrait of the child for the
-// R3F avatar's face-plane UV. Used by the 3D game's CharacterAvatar.
-app.post('/generate-avatar-face', authenticate, async (req, res) => {
-  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, childDetails } = req.body || {};
+// ── POST /generate-character-sheet ────────────────────────────────────────────
+// Alias for /generate-game-character — the 2.5D pivot names it "sheet"
+// because the client consumes a 12-pose atlas rather than a single sprite.
+app.post('/generate-character-sheet', authenticate, async (req, res) => {
+  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails } = req.body || {};
+
   if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  console.log(`[server] /generate-avatar-face: bookId=${bookId}`);
-  try {
-    const { generateAvatarFace } = require('./services/gameCharacter');
-    const result = await generateAvatarFace({
-      bookId, characterRefUrl, childPhotoUrl, coverImageUrl, childDetails,
+  if (!characterRefUrl && !coverImageUrl && !childPhotoUrl) {
+    return res.status(400).json({
+      success: false,
+      error: 'At least one of characterRefUrl / coverImageUrl / childPhotoUrl is required',
     });
-    res.json({ success: true, bookId, ...result });
+  }
+
+  console.log(`[server] /generate-character-sheet: bookId=${bookId}, style=${style || 'default'}`);
+  try {
+    const { generateGameCharacter } = require('./services/gameCharacter');
+    const result = await generateGameCharacter({
+      bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails,
+    });
+    res.json({
+      success: true,
+      bookId,
+      gameSpriteUrl: result.gameSpriteUrl,
+      gamePoseAtlasUrl: result.gamePoseAtlasUrl,
+      poses: result.poses,
+      tookMs: result.tookMs,
+    });
   } catch (err) {
-    console.error(`[server] generate-avatar-face failed for ${bookId}:`, err.message);
+    console.error(`[server] generate-character-sheet failed for ${bookId}:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ── POST /generate-hero-props ─────────────────────────────────────────────────
-// Generate book-specific 3D hero props via Meshy.ai (text-to-3D). Accepts an
-// array of { id, name, prompt, itemId?, roomId?, interaction? } and returns a
-// manifest of { glbUrl, thumbUrl, interaction } entries the 3D client loads.
+// Generate book-specific hero-prop sprites (transparent painted PNGs) via
+// Gemini. Accepts an array of { id, name, prompt, itemId?, roomId?,
+// interaction? } and returns a manifest of { url, width, height, interaction }
+// entries the 2.5D client loads.
 app.post('/generate-hero-props', authenticate, async (req, res) => {
-  const { bookId, props } = req.body || {};
+  const { bookId, props, characterRefUrl, coverImageUrl } = req.body || {};
   if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
   if (!Array.isArray(props) || props.length === 0) {
     return res.status(400).json({ success: false, error: 'props array is required' });
@@ -2545,10 +2600,31 @@ app.post('/generate-hero-props', authenticate, async (req, res) => {
   console.log(`[server] /generate-hero-props: bookId=${bookId}, props=${props.length}`);
   try {
     const { generateHeroProps } = require('./services/gameHeroProps');
-    const result = await generateHeroProps({ bookId, props });
+    const result = await generateHeroProps({ bookId, props, characterRefUrl, coverImageUrl });
     res.json({ success: true, bookId, ...result });
   } catch (err) {
     console.error(`[server] generate-hero-props failed for ${bookId}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /generate-npc-sprite ─────────────────────────────────────────────────
+// Generate full-body painted NPC sprites (mom / dad / pet) in the shared
+// 2.5D Don't Starve style. Accepts `descriptors: [{ kind, name?, prompt? }]`
+// and returns `{ npcs: { kind: { url, width, height, name } } }`.
+app.post('/generate-npc-sprite', authenticate, async (req, res) => {
+  const { bookId, descriptors, characterRefUrl, coverImageUrl } = req.body || {};
+  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
+  if (!Array.isArray(descriptors) || descriptors.length === 0) {
+    return res.status(400).json({ success: false, error: 'descriptors array is required' });
+  }
+  console.log(`[server] /generate-npc-sprite: bookId=${bookId}, npcs=${descriptors.map((d) => d.kind || d.name).join(',')}`);
+  try {
+    const { generateNpcSprites } = require('./services/gameNpcSprite');
+    const result = await generateNpcSprites({ bookId, descriptors, characterRefUrl, coverImageUrl });
+    res.json({ success: true, bookId, ...result });
+  } catch (err) {
+    console.error(`[server] generate-npc-sprite failed for ${bookId}:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

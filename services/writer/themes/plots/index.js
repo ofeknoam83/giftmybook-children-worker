@@ -179,13 +179,14 @@ async function generateCustomPlot(title, theme, opts) {
   const systemPrompt = `You are a children's picture-book story architect. Given a book title and theme, design a CUSTOM 13-spread story arc that fits the title perfectly.
 
 RULES:
-- 13 spreads organized into 4 SCENES (A: spreads 1-3, B: 4-7, C: 8-10, D: 11-13)
-- Beats within a scene share the SAME location or emotional space
-- Spread 9 is the quiet wonder moment (fewest words)
-- Spread 13 is the closing line (echo the opening)
-- The arc must feel inevitable for THIS title — not a generic adventure
-- Use the child's name "${child.name}" in beat descriptions
-- Each description should be 1-2 sentences telling the illustrator and writer what happens
+- 13 spreads total. You INVENT the shape of the arc — there is NO mandatory 4-scene template, no prescribed Scene A / Scene B / Scene C / Scene D, no prescribed "home → journey → peak → heading home" structure. The shape is whatever best serves THIS title.
+- Spread 1 must open OUT IN THE WORLD (not at home, not waking up). Put the characters somewhere specific and vivid from the first beat.
+- The closing MUST NOT default to a "walking home" / "heading home" / "back at home" shot — that formula is banned. Invent the final image so it belongs to THIS story.
+- Keep a quiet, low-word "wonder" moment somewhere in the middle of the arc (your call where).
+- Group beats that share a location or emotional space. Transitions between groups must be narrated so the reader always knows WHERE the characters are.
+- The arc must feel inevitable for THIS title — not a generic adventure.
+- Use the child's name "${child.name}" in beat descriptions.
+- Each description should be 1-2 sentences telling the illustrator and writer what happens.
 
 Return JSON:
 {

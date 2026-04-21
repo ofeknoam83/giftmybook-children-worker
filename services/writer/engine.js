@@ -11,6 +11,7 @@ const { getThemeWriter } = require('./themes');
 const { QualityGate } = require('./quality/gate');
 const { stampBook } = require('./version');
 const { WRITER_CONFIG } = require('./config');
+const { fixPossessivePronounErrors } = require('../pronouns');
 
 class WriterEngine {
   /**
@@ -156,6 +157,27 @@ class WriterEngine {
     const finalQuality = best.quality;
     if (!finalQuality.pass) {
       console.warn(`[writerV2] Exhausted ${retryLimit} retries without a clean pass — shipping best seen at ${finalQuality.overallScore}/10`);
+    }
+
+    // Final safety net: auto-repair object-for-possessive pronoun errors
+    // ("him hair" → "his hair"). These are a documented ship-blocker with
+    // zero false-positive risk on the narrow whitelist (body parts only).
+    // The quality gate already vetoes on them and the revise loop should
+    // have fixed them — but if we exhausted retries with the error still
+    // present, auto-repair here so the customer never receives "him hair"
+    // in their book. Silent mechanical fix; logs for audit.
+    let autoFixCount = 0;
+    for (const s of finalStory.spreads || []) {
+      if (!s.text) continue;
+      const fixed = fixPossessivePronounErrors(s.text);
+      if (fixed !== s.text) {
+        console.warn(`[writerV2] Auto-repaired possessive pronoun on spread ${s.spread}: "${s.text}" → "${fixed}"`);
+        s.text = fixed;
+        autoFixCount++;
+      }
+    }
+    if (autoFixCount > 0) {
+      console.warn(`[writerV2] Auto-repaired ${autoFixCount} possessive pronoun error(s) on the way out.`);
     }
 
     // 5. Stamp with version + timestamp
