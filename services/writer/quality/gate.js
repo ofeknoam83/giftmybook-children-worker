@@ -42,9 +42,27 @@ const { findPossessivePronounErrors } = require('../../pronouns');
 const _llm = new BaseThemeWriter('_quality_gate');
 
 const CRITIC_ATTEMPTS = 3;
+/** Critic emits scores + issues + often long per-spread feedback — must not truncate mid-JSON (was 1800 → parse errors ~6–8k chars). */
+const CRITIC_MAX_OUTPUT_TOKENS = 8192;
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Normalize model output: trim, strip markdown fences, then JSON.parse.
+ * @param {string} raw
+ * @returns {object}
+ */
+function parseCriticResponse(raw) {
+  let s = String(raw || '').trim();
+  if (!s) throw new Error('empty critic response');
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  const parsed = JSON.parse(s);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('critic JSON was not an object');
+  }
+  return parsed;
 }
 
 class QualityGate {
@@ -78,12 +96,13 @@ class QualityGate {
       try {
         const result = await _llm.callLLM('critic', system, user, {
           jsonMode: true,
-          maxTokens: 1800,
+          maxTokens: CRITIC_MAX_OUTPUT_TOKENS,
         });
-        const raw = String(result.text || '').trim();
-        if (!raw) throw new Error('empty critic response');
-        parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') throw new Error('critic JSON was not an object');
+        const fr = String(result.finishReason || '');
+        if (/MAX_TOKEN|LENGTH|length/i.test(fr)) {
+          console.warn(`[writerV2] QualityGate critic hit output limit (finishReason=${result.finishReason}) — JSON may be incomplete; will retry if parse fails`);
+        }
+        parsed = parseCriticResponse(result.text);
         lastErr = null;
         break;
       } catch (err) {
