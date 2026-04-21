@@ -10,6 +10,7 @@
 
 const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
+const { extractGeminiResponseText, parseQaJsonFromText } = require('./geminiJson');
 
 const QA_HTTP_ATTEMPTS = 3;
 
@@ -131,8 +132,9 @@ Always include the relevant tags when pass=false so downstream tooling can route
           }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 512,
-            thinkingConfig: { thinkingBudget: 2048 },
+            maxOutputTokens: 1024,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       }, QA_TIMEOUT_MS);
@@ -148,19 +150,14 @@ Always include the relevant tags when pass=false so downstream tooling can route
       }
 
       const data = await resp.json();
-      const parts = data.candidates?.[0]?.content?.parts || [];
-      const responsePart = parts.find(p => !p.thought) || parts[parts.length - 1] || {};
-      const text = (responsePart.text || '').trim();
-      const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-      const match = cleaned.match(/\{[\s\S]*\}/);
+      const text = extractGeminiResponseText(data);
+      const result = parseQaJsonFromText(text);
 
-      if (!match) {
+      if (!result) {
         lastErrMsg = 'unparseable model response';
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
         continue;
       }
-
-      const result = JSON.parse(match[0]);
       const rawTags = Array.isArray(result.tags) ? result.tags : [];
       const tags = rawTags
         .filter(t => typeof t === 'string')

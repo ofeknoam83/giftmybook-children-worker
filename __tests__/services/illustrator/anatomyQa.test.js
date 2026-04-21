@@ -92,20 +92,22 @@ describe('checkAnatomy', () => {
     expect(result.tags).toEqual([]);
   });
 
-  test('defaults to pass with empty tags on API error', async () => {
+  test('fails closed after HTTP error retries', async () => {
     fetchWithTimeout.mockResolvedValue({ ok: false, status: 500 });
 
     const result = await checkAnatomy('fakebase64');
-    expect(result.pass).toBe(true);
-    expect(result.tags).toEqual([]);
+    expect(result.pass).toBe(false);
+    expect(result.tags).toContain('qa_api_error');
+    expect(result.issues[0]).toMatch(/API HTTP 500/);
   });
 
-  test('defaults to pass with empty tags on thrown error', async () => {
+  test('fails closed after thrown error retries', async () => {
     fetchWithTimeout.mockRejectedValue(new Error('network down'));
 
     const result = await checkAnatomy('fakebase64');
-    expect(result.pass).toBe(true);
-    expect(result.tags).toEqual([]);
+    expect(result.pass).toBe(false);
+    expect(result.tags).toContain('qa_api_error');
+    expect(result.issues[0]).toMatch(/network down/);
   });
 
   test('prompt includes hero duplication and split panel rules', async () => {
@@ -118,6 +120,8 @@ describe('checkAnatomy', () => {
     const call = fetchWithTimeout.mock.calls[0];
     const body = JSON.parse(call[1].body);
     const promptText = body.contents[0].parts[1].text;
+    expect(body.generationConfig.responseMimeType).toBe('application/json');
+    expect(body.generationConfig.thinkingConfig.thinkingBudget).toBe(0);
 
     expect(promptText).toMatch(/HERO COUNT/);
     expect(promptText).toMatch(/duplicated_hero/);

@@ -4,19 +4,10 @@
 
 const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS, QA_HTTP_ATTEMPTS } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
+const { extractGeminiResponseText, parseQaJsonFromText } = require('./geminiJson');
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
-}
-
-function parseJsonResponse(text) {
-  if (!text) return null;
-  const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (match) {
-    try { return JSON.parse(match[0]); } catch { return null; }
-  }
-  return null;
 }
 
 /**
@@ -77,6 +68,7 @@ Return ONLY valid JSON:
           generationConfig: {
             temperature: 0.1,
             maxOutputTokens: 384,
+            responseMimeType: 'application/json',
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
@@ -91,8 +83,8 @@ Return ONLY valid JSON:
       }
 
       const data = await resp.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-      const result = parseJsonResponse(text);
+      const text = extractGeminiResponseText(data);
+      const result = parseQaJsonFromText(text);
       if (!result) {
         lastErr = 'unparseable response';
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));

@@ -10,6 +10,7 @@
 
 const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS, QA_HTTP_ATTEMPTS } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
+const { extractGeminiResponseText, parseQaJsonFromText } = require('./geminiJson');
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -48,19 +49,6 @@ function overlappingWindows(arr, windowSize, stride) {
     if (i + windowSize >= arr.length) break;
   }
   return windows;
-}
-
-/**
- * Parse JSON from Gemini response text.
- */
-function parseJsonResponse(text) {
-  if (!text) return null;
-  const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (match) {
-    try { return JSON.parse(match[0]); } catch { return null; }
-  }
-  return null;
 }
 
 function _finalizeAgentResults(checkResults, failedSpreadMap, logLabel) {
@@ -255,7 +243,12 @@ outlierImages = 1-based indices of images that break consistency.`,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 512, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 512,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 },
+          },
         }),
       }, QA_TIMEOUT_MS);
 
@@ -268,8 +261,8 @@ outlierImages = 1-based indices of images that break consistency.`,
       }
 
       const data = await resp.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-      const result = parseJsonResponse(text);
+      const text = extractGeminiResponseText(data);
+      const result = parseQaJsonFromText(text);
 
       if (!result) {
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
@@ -334,7 +327,12 @@ issues = short human-readable reasons for each flagged page.`,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 512, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 512,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 },
+          },
         }),
       }, QA_TIMEOUT_MS);
 
@@ -347,8 +345,8 @@ issues = short human-readable reasons for each flagged page.`,
       }
 
       const data = await resp.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-      const result = parseJsonResponse(text);
+      const text = extractGeminiResponseText(data);
+      const result = parseQaJsonFromText(text);
 
       if (!result) {
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
@@ -407,7 +405,12 @@ outlierImages = 1-based indices that break the style.`,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 512, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 512,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 },
+          },
         }),
       }, QA_TIMEOUT_MS);
 
@@ -420,8 +423,8 @@ outlierImages = 1-based indices that break the style.`,
       }
 
       const data = await resp.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-      const result = parseJsonResponse(text);
+      const text = extractGeminiResponseText(data);
+      const result = parseQaJsonFromText(text);
 
       if (!result) {
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
