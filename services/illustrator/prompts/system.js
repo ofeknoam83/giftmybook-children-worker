@@ -56,6 +56,7 @@ function buildSystemInstruction(opts) {
 
   // Composition
   parts.push('COMPOSITION (CRITICAL):');
+  parts.push('- EVERY illustration is a SINGLE PHOTOGRAPH of ONE scene. It is NOT a book layout. It is NOT two pages. It is NOT designed to be split in half. Think of it as one wide movie still captured in one frame.');
   parts.push('- EVERY illustration is ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph.');
   parts.push('- The scene flows continuously from left edge to right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break ANYWHERE.');
   parts.push('- NEVER draw two separate images side by side. NEVER split into left panel and right panel. There must be ZERO visual indication of a center divide.');
@@ -124,7 +125,7 @@ function buildSystemInstruction(opts) {
   parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
   parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
   parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
-  parts.push(`- CENTER NO-TEXT ZONE (MOST COMMON MISTAKE — READ CAREFULLY): This image will be printed as a two-page spread, folded at the EXACT center. Any text near the center will disappear into the book's spine and be unreadable. The middle ${TEXT_RULES.centerExclusionPercent * 2}% is FORBIDDEN for text. ALL text must be placed entirely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. If in doubt, push text further toward the edge.`);
+  parts.push(`- CENTER NO-TEXT ZONE (MOST COMMON MISTAKE — READ CAREFULLY): The illustration is ONE single image, not a book layout. The middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image is reserved for imagery only — keep it free of text. Place ALL text entirely within either the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% strip or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% strip of the image. If in doubt, push text further toward the edge. Do NOT draw or imply any center fold, page break, or spine.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`);
   parts.push(`- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — text should never feel cramped against the top of the image.`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`);

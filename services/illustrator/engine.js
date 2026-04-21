@@ -225,6 +225,16 @@ class IllustratorEngine {
           const hasAnatomyIssues = issues.some(iss => iss.startsWith('[anatomy]'));
           const hasSplitPanel = qaTags.has('split_panel')
             || issues.some(iss => iss.toLowerCase().includes('split panel'));
+
+          // split_panel is a poisoned-session failure — the chat context has now shown
+          // the model a diptych and in-session corrections rarely un-split it. Skip
+          // the remaining in-session retries and fall through to the fresh-session
+          // fallback below, which creates a brand-new chat session.
+          if (hasSplitPanel) {
+            log('warn', `Spread ${i + 1} split_panel detected — aborting in-session retries, escalating to fresh session`);
+            break;
+          }
+
           const hasDuplicatedHero = qaTags.has('duplicated_hero')
             || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
           const hasHeadCropped = qaTags.has('head_cropped')
@@ -251,12 +261,6 @@ CRITICAL: The hero (the main child this book is about) must appear EXACTLY ONCE 
 - If a parent, friend, or other character is in the scene, they must look clearly different from the hero — never a second copy of the hero.
 
 Keep the same scene content and style, but draw the hero exactly once.
-
-${prompt}`;
-          } else if (hasSplitPanel) {
-            correctionPrompt = `REGENERATE spread ${i + 1} COMPLETELY. The previous image was SPLIT INTO TWO SEPARATE PANELS — this is WRONG.
-
-CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph. ONE continuous background, ONE unified lighting, ONE seamless composition from left edge to right edge. NO divider, NO seam, NO panel split, NO two separate scenes side by side.
 
 ${prompt}`;
           } else if (hasHeadCropped) {
@@ -574,6 +578,7 @@ ${buildSpreadPrompt({
       spreadIndex = 0,
       totalSpreads = 13,
       costTracker,
+      freshAttempts = 0,
     } = input;
 
     const log = (level, msg) => console.log(`[illustrator/singleSpread] [${level}] ${msg}`);
@@ -670,6 +675,19 @@ ${buildSpreadPrompt({
       ]);
       const hasSplitPanel = qaTags.has('split_panel')
         || issues.some(iss => iss.toLowerCase().includes('split panel'));
+
+      // split_panel = poisoned chat session. Recurse with a brand-new session
+      // instead of asking this one to un-split itself, bounded by
+      // MAX_FRESH_SESSION_RETRIES total fresh starts.
+      if (hasSplitPanel) {
+        if (freshAttempts < MAX_FRESH_SESSION_RETRIES) {
+          log('warn', `Single-spread split_panel detected — retrying with fresh session (attempt ${freshAttempts + 1}/${MAX_FRESH_SESSION_RETRIES})`);
+          return this.generateSingleSpread({ ...input, freshAttempts: freshAttempts + 1 });
+        }
+        log('warn', `Single-spread split_panel still present after ${MAX_FRESH_SESSION_RETRIES} fresh sessions — keeping best attempt`);
+        break;
+      }
+
       const hasDuplicatedHero = qaTags.has('duplicated_hero')
         || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
       const hasHeadCropped = qaTags.has('head_cropped')
@@ -683,12 +701,6 @@ ${buildSpreadPrompt({
 
 CRITICAL: The hero must appear EXACTLY ONCE. No twin sibling, no before/after pose of the same child, no mirror/photo copy.
 If a parent or other character is in the scene, they must look clearly different from the hero.
-
-${prompt}`;
-      } else if (hasSplitPanel) {
-        correctionPrompt = `REGENERATE this spread COMPLETELY. The previous image was SPLIT INTO TWO SEPARATE PANELS — this is WRONG.
-
-CRITICAL: This must be ONE SINGLE SEAMLESS PAINTING — one continuous background, one unified lighting, no divider, no seam, no two scenes side by side.
 
 ${prompt}`;
       } else if (hasHeadCropped) {
