@@ -13,6 +13,21 @@ const { stampBook } = require('./version');
 const { WRITER_CONFIG } = require('./config');
 const { fixPossessivePronounErrors } = require('../pronouns');
 
+/** Thrown when the critic never passed and the best score is below the illustration floor. */
+class WriterQualityGateError extends Error {
+  /**
+   * @param {string} message
+   * @param {string} [feedback]
+   * @param {number} [overallScore]
+   */
+  constructor(message, feedback, overallScore) {
+    super(message);
+    this.name = 'WriterQualityGateError';
+    this.feedback = feedback || '';
+    this.overallScore = overallScore;
+  }
+}
+
 class WriterEngine {
   /**
    * Generate a story for a children's book.
@@ -156,7 +171,15 @@ class WriterEngine {
     const finalStory = best.story;
     const finalQuality = best.quality;
     if (!finalQuality.pass) {
-      console.warn(`[writerV2] Exhausted ${retryLimit} retries without a clean pass — shipping best seen at ${finalQuality.overallScore}/10`);
+      console.warn(`[writerV2] Exhausted ${retryLimit} retries without a clean pass — best seen at ${finalQuality.overallScore}/10`);
+    }
+
+    if (!finalQuality.pass && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < 4) {
+      throw new WriterQualityGateError(
+        `Story quality too low for illustration (score ${finalQuality.overallScore}/10). ${(finalQuality.feedback || '').slice(0, 500)}`,
+        finalQuality.feedback || '',
+        finalQuality.overallScore,
+      );
     }
 
     // Final safety net: auto-repair object-for-possessive pronoun errors
@@ -297,4 +320,4 @@ function buildBookFromLegacy(payload) {
   };
 }
 
-module.exports = { WriterEngine, buildChildFromLegacy, buildBookFromLegacy, ageFromDOB };
+module.exports = { WriterEngine, WriterQualityGateError, buildChildFromLegacy, buildBookFromLegacy, ageFromDOB };

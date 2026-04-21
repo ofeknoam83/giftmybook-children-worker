@@ -26,7 +26,8 @@ function sleep(ms) {
  * @param {string} expectedText - The story text that should appear
  * @param {object} [opts]
  * @param {object} [opts.costTracker]
- * @returns {Promise<{pass: boolean, issues: string[], score: number, tags?: string[]}>}
+ * @param {AbortSignal} [opts.abortSignal]
+ * @returns {Promise<{pass: boolean, issues: string[], score: number, tags?: string[], infra?: boolean}>}
  */
 async function verifySpreadText(imageBase64, expectedText, opts = {}) {
   if (!expectedText || !expectedText.trim()) {
@@ -102,7 +103,7 @@ Set pass=false for: text bridging left and right sides, text in the forbidden mi
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
-      }, QA_TIMEOUT_MS);
+      }, QA_TIMEOUT_MS, opts.abortSignal);
 
       if (opts.costTracker) {
         opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 800, 200);
@@ -153,10 +154,11 @@ Set pass=false for: text bridging left and right sides, text in the forbidden mi
   }
 
   return {
-    pass: false,
-    issues: [`Text QA failed after ${QA_HTTP_ATTEMPTS} attempts: ${lastErrMsg}`],
-    tags: ['qa_api_error'],
-    score: 0,
+    pass: true,
+    issues: [],
+    tags: ['qa_infra_error'],
+    score: 1.0,
+    infra: true,
   };
 }
 

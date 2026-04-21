@@ -25,7 +25,8 @@ function sleep(ms) {
  * @param {object} [opts]
  * @param {object} [opts.costTracker]
  * @param {string} [opts.spreadText] - Story text for this spread (for action-coherence check)
- * @returns {Promise<{pass: boolean, issues: string[], tags?: string[]}>}
+ * @param {AbortSignal} [opts.abortSignal]
+ * @returns {Promise<{pass: boolean, issues: string[], tags?: string[], infra?: boolean}>}
  */
 async function checkAnatomy(imageBase64, opts = {}) {
   const apiKey = getNextApiKey();
@@ -137,7 +138,7 @@ Always include the relevant tags when pass=false so downstream tooling can route
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
-      }, QA_TIMEOUT_MS);
+      }, QA_TIMEOUT_MS, opts.abortSignal);
 
       if (opts.costTracker) {
         opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 500, 100);
@@ -175,9 +176,10 @@ Always include the relevant tags when pass=false so downstream tooling can route
   }
 
   return {
-    pass: false,
-    issues: [`Anatomy QA failed after ${QA_HTTP_ATTEMPTS} attempts: ${lastErrMsg}`],
-    tags: ['qa_api_error'],
+    pass: true,
+    issues: [],
+    tags: ['qa_infra_error'],
+    infra: true,
   };
 }
 

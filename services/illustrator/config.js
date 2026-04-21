@@ -19,7 +19,9 @@ const ESTABLISHMENT_TIMEOUT_MS = 60000; // 1 minute for character establishment
 
 // ── Sliding window ──
 const SLIDING_WINDOW_SIZE = 4;  // Keep last 4 generated spread images for better style continuity
-const MAX_HISTORY_IMAGES = 14;  // Start trimming above this
+const MAX_HISTORY_IMAGES = 8;  // Start trimming above this (keeps token budget safe)
+/** Approximate max total inline image payload in chat history before trimming (bytes, base64 decoded). */
+const MAX_HISTORY_IMAGE_BYTES = 6 * 1024 * 1024;
 
 // ── Retry budgets ──
 const MAX_SPREAD_RETRIES = 6;           // Per-spread QA retry limit (within session)
@@ -78,6 +80,7 @@ module.exports = {
   ESTABLISHMENT_TIMEOUT_MS,
   SLIDING_WINDOW_SIZE,
   MAX_HISTORY_IMAGES,
+  MAX_HISTORY_IMAGE_BYTES,
   MAX_SPREAD_RETRIES,
   MAX_FRESH_SESSION_RETRIES,
   MAX_REGEN_SPREADS,

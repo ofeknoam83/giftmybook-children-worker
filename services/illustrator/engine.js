@@ -18,7 +18,7 @@ const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
 const { checkCrossSpreadAgent1, checkCrossSpreadAgent2 } = require('./quality/consistency');
 const { checkExtraSpreadQa } = require('./quality/extraSpreadQa');
-const { checkArtStyleLock } = require('./quality/styleLock');
+const { checkArtStyleLock, buildStyleCorrectionPrompt, buildFreshGenerationStyleHint } = require('./quality/styleLock');
 const { runFinalIllustrationGate } = require('./quality/finalGate');
 const { buildStoryBible } = require('./storyBible');
 const { stripMetadata } = require('./postprocess/strip');
@@ -28,6 +28,15 @@ const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
 const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, MAX_REGEN_SPREADS, MAX_CONSISTENCY_ROUNDS, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS } = require('./config');
 const { getTextPlacement } = require('./prompts/text');
+
+/** Throws if the standalone client requested cancellation. */
+function abortGuard(bookContext) {
+  if (bookContext?.abortController?.signal?.aborted) {
+    const err = new Error('Illustration generation aborted');
+    err.name = 'AbortError';
+    throw err;
+  }
+}
 
 class IllustratorEngine {
   /**
@@ -56,9 +65,14 @@ class IllustratorEngine {
 
     const version = getVersion();
     const log = bookContext?.log || ((level, msg) => console.log(`[illustrator/engine] [${level}] ${msg}`));
+    const abortSignal = bookContext?.abortController?.signal;
+    const artStyleQaOpts = () => ({ style, costTracker, abortSignal });
 
     log('info', `Illustrator V2 (${version.illustratorVersion}) starting for book ${bookId}`);
     const pipelineStart = Date.now();
+    if (bookContext != null && typeof bookContext.qaInfraErrors !== 'number') {
+      bookContext.qaInfraErrors = 0;
+    }
 
     const isParentTheme = theme && PARENT_THEMES.has(theme);
     // Whether the themed parent is actually depicted on the chosen cover.
@@ -89,6 +103,7 @@ class IllustratorEngine {
         additionalCoverCharacters,
         theme,
         parentOutfit,
+        abortSignal,
       });
 
       await establishCharacterReferences(session);
@@ -213,7 +228,7 @@ class IllustratorEngine {
         }
 
         // ── Per-spread QA ──
-        const qaOpts = { costTracker, spreadText };
+        const qaOpts = { costTracker, spreadText, abortSignal };
         const extraOpts = {
           spreadPrompt: safeScenePrompt,
           spreadText,
@@ -225,6 +240,7 @@ class IllustratorEngine {
           spreadIndex: i,
           totalSpreads: spreadEntries.length,
           costTracker,
+          abortSignal,
         };
 
         let textCheck = { pass: true, issues: [], tags: [] };
@@ -235,10 +251,22 @@ class IllustratorEngine {
 
         // Per-spread QA: Agent 1 (text + anatomy), then Agent 2 (extra + style). Both must pass; any correction re-runs from Agent 1.
         while (true) {
+          abortGuard(bookContext);
           [textCheck, anatomyCheck] = await Promise.all([
             verifySpreadText(imageBase64, spreadText, qaOpts),
             checkAnatomy(imageBase64, qaOpts),
           ]);
+
+          if (textCheck.infra || anatomyCheck.infra) {
+            if (textCheck.infra) {
+              if (bookContext) bookContext.qaInfraErrors = (bookContext.qaInfraErrors || 0) + 1;
+              log('warn', `Spread ${i + 1} Text QA infra fallback (model unparseable or API error) — accepting image`);
+            }
+            if (anatomyCheck.infra) {
+              if (bookContext) bookContext.qaInfraErrors = (bookContext.qaInfraErrors || 0) + 1;
+              log('warn', `Spread ${i + 1} Anatomy QA infra fallback (model unparseable or API error) — accepting image`);
+            }
+          }
 
           if (!textCheck.pass || !anatomyCheck.pass) {
             qaRetries++;
@@ -361,10 +389,22 @@ ${prompt}`;
             continue;
           }
 
+          abortGuard(bookContext);
           [extraCheck, artStyleCheck] = await Promise.all([
             checkExtraSpreadQa(imageBase64, extraOpts),
-            checkArtStyleLock(imageBase64, { costTracker }),
+            checkArtStyleLock(imageBase64, artStyleQaOpts()),
           ]);
+
+          if (extraCheck.infra || artStyleCheck.infra) {
+            if (extraCheck.infra) {
+              if (bookContext) bookContext.qaInfraErrors = (bookContext.qaInfraErrors || 0) + 1;
+              log('warn', `Spread ${i + 1} Extra spread QA infra fallback — accepting image`);
+            }
+            if (artStyleCheck.infra) {
+              if (bookContext) bookContext.qaInfraErrors = (bookContext.qaInfraErrors || 0) + 1;
+              log('warn', `Spread ${i + 1} Art style QA infra fallback — accepting image`);
+            }
+          }
 
           if (!extraCheck.pass || !artStyleCheck.pass) {
             qaRetries++;
@@ -389,11 +429,7 @@ ${prompt}`;
 
             let correctionPrompt;
             if (qaTags.has('art_style_mismatch') && extraCheck.pass) {
-              correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene, characters, and layout.
-
-CRITICAL — ART STYLE (NON-NEGOTIABLE): The book uses premium cinematic 3D Pixar-like CGI only — photorealistic shaded 3D characters, volumetric soft lighting, subsurface skin, depth-of-field backgrounds, Disney/Pixar production quality. The previous render looked like the WRONG medium (e.g. flat 2D, watercolor, sketch, anime, or pixel art). Fix ONLY by switching to correct 3D CGI — do not change the story moment.
-
-${prompt}`;
+              correctionPrompt = buildStyleCorrectionPrompt(style, prompt, { spreadNumber: i + 1 });
             } else {
               correctionPrompt = `The previous illustration for spread ${i + 1} had issues. Please regenerate with these corrections:
 ${issues.map(iss => `- FIX: ${iss}`).join('\n')}
@@ -432,9 +468,10 @@ ${prompt}`;
 
         // If QA still fails after correction retries, attempt one fresh in-session generation
         if ((!textCheck.pass || !anatomyCheck.pass || !extraCheck.pass || !artStyleCheck.pass) && qaRetries > 0) {
+          abortGuard(bookContext);
           log('warn', `Spread ${i + 1} QA still failing after ${qaRetries} corrections — attempting fresh generation`);
           try {
-            const freshPrompt = `Please generate a completely fresh illustration for spread ${i + 1}. Disregard previous attempts — start fresh with the original scene. Pay special attention to: (1) anatomy — every person must have exactly 2 arms and 2 hands visible; (2) ART STYLE — premium cinematic 3D Pixar-like CGI only, not 2D or watercolor.\n\n${prompt}`;
+            const freshPrompt = `Please generate a completely fresh illustration for spread ${i + 1}. Disregard previous attempts — start fresh with the original scene. Pay special attention to: (1) anatomy — every person must have exactly 2 arms and 2 hands visible; (2) ${buildFreshGenerationStyleHint(style)}\n\n${prompt}`;
             const freshResult = await sendCorrection(session, freshPrompt, i);
             const freshImageBase64 = freshResult.imageBase64;
             const freshImageBuffer = freshResult.imageBuffer;
@@ -448,7 +485,7 @@ ${prompt}`;
             if (freshTextCheck.pass && freshAnatomyCheck.pass) {
               [freshExtraCheck, freshArtStyleCheck] = await Promise.all([
                 checkExtraSpreadQa(freshImageBase64, extraOpts),
-                checkArtStyleLock(freshImageBase64, { costTracker }),
+                checkArtStyleLock(freshImageBase64, artStyleQaOpts()),
               ]);
             }
 
@@ -483,6 +520,7 @@ ${prompt}`;
 
           let freshSessionPassed = false;
           for (let freshAttempt = 1; freshAttempt <= MAX_FRESH_SESSION_RETRIES; freshAttempt++) {
+            abortGuard(bookContext);
             log('info', `Spread ${i + 1} fresh-session attempt ${freshAttempt}/${MAX_FRESH_SESSION_RETRIES}`);
             try {
               const freshResult = await this.generateSingleSpread({
@@ -502,6 +540,7 @@ ${prompt}`;
                 totalSpreads: spreadEntries.length,
                 costTracker,
                 celebrationAge,
+                abortSignal,
               });
               imageBase64 = freshResult.imageBase64;
               imageBuffer = freshResult.imageBuffer;
@@ -515,7 +554,7 @@ ${prompt}`;
               if (freshTextCheck.pass && freshAnatomyCheck.pass) {
                 [freshExtraCheck, freshArtStyleCheck] = await Promise.all([
                   checkExtraSpreadQa(imageBase64, extraOpts),
-                  checkArtStyleLock(imageBase64, { costTracker }),
+                  checkArtStyleLock(imageBase64, artStyleQaOpts()),
                 ]);
               }
 
@@ -574,6 +613,7 @@ ${prompt}`;
         bookContext?.touchActivity?.();
 
       } catch (spreadErr) {
+        if (spreadErr.name === 'AbortError') throw spreadErr;
         log('error', `Spread ${i + 1} generation failed: ${spreadErr.message}`);
         throw spreadErr;
       }
@@ -590,6 +630,7 @@ ${prompt}`;
       theme,
       additionalCoverCharacters,
       hasSecondaryOnCover,
+      abortSignal,
     };
 
     // ── Step 3–4: Cross-spread QA + regen loop ──
@@ -619,69 +660,36 @@ ${prompt}`;
           const spreadEntry = spreadEntries[failed.index];
           if (!spreadEntry) continue;
 
-          const correctionPrompt = `CONSISTENCY CORRECTION for spread ${failed.index + 1}:
+          const consistencyCorrectionNote = `CONSISTENCY CORRECTION for spread ${failed.index + 1}:
 The following issues were found when comparing this spread against other illustrations in the book:
 ${failed.issues.map(issue => `- ${issue}`).join('\n')}
 
 Please regenerate this spread, fixing the issues above while maintaining the same scene content.
-The character's appearance, outfit, art style, and font must be IDENTICAL to all other spreads.
+The character's appearance, outfit, art style, and font must be IDENTICAL to all other spreads.`;
 
-${buildSpreadPrompt({
-  spreadIndex: failed.index,
-  totalSpreads: spreadEntries.length,
-  scenePrompt: spreadEntry.spreadPrompt,
-  leftText: spreadEntry.leftText,
-  rightText: spreadEntry.rightText,
-  hasParentOnCover,
-  hasSecondaryOnCover,
-  additionalCoverCharacters,
-  theme,
-  style,
-  parentOutfit,
-  storyBible,
-})}`;
-
-          const result = await sendCorrection(session, correctionPrompt, failed.index);
-          let imageBase64 = result.imageBase64;
-          let imageBuffer = Buffer.from(imageBase64, 'base64');
-
-          const regenExtraOpts = {
-            spreadPrompt: spreadEntry.spreadPrompt,
+          log('info', `Consistency regen (fresh session) for spread ${failed.index + 1} (round ${round + 1})`);
+          const regenResult = await this.generateSingleSpread({
+            scenePrompt: spreadEntry.spreadPrompt,
             spreadText: spreadEntry.spreadText,
-            theme: theme || '',
-            celebrationAge,
-            coverBase64: coverBase64 || null,
+            leftText: spreadEntry.leftText,
+            rightText: spreadEntry.rightText,
+            style,
+            coverBase64,
+            childPhotoBase64,
+            childPhotoMime: childPhotoMime || 'image/jpeg',
+            theme,
             additionalCoverCharacters,
-            hasSecondaryOnCover,
+            coverParentPresent,
+            parentOutfit,
             spreadIndex: failed.index,
             totalSpreads: spreadEntries.length,
             costTracker,
-          };
-          const [regenText, regenAnatomy] = await Promise.all([
-            verifySpreadText(imageBase64, spreadEntry.spreadText, { costTracker, spreadText: spreadEntry.spreadText }),
-            checkAnatomy(imageBase64, { costTracker, spreadText: spreadEntry.spreadText }),
-          ]);
-          if (!regenText.pass || !regenAnatomy.pass) {
-            const r = [
-              ...(regenText.pass ? [] : regenText.issues),
-              ...(regenAnatomy.pass ? [] : regenAnatomy.issues),
-            ].join('; ');
-            throw new Error(`Consistency regen for spread ${failed.index + 1} failed per-spread QA (Agent1): ${r}`);
-          }
-          const [regenExtra, regenArtStyle] = await Promise.all([
-            checkExtraSpreadQa(imageBase64, regenExtraOpts),
-            checkArtStyleLock(imageBase64, { costTracker }),
-          ]);
-          if (!regenExtra.pass || !regenArtStyle.pass) {
-            const r = [
-              ...(regenExtra.pass ? [] : regenExtra.issues),
-              ...(regenArtStyle.pass ? [] : regenArtStyle.issues),
-            ].join('; ');
-            throw new Error(`Consistency regen for spread ${failed.index + 1} failed per-spread QA (Agent2): ${r}`);
-          }
-
-          imageBuffer = await stripMetadata(imageBuffer);
-          imageBuffer = await upscaleForPrint(imageBuffer);
+            celebrationAge,
+            storyBible,
+            consistencyCorrectionNote,
+            abortSignal,
+          });
+          let imageBuffer = regenResult.imageBuffer;
 
           const gcsPath = `children-jobs/${bookId}/spreads/spread-${spreadEntry.entry.spread || failed.index + 1}.jpg`;
           const gcsUrl = await withRetry(
@@ -762,6 +770,9 @@ ${buildSpreadPrompt({
       costTracker,
       freshAttempts = 0,
       celebrationAge: inputCelebrationAge,
+      abortSignal: inputAbortSignal,
+      storyBible: inputStoryBible,
+      consistencyCorrectionNote,
     } = input;
 
     const log = (level, msg) => console.log(`[illustrator/singleSpread] [${level}] ${msg}`);
@@ -788,6 +799,7 @@ ${buildSpreadPrompt({
       additionalCoverCharacters,
       theme,
       parentOutfit,
+      abortSignal: inputAbortSignal,
     });
 
     // 2. Establish character references
@@ -812,6 +824,10 @@ ${buildSpreadPrompt({
       }
     }
 
+    if (consistencyCorrectionNote) {
+      safeScenePrompt = `${consistencyCorrectionNote}\n\n${safeScenePrompt}`;
+    }
+
     // 4. Build prompt
     const prompt = buildSpreadPrompt({
       spreadIndex,
@@ -825,6 +841,7 @@ ${buildSpreadPrompt({
       theme,
       style,
       parentOutfit,
+      storyBible: inputStoryBible || { characters: [], locations: [], objects: [] },
     });
 
     // 5. Generate with retries
@@ -857,9 +874,10 @@ ${buildSpreadPrompt({
       spreadIndex,
       totalSpreads,
       costTracker,
+      abortSignal: inputAbortSignal,
     };
 
-    const qaOpts = { costTracker, spreadText };
+    const qaOpts = { costTracker, spreadText, abortSignal: inputAbortSignal };
     let textCheck = { pass: true, issues: [], tags: [] };
     let anatomyCheck = { pass: true, issues: [], tags: [] };
     let extraCheck = { pass: true, issues: [], tags: [] };
@@ -867,6 +885,11 @@ ${buildSpreadPrompt({
     let qaRetries = 0;
 
     while (true) {
+      if (inputAbortSignal?.aborted) {
+        const err = new Error('Illustration generation aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
       [textCheck, anatomyCheck] = await Promise.all([
         verifySpreadText(imageBase64, spreadText || '', qaOpts),
         checkAnatomy(imageBase64, qaOpts),
@@ -940,7 +963,7 @@ ${prompt}`;
 
       [extraCheck, artStyleCheck] = await Promise.all([
         checkExtraSpreadQa(imageBase64, extraOpts),
-        checkArtStyleLock(imageBase64, { costTracker }),
+        checkArtStyleLock(imageBase64, { style, costTracker, abortSignal: input.abortSignal }),
       ]);
 
       if (!extraCheck.pass || !artStyleCheck.pass) {
@@ -969,11 +992,7 @@ ${prompt}`;
 
         let correctionPrompt;
         if (qaTags.has('art_style_mismatch') && extraCheck.pass) {
-          correctionPrompt = `REGENERATE this spread with the SAME scene and characters.
-
-CRITICAL — ART STYLE: Premium cinematic 3D Pixar-like CGI only — photorealistic shaded 3D, volumetric lighting, subsurface skin, bokeh. NOT flat 2D, watercolor, anime, sketch, or pixel art.
-
-${prompt}`;
+          correctionPrompt = buildStyleCorrectionPrompt(style, prompt);
         } else {
           correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
         }

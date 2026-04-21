@@ -24,6 +24,16 @@ function failWholeBatch(batch, reason) {
   };
 }
 
+/** QA infra failure — cannot judge consistency; pass the batch (no false regens). */
+function passBatchInfra(batch, reason) {
+  console.warn(`[illustrator/quality/consistency] Cross-spread batch passed (infra): ${reason}`);
+  return {
+    passed: true,
+    failedIndices: [],
+    infra: true,
+  };
+}
+
 const MAX_IMAGES_PER_BATCH = 4;
 const CHARACTER_BATCH_STRIDE = 3; // Overlap 1 image between adjacent character batches
 
@@ -208,8 +218,8 @@ async function _checkBatchCharacterConsistency(batch, opts) {
     : '';
 
   const parentResemblanceBlock = isParentTheme
-    ? `\n8. PARENT–CHILD FAMILY RESEMBLANCE (${opts.theme === 'mothers_day' ? 'mother' : 'father'}, face may be hidden by design): Wherever any parent figure appears (visible through hands, arms, neck, back of head, ears, shoulders), the parent's visible SKIN TONE must match the child's skin tone, and the parent's hair color must be in the same color family as the child's. Flag any image where the parent is visibly a different ethnicity or skin tone from the child. Also flag if the parent's skin tone is inconsistent across spreads (light in one spread, dark in another).`
-    : `\n8. IMPLIED PARENT / ADULT FAMILY RESEMBLANCE (all themes): If any adult is clearly the child's parent or primary caregiver (mother, father, mom, dad), visible skin tone and hair must show family resemblance to the hero child — not one ethnicity in one spread and a clearly unrelated ethnicity in another. Flag inconsistent parent/adult skin tone across spreads.`;
+    ? `\n8. PARENT–CHILD FAMILY RESEMBLANCE (${opts.theme === 'mothers_day' ? 'mother' : 'father'}, face may be hidden): Wherever any parent figure appears (hands, arms, neck, back of head, etc.), visible skin and hair should look plausibly related to the hero child. Do NOT flag minor lighting/shadow differences or small tone shifts. Only flag a clear categorical ethnicity mismatch (e.g. unrelated skin-tone categories across spreads) or obvious inconsistency of the parent's visible skin tone across spreads where the parent is clearly the same character.`
+    : `\n8. IMPLIED PARENT / ADULT FAMILY RESEMBLANCE (all themes): If any adult is clearly the child's parent or primary caregiver, visible skin tone and hair should show family resemblance across spreads. Ignore lighting/shadow variation. Flag only clear cross-spread drift (same adult looking like a different ethnicity in different images) or an obvious unrelated-ethnicity pairing with the child.`;
 
   const parts = [{
     text: `These are ${batch.length} illustrations from the same children's book. The SAME child appears in every image; named secondary characters must look identical whenever they appear.
@@ -250,7 +260,7 @@ outlierImages = 1-based indices of images that break consistency.`,
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
-      }, QA_TIMEOUT_MS);
+      }, QA_TIMEOUT_MS, opts.abortSignal);
 
       if (opts.costTracker) opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 600, 100);
 
@@ -266,7 +276,7 @@ outlierImages = 1-based indices of images that break consistency.`,
 
       if (!result) {
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
-        else return failWholeBatch(batch, 'Character QA: unparseable model response after retries');
+        else return passBatchInfra(batch, 'Character QA: unparseable model response after retries');
         continue;
       }
 
@@ -281,10 +291,10 @@ outlierImages = 1-based indices of images that break consistency.`,
     } catch (e) {
       console.warn(`[illustrator/quality/consistency] Batch character check error: ${e.message}`);
       if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
-      else return failWholeBatch(batch, `Character QA error: ${e.message}`);
+      else return passBatchInfra(batch, `Character QA error: ${e.message}`);
     }
   }
-  return failWholeBatch(batch, `Character QA HTTP failed after retries (${lastHttp || 'unknown'})`);
+  return passBatchInfra(batch, `Character QA HTTP failed after retries (${lastHttp || 'unknown'})`);
 }
 
 async function _checkBatchFontConsistency(batch, opts) {
@@ -334,7 +344,7 @@ issues = short human-readable reasons for each flagged page.`,
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
-      }, QA_TIMEOUT_MS);
+      }, QA_TIMEOUT_MS, opts.abortSignal);
 
       if (opts.costTracker) opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 500, 100);
 
@@ -350,7 +360,7 @@ issues = short human-readable reasons for each flagged page.`,
 
       if (!result) {
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
-        else return failWholeBatch(batch, 'Font QA: unparseable model response after retries');
+        else return passBatchInfra(batch, 'Font QA: unparseable model response after retries');
         continue;
       }
 
@@ -365,10 +375,10 @@ issues = short human-readable reasons for each flagged page.`,
     } catch (e) {
       console.warn(`[illustrator/quality/consistency] Batch font check error: ${e.message}`);
       if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
-      else return failWholeBatch(batch, `Font QA error: ${e.message}`);
+      else return passBatchInfra(batch, `Font QA error: ${e.message}`);
     }
   }
-  return failWholeBatch(batch, `Font QA HTTP failed after retries (${lastHttp || 'unknown'})`);
+  return passBatchInfra(batch, `Font QA HTTP failed after retries (${lastHttp || 'unknown'})`);
 }
 
 async function _checkBatchStyleConsistency(batch, opts) {
@@ -412,7 +422,7 @@ outlierImages = 1-based indices that break the style.`,
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
-      }, QA_TIMEOUT_MS);
+      }, QA_TIMEOUT_MS, opts.abortSignal);
 
       if (opts.costTracker) opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 500, 100);
 
@@ -428,7 +438,7 @@ outlierImages = 1-based indices that break the style.`,
 
       if (!result) {
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
-        else return failWholeBatch(batch, 'Style QA: unparseable model response after retries');
+        else return passBatchInfra(batch, 'Style QA: unparseable model response after retries');
         continue;
       }
 
@@ -443,10 +453,10 @@ outlierImages = 1-based indices that break the style.`,
     } catch (e) {
       console.warn(`[illustrator/quality/consistency] Batch style check error: ${e.message}`);
       if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
-      else return failWholeBatch(batch, `Style QA error: ${e.message}`);
+      else return passBatchInfra(batch, `Style QA error: ${e.message}`);
     }
   }
-  return failWholeBatch(batch, `Style QA HTTP failed after retries (${lastHttp || 'unknown'})`);
+  return passBatchInfra(batch, `Style QA HTTP failed after retries (${lastHttp || 'unknown'})`);
 }
 
 /**

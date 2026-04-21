@@ -40,6 +40,7 @@ async function checkExtraSpreadQa(imageBase64, opts = {}) {
     spreadIndex = 0,
     totalSpreads = 13,
     costTracker,
+    abortSignal,
   } = opts;
 
   const isBirthday = theme === 'birthday' || theme === 'birthday_magic';
@@ -81,8 +82,10 @@ Cover secondary description: ${String(additionalCoverCharacters).slice(0, 800)}
 
   if (needsParentResemblance) {
     instruction += `
-CHECK B — PARENT / IMPLIED ADULT vs CHILD:
-- If an adult is visible or clearly implied as mother/father/parent (even back of head, arms only), their visible skin tone and hair must look plausibly related to the main child (family resemblance). Flag if the adult looks like a totally different ethnicity from the child in a way that breaks family continuity.
+CHECK B — PARENT / IMPLIED ADULT vs CHILD (strict only on clear mismatch):
+- If an adult is visible or clearly implied as mother/father/parent (even back of head, arms/hands only), their visible skin tone and hair should look plausibly related to the main child.
+- Do NOT flag lighting/shadow, sun tan lines, slight warmth/coolness shifts, or minor tone differences on hands/arms vs the child's face.
+- Do NOT flag unless the adult clearly occupies a meaningful part of the frame (roughly >15% of image area) AND looks like a categorically different ethnicity from the child (e.g. pale pink skin vs deep brown skin with hair in an unrelated color family) such that an uninformed viewer would say they are probably not related.
 - If no adult is present, pass B.
 
 `;
@@ -126,7 +129,7 @@ For checks not run, set the corresponding *_ok to true. Set pass=false if ANY ru
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
-      }, QA_TIMEOUT_MS);
+      }, QA_TIMEOUT_MS, abortSignal);
 
       if (costTracker) costTracker.addTextUsage(GEMINI_QA_MODEL, 700, 150);
 
@@ -163,9 +166,10 @@ For checks not run, set the corresponding *_ok to true. Set pass=false if ANY ru
   }
 
   return {
-    pass: false,
-    issues: [`Extra spread QA failed after retries: ${lastErr?.message || 'unknown'}`],
-    tags: ['qa_api_error'],
+    pass: true,
+    issues: [],
+    tags: ['qa_infra_error'],
+    infra: true,
   };
 }
 

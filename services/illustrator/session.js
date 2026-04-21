@@ -15,6 +15,7 @@ const {
   ESTABLISHMENT_TIMEOUT_MS,
   SLIDING_WINDOW_SIZE,
   MAX_HISTORY_IMAGES,
+  MAX_HISTORY_IMAGE_BYTES,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
 } = require('./config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
@@ -81,6 +82,7 @@ function createSession(opts) {
     startedAt: Date.now(),
     abandoned: false,
     opts,
+    abortSignal: opts.abortSignal || null,
   };
 }
 
@@ -386,7 +388,7 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }, timeout);
+    }, timeout, session.abortSignal);
   } catch (err) {
     history.pop(); // Remove failed user message
     throw err;
@@ -464,11 +466,29 @@ function _extractImage(response, spreadIndex) {
  * Keeps the last SLIDING_WINDOW_SIZE spread turn pairs.
  * Replaces dropped middle turns with text summary placeholders.
  */
+/**
+ * Sum approximate decoded byte size of all inline images in history (for token safety).
+ */
+function _imageBytesInHistory(history) {
+  let n = 0;
+  for (const msg of history) {
+    for (const part of msg.parts || []) {
+      const id = part.inline_data || part.inlineData;
+      const b64 = id?.data;
+      if (typeof b64 === 'string' && b64.length) {
+        n += Math.floor((b64.length * 3) / 4);
+      }
+    }
+  }
+  return n;
+}
+
 function _trimHistory(session) {
   const imageCount = _countImages(session.history);
-  if (imageCount <= MAX_HISTORY_IMAGES) return;
+  const imageBytes = _imageBytesInHistory(session.history);
+  if (imageCount <= MAX_HISTORY_IMAGES && imageBytes <= MAX_HISTORY_IMAGE_BYTES) return;
 
-  console.log(`[illustrator/session] Trimming history: ${imageCount} images, ${session.history.length} messages`);
+  console.log(`[illustrator/session] Trimming history: ${imageCount} images (~${Math.round(imageBytes / 1024)}KB), ${session.history.length} messages`);
 
   // Always keep first exchange (establishment): indices 0, 1
   const firstExchange = session.history.slice(0, 2);
