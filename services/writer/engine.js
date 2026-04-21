@@ -174,12 +174,17 @@ class WriterEngine {
       console.warn(`[writerV2] Exhausted ${retryLimit} retries without a clean pass — best seen at ${finalQuality.overallScore}/10`);
     }
 
-    if (!finalQuality.pass && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < 4) {
+    // Only block illustration when the critic actually ran and scored the story.
+    // Critic LLM/JSON failures return criticFailed + score 0 — do not treat as "bad story".
+    if (!finalQuality.pass && !finalQuality.criticFailed && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < 4) {
       throw new WriterQualityGateError(
         `Story quality too low for illustration (score ${finalQuality.overallScore}/10). ${(finalQuality.feedback || '').slice(0, 500)}`,
         finalQuality.feedback || '',
         finalQuality.overallScore,
       );
+    }
+    if (!finalQuality.pass && finalQuality.criticFailed) {
+      console.warn('[writerV2] Proceeding to illustration despite quality gate critic failure (critic did not complete).');
     }
 
     // Final safety net: auto-repair object-for-possessive pronoun errors

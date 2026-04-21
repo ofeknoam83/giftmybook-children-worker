@@ -59,6 +59,7 @@ class QualityGate {
         scores: {},
         issues: [{ dimension: 'catastrophic', note: 'Story has 0 spreads.' }],
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
+        criticFailed: false,
       };
     }
 
@@ -83,6 +84,7 @@ class QualityGate {
         scores: {},
         issues: [{ dimension: 'critic_error', note: err.message }],
         feedback: 'Quality check could not be completed. Rewrite the story with extra care: land every anecdote, keep pronouns correct for the child, ensure the ending matches the theme, and use the parent\'s real first name AT MOST once.',
+        criticFailed: true,
       };
     }
 
@@ -144,6 +146,7 @@ class QualityGate {
       scores,
       issues,
       feedback: pass ? '' : feedback,
+      criticFailed: false,
     };
   }
 
