@@ -1471,7 +1471,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           }
         }
 
-        const { WriterEngine, WriterQualityGateError } = require('./services/writer/engine');
+        const { WriterEngine, WriterQualityGateError, WriterQualityCheckUnavailableError } = require('./services/writer/engine');
         const stage3Start = Date.now();
         if (approvedTitle && sanitized.approvedTitle !== approvedTitle) {
           sanitized.approvedTitle = approvedTitle;
@@ -1501,6 +1501,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             },
           });
         } catch (writerErr) {
+          if (writerErr instanceof WriterQualityCheckUnavailableError) {
+            bookContext.log('error', `Writer V2 quality check unavailable: ${writerErr.message}`);
+            throw new Error(`Writer V2: ${writerErr.message}${writerErr.cause ? ` (${writerErr.cause})` : ''}`);
+          }
           if (writerErr instanceof WriterQualityGateError) {
             bookContext.log('error', `Writer V2 quality gate blocked illustration: ${writerErr.message}`);
             throw new Error(`Writer V2 quality gate failed (score ${writerErr.overallScore}/10): ${writerErr.feedback ? writerErr.feedback.slice(0, 400) : writerErr.message}`);

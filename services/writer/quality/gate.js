@@ -41,6 +41,12 @@ const { findPossessivePronounErrors } = require('../../pronouns');
 
 const _llm = new BaseThemeWriter('_quality_gate');
 
+const CRITIC_ATTEMPTS = 3;
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 class QualityGate {
   /**
    * Run the critic on a story.
@@ -48,7 +54,7 @@ class QualityGate {
    * @param {object} child - { name, age, gender, anecdotes }
    * @param {object} book  - { theme, mom_name, dad_name, heartfeltNote, customDetails, ... }
    * @param {object} [opts] - { plan, missingCritical }
-   * @returns {Promise<{pass, overallScore, scores, feedback, issues}>}
+   * @returns {Promise<{pass, overallScore, scores, feedback, issues, criticFailed?: boolean}>}
    */
   static async check(story, child, book, opts = {}) {
     const spreads = Array.isArray(story?.spreads) ? story.spreads : [];
@@ -66,24 +72,36 @@ class QualityGate {
     const system = QualityGate._buildSystemPrompt(child, book, opts);
     const user = QualityGate._buildUserPrompt(story, child, book, opts);
 
-    let parsed;
-    try {
-      const result = await _llm.callLLM('critic', system, user, {
-        jsonMode: true,
-        maxTokens: 1800,
-      });
-      parsed = JSON.parse(String(result.text || '').trim());
-    } catch (err) {
-      // A critic failure must not silently ship a bad book. Fail the gate,
-      // emit a generic "rewrite with care" feedback, and let the outer
-      // retry loop try again.
-      console.warn(`[writerV2] QualityGate LLM call failed: ${err.message}`);
+    let parsed = null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < CRITIC_ATTEMPTS; attempt++) {
+      try {
+        const result = await _llm.callLLM('critic', system, user, {
+          jsonMode: true,
+          maxTokens: 1800,
+        });
+        const raw = String(result.text || '').trim();
+        if (!raw) throw new Error('empty critic response');
+        parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') throw new Error('critic JSON was not an object');
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[writerV2] QualityGate critic attempt ${attempt + 1}/${CRITIC_ATTEMPTS} failed: ${err.message}`);
+        if (attempt < CRITIC_ATTEMPTS - 1) {
+          await sleep(400 * (attempt + 1));
+        }
+      }
+    }
+
+    if (!parsed) {
       return {
         pass: false,
         overallScore: 0,
         scores: {},
-        issues: [{ dimension: 'critic_error', note: err.message }],
-        feedback: 'Quality check could not be completed. Rewrite the story with extra care: land every anecdote, keep pronouns correct for the child, ensure the ending matches the theme, and use the parent\'s real first name AT MOST once.',
+        issues: [{ dimension: 'critic_error', note: lastErr?.message || 'unknown' }],
+        feedback: 'Quality check could not be completed after multiple attempts. Please try again shortly.',
         criticFailed: true,
       };
     }

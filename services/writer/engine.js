@@ -28,6 +28,16 @@ class WriterQualityGateError extends Error {
   }
 }
 
+/** Critic LLM/JSON failed after internal retries — do not illustrate; user can retry the job. */
+class WriterQualityCheckUnavailableError extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.name = 'WriterQualityCheckUnavailableError';
+    this.cause = cause || '';
+    this.isTransient = true;
+  }
+}
+
 class WriterEngine {
   /**
    * Generate a story for a children's book.
@@ -134,6 +144,11 @@ class WriterEngine {
     const retryLimit = maxRetries ?? WRITER_CONFIG.retries.maxQualityRetries;
     let attempts = 0;
     while (!quality.pass && attempts < retryLimit) {
+      // Never revise on critic infra failure — generic feedback makes the model "fix" a fine story.
+      if (quality.criticFailed) {
+        console.warn('[writerV2] Critic did not complete — skipping revision loop (no actionable feedback).');
+        break;
+      }
       attempts++;
       onProgress?.({ step: 'revising', message: `Revising story (attempt ${attempts}/${retryLimit})...` });
       console.log(`[writerV2] Revise ${attempts}/${retryLimit}: ${quality.feedback.slice(0, 240)}`);
@@ -157,6 +172,13 @@ class WriterEngine {
         timestamp: new Date().toISOString(),
       });
 
+      if (quality.criticFailed) {
+        console.warn('[writerV2] Critic failed after revise — reverting to last best story and scores.');
+        story = best.story;
+        quality = best.quality;
+        break;
+      }
+
       const isBetter = (quality.pass && !best.quality.pass)
         || (quality.pass && best.quality.pass && quality.overallScore > best.quality.overallScore)
         || (!quality.pass && !best.quality.pass && quality.overallScore > best.quality.overallScore);
@@ -174,17 +196,22 @@ class WriterEngine {
       console.warn(`[writerV2] Exhausted ${retryLimit} retries without a clean pass — best seen at ${finalQuality.overallScore}/10`);
     }
 
-    // Only block illustration when the critic actually ran and scored the story.
-    // Critic LLM/JSON failures return criticFailed + score 0 — do not treat as "bad story".
-    if (!finalQuality.pass && !finalQuality.criticFailed && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < 4) {
+    // Critic never returned scores — do not illustrate (avoids shipping unrated / damaged drafts).
+    if (finalQuality.criticFailed) {
+      const cause = finalQuality.issues?.find(i => i.dimension === 'critic_error')?.note || '';
+      throw new WriterQualityCheckUnavailableError(
+        'Automated story review did not complete after multiple attempts. Please try again shortly.',
+        cause,
+      );
+    }
+
+    // Block illustration when the critic ran and scored the story too low.
+    if (!finalQuality.pass && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < 4) {
       throw new WriterQualityGateError(
         `Story quality too low for illustration (score ${finalQuality.overallScore}/10). ${(finalQuality.feedback || '').slice(0, 500)}`,
         finalQuality.feedback || '',
         finalQuality.overallScore,
       );
-    }
-    if (!finalQuality.pass && finalQuality.criticFailed) {
-      console.warn('[writerV2] Proceeding to illustration despite quality gate critic failure (critic did not complete).');
     }
 
     // Final safety net: auto-repair object-for-possessive pronoun errors
@@ -325,4 +352,11 @@ function buildBookFromLegacy(payload) {
   };
 }
 
-module.exports = { WriterEngine, WriterQualityGateError, buildChildFromLegacy, buildBookFromLegacy, ageFromDOB };
+module.exports = {
+  WriterEngine,
+  WriterQualityGateError,
+  WriterQualityCheckUnavailableError,
+  buildChildFromLegacy,
+  buildBookFromLegacy,
+  ageFromDOB,
+};
