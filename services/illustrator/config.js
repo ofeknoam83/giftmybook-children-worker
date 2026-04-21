@@ -26,7 +26,7 @@ const MAX_HISTORY_IMAGE_BYTES = 6 * 1024 * 1024;
 // ── Retry budgets ──
 const MAX_SPREAD_RETRIES = 6;           // Per-spread QA retry limit (within session)
 const MAX_FRESH_SESSION_RETRIES = 5;    // Fresh-session fallbacks when in-session retries exhausted
-const MAX_REGEN_SPREADS = 13;          // Regenerate all flagged spreads per consistency round (bounded by MAX_CONSISTENCY_ROUNDS)
+const MAX_REGEN_SPREADS = 5;           // Regen worst offenders first (sorted by batch hits); limits oscillation vs full-book regen
 const MAX_CONSISTENCY_ROUNDS = 6;      // Cross-spread regen + re-check loops
 const QA_HTTP_ATTEMPTS = 3;            // Retries per vision QA HTTP call before fail-closed
 const MAX_GENERATION_RETRIES = 5;      // Raw image generation attempts before aborting a spread (6 total: attempt 0..5)

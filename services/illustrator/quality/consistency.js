@@ -65,10 +65,12 @@ function _finalizeAgentResults(checkResults, failedSpreadMap, logLabel) {
   const totalChecks = checkResults.length || 1;
   const passedChecks = checkResults.filter(r => r.passed).length;
   const overallScore = passedChecks / totalChecks;
-  const failedSpreads = Array.from(failedSpreadMap.entries()).map(([index, issues]) => ({
-    index,
-    issues,
-  }));
+  const failedSpreads = Array.from(failedSpreadMap.entries())
+    .map(([index, issues]) => ({ index, issues }))
+    .sort((a, b) => {
+      const d = b.issues.length - a.issues.length;
+      return d !== 0 ? d : a.index - b.index;
+    });
   console.log(`[illustrator/quality/consistency] ${logLabel}: score=${(overallScore * 100).toFixed(0)}%, failedSpreads=${failedSpreads.length}`);
   return { overallScore, failedSpreads };
 }
@@ -213,28 +215,36 @@ async function _checkBatchCharacterConsistency(batch, opts) {
     : '';
 
   const isParentTheme = opts?.theme === 'mothers_day' || opts?.theme === 'fathers_day';
+  const parentOnCover = opts?.hasParentOnCover === true;
   const coverSecondaryNote = opts?.additionalCoverCharacters && opts?.hasSecondaryOnCover
-    ? `\n\nCOVER SECONDARY (locked reference): The book cover includes another person described as: ${String(opts.additionalCoverCharacters).slice(0, 700)}. Whenever that same person appears in these images, they must be the SAME individual — flag drift in skin tone, hair, face shape, or build vs other images where they appear.\n`
+    ? `\n\nCOVER SECONDARY (locked reference): The book cover includes another person described as: ${String(opts.additionalCoverCharacters).slice(0, 700)}. Apply the OVERLAP RULE: wherever that same person clearly appears in 2+ of these images, visible traits (face, hair, skin, outfit, build) must match across those appearances. Do not flag absence in a crop as inconsistency.\n`
     : '';
 
-  const parentResemblanceBlock = isParentTheme
-    ? `\n8. PARENT–CHILD FAMILY RESEMBLANCE (${opts.theme === 'mothers_day' ? 'mother' : 'father'}, face may be hidden): Wherever any parent figure appears (hands, arms, neck, back of head, etc.), visible skin and hair should look plausibly related to the hero child. Do NOT flag minor lighting/shadow differences or small tone shifts. Only flag a clear categorical ethnicity mismatch (e.g. unrelated skin-tone categories across spreads) or obvious inconsistency of the parent's visible skin tone across spreads where the parent is clearly the same character.`
-    : `\n8. IMPLIED PARENT / ADULT FAMILY RESEMBLANCE (all themes): If any adult is clearly the child's parent or primary caregiver, visible skin tone and hair should show family resemblance across spreads. Ignore lighting/shadow variation. Flag only clear cross-spread drift (same adult looking like a different ethnicity in different images) or an obvious unrelated-ethnicity pairing with the child.`;
+  const parentResemblanceBlock = isParentTheme && !parentOnCover
+    ? `\n8. PARENT (${opts.theme === 'mothers_day' ? 'mother' : 'father'} — face hidden / not on cover): The parent may appear only as partial body (hands, arms, back, cropped head). Apply the OVERLAP RULE to the parent's visible regions only: if the same parent's hands or arms appear clearly in 2+ images, those visible regions must match each other (same person). Do NOT require parent skin or hair to match the hero child's face. Do NOT flag minor lighting/shadow on skin. Flag only: (a) the same parent's visible parts looking like a different person across images where they overlap, or (b) clear categorical ethnicity mismatch if the parent's face were ever wrongly shown. Do not flag "parent vs child" skin differences when only partial parent is visible.`
+    : isParentTheme
+      ? `\n8. PARENT–CHILD FAMILY RESEMBLANCE (${opts.theme === 'mothers_day' ? 'mother' : 'father'}): Where a parent figure appears with any visible face or identifying features in 2+ images, those appearances must be consistent (same individual). Visible skin/hair should look plausibly related to the hero child where both are visible. Ignore minor lighting. Flag only clear categorical mismatch, obvious same-parent drift across overlapping views, or contradictory ethnicity pairing.`
+      : `\n8. IMPLIED PARENT / ADULT CAREGIVER: If an adult is clearly the child's parent or primary caregiver and appears in 2+ images, apply the OVERLAP RULE to their visible traits. Ignore lighting variation. Flag only clear cross-spread drift (same adult looking like a different ethnicity in overlapping views) or obvious unrelated-ethnicity pairing with the child.`;
 
   const parts = [{
-    text: `These are ${batch.length} illustrations from the same children's book. The SAME child appears in every image; named secondary characters must look identical whenever they appear.
+    text: `These are ${batch.length} illustrations from the same children's book. The SAME hero child appears in every image. Named secondary characters must stay visually stable.
 
-Check character consistency across ALL images — be STRICT:
-1. HAIR: Is the hair color, length, and style the SAME in every image? Flag if hair changes color (e.g., dark to light), changes length (short to long), or changes style (curly to straight, ponytail to loose).
-2. OUTFIT: Is the child wearing the SAME clothes in every image? Flag if clothing color, style, or type changes between images. The outfit must be identical on every page.
-3. FACE: Same face shape and skin tone across all?
-4. AGE & PROPORTIONS: Does the child look the SAME AGE in every image? Flag if the child looks like a toddler in one image but a 5-6 year old in another. Body proportions (height, head-to-body ratio, limb length) must be consistent. This is CRITICAL — age drift between spreads is a major defect.
-5. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts. Also flag any image where a character is MISSING a limb that should be visible (one arm when both should show, one leg when both should show, a hand ending mid-wrist where a hand should be).
-6. SECONDARY CHARACTERS: if any named secondary character (a friend, animal companion, adult, etc.) appears across multiple images, their appearance must match across those images — same species, same face/fur, same outfit, same colors. Flag any image where a secondary character's appearance drifts.
-7. SETTINGS: if multiple images take place in the same named location, the setting must match (same room, same landmarks, same color palette baseline). Flag a location mismatch only when the text/scene says it's the SAME place but the visuals disagree.${parentResemblanceBlock}${coverSecondaryNote}${bibleGroundTruth}
+CORE — OVERLAP RULE (applies to EVERY character, including the child):
+- Different crops and framing are NORMAL. One image may show body parts or clothing regions that another does not show at all.
+- Only evaluate a visual trait if it is CLEARLY VISIBLE in TWO OR MORE of these images. If hair, face, outfit, skin, etc. appears in multiple images, those visible instances must match (allow normal lighting/pose).
+- Do NOT flag inconsistency because a detail appears in one image but is absent, occluded, or out of frame in another. Do NOT invent contradictions for regions you cannot see.
 
-Do NOT flag: left/right mirroring, minor lighting/shadow differences, eye open/closed state, minor pose differences, or intentional location changes between scenes.
-DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any age/proportion shift, any anatomy errors (extra OR missing limbs), any secondary character drift, any location mismatch that contradicts the ground truth, any parent–child or cover-secondary mismatch as described above.
+Be STRICT where overlap exists:
+1. HERO — HAIR: If hair (color, length, style) is clearly visible in 2+ images, it must match across those images. If hair is only visible in one image, do not demand consistency with unseen hair in others.
+2. HERO — OUTFIT / CLOTHING: If the same garment or a clearly visible clothing region (shirt, sleeves, overalls, etc.) appears in 2+ images, colors and style must match. If an outfit is only fully visible once, do not fail other images for details you cannot compare.
+3. HERO — FACE & SKIN: If face or a specific skin region is visible in 2+ images, it must match (same child). Flag real drift between overlapping views — not lighting-only differences.
+4. AGE & PROPORTIONS: If the child's full body or comparable framing appears in 2+ images, age and proportions must match. Flag toddler vs older child drift when comparable.
+5. ANATOMY (per image): Flag wrong limb counts, extra limbs, merged parts, or a limb that should be visible but is missing in that image's composition.
+6. SECONDARY CHARACTERS: If the same named secondary (friend, animal, adult) clearly appears in 2+ images, visible traits must match across those appearances (overlap rule). Do not flag because they are off-panel in some images.
+7. SETTINGS: If multiple images depict the SAME named location, overlapping visible environment must match. Do not flag intentional scene changes.${parentResemblanceBlock}${coverSecondaryNote}${bibleGroundTruth}
+
+Do NOT flag: left/right mirroring, minor lighting/shadow, eye open/closed, minor pose differences, intentional location/scene changes, or missing/occluded details with no overlapping contradiction.
+DO flag: contradictory appearance of the SAME character/trait where that trait is visibly shown in 2+ images; age/proportion drift when comparable; anatomy errors; location contradiction vs ground truth; parent/cover-secondary issues as in section 8.
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}

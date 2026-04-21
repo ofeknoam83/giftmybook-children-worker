@@ -23,6 +23,7 @@ function sleep(ms) {
  * @param {string} [opts.coverBase64]
  * @param {string|null} [opts.additionalCoverCharacters]
  * @param {boolean} [opts.hasSecondaryOnCover]
+ * @param {boolean} [opts.hasParentOnCover] - parent theme: true if themed parent appears on cover (from cover vision)
  * @param {number} [opts.spreadIndex] 0-based
  * @param {number} [opts.totalSpreads]
  * @param {object} [opts.costTracker]
@@ -37,6 +38,7 @@ async function checkExtraSpreadQa(imageBase64, opts = {}) {
     coverBase64 = null,
     additionalCoverCharacters = null,
     hasSecondaryOnCover = false,
+    hasParentOnCover,
     spreadIndex = 0,
     totalSpreads = 13,
     costTracker,
@@ -69,26 +71,45 @@ async function checkExtraSpreadQa(imageBase64, opts = {}) {
 
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
-  let instruction = `You are QA for one children's book spread illustration.\n`;
+  const parentOnCover = hasParentOnCover === true;
+
+  let instruction = `You are QA for one children's book spread illustration.
+
+VISIBILITY / OVERLAP (same rule as cross-spread QA): Judge only what is clearly visible in THIS spread. When you compare to the cover image, compare only traits that appear on BOTH the cover and this spread for that same person. If this spread shows only part of someone (hands, arms, back, cropped head), only those visible parts must be consistent with the cover for identity — do NOT fail because hair, full outfit, or other regions are absent, off-frame, or not comparable. Do not invent contradictions for body parts you cannot see.
+
+`;
 
   if (needsCoverSecondary) {
     instruction += `
 CHECK A — COVER SECONDARY MATCH:
 - The FIRST image below is the BOOK COVER (reference). The SECOND image is THIS SPREAD.
-- If THIS SPREAD clearly shows the same secondary person as on the cover (not just anonymous crowd), they MUST match: skin tone, hair color/family, build — same individual. If the spread does NOT show that secondary person, pass A.
+- If THIS SPREAD clearly shows the same secondary person as on the cover (not just anonymous crowd), they must be the same individual. Apply the VISIBILITY rule: match only skin, hair, build, and clothing regions that are **clearly visible on both** cover and this spread. If the spread shows only a partial view, matching that partial to the cover is enough — do not require full-body agreement with unseen areas.
+- If the spread does NOT show that secondary person, pass A.
 Cover secondary description: ${String(additionalCoverCharacters).slice(0, 800)}
 `;
   }
 
   if (needsParentResemblance) {
-    instruction += `
+    if (isParentTheme && !parentOnCover) {
+      instruction += `
+CHECK B — PARENT (face hidden / not on cover; partial body only):
+- If a parent figure appears only as hands, arms, back, or cropped head (no full face), do NOT require their visible skin or hair to "match" the hero child's face for family resemblance.
+- Apply partial-view logic: only assess what is visible; do NOT flag parent vs child skin tone differences when you only see the parent's limbs.
+- Do NOT flag lighting/shadow or minor tone shifts on hands/arms.
+- Flag only if the visible adult parts look like a categorically different, unrelated person in a way an uninformed viewer would notice (wrong-person energy), or if a full parent face wrongly appears when it should stay hidden.
+- If no adult is present, pass B.
+
+`;
+    } else {
+      instruction += `
 CHECK B — PARENT / IMPLIED ADULT vs CHILD (strict only on clear mismatch):
-- If an adult is visible or clearly implied as mother/father/parent (even back of head, arms/hands only), their visible skin tone and hair should look plausibly related to the main child.
+- If an adult is visible or clearly implied as mother/father/parent (even back of head, arms/hands only), their visible skin tone and hair should look plausibly related to the main child where both are visible enough to compare.
 - Do NOT flag lighting/shadow, sun tan lines, slight warmth/coolness shifts, or minor tone differences on hands/arms vs the child's face.
 - Do NOT flag unless the adult clearly occupies a meaningful part of the frame (roughly >15% of image area) AND looks like a categorically different ethnicity from the child (e.g. pale pink skin vs deep brown skin with hair in an unrelated color family) such that an uninformed viewer would say they are probably not related.
 - If no adult is present, pass B.
 
 `;
+    }
   }
 
   if (needsCandles) {

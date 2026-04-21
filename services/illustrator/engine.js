@@ -237,6 +237,7 @@ class IllustratorEngine {
           coverBase64: coverBase64 || null,
           additionalCoverCharacters,
           hasSecondaryOnCover,
+          hasParentOnCover,
           spreadIndex: i,
           totalSpreads: spreadEntries.length,
           costTracker,
@@ -630,6 +631,7 @@ ${prompt}`;
       theme,
       additionalCoverCharacters,
       hasSecondaryOnCover,
+      hasParentOnCover,
       abortSignal,
     };
 
@@ -665,7 +667,7 @@ The following issues were found when comparing this spread against other illustr
 ${failed.issues.map(issue => `- ${issue}`).join('\n')}
 
 Please regenerate this spread, fixing the issues above while maintaining the same scene content.
-The character's appearance, outfit, art style, and font must be IDENTICAL to all other spreads.`;
+Match any character traits (hair, outfit regions, skin tone, face) that would also be visible on other spreads — only where those traits appear in multiple illustrations they must look like the same person; unchanged art style and font.`;
 
           log('info', `Consistency regen (fresh session) for spread ${failed.index + 1} (round ${round + 1})`);
           const regenResult = await this.generateSingleSpread({
@@ -871,6 +873,7 @@ The character's appearance, outfit, art style, and font must be IDENTICAL to all
       coverBase64: coverBase64 || null,
       additionalCoverCharacters,
       hasSecondaryOnCover,
+      hasParentOnCover,
       spreadIndex,
       totalSpreads,
       costTracker,

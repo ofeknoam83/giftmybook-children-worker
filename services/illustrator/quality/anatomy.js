@@ -53,6 +53,8 @@ Do NOT flag minor differences in pose — only flag clear contradictions.`
 
   const prompt = `You are a QA inspector for children's book illustrations. Check this image for anatomy, quality, and composition defects.
 
+VISIBILITY: Judge only what is clearly visible in this frame. Parts cropped by the edge, hidden behind the body, or blocked by props are not defects. Do not fail because a character "should" show hair, clothing, or limbs that are simply not in view in this illustration (book continuity across spreads is checked elsewhere).
+
 STEP-BY-STEP PROCEDURE (follow exactly):
 
 1. PERSON COUNT: How many distinct people (adults + children) are in this image? List each one.
