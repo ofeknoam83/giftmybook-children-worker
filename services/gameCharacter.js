@@ -1,20 +1,24 @@
 /**
  * Game Character Asset Pipeline — grid-sheet mode.
  *
- * PRIMARY PATH: one Gemini call produces a 2×3 grid of all six poses at once,
+ * PRIMARY PATH: one Gemini call produces a 4×3 grid of all twelve poses at once,
  * then sharp slices it. This keeps character silhouette/proportions IDENTICAL
- * across poses (critical for clean crossfade rig) AND cuts latency ~6×
+ * across poses (critical for clean crossfade) AND cuts latency ~12×
  * vs. sequential generation.
  *
  * FALLBACK PATH: if the grid doesn't produce a usable image (refused, wrong
  * shape, near-empty cells), fall back to the sequential chat-session approach.
  *
- * Output: six transparent-background PNGs + manifest on GCS, per-book.
+ * Output: twelve transparent-background PNGs + manifest on GCS, per-book.
  *
- * Poses: idle / walk / jump / eat / sleep / cheer
- * Grid layout (after slicing):
- *   [idle  walk  jump ]
- *   [eat   sleep cheer]
+ * Poses:
+ *   [idle    walk_a  walk_b]
+ *   [jump    eat     sleep ]
+ *   [cheer   wave    sit   ]
+ *   [read    dance   surprise]
+ *
+ * We use walk_a / walk_b so HouseScene can alternate them every ~220ms to
+ * produce a lively walk cycle without a separate flipbook.
  */
 
 const sharp = require('sharp');
@@ -22,9 +26,14 @@ const { GEMINI_IMAGE_MODEL, CHAT_API_BASE } = require('./illustrator/config');
 const { fetchWithTimeout, downloadPhotoAsBase64 } = require('./illustrationGenerator');
 const { uploadBuffer } = require('./gcsStorage');
 
-const POSES = ['idle', 'walk', 'jump', 'eat', 'sleep', 'cheer'];
+const POSES = [
+  'idle', 'walk_a', 'walk_b',
+  'jump', 'eat',    'sleep',
+  'cheer','wave',   'sit',
+  'read', 'dance',  'surprise',
+];
 const GRID_COLS = 3;
-const GRID_ROWS = 2;
+const GRID_ROWS = 4;
 
 // ── Key picker (same as before) ──
 function pickApiKey() {
@@ -48,41 +57,61 @@ function gridPrompt(childDetails, style) {
   const ageLine = age ? `The character is ${age} years old.` : '';
 
   return [
-    `Generate a 2×3 POSE SHEET of the SAME character "${name}" for a children's game.`,
+    `Generate a 4-row × 3-column POSE SHEET of the SAME character "${name}" for a children's game.`,
     ageLine,
     `The character MUST match the identity shown in the reference images exactly — same face, skin tone, hair, clothing, style.`,
     '',
     'LAYOUT (critical — must follow exactly):',
-    'The output image is a 2-row × 3-column grid with thin white gutters separating 6 equal cells.',
-    'Top row (left→right): [IDLE] [WALK] [JUMP]',
-    'Bottom row (left→right): [EAT] [SLEEP] [CHEER]',
+    'The output image is a 4-row × 3-column grid with thin WHITE gutters separating 12 equal cells.',
+    'Row 1 (left→right): [IDLE] [WALK-A] [WALK-B]',
+    'Row 2 (left→right): [JUMP] [EAT] [SLEEP]',
+    'Row 3 (left→right): [CHEER] [WAVE] [SIT]',
+    'Row 4 (left→right): [READ] [DANCE] [SURPRISE]',
     '',
     'CHARACTER POSITIONING (critical — must be identical across cells):',
-    '- The same character appears in all 6 cells, standing at the same baseline.',
-    '- Feet near the bottom of each cell (same vertical position).',
+    '- The same character appears in all 12 cells, same size, same facing direction.',
+    '- Feet (or body base for SIT) near the bottom of each cell at the same vertical position.',
     '- Head at the same height in each cell.',
-    '- Same body size and proportions in each cell — ONLY the pose changes.',
-    '- No ground shadow, no floor line, no props.',
+    '- Same body proportions in each cell — ONLY the pose changes.',
+    '- Absolutely no ground shadow, no floor line, no props outside the character.',
     '',
-    'POSES:',
+    'POSES (each cell must show EXACTLY this pose and nothing else):',
     '- IDLE: standing relaxed, arms at sides, soft smile, open bright eyes, facing forward.',
-    '- WALK: mid-stride, left foot forward on ground, right foot lifting; arms swing opposite to legs; happy smile.',
+    '- WALK-A: mid-stride, LEFT foot forward on ground, right foot lifting behind; RIGHT arm forward, LEFT arm back; happy smile.',
+    '- WALK-B: opposite stride — RIGHT foot forward on ground, left foot lifting behind; LEFT arm forward, RIGHT arm back; happy smile. Must be clearly different from WALK-A.',
     '- JUMP: airborne with both feet off ground, knees bent and tucked, arms raised in a V; open-mouth smile; head tilted slightly back.',
     '- EAT: holding a small piece of food with both hands near the mouth, eyes closed happily, cheeks lightly puffed.',
     '- SLEEP: standing upright but with eyes closed, head tilted to one side resting on palm-to-palm hands pressed to cheek; peaceful smile.',
     '- CHEER: arms thrown up high in a V, open-mouth joyful smile, eyes sparkling; feet slightly apart.',
+    '- WAVE: standing, right arm raised high waving hello, left arm relaxed at side, big friendly smile.',
+    '- SIT: sitting cross-legged on the ground (feet-position represents the ground), hands resting on knees, calm smile, facing forward.',
+    '- READ: standing holding an open small book in both hands in front of chest, looking down at the book, gentle smile.',
+    '- DANCE: one foot lifted in a playful dance step, arms swinging asymmetrically (one up, one out), joyful open-mouth smile.',
+    '- SURPRISE: standing wide-eyed with both hands near cheeks, open round mouth in an "oh!" expression.',
     '',
-    'BACKGROUND (critical):',
-    '- Pure white (#FFFFFF) fill everywhere — inside cells, gutters, and borders.',
-    '- NO text, NO letters, NO labels, NO numbers, NO borders, NO logos, NO cell dividers visible as ink — just white gutters.',
-    '- NO props, shadows, gradients, or textures.',
+    'BACKGROUND (ABSOLUTELY CRITICAL — we will chromakey this out):',
+    '- Fill every pixel that is NOT the character with pure flat white (#FFFFFF).',
+    '- No off-white, no cream, no pale grey, no gradient, no texture, no pattern, no vignette.',
+    '- No ground plate, no shadow plate, no drop shadow, no rim glow.',
+    '- No props, no floor line, no wall behind the character.',
+    '- Gutters between cells are also pure white.',
+    '- The image must look like it was composited onto a white sheet — crisp character edges against flat white.',
+    '',
+    'EDGES (critical for clean matting):',
+    '- Sharp, well-defined character edges.',
+    '- No anti-aliased halo where character meets white — keep edges crisp.',
+    '- Do NOT draw an outer glow or soft fade around the character.',
+    '',
+    'TEXT / DECOR (absolute rules):',
+    '- NO text, letters, labels, numbers, borders, logos, cell dividers, or watermark ANYWHERE.',
+    '- Just the 12 characters on pure white.',
     '',
     'RENDERING:',
     '- Same illustrated style as the reference images (color, line weight, rendering).',
-    '- Soft 2-3px outer outline around each character for a sticker-sheet feel.',
+    '- Soft 2-3px outer INK outline around each character for a sticker-sheet feel (not a glow).',
     `- Style: ${style || 'pixar_premium'}.`,
     '',
-    'Output: ONE single image containing the 2×3 grid. Do NOT output 6 separate images. Do NOT include any text annotations.',
+    'Output: ONE single image containing the 4×3 grid. Do NOT output separate images. Do NOT include any text annotations.',
   ].join('\n');
 }
 
@@ -115,7 +144,12 @@ async function sliceGrid(inputBuffer) {
 }
 
 /**
- * Soft luminance chromakey — pure white to transparent with feathered edge.
+ * Luminance chromakey — pure white / near-white to transparent.
+ *
+ * Tightened for the full-body pose pipeline: thresholds are aggressive so any
+ * model-produced haze ends up fully alpha=0 rather than the leaky-grey fringe
+ * that used to bleed through (producing the visible bounding boxes around
+ * parts). Followed by an alpha bbox trim in `trimToAlpha` below.
  */
 async function softChromakeyWhiteToTransparent(inputBuffer) {
   const img = sharp(inputBuffer).ensureAlpha();
@@ -125,7 +159,11 @@ async function softChromakeyWhiteToTransparent(inputBuffer) {
 
   const pxCount = width * height;
   const out = Buffer.alloc(pxCount * 4);
-  const LOW = 235, HIGH = 252;
+  // Aggressive thresholds — anything brighter than LOW fades fast and anything
+  // above HIGH is fully transparent. We also require the channels to be close
+  // to each other (desaturated) so coloured shirts near white don't vanish.
+  const LOW = 220, HIGH = 246;
+  const CHANNEL_SPREAD = 18;
 
   for (let i = 0; i < pxCount; i++) {
     const srcIdx = i * channels;
@@ -134,11 +172,20 @@ async function softChromakeyWhiteToTransparent(inputBuffer) {
     const g = data[srcIdx + 1];
     const b = data[srcIdx + 2];
     const minC = Math.min(r, g, b);
+    const maxC = Math.max(r, g, b);
+    const spread = maxC - minC;
 
     let alpha;
-    if (minC >= HIGH) alpha = 0;
-    else if (minC <= LOW) alpha = 255;
-    else alpha = Math.round(255 * (HIGH - minC) / (HIGH - LOW));
+    // Only treat as background if it's BOTH near white AND desaturated.
+    const whitish = minC >= LOW && spread <= CHANNEL_SPREAD;
+    if (!whitish) {
+      alpha = 255;
+    } else if (minC >= HIGH) {
+      alpha = 0;
+    } else {
+      // Smooth fade in the LOW..HIGH band.
+      alpha = Math.round(255 * (HIGH - minC) / (HIGH - LOW));
+    }
 
     out[dstIdx] = r;
     out[dstIdx + 1] = g;
@@ -149,6 +196,44 @@ async function softChromakeyWhiteToTransparent(inputBuffer) {
   return sharp(out, { raw: { width, height, channels: 4 } })
     .png({ compressionLevel: 9 })
     .toBuffer();
+}
+
+/**
+ * Alpha-trim a cell to the tight bounding box of its opaque pixels, plus an
+ * 8px safety pad. This eliminates the phantom "cell size" halo where the cell
+ * has transparent borders that still participate in layout / shadow math on
+ * the client.
+ */
+async function trimToAlpha(inputBuffer, pad = 8) {
+  try {
+    const { data, info } = await sharp(inputBuffer).ensureAlpha().raw()
+      .toBuffer({ resolveWithObject: true });
+    const { width, height, channels } = info;
+    let minX = width, minY = height, maxX = -1, maxY = -1;
+    const ALPHA_THRESH = 24;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const a = data[(y * width + x) * channels + 3];
+        if (a > ALPHA_THRESH) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return inputBuffer; // fully transparent — don't crop
+    const left = Math.max(0, minX - pad);
+    const top = Math.max(0, minY - pad);
+    const right = Math.min(width - 1, maxX + pad);
+    const bottom = Math.min(height - 1, maxY + pad);
+    const w = right - left + 1;
+    const h = bottom - top + 1;
+    return sharp(inputBuffer).extract({ left, top, width: w, height: h })
+      .png({ compressionLevel: 9 }).toBuffer();
+  } catch (_) {
+    return inputBuffer;
+  }
 }
 
 /**
@@ -187,7 +272,8 @@ async function callGeminiGrid({ apiKey, prompt, refs }) {
     contents: [{ role: 'user', parts }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
-      imageConfig: { aspectRatio: '3:2' }, // 3 cols × 2 rows
+      // 3 cols × 4 rows — 3:4 portrait keeps each cell reasonably square.
+      imageConfig: { aspectRatio: '3:4' },
     },
   };
 
@@ -274,8 +360,8 @@ async function generateGameCharacter(input) {
     let totalFill = 0;
     for (const [name, buf] of Object.entries(cells)) {
       const keyed = await softChromakeyWhiteToTransparent(buf);
-      keyedCells[name] = keyed;
       totalFill += await cellFill(keyed);
+      keyedCells[name] = await trimToAlpha(keyed, 8);
     }
     const avgFill = totalFill / POSES.length;
 
@@ -363,31 +449,46 @@ async function generateSequential({ apiKey, refs, childDetails, style }) {
   else session.history.pop();
 
   const poseLines = {
-    idle:  'IDLE: standing relaxed, arms at sides, soft smile, eyes open.',
-    walk:  'WALK: mid-stride walking, opposite arm/leg swing, happy smile.',
-    jump:  'JUMP: airborne with knees tucked and arms up in a V, joyful smile.',
-    eat:   'EAT: holding food with both hands near mouth, eyes closed, cheeks puffed.',
-    sleep: 'SLEEP: eyes closed, head tilted on hands pressed to cheek, peaceful.',
-    cheer: 'CHEER: arms thrown up in a V, wide open-mouth smile, feet apart.',
+    idle:     'IDLE: standing relaxed, arms at sides, soft smile, eyes open.',
+    walk_a:   'WALK-A: mid-stride, LEFT foot forward on ground, right foot lifting; RIGHT arm forward, LEFT arm back; happy smile.',
+    walk_b:   'WALK-B: opposite stride — RIGHT foot forward on ground, left foot lifting; LEFT arm forward, RIGHT arm back; happy smile.',
+    jump:     'JUMP: airborne with knees tucked and arms up in a V, joyful smile.',
+    eat:      'EAT: holding food with both hands near mouth, eyes closed, cheeks puffed.',
+    sleep:    'SLEEP: eyes closed, head tilted on hands pressed to cheek, peaceful.',
+    cheer:    'CHEER: arms thrown up in a V, wide open-mouth smile, feet apart.',
+    wave:     'WAVE: right arm raised high waving hello, left arm relaxed, big friendly smile.',
+    sit:      'SIT: sitting cross-legged on the ground, hands on knees, calm smile, facing forward.',
+    read:     'READ: standing holding an open small book in both hands at chest, looking down at it, gentle smile.',
+    dance:    'DANCE: one foot lifted in a playful dance step, arms asymmetric (one up one out), joyful open-mouth smile.',
+    surprise: 'SURPRISE: wide eyes, both hands near cheeks, round open mouth in "oh!" expression.',
   };
 
   const results = {};
   for (const pose of POSES) {
     try {
       const p = [
-        `Generate a clean full-body ${pose.toUpperCase()} pose sprite of the same character on pure white background.`,
+        `Generate a clean full-body ${pose.toUpperCase()} pose sprite of the same character on PURE FLAT WHITE (#FFFFFF) background.`,
         poseLines[pose],
-        `CRITICAL: square frame, character centered, feet at bottom, no shadows, no text, no props, SAME identity and body proportions as prior images.`,
+        'CRITICAL:',
+        '- Every non-character pixel must be pure white #FFFFFF — no gradient, no off-white, no shadow plate, no ground line.',
+        '- Square frame, character centered, feet (or sit-base) at bottom.',
+        '- No text, no props, no floor.',
+        '- Crisp character edges (soft 2-3px ink outline only).',
+        '- SAME identity and body proportions as prior images.',
         `Style: ${style || 'pixar_premium'}.`,
       ].join('\n');
       const buf = await sendTurn(session, [{ text: p }]);
-      results[pose] = await softChromakeyWhiteToTransparent(buf);
+      const keyed = await softChromakeyWhiteToTransparent(buf);
+      results[pose] = await trimToAlpha(keyed, 8);
     } catch (e) {
       console.warn(`[gameCharacter/sequential] pose ${pose} failed: ${e.message}`);
       if (results.idle) results[pose] = results.idle;
     }
   }
   if (Object.keys(results).length === 0) throw new Error('All sequential poses failed');
+  // Guarantee walk_a exists so the client walk cycle has at least one frame.
+  if (!results.walk_a && results.idle) results.walk_a = results.idle;
+  if (!results.walk_b && results.walk_a) results.walk_b = results.walk_a;
   return results;
 }
 
