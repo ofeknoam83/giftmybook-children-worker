@@ -55,11 +55,11 @@ const WRITER_CONFIG = {
   },
 
   qualityThresholds: {
-    // Raised from 7.5 → 8.5. Mason's Mother's-Day book scored 7.6 and
-    // passed without any revision, but was clearly not good enough (age
-    // mismatch, dropped anecdotes, overridden favorite object). 8.5 is
-    // high enough to trigger at least one revision on most first drafts
-    // while still being achievable on a genuinely good story.
+    // Raised from 7.5 → 8.5. Books scoring in the high 7s were clearing
+    // the old gate despite real personalization misses (age mismatch,
+    // dropped anecdotes, overridden favorite object). 8.5 is high enough
+    // to trigger at least one revision on most first drafts while still
+    // being achievable on a genuinely good story.
     passScore: 8.5,
     // Raised from 5 → 6. At 5 a dimension with "half of checks missed"
     // still cleared the floor; 6 requires at least "mostly correct".
@@ -71,12 +71,15 @@ const WRITER_CONFIG = {
     //   - pronouns:      fails → the child is referred to as the wrong gender
     //   - wordCount:     fails → too long/short to read aloud at age
     //   - endingAppropriateness: fails → celebration ends with bedtime
+    //   - nameDiscipline: fails → parent's real name used more than once
+    //     (should appear at most once for a dedication-style beat)
     // All other dimensions fall under the generic minDimensionScore floor.
     criticalDimensions: {
       anecdoteUsage: 7,
       pronouns: 9,
       wordCount: 7,
       endingAppropriateness: 7,
+      nameDiscipline: 6,
     },
   },
 };

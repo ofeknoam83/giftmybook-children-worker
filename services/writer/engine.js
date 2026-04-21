@@ -137,43 +137,100 @@ class WriterEngine {
   }
 
   /**
-   * Run one additional revision pass and re-score. Used by server.js when
-   * an out-of-band check (e.g. custom-details usage) flags critical
-   * misses after the main loop has finished. Returns a new writerResult
-   * shape compatible with the original return.
+   * Run up to `maxAttempts` additional revision passes and re-score. Used by
+   * server.js when an out-of-band check (e.g. custom-details usage) flags
+   * critical misses after the main loop has finished. Keeps the BEST version
+   * seen (including the original) — never regresses.
+   *
+   * "Best" ordering:
+   *   1. `pass=true` beats `pass=false`
+   *   2. higher overallScore wins
+   *
+   * opts:
+   *   - missingCritical: string[] — items the external check flagged. Passed
+   *     through to the gate so revision feedback can call them out.
+   *   - maxAttempts:     number   — default 2. Each attempt reruns reviser +
+   *     QualityGate; cheap early-exits on the first `pass=true`.
+   *   - onAttempt:       fn({attempt, score, pass}) — optional progress hook.
    */
   static async reviseWithFeedback(writerResult, feedback, opts = {}) {
     const { themeWriter, story, plan, child, book } = writerResult;
     if (!themeWriter || !feedback) return writerResult;
     const missingCritical = Array.isArray(opts.missingCritical) ? opts.missingCritical : [];
+    const maxAttempts = Number.isFinite(opts.maxAttempts) && opts.maxAttempts > 0 ? opts.maxAttempts : 2;
+    const onAttempt = typeof opts.onAttempt === 'function' ? opts.onAttempt : null;
 
-    console.log(`[writerV2] Post-hoc revision requested: ${feedback.slice(0, 160)}`);
-    let revisedStory;
-    try {
-      revisedStory = await themeWriter.revise(story, feedback, child, book);
-    } catch (err) {
-      console.warn(`[writerV2] Post-hoc revision failed: ${err.message} — keeping original story`);
-      return writerResult;
-    }
-    if (!revisedStory || !Array.isArray(revisedStory.spreads) || revisedStory.spreads.length === 0) {
-      console.warn('[writerV2] Post-hoc revision produced 0 spreads — keeping original story');
-      return writerResult;
+    // Seed the "best" tracker with the ORIGINAL story. If every revision
+    // comes back worse (and none pass), we return this untouched — that is
+    // the explicit guard against the previous behavior where a 5.9/10
+    // revision replaced a 6.8/10 original.
+    const originalScore = typeof writerResult.metadata?.qualityScore === 'number'
+      ? writerResult.metadata.qualityScore
+      : 0;
+    let best = {
+      story,
+      metadata: writerResult.metadata,
+      score: originalScore,
+      pass: false, // we're only here because an external check failed
+      source: 'original',
+    };
+
+    let workingStory = story;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      console.log(`[writerV2] Post-hoc revision ${attempt}/${maxAttempts}: ${feedback.slice(0, 160)}`);
+      let revisedStory;
+      try {
+        revisedStory = await themeWriter.revise(workingStory, feedback, child, book);
+      } catch (err) {
+        console.warn(`[writerV2] Post-hoc revision ${attempt} failed: ${err.message}`);
+        break;
+      }
+      if (!revisedStory || !Array.isArray(revisedStory.spreads) || revisedStory.spreads.length === 0) {
+        console.warn(`[writerV2] Post-hoc revision ${attempt} produced 0 spreads`);
+        break;
+      }
+
+      let quality;
+      try {
+        // Re-score without re-asserting missingCritical — we want to judge
+        // the revised story on its own merits. The deterministic anecdote
+        // scorer still penalizes misses, so a non-addressed revision won't
+        // score higher than the original by accident.
+        quality = await QualityGate.check(revisedStory, child, book, { plan });
+      } catch (err) {
+        console.warn(`[writerV2] Post-hoc QualityGate check failed on attempt ${attempt}: ${err.message}`);
+        break;
+      }
+
+      const metadata = stampBook(revisedStory, quality, book.theme);
+      const score = typeof metadata.qualityScore === 'number' ? metadata.qualityScore : 0;
+      console.log(`[writerV2] Revision ${attempt} scored ${score}/10 (pass=${quality.pass})`);
+      if (onAttempt) {
+        try { onAttempt({ attempt, score, pass: quality.pass }); } catch { /* ignore */ }
+      }
+
+      // Strictly "better" if we move from fail→pass, or beat the current
+      // best score (tie-break keeps the incumbent so we don't churn).
+      const becomesBetter = (quality.pass && !best.pass)
+        || (quality.pass && best.pass && score > best.score)
+        || (!quality.pass && !best.pass && score > best.score);
+      if (becomesBetter) {
+        best = { story: revisedStory, metadata, score, pass: quality.pass, source: `revision_${attempt}` };
+      }
+
+      if (quality.pass) break; // clean pass → done
+      workingStory = revisedStory; // iterate from the most recent attempt
     }
 
-    let quality;
-    try {
-      quality = await QualityGate.check(revisedStory, child, book, { plan, missingCritical });
-    } catch (err) {
-      console.warn(`[writerV2] Post-hoc QualityGate check failed: ${err.message}`);
-      quality = { pass: false, overallScore: 0, scores: {}, feedback: '' };
+    if (best.source === 'original') {
+      console.warn(`[writerV2] All ${maxAttempts} post-hoc revisions scored below original (${originalScore}/10) — keeping original`);
+    } else {
+      console.log(`[writerV2] Post-hoc revision complete: kept ${best.source} at score ${best.score}/10 (pass=${best.pass})`);
     }
-
-    const metadata = stampBook(revisedStory, quality, book.theme);
-    console.log(`[writerV2] Post-hoc revision complete: v${metadata.writerVersion}, score ${metadata.qualityScore}`);
 
     return {
-      story: revisedStory,
-      metadata,
+      story: best.story,
+      metadata: best.metadata,
       pipeline: writerResult.pipeline,
       plan,
       child,

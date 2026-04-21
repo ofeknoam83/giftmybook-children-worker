@@ -97,8 +97,8 @@ function buildPersonalizationChecklist(child, book, plan) {
  * When the upstream brainstorm identified a specific companion object (a
  * stuffed animal, a toy, a comfort item), we require the writer to carry
  * it through the book as a recurring visual. The V2 writer previously
- * discarded the seed's "small floppy blue bunny" and silently replaced
- * it with a different animal — this block makes the object non-negotiable.
+ * discarded the brainstorm's specific object and silently replaced it
+ * with a generic one — this block makes the object non-negotiable.
  *
  * Returns '' if no favorite_object is set.
  *
@@ -114,8 +114,7 @@ function buildFavoriteObjectLock(plan) {
     '',
     `The child's story companion is: "${fav}".`,
     `This specific object MUST appear by name in at least TWO spreads as the child's companion.`,
-    `Do NOT substitute a different toy, animal, or comfort item. If the brainstorm names "a small floppy blue bunny", the child brings the blue bunny — not a duck, not bears, not a generic stuffed animal.`,
-    `Use the object's specific descriptors (color, texture, size) when describing it so the illustrator can render the same object across spreads.`,
+    `Do NOT substitute a different toy, animal, or comfort item. Keep the exact species/category and any distinguishing descriptors (color, texture, size) so the illustrator can render the same object consistently across every spread it appears in.`,
   ].join('\n');
 }
 

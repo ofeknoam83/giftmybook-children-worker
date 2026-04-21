@@ -67,6 +67,15 @@ class QualityGate {
     scores.anecdoteUsage = anecdoteUsage.score;
     meta.anecdoteUsage = anecdoteUsage;
 
+    // Parent real name discipline: if the book provides mom_name or dad_name
+    // and it differs from the address word the child uses, the story must
+    // mention the real name AT MOST once. Overuse breaks the picture-book
+    // voice (kids read books that say "Mama"/"Dad" as the reference, with
+    // the real name reserved for a single dedication-style beat).
+    const nameDiscipline = QualityGate._scoreNameDiscipline(spreads, book, child);
+    scores.nameDiscipline = nameDiscipline.score;
+    meta.nameDiscipline = nameDiscipline;
+
     // LLM-based checks (slower, subjective)
     try {
       const llmScores = await QualityGate._runLLMChecks(spreads, child, book);
@@ -255,12 +264,26 @@ class QualityGate {
     const manifest = plan && Array.isArray(plan.manifest) ? plan.manifest : null;
     const combinedText = spreads.map(s => (s.text || '')).join(' \n ').toLowerCase();
 
+    // Anecdotes the product explicitly tags MUST-LAND. For these the scorer
+    // requires ALL extracted keywords to land (not just a majority), so a
+    // multi-word anecdote can't be satisfied by a single incidental match.
+    // Semantic equivalence (e.g. euphemisms a picture book might use) is
+    // handled by the LLM-based checkCustomDetailsUsage check — we keep this
+    // scorer strictly literal so it stays deterministic and general.
+    const MUST_LAND_KEYS = new Set([
+      'funny_thing',
+      'meaningful_moment',
+      'moms_favorite_moment',
+      'dads_favorite_moment',
+      'favorite_object',
+    ]);
+
     // The child's own name — and the parent's common labels — appear in
     // almost every spread of every book. If those tokens are allowed to
     // count as "anecdote keywords" they'll incidentally satisfy any
-    // anecdote that happens to include the child's/parent's name (e.g. the
-    // canned "Mason sprawls out and farts on her" scores as landed because
-    // "mason" matches somewhere). We drop them up front.
+    // anecdote whose value happens to include the child's or parent's name
+    // (the child's name would match on its own, regardless of whether the
+    // anecdote actually landed). We drop them up front.
     const excludeTokens = new Set();
     const childName = (child?.name || '').toLowerCase().trim();
     if (childName && childName.length >= 3) excludeTokens.add(childName);
@@ -280,8 +303,11 @@ class QualityGate {
         if (!value) continue;
         const keywords = QualityGate._extractKeywords(value, excludeTokens);
         if (keywords.length === 0) continue;
-        const landed = QualityGate._majorityLanded(keywords, combinedText);
-        requiredItems.push({ kind: 'manifest', spread: m.spread, key: m.anecdote_key, value, landed, keywords });
+        const strict = MUST_LAND_KEYS.has(m.anecdote_key);
+        const landed = strict
+          ? QualityGate._allLanded(keywords, combinedText)
+          : QualityGate._majorityLanded(keywords, combinedText);
+        requiredItems.push({ kind: 'manifest', spread: m.spread, key: m.anecdote_key, value, landed, keywords, strict });
         if (landed) hits.push(`spread ${m.spread}: "${value}"`);
         else misses.push(`spread ${m.spread}: "${value}"`);
       }
@@ -291,8 +317,8 @@ class QualityGate {
       // Full list kept in sync with services/writer/themes/anecdotes.js
       // ANECDOTE_FIELDS. Explicitly includes mom_name/dad_name/calls_mom/
       // calls_dad — these used to be silently excluded so the gate would
-      // score 10/10 even when the parent's real name ("Alexis") never
-      // appeared in the book.
+      // score 10/10 even when the parent's real name never appeared in
+      // the book.
       const anecFields = [
         'favorite_activities', 'funny_thing', 'meaningful_moment',
         'moms_favorite_moment', 'dads_favorite_moment',
@@ -303,18 +329,21 @@ class QualityGate {
       for (const key of anecFields) {
         const val = a[key];
         if (!val || typeof val !== 'string' || !val.trim()) continue;
-        // For *name* fields, the value IS the keyword (Alexis → alexis).
-        // Bypass the exclude-list for those — otherwise "calls_mom=Mama"
+        // For *name* fields the value IS the keyword (the name itself).
+        // Bypass the exclude-list for those — otherwise calls_mom="Mama"
         // would immediately get dropped and the field would always score
         // neutral. The parent-label exclude-list only protects anecdote
-        // VALUES that happen to contain "mama".
+        // VALUES that happen to contain a parent label.
         const isNameField = key === 'mom_name' || key === 'dad_name' || key === 'calls_mom' || key === 'calls_dad';
         const keywords = isNameField
           ? QualityGate._extractKeywords(val, new Set())
           : QualityGate._extractKeywords(val, excludeTokens);
         if (keywords.length === 0) continue;
-        const landed = QualityGate._majorityLanded(keywords, combinedText);
-        requiredItems.push({ kind: 'anecdote', key, value: val, landed, keywords });
+        const strict = MUST_LAND_KEYS.has(key);
+        const landed = strict
+          ? QualityGate._allLanded(keywords, combinedText)
+          : QualityGate._majorityLanded(keywords, combinedText);
+        requiredItems.push({ kind: 'anecdote', key, value: val, landed, keywords, strict });
         if (landed) hits.push(`${key}: "${val}"`);
         else misses.push(`${key}: "${val}"`);
       }
@@ -359,6 +388,74 @@ class QualityGate {
       if (matches >= need) return true;
     }
     return false;
+  }
+
+  /**
+   * Stricter variant for MUST-LAND anecdotes: EVERY keyword stem must appear
+   * as a substring of the combined story text. Used for funny_thing /
+   * meaningful_moment / moms_favorite_moment / dads_favorite_moment /
+   * favorite_object where a single keyword match is not enough to say the
+   * anecdote actually made it into the story. Euphemism / synonym handling
+   * is left to the LLM-based checkCustomDetailsUsage check; this stays
+   * strictly literal so it is both deterministic and content-agnostic.
+   */
+  static _allLanded(keywords, combinedText) {
+    if (!Array.isArray(keywords) || keywords.length === 0) return false;
+    for (const k of keywords) {
+      if (!combinedText.includes(k)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Deterministic check for overuse of the parent's real first name.
+   *
+   * Picture books address the parent by relationship ("Mama", "Dad") almost
+   * everywhere. The questionnaire's mom_name/dad_name is meant to surface
+   * AT MOST ONCE — typically at the dedication beat. When the writer sprays
+   * the real name across 5+ spreads it makes the book feel like a draft
+   * memo, not a children's book, so we penalize heavily.
+   *
+   * Score map (per name, then combined as min):
+   *   0 or 1 mention:  10  (correct restraint)
+   *   2 mentions:       6  (soft failure)
+   *   3 mentions:       3  (hard failure — forces revision)
+   *   4+ mentions:      1
+   *
+   * Skipped entirely when:
+   *   - neither mom_name nor dad_name is supplied
+   *   - the real name happens to equal the child's address word (the
+   *     family uses the first name as the address word — don't double-count)
+   */
+  static _scoreNameDiscipline(spreads, book, child) {
+    const combinedText = spreads.map(s => (s.text || '')).join(' \n ').toLowerCase();
+    const names = [];
+    const momName = (book?.mom_name || child?.anecdotes?.mom_name || '').toString().trim();
+    const dadName = (book?.dad_name || child?.anecdotes?.dad_name || '').toString().trim();
+    const momAddress = (child?.anecdotes?.calls_mom || '').toString().trim().toLowerCase();
+    const dadAddress = (child?.anecdotes?.calls_dad || '').toString().trim().toLowerCase();
+    if (momName && momName.toLowerCase() !== momAddress) names.push({ role: 'mom', name: momName });
+    if (dadName && dadName.toLowerCase() !== dadAddress) names.push({ role: 'dad', name: dadName });
+
+    if (names.length === 0) return { score: 10, details: [], skipped: true };
+
+    const details = [];
+    let worstScore = 10;
+    for (const { role, name } of names) {
+      const first = name.split(/\s+/)[0];
+      if (!first || first.length < 2) continue;
+      const pattern = new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+      const matches = combinedText.match(pattern) || [];
+      const count = matches.length;
+      let nameScore;
+      if (count <= 1) nameScore = 10;
+      else if (count === 2) nameScore = 6;
+      else if (count === 3) nameScore = 3;
+      else nameScore = 1;
+      if (nameScore < worstScore) worstScore = nameScore;
+      details.push({ role, name: first, count, score: nameScore });
+    }
+    return { score: worstScore, details };
   }
 
   /**
@@ -662,6 +759,17 @@ Return a JSON object:
     if (scores.wordCount < minDimensionScore) {
       const totalWords = spreads.reduce((sum, s) => sum + (s.text || '').split(/\s+/).length, 0);
       feedback.push(`WORD COUNT: Total is ${totalWords} words — outside the target range. Trim or expand to fit the age tier limits.`);
+    }
+
+    if (typeof scores.nameDiscipline === 'number' && scores.nameDiscipline < 10) {
+      const nd = meta.nameDiscipline || {};
+      const overuses = (nd.details || []).filter(d => d.count >= 2);
+      if (overuses.length > 0) {
+        const lines = overuses
+          .map(d => `  - ${d.name} appears ${d.count} times (allowed: 0-1)`)
+          .join('\n');
+        feedback.push(`PARENT NAME DISCIPLINE: The parent's real first name is used too many times. Picture-book voice calls the parent by their relationship ("Mama", "Mom", "Dad") everywhere; the real name should appear AT MOST ONCE — typically in a warm dedication-style beat.\n${lines}\nRewrite so every other mention uses the address word (Mama/Dad). Keep one meaningful use, or remove the name entirely if it never fit naturally.`);
+      }
     }
 
     return feedback.join('\n\n');

@@ -403,11 +403,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## THE FATHER\n`);
     sections.push(`The child calls him: ${parentName}`);
     const dadRealName = (book.dad_name || child.anecdotes?.dad_name || '').toString().trim();
-    if (dadRealName) sections.push(`Dad's name: ${dadRealName}`);
     if (dadRealName && dadRealName.toLowerCase() !== parentName.toLowerCase()) {
-      sections.push(`\n## OPTIONAL PERSONAL TOUCH (use at most ONCE)\n`);
-      sections.push(`The father's real first name is "${dadRealName}". You MAY surface this name exactly ONCE — ideally in the dedication, or in a single spread where a narrator, sibling, or neighbor calls him by his grown-up name. A line like "When grown-ups call him ${dadRealName}, to you he's just ${parentName}." works well.`);
-      sections.push(`Every other reference to the father must use "${parentName}" — do NOT sprinkle "${dadRealName}" through the rest of the book, and do NOT invent a nickname.`);
+      sections.push(`\n## PARENT NAME RULE — SHIP-BLOCKER\n`);
+      sections.push(`The father's real first name is "${dadRealName}" but the child calls him "${parentName}".`);
+      sections.push(`In this book he is "${parentName}" EVERYWHERE. You MAY use "${dadRealName}" exactly ONCE — and only if it lands naturally in a single dedication-style beat (e.g. "When grown-ups call him ${dadRealName}, to you he's just ${parentName}."). If you can't fit it gracefully, omit it entirely.`);
+      sections.push(`Hard rule: "${dadRealName}" appears at most ONE TIME across all 13 spreads and the dedication combined. Using it more than once — even twice — is a ship-blocker; the book will fail QA and be rewritten. Do NOT rhyme on "${dadRealName}". Do NOT let "${dadRealName}" replace "${parentName}" in any refrain. Do NOT alternate between the two names.`);
+    } else if (dadRealName) {
+      sections.push(`Dad's name: ${dadRealName}`);
     }
 
     if (anecdoteText) {

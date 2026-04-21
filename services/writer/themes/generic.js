@@ -696,15 +696,16 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`The child calls them: ${plan.parentName}`);
       const dadRealName = (book.dad_name || child.anecdotes?.dad_name || '').toString().trim();
       const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
-      if (dadRealName) sections.push(`Dad's name: ${dadRealName}`);
-      if (momRealName) sections.push(`Mom's name: ${momRealName}`);
       const realName = this.themeName === 'fathers_day' ? dadRealName : momRealName;
       const parentWord = this.themeName === 'fathers_day' ? 'father' : 'parent';
-      const pronoun = this.themeName === 'fathers_day' ? 'him' : 'them';
       if (realName && realName.toLowerCase() !== plan.parentName.toLowerCase()) {
-        sections.push(`\n## OPTIONAL PERSONAL TOUCH (use at most ONCE)\n`);
-        sections.push(`The ${parentWord}'s real first name is "${realName}". You MAY surface this name exactly ONCE — ideally in the dedication, or in a single spread where a narrator, sibling, or neighbor calls ${pronoun} by ${this.themeName === 'fathers_day' ? 'his' : 'their'} grown-up name.`);
-        sections.push(`Every other reference to the ${parentWord} must use "${plan.parentName}" — do NOT sprinkle "${realName}" through the rest of the book, and do NOT invent a nickname.`);
+        sections.push(`\n## PARENT NAME RULE — SHIP-BLOCKER\n`);
+        sections.push(`The ${parentWord}'s real first name is "${realName}" but the child calls them "${plan.parentName}".`);
+        sections.push(`In this book they are "${plan.parentName}" EVERYWHERE. You MAY use "${realName}" exactly ONCE — and only if it lands naturally in a single dedication-style beat. If you can't fit it gracefully, omit it entirely.`);
+        sections.push(`Hard rule: "${realName}" appears at most ONE TIME across all 13 spreads and the dedication combined. Using it more than once — even twice — is a ship-blocker; the book will fail QA and be rewritten. Do NOT rhyme on "${realName}". Do NOT let "${realName}" replace "${plan.parentName}" in any refrain. Do NOT alternate between the two names.`);
+      } else {
+        if (dadRealName) sections.push(`Dad's name: ${dadRealName}`);
+        if (momRealName) sections.push(`Mom's name: ${momRealName}`);
       }
     }
 

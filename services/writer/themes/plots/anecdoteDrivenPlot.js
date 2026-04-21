@@ -406,9 +406,9 @@ function _collectAnecdoteItems(child, book, storySeed = null) {
     push('custom_details', book.customDetails);
   }
   // Seed-derived favorite object — the brainstorm identifies a specific
-  // companion toy/comfort item (e.g. "a small floppy blue bunny"). Surface
-  // it as an anecdote so the manifest planner treats it as a first-class
-  // detail and locks it into multiple spreads.
+  // companion toy or comfort item. Surface it as an anecdote so the
+  // manifest planner treats it as a first-class detail and locks it into
+  // multiple spreads.
   if (storySeed && typeof storySeed === 'object' && storySeed.favorite_object) {
     const fav = String(storySeed.favorite_object).trim();
     if (fav) items.push({ key: 'favorite_object', value: fav });

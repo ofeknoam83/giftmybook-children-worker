@@ -385,11 +385,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## THE MOTHER\n`);
     sections.push(`The child calls her: ${parentName}`);
     const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
-    if (momRealName) sections.push(`Mom's name: ${momRealName}`);
     if (momRealName && momRealName.toLowerCase() !== parentName.toLowerCase()) {
-      sections.push(`\n## OPTIONAL PERSONAL TOUCH (use at most ONCE)\n`);
-      sections.push(`The mother's real first name is "${momRealName}". You MAY surface this name exactly ONCE — ideally in the dedication, or in a single spread where a narrator, sibling, or neighbor calls her by her grown-up name. A line like "When grown-ups call her ${momRealName}, to you she's just ${parentName}." works well.`);
-      sections.push(`Every other reference to the mother must use "${parentName}" — do NOT sprinkle "${momRealName}" through the rest of the book, and do NOT invent a nickname.`);
+      sections.push(`\n## PARENT NAME RULE — SHIP-BLOCKER\n`);
+      sections.push(`The mother's real first name is "${momRealName}" but the child calls her "${parentName}".`);
+      sections.push(`In this book she is "${parentName}" EVERYWHERE. You MAY use "${momRealName}" exactly ONCE — and only if it lands naturally in a single dedication-style beat (e.g. "When grown-ups call her ${momRealName}, to you she's just ${parentName}."). If you can't fit it gracefully, omit it entirely.`);
+      sections.push(`Hard rule: "${momRealName}" appears at most ONE TIME across all 13 spreads and the dedication combined. Using it more than once — even twice — is a ship-blocker; the book will fail QA and be rewritten. Do NOT rhyme on "${momRealName}". Do NOT let "${momRealName}" replace "${parentName}" in any refrain. Do NOT alternate between the two names.`);
+    } else if (momRealName) {
+      sections.push(`Mom's name: ${momRealName}`);
     }
 
     if (anecdoteText) {
