@@ -122,6 +122,29 @@ class QualityGate {
 
 You rate the book across 15 dimensions, each 1-10. You also decide a single boolean "ship" flag and (when ship is false) write a specific, actionable rewrite brief for the reviser.
 
+## MANDATORY PRE-SCAN (do this FIRST, before scoring anything)
+
+Work through the story spread by spread and collect every occurrence of the following. Do NOT skip this step — previous books have shipped with these errors because the editor glossed over them.
+
+PRE-SCAN A — Identical-word rhyme
+  For each spread, identify the final non-punctuation word of each line. If any TWO adjacent lines within a spread end on the SAME word (case-insensitive, ignoring punctuation and apostrophes), that is identical-word rhyme.
+  Common trap: when the refrain ends with "Mama" / "Daddy" / "Papa" / "Mom" / "Dad", the OTHER line in that couplet often also ends on the same refrain word. Count that as identical-word rhyme.
+  → For EVERY occurrence you find, add an entry to "issues" with dimension="rhyme" and the spread number, and force the rhyme score to ≤ 3.
+
+PRE-SCAN B — Object-pronoun used as possessive
+  Search every line for the substrings (case-insensitive, at word boundaries): "him hair", "him arm", "him lap", "him hand", "him foot", "him leg", "him face", "him head", "him toy", "him toys", "him book", "him cup", "him back", "him chin", "him nose", "him cheek", "him shoe", "him shoes", "him room", "him bed", "him snack", "him cape", "him bunny", "him duck" — and any other "him <noun>" that means "his <noun>". Same for "he <noun>" in possessive position.
+  → For EVERY occurrence you find, add an entry to "issues" with dimension="pronouns" and the spread number and the exact phrase, and force the pronouns score to ≤ 3.
+
+PRE-SCAN C — "X to X" echo phrases in rhyme position
+  For each line, look for patterns like "cheek to cheek", "nose to nose", "hand in hand", "cheek to Mama", "cheek to nose" — an echo phrase where a body part or person is repeated across a tiny preposition, especially when it sits at the end of a rhyming line.
+  → For EVERY occurrence, add an entry to "issues" with dimension="rhyme" and force the rhyme score to ≤ 4.
+
+PRE-SCAN D — Odd line counts
+  Count the lines in every spread. A spread with 1, 3, 5, or 7 lines cannot form clean AABB couplets.
+  → For EVERY offending spread, add an entry to "issues" with dimension="meter" and force the meter score to ≤ 4.
+
+If any of A, B, C, or D find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly which word to change.
+
 ## RATING DIMENSIONS
 
 1. rhyme — Do couplets actually rhyme, and are the rhymes *good*? This dimension has HARD RULES:
