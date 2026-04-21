@@ -120,7 +120,7 @@ class QualityGate {
 
     return `You are the final editor of a personalized children\'s picture book. You decide whether the book is ready to ship to a paying customer. Be strict. The standard is "a book a parent would buy in a bookstore and read to their child every night for a month."
 
-You rate the book across 15 dimensions, each 1-10. You also decide a single boolean "ship" flag and (when ship is false) write a specific, actionable rewrite brief for the reviser.
+You rate the book across 16 dimensions, each 1-10. You also decide a single boolean "ship" flag and (when ship is false) write a specific, actionable rewrite brief for the reviser.
 
 ## MANDATORY PRE-SCAN (do this FIRST, before scoring anything)
 
@@ -143,7 +143,44 @@ PRE-SCAN D — Odd line counts
   Count the lines in every spread. A spread with 1, 3, 5, or 7 lines cannot form clean AABB couplets.
   → For EVERY offending spread, add an entry to "issues" with dimension="meter" and force the meter score to ≤ 4.
 
-If any of A, B, C, or D find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly which word to change.
+PRE-SCAN E — Line-count uniformity across the book
+  Every spread in the book MUST use the SAME line count — either all 2-line couplets OR all 4-line quatrains. Mixing (e.g. spreads 1-3 as couplets and 4-13 as quatrains) is a HARD FAIL.
+  Procedure: count lines per spread; compute the most common count ("modal count"); list every spread whose count differs.
+  → If ANY spread differs from the modal count, add an entry to "issues" with dimension="meter", list every offending spread, and force the meter score to ≤ 3. The feedback MUST tell the reviser to pick one line count and rewrite the outliers.
+
+PRE-SCAN F — Grammatical / logical sanity per line
+  For each line, ask: does it parse as standard English and describe a concrete, sensible image? Flag any of:
+    - Ungrammatical prepositions or pronoun phrases ("hold me close to me", "close to him self").
+    - Invented compound nouns that only exist to rhyme ("hall rug seat", "bath shop", "swim play spot" — unless established by an earlier spread).
+    - Abstract closings that are not an image the illustrator can draw ("grin for more", "love that's true", "feels so right").
+    - Filler syllables that carry no meaning ("tok tok, rock clock", "zoom zoom zoom" — one is fine; a compound that reads as padding is not).
+  → For EVERY offending line, add an entry to "issues" with dimension="readAloud", quote the line, and force the readAloud score to ≤ 5.
+
+PRE-SCAN G — Setting coherence (targets rhyme-bait locations, NOT every single-use place)
+  Adventure / journey stories legitimately pass through many one-off places (meadow, stream, bridge) — those are FINE when they are ordinary nouns the reader understands immediately. This scan looks ONLY for three narrower problems:
+    (a) An invented or unusual compound-noun location that reads as a rhyme crutch ("bath shop", "swim play spot", "hall rug seat", "bake flop stop"). Real locations the child would recognize (park, kitchen, river) are NOT flagged.
+    (b) A logical contradiction across adjacent spreads: spread N says the characters are in one place (a shop) and spread N+1 places them somewhere that does not follow (a tub in a pool). If the reader cannot tell WHERE they are, that is a fail.
+    (c) A location mentioned once and then abandoned without narration of the exit — only when the location itself was surprising enough to need narration (e.g. a castle, a jungle). Mundane places don't need exit narration.
+  → For EVERY offending location, add an entry to "issues" with dimension="narrativeCoherence", name the location and the spread(s), and force the narrativeCoherence score to ≤ 4. Do NOT flag ordinary single-use nouns in a journey.
+
+PRE-SCAN H — Seed-arc fulfillment (only when a storySeed is provided in the user prompt)
+  The user prompt will include the storySeed's fear and narrative_spine. The book MUST dramatize this fear and resolve it:
+    - The fear should surface as concrete unease somewhere in spreads 5-9 (a worry moment, a hesitation, a doubt — not just generic activity).
+    - The fear should resolve in spreads 10-13 through a concrete action (a gift given, a hug received, a shared moment that closes the worry).
+    - The final spread must close the arc on an image, not a restart.
+  → If the fear is never dramatized OR never resolved, add an entry with dimension="seedArcFulfillment" and force that score to ≤ 4. If the seed is absent from the user prompt, do not score this dimension.
+
+PRE-SCAN I — Refrain coverage
+  If the user prompt lists a refrain (planner's repeated_phrase) OR the story obviously uses one, the refrain MUST appear at least twice and at least once in spreads 10-13 (to anchor the closing). A refrain that appears only in the middle of the book and never at the close is a FAIL.
+  → If the refrain is missing from spreads 10-13, add an entry with dimension="creativity" and force the creativity score to ≤ 5.
+
+PRE-SCAN J — Ending rhyme & final-line image
+  Inspect the FINAL spread (all 2 or 4 lines):
+    - Collect every end-of-line word in the final spread. NO word may appear twice in that set, even if the repetition is not on adjacent lines. "door / more / floor / more" has "more" in two rhyme positions — that is a HARD FAIL, even though the immediately adjacent pairs differ.
+    - The FINAL line must be a concrete image the illustrator can draw (a hug, a spin, toast on the table, a child tucked into bed for bedtime themes), not an abstract or vague phrase ("grin for more", "love so true", "feels so right").
+  → On violation add an entry with dimension="endingAppropriateness" and force that score to ≤ 4.
+
+If any of A, B, C, D, E, F, G, H, I, or J find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change.
 
 ## RATING DIMENSIONS
 
@@ -171,21 +208,24 @@ If any of A, B, C, or D find ANYTHING, the book CANNOT ship — set ship=false a
 13. endingAppropriateness — ${endingRule}
 14. parentNameDiscipline — ${parentNameRule} Score 10 for 0-1 uses; 6 for 2; 3 for 3; 1 for 4+.
 15. wordCount — Word count per spread and total are within the age-tier limits (the writer was given these). Penalize oversized spreads proportionally.
+16. seedArcFulfillment — (Only scored when a storySeed is provided.) Did the book dramatize the seed's FEAR in the middle act (spreads 5-9) and RESOLVE it in the final act (spreads 10-13)? A flat list of activities that never touches the seed's emotional question is a FAIL. A clean plant → peak → resolve arc is a STRONG. If no storySeed is provided in the user prompt, score this 10 (N/A pass-through) and do not gate on it.
 
 ${celebrationRule}
 
 ## SHIP CRITERIA (the "ship" boolean)
 
 Set ship=true iff ALL of the following hold:
-  - Overall average across all 15 dimensions ≥ ${passScore}/10
+  - Overall average across all 16 dimensions ≥ ${passScore}/10
   - No single dimension scores below ${minDimensionScore}/10
   - rhyme ≥ 7 (cheap rhymes are a ship-blocker — a parent reading aloud should never feel the rhyme is lazy)
-  - meter ≥ 7
+  - meter ≥ 7 (a mix of 2-line and 4-line spreads is an automatic meter HARD FAIL — see PRE-SCAN E)
   - anecdoteUsage ≥ 7
   - pronouns ≥ 9
-  - endingAppropriateness ≥ 7
+  - narrativeCoherence ≥ 6 (setting must hang together — see PRE-SCAN G)
+  - endingAppropriateness ≥ 7 (no repeated end-word in the final couplet, final line must be an image — see PRE-SCAN J)
   - parentNameDiscipline ≥ 6
   - wordCount ≥ 7
+  - seedArcFulfillment ≥ 6 when a storySeed is provided (seed's fear must be dramatized and resolved — see PRE-SCAN H)
   - No HARD FAIL condition above triggered
 
 Otherwise set ship=false and write a concrete revision brief in "feedback". The brief must:
@@ -204,7 +244,7 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
     "creativity": <1-10>, "variety": <1-10>, "narrativeCoherence": <1-10>,
     "anecdoteUsage": <1-10>, "settingVariety": <1-10>, "pronouns": <1-10>,
     "endingAppropriateness": <1-10>, "parentNameDiscipline": <1-10>,
-    "wordCount": <1-10>
+    "wordCount": <1-10>, "seedArcFulfillment": <1-10>
   },
   "issues": [
     { "dimension": "<name>", "spread": <int|null>, "note": "<short description>" }
@@ -216,6 +256,7 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
   static _buildUserPrompt(story, child, book, opts) {
     const spreads = story.spreads || [];
     const plan = opts?.plan || null;
+    const storySeed = plan?.storySeed || null;
 
     const anecdotesBlock = QualityGate._formatAnecdotes(child?.anecdotes || {});
     const manifestBlock = (plan && Array.isArray(plan.manifest) && plan.manifest.length > 0)
@@ -242,6 +283,30 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
       parts.push('### Parent-written custom details (every specific noun/person/place must land)');
       parts.push(customDetails);
     }
+
+    // Surface the storySeed so PRE-SCAN H (seed-arc fulfillment) and
+    // PRE-SCAN I (refrain coverage) have something to score against.
+    // The critic should treat these as the emotional contract the book
+    // promised to deliver.
+    if (storySeed && typeof storySeed === 'object') {
+      const fear = (storySeed.fear || '').toString().trim();
+      const spine = (storySeed.narrative_spine || storySeed.storySeed || '').toString().trim();
+      const setting = (storySeed.setting || '').toString().trim();
+      const favObject = (storySeed.favorite_object || '').toString().trim();
+      const refrain = (plan?.refrain || storySeed.repeated_phrase || '').toString().trim();
+      const seedLines = [];
+      if (fear) seedLines.push(`- Fear (must be dramatized in spreads 5-9 and RESOLVED in spreads 10-13): ${fear}`);
+      if (spine) seedLines.push(`- Narrative spine (the emotional arc the book promised): ${spine}`);
+      if (setting) seedLines.push(`- Intended setting: ${setting}`);
+      if (favObject) seedLines.push(`- Favorite object (must land concretely in the story): ${favObject}`);
+      if (refrain) seedLines.push(`- Refrain (must appear ≥ 2 times, at least once in spreads 10-13): "${refrain}"`);
+      if (seedLines.length > 0) {
+        parts.push('');
+        parts.push('### Story seed (the emotional contract the book is judged against)');
+        parts.push(seedLines.join('\n'));
+      }
+    }
+
     if (manifestBlock) {
       parts.push('');
       parts.push('### Planner manifest (anecdote → spread assignments the writer was given)');
