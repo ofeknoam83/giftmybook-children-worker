@@ -11,6 +11,12 @@
 const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 
+const QA_HTTP_ATTEMPTS = 3;
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 /**
  * Run anatomy, quality, and scene-coherence check on a spread image.
  *
@@ -18,12 +24,16 @@ const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator
  * @param {object} [opts]
  * @param {object} [opts.costTracker]
  * @param {string} [opts.spreadText] - Story text for this spread (for action-coherence check)
- * @returns {Promise<{pass: boolean, issues: string[]}>}
+ * @returns {Promise<{pass: boolean, issues: string[], tags?: string[]}>}
  */
 async function checkAnatomy(imageBase64, opts = {}) {
   const apiKey = getNextApiKey();
   if (!apiKey) {
-    return { pass: true, issues: [] };
+    return {
+      pass: false,
+      issues: ['Anatomy QA unavailable: no Gemini API key configured'],
+      tags: ['qa_unavailable'],
+    };
   }
 
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
@@ -104,43 +114,52 @@ Return ONLY valid JSON:
 Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, MISSING LIMB, DUPLICATED HERO, SPLIT PANEL, HEAD CROPPED, or ACTION MISMATCH.
 Always include the relevant tags when pass=false so downstream tooling can route a specific correction.`;
 
-  try {
-    const resp = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          role: 'user',
-          parts: [
-            { inline_data: { mimeType: 'image/png', data: imageBase64 } },
-            { text: prompt },
-          ],
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 512,
-          thinkingConfig: { thinkingBudget: 2048 },
-        },
-      }),
-    }, QA_TIMEOUT_MS);
+  let lastErrMsg = 'unknown error';
 
-    if (opts.costTracker) {
-      opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 500, 100);
-    }
+  for (let attempt = 0; attempt < QA_HTTP_ATTEMPTS; attempt++) {
+    try {
+      const resp = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { inline_data: { mimeType: 'image/png', data: imageBase64 } },
+              { text: prompt },
+            ],
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 512,
+            thinkingConfig: { thinkingBudget: 2048 },
+          },
+        }),
+      }, QA_TIMEOUT_MS);
 
-    if (!resp.ok) {
-      console.warn(`[illustrator/quality/anatomy] API error ${resp.status} — accepting`);
-      return { pass: true, issues: [], tags: [] };
-    }
+      if (opts.costTracker) {
+        opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 500, 100);
+      }
 
-    const data = await resp.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    const responsePart = parts.find(p => !p.thought) || parts[parts.length - 1] || {};
-    const text = (responsePart.text || '').trim();
-    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
+      if (!resp.ok) {
+        lastErrMsg = `API HTTP ${resp.status}`;
+        if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
+        continue;
+      }
 
-    if (match) {
+      const data = await resp.json();
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      const responsePart = parts.find(p => !p.thought) || parts[parts.length - 1] || {};
+      const text = (responsePart.text || '').trim();
+      const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+      const match = cleaned.match(/\{[\s\S]*\}/);
+
+      if (!match) {
+        lastErrMsg = 'unparseable model response';
+        if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
+        continue;
+      }
+
       const result = JSON.parse(match[0]);
       const rawTags = Array.isArray(result.tags) ? result.tags : [];
       const tags = rawTags
@@ -152,12 +171,17 @@ Always include the relevant tags when pass=false so downstream tooling can route
         issues: result.issues || [],
         tags,
       };
+    } catch (e) {
+      lastErrMsg = e.message || String(e);
+      if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
     }
-  } catch (e) {
-    console.warn(`[illustrator/quality/anatomy] Error: ${e.message} — accepting`);
   }
 
-  return { pass: true, issues: [], tags: [] };
+  return {
+    pass: false,
+    issues: [`Anatomy QA failed after ${QA_HTTP_ATTEMPTS} attempts: ${lastErrMsg}`],
+    tags: ['qa_api_error'],
+  };
 }
 
 module.exports = { checkAnatomy };

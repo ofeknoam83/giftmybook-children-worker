@@ -709,7 +709,7 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const name = childDetails.name || childDetails.childName || 'the child';
-  const age = childDetails.age || childDetails.childAge || 5;
+  const age = childDetails.celebrationAge ?? childDetails.age ?? childDetails.childAge ?? 5;
   const gender = childDetails.gender || childDetails.childGender || '';
   const interests = (childDetails.interests || childDetails.childInterests || []).filter(Boolean);
 

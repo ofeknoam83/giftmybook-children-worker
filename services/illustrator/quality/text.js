@@ -3,7 +3,7 @@
  *
  * After each spread, uses Gemini Vision to verify:
  * 1. Text content matches story text exactly (word-for-word)
- * 2. Text does NOT cross the left-right center
+ * 2. Text does not bridge from left side to right side of the image (or vice versa)
  * 3. Text is within edge margins
  * 4. Font size is not too large
  * 5. Text is legible
@@ -12,6 +12,12 @@
 const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS, TEXT_RULES } = require('../config');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 
+const QA_HTTP_ATTEMPTS = 3;
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 /**
  * Verify text rendered in a generated spread image.
  *
@@ -19,24 +25,25 @@ const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator
  * @param {string} expectedText - The story text that should appear
  * @param {object} [opts]
  * @param {object} [opts.costTracker]
- * @returns {Promise<{pass: boolean, issues: string[], score: number}>}
+ * @returns {Promise<{pass: boolean, issues: string[], score: number, tags?: string[]}>}
  */
 async function verifySpreadText(imageBase64, expectedText, opts = {}) {
-  // No text expected — pass automatically
   if (!expectedText || !expectedText.trim()) {
-    return { pass: true, issues: [], score: 1.0 };
+    return { pass: true, issues: [], score: 1.0, tags: [] };
   }
 
   const apiKey = getNextApiKey();
   if (!apiKey) {
-    return { pass: true, issues: [], score: 1.0 };
+    return {
+      pass: false,
+      issues: ['Text QA unavailable: no Gemini API key configured'],
+      score: 0,
+      tags: ['qa_unavailable'],
+    };
   }
 
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
-  // The 16:9 image will be vertically cropped during PDF assembly (top bias).
-  // The effective top margin after crop is roughly 65% of the original topPadding.
-  // Fail hard if text crosses ~55% of the target topPadding (worst-case post-crop).
   const hardTopMarginPct = Math.max(8, Math.floor(TEXT_RULES.topPaddingPercent * 0.55));
 
   const prompt = `Analyze the text in this children's book illustration.
@@ -47,7 +54,7 @@ Check ALL of the following:
 
 1. TEXT CONTENT: Read the text in the image word-for-word. Does it match the expected text exactly? Flag missing words, extra words, misspellings, garbled text, or DUPLICATED text (same text appearing twice).
 
-2. TEXT PLACEMENT — CENTER EXCLUSION ZONE (CRITICAL): Imagine a vertical line at the exact center of the image. The center ${TEXT_RULES.centerExclusionPercent * 2}% (${TEXT_RULES.centerExclusionPercent}% left of center + ${TEXT_RULES.centerExclusionPercent}% right of center) is a NO-TEXT ZONE reserved for imagery. ALL text must be completely within the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% of the image. Flag as HARD FAIL if ANY text character or word appears in or crosses the center ${TEXT_RULES.centerExclusionPercent * 2}% strip. A single word crossing the center counts as a failure. Vertical position (top/bottom) does not matter.
+2. TEXT SIDE LOCK (CRITICAL): The story text must stay entirely on ONE side of the image. It must NOT cross from the left side of the image to the right side, or from the right side to the left — no line, word, or phrase may bridge both halves. Imagine a vertical line down the middle: all glyphs must lie entirely in the left 50% OR entirely in the right 50%, not spanning across. Also: the middle ${TEXT_RULES.centerExclusionPercent * 2}% band (center ${TEXT_RULES.centerExclusionPercent}% each side of the midpoint) is a NO-TEXT ZONE for the main story text — treat bridging across that band the same as a HARD FAIL. Tag as "text_bridges_sides" or "text_center" when this rule breaks.
 
 3. EDGE MARGINS:
    - Left and right: text must be at least ${TEXT_RULES.edgePaddingPercent}% away from the left and right edges.
@@ -65,56 +72,63 @@ Return ONLY valid JSON:
   "pass": true/false,
   "extractedText": "the exact text you read from the image",
   "issues": ["list of specific issues found"],
-  "tags": ["zero or more of: text_top_edge, text_over_face, text_center, text_duplicated, text_garbled, text_too_large, text_illegible"],
+  "tags": ["zero or more of: text_top_edge, text_over_face, text_center, text_bridges_sides, text_duplicated, text_garbled, text_too_large, text_illegible"],
   "score": 0.0-1.0
 }
 
 Score guide: 1.0 = perfect, 0.8+ = minor issues, 0.5-0.8 = significant issues, <0.5 = major problems.
-Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%, text crossing the center, duplicated text, missing/garbled text, text over the hero's face/head, or text within ${hardTopMarginPct}% of the top edge.`;
+Set pass=false for: text bridging left and right sides, text in the forbidden middle band, duplicated text, missing/garbled text, text over the hero's face/head, or text within ${hardTopMarginPct}% of the top edge.`;
 
-  try {
-    const resp = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          role: 'user',
-          parts: [
-            { inline_data: { mimeType: 'image/png', data: imageBase64 } },
-            { text: prompt },
-          ],
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1024,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    }, QA_TIMEOUT_MS);
+  let lastErrMsg = 'unknown error';
 
-    if (opts.costTracker) {
-      opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 800, 200);
-    }
+  for (let attempt = 0; attempt < QA_HTTP_ATTEMPTS; attempt++) {
+    try {
+      const resp = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { inline_data: { mimeType: 'image/png', data: imageBase64 } },
+              { text: prompt },
+            ],
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 1024,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      }, QA_TIMEOUT_MS);
 
-    if (!resp.ok) {
-      console.warn(`[illustrator/quality/text] API error ${resp.status} — accepting`);
-      return { pass: true, issues: [], score: 1.0 };
-    }
+      if (opts.costTracker) {
+        opts.costTracker.addTextUsage(GEMINI_QA_MODEL, 800, 200);
+      }
 
-    const data = await resp.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
+      if (!resp.ok) {
+        lastErrMsg = `API HTTP ${resp.status}`;
+        if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
+        continue;
+      }
 
-    if (match) {
+      const data = await resp.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+      const match = cleaned.match(/\{[\s\S]*\}/);
+
+      if (!match) {
+        lastErrMsg = 'unparseable model response';
+        if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
+        continue;
+      }
+
       const result = JSON.parse(match[0]);
       const issues = result.issues || [];
       const rawTags = Array.isArray(result.tags) ? result.tags : [];
       const tags = rawTags.filter(t => typeof t === 'string').map(t => t.toLowerCase().trim()).filter(Boolean);
       let pass = !!result.pass;
 
-      // Deterministic duplication safety net: if extracted text is much longer
-      // than expected, the same text was likely rendered twice in the image
       const extracted = (result.extractedText || '').trim();
       if (extracted && expectedText) {
         const expectedWords = expectedText.trim().split(/\s+/).length;
@@ -133,12 +147,18 @@ Set pass=false for: text in the center ${TEXT_RULES.centerExclusionPercent * 2}%
         score: typeof result.score === 'number' ? result.score : (pass ? 1.0 : 0.5),
         extractedText: extracted,
       };
+    } catch (e) {
+      lastErrMsg = e.message || String(e);
+      if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
     }
-  } catch (e) {
-    console.warn(`[illustrator/quality/text] Error: ${e.message} — accepting`);
   }
 
-  return { pass: true, issues: [], tags: [], score: 1.0 };
+  return {
+    pass: false,
+    issues: [`Text QA failed after ${QA_HTTP_ATTEMPTS} attempts: ${lastErrMsg}`],
+    tags: ['qa_api_error'],
+    score: 0,
+  };
 }
 
 module.exports = { verifySpreadText };

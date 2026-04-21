@@ -1114,9 +1114,21 @@ app.post('/generate-book', authenticate, async (req, res) => {
     }
   }
 
+  const { computeCelebrationAge } = require('./services/celebrationAge');
+  const birthDateRaw = childAnecdotes?.birth_date || req.body.childBirthDate || null;
+  const celebrationAge = computeCelebrationAge(
+    { birthDate: birthDateRaw, age: childAge, childAge },
+    new Date(),
+  );
+  const effectiveAge = (theme === 'birthday' || theme === 'birthday_magic') && birthDateRaw
+    ? celebrationAge
+    : childAge;
+
   const childDetails = {
     name: childName,
-    age: childAge,
+    age: effectiveAge,
+    celebrationAge,
+    birthDate: birthDateRaw || undefined,
     gender: childGender,
     appearance: childAppearance,
     interests: childInterests,
@@ -1675,8 +1687,8 @@ If the main child is the ONLY character, respond with exactly: NONE` },
         if (lastSpread && lastSpread.spread_image_prompt) {
           const prompt = lastSpread.spread_image_prompt.toLowerCase();
           if (!prompt.includes('cake') && !prompt.includes('candle')) {
-            const childAge = childDetails.age || childDetails.childAge || 5;
-            const candleDesc = `${childAge} lit candles`;
+            const candleAge = childDetails.celebrationAge ?? childDetails.age ?? childDetails.childAge ?? 5;
+            const candleDesc = `${candleAge} lit candles`;
             const childNameStr = childDetails.name || childDetails.childName || 'the child';
             const favoriteObj = storyPlan.recurringElement || v2Vars?.favorite_object || '';
             const favoriteClause = favoriteObj ? ` The ${favoriteObj} sits on the table nearby.` : '';
@@ -2383,7 +2395,8 @@ If the main child is the ONLY character, respond with exactly: NONE` },
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
     additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
-    childPhotoUrl, cachedPhotoBase64, coverImageUrl, firstSpreadRefUrl } = req.body;
+    childPhotoUrl, cachedPhotoBase64, coverImageUrl, firstSpreadRefUrl,
+    celebrationAge, childAge: regenChildAge } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2464,6 +2477,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       spreadIndex,
       totalSpreads: totalSpreads || 13,
       costTracker,
+      celebrationAge: typeof celebrationAge === 'number' ? celebrationAge : (typeof regenChildAge === 'number' ? regenChildAge : undefined),
     });
 
     // Upload to GCS
