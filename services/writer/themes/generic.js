@@ -16,7 +16,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate, matchTitleToPlot, generateCustomPlot, isPlaceholderTitle } = require('./plots');
+const { selectPlotTemplate, matchTitleToPlot, generateCustomPlot, generateAnecdoteDrivenPlot, isPlaceholderTitle } = require('./plots');
 
 // ── Theme category membership ──
 
@@ -63,11 +63,58 @@ class GenericThemeWriter extends BaseThemeWriter {
     const seedBeats = this._normalizeSeedBeats(opts.storySeed?.beats, ageTier);
     let beats;
     let usedSeed = false;
+    let anecdotePlot = null;
+    const anecdoteDrivenCategories = new Set(['celebration', 'parent']);
+
     if (seedBeats && this.category !== 'emotional') {
       this._selectedPlot = null;
       this._storySeed = opts.storySeed;
       beats = seedBeats;
       usedSeed = true;
+    } else if (
+      anecdoteDrivenCategories.has(this.category)
+      && !book.plotId
+      && child.anecdotes
+      && Object.keys(child.anecdotes).length > 0
+    ) {
+      try {
+        const isYoung = ageTier === 'young-picture';
+        const wt = isYoung ? 16 : 28;
+        anecdotePlot = await generateAnecdoteDrivenPlot({
+          theme: this.themeName,
+          child,
+          book,
+          parentName,
+          isYoung,
+          wt,
+          writer: this,
+        });
+      } catch (err) {
+        console.warn(`[writerV2] Anecdote-driven plot generation failed for ${this.themeName}: ${err.message}`);
+      }
+
+      if (anecdotePlot) {
+        this._selectedPlot = anecdotePlot;
+        this._manifest = anecdotePlot.manifest;
+        beats = anecdotePlot.beats;
+        console.log(`[writerV2] Using anecdote-driven plot "${anecdotePlot.id}" for ${this.themeName} (${anecdotePlot.manifest?.length || 0} anecdote assignments)`);
+      } else {
+        // Fall back to template flow
+        let titleMatchFailed = false;
+        if (book.title) {
+          try {
+            const matchedId = await matchTitleToPlot(book.title, this.themeName);
+            if (matchedId) book = { ...book, plotId: matchedId };
+            else titleMatchFailed = true;
+          } catch (err) {
+            console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
+            titleMatchFailed = true;
+          }
+        }
+        beats = titleMatchFailed
+          ? await this._buildBeatsWithCustomFallback(ageTier, child, parentName, book)
+          : this._buildBeats(ageTier, child, parentName, book);
+      }
     } else {
       let titleMatchFailed = false;
       if (!book.plotId && book.title && this.category !== 'emotional') {
@@ -91,8 +138,11 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     const refrain = this._chooseRefrain(child, parentName, opts.storySeed);
 
+    // Only run the generic enrichment pass when we're NOT using the anecdote-driven
+    // plot. That plot's two-pass flow already hard-assigns anecdotes to beats —
+    // re-enriching would dilute the specificity.
     let enrichedBeats = beats;
-    if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
+    if (!anecdotePlot && child.anecdotes && Object.keys(child.anecdotes).length > 0) {
       try {
         enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier);
       } catch (err) {
@@ -106,7 +156,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       beats: enrichedBeats,
       refrain,
       ageTier,
-      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, beats.length) },
+      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, enrichedBeats.length) },
       wordTargets: { total: wordLimits.maxWords, perSpread: wordLimits.wordsPerSpread },
       parentName,
       pronouns,
@@ -118,6 +168,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       plotSynopsis: plot?.synopsis || (seed?.narrative_spine || null),
       storySeed: seed,
       usedSeed,
+      manifest: anecdotePlot?.manifest || null,
     };
   }
 
@@ -211,6 +262,44 @@ class GenericThemeWriter extends BaseThemeWriter {
           } catch (err) {
             console.warn(`[writerV2] Title-coherence retry failed: ${err.message}`);
           }
+        }
+      }
+    }
+
+    // ── Cake-coherence check for birthday themes ──
+    // Spreads 12-13 MUST depict the cake climax: spread 12 is the
+    // wish + blowing out candles, spread 13 is the first bite of cake.
+    // If neither spread mentions cake/candles/wish imagery, retry with a
+    // stronger cake anchor. Mirrors the title-coherence retry above.
+    if (this.category === 'celebration' && spreads.length >= 12) {
+      const cakeTerms = /\b(cake|candle|candles|frosting|icing|wish|blow|blew|bite)\b/i;
+      const spread12 = spreads.find(s => s.spread === 12) || spreads[11];
+      const spread13 = spreads.find(s => s.spread === 13) || spreads[12];
+      const text12 = (spread12?.text || '');
+      const text13 = (spread13?.text || '');
+      const has12 = cakeTerms.test(text12);
+      const has13 = cakeTerms.test(text13);
+      if (!has12 || !has13) {
+        const flavor = child.anecdotes?.favorite_cake_flavor
+          ? ` (${child.anecdotes.favorite_cake_flavor})`
+          : '';
+        console.warn(`[writerV2] Cake-coherence check FAILED — spreads 12-13 missing cake imagery. Retrying with stronger anchoring.`);
+        const cakeAddendum = `\n\nCRITICAL CAKE CLIMAX — READ BEFORE REWRITING:\nThis is a BIRTHDAY book for ${child.name}. The previous draft did NOT land the cake climax.\n- Spread 12 MUST be the wish-and-blow moment: the cake${flavor} with lit candles in front of ${child.name}, eyes closing for a wish, candles blown out. Name the cake and the candles in the text.\n- Spread 13 MUST be the first-bite joy: ${child.name} taking the first bite of cake${flavor}, pure happiness on their face. Name the cake in the text.\n- The ending must be JOYFUL and in DAYLIGHT — never a bedtime / sleep / goodnight ending.\nKeep spreads 1-11 substantially the same. Only rewrite the final two spreads to deliver the cake climax.`;
+        try {
+          const retryResult = await this.callLLM('writer', systemPrompt, userPrompt + cakeAddendum, { maxTokens: 4000, temperature: 0.85 });
+          const retrySpreads = this.parseSpreads(retryResult.text);
+          if (retrySpreads.length >= plan.spreadCount.min) {
+            const retry12 = retrySpreads.find(s => s.spread === 12) || retrySpreads[11];
+            const retry13 = retrySpreads.find(s => s.spread === 13) || retrySpreads[12];
+            const retryHas12 = cakeTerms.test(retry12?.text || '');
+            const retryHas13 = cakeTerms.test(retry13?.text || '');
+            if ((retryHas12 ? 1 : 0) + (retryHas13 ? 1 : 0) > (has12 ? 1 : 0) + (has13 ? 1 : 0)) {
+              spreads = retrySpreads;
+              console.log(`[writerV2] Cake-coherence retry succeeded: spread12=${retryHas12}, spread13=${retryHas13}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[writerV2] Cake-coherence retry failed: ${err.message}`);
         }
       }
     }
@@ -714,8 +803,17 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## BEAT STRUCTURE\n`);
     sections.push(`Write exactly ${plan.spreadCount.target} spreads following this structure:\n`);
     plan.beats.forEach(b => {
-      sections.push(`Spread ${b.spread} (${b.beat}): ${b.description} [~${b.wordTarget} words]`);
+      const locationTag = b.location ? ` {location: ${b.location}}` : '';
+      sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${b.description} [~${b.wordTarget} words]`);
     });
+
+    if (plan.manifest && plan.manifest.length > 0) {
+      sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
+      sections.push(`Each of these real details MUST be concretely named in the exact spread listed — as a named object, action, place, food, or person. Do NOT paraphrase them away. Do NOT pile them all into one spread.`);
+      plan.manifest.forEach(m => {
+        sections.push(`- Spread ${m.spread}: "${m.anecdote_value}" (${m.anecdote_key}) — ${m.use}`);
+      });
+    }
 
     // Find the climax/quiet beat
     const climaxBeat = plan.beats.find(b =>

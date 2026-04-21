@@ -12,7 +12,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle } = require('./plots');
+const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -23,16 +23,51 @@ class MothersDayWriter extends BaseThemeWriter {
    * Plan the story beats for a Mother's Day book.
    * @param {object} child - { name, age, gender, anecdotes, ... }
    * @param {object} book - { theme, format, ... }
+   * @param {object} [opts]
+   * @param {object} [opts.storySeed] - Optional pre-computed seed (beats, refrain) from upstream brainstorm.
    * @returns {object} plan with beats, refrain, ageTier, wordTargets
    */
-  async plan(child, book) {
+  async plan(child, book, opts = {}) {
     const ageTier = this.getAgeTier(child.age);
     const spreadCount = this.getSpreadCount(child.age);
     const wordLimits = this.getWordLimits(child.age);
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
 
-    if (!book.plotId && book.title) {
+    const storySeed = opts.storySeed || null;
+    const seedBeats = Array.isArray(storySeed?.beats) && storySeed.beats.length > 0
+      ? storySeed.beats
+      : null;
+
+    // ── Preferred path: anecdote-driven GPT-5.4 plot ──
+    // If the child has real anecdotes and no upstream seed forces a shape,
+    // build the arc around them instead of picking a random template. Fall
+    // back to templates on failure.
+    let anecdotePlot = null;
+    if (!seedBeats && child.anecdotes && Object.keys(child.anecdotes).length > 0 && !book.plotId) {
+      try {
+        const isYoung = ageTier === 'young-picture';
+        const wt = isYoung ? 16 : 28;
+        anecdotePlot = await generateAnecdoteDrivenPlot({
+          theme: 'mothers_day',
+          child,
+          book,
+          parentName,
+          isYoung,
+          wt,
+          writer: this,
+        });
+        if (anecdotePlot) {
+          this._selectedPlot = anecdotePlot;
+          this._manifest = anecdotePlot.manifest;
+          console.log(`[writerV2] Using anecdote-driven plot "${anecdotePlot.id}" for mothers_day (${anecdotePlot.manifest?.length || 0} anecdote assignments)`);
+        }
+      } catch (err) {
+        console.warn(`[writerV2] Anecdote-driven plot generation failed for mothers_day: ${err.message}`);
+      }
+    }
+
+    if (!anecdotePlot && !seedBeats && !book.plotId && book.title) {
       try {
         const matchedId = await matchTitleToPlot(book.title, 'mothers_day');
         if (matchedId) book = { ...book, plotId: matchedId };
@@ -41,12 +76,25 @@ class MothersDayWriter extends BaseThemeWriter {
       }
     }
 
-    const beats = this._buildBeats(ageTier, spreadCount, child, parentName, book);
+    let beats;
+    let usedSeed = false;
+    if (anecdotePlot) {
+      beats = anecdotePlot.beats;
+    } else if (seedBeats) {
+      beats = seedBeats;
+      usedSeed = true;
+      this._storySeed = storySeed;
+    } else {
+      beats = this._buildBeats(ageTier, spreadCount, child, parentName, book);
+    }
 
-    const refrain = this._chooseRefrain(child, parentName);
+    const refrain = this._chooseRefrain(child, parentName, usedSeed ? storySeed : null);
 
+    // Only run the generic enrichment pass when we're working with TEMPLATE
+    // beats. Anecdote-driven and seed-driven beats were already personalized
+    // upstream; re-enriching would just dilute them.
     let enrichedBeats = beats;
-    if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
+    if (!anecdotePlot && !usedSeed && child.anecdotes && Object.keys(child.anecdotes).length > 0) {
       try {
         enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier);
       } catch (err) {
@@ -59,7 +107,7 @@ class MothersDayWriter extends BaseThemeWriter {
       beats: enrichedBeats,
       refrain,
       ageTier,
-      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, beats.length) },
+      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, enrichedBeats.length) },
       wordTargets: {
         total: wordLimits.maxWords,
         perSpread: wordLimits.wordsPerSpread,
@@ -70,6 +118,8 @@ class MothersDayWriter extends BaseThemeWriter {
       plotId: plot?.id || null,
       plotName: plot?.name || null,
       plotSynopsis: plot?.synopsis || null,
+      manifest: anecdotePlot?.manifest || null,
+      storySeed: usedSeed ? storySeed : null,
     };
   }
 
@@ -245,10 +295,17 @@ class MothersDayWriter extends BaseThemeWriter {
     ];
   }
 
-  _chooseRefrain(child, parentName) {
-    // The refrain should use the child's word for mom and be under 8 words
+  _chooseRefrain(child, parentName, storySeed) {
     const callsMom = child.anecdotes?.calls_mom || parentName || 'Mama';
-    // A set of refrain templates — the writer LLM will choose or create one
+    if (storySeed?.repeated_phrase && typeof storySeed.repeated_phrase === 'string') {
+      const phrase = storySeed.repeated_phrase.trim();
+      if (phrase) {
+        return {
+          parentWord: callsMom,
+          suggestions: [phrase],
+        };
+      }
+    }
     return {
       parentWord: callsMom,
       suggestions: [
@@ -379,8 +436,17 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## BEAT STRUCTURE\n`);
     sections.push(`Write exactly ${plan.spreadCount.target} spreads following this structure:\n`);
     plan.beats.forEach(b => {
-      sections.push(`Spread ${b.spread} (${b.beat}): ${b.description} [~${b.wordTarget} words]`);
+      const locationTag = b.location ? ` {location: ${b.location}}` : '';
+      sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${b.description} [~${b.wordTarget} words]`);
     });
+
+    if (plan.manifest && plan.manifest.length > 0) {
+      sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
+      sections.push(`Each of these real details MUST be concretely named in the exact spread listed — as a named object, action, place, food, or person. Do NOT paraphrase them away. Do NOT pile them all into one spread.`);
+      plan.manifest.forEach(m => {
+        sections.push(`- Spread ${m.spread}: "${m.anecdote_value}" (${m.anecdote_key}) — ${m.use}`);
+      });
+    }
 
     sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);
     sections.push(`- The beats are organized into 4 SCENES: Home (1-3), Journey (4-7), Destination (8-11), Heading Home (12-13).`);

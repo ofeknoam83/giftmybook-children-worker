@@ -100,7 +100,7 @@ class WriterEngine {
 
     // 4. Quality check
     onProgress?.({ step: 'quality', message: 'Running quality checks...' });
-    let quality = await QualityGate.check(story, child, book);
+    let quality = await QualityGate.check(story, child, book, { plan });
     console.log(`[writerV2] Quality: ${quality.overallScore}/10, pass=${quality.pass}, scores=${JSON.stringify(quality.scores)}`);
     pipeline.stages.push({
       name: 'quality',
@@ -116,7 +116,7 @@ class WriterEngine {
       onProgress?.({ step: 'revising', message: `Revising story (attempt ${attempts + 1})...` });
       console.log(`[writerV2] Revising (attempt ${attempts + 1}/${retryLimit}): ${quality.feedback.slice(0, 200)}`);
       story = await themeWriter.revise(story, quality.feedback, child, book);
-      quality = await QualityGate.check(story, child, book);
+      quality = await QualityGate.check(story, child, book, { plan });
       console.log(`[writerV2] After revision ${attempts + 1}: ${quality.overallScore}/10, pass=${quality.pass}`);
       pipeline.stages.push({
         name: `revision_${attempts + 1}`,
@@ -133,7 +133,7 @@ class WriterEngine {
 
     onProgress?.({ step: 'complete', message: 'Story generation complete.' });
 
-    return { story, metadata, pipeline };
+    return { story, metadata, pipeline, plan };
   }
 }
 

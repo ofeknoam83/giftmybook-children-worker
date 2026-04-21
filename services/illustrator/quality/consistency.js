@@ -153,6 +153,11 @@ async function _checkBatchCharacterConsistency(batch, opts) {
     ? `\n\nGROUND TRUTH — STORY BIBLE (these descriptions are the locked reference. Flag any image that contradicts them):\n${opts.bibleBlock}\n`
     : '';
 
+  const isParentTheme = opts?.theme === 'mothers_day' || opts?.theme === 'fathers_day';
+  const parentResemblanceBlock = isParentTheme
+    ? `\n8. PARENT–CHILD FAMILY RESEMBLANCE (${opts.theme === 'mothers_day' ? 'mother' : 'father'}, face is hidden by design): Wherever any parent figure appears (visible through hands, arms, neck, back of head, ears, shoulders), the parent's visible SKIN TONE must match the child's skin tone, and the parent's hair color must be in the same color family as the child's. Flag any image where the parent is visibly a different ethnicity or skin tone from the child (e.g., Black parent with a white child, East Asian parent with a white child, etc.). Also flag if the parent's skin tone is inconsistent across spreads (light in one spread, dark in another).`
+    : '';
+
   const parts = [{
     text: `These are ${batch.length} illustrations from the same children's book. The SAME child appears in every image; named secondary characters must look identical whenever they appear.
 
@@ -161,12 +166,12 @@ Check character consistency across ALL images — be STRICT:
 2. OUTFIT: Is the child wearing the SAME clothes in every image? Flag if clothing color, style, or type changes between images. The outfit must be identical on every page.
 3. FACE: Same face shape and skin tone across all?
 4. AGE & PROPORTIONS: Does the child look the SAME AGE in every image? Flag if the child looks like a toddler in one image but a 5-6 year old in another. Body proportions (height, head-to-body ratio, limb length) must be consistent. This is CRITICAL — age drift between spreads is a major defect.
-5. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts.
+5. ANATOMY: Does every image show the correct number of limbs? Flag any image with 3 hands, 3 arms, extra limbs, or merged body parts. Also flag any image where a character is MISSING a limb that should be visible (one arm when both should show, one leg when both should show, a hand ending mid-wrist where a hand should be).
 6. SECONDARY CHARACTERS: if any named secondary character (a friend, animal companion, adult, etc.) appears across multiple images, their appearance must match across those images — same species, same face/fur, same outfit, same colors. Flag any image where a secondary character's appearance drifts.
-7. SETTINGS: if multiple images take place in the same named location, the setting must match (same room, same landmarks, same color palette baseline). Flag a location mismatch only when the text/scene says it's the SAME place but the visuals disagree.${bibleGroundTruth}
+7. SETTINGS: if multiple images take place in the same named location, the setting must match (same room, same landmarks, same color palette baseline). Flag a location mismatch only when the text/scene says it's the SAME place but the visuals disagree.${parentResemblanceBlock}${bibleGroundTruth}
 
 Do NOT flag: left/right mirroring, minor lighting/shadow differences, eye open/closed state, minor pose differences, or intentional location changes between scenes.
-DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any age/proportion shift, any anatomy errors, any secondary character drift, or any location mismatch that contradicts the ground truth.
+DO flag: any change in hair color/style/length, any change in outfit/clothing, any skin tone shift, any age/proportion shift, any anatomy errors (extra OR missing limbs), any secondary character drift, any location mismatch that contradicts the ground truth${isParentTheme ? ', any parent–child ethnicity/skin-tone mismatch' : ''}.
 
 Return ONLY valid JSON:
 {"consistent": true, "outlierImages": [], "issues": []}

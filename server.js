@@ -448,6 +448,21 @@ function buildGraphicNovelStoryContentForDb(storyPlan) {
  */
 function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle) {
   const spreads = writerResult.story.spreads || [];
+  const plan = writerResult.plan || null;
+  const manifestAssignments = Array.isArray(plan?.manifest) ? plan.manifest : [];
+  const beatsBySpread = new Map();
+  if (Array.isArray(plan?.beats)) {
+    for (const b of plan.beats) {
+      if (b && Number.isFinite(Number(b.spread))) beatsBySpread.set(Number(b.spread), b);
+    }
+  }
+  const manifestBySpread = new Map();
+  for (const m of manifestAssignments) {
+    const spread = Number(m.spread);
+    if (!Number.isFinite(spread)) continue;
+    if (!manifestBySpread.has(spread)) manifestBySpread.set(spread, []);
+    manifestBySpread.get(spread).push(m);
+  }
   const childName = childDetails.name || childDetails.childName || 'the child';
   const title = approvedTitle || `A Story for ${childName}`;
   const THEME_SUBS = {
@@ -491,12 +506,36 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
       rightText = null;
     }
 
+    // Build a richer illustration prompt that bakes in the plan's location
+    // and any hard-assigned anecdotes for this spread. The illustrator engine
+    // reads spread_image_prompt as the scene description, so packing the
+    // visible anecdote ("pancakes on the plate", "the stuffed elephant Ellie")
+    // and the physical setting here pushes them straight into the image.
+    const beat = beatsBySpread.get(s.spread);
+    const anecdotesForSpread = manifestBySpread.get(s.spread) || [];
+    const promptParts = [
+      `Illustration for spread ${s.spread} of a ${theme} children's picture book.`,
+    ];
+    if (beat?.location) promptParts.push(`Setting: ${beat.location}.`);
+    if (beat?.description) {
+      promptParts.push(`Scene: ${String(beat.description).slice(0, 280)}`);
+    } else {
+      promptParts.push(`Scene: ${[leftText, rightText].filter(Boolean).join(' ').slice(0, 280)}`);
+    }
+    if (anecdotesForSpread.length > 0) {
+      const anecdoteStrs = anecdotesForSpread.map(a => `"${a.anecdote_value}" visibly shown as ${a.use}`).join('; ');
+      promptParts.push(`MUST VISUALLY INCLUDE (from this child's real life): ${anecdoteStrs}.`);
+    }
+    const spread_image_prompt = promptParts.join(' ').slice(0, 700);
+
     return {
       type: 'spread',
       spread: s.spread,
       left: { text: leftText },
       right: { text: rightText },
-      spread_image_prompt: `Illustration for spread ${s.spread} of a ${theme} children's picture book. Scene: ${leftText} ${rightText || ''}`.slice(0, 500),
+      spread_image_prompt,
+      location: beat?.location || null,
+      manifest: anecdotesForSpread.length > 0 ? anecdotesForSpread : null,
     };
   });
 

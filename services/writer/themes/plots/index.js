@@ -8,6 +8,7 @@
  */
 
 const { callGeminiText, GEMINI_FLASH_MODEL } = require('../base');
+const { generateAnecdoteDrivenPlot } = require('./anecdoteDrivenPlot');
 
 const THEME_PLOTS = {
   birthday:       require('./birthday'),
@@ -244,4 +245,4 @@ ${exampleBeats.map(b => `Spread ${b.spread}: ~${b.wordTarget} words`).join('\n')
   }
 }
 
-module.exports = { selectPlotTemplate, getAllPlotIds, getTotalPlotCount, matchTitleToPlot, generateCustomPlot, isPlaceholderTitle, THEME_PLOTS };
+module.exports = { selectPlotTemplate, getAllPlotIds, getTotalPlotCount, matchTitleToPlot, generateCustomPlot, generateAnecdoteDrivenPlot, isPlaceholderTitle, THEME_PLOTS };

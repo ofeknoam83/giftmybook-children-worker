@@ -12,7 +12,7 @@ const { BaseThemeWriter } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle } = require('./plots');
+const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
 
 class FathersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -46,16 +46,49 @@ class FathersDayWriter extends BaseThemeWriter {
    * Plan the story beats for a Father's Day book.
    * @param {object} child - { name, age, gender, anecdotes, ... }
    * @param {object} book - { theme, format, ... }
+   * @param {object} [opts]
+   * @param {object} [opts.storySeed] - Optional pre-computed seed (beats, refrain) from upstream brainstorm.
    * @returns {object} plan with beats, refrain, ageTier, wordTargets
    */
-  async plan(child, book) {
+  async plan(child, book, opts = {}) {
     const ageTier = this.getAgeTier(child.age);
     const spreadCount = this.getSpreadCount(child.age);
     const wordLimits = this.getWordLimits(child.age);
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
 
-    if (!book.plotId && book.title) {
+    const storySeed = opts.storySeed || null;
+    const seedBeats = Array.isArray(storySeed?.beats) && storySeed.beats.length > 0
+      ? storySeed.beats
+      : null;
+
+    // Anecdote-driven GPT-5.4 plot is preferred when anecdotes exist and no
+    // upstream seed is forcing a particular shape.
+    let anecdotePlot = null;
+    if (!seedBeats && child.anecdotes && Object.keys(child.anecdotes).length > 0 && !book.plotId) {
+      try {
+        const isYoung = ageTier === 'young-picture';
+        const wt = isYoung ? 16 : 28;
+        anecdotePlot = await generateAnecdoteDrivenPlot({
+          theme: 'fathers_day',
+          child,
+          book,
+          parentName,
+          isYoung,
+          wt,
+          writer: this,
+        });
+        if (anecdotePlot) {
+          this._selectedPlot = anecdotePlot;
+          this._manifest = anecdotePlot.manifest;
+          console.log(`[writerV2] Using anecdote-driven plot "${anecdotePlot.id}" for fathers_day (${anecdotePlot.manifest?.length || 0} anecdote assignments)`);
+        }
+      } catch (err) {
+        console.warn(`[writerV2] Anecdote-driven plot generation failed for fathers_day: ${err.message}`);
+      }
+    }
+
+    if (!anecdotePlot && !seedBeats && !book.plotId && book.title) {
       try {
         const matchedId = await matchTitleToPlot(book.title, 'fathers_day');
         if (matchedId) book = { ...book, plotId: matchedId };
@@ -64,12 +97,25 @@ class FathersDayWriter extends BaseThemeWriter {
       }
     }
 
-    const beats = this._buildBeats(ageTier, spreadCount, child, parentName, book);
+    let beats;
+    let usedSeed = false;
+    if (anecdotePlot) {
+      beats = anecdotePlot.beats;
+    } else if (seedBeats) {
+      beats = seedBeats;
+      usedSeed = true;
+      this._storySeed = storySeed;
+    } else {
+      beats = this._buildBeats(ageTier, spreadCount, child, parentName, book);
+    }
 
-    const refrain = this._chooseRefrain(child, parentName);
+    const refrain = this._chooseRefrain(child, parentName, usedSeed ? storySeed : null);
 
+    // Skip the generic enrichment pass for anecdote-driven or seed-driven
+    // beats — they were already personalized upstream and re-enriching
+    // dilutes the work.
     let enrichedBeats = beats;
-    if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
+    if (!anecdotePlot && !usedSeed && child.anecdotes && Object.keys(child.anecdotes).length > 0) {
       try {
         enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier);
       } catch (err) {
@@ -82,7 +128,7 @@ class FathersDayWriter extends BaseThemeWriter {
       beats: enrichedBeats,
       refrain,
       ageTier,
-      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, beats.length) },
+      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, enrichedBeats.length) },
       wordTargets: {
         total: wordLimits.maxWords,
         perSpread: wordLimits.wordsPerSpread,
@@ -93,6 +139,8 @@ class FathersDayWriter extends BaseThemeWriter {
       plotId: plot?.id || null,
       plotName: plot?.name || null,
       plotSynopsis: plot?.synopsis || null,
+      manifest: anecdotePlot?.manifest || null,
+      storySeed: usedSeed ? storySeed : null,
     };
   }
 
@@ -267,9 +315,17 @@ class FathersDayWriter extends BaseThemeWriter {
     ];
   }
 
-  _chooseRefrain(child, parentName) {
-    // The refrain should use the child's word for dad and be under 8 words
+  _chooseRefrain(child, parentName, storySeed) {
     const callsDad = child.anecdotes?.calls_dad || parentName || 'Daddy';
+    if (storySeed?.repeated_phrase && typeof storySeed.repeated_phrase === 'string') {
+      const phrase = storySeed.repeated_phrase.trim();
+      if (phrase) {
+        return {
+          parentWord: callsDad,
+          suggestions: [phrase],
+        };
+      }
+    }
     return {
       parentWord: callsDad,
       suggestions: [

@@ -181,7 +181,7 @@ describe('validateGenerateBookRequest', () => {
 
   test('defaults invalid artStyle', () => {
     const result = validateGenerateBookRequest({ ...validBody, artStyle: 'oil_painting' });
-    expect(result.sanitized.artStyle).toBe('watercolor');
+    expect(result.sanitized.artStyle).toBe('pixar_premium');
   });
 
   test('defaults invalid theme', () => {
@@ -238,12 +238,43 @@ describe('validateGenerateBookRequest', () => {
   test('defaults childAnecdotes when missing', () => {
     const result = validateGenerateBookRequest(validBody);
     expect(result.valid).toBe(true);
+    // Every field the writer consumes must be present (as empty string) so
+    // downstream code can read them safely without optional chaining on every
+    // access.
     expect(result.sanitized.childAnecdotes).toEqual({
       favorite_activities: '',
       funny_thing: '',
       favorite_food: '',
+      favorite_toys: '',
       other_detail: '',
+      anything_else: '',
+      meaningful_moment: '',
+      calls_mom: '',
+      mom_name: '',
+      moms_favorite_moment: '',
+      calls_dad: '',
+      dad_name: '',
+      dads_favorite_moment: '',
+      favorite_cake_flavor: '',
+      birth_date: '',
     });
+  });
+
+  test('preserves extended childAnecdote fields (meaningful_moment, calls_mom, favorite_cake_flavor)', () => {
+    const result = validateGenerateBookRequest({
+      ...validBody,
+      childAnecdotes: {
+        meaningful_moment: 'the day we baked challah together',
+        calls_mom: 'Mama',
+        mom_name: 'Sarah',
+        favorite_cake_flavor: 'chocolate with strawberries',
+      },
+    });
+    expect(result.valid).toBe(true);
+    expect(result.sanitized.childAnecdotes.meaningful_moment).toBe('the day we baked challah together');
+    expect(result.sanitized.childAnecdotes.calls_mom).toBe('Mama');
+    expect(result.sanitized.childAnecdotes.mom_name).toBe('Sarah');
+    expect(result.sanitized.childAnecdotes.favorite_cake_flavor).toBe('chocolate with strawberries');
   });
 });
 

@@ -5,7 +5,7 @@
 const VALID_FORMATS = ['picture_book', 'early_reader', 'PICTURE_BOOK', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
 const FORMAT_NORMALIZE = { PICTURE_BOOK: 'picture_book', EARLY_READER: 'early_reader' };
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
-const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
+const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'birthday_magic', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
   // Occasion themes
   'mothers_day', 'fathers_day',
   // Emotional development themes
@@ -121,12 +121,40 @@ function isValidCallbackUrl(str) {
   }
 }
 
-const ANECDOTE_FIELDS = ['favorite_activities', 'funny_thing', 'favorite_food', 'other_detail'];
-const MAX_ANECDOTE_LENGTH = 200;
+// Full set of questionnaire-driven anecdote keys the writer consumes. If a
+// field is missing here it gets silently dropped at the API boundary, which
+// means the anecdote-driven planner + quality gate never see it and the story
+// ends up generic. Keep this in sync with services/writer/engine.js
+// buildChildFromLegacy() and the questionnaire schema on the client.
+const ANECDOTE_FIELDS = [
+  // Generic
+  'favorite_activities',
+  'funny_thing',
+  'favorite_food',
+  'favorite_toys',
+  'other_detail',
+  'anything_else',
+  'meaningful_moment',
+  // Mother's Day
+  'calls_mom',
+  'mom_name',
+  'moms_favorite_moment',
+  // Father's Day
+  'calls_dad',
+  'dad_name',
+  'dads_favorite_moment',
+  // Birthday
+  'favorite_cake_flavor',
+  'birth_date',
+];
+const MAX_ANECDOTE_LENGTH = 500;
 
 /**
+ * Sanitize the childAnecdotes object. Only keys in ANECDOTE_FIELDS survive,
+ * each trimmed/injection-scrubbed and capped at MAX_ANECDOTE_LENGTH.
+ *
  * @param {object} raw
- * @returns {{ favorite_activities: string, funny_thing: string, favorite_food: string, other_detail: string }}
+ * @returns {Record<string, string>}
  */
 function sanitizeAnecdotes(raw) {
   const out = {};

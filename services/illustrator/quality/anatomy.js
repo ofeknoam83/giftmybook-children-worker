@@ -53,6 +53,15 @@ STEP-BY-STEP PROCEDURE (follow exactly):
    Be suspicious of hands near bags, objects, or overlapping areas — these are where extra-hand artifacts hide.
    Partially hidden or cropped limbs are OK. But if you can see 3 distinct hands attached to or near one person's body, that is a defect.
 
+2a. MISSING LIMBS (CRITICAL — HARD FAIL, tag "missing_limb"):
+    For the MAIN CHILD (the hero), both arms, both hands, and both legs must be accounted for unless cleanly cropped by the image frame or clearly hidden behind their own body / an object / the edge of the picture.
+    Flag as a HARD FAIL if:
+    - An arm simply ENDS at the shoulder or mid-upper-arm with no hand and no object hiding it (amputated look).
+    - A hand ENDS at the wrist with no fingers visible and no sleeve covering it (stump).
+    - A leg ENDS mid-thigh with no boot, no covering, no frame crop.
+    - The child's torso is shown whole but only ONE arm is visible and the other is NOT accounted for by pose, hiding, or frame cropping.
+    Do NOT flag: limbs hidden behind the body/pose, limbs cleanly cropped by the image edge, or a limb tucked behind a prop. Only flag true anatomical omissions where a limb should continue but visibly terminates.
+
 2b. HERO COUNT — MAIN CHILD DUPLICATION (CRITICAL):
     Identify the main child (the hero — the young child the book is about).
     How many times does THAT SAME child appear in this image?
@@ -91,8 +100,8 @@ ${sceneCoherenceBlock}
 Do NOT flag: stylistic exaggeration (large eyes, simplified features), left/right mirroring, or artistic proportions.
 
 Return ONLY valid JSON:
-{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, head_cropped, extra_hands, extra_fingers, body_horror, duplicate_items, action_mismatch"]}
-Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, DUPLICATED HERO, SPLIT PANEL, HEAD CROPPED, or ACTION MISMATCH.
+{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, head_cropped, extra_hands, extra_fingers, missing_limb, body_horror, duplicate_items, action_mismatch"]}
+Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, MISSING LIMB, DUPLICATED HERO, SPLIT PANEL, HEAD CROPPED, or ACTION MISMATCH.
 Always include the relevant tags when pass=false so downstream tooling can route a specific correction.`;
 
   try {

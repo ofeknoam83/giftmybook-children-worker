@@ -124,7 +124,7 @@ async function establishCharacterReferences(session) {
     const isMother = theme === 'mothers_day';
     const parentLabel = isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)';
     const parentOutfit = session.opts.parentOutfit;
-    let note = `NOTE: The story references the child's ${parentLabel} but they are NOT on the cover. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER show the parent facing away or with their back to the child.`;
+    let note = `NOTE: The story references the child's ${parentLabel} but they are NOT on the cover. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER show the parent facing away or with their back to the child. FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin, hair color, and ethnicity MUST match the child in the reference photo — same skin tone, same hair-color family, same ethnicity. Never invent a different ethnicity for the parent.`;
     if (parentOutfit) {
       note += ` PARENT OUTFIT LOCK: The ${isMother ? 'mother' : 'father'} wears EXACTLY this outfit in every illustration: ${parentOutfit}`;
     }

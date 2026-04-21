@@ -229,6 +229,8 @@ class IllustratorEngine {
             || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
           const hasHeadCropped = qaTags.has('head_cropped')
             || issues.some(iss => /head\s+(is\s+)?crop|face\s+(is\s+)?crop|head\s+cut\s+off/i.test(iss));
+          const hasMissingLimb = qaTags.has('missing_limb')
+            || issues.some(iss => /missing\s+(limb|arm|hand|leg|finger)|amputat|stump|ends?\s+at\s+(the\s+)?(wrist|shoulder|elbow)/i.test(iss));
           const hasTextOverFace = qaTags.has('text_over_face')
             || issues.some(iss => /text\s+over\s+(the\s+)?(face|head|hero)|text\s+on\s+(the\s+)?(face|head)/i.test(iss));
           const hasTextTopEdge = qaTags.has('text_top_edge')
@@ -261,6 +263,18 @@ ${prompt}`;
             correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. The previous image CROPPED THE HERO'S HEAD at the edge of the frame — this is WRONG.
 
 CRITICAL: The main child's head and full face MUST be fully inside the frame. Leave at least 8% of image height ABOVE the top of the child's head. Never crop the hero's head at the top, bottom, left, or right edge. Frame the hero so the entire head is comfortably inside the middle 80% of the image.
+
+${prompt}`;
+          } else if (hasMissingLimb) {
+            correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. The previous image had a MISSING LIMB — a character's arm, hand, or leg was cut off at the shoulder/wrist/thigh with no frame crop and no covering to hide it. This is WRONG.
+
+CRITICAL anatomy rules:
+- Every visible person must have 2 complete arms ending in 2 complete hands, and 2 complete legs.
+- If an arm is visible at all, it MUST end in a hand with 5 fingers — no stumps, no wrists ending in thin air.
+- If a limb is not shown, it must be because it is CLEARLY hidden (behind the body, behind an object, outside the frame edge). Never show a limb that just ENDS.
+- No "half arms". No amputated look. No missing hands.
+
+Keep the same scene content, composition, and style — just draw every character with complete, anatomically whole limbs.
 
 ${prompt}`;
           } else if (hasTextIssues && !hasAnatomyIssues) {
@@ -455,7 +469,7 @@ ${prompt}`;
     let consistencyResult = { overallScore: 1.0, failedSpreads: [] };
     try {
       if (generatedImages.length >= 2) {
-        consistencyResult = await checkCrossSpreadConsistency(generatedImages, { costTracker, storyBible });
+        consistencyResult = await checkCrossSpreadConsistency(generatedImages, { costTracker, storyBible, theme });
         log('info', `Cross-spread QA: score=${(consistencyResult.overallScore * 100).toFixed(0)}%, failed=${consistencyResult.failedSpreads.length}`);
       }
     } catch (qaErr) {
@@ -660,6 +674,8 @@ ${buildSpreadPrompt({
         || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
       const hasHeadCropped = qaTags.has('head_cropped')
         || issues.some(iss => /head\s+(is\s+)?crop|face\s+(is\s+)?crop|head\s+cut\s+off/i.test(iss));
+      const hasMissingLimb = qaTags.has('missing_limb')
+        || issues.some(iss => /missing\s+(limb|arm|hand|leg|finger)|amputat|stump|ends?\s+at\s+(the\s+)?(wrist|shoulder|elbow)/i.test(iss));
 
       let correctionPrompt;
       if (hasDuplicatedHero) {
@@ -679,6 +695,12 @@ ${prompt}`;
         correctionPrompt = `REGENERATE this spread with the SAME scene. The previous image CROPPED THE HERO'S HEAD at the edge of the frame — this is WRONG.
 
 CRITICAL: The main child's head and full face MUST be fully inside the frame. Leave at least 8% of image height ABOVE the top of the child's head. Never crop the hero's head at any edge.
+
+${prompt}`;
+      } else if (hasMissingLimb) {
+        correctionPrompt = `REGENERATE this spread with the SAME scene. The previous image had a MISSING LIMB — an arm, hand, or leg that ended with no crop and no covering. This is WRONG.
+
+CRITICAL: Every visible character must have anatomically complete limbs. Every visible arm must end in a hand with 5 fingers. No stumps, no amputated look, no limbs ending mid-air. If a limb is not shown, it MUST be clearly hidden behind the body, behind an object, or cropped by the image edge.
 
 ${prompt}`;
       } else {

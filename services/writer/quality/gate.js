@@ -12,6 +12,8 @@
  *   - emotionalArc: Does it follow the beat structure? Emotional progression?
  *   - specificity: Concrete nouns? Actions over declarations? No greeting card language?
  *   - variety: Do spreads cover distinct activities/settings, or repeat the same scene?
+ *   - settingVariety: Are there 2+ distinct physical locations across the 13 spreads? (deterministic)
+ *   - anecdoteUsage: Do the child's real questionnaire details actually land in the text? (deterministic)
  *   - wordCount: Total and per-spread within limits? (deterministic)
  */
 
@@ -28,18 +30,21 @@ class QualityGate {
    * @param {object} story - { spreads: [{ spread, text }], _model, _ageTier }
    * @param {object} child - { name, age, gender, ... }
    * @param {object} book - { theme, ... }
+   * @param {object} [opts] - { plan } — the writer's plan, used for manifest + beat locations
    * @returns {{ pass: boolean, overallScore: number, scores: object, feedback: string }}
    */
-  static async check(story, child, book) {
+  static async check(story, child, book, opts = {}) {
     const spreads = story.spreads || [];
+    const plan = opts.plan || null;
     const scores = {};
+    const meta = {}; // extra context for feedback builder
 
     // Hard-fail: if there are 0 spreads, don't bother scoring
     if (spreads.length === 0) {
       return {
         pass: false,
         overallScore: 0,
-        scores: { pronouns: 0, wordCount: 0, rhymeVariety: 0, endingAppropriateness: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0 },
+        scores: { pronouns: 0, wordCount: 0, rhymeVariety: 0, endingAppropriateness: 0, rhyme: 0, ageAppropriateness: 0, readAloud: 0, emotionalArc: 0, specificity: 0, creativity: 0, variety: 0, narrativeCoherence: 0, settingVariety: 0, anecdoteUsage: 0 },
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
       };
     }
@@ -49,6 +54,14 @@ class QualityGate {
     scores.wordCount = QualityGate._scoreWordCount(spreads, child.age, story._ageTier);
     scores.rhymeVariety = QualityGate._scoreRhymeVariety(spreads);
     scores.endingAppropriateness = QualityGate._scoreEndingAppropriateness(spreads, book.theme);
+
+    const settingVariety = QualityGate._scoreSettingVariety(spreads, plan);
+    scores.settingVariety = settingVariety.score;
+    meta.settingVariety = settingVariety;
+
+    const anecdoteUsage = QualityGate._scoreAnecdoteUsage(spreads, plan, child);
+    scores.anecdoteUsage = anecdoteUsage.score;
+    meta.anecdoteUsage = anecdoteUsage;
 
     // LLM-based checks (slower, subjective)
     try {
@@ -80,9 +93,190 @@ class QualityGate {
     const pass = overallScore >= WRITER_CONFIG.qualityThresholds.passScore
               && minScore >= WRITER_CONFIG.qualityThresholds.minDimensionScore;
 
-    const feedback = pass ? '' : QualityGate._buildFeedback(scores, spreads);
+    const feedback = pass ? '' : QualityGate._buildFeedback(scores, spreads, meta);
 
     return { pass, overallScore: Math.round(overallScore * 10) / 10, scores, feedback };
+  }
+
+  /**
+   * Score setting variety deterministically.
+   * Counts distinct physical locations across spreads. Prefers the plan's
+   * beat.location when present, otherwise extracts a location hint from the
+   * first sentence of each spread text.
+   *
+   * Flags two problems:
+   *   - All 13 spreads at a single location (score 1-3, with "everything at home" as the canonical failure).
+   *   - Only one distinct location overall (score 1-2).
+   */
+  static _scoreSettingVariety(spreads, plan) {
+    const HOME_WORDS = ['home', 'house', 'bedroom', 'kitchen', 'living room', 'couch', 'bed', 'backyard', 'sofa'];
+
+    // 1. Pull locations from the plan if available.
+    const planLocations = [];
+    if (plan && Array.isArray(plan.beats)) {
+      for (const b of plan.beats) {
+        if (b && typeof b.location === 'string' && b.location.trim()) {
+          planLocations.push(b.location.trim().toLowerCase());
+        }
+      }
+    }
+
+    // 2. Otherwise, sniff locations from the spread text itself.
+    const textLocations = spreads.map(s => (s.text || '').toLowerCase());
+
+    const locationsPerSpread = planLocations.length >= spreads.length * 0.7
+      ? planLocations.slice(0, spreads.length)
+      : textLocations.map(txt => QualityGate._sniffLocation(txt));
+
+    const filtered = locationsPerSpread.filter(Boolean);
+    const distinct = new Set(filtered.map(l => QualityGate._canonicalLocation(l)));
+    const distinctCount = distinct.size;
+
+    // Count how many spreads are "at home" (using plan first, else text sniff)
+    let atHome = 0;
+    for (let i = 0; i < spreads.length; i++) {
+      const loc = (locationsPerSpread[i] || '').toLowerCase();
+      const text = (spreads[i].text || '').toLowerCase();
+      const looksHome = HOME_WORDS.some(w => loc.includes(w)) || (!loc && HOME_WORDS.some(w => text.includes(w)));
+      if (looksHome) atHome++;
+    }
+
+    let score = 10;
+    if (distinctCount < 2) score = 2;
+    else if (distinctCount === 2 && atHome >= 10) score = 4;
+    else if (atHome >= 10) score = 3;
+    else if (atHome >= 8) score = 5;
+    else if (distinctCount === 2) score = 7;
+    else if (distinctCount === 3) score = 9;
+    else score = 10;
+
+    return {
+      score: Math.max(1, Math.min(10, score)),
+      distinctCount,
+      atHome,
+      sampleLocations: Array.from(distinct).slice(0, 5),
+    };
+  }
+
+  /**
+   * Extract a rough location noun from a spread's text.
+   * Not perfect — we're looking for the first setting-like noun near "in/at/on the".
+   */
+  static _sniffLocation(text) {
+    if (!text) return '';
+    const match = text.match(/\b(?:in|at|on|through|across|under|into|inside|outside)\s+(?:the|a|an|her|his|their|mama'?s|mommy'?s|daddy'?s)?\s*([a-z][a-z\s'-]{2,30}?)\b/i);
+    if (match && match[1]) {
+      return match[1].trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+    }
+    const firstSentence = text.split(/[.!?]/)[0] || '';
+    const quick = firstSentence.match(/\b([a-z]+(?:\s+[a-z]+)?)\s+(?:room|house|garden|park|kitchen|beach|forest|street|bakery|shop|cafe|library|school|ocean|sea|river|lake|sky|cloud|sidewalk|driveway|yard)\b/i);
+    if (quick) return quick[0].toLowerCase();
+    return '';
+  }
+
+  /**
+   * Canonicalize a location string to avoid counting "the kitchen" and "kitchen"
+   * as distinct.
+   */
+  static _canonicalLocation(loc) {
+    if (!loc) return '';
+    return loc
+      .replace(/^(the|a|an|her|his|their)\s+/i, '')
+      .replace(/^(mama'?s|mommy'?s|daddy'?s|dad'?s|mom'?s)\s+/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  /**
+   * Score anecdote usage deterministically.
+   * If the plan has a manifest (from the anecdote-driven plot), scan the spreads
+   * for each assignment's keywords and count how many landed. Otherwise fall back
+   * to scanning child.anecdotes values directly.
+   */
+  static _scoreAnecdoteUsage(spreads, plan, child) {
+    const manifest = plan && Array.isArray(plan.manifest) ? plan.manifest : null;
+    const combinedText = spreads.map(s => (s.text || '')).join(' \n ').toLowerCase();
+
+    let requiredItems = [];
+    let hits = [];
+    let misses = [];
+
+    if (manifest && manifest.length > 0) {
+      for (const m of manifest) {
+        const value = String(m.anecdote_value || '').trim();
+        if (!value) continue;
+        const keywords = QualityGate._extractKeywords(value);
+        if (keywords.length === 0) continue;
+        const landed = keywords.some(k => combinedText.includes(k));
+        requiredItems.push({ kind: 'manifest', spread: m.spread, value, landed, keywords });
+        if (landed) hits.push(`spread ${m.spread}: "${value}"`);
+        else misses.push(`spread ${m.spread}: "${value}"`);
+      }
+    } else {
+      // Fall back to anecdotes directly
+      const a = child?.anecdotes || {};
+      const anecFields = ['favorite_activities', 'funny_thing', 'meaningful_moment', 'moms_favorite_moment', 'favorite_food', 'favorite_cake_flavor', 'favorite_toys', 'other_detail', 'anything_else'];
+      for (const key of anecFields) {
+        const val = a[key];
+        if (!val || typeof val !== 'string' || !val.trim()) continue;
+        const keywords = QualityGate._extractKeywords(val);
+        if (keywords.length === 0) continue;
+        const landed = keywords.some(k => combinedText.includes(k));
+        requiredItems.push({ kind: 'anecdote', key, value: val, landed, keywords });
+        if (landed) hits.push(`${key}: "${val}"`);
+        else misses.push(`${key}: "${val}"`);
+      }
+    }
+
+    if (requiredItems.length === 0) {
+      // Nothing to score against — neutral.
+      return { score: 8, hits: [], misses: [], source: 'none' };
+    }
+
+    const ratio = hits.length / requiredItems.length;
+    let score = 10;
+    if (ratio < 0.3) score = 3;
+    else if (ratio < 0.5) score = 5;
+    else if (ratio < 0.7) score = 7;
+    else if (ratio < 0.9) score = 9;
+    else score = 10;
+
+    return {
+      score,
+      hits,
+      misses,
+      total: requiredItems.length,
+      source: manifest ? 'manifest' : 'anecdotes',
+    };
+  }
+
+  /**
+   * Pull 1-3 meaningful keywords from an anecdote value for substring matching.
+   * "pancakes with blueberries" -> ["pancake", "blueberr"]
+   * "sings to the cat" -> ["sing", "cat"]
+   */
+  static _extractKeywords(value) {
+    const STOP = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'is', 'are', 'was', 'be', 'her', 'his', 'their', 'my', 'our', 'your', 'me', 'we', 'they', 'he', 'she', 'it', 'that', 'this', 'these', 'those', 'when', 'where', 'how', 'what', 'why', 'very', 'really', 'loves', 'love', 'like', 'likes', 'always', 'every', 'just', 'from', 'about', 'into', 'over', 'under', 'has', 'have', 'had', 'so', 'then']);
+    const tokens = value
+      .toLowerCase()
+      .replace(/[^a-z0-9'\- ]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    const out = [];
+    for (const t of tokens) {
+      if (t.length < 4) continue;
+      if (STOP.has(t)) continue;
+      // Trim plural + common endings so "pancakes" matches "pancake"
+      let stem = t;
+      if (stem.endsWith('ies') && stem.length > 4) stem = stem.slice(0, -3) + 'i';
+      else if (stem.endsWith('es') && stem.length > 4) stem = stem.slice(0, -2);
+      else if (stem.endsWith('s') && stem.length > 4) stem = stem.slice(0, -1);
+      else if (stem.endsWith('ing') && stem.length > 5) stem = stem.slice(0, -3);
+      if (!out.includes(stem)) out.push(stem);
+      if (out.length >= 3) break;
+    }
+    return out;
   }
 
   /**
@@ -207,7 +401,7 @@ class QualityGate {
 
 7. VARIETY: Count how many DISTINCT activities, settings, or scenes appear across all spreads. Each spread should feel like a different moment — reading, cooking, playing outside, bath time, drawing, etc. Score 1-3 if more than 3 spreads describe the same core activity (e.g., giving food to someone repeatedly). Score 4-5 if 3 spreads repeat an activity. Score 6-7 if there is moderate variety but some repetition. Score 8-10 if every spread covers a genuinely different scene or activity.
 
-8. NARRATIVE_COHERENCE: Does the story have a clear through-line that connects all spreads? Can a 3-year-old follow the sequence? The story should follow ~4 scenes (e.g., home → journey → destination → heading home). Score 1-3 if it reads as a random slideshow of unrelated activities with no connecting thread. Score 4-5 if there are some transitions but spreads still feel disconnected (e.g., suddenly at the park, then suddenly in the kitchen). Score 6-7 if the narrative mostly flows but has 1-2 jarring jumps. Score 8-10 if every spread connects naturally to the next and the reader always knows WHERE the characters are.
+8. NARRATIVE_COHERENCE: Does the story have a clear through-line that connects all spreads? Can a 3-year-old follow the sequence? The story must follow a single clear arc with 2-4 distinct settings across the 13 spreads. Home is fine as ONE of those settings but NOT as the default for 8+ spreads. Score 1-3 if it reads as a random slideshow of unrelated activities with no connecting thread, OR if 8+ spreads sit in the same location (e.g., everything at home / at the kitchen table) so the book feels monotonous. Score 4-5 if there are some transitions but spreads still feel disconnected (sudden jumps between unrelated places). Score 6-7 if the narrative mostly flows but has 1-2 jarring jumps OR the settings are less varied than the theme allows. Score 8-10 if every spread connects naturally to the next, the reader always knows WHERE the characters are, and the book uses 2-4 distinct settings that serve the story.
 
 Return a JSON object:
 {
@@ -251,7 +445,7 @@ Return a JSON object:
   /**
    * Build specific revision feedback from scores.
    */
-  static _buildFeedback(scores, spreads) {
+  static _buildFeedback(scores, spreads, meta = {}) {
     const feedback = [];
     const { passScore, minDimensionScore } = WRITER_CONFIG.qualityThresholds;
 
@@ -310,9 +504,29 @@ Return a JSON object:
     }
 
     if (scores.narrativeCoherence < minDimensionScore) {
-      feedback.push('NARRATIVE COHERENCE: The story reads as a disconnected slideshow of activities. It MUST follow a clear through-line — e.g., the child and parent prepare at home, travel somewhere, enjoy the destination, then head home. Every spread must connect to the one before it. The reader must always know WHERE the characters are. Rewrite to follow this 4-scene structure: Home (1-3) → Journey (4-7) → Destination (8-11) → Heading Home (12-13). Each spread within a scene must share the same location.');
+      feedback.push('NARRATIVE COHERENCE: The story reads as a disconnected slideshow of activities OR 8+ spreads sit in the same location. It MUST follow ONE clear through-line across 2-4 distinct settings. Home is allowed as ONE setting but NOT as the default for every spread. When the characters change location, show the transition so the reader always knows WHERE they are. Consecutive spreads within the same scene should share the same location; scene changes should be visible in the text.');
     } else if (scores.narrativeCoherence < 7) {
       feedback.push('NARRATIVE COHERENCE: Some spreads feel disconnected from the narrative flow. Make sure every transition is clear — the reader should never wonder "wait, where are we now?" or "how did we get here?" Strengthen the scene-to-scene transitions.');
+    }
+
+    if (scores.settingVariety < minDimensionScore) {
+      const mv = meta.settingVariety || {};
+      const homeLine = mv.atHome >= 8 ? ` Roughly ${mv.atHome}/${spreads.length} spreads read as "at home" — that's too many.` : '';
+      feedback.push(`SETTING VARIETY: The book feels like it stays in one place the whole time.${homeLine} Rewrite so that the 13 spreads span 2-4 distinct physical settings (at least one should not be the home/kitchen/bedroom). Use the theme and the child's real activities to pick locations (e.g. the park, the bakery, the beach, the grandparents' garden, the local cafe). Every spread's text should make the setting visible.`);
+    } else if (scores.settingVariety < 7) {
+      feedback.push('SETTING VARIETY: Too many spreads live at home. Add at least one more distinct location so the book does not feel monotonous. Make the change of place clear in the spread text.');
+    }
+
+    if (scores.anecdoteUsage < minDimensionScore) {
+      const au = meta.anecdoteUsage || {};
+      const missStr = (au.misses || []).slice(0, 6).map(m => `- ${m}`).join('\n');
+      feedback.push(`ANECDOTE USAGE: The book is not using the real questionnaire details that make this child unique. These specific details MUST appear concretely (as a named object, action, place, food, or person) somewhere in the story:\n${missStr}\nRewrite affected spreads to name these details naturally — do NOT replace them with generic stand-ins.`);
+    } else if (scores.anecdoteUsage < 7) {
+      const au = meta.anecdoteUsage || {};
+      const missStr = (au.misses || []).slice(0, 4).map(m => `- ${m}`).join('\n');
+      if (missStr) {
+        feedback.push(`ANECDOTE USAGE: A few anecdotes from the questionnaire did not make it into the story:\n${missStr}\nFold them into the relevant spreads so the book feels personally woven for this child.`);
+      }
     }
 
     if (scores.wordCount < minDimensionScore) {
