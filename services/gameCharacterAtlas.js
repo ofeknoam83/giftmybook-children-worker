@@ -205,9 +205,15 @@ async function sliceGrid4x4(inputBuffer) {
   return { cells: out, cellW, cellH };
 }
 
-// Re-use the same soft white chromakey approach used by gamePoseAnims so that
-// parts blend on any background. Tighter thresholds here because eye/mouth
-// strips contain more white space around tiny features.
+// Two-pass matte chromakey.
+//
+// Pass 1: saturation-aware color-distance threshold. A pixel is considered
+// background when it's both bright (near white) AND desaturated. This keeps
+// pale skin / light hair from being chewed away while killing gutter white.
+//
+// Pass 2: blur the alpha channel lightly to feather hard edges, then erode
+// (push low alpha to 0) so we don't leave a 1-pixel white halo around the
+// silhouette — that halo is the "bounding-box outline" the user was seeing.
 async function softChromakeyWhiteToTransparent(inputBuffer) {
   const img = sharp(inputBuffer).ensureAlpha();
   const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
@@ -215,9 +221,11 @@ async function softChromakeyWhiteToTransparent(inputBuffer) {
   if (channels < 3) return inputBuffer;
 
   const pxCount = width * height;
-  const out = Buffer.alloc(pxCount * 4);
-  const LOW = 235;
-  const HIGH = 252;
+  const rgba = Buffer.alloc(pxCount * 4);
+
+  const SAT_KEEP = 0.10;
+  const DIST_CLEAR = 5;
+  const DIST_KEEP = 28;
 
   for (let i = 0; i < pxCount; i++) {
     const srcIdx = i * channels;
@@ -225,27 +233,64 @@ async function softChromakeyWhiteToTransparent(inputBuffer) {
     const r = data[srcIdx];
     const g = data[srcIdx + 1];
     const b = data[srcIdx + 2];
+    const maxC = Math.max(r, g, b);
     const minC = Math.min(r, g, b);
+    const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+    const dist = 255 - minC;
+
     let alpha;
-    if (minC >= HIGH) alpha = 0;
-    else if (minC <= LOW) alpha = 255;
-    else alpha = Math.round(255 * (HIGH - minC) / (HIGH - LOW));
-    out[dstIdx] = r;
-    out[dstIdx + 1] = g;
-    out[dstIdx + 2] = b;
-    out[dstIdx + 3] = alpha;
+    if (sat > SAT_KEEP) alpha = 255;
+    else if (dist < DIST_CLEAR) alpha = 0;
+    else if (dist > DIST_KEEP) alpha = 255;
+    else alpha = Math.round(255 * (dist - DIST_CLEAR) / (DIST_KEEP - DIST_CLEAR));
+
+    rgba[dstIdx] = r;
+    rgba[dstIdx + 1] = g;
+    rgba[dstIdx + 2] = b;
+    rgba[dstIdx + 3] = alpha;
   }
 
-  return sharp(out, { raw: { width, height, channels: 4 } })
+  let alphaChan;
+  try {
+    alphaChan = await sharp(rgba, { raw: { width, height, channels: 4 } })
+      .extractChannel('alpha')
+      .blur(0.6)
+      .raw()
+      .toBuffer();
+  } catch (_) {
+    alphaChan = null;
+  }
+
+  if (alphaChan && alphaChan.length === pxCount) {
+    for (let i = 0; i < pxCount; i++) {
+      let a = alphaChan[i];
+      if (a < 30) a = 0;
+      else if (a < 230) a = Math.min(255, a + 12);
+      rgba[i * 4 + 3] = a;
+    }
+  }
+
+  return sharp(rgba, { raw: { width, height, channels: 4 } })
     .png({ compressionLevel: 9 })
     .toBuffer();
 }
 
-// Crop the transparent padding down to the actual part bbox, so the client
-// doesn't waste pixels and can position parts precisely at their anchors.
+// Crop transparent padding to the 99th-percentile alpha bbox, then re-extend
+// by 6px of full-transparency padding. The padding guarantees the client can
+// composite the part without clipping semi-transparent edge feather.
 async function trimAlpha(buffer) {
   try {
-    return await sharp(buffer).trim({ threshold: 2 }).png({ compressionLevel: 9 }).toBuffer();
+    const trimmed = await sharp(buffer)
+      .trim({ threshold: 4 })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    return await sharp(trimmed)
+      .extend({
+        top: 6, bottom: 6, left: 6, right: 6,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
   } catch (_) {
     return buffer;
   }
