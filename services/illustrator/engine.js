@@ -5,28 +5,24 @@
  *
  * Pipeline:
  * 1. Session setup (pick API key, establish character references)
- * 2. Sequential spread generation (13 spreads) with per-spread QA
- * 3. Cross-spread consistency check
- * 4. Selective regeneration for failed spreads
- * 5. Post-processing (strip metadata, upscale)
- * 6. Upload to GCS and return entries with illustration URLs
+ * 2. Sequential spread generation with per-spread QA, post-process, and GCS upload
+ * 3. Book-wide easy consistency gate (one QA pass over all spreads; session rules + thumbnails)
  */
 
 const { createSession, establishCharacterReferences, generateSpread, sendCorrection } = require('./session');
 const { buildSpreadPrompt } = require('./prompts/spread');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
-const { checkCrossSpreadAgent1, checkCrossSpreadAgent2 } = require('./quality/consistency');
 const { checkExtraSpreadQa } = require('./quality/extraSpreadQa');
 const { checkArtStyleLock, buildStyleCorrectionPrompt, buildFreshGenerationStyleHint } = require('./quality/styleLock');
-const { runFinalIllustrationGate } = require('./quality/finalGate');
+const { runBookWideConsistencyReview } = require('./quality/bookWideGate');
 const { buildStoryBible } = require('./storyBible');
 const { stripMetadata } = require('./postprocess/strip');
 const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, MAX_REGEN_SPREADS, MAX_CONSISTENCY_ROUNDS, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS } = require('./config');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS } = require('./config');
 const { getTextPlacement } = require('./prompts/text');
 
 /** Throws if the standalone client requested cancellation. */
@@ -633,95 +629,25 @@ ${prompt}`;
       hasSecondaryOnCover,
       hasParentOnCover,
       abortSignal,
+      session,
     };
 
-    // ── Step 3–4: Cross-spread QA + regen loop ──
-    log('info', 'Step 3: Cross-spread consistency (multi-round)');
-
-    let consistencyResult = { overallScore: 1.0, failedSpreads: [] };
+    // ── Step 3: Book-wide easy consistency (single multimodal QA, session rules + all spreads) ──
     if (generatedImages.length >= 2) {
-      for (let round = 0; round < MAX_CONSISTENCY_ROUNDS; round++) {
-        if (bookContext?.abortController?.signal?.aborted) break;
-        const crossAgent1 = await checkCrossSpreadAgent1(generatedImages, consistencyOpts);
-        log('info', `Cross-spread Agent1 round ${round + 1}/${MAX_CONSISTENCY_ROUNDS}: score=${(crossAgent1.overallScore * 100).toFixed(0)}%, failed=${crossAgent1.failedSpreads.length}`);
-        let crossAgent2 = { overallScore: 1, failedSpreads: [] };
-        if (crossAgent1.failedSpreads.length === 0) {
-          crossAgent2 = await checkCrossSpreadAgent2(generatedImages, consistencyOpts);
-          log('info', `Cross-spread Agent2 round ${round + 1}/${MAX_CONSISTENCY_ROUNDS}: score=${(crossAgent2.overallScore * 100).toFixed(0)}%, failed=${crossAgent2.failedSpreads.length}`);
-        }
-        consistencyResult = crossAgent1.failedSpreads.length > 0 ? crossAgent1 : crossAgent2;
-        if (consistencyResult.failedSpreads.length === 0) break;
-        if (session.abandoned) break;
-
-        const spreadsToRegen = consistencyResult.failedSpreads.slice(0, MAX_REGEN_SPREADS);
-        log('info', `Regenerating ${spreadsToRegen.length} spread(s) for consistency`);
-
-        for (const failed of spreadsToRegen) {
-          if (bookContext?.abortController?.signal?.aborted) break;
-
-          const spreadEntry = spreadEntries[failed.index];
-          if (!spreadEntry) continue;
-
-          const consistencyCorrectionNote = `CONSISTENCY CORRECTION for spread ${failed.index + 1}:
-The following issues were found when comparing this spread against other illustrations in the book:
-${failed.issues.map(issue => `- ${issue}`).join('\n')}
-
-Please regenerate this spread, fixing the issues above while maintaining the same scene content.
-Match any character traits (hair, outfit regions, skin tone, face) that would also be visible on other spreads — only where those traits appear in multiple illustrations they must look like the same person; unchanged art style and font.`;
-
-          log('info', `Consistency regen (fresh session) for spread ${failed.index + 1} (round ${round + 1})`);
-          const regenResult = await this.generateSingleSpread({
-            scenePrompt: spreadEntry.spreadPrompt,
-            spreadText: spreadEntry.spreadText,
-            leftText: spreadEntry.leftText,
-            rightText: spreadEntry.rightText,
-            style,
-            coverBase64,
-            childPhotoBase64,
-            childPhotoMime: childPhotoMime || 'image/jpeg',
-            theme,
-            additionalCoverCharacters,
-            coverParentPresent,
-            parentOutfit,
-            spreadIndex: failed.index,
-            totalSpreads: spreadEntries.length,
-            costTracker,
-            celebrationAge,
-            storyBible,
-            consistencyCorrectionNote,
-            abortSignal,
-          });
-          let imageBuffer = regenResult.imageBuffer;
-
-          const gcsPath = `children-jobs/${bookId}/spreads/spread-${spreadEntry.entry.spread || failed.index + 1}.jpg`;
-          const gcsUrl = await withRetry(
-            () => uploadBuffer(imageBuffer, gcsPath, 'image/png'),
-            { maxRetries: 3, baseDelayMs: 1000, label: `upload-regen-spread-${failed.index + 1}` },
-          );
-
-          results[spreadEntry.idx].spreadIllustrationUrl = gcsUrl;
-          const gi = generatedImages.find(g => g.index === failed.index);
-          if (gi) {
-            gi.imageBase64 = imageBuffer.toString('base64');
-            gi.pageText = spreadEntry.spreadText;
-          }
-          log('info', `Regenerated spread ${failed.index + 1} for consistency (round ${round + 1})`);
-        }
+      abortGuard(bookContext);
+      log('info', 'Step 3: Book-wide consistency (easy gate)');
+      const bookWide = await runBookWideConsistencyReview(session, generatedImages, consistencyOpts);
+      if (bookWide.infra) {
+        log('warn', 'Book-wide consistency gate used infra fallback (unparseable/HTTP) — treating as pass');
       }
-
-      if (consistencyResult.failedSpreads.length > 0) {
-        throw new Error(`Cross-spread consistency failed after ${MAX_CONSISTENCY_ROUNDS} rounds — spreads: ${consistencyResult.failedSpreads.map(f => f.index + 1).join(', ')}`);
+      if (!bookWide.pass) {
+        const detail = bookWide.issues.length ? bookWide.issues.join('; ') : 'obvious consistency issues';
+        const spreadHint = bookWide.suspectSpreads.length
+          ? ` Suspect spread(s): ${bookWide.suspectSpreads.join(', ')}.`
+          : '';
+        throw new Error(`Book-wide consistency failed: ${detail}.${spreadHint}`);
       }
-    }
-
-    // ── Step 5: Final gate ──
-    if (generatedImages.length >= 2) {
-      const finalGate = await runFinalIllustrationGate(generatedImages, consistencyOpts);
-      if (!finalGate.pass) {
-        const idxs = finalGate.failedSpreads.map(f => f.index + 1).join(', ');
-        throw new Error(`Final illustration QA gate failed for spread(s): ${idxs}`);
-      }
-      log('info', 'Final illustration QA gate passed');
+      log('info', 'Book-wide consistency gate passed');
     }
 
     // ── Done ──

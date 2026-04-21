@@ -496,4 +496,5 @@ module.exports = {
   checkCrossSpreadConsistency,
   checkCrossSpreadAgent1,
   checkCrossSpreadAgent2,
+  formatBibleForQa: _formatBibleForQa,
 };
