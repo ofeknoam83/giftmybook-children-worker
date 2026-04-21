@@ -124,8 +124,14 @@ You rate the book across 15 dimensions, each 1-10. You also decide a single bool
 
 ## RATING DIMENSIONS
 
-1. rhyme — Do couplets actually rhyme? Are rhymes natural, not forced or near-miss?
-2. meter — Is meter consistent (iambic tetrameter for ages 3+)? Does the rhythm feel musical?
+1. rhyme — Do couplets actually rhyme, and are the rhymes *good*? This dimension has HARD RULES:
+     HARD FAIL (score ≤ 3) if ANY of the following appear anywhere in the book:
+       - Identical-word rhyme: the two lines of a couplet end on the SAME word ("nose / nose", "tree / tree", "slide / slide", "splash / splash"). A word rhyming with itself is NOT a rhyme.
+       - Repetition-as-rhyme: the same word or phrase repeated in rhyme position to fake a rhyme ("splash goes Mason, splash goes tub").
+       - "X to X" echo rhymes in rhyme position ("nose to nose", "cheek to nose", "hand in hand") — these sound like rhymes but do not rhyme.
+     WEAK (score 4-6) if more than 2 couplets rely on stale AI-common pairs (day/way, heart/start, love/above, you/true, night/light, play/day), forced inversions for meter, or noticeable slant rhymes that a parent would feel.
+     STRONG (score 8-10) requires clean end-rhymes on *different* words, mostly full rhymes, and at least 2-3 fresh / multi-syllable pairs across the book (e.g. "splatter / chatter", "wobble / bobble").
+2. meter — Is meter consistent (iambic tetrameter for ages 3+)? Does the rhythm feel musical? Also HARD FAIL (score ≤ 4) if any spread has an odd number of lines (3, 5, 7) — every spread must be 2 or 4 lines forming clean AABB couplets.
 3. ageAppropriateness — Vocabulary and sentence length appropriate for the child\'s age. For ages 0-3: simple daily words only; penalize multi-syllable abstractions heavily.
 4. readAloud — Would a parent read this aloud without stumbling? Does it sound like Dr. Seuss / Julia Donaldson?
 5. emotionalArc — Does the story build, climax, and resolve with real emotional beats — not a flat list of activities?
@@ -148,6 +154,8 @@ ${celebrationRule}
 Set ship=true iff ALL of the following hold:
   - Overall average across all 15 dimensions ≥ ${passScore}/10
   - No single dimension scores below ${minDimensionScore}/10
+  - rhyme ≥ 7 (cheap rhymes are a ship-blocker — a parent reading aloud should never feel the rhyme is lazy)
+  - meter ≥ 7
   - anecdoteUsage ≥ 7
   - pronouns ≥ 9
   - endingAppropriateness ≥ 7
