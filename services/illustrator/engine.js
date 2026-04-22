@@ -9,7 +9,7 @@
  * 3. Book-wide easy consistency gate (one QA pass over all spreads; session rules + thumbnails)
  */
 
-const { createSession, establishCharacterReferences, generateSpread, sendCorrection } = require('./session');
+const { createSession, establishCharacterReferences, generateSpread, sendCorrection, regenerateWithFullContext } = require('./session');
 const { buildSpreadPrompt } = require('./prompts/spread');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
@@ -22,7 +22,7 @@ const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS } = require('./config');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS, MAX_CONSISTENCY_ROUNDS } = require('./config');
 const { getTextPlacement } = require('./prompts/text');
 
 /** Throws if the standalone client requested cancellation. */
@@ -176,7 +176,7 @@ class IllustratorEngine {
           const parentRegex = new RegExp(parentWord, 'i');
           if (parentRegex.test(spreadPrompt)) {
             const parentLabel = isMother ? 'Mom' : 'Dad';
-            safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features.`;
+            safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features. NEVER use a solid black rectangle, bar, or censor block over the head — hide the face only with natural camera angle, crop, or hair; the image must look like a finished painting.`;
           }
         } else if (!hasParentOnCover && !isParentTheme) {
           // Non-parent themes without secondary cover characters: strip family references
@@ -297,6 +297,8 @@ class IllustratorEngine {
               || issues.some(iss => /head\s+(is\s+)?crop|face\s+(is\s+)?crop|head\s+cut\s+off/i.test(iss));
             const hasMissingLimb = qaTags.has('missing_limb')
               || issues.some(iss => /missing\s+(limb|arm|hand|leg|finger)|amputat|stump|ends?\s+at\s+(the\s+)?(wrist|shoulder|elbow)/i.test(iss));
+            const hasFaceCensorArtifact = qaTags.has('face_censor_artifact')
+              || issues.some(iss => /black\s+(box|rectangle|bar|patch|blob)|opaque\s+(black|rectangle)|censor\s+block|void.*face|solid\s+black.*(face|head)/i.test(iss));
             const hasTextOverFace = qaTags.has('text_over_face')
               || issues.some(iss => /text\s+over\s+(the\s+)?(face|head|hero)|text\s+on\s+(the\s+)?(face|head)/i.test(iss));
             const hasTextTopEdge = qaTags.has('text_top_edge')
@@ -336,6 +338,14 @@ CRITICAL anatomy rules:
 - No "half arms". No amputated look. No missing hands.
 
 Keep the same scene content, composition, and style — just draw every character with complete, anatomically whole limbs.
+
+${prompt}`;
+            } else if (hasFaceCensorArtifact) {
+              correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. The previous image had a FORBIDDEN DEFECT: a solid black rectangle, bar, blob, or opaque "censor" patch covering a character's face or head. That looks broken — never do this.
+
+CRITICAL:
+- NEVER draw solid black shapes, voids, or placeholder blocks over any face.
+- If an adult's face must stay hidden, use ONLY natural illustration: back view, face turned away, face cropped out of the frame, hair softly in the way, or camera angle — the scene must read as a seamless finished painting.
 
 ${prompt}`;
             } else if (hasTextIssues && !hasAnatomyIssues) {
@@ -597,12 +607,15 @@ ${prompt}`;
 
         results[idx].spreadIllustrationUrl = gcsUrl;
 
-        // Store for cross-spread QA
+        // Store for cross-spread QA (raw model base64; scenePrompt = safeScenePrompt for consistency regen)
         generatedImages.push({
           index: i,
           entryIdx: idx,
           imageBase64,
           pageText: spreadText,
+          scenePrompt: safeScenePrompt,
+          leftText,
+          rightText,
         });
 
         const spreadMs = Date.now() - spreadStart;
@@ -633,22 +646,129 @@ ${prompt}`;
       session,
     };
 
-    // ── Step 3: Book-wide easy consistency (single multimodal QA, session rules + all spreads) ──
+    // ── Step 3: Book-wide easy consistency — regen suspect spreads up to MAX_CONSISTENCY_ROUNDS, then never hard-fail ──
     if (generatedImages.length >= 2) {
-      abortGuard(bookContext);
-      log('info', 'Step 3: Book-wide consistency (easy gate)');
-      const bookWide = await runBookWideConsistencyReview(session, generatedImages, consistencyOpts);
-      if (bookWide.infra) {
-        log('warn', 'Book-wide consistency gate used infra fallback (unparseable/HTTP) — treating as pass');
+      const MAX_ROUNDS = MAX_CONSISTENCY_ROUNDS;
+      /** @type {{ pass: boolean, issues?: string[], suspectSpreads?: number[], infra?: boolean }|null} */
+      let bookWide = null;
+
+      for (let round = 1; round <= MAX_ROUNDS + 1; round++) {
+        abortGuard(bookContext);
+        log('info', `Step 3: Book-wide consistency (round ${round}/${MAX_ROUNDS + 1})`);
+        bookWide = await runBookWideConsistencyReview(session, generatedImages, consistencyOpts);
+        if (bookWide.pass || bookWide.infra) break;
+
+        const suspect1Based = Array.isArray(bookWide.suspectSpreads) ? bookWide.suspectSpreads : [];
+        const suspects = suspect1Based
+          .map(n => n - 1)
+          .filter(si => si >= 0 && si < spreadEntries.length);
+
+        if (suspects.length === 0) {
+          log('warn', `Book-wide consistency failed but no valid suspectSpreads returned — accepting book. Issues: ${(bookWide.issues || []).join('; ')}`);
+          break;
+        }
+
+        if (round > MAX_ROUNDS) {
+          log('warn', `Book-wide consistency still failing after ${MAX_ROUNDS} regen round(s) — accepting book. Final issues: ${(bookWide.issues || []).join('; ')}`);
+          break;
+        }
+
+        log('warn', `Book-wide round ${round} failed: ${(bookWide.issues || []).join('; ')}. Regenerating spread(s): ${suspects.map(si => si + 1).join(', ')}`);
+
+        const issuesBlock = (bookWide.issues && bookWide.issues.length)
+          ? bookWide.issues.join('\n')
+          : 'obvious consistency issues';
+
+        for (const suspectIdx of suspects) {
+          abortGuard(bookContext);
+          const se = spreadEntries[suspectIdx];
+          if (!se) continue;
+          const { idx, entry } = se;
+          const imgSlot = generatedImages.find(g => g.index === suspectIdx);
+          if (!imgSlot || !imgSlot.scenePrompt) {
+            log('warn', `Consistency regen: missing image slot or scenePrompt for spread ${suspectIdx + 1} — skip`);
+            continue;
+          }
+
+          const illustrationPrompt = buildSpreadPrompt({
+            spreadIndex: suspectIdx,
+            totalSpreads: spreadEntries.length,
+            scenePrompt: imgSlot.scenePrompt,
+            leftText: imgSlot.leftText,
+            rightText: imgSlot.rightText,
+            hasParentOnCover,
+            hasSecondaryOnCover,
+            additionalCoverCharacters,
+            theme,
+            style,
+            parentOutfit,
+            storyBible,
+          });
+
+          const correctionNote = `BOOK-WIDE CONSISTENCY FIX (spread ${suspectIdx + 1}): Final QA reported:\n${issuesBlock}\n\nRegenerate this spread only. Keep the same story moment and exact on-image wording from the spec below. Match the hero child and any recurring characters to the REFERENCE spreads above (hair, face, skin tone, outfits, props). Honor hidden-face rules for parents if applicable — use natural angle/crop only; NEVER a solid black box, bar, or mask over a face.`;
+
+          const otherSpreads = generatedImages
+            .filter(g => g.index !== suspectIdx)
+            .map(g => ({ index: g.index, imageBase64: g.imageBase64 }));
+
+          let regenResult;
+          try {
+            regenResult = await regenerateWithFullContext(session, {
+              spreadIndex: suspectIdx,
+              illustrationPrompt,
+              correctionNote,
+              otherSpreads,
+            });
+          } catch (regenErr) {
+            log('warn', `Consistency regen failed for spread ${suspectIdx + 1}: ${regenErr.message} — keeping prior image`);
+            continue;
+          }
+
+          const newBase64 = regenResult.imageBase64;
+          const qaOptsRegen = { costTracker, spreadText: imgSlot.pageText, abortSignal };
+          const [newText, newAnatomy] = await Promise.all([
+            verifySpreadText(newBase64, imgSlot.pageText, qaOptsRegen),
+            checkAnatomy(newBase64, qaOptsRegen),
+          ]);
+
+          if (newText.infra && bookContext) bookContext.qaInfraErrors = (bookContext.qaInfraErrors || 0) + 1;
+          if (newAnatomy.infra && bookContext) bookContext.qaInfraErrors = (bookContext.qaInfraErrors || 0) + 1;
+
+          const textOk = newText.pass || newText.infra;
+          const anatomyOk = newAnatomy.pass || newAnatomy.infra;
+          if (!textOk || !anatomyOk) {
+            log('warn', `Consistency regen for spread ${suspectIdx + 1} failed per-spread QA — keeping prior image. Text: ${(newText.issues || []).join('; ')} Anatomy: ${(newAnatomy.issues || []).join('; ')}`);
+            continue;
+          }
+
+          let nextBuf = regenResult.imageBuffer;
+          nextBuf = await stripMetadata(nextBuf);
+          nextBuf = await upscaleForPrint(nextBuf);
+
+          const gcsPath = `children-jobs/${bookId}/spreads/spread-${entry.spread || suspectIdx + 1}.jpg`;
+          let gcsUrl;
+          try {
+            gcsUrl = await withRetry(
+              () => uploadBuffer(nextBuf, gcsPath, 'image/png'),
+              { maxRetries: 3, baseDelayMs: 1000, label: `upload-spread-consistency-${suspectIdx + 1}` },
+            );
+          } catch (upErr) {
+            log('warn', `Consistency regen upload failed for spread ${suspectIdx + 1}: ${upErr.message} — keeping prior image`);
+            continue;
+          }
+
+          results[idx].spreadIllustrationUrl = gcsUrl;
+          imgSlot.imageBase64 = newBase64;
+          log('info', `Spread ${suspectIdx + 1} replaced after book-wide consistency regen`);
+          bookContext?.touchActivity?.();
+        }
       }
-      if (!bookWide.pass) {
-        const detail = bookWide.issues.length ? bookWide.issues.join('; ') : 'obvious consistency issues';
-        const spreadHint = bookWide.suspectSpreads.length
-          ? ` Suspect spread(s): ${bookWide.suspectSpreads.join(', ')}.`
-          : '';
-        throw new Error(`Book-wide consistency failed: ${detail}.${spreadHint}`);
+
+      if (bookWide?.pass) {
+        log('info', 'Book-wide consistency gate passed');
+      } else if (!bookWide?.infra) {
+        log('warn', 'Book-wide consistency: accepting book without pass (see earlier warnings if any).');
       }
-      log('info', 'Book-wide consistency gate passed');
     }
 
     // ── Done ──
@@ -744,7 +864,7 @@ ${prompt}`;
       const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
       if (new RegExp(parentWord, 'i').test(scenePrompt)) {
         const parentLabel = isMother ? 'Mom' : 'Dad';
-        safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features.`;
+        safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features. NEVER use a solid black rectangle, bar, or censor block over the head — hide the face only with natural camera angle, crop, or hair; the image must look like a finished painting.`;
       }
     } else if (!hasParentOnCover && !isParentTheme) {
       const familyRegex = /\b(grandpa|grandma|grandfather|grandmother|granny|nana|papa|nanny|uncle|aunt|auntie|daddy|dad|mommy|mom|mum|mama|father|mother|brother|sister|sibling|parent)\b/i;
@@ -856,6 +976,8 @@ ${prompt}`;
           || issues.some(iss => /head\s+(is\s+)?crop|face\s+(is\s+)?crop|head\s+cut\s+off/i.test(iss));
         const hasMissingLimb = qaTags.has('missing_limb')
           || issues.some(iss => /missing\s+(limb|arm|hand|leg|finger)|amputat|stump|ends?\s+at\s+(the\s+)?(wrist|shoulder|elbow)/i.test(iss));
+        const hasFaceCensorArtifact = qaTags.has('face_censor_artifact')
+          || issues.some(iss => /black\s+(box|rectangle|bar|patch|blob)|opaque\s+(black|rectangle)|censor\s+block|void.*face|solid\s+black.*(face|head)/i.test(iss));
 
         let correctionPrompt;
         if (hasDuplicatedHero) {
@@ -875,6 +997,12 @@ ${prompt}`;
           correctionPrompt = `REGENERATE this spread with the SAME scene. The previous image had a MISSING LIMB — an arm, hand, or leg that ended with no crop and no covering. This is WRONG.
 
 CRITICAL: Every visible character must have anatomically complete limbs. Every visible arm must end in a hand with 5 fingers. No stumps, no amputated look, no limbs ending mid-air. If a limb is not shown, it MUST be clearly hidden behind the body, behind an object, or cropped by the image edge.
+
+${prompt}`;
+        } else if (hasFaceCensorArtifact) {
+          correctionPrompt = `REGENERATE this spread with the SAME scene. The previous image had a solid black rectangle, bar, or opaque patch over a face — FORBIDDEN. Never use censor blocks or voids.
+
+CRITICAL: Hide any adult face only with natural composition (back view, face out of frame, angle). The image must be a seamless painting.
 
 ${prompt}`;
         } else {

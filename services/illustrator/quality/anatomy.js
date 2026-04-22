@@ -99,6 +99,12 @@ STEP-BY-STEP PROCEDURE (follow exactly):
     - Flag as HARD FAIL if there is NO visible space above the top of the hero's head (the head touches or exceeds the top edge).
     An adult or parent whose face is intentionally hidden (back view, face cropped out on purpose) is OK — that rule applies only to the MAIN CHILD (the hero).
 
+6c. FACE CENSOR ARTIFACT (CRITICAL — HARD FAIL, tag "face_censor_artifact"):
+    Is there a solid opaque BLACK or near-black RECTANGLE, BAR, BLOB, or "hole" covering where a person's face or head should be?
+    This often appears when trying to hide an adult's face — it looks like a broken censor sticker, NOT like illustration.
+    Flag as HARD FAIL if you see: a flat black patch with sharp edges on the face, a black void, or any obvious digital mask over facial features.
+    Do NOT flag: natural shadow on skin, hair covering part of a face (when features are still drawn), legitimate back-of-head or out-of-frame crops with NO black box.
+
 7. SEAMLESS COMPOSITION (CRITICAL — HARD FAIL): This must be ONE continuous panoramic painting — one moment, one camera, one unified lighting and background from left edge to right edge. Tag as "split_panel" and FAIL if ANY of the following are visible:
    - A vertical divider, seam, gutter, border, or frame line anywhere (especially near the center)
    - A diptych layout — two compositions joined into one image
@@ -114,8 +120,8 @@ ${sceneCoherenceBlock}
 Do NOT flag: stylistic exaggeration (large eyes, simplified features), left/right mirroring, or artistic proportions.
 
 Return ONLY valid JSON:
-{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, head_cropped, extra_hands, extra_fingers, missing_limb, body_horror, duplicate_items, action_mismatch"]}
-Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, MISSING LIMB, DUPLICATED HERO, SPLIT PANEL, HEAD CROPPED, or ACTION MISMATCH.
+{"pass": true/false, "issues": ["list of specific issues"], "tags": ["zero or more of: duplicated_hero, split_panel, head_cropped, extra_hands, extra_fingers, missing_limb, body_horror, duplicate_items, action_mismatch, face_censor_artifact"]}
+Set pass=false for: 3+ hands on one person, 3+ arms, wrong finger count, body horror, MISSING LIMB, DUPLICATED HERO, SPLIT PANEL, HEAD CROPPED, FACE CENSOR ARTIFACT (black box/bar on face), or ACTION MISMATCH.
 Always include the relevant tags when pass=false so downstream tooling can route a specific correction.`;
 
   let lastErrMsg = 'unknown error';

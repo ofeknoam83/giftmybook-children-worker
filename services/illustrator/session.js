@@ -8,6 +8,7 @@
  * - Image extraction from responses
  */
 
+const sharp = require('sharp');
 const {
   GEMINI_IMAGE_MODEL,
   CHAT_API_BASE,
@@ -17,13 +18,187 @@ const {
   MAX_HISTORY_IMAGES,
   MAX_HISTORY_IMAGE_BYTES,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
+  CONSISTENCY_REGEN_MAX_THUMB_BYTES,
 } = require('./config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
 const { buildSystemInstruction } = require('./prompts/system');
+const { shrinkSpreadForReview } = require('./quality/bookWideGate');
 
 /**
  * Pick ONE API key for the entire session (stateful chat needs consistent key).
  */
+/** Approximate decoded byte size of a base64 string. */
+function decodedB64Bytes(b64) {
+  return Math.floor((b64.length * 3) / 4);
+}
+
+/**
+ * Extra shrink for consistency-regen reference thumbs when still over payload budget.
+ * @param {string} imageBase64
+ * @param {number} maxEdgePx
+ * @param {number} jpegQuality
+ * @returns {Promise<string>} base64 jpeg
+ */
+async function shrinkSpreadAggressive(imageBase64, maxEdgePx, jpegQuality) {
+  const buf = Buffer.from(imageBase64, 'base64');
+  const out = await sharp(buf)
+    .resize(maxEdgePx, maxEdgePx, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: jpegQuality })
+    .toBuffer();
+  return out.toString('base64');
+}
+
+/**
+ * Neighbor-first reference thumbnails under a byte budget (decoded inline JPEG size).
+ * Prefers spreads closest to spreadIndex; drops farthest first; then downscales if needed.
+ *
+ * @param {number} spreadIndex - 0-based
+ * @param {Array<{index: number, imageBase64: string}>} otherSpreads
+ * @param {number} maxBytes
+ * @returns {Promise<Array<{index: number, thumbB64: string}>>}
+ */
+async function selectReferenceThumbnails(spreadIndex, otherSpreads, maxBytes) {
+  const sorted = [...otherSpreads].sort(
+    (a, b) => Math.abs(a.index - spreadIndex) - Math.abs(b.index - spreadIndex),
+  );
+
+  /** @type {Array<{index: number, thumbB64: string, sourceB64: string}>} */
+  let refs = [];
+  for (const s of sorted) {
+    const thumbB64 = await shrinkSpreadForReview(s.imageBase64);
+    refs.push({ index: s.index, thumbB64, sourceB64: s.imageBase64 });
+  }
+
+  let total = refs.reduce((acc, r) => acc + decodedB64Bytes(r.thumbB64), 0);
+
+  while (total > maxBytes && refs.length > 1) {
+    const dropped = refs.pop();
+    total -= decodedB64Bytes(dropped.thumbB64);
+  }
+
+  const downscalePasses = [
+    { edge: 448, q: 78 },
+    { edge: 320, q: 72 },
+    { edge: 256, q: 68 },
+  ];
+  for (const pass of downscalePasses) {
+    if (total <= maxBytes) break;
+    const newRefs = [];
+    for (const r of refs) {
+      const thumbB64 = await shrinkSpreadAggressive(r.sourceB64, pass.edge, pass.q);
+      newRefs.push({ index: r.index, thumbB64, sourceB64: r.sourceB64 });
+    }
+    refs = newRefs;
+    total = refs.reduce((acc, r) => acc + decodedB64Bytes(r.thumbB64), 0);
+  }
+
+  if (total > maxBytes) {
+    console.warn(
+      `[illustrator/session] Consistency regen: reference thumbs still ~${Math.round(total / 1024)}KB (budget ${Math.round(maxBytes / 1024)}KB) — sending anyway`,
+    );
+  }
+
+  return refs.map(({ index, thumbB64 }) => ({ index, thumbB64 }));
+}
+
+/**
+ * Regenerate one spread with child photo, cover, and all other finished spreads as references.
+ * Updates session.generatedSpreads for spreadIndex.
+ *
+ * @param {object} session
+ * @param {object} opts
+ * @param {number} opts.spreadIndex - 0-based
+ * @param {string} opts.illustrationPrompt - Full spread prompt (e.g. from buildSpreadPrompt)
+ * @param {string} opts.correctionNote - Book-wide QA issues and directives
+ * @param {Array<{index: number, imageBase64: string}>} opts.otherSpreads - All approved spreads except the one being regenerated
+ * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
+ */
+async function regenerateWithFullContext(session, opts) {
+  const { spreadIndex, illustrationPrompt, correctionNote, otherSpreads } = opts;
+  if (session.abandoned) {
+    throw new Error('Session abandoned \u2014 cannot regenerate');
+  }
+  if (!otherSpreads || otherSpreads.length === 0) {
+    throw new Error('regenerateWithFullContext requires at least one reference spread');
+  }
+  if (typeof illustrationPrompt !== 'string' || !illustrationPrompt.trim()) {
+    throw new Error('regenerateWithFullContext requires illustrationPrompt');
+  }
+  if (typeof correctionNote !== 'string' || !correctionNote.trim()) {
+    throw new Error('regenerateWithFullContext requires correctionNote');
+  }
+
+  const maxBytes = CONSISTENCY_REGEN_MAX_THUMB_BYTES || 5 * 1024 * 1024;
+  const thumbnails = await selectReferenceThumbnails(spreadIndex, otherSpreads, maxBytes);
+  const omitted = otherSpreads.length - thumbnails.length;
+  if (omitted > 0) {
+    console.log(`[illustrator/session] Consistency regen: omitted ${omitted} farthest reference spread(s) for payload budget`);
+  }
+
+  const parts = [];
+
+  if (session.childPhotoBase64) {
+    parts.push({
+      text: 'CHILD PHOTO (face ground truth \u2014 match age, proportions, and features):',
+    });
+    parts.push({
+      inline_data: {
+        mimeType: session.childPhotoMime,
+        data: session.childPhotoBase64,
+      },
+    });
+  }
+
+  if (session.coverBase64) {
+    parts.push({
+      text: 'COVER REFERENCE (visual anchor \u2014 art style and character rendering):',
+    });
+    parts.push({
+      inline_data: {
+        mimeType: session.coverMime,
+        data: session.coverBase64,
+      },
+    });
+  }
+
+  parts.push({
+    text: `APPROVED INTERIOR SPREADS (${thumbnails.length} of ${otherSpreads.length} \u2014 book order). Use these as the canonical look for the hero child, recurring adults/secondaries, outfits, and illustration style. The image you generate MUST match them:`,
+  });
+
+  for (const t of thumbnails) {
+    parts.push({
+      text: `Spread ${t.index + 1} (reference \u2014 MATCH this hero / secondary / style):`,
+    });
+    parts.push({
+      inline_data: { mimeType: 'image/jpeg', data: t.thumbB64 },
+    });
+  }
+
+  parts.push({
+    text: `${correctionNote}\n\nNow generate ONE new 16:9 illustration for spread ${spreadIndex + 1} only. Output a single full-bleed image (no split panels). Follow the illustration specification below exactly for scene and on-image text:\n\n${illustrationPrompt}`,
+  });
+
+  const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
+  session.turnsUsed++;
+
+  let result;
+  try {
+    result = _extractImage(response, spreadIndex);
+  } catch (extractErr) {
+    _removeLastExchange(session);
+    throw extractErr;
+  }
+
+  const existing = session.generatedSpreads.findIndex(s => s.index === spreadIndex);
+  if (existing >= 0) {
+    session.generatedSpreads[existing].imageBase64 = result.imageBase64;
+  } else {
+    session.generatedSpreads.push({ index: spreadIndex, imageBase64: result.imageBase64 });
+  }
+
+  return result;
+}
+
 function pickSessionApiKey() {
   const keys = [];
   for (let i = 1; i <= 10; i++) {
@@ -144,7 +319,7 @@ async function establishCharacterReferences(session) {
     const isMother = theme === 'mothers_day';
     const parentLabel = isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)';
     const parentOutfit = session.opts.parentOutfit;
-    let note = `NOTE: The story references the child's ${parentLabel} but the ${isMother ? 'mother' : 'father'} is NOT on the cover${secondaryOnCover ? ` (the character visible on the cover is a different person — a sibling, grandparent, or friend, NOT the ${isMother ? 'mother' : 'father'})` : ''}. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER show the parent facing away or with their back to the child. FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin, hair color, and ethnicity MUST match the child in the reference photo — same skin tone, same hair-color family, same ethnicity. Never invent a different ethnicity for the parent.`;
+    let note = `NOTE: The story references the child's ${parentLabel} but the ${isMother ? 'mother' : 'father'} is NOT on the cover${secondaryOnCover ? ` (the character visible on the cover is a different person — a sibling, grandparent, or friend, NOT the ${isMother ? 'mother' : 'father'})` : ''}. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER use a solid black box, bar, or opaque mask where the face would be — that is a rendering error; hide the face only with natural camera angle, crop, hair, or back view. NEVER show the parent facing away or with their back to the child. FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin, hair color, and ethnicity MUST match the child in the reference photo — same skin tone, same hair-color family, same ethnicity. Never invent a different ethnicity for the parent.`;
     if (parentOutfit) {
       note += ` PARENT OUTFIT LOCK: The ${isMother ? 'mother' : 'father'} wears EXACTLY this outfit in every illustration: ${parentOutfit}`;
     }
@@ -541,4 +716,5 @@ module.exports = {
   establishCharacterReferences,
   generateSpread,
   sendCorrection,
+  regenerateWithFullContext,
 };

@@ -115,6 +115,7 @@ function buildSpreadPrompt(opts) {
       parts.push(`- ⚠️ THE SECONDARY CHARACTER ON THE COVER IS NOT THE ${isMother ? 'MOTHER' : 'FATHER'}. Do NOT treat them as the parent. The ${isMother ? 'mother' : 'father'} is a SEPARATE character who has NO reference image.`);
     }
     parts.push(`- ⚠️ PARENT FACE — COMPLETELY HIDDEN (NON-NEGOTIABLE): We have NO reference photo of the ${isMother ? 'mother' : 'father'}. ${isMother ? 'Her' : 'His'} face must NEVER appear in ANY illustration. Show the parent ONLY through: back view, hands/arms reaching in, kneeling with face cropped out of frame, or side view with face turned away. NEVER show eyes, mouth, nose, or any facial features. This is the #1 rule for the parent.`);
+    parts.push('- NEVER put a solid black box, bar, or opaque mask over the parent\'s head — use natural framing only. No censor artifacts, voids, or "missing face" patches.');
     parts.push('- BODY ORIENTATION: Even with face hidden, the parent must face TOWARD the child (leaning in, reaching, kneeling). NEVER facing away.');
     parts.push(`- ⚠️ FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin (hands, arms, neck, back of head, ears) MUST be the same skin tone as the child in the reference photo. Same ethnicity, same hair color family. A white child has a white parent; a Black child has a Black parent; an East Asian child has an East Asian parent; etc. Do NOT invent a different ethnicity for the parent.`);
     if (parentOutfit) {
