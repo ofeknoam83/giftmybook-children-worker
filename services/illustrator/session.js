@@ -24,6 +24,7 @@ const {
 const { fetchWithTimeout } = require('../illustrationGenerator');
 const { buildSystemInstruction } = require('./prompts/system');
 const { shrinkSpreadForReview } = require('./quality/bookWideGate');
+const { sanitizeForGemini, sanitizeParts, sanitizeHistory } = require('../promptSanitizer');
 
 /**
  * Pick ONE API key for the entire session (stateful chat needs consistent key).
@@ -569,9 +570,17 @@ async function _sendStatelessTurn(session, userParts, genConfigOpts = {}) {
     generationConfig.imageConfig = { aspectRatio: genConfigOpts.aspectRatio };
   }
 
+  // Wire-layer sanitization: strip invisibles, homoglyphs, role-injection
+  // patterns, and soften a few meta-directives before the prompt hits Gemini.
+  // The image model's safety classifier is strict; spurious zero-width chars
+  // or directional overrides inherited from upstream user input are a common
+  // cause of finishReason=unknown/blockReason=OTHER.
+  const safeSystem = sanitizeForGemini(systemInstruction, { mode: 'image' });
+  const safeParts = sanitizeParts(userParts, { mode: 'image' });
+
   const body = {
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [{ role: 'user', parts: userParts }],
+    systemInstruction: { parts: [{ text: safeSystem }] },
+    contents: [{ role: 'user', parts: safeParts }],
     generationConfig,
   };
 
@@ -611,7 +620,8 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
 
   const url = `${CHAT_API_BASE}/${model}:generateContent?key=${apiKey}`;
 
-  // Append user message to history
+  // Append user message to history (kept verbatim; sanitization happens on the
+  // copy we serialize, so preserved history doesn't drift from what was sent).
   history.push({ role: 'user', parts: userParts });
 
   // Build generation config
@@ -626,9 +636,15 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
     generationConfig.imageConfig = { aspectRatio: genConfigOpts.aspectRatio };
   }
 
+  // Wire-layer sanitization — see _sendStatelessTurn for rationale. Sanitizing
+  // the outgoing copy of `history` means even turns inherited from a rebuilt
+  // session or a sliding-window re-send get scrubbed before Gemini sees them.
+  const safeSystem = sanitizeForGemini(systemInstruction, { mode: 'image' });
+  const safeHistory = sanitizeHistory(history, { mode: 'image' });
+
   const body = {
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: history,
+    systemInstruction: { parts: [{ text: safeSystem }] },
+    contents: safeHistory,
     generationConfig,
   };
 

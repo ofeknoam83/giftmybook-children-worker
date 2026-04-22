@@ -9,6 +9,7 @@
 
 const { WRITER_CONFIG } = require('../config');
 const { getPronounInfo, buildPronounInstruction, checkAndFixPronouns } = require('../quality/pronoun');
+const { sanitizeForGemini } = require('../../promptSanitizer');
 
 // LLM infrastructure — reuse the same HTTP + timeout helpers from storyPlanner
 const DEFAULT_LLM_TIMEOUT_MS = WRITER_CONFIG.timeouts.defaultLLM;
@@ -120,9 +121,15 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
   const { timeoutMs, requestLabel, model, ...geminiGenConfig } = genConfig || {};
   const geminiModel = model || GEMINI_MODEL;
 
+  // Wire-layer sanitization: scrub invisibles, homoglyphs, and role-injection
+  // patterns that can reach this point after being interpolated from user
+  // input into system prompts / user prompts. See services/promptSanitizer.js.
+  const safeSystem = sanitizeForGemini(systemPrompt);
+  const safeUser = sanitizeForGemini(userPrompt);
+
   const body = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    systemInstruction: { parts: [{ text: safeSystem }] },
+    contents: [{ role: 'user', parts: [{ text: safeUser }] }],
     generationConfig: geminiGenConfig,
   };
 
