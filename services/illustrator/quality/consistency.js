@@ -217,7 +217,7 @@ async function _checkBatchCharacterConsistency(batch, opts) {
   const isParentTheme = opts?.theme === 'mothers_day' || opts?.theme === 'fathers_day';
   const parentOnCover = opts?.hasParentOnCover === true;
   const coverSecondaryNote = opts?.additionalCoverCharacters && opts?.hasSecondaryOnCover
-    ? `\n\nCOVER SECONDARY (locked reference): The book cover includes another person described as: ${String(opts.additionalCoverCharacters).slice(0, 700)}. Apply the OVERLAP RULE: wherever that same person clearly appears in 2+ of these images, visible traits (face, hair, skin, outfit, build) must match across those appearances. Do not flag absence in a crop as inconsistency.\n`
+    ? `\n\nCOVER SECONDARY (locked reference): The book cover includes another person described as: ${String(opts.additionalCoverCharacters).slice(0, 700)}. Apply the OVERLAP RULE: wherever that same person clearly appears in 2+ of these images, visible traits (face, hair, skin, outfit, build) must match across those appearances. Do not flag absence in a crop as inconsistency. MEDIA EXCLUSION: If that secondary person appears on the cover INSIDE media (TV/phone/tablet/computer/cinema screen, framed photo, poster, magazine/book cover, billboard, painting), they are scene decor — not a recurring character. Figures on screens/posters in other spreads may differ from the cover's screen/poster figure (different program, different artwork) — do NOT flag that as a cover-secondary mismatch.\n`
     : '';
 
   const parentResemblanceBlock = isParentTheme && !parentOnCover
