@@ -1081,8 +1081,9 @@ ${prompt}`;
       abortSignal: inputAbortSignal,
     });
 
-    // 2. Establish character references
-    if (childPhotoBase64 || coverBase64) {
+    // 2. Establish character references from the approved cover.
+    // (The uploaded child photo is not sent to the image model.)
+    if (coverBase64) {
       await establishCharacterReferences(session);
       log('info', 'Character references established');
     }

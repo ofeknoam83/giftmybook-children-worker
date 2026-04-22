@@ -140,21 +140,9 @@ async function regenerateWithFullContext(session, opts) {
 
   const parts = [];
 
-  if (session.childPhotoBase64) {
-    parts.push({
-      text: 'CHILD PHOTO (face ground truth \u2014 match age, proportions, and features):',
-    });
-    parts.push({
-      inline_data: {
-        mimeType: session.childPhotoMime,
-        data: session.childPhotoBase64,
-      },
-    });
-  }
-
   if (session.coverBase64) {
     parts.push({
-      text: 'COVER REFERENCE (visual anchor \u2014 art style and character rendering):',
+      text: 'COVER REFERENCE (character + style ground truth \u2014 use this as the canonical look for the child and for art style/character rendering):',
     });
     parts.push({
       inline_data: {
@@ -216,12 +204,14 @@ function pickSessionApiKey() {
 /**
  * Create a new illustration chat session.
  *
+ * Note: the uploaded child photo (childPhotoBase64) is accepted for
+ * backwards compatibility with callers but is no longer sent to Gemini. The
+ * approved cover is used as the sole character + style reference.
+ *
  * @param {object} opts
  * @param {string} opts.style - Art style key
  * @param {string} opts.coverBase64 - Approved cover image as base64
  * @param {string} opts.coverMime - MIME type of cover
- * @param {string} [opts.childPhotoBase64] - Original uploaded child photo
- * @param {string} [opts.childPhotoMime] - MIME type of photo
  * @param {boolean} opts.hasParentOnCover - Whether the themed parent (a woman
  *   for mother's day, a man for father's day) is actually on the cover.
  *   A sibling or grandparent on the cover does NOT count as the parent.
@@ -250,8 +240,6 @@ function createSession(opts) {
     history: [],           // [{role: 'user'|'model', parts: [...]}]
     coverBase64: opts.coverBase64,
     coverMime: opts.coverMime || 'image/jpeg',
-    childPhotoBase64: opts.childPhotoBase64 || null,
-    childPhotoMime: opts.childPhotoMime || 'image/jpeg',
     generatedSpreads: [],  // [{index, imageBase64}] — for sliding window
     turnsUsed: 0,
     startedAt: Date.now(),
@@ -268,7 +256,8 @@ function createSession(opts) {
  * The old session's `history` is the most likely culprit (Gemini's stateful
  * chat keeps the flagged turn in context, so every retry inherits the block).
  * A fresh session gets a new random API key from the pool, a clean history,
- * and re-establishes character from the cover + child photo. We copy over the
+ * and re-establishes character from the approved cover (the uploaded photo is
+ * not used). We copy over the
  * accumulated `generatedSpreads` so the sliding window still has neighboring
  * spreads to reference for style/character continuity on the next turn.
  *
@@ -297,23 +286,15 @@ async function rebuildSession(oldSession) {
 async function establishCharacterReferences(session) {
   const parts = [];
 
-  // Send the child's photo as ground truth
-  if (session.childPhotoBase64) {
-    parts.push({
-      text: 'CHARACTER REFERENCE \u2014 REAL PHOTO: ground truth for ethnicity, skin tone, facial features. IMPORTANT: If eyes appear closed/squinting in this photo, IGNORE the eye state \u2014 always draw the child with open, bright, expressive eyes.',
-    });
-    parts.push({
-      inline_data: {
-        mimeType: session.childPhotoMime,
-        data: session.childPhotoBase64,
-      },
-    });
-  }
-
-  // Send the approved cover as art style reference
+  // Send the approved cover as the sole character + art style reference.
+  // We intentionally do NOT send the uploaded child photo \u2014 raw photos of
+  // children are a frequent trigger for Gemini's image safety classifier
+  // (blockReason=OTHER). The cover is an approved rendered version of the
+  // child in the target art style, which serves as both the character and
+  // style ground truth.
   if (session.coverBase64) {
     parts.push({
-      text: 'BOOK COVER \u2014 RENDERED STYLE: reference for art style, character rendering, outfit, and how the character looks in this illustration style.',
+      text: 'BOOK COVER \u2014 CHARACTER + STYLE GROUND TRUTH: this is the approved rendered likeness of the child. Use it as the canonical reference for ethnicity, skin tone, facial features, hair, outfit, art style, character rendering, and overall illustration quality. Every spread must match this character and this style exactly.',
     });
     parts.push({
       inline_data: {
@@ -386,23 +367,12 @@ async function generateSpread(session, spreadPrompt, spreadIndex) {
   // Build user turn parts
   const parts = [];
 
-  // Re-send child photo as face/feature ground truth every spread
-  if (session.childPhotoBase64) {
-    parts.push({
-      text: 'CHILD PHOTO (face ground truth — match age, proportions, and features):',
-    });
-    parts.push({
-      inline_data: {
-        mimeType: session.childPhotoMime,
-        data: session.childPhotoBase64,
-      },
-    });
-  }
-
-  // Include cover image as visual anchor (if available)
+  // Re-send the approved cover as the canonical character + style reference
+  // every turn. The uploaded child photo is NOT sent — see
+  // establishCharacterReferences() for rationale.
   if (session.coverBase64) {
     parts.push({
-      text: 'COVER REFERENCE (visual anchor):',
+      text: 'COVER REFERENCE (character + style ground truth):',
     });
     parts.push({
       inline_data: {
@@ -542,23 +512,12 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
 
   const parts = [];
 
-  // Re-attach child photo so the model keeps face/proportion ground truth
-  if (session.childPhotoBase64) {
-    parts.push({
-      text: 'CHILD PHOTO (face ground truth — match age, proportions, and features):',
-    });
-    parts.push({
-      inline_data: {
-        mimeType: session.childPhotoMime,
-        data: session.childPhotoBase64,
-      },
-    });
-  }
-
-  // Re-attach cover as visual anchor
+  // Re-attach the approved cover as the canonical character + style reference.
+  // The uploaded child photo is NOT sent — see establishCharacterReferences()
+  // for rationale.
   if (session.coverBase64) {
     parts.push({
-      text: 'COVER REFERENCE (visual anchor):',
+      text: 'COVER REFERENCE (character + style ground truth):',
     });
     parts.push({
       inline_data: {
