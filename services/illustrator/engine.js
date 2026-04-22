@@ -651,7 +651,9 @@ ${prompt}`;
               correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. Fix ONLY the text:
 ${textFixes.map(f => `- ${f}`).join('\n')}
 
-Place the story text in the ${placement.anchor} of the image. Same scene, same character, same style — just fix the text placement.`;
+Place the story text in the ${placement.anchor} of the image. Same scene, same character, same style — just fix the text placement.
+
+${prompt}`;
             } else {
               correctionPrompt = `The previous illustration for spread ${i + 1} had issues. Please regenerate with these corrections:
 ${issues.map(iss => `- FIX: ${iss}`).join('\n')}
@@ -838,6 +840,9 @@ ${prompt}`;
                 costTracker,
                 celebrationAge,
                 abortSignal,
+                // Main pipeline applies stripMetadata + upscaleForPrint below —
+                // don't run them a second time inside generateSingleSpread.
+                postProcess: false,
               });
               imageBase64 = freshResult.imageBase64;
               imageBuffer = freshResult.imageBuffer;
@@ -889,7 +894,7 @@ ${prompt}`;
         imageBuffer = await upscaleForPrint(imageBuffer);
 
         // ── Upload to GCS ──
-        const gcsPath = `children-jobs/${bookId}/spreads/spread-${entry.spread || i + 1}.jpg`;
+        const gcsPath = `children-jobs/${bookId}/spreads/spread-${entry.spread || i + 1}.png`;
         const gcsUrl = await withRetry(
           () => uploadBuffer(imageBuffer, gcsPath, 'image/png'),
           { maxRetries: 3, baseDelayMs: 1000, label: `upload-spread-${i + 1}` },
@@ -1044,7 +1049,7 @@ ${prompt}`;
           nextBuf = await stripMetadata(nextBuf);
           nextBuf = await upscaleForPrint(nextBuf);
 
-          const gcsPath = `children-jobs/${bookId}/spreads/spread-${entry.spread || suspectIdx + 1}.jpg`;
+          const gcsPath = `children-jobs/${bookId}/spreads/spread-${entry.spread || suspectIdx + 1}.png`;
           let gcsUrl;
           try {
             gcsUrl = await withRetry(
@@ -1100,6 +1105,10 @@ ${prompt}`;
    * @param {number} [input.spreadIndex] - 0-based spread index
    * @param {number} [input.totalSpreads] - Total spreads in the book
    * @param {object} [input.costTracker]
+   * @param {boolean} [input.postProcess=true] - When false, skip strip-metadata +
+   *   upscale-for-print. Callers that feed the result straight back into the
+   *   main engine pipeline (which runs those steps itself) must pass `false`;
+   *   otherwise the image gets double-upscaled (quality loss + OOM risk).
    * @returns {Promise<{ imageBuffer: Buffer, imageBase64: string }>}
    */
   async generateSingleSpread(input) {
@@ -1124,6 +1133,7 @@ ${prompt}`;
       abortSignal: inputAbortSignal,
       storyBible: inputStoryBible,
       consistencyCorrectionNote,
+      postProcess = true,
     } = input;
 
     const log = (level, msg) => console.log(`[illustrator/singleSpread] [${level}] ${msg}`);
@@ -1380,12 +1390,16 @@ ${prompt}`;
       throw new Error(`Single-spread QA failed after ${qaRetries} retries: ${remaining.join('; ')}`);
     }
 
-    // 7. Post-process
+    // 7. Post-process (skip when caller will do it themselves; see postProcess
+    //    param docstring — this avoids the double-upscale bug on the fresh-
+    //    session fallback path inside the main engine pipeline).
     imageBuffer = Buffer.from(imageBase64, 'base64');
-    imageBuffer = await stripMetadata(imageBuffer);
-    imageBuffer = await upscaleForPrint(imageBuffer);
-
-    return { imageBuffer, imageBase64: imageBuffer.toString('base64') };
+    if (postProcess) {
+      imageBuffer = await stripMetadata(imageBuffer);
+      imageBuffer = await upscaleForPrint(imageBuffer);
+      return { imageBuffer, imageBase64: imageBuffer.toString('base64') };
+    }
+    return { imageBuffer, imageBase64 };
   }
 }
 

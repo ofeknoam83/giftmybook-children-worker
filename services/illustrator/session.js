@@ -411,7 +411,11 @@ async function generateSpread(session, spreadPrompt, spreadIndex) {
   try {
     result = _extractImage(response, spreadIndex);
   } catch (extractErr) {
-    _removeLastExchange(session);
+    // Skip cleanup if `_sendTurn` already popped the user message (no model
+    // parts case). Otherwise we'd splice a previous successful exchange.
+    if (!response?.__historyAlreadyCleaned) {
+      _removeLastExchange(session);
+    }
     throw extractErr;
   }
 
@@ -465,7 +469,12 @@ async function generateSpreadViaProxy(session, prompt, spreadIndex) {
 
   if (!resp.ok) {
     const errBody = await resp.text().catch(() => '');
-    const isNsfw = resp.status === 400 && /safety|SAFETY|blocked/.test(errBody);
+    // Narrow match: only flag as a safety block when the response explicitly
+    // mentions safety-specific reasons. The previous `blocked` match was too
+    // generic (e.g., "host blocked", "port blocked" from transient infra
+    // errors) and would force the caller into an inappropriate retry path.
+    const isNsfw = resp.status === 400
+      && /\b(safety|prohibited_content|image_safety|image_prohibited_content|blockReason|content_?policy)\b/i.test(errBody);
     const err = new Error(`Proxy error ${resp.status}: ${errBody.slice(0, 200)}`);
     if (isNsfw) {
       err.isSafetyBlock = true;
@@ -510,6 +519,11 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
     throw new Error('Session abandoned \u2014 cannot send correction');
   }
 
+  // Corrections can fire several times for the same spread on stubborn QA
+  // failures — without trimming, we risk blowing past Gemini's 131072-token
+  // input cap on long books.
+  _trimHistory(session);
+
   const parts = [];
 
   // Re-attach the approved cover as the canonical character + style reference.
@@ -527,8 +541,13 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
     });
   }
 
-  // Re-attach recent spreads for style/character continuity
-  const recentSpreads = session.generatedSpreads.slice(-SLIDING_WINDOW_SIZE);
+  // Re-attach recent spreads for style/character continuity. Exclude the
+  // spread being corrected — its own broken image must not serve as a
+  // reference for fixing itself, or Gemini will dutifully reproduce the
+  // defect it was asked to repair.
+  const recentSpreads = session.generatedSpreads
+    .filter(s => s.index !== spreadIndex)
+    .slice(-SLIDING_WINDOW_SIZE);
   if (recentSpreads.length > 0) {
     parts.push({
       text: `RECENT SPREADS (${recentSpreads.length}) \u2014 maintain consistency:`,
@@ -551,7 +570,9 @@ async function sendCorrection(session, correctionPrompt, spreadIndex) {
   try {
     result = _extractImage(response, spreadIndex);
   } catch (extractErr) {
-    _removeLastExchange(session);
+    if (!response?.__historyAlreadyCleaned) {
+      _removeLastExchange(session);
+    }
     throw extractErr;
   }
 
@@ -629,7 +650,10 @@ async function _sendStatelessTurn(session, userParts, genConfigOpts = {}) {
 
   if (!resp.ok) {
     const errBody = await resp.text().catch(() => '');
-    const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+    // Narrow match — see proxy handler rationale. The old `blocked` match
+    // over-fired on transient infra errors and forced inappropriate retries.
+    const isNsfw = resp.status === 400
+      && /\b(safety|prohibited_content|image_safety|image_prohibited_content|blockReason|content_?policy)\b/i.test(errBody);
     if (isNsfw) {
       const err = new Error(`Session NSFW block: ${errBody.slice(0, 200)}`);
       err.isNsfw = true;
@@ -640,6 +664,10 @@ async function _sendStatelessTurn(session, userParts, genConfigOpts = {}) {
 
   const data = await resp.json();
   const elapsedMs = Date.now() - startMs;
+  // Stateless turns don't add to history, but they DO consume API budget and
+  // show up in cost tracking. Bump `turnsUsed` so downstream log lines and
+  // per-book metrics reflect reality.
+  session.turnsUsed++;
   console.log(`[illustrator/session] Stateless regen turn complete (${elapsedMs}ms)`);
   return data;
 }
@@ -699,7 +727,10 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
   if (!resp.ok) {
     history.pop();
     const errBody = await resp.text().catch(() => '');
-    const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+    // Narrow match — see proxy handler rationale. The old `blocked` match
+    // over-fired on transient infra errors and forced inappropriate retries.
+    const isNsfw = resp.status === 400
+      && /\b(safety|prohibited_content|image_safety|image_prohibited_content|blockReason|content_?policy)\b/i.test(errBody);
     if (isNsfw) {
       const err = new Error(`Session NSFW block: ${errBody.slice(0, 200)}`);
       err.isNsfw = true;
@@ -729,6 +760,11 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
   } else {
     // No valid model response — remove the user message to keep history alternating
     history.pop();
+    // Tag the response so callers (which catch `_extractImage` throwing and
+    // would otherwise call `_removeLastExchange`) can see the history is
+    // already clean and skip the additional pop. Without this flag the
+    // caller's cleanup splices away a PREVIOUS successful user+model pair.
+    data.__historyAlreadyCleaned = true;
     console.warn(`[illustrator/session] Turn ${session.turnsUsed + 1} returned no content parts — removed user message from history`);
   }
 
