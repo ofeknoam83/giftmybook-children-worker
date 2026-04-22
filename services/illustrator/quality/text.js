@@ -37,6 +37,21 @@ function tokenizeForWordCounts(s) {
 }
 
 /**
+ * Short function words that Gemini Vision's OCR frequently drops on small
+ * book captions. When the illustration is missing ONE instance of one of
+ * these vs. the manuscript, that's almost always an OCR miss — not a real
+ * illustration defect — so we don't fail the spread on it. Extra copies
+ * (illustration > manuscript) are still flagged as duplication defects.
+ */
+const OCR_DROP_TOLERANT_WORDS = new Set([
+  'a', 'an', 'and', 'as', 'at', 'be', 'but', 'by', 'for', 'from',
+  'had', 'has', 'have', 'he', 'her', 'him', 'his', 'i', 'if', 'in',
+  'is', 'it', 'its', 'my', 'nor', 'not', 'of', 'on', 'or', 'our',
+  'she', 'so', 'that', 'than', 'the', 'their', 'them', 'they', 'this',
+  'to', 'up', 'us', 'was', 'we', 'were', 'will', 'with', 'you', 'your',
+]);
+
+/**
  * @param {string} expectedText - Story text for this spread (writing-QA approved)
  * @param {string} extractedText - OCR from the illustration
  * @returns {string[]} Human-readable issues; empty if counts match for every token
@@ -56,9 +71,19 @@ function wordFrequencyMismatchIssues(expectedText, extractedText) {
   for (const t of keys) {
     const e = E.get(t) || 0;
     const x = X.get(t) || 0;
-    if (e !== x) {
+    if (e === x) continue;
+    // Extra copies in the illustration always indicate a real defect
+    // (caption painted twice, word duplicated) — flag unconditionally.
+    if (x > e) {
       issues.push(`Word "${t}": manuscript ${e}×, illustration ${x}×`);
+      continue;
     }
+    // x < e: illustration is missing instances of this word.
+    // Forgive a single-instance miss of a known OCR-drop-tolerant stopword:
+    // OCR on small captions routinely drops these even when they're rendered
+    // correctly, and retrying in-session won't fix an OCR error.
+    if (OCR_DROP_TOLERANT_WORDS.has(t) && e - x === 1) continue;
+    issues.push(`Word "${t}": manuscript ${e}×, illustration ${x}×`);
   }
   return issues;
 }
@@ -102,10 +127,11 @@ EXPECTED TEXT for THIS SPREAD ONLY (approved manuscript — exact source of trut
 Check ALL of the following:
 
 1. TEXT CONTENT — WORD COUNTS (CRITICAL):
-   Read all story text visible in the image. For EVERY word token (letters/digits, same rules as counting: lowercase, "don't" = one token, ignore punctuation), the count in the image MUST equal the count in the EXPECTED TEXT above.
+   Read all story text visible in the image. For CONTENT words (nouns, verbs, adjectives, names, numbers), the count in the image MUST equal the count in the EXPECTED TEXT above (same rules as counting: lowercase, "don't" = one token, ignore punctuation).
    Examples: if the manuscript has "hop" three times ("Hop, hop, hop"), the illustration must show "hop" three times — not two, not four.
-   If the manuscript has a word once, it must appear exactly once in the art. If the whole caption were accidentally painted twice, many words would appear 2× — that FAILS this rule.
-   Do NOT treat legitimate repetition inside the manuscript as an error. Only flag content issues when counts disagree with EXPECTED TEXT or words are wrong/garbled.
+   DUPLICATION CHECK (HARD FAIL): if ANY word — content word OR function word — appears MORE times in the image than in EXPECTED TEXT (e.g., the whole caption was accidentally painted twice so every word doubles), that is a HARD FAIL.
+   DO NOT FLAG short function words (a, an, and, as, at, by, for, from, in, is, it, of, on, or, the, to, up, with, that, was, were, be, he, she, it) being MISSING OR UNDERCOUNTED in the image vs. the manuscript. These are frequently dropped by OCR on small captions and their absence is NOT a defect worth regenerating for. Only flag function-word mismatches when the image has MORE of them than expected (duplication).
+   Do NOT treat legitimate repetition inside the manuscript as an error.
    Your extractedText must be the full text you read from the image (best-effort OCR) so we can verify counts programmatically.
 
 2. TEXT SIDE LOCK (CRITICAL): The story text must stay entirely on ONE side of the image. It must NOT cross from the left side of the image to the right side, or from the right side to the left — no line, word, or phrase may bridge both halves. Imagine a vertical line down the middle: all glyphs must lie entirely in the left 50% OR entirely in the right 50%, not spanning across. Also: the middle ${TEXT_RULES.centerExclusionPercent * 2}% band (center ${TEXT_RULES.centerExclusionPercent}% each side of the midpoint) is a NO-TEXT ZONE for the main story text — treat bridging across that band the same as a HARD FAIL. Tag as "text_bridges_sides" or "text_center" when this rule breaks.
@@ -176,33 +202,42 @@ Set pass=false for: word-count mismatch vs expected, text bridging sides, forbid
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
         continue;
       }
-      const issues = Array.isArray(result.issues) ? [...result.issues] : [];
+      const rawIssues = Array.isArray(result.issues) ? result.issues : [];
       const rawTags = Array.isArray(result.tags) ? result.tags : [];
       const tags = rawTags.filter(t => typeof t === 'string').map(t => t.toLowerCase().trim()).filter(Boolean);
 
       const extracted = (result.extractedText || '').trim();
 
-      const freqIssues = wordFrequencyMismatchIssues(expectedForQa, extracted);
-      if (freqIssues.length > 0) {
-        for (const fi of freqIssues) {
-          if (!issues.includes(fi)) issues.push(fi);
-        }
-        if (!tags.includes('text_word_count_mismatch')) tags.push('text_word_count_mismatch');
-      }
+      // Drop the model's own word-count / duplication complaints. We run our
+      // own deterministic frequency check (wordFrequencyMismatchIssues) which
+      // applies apostrophe normalization and stopword-drop tolerance; the
+      // model's prose-level counts are noisier (it frequently reports a
+      // function word as "missing from the image" when its own OCR simply
+      // dropped it) and would cause false-positive retries.
+      const filteredIssues = rawIssues.filter(i => {
+        const s = String(i || '').toLowerCase();
+        if (/duplicat/.test(s)) return false;
+        if (/word\s+count|count\s+mismatch|count\s+for\s+['"]|is\s+0\s+in\s+the\s+image|missing\s+from\s+the\s+(extracted|image)|does\s+not\s+appear\s+in\s+the\s+image/.test(s)) return false;
+        return true;
+      });
+      const filteredTags = tags.filter(t => t !== 'text_duplicated' && t !== 'text_word_count_mismatch');
 
-      const filteredIssues = issues.filter(i => !/duplicat/i.test(String(i)));
-      const filteredTags = tags.filter(t => t !== 'text_duplicated');
-      issues.length = 0;
-      filteredIssues.forEach(i => issues.push(i));
-      tags.length = 0;
-      filteredTags.forEach(t => tags.push(t));
+      const freqIssues = wordFrequencyMismatchIssues(expectedForQa, extracted);
+      const issues = [...filteredIssues];
+      for (const fi of freqIssues) {
+        if (!issues.includes(fi)) issues.push(fi);
+      }
+      const finalTags = [...filteredTags];
+      if (freqIssues.length > 0 && !finalTags.includes('text_word_count_mismatch')) {
+        finalTags.push('text_word_count_mismatch');
+      }
 
       const pass = freqIssues.length === 0 && filteredIssues.length === 0 && filteredTags.length === 0;
 
       return {
         pass,
         issues,
-        tags,
+        tags: finalTags,
         score: typeof result.score === 'number' ? result.score : (pass ? 1.0 : 0.5),
         extractedText: extracted,
       };

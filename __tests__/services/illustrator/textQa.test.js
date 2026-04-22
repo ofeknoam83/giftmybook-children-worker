@@ -56,4 +56,31 @@ describe('wordFrequencyMismatchIssues', () => {
     );
     expect(issues.length).toBeGreaterThan(0);
   });
+
+  test('single-instance OCR drop of a function word is forgiven', () => {
+    // Spread 2 repro: manuscript has "And" at line start, OCR misses it.
+    const manuscript = 'She held her bottle of warm Enfamil, And sip by sip climbed up the hill.';
+    const ocr = 'She held her bottle of warm Enfamil, sip by sip climbed up the hill.';
+    expect(wordFrequencyMismatchIssues(manuscript, ocr)).toEqual([]);
+  });
+
+  test('missing content word (non-stopword) is still reported', () => {
+    const issues = wordFrequencyMismatchIssues('The cat sat', 'The sat');
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toMatch(/cat/);
+  });
+
+  test('extra instance of a stopword is reported (duplication)', () => {
+    // Stopword tolerance only applies to UNDERCOUNT, not duplication.
+    const issues = wordFrequencyMismatchIssues('The cat sat', 'The the cat sat');
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toMatch(/the/);
+  });
+
+  test('two-instance undercount of a stopword is still reported', () => {
+    // Forgiveness is limited to a single-instance miss.
+    const issues = wordFrequencyMismatchIssues('the the the cat', 'the cat');
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toMatch(/the/);
+  });
 });
