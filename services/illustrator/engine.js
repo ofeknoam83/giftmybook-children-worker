@@ -9,7 +9,7 @@
  * 3. Book-wide easy consistency gate (one QA pass over all spreads; session rules + thumbnails)
  */
 
-const { createSession, establishCharacterReferences, generateSpread, sendCorrection, regenerateWithFullContext } = require('./session');
+const { createSession, establishCharacterReferences, rebuildSession, generateSpread, sendCorrection, regenerateWithFullContext } = require('./session');
 const { buildSpreadPrompt } = require('./prompts/spread');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
@@ -234,10 +234,18 @@ class IllustratorEngine {
           log('info', `First spread full prompt length: ${prompt.length} chars`);
         }
 
-        // Generate within session — retry with exponential backoff up to MAX_GENERATION_RETRIES
+        // Generate within session — retry with exponential backoff up to MAX_GENERATION_RETRIES.
+        // When Gemini returns an empty/safety-blocked response, the chat session's history
+        // is probably poisoning subsequent turns. After the first such failure (safety block)
+        // or two in a row (generic empty response), rebuild the session with a fresh API key
+        // and clean history before continuing. Capped at 2 rebuilds per spread so a prompt/
+        // photo that's fundamentally incompatible with Gemini's filters still surfaces.
         let result = null;
         let imageBase64 = null;
         let imageBuffer = null;
+        let consecutiveEmpty = 0;
+        let sessionRebuilds = 0;
+        const MAX_SESSION_REBUILDS_PER_SPREAD = 2;
         for (let genRetry = 0; genRetry <= MAX_GENERATION_RETRIES; genRetry++) {
           try {
             result = await generateSpread(session, prompt, i);
@@ -245,13 +253,33 @@ class IllustratorEngine {
             imageBuffer = result.imageBuffer;
             break;
           } catch (genErr) {
-            if (genRetry < MAX_GENERATION_RETRIES) {
-              const delayMs = Math.min(GENERATION_RETRY_BASE_DELAY_MS * Math.pow(2, genRetry), 30000);
-              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in ${delayMs}ms`);
-              await new Promise(r => setTimeout(r, delayMs));
-            } else {
+            if (genRetry >= MAX_GENERATION_RETRIES) {
               throw genErr; // Final attempt failed — outer catch handles it
             }
+
+            if (genErr.isEmptyResponse) consecutiveEmpty++;
+            else consecutiveEmpty = 0;
+
+            const shouldRebuild =
+              (genErr.isSafetyBlock || consecutiveEmpty >= 2) &&
+              sessionRebuilds < MAX_SESSION_REBUILDS_PER_SPREAD;
+
+            if (shouldRebuild) {
+              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — rebuilding session to clear poisoned chat history`);
+              try {
+                session = await rebuildSession(session);
+                sessionRebuilds++;
+                consecutiveEmpty = 0;
+                await new Promise(r => setTimeout(r, 1500));
+                continue;
+              } catch (rebuildErr) {
+                log('error', `Session rebuild failed for spread ${i + 1}: ${rebuildErr.message} — falling back to in-session retry`);
+              }
+            }
+
+            const delayMs = Math.min(GENERATION_RETRY_BASE_DELAY_MS * Math.pow(2, genRetry), 30000);
+            log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in ${delayMs}ms`);
+            await new Promise(r => setTimeout(r, delayMs));
           }
         }
 

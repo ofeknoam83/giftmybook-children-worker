@@ -261,6 +261,32 @@ function createSession(opts) {
 }
 
 /**
+ * Rebuild a session from scratch after a safety block or a run of empty
+ * responses that the in-session retry loop can't recover from.
+ *
+ * The old session's `history` is the most likely culprit (Gemini's stateful
+ * chat keeps the flagged turn in context, so every retry inherits the block).
+ * A fresh session gets a new random API key from the pool, a clean history,
+ * and re-establishes character from the cover + child photo. We copy over the
+ * accumulated `generatedSpreads` so the sliding window still has neighboring
+ * spreads to reference for style/character continuity on the next turn.
+ *
+ * @param {object} oldSession
+ * @returns {Promise<object>} the new session; the caller should replace its
+ *   session reference with the returned value.
+ */
+async function rebuildSession(oldSession) {
+  const newSession = createSession(oldSession.opts);
+  await establishCharacterReferences(newSession);
+  newSession.generatedSpreads = oldSession.generatedSpreads.slice();
+  oldSession.abandoned = true;
+  console.log(
+    `[illustrator/session] Rebuilt session — preserved ${newSession.generatedSpreads.length} prior spread(s) for sliding-window continuity`,
+  );
+  return newSession;
+}
+
+/**
  * Establish character references in the session's first turn.
  * Sends uploaded photo + cover image. Asks for text-only acknowledgment.
  *
@@ -662,7 +688,27 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
 }
 
 /**
+ * Gemini finishReason values that mean the response was suppressed by a safety
+ * or policy filter rather than a transient glitch. When we see one of these,
+ * retrying in the same chat session almost never helps — the session's
+ * accumulated history is what triggered the block.
+ */
+const SAFETY_FINISH_REASONS = new Set([
+  'SAFETY',
+  'PROHIBITED_CONTENT',
+  'IMAGE_SAFETY',
+  'IMAGE_PROHIBITED_CONTENT',
+  'RECITATION',
+  'BLOCKLIST',
+  'SPII',
+  'BLOCKED',
+]);
+
+/**
  * Extract the generated image from a Gemini response.
+ * Tags thrown errors with `.isEmptyResponse` (always) and `.isSafetyBlock`
+ * (when finishReason / promptFeedback indicates the candidate was filtered)
+ * so callers can decide whether to retry in-session or rebuild the session.
  */
 function _extractImage(response, spreadIndex) {
   const parts = response?.candidates?.[0]?.content?.parts || [];
@@ -673,11 +719,29 @@ function _extractImage(response, spreadIndex) {
     const finishReason = candidate.finishReason || 'unknown';
     const textSnippet = (parts.find(p => p.text)?.text || '').slice(0, 200);
     const hasCandidates = Array.isArray(response?.candidates) && response.candidates.length > 0;
+    const promptFeedback = response?.promptFeedback || null;
+    const blockReason = promptFeedback?.blockReason || null;
+    const safetyRatings = candidate.safetyRatings || promptFeedback?.safetyRatings || null;
+    const isSafetyBlock = SAFETY_FINISH_REASONS.has(finishReason) || !!blockReason;
+
+    const safetyDetail = isSafetyBlock
+      ? ` SAFETY_BLOCK(finishReason=${finishReason}${blockReason ? `, blockReason=${blockReason}` : ''}${safetyRatings ? `, ratings=${JSON.stringify(safetyRatings).slice(0, 300)}` : ''})`
+      : '';
+
     console.warn(
-      `[illustrator/session] No image for spread ${spreadIndex + 1}: finishReason=${finishReason}, hasCandidates=${hasCandidates}, parts=${parts.length}` +
+      `[illustrator/session] No image for spread ${spreadIndex + 1}: finishReason=${finishReason}, hasCandidates=${hasCandidates}, parts=${parts.length}${safetyDetail}` +
       (textSnippet ? `, textSnippet="${textSnippet}"` : ''),
     );
-    throw new Error(`No image in response for spread ${spreadIndex + 1}`);
+
+    const err = new Error(
+      isSafetyBlock
+        ? `Safety-blocked response for spread ${spreadIndex + 1} (finishReason=${finishReason}${blockReason ? `, blockReason=${blockReason}` : ''})`
+        : `No image in response for spread ${spreadIndex + 1}`,
+    );
+    err.isEmptyResponse = true;
+    err.finishReason = finishReason;
+    if (isSafetyBlock) err.isSafetyBlock = true;
+    throw err;
   }
 
   const imageBase64 = imagePart.inlineData.data;
@@ -767,6 +831,7 @@ function _countImages(history) {
 module.exports = {
   createSession,
   establishCharacterReferences,
+  rebuildSession,
   generateSpread,
   sendCorrection,
   regenerateWithFullContext,
