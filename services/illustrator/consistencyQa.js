@@ -123,8 +123,8 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "artStyleNotes": "<short description if artStyleIs3DPixar is false>",
   "heroCount": <integer — how many copies of the hero child appear in the spread. 1 is correct; 2+ is a duplicated-hero bug>,
   "splitPanel": <true if the spread looks like two separate scenes with a visible seam / diptych / before-after layout>,
-  "strangerPeople": <true if the spread shows any non-child human that is NOT visible on the cover. ${hasSecondaryOnCover ? 'Secondary people from the cover are allowed and expected when appropriate.' : 'NO secondary humans should appear on this spread.'}>,
-  "strangerDescription": "<short description of the unexpected person, or empty>",
+  "explicitStranger": <true ONLY if the spread shows a non-child human's FULL FACE or a FULL-BODY adult figure that is NOT visible on the cover. ${hasSecondaryOnCover ? 'Adults visible on the cover are allowed to appear fully — they are NOT strangers.' : 'When no adult is on the cover, a fully-rendered adult (face visible, or full body figure) is a failure.'} Hands, arms, back-of-head, a shoulder, or a cropped torso with the face out of frame are NOT explicit — do not flag those as strangers even if the adult is not on the cover. Implied/partial adult presence is expected whenever the spread text references a parent or family member.>,
+  "strangerDescription": "<short description of the explicit stranger (full face or full body), or empty>",
   "recurringItemConcerns": "<empty string, or a short note if a previously-introduced item (pet, toy, accessory) appears with a clearly different design from how it would be established in the book's reference cover>"
 }
 
@@ -157,7 +157,11 @@ function evaluateResult(parsed) {
     issues.push('Spread looks like a split panel / diptych with a visible seam');
     tags.push('split_panel');
   }
-  if (parsed.strangerPeople === true) {
+  // Only a full FACE or full-body adult figure not on the cover is a failure.
+  // Implicit presence (hands, arms, back-of-head, cropped torso without face)
+  // is allowed because per-spread prompts often reference a parent who is not
+  // on the cover (e.g. "Analeigh wakes by Mommy").
+  if (parsed.explicitStranger === true) {
     const who = (parsed.strangerDescription || '').trim();
     issues.push(`Unexpected person on spread${who ? `: ${who}` : ''}`);
     tags.push('unexpected_person');
