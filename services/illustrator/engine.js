@@ -11,6 +11,7 @@
 
 const { createSession, establishCharacterReferences, rebuildSession, generateSpread, generateSpreadViaProxy, sendCorrection, regenerateWithFullContext } = require('./session');
 const { buildSpreadPrompt } = require('./prompts/spread');
+const { rewriteSceneForSafety } = require('./safetyRewrite');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
 const { checkExtraSpreadQa } = require('./quality/extraSpreadQa');
@@ -67,6 +68,10 @@ function needsParentFaceRuleInjection(spreadPrompt, isMother) {
  *          those phrases themselves trip the classifier.
  * Tier 2 — additionally drop bullets about hidden faces, face cropping, and
  *          family resemblance, and remove the CRITICAL RULES header block.
+ *          This tier is paired in the engine with an LLM rewrite of the
+ *          underlying scene prose (see safetyRewrite.js) — tier 1/2 only
+ *          touch engine-added overlays, so scene-prose triggers require a
+ *          separate pass.
  *
  * Tier 3+ is handled separately: the caller switches to `buildMinimalSpreadPrompt`
  * and routes through the proxy endpoint.
@@ -337,15 +342,18 @@ class IllustratorEngine {
         // Failure recovery strategy is tiered, because session rebuilds alone
         // don't fix safety blocks: Gemini's image classifier is deterministic
         // for the same inputs, so re-sending the same prompt against a fresh
-        // session produces the same `blockReason=OTHER`. On each safety block
-        // we mutate the prompt (softenPromptForSafetyRetry) in addition to
-        // rebuilding the session, and after enough consecutive safety blocks
-        // we switch to the text-only proxy endpoint (buildMinimalSpreadPrompt
-        // + generateSpreadViaProxy) which has a different classifier surface.
+        // session produces the same `blockReason=OTHER`. The local
+        // `softenPromptForSafetyRetry` only touches ENGINE-added overlays,
+        // not the writer's scene prose, so for scene-prose triggers (the
+        // most common root cause) we also run an LLM rewrite of the scene
+        // itself (see safetyRewrite.js). If neither local softening nor the
+        // rewrite unblocks the classifier, we fall through to the text-only
+        // proxy endpoint which has a different classifier surface.
         //
         //   safetyBlocks = 0  → original prompt, in-session
         //   safetyBlocks = 1  → tier-1 softened prompt, rebuilt session
-        //   safetyBlocks = 2  → tier-2 softened prompt, rebuilt session
+        //   safetyBlocks = 2  → tier-2 softened + LLM-rewritten scene,
+        //                       rebuilt session
         //   safetyBlocks ≥ 3  → minimal prompt via proxy (if configured);
         //                       otherwise keep tier-2 in-session
         //
@@ -357,16 +365,63 @@ class IllustratorEngine {
         let consecutiveEmpty = 0;
         let sessionRebuilds = 0;
         let safetyBlocks = 0;
+        let basePrompt = prompt;               // Rebuilt on scene rewrite
+        let rewrittenScene = null;             // Cached LLM rewrite of safeScenePrompt
+        let firstSafetyLogged = false;
         const MAX_SESSION_REBUILDS_PER_SPREAD = 2;
         const PROXY_AVAILABLE = !!(process.env.GEMINI_PROXY_URL && process.env.GEMINI_PROXY_API_KEY);
 
         for (let genRetry = 0; genRetry <= MAX_GENERATION_RETRIES; genRetry++) {
           const softenTier = Math.min(safetyBlocks, 2);
           const useProxy = PROXY_AVAILABLE && safetyBlocks >= 3;
+
+          // On first entry to tier 2 (in-session), run an LLM rewrite of the
+          // scene prose. Tier 1/2 softening only edits engine-added overlays;
+          // this is the only layer that touches the writer's scene text,
+          // which is the most common `blockReason=OTHER` trigger. Done once
+          // per spread and cached across further retries.
+          if (softenTier >= 2 && !useProxy && rewrittenScene === null) {
+            try {
+              const rw = await rewriteSceneForSafety({
+                scenePrompt: safeScenePrompt,
+                spreadText,
+                theme,
+                costTracker,
+                abortSignal,
+              });
+              if (rw.rewrote) {
+                rewrittenScene = rw.scenePrompt;
+                basePrompt = buildSpreadPrompt({
+                  spreadIndex: i,
+                  totalSpreads: spreadEntries.length,
+                  scenePrompt: rewrittenScene,
+                  leftText,
+                  rightText,
+                  hasParentOnCover,
+                  hasSecondaryOnCover,
+                  additionalCoverCharacters,
+                  theme,
+                  style,
+                  parentOutfit,
+                  storyBible,
+                });
+                log('info', `Spread ${i + 1}: scene prose rewritten by safety rewriter (${safeScenePrompt.length} → ${rewrittenScene.length} chars); tier-2 softening will run on rebuilt prompt`);
+              } else {
+                rewrittenScene = safeScenePrompt; // Sentinel: don't retry rewrite on further attempts.
+                log('warn', `Spread ${i + 1}: safety rewriter produced no usable output (reason: ${rw.reason}) — continuing with tier-2 softening on original scene`);
+              }
+            } catch (rwErr) {
+              rewrittenScene = safeScenePrompt;
+              log('warn', `Spread ${i + 1}: safety rewriter threw: ${rwErr.message} — continuing with tier-2 softening on original scene`);
+            }
+          }
+
           try {
             if (useProxy) {
+              // Prefer the rewritten scene for the proxy path too when we have one —
+              // the text-only minimal prompt benefits from the same gentler phrasing.
               const minimalPrompt = buildMinimalSpreadPrompt({
-                scenePrompt: safeScenePrompt,
+                scenePrompt: (rewrittenScene && rewrittenScene !== safeScenePrompt) ? rewrittenScene : safeScenePrompt,
                 leftText,
                 rightText,
                 style,
@@ -375,7 +430,7 @@ class IllustratorEngine {
               log('info', `Spread ${i + 1}: trying proxy fallback (text-only, prompt ${minimalPrompt.length} chars) after ${safetyBlocks} safety block(s)`);
               result = await generateSpreadViaProxy(session, minimalPrompt, i);
             } else {
-              const promptToSend = softenPromptForSafetyRetry(prompt, softenTier);
+              const promptToSend = softenPromptForSafetyRetry(basePrompt, softenTier);
               if (softenTier > 0 && genRetry > 0) {
                 log('info', `Spread ${i + 1}: retrying with tier-${softenTier} softened prompt (${promptToSend.length} chars, original ${prompt.length})`);
               }
@@ -393,6 +448,19 @@ class IllustratorEngine {
             if (isSafetyBlock) safetyBlocks++;
             if (genErr.isEmptyResponse) consecutiveEmpty++;
             else consecutiveEmpty = 0;
+
+            // On the first safety block for this spread, dump the raw scene
+            // snippet and classifier ratings so the next recurrence is
+            // diagnosable from the user-facing log (not just console).
+            if (isSafetyBlock && !firstSafetyLogged) {
+              firstSafetyLogged = true;
+              const sceneSnippet = String(safeScenePrompt || '').replace(/\s+/g, ' ').slice(0, 300);
+              const ratingsNote = genErr.safetyRatings
+                ? ` | ratings=${JSON.stringify(genErr.safetyRatings).slice(0, 300)}`
+                : '';
+              const blockReasonNote = genErr.blockReason ? ` | blockReason=${genErr.blockReason}` : '';
+              log('warn', `Spread ${i + 1} safety-block diagnostic${blockReasonNote}${ratingsNote} | scene="${sceneSnippet}"`);
+            }
 
             // Proxy path is stateless; don't rebuild the session after a proxy failure.
             // Otherwise rebuild when we see a safety block or two generic empties in a row.
@@ -412,7 +480,9 @@ class IllustratorEngine {
               const nextStrategy = isSafetyBlock
                 ? (safetyBlocks >= 3 && PROXY_AVAILABLE
                     ? '; next attempt will use proxy fallback (text-only)'
-                    : `; next attempt will use tier-${Math.min(safetyBlocks, 2)} softened prompt`)
+                    : safetyBlocks >= 2
+                      ? `; next attempt will use tier-2 softened prompt + LLM-rewritten scene`
+                      : `; next attempt will use tier-${Math.min(safetyBlocks, 2)} softened prompt`)
                 : '';
               log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — ${rebuildReason}${nextStrategy}`);
               try {
@@ -432,7 +502,9 @@ class IllustratorEngine {
               : isSafetyBlock
                 ? (safetyBlocks >= 3 && PROXY_AVAILABLE
                     ? ' — next attempt: proxy fallback (text-only)'
-                    : ` — next attempt: tier-${Math.min(safetyBlocks, 2)} softened prompt`)
+                    : safetyBlocks >= 2
+                      ? ' — next attempt: tier-2 softened prompt + LLM-rewritten scene'
+                      : ` — next attempt: tier-${Math.min(safetyBlocks, 2)} softened prompt`)
                 : '';
             log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in ${delayMs}ms${strategyNote}`);
             await new Promise(r => setTimeout(r, delayMs));

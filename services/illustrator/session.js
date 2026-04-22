@@ -788,7 +788,13 @@ function _extractImage(response, spreadIndex) {
     );
     err.isEmptyResponse = true;
     err.finishReason = finishReason;
-    if (isSafetyBlock) err.isSafetyBlock = true;
+    if (isSafetyBlock) {
+      err.isSafetyBlock = true;
+      // Attach structured classifier signal so engine.js can surface it
+      // into the user-facing log on the first block per spread.
+      if (blockReason) err.blockReason = blockReason;
+      if (safetyRatings) err.safetyRatings = safetyRatings;
+    }
     throw err;
   }
 
