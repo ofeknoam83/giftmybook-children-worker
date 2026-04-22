@@ -285,9 +285,14 @@ async function generateOriginalColoringPages(scenes, characterRef, opts = {}) {
   const pLimit = require('p-limit');
   const limit = pLimit(2); // 2 concurrent — balances speed vs. Gemini rate limits
   let completedCount = 0;
+  let cancelled = false;
 
   const tasks = scenes.map((scene, i) =>
     limit(async () => {
+      // Check abort signal before starting each page
+      if (opts.abortSignal?.aborted || cancelled) {
+        return { index: i, buffer: null, success: false, title: typeof scene === 'string' ? undefined : scene.title, error: 'Generation cancelled' };
+      }
       const scenePrompt = typeof scene === 'string' ? scene : scene.prompt;
       const sceneTitle = typeof scene === 'string' ? undefined : scene.title;
       console.log(`[coloringBookGenerator] Generating scene ${i + 1}/${scenes.length}`);
@@ -298,6 +303,11 @@ async function generateOriginalColoringPages(scenes, characterRef, opts = {}) {
         if (typeof opts.onPageComplete === 'function') opts.onPageComplete(completedCount);
         return { index: i, buffer, success: true, title: sceneTitle };
       } catch (err) {
+        // If this is a cancellation, mark cancelled so remaining tasks skip
+        if (err.message.includes('cancelled') || opts.abortSignal?.aborted) {
+          cancelled = true;
+          return { index: i, buffer: null, success: false, title: sceneTitle, error: 'Generation cancelled' };
+        }
         console.error(`[coloringBookGenerator] Scene ${i + 1} failed: ${err.message}`);
         completedCount++;
         if (typeof opts.onPageComplete === 'function') opts.onPageComplete(completedCount);
@@ -307,6 +317,12 @@ async function generateOriginalColoringPages(scenes, characterRef, opts = {}) {
   );
 
   const results = await Promise.all(tasks);
+
+  // If cancelled, throw so the caller can handle it
+  if (cancelled || opts.abortSignal?.aborted) {
+    throw new Error('Coloring book generation cancelled');
+  }
+
   return results.sort((a, b) => a.index - b.index);
 }
 
@@ -356,7 +372,7 @@ Return ONLY valid JSON, no markdown.`;
     characterDescription ? `Character: ${characterDescription}` : '',
   ].filter(Boolean).join('\n') || 'Generate the scenes.';
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     `${GEMINI_BASE}/${SCENE_PLANNER_MODEL}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
@@ -370,7 +386,8 @@ Return ONLY valid JSON, no markdown.`;
           responseMimeType: 'application/json',
         },
       }),
-    }
+    },
+    120000 // 2 min timeout — prevents indefinite hang if Gemini stalls
   );
 
   if (!resp.ok) {

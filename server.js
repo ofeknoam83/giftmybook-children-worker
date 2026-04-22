@@ -2865,11 +2865,31 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
 
   console.log(`[server] /generate-coloring-book: bookId=${bookId}, mode=${mode}, callbackUrl=${callbackUrl ? 'yes' : 'none'}`);
 
+  // Reject if this bookId is already being generated
+  if (activeBooks.has(bookId)) {
+    return res.status(409).json({ success: false, error: 'Coloring book generation already in progress for this bookId' });
+  }
+
   res.status(202).json({ success: true, bookId, status: 'generating' });
+
+  // Register with activeBooks tracking (enables watchdog, SIGTERM cleanup, cancel)
+  const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
+
+  // Absolute timeout for coloring book generation
+  const absoluteTimer = setTimeout(() => {
+    console.error(`[server] Coloring book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000} min) — aborting`);
+    bookContext.abortController.abort();
+  }, ABSOLUTE_TIMEOUT_MS);
 
   // Background generation
   (async () => {
     const startMs = Date.now();
+
+    function checkCancelled() {
+      if (bookContext.abortController.signal.aborted) {
+        throw new Error('Coloring book generation cancelled');
+      }
+    }
 
     async function reportProgress(stage, progress, message) {
       if (!progressCallbackUrl) return;
@@ -2887,7 +2907,9 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       const { buildColoringBookPdf, buildInteriorPdf, buildCoverWrapPdf, generateCoverThumbnailPng, imageToPreviewPng } = require('./services/coloringBookLayout');
       const { uploadBuffer } = require('./services/gcsStorage');
 
+      checkCancelled();
       await reportProgress('planning', 0.05, 'Preparing coloring book generation');
+      bookContext.touchActivity();
 
       let parentCoverBuffer = null;
       let parentCoverMimeResolved = parentCoverMime || null;
@@ -2901,6 +2923,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
           console.warn(`[server] Could not download parent cover, will generate from scratch: ${err.message}`);
         }
       }
+      bookContext.touchActivity();
 
       // Pre-download the child photo + character anchor once so they can be
       // shared across cover generation (back cover needs the child face) and
@@ -2921,6 +2944,8 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
           console.warn(`[server] Could not download character anchor: ${err.message}`);
         }
       }
+      bookContext.touchActivity();
+      checkCancelled();
 
       let coverArtPromise = null;
       if (!pagesOnly) {
@@ -2949,6 +2974,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
         let resolvedScenePrompts = scenePrompts;
         if (!Array.isArray(resolvedScenePrompts) || resolvedScenePrompts.length === 0) {
           await reportProgress('planning', 0.08, 'Planning coloring scenes from book story');
+          checkCancelled();
           resolvedScenePrompts = await planColoringScenes({
             title, synopsis, characterDescription, childName, age,
             count: sceneCount || 12,
@@ -2958,16 +2984,23 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
         }
         totalScenes = resolvedScenePrompts.length;
         await reportProgress('illustration', 0.10, `Generating ${totalScenes} coloring pages`);
+        bookContext.touchActivity();
+        checkCancelled();
 
         pages = await generateOriginalColoringPages(resolvedScenePrompts, characterRef, {
           characterDescription,
           characterAnchor,
+          abortSignal: bookContext.abortController.signal,
           onPageComplete: (doneCount) => {
+            bookContext.touchActivity();
             const pct = 0.10 + (doneCount / totalScenes) * 0.65;
             reportProgress('illustration', pct, `Coloring page ${doneCount}/${totalScenes} done`);
           },
         });
       }
+
+      bookContext.touchActivity();
+      checkCancelled();
 
       const totalPages = pages.length;
       const successCount = pages.filter(p => p.success).length;
@@ -2981,6 +3014,9 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
         console.log(`[server] AI cover art generated — front: ${Math.round(frontCoverBuffer.length / 1024)}KB, back: ${Math.round(backCoverBuffer.length / 1024)}KB`);
       }
 
+      bookContext.touchActivity();
+      checkCancelled();
+
       const firstSuccessPage = pages.find(p => p.success && p.buffer);
       const coverImageBuffer = firstSuccessPage ? firstSuccessPage.buffer : undefined;
 
@@ -2993,6 +3029,9 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       console.log(`[server] Coloring book PDFs built — legacy: ${Math.round(legacyPdfBuffer.length / 1024)}KB` +
         (interiorPdfBuffer ? `, interior: ${Math.round(interiorPdfBuffer.length / 1024)}KB` : '') +
         (coverPdfBuffer ? `, cover: ${Math.round(coverPdfBuffer.length / 1024)}KB` : ''));
+
+      bookContext.touchActivity();
+      checkCancelled();
 
       await reportProgress('upload', 0.88, 'Uploading files');
       const gcsBase = `children-jobs/${bookId}/coloring`;
@@ -3069,7 +3108,8 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
     } catch (err) {
       console.error(`[server] /generate-coloring-book background failed (${mode}): ${err.message}`);
       if (callbackUrl) {
-        const errorResult = { success: false, bookId, error: err.message, mode, elapsedMs: Date.now() - startMs };
+        const isCancelled = err.message.includes('cancelled') || bookContext.abortController.signal.aborted;
+        const errorResult = { success: false, bookId, error: err.message, mode, cancelled: isCancelled, elapsedMs: Date.now() - startMs };
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             await fetch(callbackUrl, {
@@ -3083,8 +3123,30 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
           }
         }
       }
+    } finally {
+      clearTimeout(absoluteTimer);
+      removeBookContext(bookId);
     }
   })();
+});
+
+// ── POST /cancel-coloring-book ──────────────────────────────────────────────
+// Cancel an in-progress coloring book generation by aborting its AbortController.
+app.post('/cancel-coloring-book', authenticate, async (req, res) => {
+  const { bookId } = req.body;
+  if (!bookId) {
+    return res.status(400).json({ success: false, error: 'bookId is required' });
+  }
+
+  const ctx = activeBooks.get(bookId);
+  if (!ctx) {
+    return res.status(404).json({ success: false, error: 'No active generation found for this bookId' });
+  }
+
+  console.log(`[server] /cancel-coloring-book: aborting bookId=${bookId}`);
+  ctx.abortController.abort();
+
+  res.json({ success: true, bookId, message: 'Cancellation signal sent' });
 });
 
 // ── POST /finalize-book ──
