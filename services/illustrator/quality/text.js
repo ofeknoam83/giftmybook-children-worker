@@ -22,7 +22,9 @@ function sleep(ms) {
 
 /**
  * Tokens for per-word frequency (manuscript vs illustration must match).
- * Lowercase; includes contractions (don't) and hyphenated pieces as one token when matched this way.
+ * Lowercase; apostrophes of any style are stripped so "McDonald's"/"McDonalds"
+ * and "don't"/"dont" count as the same token regardless of what the OCR or
+ * manuscript uses for the quote glyph.
  * @param {string} s
  * @returns {string[]}
  */
@@ -30,8 +32,8 @@ function tokenizeForWordCounts(s) {
   const ascii = sanitizeMixedScriptString(String(s || ''));
   return ascii
     .toLowerCase()
-    .replace(/['']/g, "'")
-    .match(/[a-z0-9]+(?:'[a-z]+)?/g) || [];
+    .replace(/['‘’ʹʻʼ՚＇‛′ꞌ]/g, '')
+    .match(/[a-z0-9]+/g) || [];
 }
 
 /**
