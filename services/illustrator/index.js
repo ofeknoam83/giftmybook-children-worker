@@ -32,6 +32,7 @@ const {
   generateSpread,
   sendCorrection,
   markSpreadAccepted,
+  pruneLastTurn,
   rebuildSession,
   seedHistoryFromAccepted,
 } = require('./session');
@@ -343,7 +344,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     try {
       const promptText = isFirst
         ? buildSpreadTurn({ spreadIndex, totalSpreads, scene, leftText, rightText })
-        : buildCorrectionTurn({ spreadIndex, totalSpreads, scene, leftText, rightText, issues });
+        : buildCorrectionTurn({ spreadIndex, totalSpreads, scene, leftText, rightText, issues, tags });
       generated = isFirst
         ? await generateSpread(session, promptText, spreadIndex)
         : await sendCorrection(session, promptText, spreadIndex);
@@ -405,6 +406,13 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     tags = [...(textResult.tags || []), ...(consistencyResult.tags || [])];
     log('warn', `Spread ${spreadIndex + 1} attempt ${attempt} QA failed (tags=${tags.join(',')}): ${issues.slice(0, 3).join(' | ')}`);
     lastError = new Error(`QA failed: ${issues.slice(0, 2).join(' | ')}`);
+
+    // Prune the rejected user+model exchange from history before the next
+    // correction attempt. Otherwise the bad image remains as the most-recent
+    // model turn and Gemini treats it as the canonical prior render — so
+    // artifacts like stray "I LOVE MAMA" text bleed forward into retries.
+    // This enforces the contract stated at session.js:11-13.
+    pruneLastTurn(sessionRef.getSession());
 
     // QA exhausted all in-session attempts → refresh the session and try again with a fresh 5-attempt round.
     if (attempt === MAX_ATTEMPTS && rebuildsUsed < MAX_SESSION_REBUILDS) {

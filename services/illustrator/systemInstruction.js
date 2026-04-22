@@ -189,20 +189,28 @@ function buildTextSection() {
   return `### ON-IMAGE TEXT (CRITICAL)
 Each per-spread prompt will give you up to two short passages: LEFT TEXT and RIGHT TEXT. Render them INSIDE the illustration as embedded typography. Follow these rules without deviation:
 
-1. FONT: ${TEXT_RULES.fontStyle}
-2. SIZE: ${TEXT_RULES.fontSize}
-3. COLOR: ${TEXT_RULES.fontColor}. Never pure black on dark areas, never pure white on bright sky; ensure contrast against the local background with the subtle shadow.
-4. PLACEMENT — THIS IS THE MOST IMPORTANT RULE:
+1. PLACEMENT — THE MOST IMPORTANT RULE. The book is bound through the middle; any text in the center gutter gets swallowed by the spine.
    • LEFT TEXT goes entirely in the LEFT half of the image (x: 0% to ${50 - centerExcl}%).
    • RIGHT TEXT goes entirely in the RIGHT half of the image (x: ${50 + centerExcl}% to 100%).
    • The CENTER BAND from ${50 - centerExcl}% to ${50 + centerExcl}% (width ${centerExcl * 2}%) is a STRICT NO-TEXT ZONE. No letter, no serif, no punctuation, no drop-shadow, no part of any word may cross or touch this band.
    • A single text block may NEVER span from one half into the other. Never center-justified across the midline.
    • Keep ${edge}% padding from the left/right outer edges, ${top}% from the top, ${bottom}% from the bottom. No text in the extreme corners or the top/bottom crop zones.
-5. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions).
-6. EXACT TEXT: The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words, NO double-printed captions, NO decorative extras.
-7. NOT A TITLE: The text is a subtitle-style caption, not a poster headline. The illustration is the hero — the text should feel like a quiet overlay, not dominate the frame.
-8. If only ONE of LEFT TEXT or RIGHT TEXT is provided, render only that side and leave the other side text-free.
-9. If BOTH are empty, generate a full-bleed illustration with NO on-image text.`;
+2. EXACT TEXT — NO HALLUCINATED WORDS. The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words. Any word on the image that is NOT in the LEFT TEXT or RIGHT TEXT passage is forbidden — including signatures, titles, labels, "THE END", dedications, love notes like "I LOVE MAMA", page numbers, book titles, or any other invented text.
+3. NO DUPLICATE CAPTIONS. Render each caption EXACTLY ONCE. Never print the same sentence in two places on the same image. Never double-print.
+4. FONT: ${TEXT_RULES.fontStyle}
+5. SIZE: ${TEXT_RULES.fontSize}
+6. COLOR: ${TEXT_RULES.fontColor}. Never pure black on dark areas, never pure white on bright sky; ensure contrast against the local background with the subtle shadow.
+7. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions).
+8. NOT A TITLE: The text is a subtitle-style caption, not a poster headline. The illustration is the hero — the text should feel like a quiet overlay, not dominate the frame.
+9. If only ONE of LEFT TEXT or RIGHT TEXT is provided, render only that side and leave the other side text-free.
+10. If BOTH are empty, generate a full-bleed illustration with NO on-image text.
+
+### MANDATORY SELF-CHECK BEFORE FINALIZING THE IMAGE
+Before you emit the image, mentally scan the full canvas and verify:
+  (a) Does any text, letter, or punctuation touch the center band (${50 - centerExcl}%–${50 + centerExcl}% of width)? If YES, move it fully into the correct half.
+  (b) Does the caption appear in more than one place? If YES, delete the duplicate.
+  (c) Is there ANY word on the image that is not in the LEFT TEXT or RIGHT TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
+If any check fails, re-render before emitting.`;
 }
 
 module.exports = { buildSystemInstruction };
