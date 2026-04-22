@@ -358,10 +358,24 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         // Treat as "retry attempt 1" — we want the initial prompt again after rebuild.
         attempt = 0; // the loop increments to 1 on the next iteration
         issues = [];
+        tags = [];
         continue;
       }
       log('warn', `Spread ${spreadIndex + 1} attempt ${attempt} failed: ${err.message}`);
-      if (attempt === MAX_ATTEMPTS) throw err;
+      if (attempt === MAX_ATTEMPTS) {
+        // Exhausted in-session attempts on a generation error — refresh session and try again if budget remains.
+        if (rebuildsUsed < MAX_SESSION_REBUILDS) {
+          log('warn', `Spread ${spreadIndex + 1}: generation error on final attempt — rebuilding session and retrying`);
+          const newSession = await rebuildSession(session);
+          sessionRef.setSession(newSession);
+          rebuildsUsed++;
+          attempt = 0;
+          issues = [];
+          tags = [];
+          continue;
+        }
+        throw err;
+      }
       // Empty/other non-safety errors → retry as a correction with a soft note.
       issues = [err.message];
       continue;
@@ -381,8 +395,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
       return generated;
     }
 
-    // Fail-open on infra errors so we don't kill the book over a QA outage.
-    if (qaInfraFailure && attempt === MAX_ATTEMPTS) {
+    // Fail-open on infra errors so we don't kill the book over a QA outage — but only once all rebuild budget is spent.
+    if (qaInfraFailure && attempt === MAX_ATTEMPTS && rebuildsUsed >= MAX_SESSION_REBUILDS) {
       log('warn', `Spread ${spreadIndex + 1}: QA infra error on final attempt — accepting generated image (${[textResult, consistencyResult].filter(r => r.infra).map(r => r.issues[0]).join('; ')})`);
       return generated;
     }
@@ -391,6 +405,18 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     tags = [...(textResult.tags || []), ...(consistencyResult.tags || [])];
     log('warn', `Spread ${spreadIndex + 1} attempt ${attempt} QA failed (tags=${tags.join(',')}): ${issues.slice(0, 3).join(' | ')}`);
     lastError = new Error(`QA failed: ${issues.slice(0, 2).join(' | ')}`);
+
+    // QA exhausted all in-session attempts → refresh the session and try again with a fresh 5-attempt round.
+    if (attempt === MAX_ATTEMPTS && rebuildsUsed < MAX_SESSION_REBUILDS) {
+      log('warn', `Spread ${spreadIndex + 1}: QA exhausted after ${MAX_ATTEMPTS} attempts — rebuilding session and retrying`);
+      const newSession = await rebuildSession(sessionRef.getSession());
+      sessionRef.setSession(newSession);
+      rebuildsUsed++;
+      attempt = 0;
+      issues = [];
+      tags = [];
+      continue;
+    }
   }
 
   throw lastError || new Error(`Spread ${spreadIndex + 1} exhausted retry budget`);
