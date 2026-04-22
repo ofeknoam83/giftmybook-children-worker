@@ -57,7 +57,7 @@ const { v4: uuidv4 } = require('uuid');
 const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
 const { generateIllustration, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 // generateIllustration is only used for chapter books and graphic novels.
-// Picture book illustration uses IllustratorEngine (services/illustrator/engine.js) exclusively.
+// Picture book illustration is handled exclusively by services/illustrator (new minimal module).
 // V3: compositeTextOnIllustration removed (V1 illustration pipeline)
 const { assemblePdf, buildChapterBookPdf } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
@@ -375,41 +375,62 @@ function authenticate(req, res, next) {
  */
 async function generateAllIllustrations(entries, storyPlan, childDetails, characterRef, style, opts) {
   const {
-    apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
-    resolvedChildPhotoUrl, cachedPhotoBase64, cachedPhotoMime,
-    existingIllustrations, checkpointData, detectedSecondaryCharacters,
-    characterAnchor,
+    costTracker, bookId, bookContext,
+    existingIllustrations, detectedSecondaryCharacters,
     coverForIllustratorBase64,
     theme,
   } = opts;
 
-  // ── Illustrator V2 (feature-flagged) ──
-  const useIllustratorV2 = process.env.USE_ILLUSTRATOR_V2 === 'true';
-  if (useIllustratorV2) {
-    bookContext.log('info', 'Using Illustrator V2 engine (USE_ILLUSTRATOR_V2=true)');
-    const { IllustratorEngine } = require('./services/illustrator/engine');
-    const illustrator = new IllustratorEngine();
-    return await illustrator.generate({
-      entries,
-      storyPlan,
-      childDetails,
-      style,
-      coverBase64: coverForIllustratorBase64 || null,
-      coverMime: 'image/jpeg',
-      childPhotoBase64: cachedPhotoBase64,
-      childPhotoMime: cachedPhotoMime || 'image/jpeg',
-      bookId,
-      bookContext,
-      theme,
-      additionalCoverCharacters: storyPlan.secondaryCharacterDescription || storyPlan.additionalCoverCharacters || detectedSecondaryCharacters || null,
-      coverParentPresent: storyPlan.coverParentPresent === true,
-      costTracker,
-    });
+  // Picture-book illustrations route through the minimal illustrator module.
+  // The `style` argument is intentionally ignored — the module is locked to
+  // the frozen 3D Premium Pixar style. Chapter books, graphic novels, covers,
+  // and coloring books continue to use other modules.
+  if (!coverForIllustratorBase64) {
+    throw new Error('Illustrator requires an approved cover (coverForIllustratorBase64) before generating spreads');
   }
 
-  // V3: V1 illustration pipeline removed — Illustrator V2 handles all picture books.
-  // If we reach here, USE_ILLUSTRATOR_V2 is not enabled, which is a configuration error.
-  throw new Error('Illustrator V2 (USE_ILLUSTRATOR_V2=true) is required — V1 illustration pipeline has been removed');
+  bookContext.log('info', 'Using minimal illustrator module (3D Premium Pixar, frozen)');
+  const { generateBookIllustrations } = require('./services/illustrator');
+
+  // Bridge the illustrator's onProgress callback into the existing
+  // progressCallbackUrl so the book-generation stage reports per-spread
+  // progress (was silent during illustration in the first pass of the refactor).
+  const progressCallbackUrl = opts.progressCallbackUrl || bookContext?.progressCallbackUrl || null;
+  const onProgress = progressCallbackUrl
+    ? (fraction, message) => {
+      // Map illustration progress (0..1) into the 0.40..0.90 band of overall
+      // book progress, matching the old engine's conventions.
+      const overall = 0.40 + Math.max(0, Math.min(1, fraction)) * 0.50;
+      reportProgress(progressCallbackUrl, {
+        bookId,
+        stage: 'illustration',
+        progress: overall,
+        message,
+        logs: bookContext?.logs,
+      }).catch(() => {});
+    }
+    : null;
+
+  return await generateBookIllustrations({
+    entries,
+    storyPlan,
+    coverBase64: coverForIllustratorBase64,
+    coverMime: 'image/jpeg',
+    theme,
+    coverParentPresent: storyPlan.coverParentPresent === true,
+    additionalCoverCharacters:
+      storyPlan.secondaryCharacterDescription
+      || storyPlan.additionalCoverCharacters
+      || detectedSecondaryCharacters
+      || null,
+    childAppearance: storyPlan.characterDescription || childDetails?.appearance || null,
+    bookId,
+    bookContext,
+    costTracker,
+    existingIllustrations: existingIllustrations || [],
+    onProgress,
+    abortSignal: bookContext?.abortController?.signal || null,
+  });
 }
 
 function trimToWordCount(text, maxWords) {
@@ -871,168 +892,18 @@ app.post('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// ── POST /generate-style-variant ──
-// Lighter pipeline: reuses existing story plan, only regenerates illustrations + PDFs in a new art style
-app.post('/generate-style-variant', authenticate, async (req, res) => {
-  const { bookId, variantIndex, style, storyPlan, childDetails, approvedCoverUrl, childPhotoUrls, callbackUrl, progressCallbackUrl } = req.body;
-
-  if (!bookId || !style || !storyPlan) {
-    return res.status(400).json({ error: 'bookId, style, and storyPlan are required' });
-  }
-
-  // Respond immediately
-  res.status(202).json({ success: true, status: 'processing', bookId, style });
-
-  // Process in background
-  const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
-  bookContext.log('info', `Style variant generation started`, { style, bookId });
-
-  const heartbeatInterval = setInterval(() => {
-    if (progressCallbackUrl) {
-      reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', heartbeat: true, logs: bookContext.logs }).catch(() => {});
-    }
-  }, 30000);
-
-  try {
-    // 1. Cache child photo (64px)
-    let cachedPhotoBase64 = null;
-    let cachedPhotoMime = 'image/jpeg';
-    const childPhotoUrl = childPhotoUrls?.[0];
-    if (childPhotoUrl) {
-      try {
-        const photoBuf = await downloadBuffer(childPhotoUrl);
-        const resized = await require('sharp')(photoBuf).resize(512, 512, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
-        cachedPhotoBase64 = resized.toString('base64');
-        cachedPhotoMime = 'image/jpeg';
-        bookContext.log('info', 'Photo cached for variant');
-      } catch (e) {
-        bookContext.log('warn', `Photo cache failed: ${e.message}`);
-      }
-    }
-
-    // 2. Download approved cover for character reference
-    let characterRefBase64 = cachedPhotoBase64;
-    let characterRefMime = cachedPhotoMime;
-    if (approvedCoverUrl) {
-      try {
-        const coverBuf = await downloadBuffer(approvedCoverUrl);
-        const resized = await require('sharp')(coverBuf).resize(512, 512, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
-        characterRefBase64 = resized.toString('base64');
-        characterRefMime = 'image/jpeg';
-      } catch (e) {
-        bookContext.log('warn', `Cover download failed: ${e.message}`);
-      }
-    }
-
-    // 3. Generate illustrations with the NEW style (sequential)
-    const entries = storyPlan.entries || storyPlan.spreads?.map((s, i) => ({ type: 'spread', spread: i + 1, spread_image_prompt: s.illustrationPrompt || s.illustrationDescription, left: { text: s.text }, right: {} })) || [];
-
-    bookContext.log('info', `Generating ${entries.length} illustrations in style: ${style}`);
-
-    const entriesWithIllustrations = await generateAllIllustrations(entries, storyPlan, childDetails, null, style, {
-      apiKeys: req.body.apiKeys || {},
-      costTracker: null,
-      bookId,
-      bookContext,
-      progressCallbackUrl,
-      resolvedChildPhotoUrl: childPhotoUrl,
-      cachedPhotoBase64: cachedPhotoBase64,
-      cachedPhotoMime: cachedPhotoMime,
-      existingIllustrations: [],
-      checkpointData: null,
-      coverForIllustratorBase64: characterRefBase64 || null,
-      theme: storyPlan.theme || null,
-    });
-
-    bookContext.log('info', 'All variant illustrations complete');
-
-    // 4. Download illustration buffers
-    const downloadLimit = pLimit(4);
-    const entriesWithBuffers = await Promise.all(
-      entriesWithIllustrations.map((entry) => downloadLimit(async () => {
-        const result = { ...entry };
-        if (entry.spreadIllustrationUrl) {
-          try { result.spreadIllustrationBuffer = await downloadBuffer(entry.spreadIllustrationUrl); } catch (e) {}
-        }
-        if (entry.illustrationUrl) {
-          try { result.illustrationBuffer = await downloadBuffer(entry.illustrationUrl); } catch (e) {}
-        }
-        return result;
-      }))
-    );
-
-    // 5. Assemble interior PDF
-    const format = storyPlan.format || 'picture_book';
-    const interiorPdf = await assemblePdf(entriesWithBuffers, format, {
-      title: storyPlan.title || 'My Story',
-      childName: childDetails.name,
-      year: new Date().getFullYear(),
-    });
-
-    // 6. Upload interior PDF
-    const variantPath = `children-jobs/${bookId}/variants/${style}`;
-    await uploadBuffer(interiorPdf, `${variantPath}/interior.pdf`, 'application/pdf');
-    const interiorPdfUrl = await getSignedUrl(`${variantPath}/interior.pdf`, 30 * 24 * 60 * 60 * 1000);
-
-    // 7. Generate cover PDF
-    let coverPdfUrl = null;
-    // Find the first spread illustration to use as front cover
-    const firstSpread = entriesWithBuffers.find(e => e.spreadIllustrationBuffer || e.illustrationBuffer);
-    const coverBuffer = firstSpread?.spreadIllustrationBuffer || firstSpread?.illustrationBuffer;
-
-    if (coverBuffer) {
-      let pageCount = 0;
-      for (const e of entriesWithBuffers) {
-        if (e.type === 'spread') pageCount += 2;
-        else pageCount += 1;
-      }
-      pageCount = Math.max(32, pageCount % 2 === 0 ? pageCount : pageCount + 1);
-
-      const synopsis = storyPlan.synopsis || '';
-      const coverData = await generateCover(storyPlan.title || 'My Story', childDetails, null, format, {
-        bookId, preGeneratedCoverBuffer: coverBuffer, pageCount, synopsis,
-      });
-      if (coverData?.coverPdfBuffer) {
-        await uploadBuffer(coverData.coverPdfBuffer, `${variantPath}/cover.pdf`, 'application/pdf');
-        coverPdfUrl = await getSignedUrl(`${variantPath}/cover.pdf`, 30 * 24 * 60 * 60 * 1000);
-      }
-    }
-
-    // 8. Collect preview URLs
-    const previewImageUrls = entriesWithIllustrations
-      .filter(e => e.spreadIllustrationUrl || e.illustrationUrl)
-      .map(e => e.spreadIllustrationUrl || e.illustrationUrl);
-
-    // 9. Callback
-    bookContext.log('info', `Style variant '${style}' complete`);
-    const variantResult = { success: true, bookId, variantIndex, style, interiorPdfUrl, coverPdfUrl, previewImageUrls, logs: bookContext.logs };
-    if (callbackUrl) {
-      await fetch(callbackUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-        body: JSON.stringify(variantResult),
-      }).catch(e => console.error(`Variant callback failed: ${e.message}`));
-    }
-    if (progressCallbackUrl) {
-      reportComplete(progressCallbackUrl, variantResult);
-    }
-  } catch (err) {
-    bookContext.log('error', `Style variant failed: ${err.message}`);
-    const variantError = { success: false, bookId, variantIndex, style, error: err.message, logs: bookContext.logs };
-    if (callbackUrl) {
-      await fetch(callbackUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-        body: JSON.stringify(variantError),
-      }).catch(() => {});
-    }
-    if (progressCallbackUrl) {
-      reportError(progressCallbackUrl, variantError);
-    }
-  } finally {
-    clearInterval(heartbeatInterval);
-    removeBookContext(bookId);
-  }
+// ── POST /generate-style-variant — DEPRECATED ──
+// Picture-book illustrations are now locked to the 3D Premium Pixar style, so
+// there is no meaningful "variant" to produce. The endpoint returns 410 Gone
+// so legacy admin clients surface a clear error instead of silently generating
+// a misleading "gouache variant" that is actually Pixar.
+app.post('/generate-style-variant', authenticate, (req, res) => {
+  const { bookId, style } = req.body || {};
+  console.warn(`[server] /generate-style-variant rejected (deprecated) — book=${bookId} style=${style}`);
+  return res.status(410).json({
+    success: false,
+    error: 'Style variants are no longer supported — picture books are locked to the 3D Premium Pixar style. Use /regenerate-illustration to re-render individual spreads.',
+  });
 });
 
 // ── POST /generate-book ──
@@ -2414,13 +2285,13 @@ If the main child is the ONLY character, respond with exactly: NONE` },
 });
 
 // ── POST /regenerate-illustration ──
-// Regenerate a single spread using Illustrator V2 pipeline.
-// Called by admin "regenerate illustration" button.
+// Regenerate a single picture-book spread.
+// The `artStyle` field in the request body is ignored — picture-book
+// illustrations are locked to 3D Premium Pixar by the new illustrator module.
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
-  const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText, artStyle,
+  const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText,
     additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
-    childPhotoUrl, cachedPhotoBase64, coverImageUrl, firstSpreadRefUrl,
-    celebrationAge, childAge: regenChildAge } = req.body;
+    coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2429,49 +2300,35 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'spreadImagePrompt is required' });
   }
 
-  console.log(`[server] /regenerate-illustration (V2): bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
+  console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
 
   const costTracker = new CostTracker();
-  const style = artStyle || 'pixar_premium';
 
   try {
-    const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
-
-    // Download child photo as base64
-    let childPhotoB64 = cachedPhotoBase64 || null;
-    if (!childPhotoB64 && childPhotoUrl) {
-      try {
-        const photo = await downloadPhotoAsBase64(childPhotoUrl);
-        childPhotoB64 = photo.base64;
-      } catch (e) {
-        console.warn(`[regen] Could not download child photo: ${e.message}`);
-      }
-    }
-
-    // Download cover image as base64 (used by V2 for character consistency)
+    // Download cover (REQUIRED for character + style lock). Accepted sources
+    // (first match wins):
+    //   1. coverImageUrl — canonical, sent by the standalone on new admin actions.
+    //   2. childPhotoUrl — legacy field; standalone admin sets it to
+    //      `book.coverImageUrl || firstChildPhoto` for backward compat.
+    //   3. firstSpreadRefUrl — last-resort fallback (an approved interior spread).
+    const coverSource = coverImageUrl || childPhotoUrl || firstSpreadRefUrl || null;
     let coverB64 = null;
-    if (coverImageUrl) {
+    if (coverSource) {
       try {
-        const cover = await downloadPhotoAsBase64(coverImageUrl);
+        const cover = await downloadPhotoAsBase64(coverSource);
         coverB64 = cover.base64;
       } catch (e) {
-        console.warn(`[regen] Could not download cover: ${e.message}`);
+        console.warn(`[regen] Could not download reference image (${coverSource}): ${e.message}`);
       }
     }
-    // Fall back to first spread reference as cover substitute
-    if (!coverB64 && firstSpreadRefUrl) {
-      try {
-        const ref = await downloadPhotoAsBase64(firstSpreadRefUrl);
-        coverB64 = ref.base64;
-      } catch (e) {
-        console.warn(`[regen] Could not download first spread ref: ${e.message}`);
-      }
+    if (!coverB64) {
+      return res.status(400).json({ success: false, error: 'A valid cover reference URL (coverImageUrl, childPhotoUrl, or firstSpreadRefUrl) is required for regeneration' });
     }
 
-    // Split page text into left/right if possible
+    // Split page text into left/right halves if multi-line.
     const fullText = pageText || '';
     const lines = fullText.split('\n').filter(l => l.trim());
-    let leftText = fullText, rightText = null;
+    let leftText = fullText, rightText = '';
     if (lines.length >= 2) {
       const mid = Math.ceil(lines.length / 2);
       leftText = lines.slice(0, mid).join('\n');
@@ -2483,33 +2340,27 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       scenePrompt += `\n\nADDITIONAL INSTRUCTIONS: ${promptInjection}`;
     }
 
-    const { IllustratorEngine } = require('./services/illustrator/engine');
-    const illustrator = new IllustratorEngine();
-
-    const result = await illustrator.generateSingleSpread({
+    const { regenerateSpreadIllustration } = require('./services/illustrator');
+    const result = await regenerateSpreadIllustration({
       scenePrompt,
-      spreadText: fullText,
       leftText,
       rightText,
-      style,
       coverBase64: coverB64,
-      childPhotoBase64: childPhotoB64,
+      coverMime: 'image/jpeg',
       theme: theme || null,
       additionalCoverCharacters: additionalCoverCharacters || null,
       coverParentPresent: coverParentPresent === true,
       parentOutfit: parentOutfit || null,
+      childAppearance: childAppearance || null,
       spreadIndex,
       totalSpreads: totalSpreads || 13,
-      costTracker,
-      celebrationAge: typeof celebrationAge === 'number' ? celebrationAge : (typeof regenChildAge === 'number' ? regenChildAge : undefined),
     });
 
-    // Upload to GCS
     const gcsPath = `children-jobs/${bookId}/illustrations/spread-${spreadIndex}-${Date.now()}.png`;
     await uploadBuffer(result.imageBuffer, gcsPath, 'image/png');
     const newUrl = await getSignedUrl(gcsPath, 30 * 24 * 60 * 60 * 1000);
 
-    console.log(`[server] Illustration regenerated (V2) for book ${bookId}, spread ${spreadIndex}`);
+    console.log(`[server] Illustration regenerated for book ${bookId}, spread ${spreadIndex}`);
 
     res.json({
       success: true,
