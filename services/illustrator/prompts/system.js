@@ -2,8 +2,9 @@
  * Illustrator V2 — System Instruction Builder
  *
  * Builds the system instruction for the Gemini chat session.
- * Rules-only — NO character text descriptions. Character consistency
- * is achieved purely through image references (cover + photo).
+ * Rules-only — NO character text descriptions. Character consistency is
+ * achieved purely through the approved cover image (the uploaded child
+ * photo is intentionally not sent to the image model).
  */
 
 const { PARENT_THEMES } = require('../config');
@@ -41,8 +42,8 @@ function buildSystemInstruction(opts) {
   parts.push(buildPrecedenceBlock());
 
   parts.push('You are creating illustrations for a personalized children\'s book.');
-  parts.push('You will receive reference images of the child (real photo + approved cover) in the first turn.');
-  parts.push('Use those images as your ONLY source of truth for character appearance.');
+  parts.push('You will receive the approved cover image in the first turn — this is the canonical rendered likeness of the child.');
+  parts.push('Use the cover as your ONLY source of truth for character appearance (ethnicity, skin tone, facial features, hair, outfit, rendering style).');
   parts.push('');
 
   parts.push(buildArtStyleLines(opts).join('\n'));
