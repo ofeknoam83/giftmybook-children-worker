@@ -109,12 +109,20 @@ YOUR JOB — OBVIOUS DEFECTS ONLY (do NOT nitpick):
 - Flag ONLY if an uninformed viewer would immediately agree something is broken: e.g. the hero child clearly looks like a different person across spreads where the face is visible in both; duplicate hero in one spread; grotesque extra limbs; obvious split-panel / diptych seam; same recurring secondary clearly a different individual when comparable; blatant contradiction of the story bible for named characters.
 - Do NOT flag: normal lighting/color shifts, pose changes, different scenes, parent hands vs child face tone, missing hair/outfit in crops, minor proportion drift, or font/text details (checked elsewhere).
 
+suspectSpreads — MINORITY / OUTLIER RULE (critical):
+- "suspectSpreads" must list ONLY the OUTLIER spreads that DEVIATE from the majority look and/or the story bible. It is NEVER the full book.
+- Example: if spreads 1,2,4,5,7,8,9,11,12,13 show the hero with hair A and outfit A, and spreads 3,10 show hair B / outfit B — suspectSpreads MUST be [3, 10]. Do NOT return [1,2,3,4,5,7,8,9,10,11,12,13].
+- Tie-breaker when a majority exists: the MAJORITY is canonical; the outliers go in suspectSpreads.
+- If the story bible agrees with one side, that side is canonical; the other side is the outlier list.
+- If there is no clear majority (roughly 50/50 split) OR you cannot isolate the outliers to a small subset, prefer pass=true with an empty suspectSpreads. Do NOT list more than half of the spreads as suspects.
+- Cap: suspectSpreads should contain at most ${Math.max(1, Math.floor(ordered.length / 2))} spreads (half the book, rounded down). If you would need to list more, the book is not obviously broken — return pass=true.
+
 Return ONLY valid JSON:
 {"pass": true, "issues": [], "suspectSpreads": []}
 or
-{"pass": false, "issues": ["short reasons"], "suspectSpreads": [1-based spread numbers most involved, can be empty]}
+{"pass": false, "issues": ["short reasons"], "suspectSpreads": [1-based outlier spread numbers only]}
 
-When pass=false, issues must be short. Default to pass=true if unsure.`;
+When pass=false, issues must be short and suspectSpreads must be the MINORITY outliers only. Default to pass=true if unsure.`;
 
   const thumbs = await Promise.all(ordered.map(s => shrinkSpreadForReview(s.imageBase64)));
   const parts = [{ text: introText }];

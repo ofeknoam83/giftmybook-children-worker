@@ -702,6 +702,15 @@ ${prompt}`;
           break;
         }
 
+        // Safety cap: if the QA model flags more than half the book as outliers, the majority/minority split
+        // is unresolved — regenerating everything loses the consistency anchor and is almost always wrong.
+        // Treat as model confusion and accept the book.
+        const oversizedCap = Math.floor(spreadEntries.length / 2);
+        if (suspects.length > oversizedCap) {
+          log('warn', `Book-wide consistency flagged ${suspects.length}/${spreadEntries.length} spreads as outliers (> ${oversizedCap} cap) — treating as false positive and accepting book. Issues: ${(bookWide.issues || []).join('; ')}`);
+          break;
+        }
+
         if (round > MAX_ROUNDS) {
           log('warn', `Book-wide consistency still failing after ${MAX_ROUNDS} regen round(s) — accepting book. Final issues: ${(bookWide.issues || []).join('; ')}`);
           break;
