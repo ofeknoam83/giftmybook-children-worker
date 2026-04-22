@@ -840,7 +840,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Whatever arc you invent, each spread must connect to the one before it. No slideshow of unrelated activities.`);
     sections.push(`- Group spreads that share a location or emotional space. Do NOT jump to a new location within a group of spreads without narrating the transition.`);
     sections.push(`- Location transitions must be clear — the reader must always know WHERE the characters are and WHY they moved.`);
-    sections.push(`- Keep the story concretely grounded in 1-4 distinct physical places across the 13 spreads. Staying in one vivid place the whole time is acceptable — hopscotching through 8 locations is not.`);
+    sections.push(`- **Setting variety:** Prefer **at least 4 distinct physical settings** with clear movement between them. Avoid the “home → brief outing → home for the rest” sandwich unless the theme truly requires a homebound story — that pattern often feels repetitive in illustrations.`);
     sections.push(`- CLARITY: Every image and metaphor must be literal enough for a 3-year-old to picture. If you mix imagination and reality, signal the shift clearly.`);
 
     sections.push(`\n## CRITICAL REMINDERS\n`);

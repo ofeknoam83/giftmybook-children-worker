@@ -7,6 +7,21 @@
 
 const { TEXT_RULES } = require('../config');
 
+/**
+ * Reusable: vertical midline + no straddling (system prompt, per-spread, corrections).
+ * @returns {string}
+ */
+function buildTextMidlineEnforcementBlock() {
+  const bandPct = TEXT_RULES.centerExclusionPercent * 2;
+  return (
+    'VERTICAL MIDLINE — NO STRADDLING: The full story caption (all lines) must sit entirely on ONE side of the image. '
+    + 'No line may cross the 50% width line: do not start left of center and end right of center. '
+    + 'Do not place part of the text block in the left safe strip and part in the right safe strip. '
+    + 'Do not center a paragraph on the midline. '
+    + `The center ${bandPct}% band (imagery only) is completely text-free — keep every glyph in the assigned left OR right strip only.`
+  );
+}
+
 const TEXT_PLACEMENTS = [
   { side: 'left',  vertical: 'upper', anchor: 'upper-left corner' },
   { side: 'right', vertical: 'upper', anchor: 'upper-right corner' },
@@ -52,6 +67,7 @@ function buildTextInstruction(text, opts = {}) {
   parts.push(`- VERTICAL + SIDE LOCK: Upper vs lower and left vs right are fixed by this spread's anchor above. Do not invent a conflicting vertical band or a second text region elsewhere in the frame.`);
   parts.push(`- Render the text EXACTLY ONCE in a single block. ONE text block only — NEVER duplicate or repeat the text anywhere else in the image.`);
   parts.push(`- CENTER NO-TEXT ZONE (THIS IS THE MOST COMMON MISTAKE): This is ONE single illustration, not a book layout. The middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image is reserved for imagery only and must stay free of text. Place ALL text entirely within the ${placement.side.toUpperCase()} ${safePct}% strip of the image. If you are unsure, push the text further toward the ${placement.side} edge. Do NOT draw or imply any center fold, page break, or spine.`);
+  parts.push(`- ${buildTextMidlineEnforcementBlock()}`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`);
   parts.push(`- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — do not place text flush against the top; leave comfortable breathing room above the text.`);
   parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Keep text well above the bottom ${TEXT_RULES.bottomPaddingPercent}%.`);
@@ -70,4 +86,4 @@ function buildTextInstruction(text, opts = {}) {
   return parts.join('\n');
 }
 
-module.exports = { buildTextInstruction, getTextPlacement };
+module.exports = { buildTextInstruction, getTextPlacement, buildTextMidlineEnforcementBlock };

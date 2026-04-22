@@ -4,6 +4,7 @@
  */
 
 const { ART_STYLE_CONFIG, PARENT_THEMES, TEXT_RULES } = require('../config');
+const { buildTextMidlineEnforcementBlock } = require('./text');
 
 const LOCKED_3D_STYLES = new Set(['pixar_premium', 'cinematic_3d', 'graphic_novel_cinematic']);
 
@@ -271,6 +272,7 @@ function buildTextRenderingSystemLines() {
     `- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`,
     '- EMBEDDED TEXT POSITION: Each spread specifies an anchor (left or right strip, upper or lower). Place ALL story text only in that anchor, with the padding and center no-text rules below — do not invent a different corner or a second text block.',
     `- CENTER NO-TEXT ZONE (MOST COMMON MISTAKE — READ CAREFULLY): The illustration is ONE single image, not a book layout. The middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image is reserved for imagery only — keep it free of text. Place ALL text entirely within either the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% strip or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% strip of the image, per that spread's instruction. If in doubt, push text further toward the edge. Do NOT draw or imply any center fold, page break, or spine.`,
+    `- ${buildTextMidlineEnforcementBlock()}`,
     `- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`,
     `- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — text should never feel cramped against the top of the image.`,
     `- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`,

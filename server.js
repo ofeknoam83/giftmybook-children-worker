@@ -1630,21 +1630,32 @@ If the main child is the ONLY character, respond with exactly: NONE` },
               const addlText = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
               const isNone = !addlText || /^none[.!]?$/i.test(addlText.trim()) || addlText.trim().length <= 5;
               if (addlText && !isNone) {
-                storyPlan.additionalCoverCharacters = addlText;
-                // Classify detected secondaries by apparent gender so we can tell
-                // whether the themed parent is actually depicted on the cover.
-                const hasWoman = /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText);
-                const hasMan = /gender\s*=\s*man\b/i.test(addlText) || /\badult\s+(?:man|male)\b/i.test(addlText);
-                if (theme === 'mothers_day') {
-                  storyPlan.coverParentPresent = hasWoman;
-                } else if (theme === 'fathers_day') {
-                  storyPlan.coverParentPresent = hasMan;
+                // Depictions (stick figures, hand-drawn Momma, etc.) are NOT
+                // a usable photoreal cover reference; locking QA to them causes
+                // endless cover_secondary_mismatch. Treat as no secondary.
+                const isDepictionOnly = /\b(stick\s*-?\s*figure|scribble|doodle|(?:hand[- ]?)?drawing|drawn|sketched?|crayon|(?:marker|paint(?:ing|ed)?)\s+(?:of|drawing|on)|\bdrawing[:\s]|illustration of|cartoon character on|kid'?s drawing)\b/i.test(addlText);
+                if (isDepictionOnly) {
+                  bookContext.log('info', 'Cover secondary is a depiction/drawing — treating as no usable reference', { snippet: addlText.slice(0, 200) });
+                  storyPlan.additionalCoverCharacters = null;
+                  storyPlan.coverParentPresent = false;
                 } else {
-                  storyPlan.coverParentPresent = true;
+                  storyPlan.additionalCoverCharacters = addlText;
+                  // Classify detected secondaries by apparent gender so we can tell
+                  // whether the themed parent is actually depicted on the cover.
+                  const hasWoman = /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText);
+                  const hasMan = /gender\s*=\s*man\b/i.test(addlText) || /\badult\s+(?:man|male)\b/i.test(addlText);
+                  if (theme === 'mothers_day') {
+                    storyPlan.coverParentPresent = hasWoman;
+                  } else if (theme === 'fathers_day') {
+                    storyPlan.coverParentPresent = hasMan;
+                  } else {
+                    storyPlan.coverParentPresent = true;
+                  }
                 }
                 bookContext.log('info', 'Additional cover characters detected', {
                   characters: addlText.slice(0, 300),
-                  hasWoman, hasMan,
+                  hasWoman: /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText),
+                  hasMan: /gender\s*=\s*man\b/i.test(addlText) || /\badult\s+(?:man|male)\b/i.test(addlText),
                   coverParentPresent: storyPlan.coverParentPresent,
                   theme,
                 });

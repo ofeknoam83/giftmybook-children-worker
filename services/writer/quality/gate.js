@@ -282,7 +282,16 @@ PRE-SCAN L — Closing must not default to "heading home"
   Inspect the FINAL 2 spreads. A closing that is literally a journey-home shot ("they head home", "walking home", "back at home", "the long walk back") is a banned formula. The closing should be a specific image invented for THIS story — a moment at wherever the story ended up, a quiet shared gesture, a final found detail, etc. A return to home IS allowed if the story organically lives there, but the narration must not reduce the closing to a generic "heading home" transition beat.
   → If the final spreads are dominated by a "heading home" / "walking home" / "back at home" formula, add an entry with dimension="endingAppropriateness", note="Closing defaults to a formulaic 'heading home' shot — invent a specific, concrete final image rooted in this story's own setting", and force endingAppropriateness to ≤ 4.
 
-If any of A, B, C, D, E, F, G, H, I, J, K, or L find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change.
+PRE-SCAN M — "Home sandwich" / dead setting loop (boring for illustrations)
+  Scan spreads 1-13: tag each spread as **clearly at home (same house: kitchen, playroom, bath, bed, etc.)** vs **clearly away (park, shop, path, bus, field, public building, etc.)**. Count distinct **photographable** settings (a new park vs a new trail = two).
+  **FAIL this pre-scan (book CANNOT ship, settingVariety ≤ 3, narrativeCoherence may also need work)** if BOTH are true:
+    (a) **6+ spreads** read as the same home / indoor domestic space (not counting a clearly different "away" place), AND
+    (b) the only "away" beats are **2 or fewer consecutive spreads** surrounded by long home blocks (the classic "mostly home, one outing, back home" loop).
+  **Also FAIL** if the book has **fewer than 3 distinct non-home** physical settings in spreads 1-12 and the rest are a single home interior (weak variety even if not a perfect sandwich).
+  **PASS examples:** at least 4 different places; or a day that moves: bakery → bus → stream → home porch (reader tracks movement). **FAIL examples:** 8 spreads in living room + kitchen, 2 spreads at the park, 3 more at home, unless a theme (e.g. staycation/sick day) is explicit in the prompt.
+  → On violation, add an entry with dimension="settingVariety" (and optionally "narrativeCoherence"), name the spread numbers, and force settingVariety ≤ 3. Feedback must tell the reviser to add **2+ more distinct, narrated away-from-home (or at least non–living-room) locations** in the mid-book, or to redistribute outdoor/public beats so the story is not a home sandwich.
+
+If any of A, B, C, D, E, F, G, H, I, J, K, L, or M find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change. (Exception: follow each pre-scan’s own "→" line for which dimensions to cap.)
 
 ## RATING DIMENSIONS
 
@@ -303,7 +312,7 @@ If any of A, B, C, D, E, F, G, H, I, J, K, or L find ANYTHING, the book CANNOT s
 9. narrativeCoherence — One clear through-line. The reader always knows WHERE the characters are. Transitions are visible.
 10. anecdoteUsage — Every anecdote the questionnaire provided must land concretely somewhere in the story. Euphemisms and natural picture-book phrasing count (a "toot" or "Pffft" lands a "farts"). But the ACTION / PERSON / OBJECT / MOMENT must be recognizably present. Score by ratio landed:
      ratio=1.0 → 10, >=0.8 → 9, >=0.6 → 7, >=0.4 → 5, <0.4 → 3.
-11. settingVariety — Across the 13 spreads, 2-4 distinct physical locations. If 8+ spreads read as "at home" / "in the living room" that is a FAIL (score 1-3).
+11. settingVariety — **Strong** books: **at least 4** distinct, visually different physical settings with narrated movement between them. **Fail (score 1-3):** 8+ spreads "at home" in the same interior; or the "home sandwich" in PRE-SCAN M (long home blocks, 1-2 "away" spreads, back home) unless the user prompt is explicitly homebound. **Aim 7+** when the story travels through a satisfying mix of places; **3-4** only when the loop pattern or low variety drags the read down.
 12. pronouns — Two rules, both enforced:
      (a) Pronouns for the child match the child\'s stated gender in every reference. Any mismatch → score ≤ 4.
      (b) Object vs. possessive grammar is correct: "his hair", "his arm", "her hand", "their toys" — NEVER "him hair", "him arm", "he hand", "them toys". Object pronouns used in possessive position are a HARD FAIL → score ≤ 3. This rule applies even when the error fits the meter.

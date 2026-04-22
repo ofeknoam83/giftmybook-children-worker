@@ -469,7 +469,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Whatever arc you invent, each spread must connect to the one before it. No slideshow of unrelated activities.`);
     sections.push(`- Group spreads that share a location or emotional space. Do NOT jump to a new location without narrating the transition.`);
     sections.push(`- This story has ONE through-line: ${child.name} and ${parentName} together. Every spread connects to that bond.`);
-    sections.push(`- Keep the story concretely grounded in 1-4 distinct physical places across the 13 spreads. Staying in one vivid place is acceptable; hopscotching through 8 locations is not.`);
+    sections.push(`- **Setting variety (important):** Use **at least 4 distinct, visually different physical places** as the day unfolds (e.g. park, shop, path, a third public space, then maybe one home moment). Do **not** make the book “mostly the same two rooms + one short trip outside + back inside” — that reads as a dull loop. Transitions must be clear; forward motion and interesting places are part of a strong love story.`);
     sections.push(`- CLARITY: Every image and metaphor must be literal enough for a 3-year-old to picture. If you mix imagination and reality, signal the shift clearly ("The puddle BECAME an ocean").`);
 
     sections.push(`\n## CRITICAL REMINDERS\n`);

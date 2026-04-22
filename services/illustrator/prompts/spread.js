@@ -8,6 +8,22 @@
 
 const { getEmotionalBeat, BEAT_CAMERA, PARENT_THEMES, ART_STYLE_CONFIG } = require('../config');
 const { buildTextInstruction } = require('./text');
+
+/** Scenes that must stay outdoors — used for LOCATION LOCK in prompts and corrections. */
+const OUTDOOR_WORDS = /\b(beach|shore|boardwalk|seaside|ocean|sea|waves?|sand|park|forest|woods|garden|yard|street|sidewalk|field|meadow|hill|mountain|trail|river|pond|lake|playground|outdoors?|outside)\b/i;
+
+/**
+ * Extra lines for the agent when action/setting QA needs an outdoor lock (same as prompt SCENE).
+ * @param {string} scenePrompt
+ * @returns {string} Empty or paragraph(s) to append to a correction prompt.
+ */
+function outdoorLocationLockForCorrection(scenePrompt) {
+  if (!OUTDOOR_WORDS.test(String(scenePrompt || ''))) return '';
+  return `
+
+### LOCATION LOCK (CRITICAL)
+- The scene above is OUTDOORS. Draw it outdoors. Do NOT relocate it to a kitchen, bathroom, bedroom, living room, or any indoor setting — even if the tone or action feels domestic.`;
+}
 const { selectBibleEntriesForSpread, renderBibleSection } = require('../storyBible');
 const {
   buildPrecedenceBlock,
@@ -77,6 +93,12 @@ function buildSpreadPrompt(opts) {
   parts.push('### SCENE');
   parts.push(scenePrompt);
   parts.push('');
+
+  if (OUTDOOR_WORDS.test(String(scenePrompt || ''))) {
+    parts.push('### LOCATION LOCK (CRITICAL)');
+    parts.push('- The scene above is OUTDOORS. Draw it outdoors. Do NOT relocate it to a kitchen, bathroom, bedroom, living room, or any indoor setting — even if the tone or action feels domestic.');
+    parts.push('');
+  }
 
   // Story bible — inject only entries that are referenced in THIS spread
   if (storyBible) {
@@ -148,4 +170,4 @@ function buildSpreadPrompt(opts) {
   return parts.join('\n');
 }
 
-module.exports = { buildSpreadPrompt };
+module.exports = { buildSpreadPrompt, OUTDOOR_WORDS, outdoorLocationLockForCorrection };

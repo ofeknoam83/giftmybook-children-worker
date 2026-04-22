@@ -429,12 +429,11 @@ Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
 
-SCENE PACING (CRITICAL — prevents slideshow stories):
-- The 13 spreads should contain NO MORE than 3-4 distinct locations or activities.
-- Each location or activity must span at least 2-3 spreads so scenes have room to develop.
-- A spread that introduces a brand-new activity unrelated to the previous spread is a RED FLAG. If you find yourself writing 13 different activities, you are writing a list, not a story.
-- Group spreads into SCENES: 2-4 connected spreads in the same place or doing the same thing, with emotional escalation within each scene.
-- Transitions between scenes must be explicit: show the characters moving, arriving, or shifting focus. Never jump-cut between unrelated moments.
+SCENE PACING (CRITICAL — interesting story, not a “home sandwich”):
+- The book must feel **geographically alive**: aim for **at least 4 distinct, visually different physical settings** (park ≠ kitchen ≠ path ≠ shop — the illustrator should be able to draw clearly different backdrops). Do **not** fill the book with one interior (e.g. home) and slot a single “we went to the park” interlude in the middle — that reads as a dull loop.
+- You may spend 2-3 consecutive spreads in one place to deepen a moment, but **change setting** as the story progresses; avoid more than **3-4 consecutive spreads in the same room** unless a beat truly requires it.
+- A spread that introduces a brand-new activity unrelated to the previous spread is a RED FLAG. If you find yourself writing 13 different unrelated activities, you are writing a list, not a story — connect beats with a clear through-line and narrated movement.
+- Group spreads into SCENES when it helps emotional build, with explicit transitions: show the characters moving, arriving, or shifting focus. Never jump-cut without one line of connective tissue.
 
 -------------------------------------
 PAGE-TURN TENSION (the secret weapon of great picture books)
@@ -922,12 +921,11 @@ Spreads 7-9:   Turning point + resolution (child takes action)
 Spreads 10-11: Emotional release (world softens)
 Spread 12:     The penultimate beat — one last moment of unresolved anticipation before the landing.
 
-SCENE PACING (CRITICAL — prevents slideshow stories):
-- The 13 spreads should contain NO MORE than 3-4 distinct locations or activities.
-- Each location or activity must span at least 2-3 spreads so scenes have room to develop.
-- A spread that introduces a brand-new activity unrelated to the previous spread is a RED FLAG. If you find yourself writing 13 different activities, you are writing a list, not a story.
-- Group spreads into SCENES: 2-4 connected spreads in the same place or doing the same thing, with emotional escalation within each scene.
-- Transitions between scenes must be explicit: show the characters moving, arriving, or shifting focus. Never jump-cut between unrelated moments.
+SCENE PACING (CRITICAL — interesting story, not a “home sandwich”):
+- The book must feel **geographically alive**: aim for **at least 4 distinct, visually different physical settings** (park ≠ kitchen ≠ path ≠ shop — the illustrator should be able to draw clearly different backdrops). Do **not** fill the book with one interior (e.g. home) and slot a single “we went to the park” interlude in the middle — that reads as a dull loop.
+- You may spend 2-3 consecutive spreads in one place to deepen a moment, but **change setting** as the story progresses; avoid more than **3-4 consecutive spreads in the same room** unless a beat truly requires it.
+- A spread that introduces a brand-new activity unrelated to the previous spread is a RED FLAG. If you find yourself writing 13 different unrelated activities, you are writing a list, not a story — connect beats with a clear through-line and narrated movement.
+- Group spreads into SCENES when it helps emotional build, with explicit transitions: show the characters moving, arriving, or shifting focus. Never jump-cut without one line of connective tissue.
 
 -------------------------------------
 PAGE-TURN TENSION (the secret weapon of great picture books)

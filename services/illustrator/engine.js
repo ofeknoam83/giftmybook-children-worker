@@ -10,7 +10,7 @@
  */
 
 const { createSession, establishCharacterReferences, rebuildSession, generateSpread, generateSpreadViaProxy, sendCorrection, regenerateWithFullContext } = require('./session');
-const { buildSpreadPrompt } = require('./prompts/spread');
+const { buildSpreadPrompt, outdoorLocationLockForCorrection } = require('./prompts/spread');
 const { rewriteSceneForSafety } = require('./safetyRewrite');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
@@ -23,8 +23,8 @@ const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS, MAX_CONSISTENCY_ROUNDS, ART_STYLE_CONFIG } = require('./config');
-const { getTextPlacement, buildTextInstruction } = require('./prompts/text');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, SPREAD_HARD_WALL_MS, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS, MAX_CONSISTENCY_ROUNDS, ART_STYLE_CONFIG } = require('./config');
+const { getTextPlacement, buildTextInstruction, buildTextMidlineEnforcementBlock } = require('./prompts/text');
 
 /** Throws if the standalone client requested cancellation. */
 function abortGuard(bookContext) {
@@ -533,9 +533,15 @@ class IllustratorEngine {
         let extraCheck = { pass: true, issues: [], tags: [] };
         let artStyleCheck = { pass: true, issues: [], tags: [] };
         let qaRetries = 0;
+        const repeatTagTrackerA1 = { tag: null, count: 0 };
+        const repeatTagTrackerA2 = { tag: null, count: 0 };
 
         // Per-spread QA: Agent 1 (text + anatomy), then Agent 2 (extra + style). Both must pass; any correction re-runs from Agent 1.
         while (true) {
+          if (Date.now() - spreadStart > SPREAD_HARD_WALL_MS) {
+            log('warn', `Spread ${i + 1} exceeded ${SPREAD_HARD_WALL_MS}ms wall clock in in-session retries — escalating to fresh session`);
+            break;
+          }
           abortGuard(bookContext);
           [textCheck, anatomyCheck] = await Promise.all([
             verifySpreadText(imageBase64, spreadText, qaOpts),
@@ -568,6 +574,17 @@ class IllustratorEngine {
               ...(Array.isArray(anatomyCheck.tags) ? anatomyCheck.tags : []),
             ]);
             recordQaTags(bookContext, qaTags);
+            const tagKeyA1 = [...qaTags].sort().join(',');
+            if (tagKeyA1 && tagKeyA1 === repeatTagTrackerA1.tag) {
+              repeatTagTrackerA1.count++;
+            } else {
+              repeatTagTrackerA1.tag = tagKeyA1;
+              repeatTagTrackerA1.count = 1;
+            }
+            if (repeatTagTrackerA1.count >= 3) {
+              log('warn', `Spread ${i + 1} same QA tags (${tagKeyA1}) ${repeatTagTrackerA1.count}× (Agent1) — retrying in-session is futile, escalating to fresh session`);
+              break;
+            }
             const hasTextIssues = issues.some(iss => iss.startsWith('[text]'));
             const hasAnatomyIssues = issues.some(iss => iss.startsWith('[anatomy]'));
             const hasSplitPanel = qaTags.has('split_panel')
@@ -592,6 +609,7 @@ class IllustratorEngine {
               || issues.some(iss => /text\s+over\s+(the\s+)?(face|head|hero)|text\s+on\s+(the\s+)?(face|head)/i.test(iss));
             const hasTextTopEdge = qaTags.has('text_top_edge')
               || issues.some(iss => iss.toLowerCase().includes('top edge') || iss.toLowerCase().includes('top of'));
+            const hasCaptionDuplicated = qaTags.has('text_duplicated_caption');
             const hasTextDuplication = issues.some(iss => iss.toLowerCase().includes('duplicat') && iss.startsWith('[text]'));
             const hasCenterViolation = qaTags.has('text_center') || qaTags.has('text_bridges_sides')
               || issues.some(iss => /\bcenter\b|bridges|left.*right|right.*left/i.test(iss));
@@ -599,7 +617,11 @@ class IllustratorEngine {
 
             let correctionPrompt;
 
-            if (hasDuplicatedHero) {
+            if (hasCaptionDuplicated) {
+              correctionPrompt = `REGENERATE spread ${i + 1} with the SAME scene. The previous image rendered the STORY TEXT TWICE — a second copy appeared somewhere else in the frame. Render the caption EXACTLY ONCE in the assigned anchor only. NEVER duplicate or repeat the caption anywhere in the image.
+
+${prompt}`;
+            } else if (hasDuplicatedHero) {
               correctionPrompt = `REGENERATE spread ${i + 1} COMPLETELY. The previous image drew the main child MORE THAN ONCE — this is WRONG.
 
 CRITICAL: The hero (the main child this book is about) must appear EXACTLY ONCE in the image.
@@ -642,7 +664,11 @@ ${prompt}`;
               const safePct = 50 - TEXT_RULES.centerExclusionPercent;
               const textFixes = [];
               if (hasTextDuplication) textFixes.push('The text appeared MORE THAN ONCE. Render it EXACTLY ONE TIME in ONE location.');
-              if (hasCenterViolation) textFixes.push(`Text was too close to the center. Move ALL text to the ${placement.side.toUpperCase()} side — within the ${placement.side} ${safePct}% of the image.`);
+              if (hasCenterViolation) {
+                textFixes.push(
+                  `The text crossed the vertical midline, sat in the center no-text band, and/or was split between left and right. ${buildTextMidlineEnforcementBlock()} Move the ENTIRE caption as ONE block to the ${placement.side.toUpperCase()} strip only (within the ${placement.side} ${safePct}% of image width) — every line, same half.`,
+                );
+              }
               if (hasTextOverFace) textFixes.push('Text was placed OVER the hero\'s face/head. Move the text so it does NOT overlap the hero\'s head, face, hair, or eyes. Place it in an empty area of the scene.');
               if (hasTextTopEdge) textFixes.push(`Text was TOO CLOSE to the top edge and will be cut off by print cropping. Move the text down so it sits at least ${TEXT_RULES.topPaddingPercent}% below the top edge.`);
               if (hasEdgeViolation) textFixes.push(`Text was too close to the edge. Keep at least ${TEXT_RULES.edgePaddingPercent}% from the left/right sides, at least ${TEXT_RULES.topPaddingPercent}% from the top, and at least ${TEXT_RULES.bottomPaddingPercent}% from the bottom.`);
@@ -655,8 +681,12 @@ Place the story text in the ${placement.anchor} of the image. Same scene, same c
 
 ${prompt}`;
             } else {
+              const loc = qaTags.has('action_mismatch') ? outdoorLocationLockForCorrection(safeScenePrompt) : '';
+              const mid = (qaTags.has('text_center') || qaTags.has('text_bridges_sides'))
+                ? `\n\nTEXT FIX — CENTER / MIDLINE:\n${buildTextMidlineEnforcementBlock()}\n`
+                : '';
               correctionPrompt = `The previous illustration for spread ${i + 1} had issues. Please regenerate with these corrections:
-${issues.map(iss => `- FIX: ${iss}`).join('\n')}
+${issues.map(iss => `- FIX: ${iss}`).join('\n')}${mid}${loc}
 
 Generate the corrected illustration for spread ${i + 1} with the same scene, but fix the issues listed above.
 
@@ -668,6 +698,10 @@ ${prompt}`;
               imageBase64 = result.imageBase64;
               imageBuffer = result.imageBuffer;
             } catch (retryErr) {
+              if (retryErr.isSafetyBlock) {
+                log('warn', `Spread ${i + 1} Agent1 correction hit safety block (${retryErr.finishReason || '?'}${retryErr.blockReason ? `, ${retryErr.blockReason}` : ''}) — abandoning in-session retries, escalating to fresh session`);
+                break;
+              }
               log('warn', `Spread ${i + 1} Agent1 correction retry ${qaRetries} failed: ${retryErr.message}`);
               const isTransient = retryErr.message && (
                 retryErr.message.includes('503') ||
@@ -719,6 +753,17 @@ ${prompt}`;
               ...(Array.isArray(artStyleCheck.tags) ? artStyleCheck.tags : []),
             ]);
             recordQaTags(bookContext, qaTags);
+            const tagKeyA2 = [...qaTags].sort().join(',');
+            if (tagKeyA2 && tagKeyA2 === repeatTagTrackerA2.tag) {
+              repeatTagTrackerA2.count++;
+            } else {
+              repeatTagTrackerA2.tag = tagKeyA2;
+              repeatTagTrackerA2.count = 1;
+            }
+            if (repeatTagTrackerA2.count >= 3) {
+              log('warn', `Spread ${i + 1} same QA tags (${tagKeyA2}) ${repeatTagTrackerA2.count}× (Agent2) — retrying in-session is futile, escalating to fresh session`);
+              break;
+            }
             const hasSplitPanel = qaTags.has('split_panel')
               || issues.some(iss => iss.toLowerCase().includes('split panel'));
             if (hasSplitPanel) {
@@ -730,8 +775,9 @@ ${prompt}`;
             if (qaTags.has('art_style_mismatch') && extraCheck.pass) {
               correctionPrompt = buildStyleCorrectionPrompt(style, prompt, { spreadNumber: i + 1 });
             } else {
+              const loc2 = qaTags.has('action_mismatch') ? outdoorLocationLockForCorrection(safeScenePrompt) : '';
               correctionPrompt = `The previous illustration for spread ${i + 1} had issues. Please regenerate with these corrections:
-${issues.map(iss => `- FIX: ${iss}`).join('\n')}
+${issues.map(iss => `- FIX: ${iss}`).join('\n')}${loc2}
 
 Generate the corrected illustration for spread ${i + 1} with the same scene, but fix the issues listed above.
 
@@ -743,6 +789,10 @@ ${prompt}`;
               imageBase64 = result.imageBase64;
               imageBuffer = result.imageBuffer;
             } catch (retryErr) {
+              if (retryErr.isSafetyBlock) {
+                log('warn', `Spread ${i + 1} Agent2 correction hit safety block (${retryErr.finishReason || '?'}${retryErr.blockReason ? `, ${retryErr.blockReason}` : ''}) — abandoning in-session retries, escalating to fresh session`);
+                break;
+              }
               log('warn', `Spread ${i + 1} Agent2 correction retry ${qaRetries} failed: ${retryErr.message}`);
               const isTransient = retryErr.message && (
                 retryErr.message.includes('503') ||
@@ -1245,8 +1295,15 @@ ${prompt}`;
     let extraCheck = { pass: true, issues: [], tags: [] };
     let artStyleCheck = { pass: true, issues: [], tags: [] };
     let qaRetries = 0;
+    const singleSpreadStart = Date.now();
+    const repeatTagTrackerA1 = { tag: null, count: 0 };
+    const repeatTagTrackerA2 = { tag: null, count: 0 };
 
     while (true) {
+      if (Date.now() - singleSpreadStart > SPREAD_HARD_WALL_MS) {
+        log('warn', `Single-spread QA exceeded ${SPREAD_HARD_WALL_MS}ms wall clock in in-session retries — stopping`);
+        break;
+      }
       if (inputAbortSignal?.aborted) {
         const err = new Error('Illustration generation aborted');
         err.name = 'AbortError';
@@ -1271,6 +1328,17 @@ ${prompt}`;
           ...(Array.isArray(textCheck.tags) ? textCheck.tags : []),
           ...(Array.isArray(anatomyCheck.tags) ? anatomyCheck.tags : []),
         ]);
+        const tagKeyA1s = [...qaTags].sort().join(',');
+        if (tagKeyA1s && tagKeyA1s === repeatTagTrackerA1.tag) {
+          repeatTagTrackerA1.count++;
+        } else {
+          repeatTagTrackerA1.tag = tagKeyA1s;
+          repeatTagTrackerA1.count = 1;
+        }
+        if (repeatTagTrackerA1.count >= 3) {
+          log('warn', `Single-spread same QA tags (${tagKeyA1s}) ${repeatTagTrackerA1.count}× (Agent1) — stopping in-session retries`);
+          break;
+        }
         const hasSplitPanel = qaTags.has('split_panel')
           || issues.some(iss => iss.toLowerCase().includes('split panel'));
 
@@ -1282,6 +1350,7 @@ ${prompt}`;
           throw new Error(`Single-spread QA: split_panel persisted after ${MAX_FRESH_SESSION_RETRIES} fresh sessions`);
         }
 
+        const hasCaptionDuplicated = qaTags.has('text_duplicated_caption');
         const hasDuplicatedHero = qaTags.has('duplicated_hero')
           || issues.some(iss => /duplicated?\s+hero|hero\s+duplicat|same\s+child\s+appear/i.test(iss));
         const hasHeadCropped = qaTags.has('head_cropped')
@@ -1292,7 +1361,11 @@ ${prompt}`;
           || issues.some(iss => /black\s+(box|rectangle|bar|patch|blob)|opaque\s+(black|rectangle)|censor\s+block|void.*face|solid\s+black.*(face|head)/i.test(iss));
 
         let correctionPrompt;
-        if (hasDuplicatedHero) {
+        if (hasCaptionDuplicated) {
+          correctionPrompt = `REGENERATE this spread with the SAME scene. The previous image rendered the STORY TEXT TWICE — a second copy appeared somewhere else in the frame. Render the caption EXACTLY ONCE in the assigned anchor only. NEVER duplicate or repeat the caption anywhere in the image.
+
+${prompt}`;
+        } else if (hasDuplicatedHero) {
           correctionPrompt = `REGENERATE this spread COMPLETELY. The previous image drew the main child MORE THAN ONCE — this is WRONG.
 
 CRITICAL: The hero must appear EXACTLY ONCE. No twin sibling, no before/after pose of the same child, no mirror/photo copy.
@@ -1318,7 +1391,11 @@ CRITICAL: Hide any adult face only with natural composition (back view, face out
 
 ${prompt}`;
         } else {
-          correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
+          const loc = qaTags.has('action_mismatch') ? outdoorLocationLockForCorrection(safeScenePrompt) : '';
+          const mid = (qaTags.has('text_center') || qaTags.has('text_bridges_sides'))
+            ? `\n\nTEXT FIX — CENTER / MIDLINE:\n${buildTextMidlineEnforcementBlock()}\n`
+            : '';
+          correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n${mid}${loc}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
         }
 
         try {
@@ -1326,6 +1403,10 @@ ${prompt}`;
           imageBase64 = retryResult.imageBase64;
           imageBuffer = retryResult.imageBuffer;
         } catch (retryErr) {
+          if (retryErr.isSafetyBlock) {
+            log('warn', `Agent1 correction hit safety block (${retryErr.finishReason || '?'}${retryErr.blockReason ? `, ${retryErr.blockReason}` : ''}) — stopping in-session retries`);
+            break;
+          }
           log('warn', `Agent1 correction retry ${qaRetries} failed: ${retryErr.message}`);
         }
         continue;
@@ -1333,7 +1414,7 @@ ${prompt}`;
 
       [extraCheck, artStyleCheck] = await Promise.all([
         checkExtraSpreadQa(imageBase64, extraOpts),
-        checkArtStyleLock(imageBase64, { style, costTracker, abortSignal: input.abortSignal }),
+        checkArtStyleLock(imageBase64, { style, costTracker, abortSignal: inputAbortSignal }),
       ]);
 
       if (!extraCheck.pass || !artStyleCheck.pass) {
@@ -1350,6 +1431,17 @@ ${prompt}`;
           ...(Array.isArray(extraCheck.tags) ? extraCheck.tags : []),
           ...(Array.isArray(artStyleCheck.tags) ? artStyleCheck.tags : []),
         ]);
+        const tagKeyA2s = [...qaTags].sort().join(',');
+        if (tagKeyA2s && tagKeyA2s === repeatTagTrackerA2.tag) {
+          repeatTagTrackerA2.count++;
+        } else {
+          repeatTagTrackerA2.tag = tagKeyA2s;
+          repeatTagTrackerA2.count = 1;
+        }
+        if (repeatTagTrackerA2.count >= 3) {
+          log('warn', `Single-spread same QA tags (${tagKeyA2s}) ${repeatTagTrackerA2.count}× (Agent2) — stopping in-session retries`);
+          break;
+        }
         const hasSplitPanel = qaTags.has('split_panel')
           || issues.some(iss => iss.toLowerCase().includes('split panel'));
         if (hasSplitPanel) {
@@ -1364,7 +1456,8 @@ ${prompt}`;
         if (qaTags.has('art_style_mismatch') && extraCheck.pass) {
           correctionPrompt = buildStyleCorrectionPrompt(style, prompt);
         } else {
-          correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
+          const loc2 = qaTags.has('action_mismatch') ? outdoorLocationLockForCorrection(safeScenePrompt) : '';
+          correctionPrompt = `Fix these issues:\n${issues.join('\n')}\n${loc2}\n\nRegenerate the spread with the same scene but fixing all listed problems.\n\n${prompt}`;
         }
 
         try {
@@ -1372,6 +1465,10 @@ ${prompt}`;
           imageBase64 = retryResult.imageBase64;
           imageBuffer = retryResult.imageBuffer;
         } catch (retryErr) {
+          if (retryErr.isSafetyBlock) {
+            log('warn', `Agent2 correction hit safety block (${retryErr.finishReason || '?'}${retryErr.blockReason ? `, ${retryErr.blockReason}` : ''}) — stopping in-session retries`);
+            break;
+          }
           log('warn', `Agent2 correction retry ${qaRetries} failed: ${retryErr.message}`);
         }
         continue;

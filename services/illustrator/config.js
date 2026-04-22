@@ -16,6 +16,8 @@ const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const TURN_TIMEOUT_MS = 180000;       // 3 minutes per generation turn
 const QA_TIMEOUT_MS = 60000;          // 1 minute per QA call
 const ESTABLISHMENT_TIMEOUT_MS = 60000; // 1 minute for character establishment
+/** Hard cap on in-session per-spread QA+correction wall time; then escalate to fresh session. */
+const SPREAD_HARD_WALL_MS = 180000;
 
 // ── Sliding window ──
 const SLIDING_WINDOW_SIZE = 4;  // Keep last 4 generated spread images for better style continuity
@@ -49,7 +51,7 @@ const TEXT_RULES = {
   edgePaddingPercent: 10,
   topPaddingPercent: 22, // Extra top padding — PDF assembly crops the 16:9 image vertically and the top can lose several percent; 22% leaves safe room after crop
   bottomPaddingPercent: 15, // Extra bottom padding — vertical crop during PDF assembly removes bottom content
-  centerExclusionPercent: 15, // 15% on each side of center = middle 30% no-text zone
+  centerExclusionPercent: 17, // each side of center = middle band no-text zone (tighten against midline crosses)
   fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, or stenciled fonts. If in doubt, render it as plain Georgia regular.',
   fontColor: 'white/cream with subtle drop shadow',
   fontSize: 'very small, like movie subtitles — MUCH smaller than a headline or title. If in doubt, make the text smaller.',
@@ -83,6 +85,7 @@ module.exports = {
   TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,
   ESTABLISHMENT_TIMEOUT_MS,
+  SPREAD_HARD_WALL_MS,
   SLIDING_WINDOW_SIZE,
   MAX_HISTORY_IMAGES,
   MAX_HISTORY_IMAGE_BYTES,

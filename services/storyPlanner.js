@@ -101,7 +101,7 @@ const THEME_RULES = {
 - Include moms_favorite_moment if provided
 - NARRATIVE SPINE: The story MUST follow one simple through-line (a journey together, a shared project, or a gift the child prepares). Every spread connects to this spine. Do NOT write a slideshow of unrelated activities.
 - CELEBRATION WITH MOMENTUM: NO tantrums, NO crying, NO anger, NO conflict. But the story MUST have forward momentum — anticipation, a small goal, curiosity, or a surprise that pulls the reader through. Every spread should make the reader want to turn the page. A flat sequence of "nice moments" is not a story.
-- SCENE PACING: Use no more than 3-4 distinct locations or activities across 13 spreads. Each scene gets 2-4 spreads to develop. Single-spread activities create a disjointed slideshow.
+- LOCATION VARIETY (CRITICAL): Use at least 4 **distinct, photographable physical settings** (e.g. park, bakery, riverside path, a different public space — not “living room, then kitchen, then hallway” counting as three). The story must feel like a day that **moves** through the world, not a loop: **BANNED** — one dominant home interior for most spreads with only 1-2 “outing” spreads in the middle, then back inside. **BANNED** — more than 3 consecutive spreads in the same small room. Group 2-3 spreads per “chapter” in a place when it deepens the beat, but keep **changing setting** as the through-line travels (grocery → bus stop → field → stoop, etc.).
 - TRANSITIONS: Every scene change must be clear to a 3-year-old listener. Show HOW they got from one place to the next.
 - NO BEDTIME ENDING: The story must NOT end with sleeping, goodnight, tucking in, dreams, nightlights, or the house going quiet. End in DAYLIGHT with warmth, togetherness, and joy.
 - CREATIVITY: At least 2 spreads must use the child's imagination — transforming something ordinary into something magical WITHIN the story's spine. Include one reversal where the child tries to take care of Mom. Avoid flat documentary narration.
@@ -116,7 +116,7 @@ const THEME_RULES = {
 - Include meaningful_moment as a specific spread
 - NARRATIVE SPINE: The story MUST follow one simple through-line (an adventure together, a shared project, or a challenge they tackle). Every spread connects to this spine. Do NOT write a slideshow of unrelated activities.
 - CELEBRATION WITH MOMENTUM: NO tantrums, NO crying, NO anger, NO conflict. But the story MUST have forward momentum — anticipation, excitement, a goal. Every spread should make the reader want to turn the page.
-- SCENE PACING: Use no more than 3-4 distinct locations or activities across 13 spreads. Each scene gets 2-4 spreads to develop.
+- LOCATION VARIETY (CRITICAL): At least 4 distinct physical settings; **BANNED** “mostly home, one short trip, back home”; **BANNED** more than 3 consecutive spreads in the same room. The Dad–child story should still **travel** (workshop, trail, water, market, field, different stops in the same day).
 - TRANSITIONS: Every scene change must be clear to a 3-year-old listener.
 - Tone: adventurous, proud, bonding, playful
 - Ending: heartfelt — child expressing love and admiration for dad. Concrete and specific, not abstract.`,

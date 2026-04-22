@@ -64,6 +64,38 @@ function wordFrequencyMismatchIssues(expectedText, extractedText) {
 }
 
 /**
+ * Detect a "whole caption twice" pattern: a majority of unique manuscript
+ * words appear at exactly 2× their manuscript count in the OCR.
+ *
+ * @param {string} expectedText
+ * @param {string} extractedText
+ * @returns {{ issue: string, tag: 'text_duplicated_caption' } | null}
+ */
+function duplicatedCaptionFromWordCounts(expectedText, extractedText) {
+  const expTokens = tokenizeForWordCounts(expectedText);
+  const extTokens = tokenizeForWordCounts(extractedText);
+  const countMap = (tokens) => {
+    const m = new Map();
+    for (const t of tokens) m.set(t, (m.get(t) || 0) + 1);
+    return m;
+  };
+  const E = countMap(expTokens);
+  const X = countMap(extTokens);
+  const uniqueTokens = E.size;
+  if (uniqueTokens < 3) return null;
+  const doubledTokens = [...E.keys()].filter(
+    (t) => X.get(t) === 2 * (E.get(t) || 0) && (E.get(t) || 0) > 0,
+  );
+  if (doubledTokens.length / uniqueTokens >= 0.5) {
+    return {
+      tag: 'text_duplicated_caption',
+      issue: `Caption rendered twice: ${doubledTokens.length}/${uniqueTokens} manuscript words appear exactly 2× in the image.`,
+    };
+  }
+  return null;
+}
+
+/**
  * Verify text rendered in a generated spread image.
  *
  * @param {string} imageBase64 - Generated image as base64
@@ -108,7 +140,11 @@ Check ALL of the following:
    Do NOT treat legitimate repetition inside the manuscript as an error. Only flag content issues when counts disagree with EXPECTED TEXT or words are wrong/garbled.
    Your extractedText must be the full text you read from the image (best-effort OCR) so we can verify counts programmatically.
 
-2. TEXT SIDE LOCK (CRITICAL): The story text must stay entirely on ONE side of the image. It must NOT cross from the left side of the image to the right side, or from the right side to the left — no line, word, or phrase may bridge both halves. Imagine a vertical line down the middle: all glyphs must lie entirely in the left 50% OR entirely in the right 50%, not spanning across. Also: the middle ${TEXT_RULES.centerExclusionPercent * 2}% band (center ${TEXT_RULES.centerExclusionPercent}% each side of the midpoint) is a NO-TEXT ZONE for the main story text — treat bridging across that band the same as a HARD FAIL. Tag as "text_bridges_sides" or "text_center" when this rule breaks.
+2. TEXT SIDE LOCK + MIDLINE (CRITICAL — HARD FAIL): The story text must stay entirely on ONE side of the image.
+   (a) VERTICAL MIDLINE: Draw an imaginary line at 50% image width. Every line of the caption must lie entirely in the LEFT half (0–50% width) OR entirely in the RIGHT half (50–100% width). If any single line has glyphs on BOTH sides of that line, that is "crossing the center" — HARD FAIL, tag "text_bridges_sides".
+   (b) NO SPLIT CAPTIONS: Do not put part of the text in the left strip and part in the right strip. The whole caption is ONE block in ONE half only.
+   (c) CENTER BAND: The middle ${TEXT_RULES.centerExclusionPercent * 2}% (from ${50 - TEXT_RULES.centerExclusionPercent}% to ${50 + TEXT_RULES.centerExclusionPercent}% width) is a NO-TEXT ZONE — no story text there. If text sits in or bleeds through that band (even if it does not reach both edges), tag "text_center" or "text_bridges_sides" as appropriate.
+   (d) Multi-line left- or right-ragged blocks are OK only if ALL lines stay strictly in the same half and outside the center band.
 
 3. EDGE MARGINS:
    - Left and right: text must be at least ${TEXT_RULES.edgePaddingPercent}% away from the left and right edges.
@@ -190,6 +226,14 @@ Set pass=false for: word-count mismatch vs expected, text bridging sides, forbid
         if (!tags.includes('text_word_count_mismatch')) tags.push('text_word_count_mismatch');
       }
 
+      const dupCap = duplicatedCaptionFromWordCounts(expectedForQa, extracted);
+      if (dupCap) {
+        if (!tags.includes('text_duplicated_caption')) tags.push('text_duplicated_caption');
+        if (!issues.some((i) => i.startsWith('Caption rendered twice'))) {
+          issues.unshift(dupCap.issue);
+        }
+      }
+
       const filteredIssues = issues.filter(i => !/duplicat/i.test(String(i)));
       const filteredTags = tags.filter(t => t !== 'text_duplicated');
       issues.length = 0;
@@ -221,4 +265,9 @@ Set pass=false for: word-count mismatch vs expected, text bridging sides, forbid
   };
 }
 
-module.exports = { verifySpreadText, tokenizeForWordCounts, wordFrequencyMismatchIssues };
+module.exports = {
+  verifySpreadText,
+  tokenizeForWordCounts,
+  wordFrequencyMismatchIssues,
+  duplicatedCaptionFromWordCounts,
+};
