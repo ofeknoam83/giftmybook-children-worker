@@ -2,7 +2,7 @@
  * Illustrator V2 — Per-Spread OCR Text Verification
  *
  * After each spread, uses Gemini Vision to verify:
- * 1. Text content matches story text exactly (word-for-word)
+ * 1. Text content: each word appears the same number of times as in the manuscript
  * 2. Text does not bridge from left side to right side of the image (or vice versa)
  * 3. Text is within edge margins
  * 4. Font size is not too large
@@ -10,6 +10,7 @@
  */
 
 const { GEMINI_QA_MODEL, CHAT_API_BASE, QA_TIMEOUT_MS, TEXT_RULES } = require('../config');
+const { sanitizeMixedScriptString } = require('../../writer/quality/sanitize');
 const { fetchWithTimeout, getNextApiKey } = require('../../illustrationGenerator');
 const { extractGeminiResponseText, parseQaJsonFromText } = require('./geminiJson');
 
@@ -17,6 +18,47 @@ const QA_HTTP_ATTEMPTS = 3;
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Tokens for per-word frequency (manuscript vs illustration must match).
+ * Lowercase; includes contractions (don't) and hyphenated pieces as one token when matched this way.
+ * @param {string} s
+ * @returns {string[]}
+ */
+function tokenizeForWordCounts(s) {
+  const ascii = sanitizeMixedScriptString(String(s || ''));
+  return ascii
+    .toLowerCase()
+    .replace(/['']/g, "'")
+    .match(/[a-z0-9]+(?:'[a-z]+)?/g) || [];
+}
+
+/**
+ * @param {string} expectedText - Story text for this spread (writing-QA approved)
+ * @param {string} extractedText - OCR from the illustration
+ * @returns {string[]} Human-readable issues; empty if counts match for every token
+ */
+function wordFrequencyMismatchIssues(expectedText, extractedText) {
+  const expTokens = tokenizeForWordCounts(expectedText);
+  const extTokens = tokenizeForWordCounts(extractedText);
+  const countMap = (tokens) => {
+    const m = new Map();
+    for (const t of tokens) m.set(t, (m.get(t) || 0) + 1);
+    return m;
+  };
+  const E = countMap(expTokens);
+  const X = countMap(extTokens);
+  const keys = new Set([...E.keys(), ...X.keys()]);
+  const issues = [];
+  for (const t of keys) {
+    const e = E.get(t) || 0;
+    const x = X.get(t) || 0;
+    if (e !== x) {
+      issues.push(`Word "${t}": manuscript ${e}×, illustration ${x}×`);
+    }
+  }
+  return issues;
 }
 
 /**
@@ -48,13 +90,21 @@ async function verifySpreadText(imageBase64, expectedText, opts = {}) {
 
   const hardTopMarginPct = Math.max(8, Math.floor(TEXT_RULES.topPaddingPercent * 0.55));
 
+  const expectedForQa = sanitizeMixedScriptString(expectedText.trim());
+
   const prompt = `Analyze the text in this children's book illustration.
 
-EXPECTED TEXT: "${expectedText}"
+EXPECTED TEXT for THIS SPREAD ONLY (approved manuscript — exact source of truth for WHICH WORDS and HOW MANY TIMES each word appears):
+"${expectedForQa}"
 
 Check ALL of the following:
 
-1. TEXT CONTENT: Read the text in the image word-for-word. Does it match the expected text exactly? Flag missing words, extra words, misspellings, garbled text, or DUPLICATED text (same text appearing twice).
+1. TEXT CONTENT — WORD COUNTS (CRITICAL):
+   Read all story text visible in the image. For EVERY word token (letters/digits, same rules as counting: lowercase, "don't" = one token, ignore punctuation), the count in the image MUST equal the count in the EXPECTED TEXT above.
+   Examples: if the manuscript has "hop" three times ("Hop, hop, hop"), the illustration must show "hop" three times — not two, not four.
+   If the manuscript has a word once, it must appear exactly once in the art. If the whole caption were accidentally painted twice, many words would appear 2× — that FAILS this rule.
+   Do NOT treat legitimate repetition inside the manuscript as an error. Only flag content issues when counts disagree with EXPECTED TEXT or words are wrong/garbled.
+   Your extractedText must be the full text you read from the image (best-effort OCR) so we can verify counts programmatically.
 
 2. TEXT SIDE LOCK (CRITICAL): The story text must stay entirely on ONE side of the image. It must NOT cross from the left side of the image to the right side, or from the right side to the left — no line, word, or phrase may bridge both halves. Imagine a vertical line down the middle: all glyphs must lie entirely in the left 50% OR entirely in the right 50%, not spanning across. Also: the middle ${TEXT_RULES.centerExclusionPercent * 2}% band (center ${TEXT_RULES.centerExclusionPercent}% each side of the midpoint) is a NO-TEXT ZONE for the main story text — treat bridging across that band the same as a HARD FAIL. Tag as "text_bridges_sides" or "text_center" when this rule breaks.
 
@@ -74,12 +124,12 @@ Return ONLY valid JSON:
   "pass": true/false,
   "extractedText": "the exact text you read from the image",
   "issues": ["list of specific issues found"],
-  "tags": ["zero or more of: text_top_edge, text_over_face, text_center, text_bridges_sides, text_duplicated, text_garbled, text_too_large, text_illegible"],
+  "tags": ["zero or more of: text_top_edge, text_over_face, text_center, text_bridges_sides, text_duplicated, text_garbled, text_too_large, text_illegible, text_word_count_mismatch"],
   "score": 0.0-1.0
 }
 
 Score guide: 1.0 = perfect, 0.8+ = minor issues, 0.5-0.8 = significant issues, <0.5 = major problems.
-Set pass=false for: text bridging left and right sides, text in the forbidden middle band, duplicated text, missing/garbled text, text over the hero's face/head, or text within ${hardTopMarginPct}% of the top edge.`;
+Set pass=false for: word-count mismatch vs expected, text bridging sides, forbidden middle band, missing/garbled words, text over the hero's face/head, or text within ${hardTopMarginPct}% of the top edge.`;
 
   let lastErrMsg = 'unknown error';
 
@@ -124,21 +174,28 @@ Set pass=false for: text bridging left and right sides, text in the forbidden mi
         if (attempt < QA_HTTP_ATTEMPTS - 1) await sleep(1000 * (attempt + 1));
         continue;
       }
-      const issues = result.issues || [];
+      const issues = Array.isArray(result.issues) ? [...result.issues] : [];
       const rawTags = Array.isArray(result.tags) ? result.tags : [];
       const tags = rawTags.filter(t => typeof t === 'string').map(t => t.toLowerCase().trim()).filter(Boolean);
-      let pass = !!result.pass;
 
       const extracted = (result.extractedText || '').trim();
-      if (extracted && expectedText) {
-        const expectedWords = expectedText.trim().split(/\s+/).length;
-        const extractedWords = extracted.split(/\s+/).length;
-        if (extractedWords > expectedWords * 1.5 && expectedWords >= 4) {
-          pass = false;
-          issues.push('DUPLICATED text: extracted text is significantly longer than expected, suggesting the same text was rendered multiple times');
-          if (!tags.includes('text_duplicated')) tags.push('text_duplicated');
+
+      const freqIssues = wordFrequencyMismatchIssues(expectedForQa, extracted);
+      if (freqIssues.length > 0) {
+        for (const fi of freqIssues) {
+          if (!issues.includes(fi)) issues.push(fi);
         }
+        if (!tags.includes('text_word_count_mismatch')) tags.push('text_word_count_mismatch');
       }
+
+      const filteredIssues = issues.filter(i => !/duplicat/i.test(String(i)));
+      const filteredTags = tags.filter(t => t !== 'text_duplicated');
+      issues.length = 0;
+      filteredIssues.forEach(i => issues.push(i));
+      tags.length = 0;
+      filteredTags.forEach(t => tags.push(t));
+
+      const pass = freqIssues.length === 0 && filteredIssues.length === 0 && filteredTags.length === 0;
 
       return {
         pass,
@@ -162,4 +219,4 @@ Set pass=false for: text bridging left and right sides, text in the forbidden mi
   };
 }
 
-module.exports = { verifySpreadText };
+module.exports = { verifySpreadText, tokenizeForWordCounts, wordFrequencyMismatchIssues };

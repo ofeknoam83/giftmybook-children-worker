@@ -15,6 +15,7 @@ const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
+const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
@@ -1492,7 +1493,7 @@ function sanitizeJsonStrings(raw) {
  */
 function sanitizeStoryText(text) {
   if (!text || typeof text !== 'string') return text;
-  return text
+  const punct = text
     .replace(/\s*\u2014\s*/g, '. ')   // em-dash → period + space
     .replace(/\s*\u2013\s*/g, ', ')   // en-dash → comma + space
     .replace(/\.(\s*\.)+/g, '.')      // collapse multiple periods
@@ -1500,6 +1501,8 @@ function sanitizeStoryText(text) {
     .replace(/\.\s*,/g, '.')          // fix ". ," → "."
     .replace(/\s{2,}/g, ' ')          // collapse double spaces
     .trim();
+  // Cyrillic/Greek/fullwidth homoglyphs → ASCII (LLM mix-ins)
+  return sanitizeMixedScriptString(punct);
 }
 
 /**
