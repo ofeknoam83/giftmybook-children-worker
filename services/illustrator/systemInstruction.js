@@ -138,7 +138,18 @@ function buildFamilyPolicySection(ctx) {
     }
   } else {
     lines.push(
-`The cover shows ONLY the hero child — no secondary people. No additional humans (siblings, grandparents, friends, classmates, neighbors) should appear on spreads unless the per-spread prompt explicitly names and describes them. When in doubt, show the hero alone with the environment and any companions (pets, toys).`
+`The cover shows ONLY the hero child — no secondary people. Do not invent new full-face humans (siblings, grandparents, friends, classmates, neighbors) on your own.
+
+When a per-spread prompt explicitly references an adult (e.g., "Mommy", "Daddy", a parent, grandparent, or other family member), you MAY show them — but via IMPLIED PRESENCE only:
+  • A hand or arm entering frame (holding, lifting, reading to, adjusting a blanket).
+  • The back of their head or a shoulder silhouette.
+  • A cropped torso from chest-down, face out of frame.
+  • An empty chair / coat on a hook / mug on a table that implies them.
+NEVER show the referenced adult's face. NEVER render a full-body adult figure. NEVER substitute a pet or plush toy as a stand-in for a referenced human.
+
+The implicit adult must stay CONSISTENT across every spread they appear in: lock their skin tone, visible clothing colors/fabric, and hand/arm details on their first appearance and keep them identical in later spreads. Treat them like any other recurring character — same look every time.
+
+When in doubt, show the hero alone with the environment and any companions (pets, toys).`
     );
   }
 
