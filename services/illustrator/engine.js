@@ -628,6 +628,7 @@ ${prompt}`;
       additionalCoverCharacters,
       hasSecondaryOnCover,
       hasParentOnCover,
+      parentOutfit,
       abortSignal,
       session,
     };

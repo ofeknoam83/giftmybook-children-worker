@@ -42,6 +42,7 @@ async function shrinkSpreadForReview(imageBase64) {
  * @param {string} [opts.theme]
  * @param {boolean} [opts.hasParentOnCover]
  * @param {boolean} [opts.hasSecondaryOnCover]
+ * @param {string|null} [opts.parentOutfit] - when set, parent clothing is story-locked
  * @param {string|null} [opts.additionalCoverCharacters]
  * @param {object} [opts.costTracker]
  * @param {AbortSignal} [opts.abortSignal]
@@ -66,8 +67,21 @@ async function runBookWideConsistencyReview(session, spreads, opts = {}) {
 
   const isParentTheme = opts.theme === 'mothers_day' || opts.theme === 'fathers_day';
   const parentOnCover = opts.hasParentOnCover === true;
-  const parentNote = isParentTheme && !parentOnCover
-    ? 'Parent theme without parent on cover: partial parent (hands/arms) may appear — do NOT flag parent skin vs child face; only obvious wrong-person or wrongly shown full parent face.'
+  const parentOutfitLock = opts.parentOutfit && String(opts.parentOutfit).trim();
+
+  /** Overrides rigid "same hair/outfit every page" lines from systemInstruction for hidden-face parent. */
+  const parentHiddenFaceQaOverride = isParentTheme && !parentOnCover
+    ? `
+⚠️ QA OVERRIDE — PARENT NOT ON COVER (FACE HIDDEN IN ILLUSTRATIONS):
+The ILLUSTRATION RULES above tell the *generator* to lock hair/outfits and family resemblance. For THIS quality check only, interpret them narrowly:
+
+- The HERO CHILD must stay visually consistent across spreads (overlap rule: compare only what is clearly visible in 2+ images).
+- The PARENT (${opts.theme === 'mothers_day' ? 'mother' : 'father'}) often appears ONLY as partial body (hands, arms, back, cropped head). Do NOT fail the book because the parent's clothing, hat, hair length, curl, or apparent "outfit" looks different between spreads unless the SAME visible body region clearly contradicts itself between two spreads where it is both visible.
+- Different scenes may read as different shirts/dresses or accessories when the parent is mostly off-frame — that is OK for face-hidden parent. Default to pass unless an uninformed viewer would say "clearly two different adults" from overlapping visible skin/hands.
+- Do NOT require the parent's hairstyle or wardrobe to match spread-to-spread like the child's locked outfit unless ${parentOutfitLock ? `the story locked ONE parent outfit (see bible / "${String(parentOutfitLock).slice(0, 200)}") — then only flag if clearly visible clothing violates that lock in overlapping views.` : 'the story bible explicitly locks a single parent outfit AND that outfit is clearly visible in multiple spreads.'}
+- Do NOT flag parent skin tone vs child's face using different lighting; only obvious wrong-person / wrong-ethnicity for the same character.
+- Do NOT infer "Mama must match cover secondary" unless the cover secondary is explicitly the same person as the parent (here: parent is usually NOT on cover).
+`
     : '';
 
   const coverNote = opts.additionalCoverCharacters && opts.hasSecondaryOnCover
@@ -81,9 +95,10 @@ ${systemRules || '(no session rules provided)'}
 
 ${bibleBlock ? `STORY BIBLE GROUND TRUTH:\n${bibleBlock}\n` : ''}
 ${coverNote ? `${coverNote}\n` : ''}
-${parentNote ? `${parentNote}\n` : ''}
+${parentHiddenFaceQaOverride}
 
 YOUR JOB — OBVIOUS DEFECTS ONLY (do NOT nitpick):
+- If a "QA OVERRIDE" block appears above, it **overrides** conflicting sentences in ILLUSTRATION RULES for this check only.
 - Use the OVERLAP rule: only compare a trait (hair, outfit, face, skin) if it is clearly visible in TWO OR MORE spreads. Do NOT fail because a detail appears in one spread but is missing or cropped in another.
 - Flag ONLY if an uninformed viewer would immediately agree something is broken: e.g. the hero child clearly looks like a different person across spreads where the face is visible in both; duplicate hero in one spread; grotesque extra limbs; obvious split-panel / diptych seam; same recurring secondary clearly a different individual when comparable; blatant contradiction of the story bible for named characters.
 - Do NOT flag: normal lighting/color shifts, pose changes, different scenes, parent hands vs child face tone, missing hair/outfit in crops, minor proportion drift, or font/text details (checked elsewhere).
