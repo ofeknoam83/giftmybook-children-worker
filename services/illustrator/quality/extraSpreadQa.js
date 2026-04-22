@@ -49,7 +49,7 @@ async function checkExtraSpreadQa(imageBase64, opts = {}) {
   const isParentTheme = theme === 'mothers_day' || theme === 'fathers_day';
   const lastSpread = spreadIndex >= totalSpreads - 1;
   const mentionsCake = /\b(cake|candle|candles|birthday\s+cake)\b/i.test(`${spreadPrompt} ${spreadText}`);
-  const needsCandles = isBirthday && typeof celebrationAge === 'number' && celebrationAge >= 0
+  const needsCandles = isBirthday && typeof celebrationAge === 'number' && celebrationAge >= 1
     && (mentionsCake || lastSpread);
 
   const needsCoverSecondary = !!(coverBase64 && additionalCoverCharacters && hasSecondaryOnCover);
@@ -81,11 +81,28 @@ VISIBILITY / OVERLAP (same rule as cross-spread QA): Judge only what is clearly 
 
   if (needsCoverSecondary) {
     instruction += `
-CHECK A — COVER SECONDARY MATCH:
+CHECK A — COVER SECONDARY MATCH (IDENTITY ONLY, LENIENT):
 - The FIRST image below is the BOOK COVER (reference). The SECOND image is THIS SPREAD.
-- MEDIA EXCLUSION (critical): People depicted INSIDE media on the cover — a performer on a TV or tablet/phone/computer/cinema screen, a figure in a framed photo, a face on a poster / magazine cover / book cover / billboard / painting — are SCENE DECOR, not a "cover secondary person". The cover-secondary identity lock does NOT apply to them. If a similar media element (TV, poster, etc.) appears in this spread, the figure shown on it may look different (different show / different program / different artwork) — that is NORMAL and must PASS. Only a flesh-and-blood secondary person physically present in the cover scene counts.
-- If THIS SPREAD clearly shows the same real (non-media) secondary person as on the cover (not just anonymous crowd), they must be the same individual. Apply the VISIBILITY rule: match only skin, hair, build, and clothing regions that are **clearly visible on both** cover and this spread. If the spread shows only a partial view, matching that partial to the cover is enough — do not require full-body agreement with unseen areas.
-- If the spread does NOT show that secondary person (or shows only a media/screen version of them), pass A.
+- The secondary may be a person, a pet, an animal, or a creature — same rules apply.
+- MEDIA EXCLUSION (critical): Figures depicted INSIDE media on the cover — a performer on a TV / tablet / phone / computer / cinema screen, a figure in a framed photo, a face on a poster / magazine cover / book cover / billboard / painting — are SCENE DECOR, not the recurring cover secondary. If a similar media element appears in this spread, the figure on it may look different; that is NORMAL and must PASS.
+- TOY / FIGURINE / DEPICTION EXCLUSION: A plush toy, stuffed animal, statue, figurine, cake topper, ornament, drawing, painting, or printed picture of the secondary character is NOT the secondary character. Do NOT compare a cake topper, toy, or depiction against the live cover character. Only a real, in-scene occurrence of the same being counts.
+- IDENTITY-ONLY TRAITS — only these may fail CHECK A when clearly visible on both images:
+  * species / kind (dog vs cat vs bear vs human)
+  * broad body-type or breed family (e.g. small vs giant; husky-type vs chihuahua-type; categorically different human ethnicity)
+  * dominant coat / hair / fur color(s) and distinctive permanent markings (a red dog stays red; a white chest patch stays white; a scar or eyepatch stays)
+  * story-bible-locked distinguishing traits (named collar, signature accessory, etc.) when they are visible in both images
+- DO NOT FAIL on any of the following — they are expected variation across a cover portrait vs a story moment:
+  * facial expression (smiling, neutral, surprised, alert, sleepy)
+  * mood or demeanor (friendly, curious, shy, excited, cartoonish feel)
+  * pose, angle, perspective, or apparent size relative to other characters (looking "small" in a wide shot, "large" in a close-up)
+  * perceived build or slenderness differences caused by pose, crop, or camera angle
+  * scene-appropriate accessories added or removed (party hat, bow tie, backpack, glasses, scarf, birthday costume, leash)
+  * rendering feel / stylistic variation ("more cartoonish" vs "more realistic", slightly different snout or eye drawing) — style is checked elsewhere, not here
+  * lighting, color warmth, shadow, sun vs shade, overall saturation
+  * the character being cropped, partial, distant, or mostly off-frame
+- Apply the VISIBILITY / OVERLAP rule: only compare identity traits that are clearly visible on BOTH cover and this spread. A trait missing or cropped in either image is NOT comparable.
+- If the spread does NOT clearly show the same real secondary (or shows only a media/toy/figurine/drawn depiction), pass A.
+- When in doubt, PASS. Only fail if an uninformed viewer would immediately say "that is a different individual."
 Cover secondary description: ${String(additionalCoverCharacters).slice(0, 800)}
 `;
   }
