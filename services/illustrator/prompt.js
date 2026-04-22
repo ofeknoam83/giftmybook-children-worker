@@ -96,6 +96,11 @@ None. Generate a full-bleed illustration with NO text overlay for this spread.`;
  * anchors so the model knows it's still producing the SAME spread, just fixing
  * a specific defect.
  *
+ * Tag-specific directives are appended so Gemini is told not just WHAT went
+ * wrong but what ACTION to take. Empirically Gemini treats "fix this" as
+ * "re-place this" — for hallucinated words it needs an explicit "delete these,
+ * they are not part of the spread" to stop re-emitting them in new locations.
+ *
  * @param {object} opts
  * @param {number} opts.spreadIndex
  * @param {number} [opts.totalSpreads]
@@ -103,18 +108,71 @@ None. Generate a full-bleed illustration with NO text overlay for this spread.`;
  * @param {string} [opts.leftText]
  * @param {string} [opts.rightText]
  * @param {string[]} opts.issues - Human-readable QA issues to fix.
+ * @param {string[]} [opts.tags] - QA tag codes from textQa/consistencyQa (used to add tag-specific directives).
  * @returns {string}
  */
 function buildCorrectionTurn(opts) {
-  const correctionNote = `The previous attempt had these problems — fix ALL of them and regenerate:\n- ${opts.issues.join('\n- ')}`;
+  const tags = Array.isArray(opts.tags) ? opts.tags : [];
+  const lines = [
+    `The previous attempt had these problems — fix ALL of them and regenerate:`,
+    ...opts.issues.map(i => `- ${i}`),
+  ];
+
+  const directives = buildTagDirectives(tags, opts);
+  if (directives.length > 0) {
+    lines.push('');
+    lines.push('SPECIFIC ACTIONS TO TAKE:');
+    for (const d of directives) lines.push(`- ${d}`);
+  }
+
   return buildSpreadTurn({
     spreadIndex: opts.spreadIndex,
     totalSpreads: opts.totalSpreads,
     scene: opts.scene,
     leftText: opts.leftText,
     rightText: opts.rightText,
-    correctionNote,
+    correctionNote: lines.join('\n'),
   });
+}
+
+/**
+ * Map QA tags to explicit remediation directives. Kept small and surgical —
+ * each directive addresses a specific repeating Gemini failure mode observed
+ * in production logs (center-band hallucinations, doubled captions, phantom
+ * words).
+ *
+ * @param {string[]} tags
+ * @param {{leftText?: string, rightText?: string}} opts
+ * @returns {string[]}
+ */
+function buildTagDirectives(tags, opts) {
+  const set = new Set(tags);
+  const out = [];
+
+  if (set.has('text_in_center_band') || set.has('text_crosses_midline')) {
+    out.push(
+      `No text may touch the center band (${50 - TEXT_RULES.centerExclusionPercent}%–${50 + TEXT_RULES.centerExclusionPercent}% of image width). ` +
+      `If any text from the previous attempt landed there, DELETE it — any word in the center that is NOT part of the LEFT TEXT or RIGHT TEXT above is a hallucination and must not appear anywhere on the image.`,
+    );
+  }
+  if (set.has('text_duplicated_caption') || set.has('duplicated_word')) {
+    out.push('Render each caption EXACTLY ONCE. Do not repeat the LEFT TEXT or RIGHT TEXT anywhere else on the image.');
+  }
+  if (set.has('extra_word') || set.has('unexpected_text')) {
+    const left = (opts.leftText || '').trim();
+    const right = (opts.rightText || '').trim();
+    const permitted = [left && `"${left}"`, right && `"${right}"`].filter(Boolean).join(' and ');
+    out.push(
+      permitted
+        ? `The ONLY text permitted on this image is ${permitted}. Any other word, letter, label, sign, title, or signature is forbidden — do not add decorative text, titles, or signatures of any kind.`
+        : 'No extra words, labels, titles, or signatures are allowed on this image.',
+    );
+  }
+  if (set.has('missing_word') || set.has('spelling_mismatch')) {
+    out.push('Render the LEFT TEXT and RIGHT TEXT character-for-character identical to the passages above. No paraphrasing, no dropped words, no added words.');
+  }
+
+  return out;
 }
 
 module.exports = {

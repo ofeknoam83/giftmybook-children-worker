@@ -63,6 +63,11 @@ function pickSessionApiKey() {
  * @typedef {Object} AcceptedSpread
  * @property {number} index - 0-based spread index
  * @property {string} imageBase64 - Approved image base64 (for sliding window)
+ * @property {Array<object>} [modelParts] - Full model `parts` array from the turn
+ *   that produced this accepted image. Carries `thoughtSignature` fields that
+ *   Gemini 3.x requires when model-generated parts are replayed as history.
+ *   Absent for checkpoint-resume seeds (GCS images have no signature) — in
+ *   that case seedHistoryFromAccepted falls back to a text-only reference.
  */
 
 /**
@@ -216,16 +221,31 @@ async function sendCorrection(session, correctionPromptText, spreadIndex) {
  * Mark a spread as accepted. The last exchange in history (which produced this
  * spread's accepted image) stays. acceptedSpreads grows by one.
  *
+ * The last model message's full `parts` array is snapshotted onto the record so
+ * `thoughtSignature` fields are preserved. Without this, a subsequent session
+ * rebuild that re-seeds accepted images will 400 with
+ * "Image part is missing a thought_signature" from Gemini 3.x.
+ *
  * @param {IllustratorSession} session
  * @param {number} spreadIndex
  * @param {string} imageBase64
  */
 function markSpreadAccepted(session, spreadIndex, imageBase64) {
+  const lastModel = [...session.history].reverse().find(m => m.role === 'model');
+  const lastModelHasImage = lastModel?.parts?.some(p => {
+    const inline = p.inlineData || p.inline_data;
+    return inline && inline.data === imageBase64;
+  });
+  const modelParts = lastModelHasImage ? lastModel.parts : undefined;
+
   const existing = session.acceptedSpreads.findIndex(s => s.index === spreadIndex);
   if (existing >= 0) {
     session.acceptedSpreads[existing].imageBase64 = imageBase64;
+    if (modelParts) session.acceptedSpreads[existing].modelParts = modelParts;
   } else {
-    session.acceptedSpreads.push({ index: spreadIndex, imageBase64 });
+    const entry = { index: spreadIndex, imageBase64 };
+    if (modelParts) entry.modelParts = modelParts;
+    session.acceptedSpreads.push(entry);
   }
 }
 
@@ -277,17 +297,33 @@ function seedHistoryFromAccepted(session, acceptedSpreads) {
     .filter(s => s && typeof s.index === 'number' && s.imageBase64)
     .sort((a, b) => a.index - b.index);
   const tail = sorted.slice(-SLIDING_WINDOW_ACCEPTED_SPREADS);
+
+  let seededWithImage = 0;
+  let seededTextOnly = 0;
   for (const accepted of tail) {
     session.history.push({
       role: 'user',
       parts: [{ text: `[Context: spread ${accepted.index + 1} (accepted reference for continuity).]` }],
     });
-    session.history.push({
-      role: 'model',
-      parts: [{ inline_data: { mimeType: 'image/png', data: accepted.imageBase64 } }],
-    });
+
+    // Replay the exact model parts (carrying thoughtSignature) if we have them.
+    // Otherwise fall back to a text-only acknowledgment — replaying an image
+    // part without its signature triggers a hard 400 on Gemini 3.x.
+    if (Array.isArray(accepted.modelParts) && accepted.modelParts.length > 0) {
+      session.history.push({ role: 'model', parts: accepted.modelParts });
+      seededWithImage++;
+    } else {
+      session.history.push({
+        role: 'model',
+        parts: [{ text: `Acknowledged — spread ${accepted.index + 1} is accepted and matches the locked character and 3D Pixar style.` }],
+      });
+      seededTextOnly++;
+    }
   }
-  console.log(`[illustrator/session] Seeded history with ${tail.length} accepted spread(s) for continuity`);
+  console.log(
+    `[illustrator/session] Seeded history with ${tail.length} accepted spread(s) for continuity ` +
+    `(${seededWithImage} with image, ${seededTextOnly} text-only fallback)`,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -335,6 +371,18 @@ function _removeLastExchange(session) {
     h.pop();
     console.log('[illustrator/session] Pruned orphaned user message from history');
   }
+}
+
+/**
+ * Prune the most recent user+model exchange. Use this after a QA failure to
+ * remove the rejected model image from history before the next correction
+ * turn, so the bad render can never leak into the next attempt as a visual
+ * anchor (the "I LOVE MAMA ghost" bug).
+ *
+ * @param {IllustratorSession} session
+ */
+function pruneLastTurn(session) {
+  _removeLastExchange(session);
 }
 
 /**
@@ -389,10 +437,19 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
     const errBody = await resp.text().catch(() => '');
     const isNsfw = resp.status === 400
       && /\b(safety|prohibited_content|image_safety|image_prohibited_content|blockReason|content_?policy)\b/i.test(errBody);
+    const isSignatureError = resp.status === 400
+      && /thought_signature|thoughtSignature/i.test(errBody);
     const err = new Error(`Session API error ${resp.status}: ${errBody.slice(0, 300)}`);
     if (isNsfw) {
       err.isSafetyBlock = true;
       err.isEmptyResponse = true;
+    }
+    if (isSignatureError) {
+      err.isSignatureError = true;
+      console.error(
+        '[illustrator/session] thought_signature 400 — an accepted spread was replayed without its signature. ' +
+        'Check markSpreadAccepted / seedHistoryFromAccepted.',
+      );
     }
     throw err;
   }
@@ -475,6 +532,7 @@ module.exports = {
   generateSpread,
   sendCorrection,
   markSpreadAccepted,
+  pruneLastTurn,
   rebuildSession,
   seedHistoryFromAccepted,
 };
