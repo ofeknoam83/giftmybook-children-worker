@@ -34,6 +34,10 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 
+## Illustrator V2 — enforcement tiers
+
+Rules are layered: **session system instruction** and **per-spread prompt** carry the full policy (composition, characters, text, parent themes). **Per-spread QA** (text, anatomy, extra, style) catches repeatable defects and triggers in-session corrections. **Book-wide QA** (`bookWideGate`) is intentionally lenient and overlap-based; it may regen suspect spreads but does not hard-fail the book. Prefer fixing issues at the prompt layer; use QA telemetry (`bookContext.qaTagCounts`, `qaInfraErrors`) to see which tags drive retries.
+
 ## Conventions
 
 - All functions use JSDoc comments

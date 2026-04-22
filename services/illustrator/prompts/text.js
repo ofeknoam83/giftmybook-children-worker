@@ -49,6 +49,7 @@ function buildTextInstruction(text, opts = {}) {
   parts.push('');
   parts.push('### TEXT PLACEMENT (CRITICAL — READ CAREFULLY)');
   parts.push(`- TEXT POSITION: Place ALL text in the ${placement.anchor} of the image — the ${placement.side.toUpperCase()} side, ${placement.vertical} portion.`);
+  parts.push(`- VERTICAL + SIDE LOCK: Upper vs lower and left vs right are fixed by this spread's anchor above. Do not invent a conflicting vertical band or a second text region elsewhere in the frame.`);
   parts.push(`- Render the text EXACTLY ONCE in a single block. ONE text block only — NEVER duplicate or repeat the text anywhere else in the image.`);
   parts.push(`- CENTER NO-TEXT ZONE (THIS IS THE MOST COMMON MISTAKE): This is ONE single illustration, not a book layout. The middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image is reserved for imagery only and must stay free of text. Place ALL text entirely within the ${placement.side.toUpperCase()} ${safePct}% strip of the image. If you are unsure, push the text further toward the ${placement.side} edge. Do NOT draw or imply any center fold, page break, or spine.`);
   parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`);

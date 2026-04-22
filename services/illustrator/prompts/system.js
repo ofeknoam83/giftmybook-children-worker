@@ -6,7 +6,21 @@
  * is achieved purely through image references (cover + photo).
  */
 
-const { ART_STYLE_CONFIG, PARENT_THEMES, TEXT_RULES } = require('../config');
+const { PARENT_THEMES } = require('../config');
+const {
+  buildPrecedenceBlock,
+  buildArtStyleLines,
+  buildCharacterConsistencyLines,
+  buildAnatomyLines,
+  buildCompositionSystemLines,
+  buildContentRulesLines,
+  buildParentLexiconLines,
+  buildSecondaryOnCoverLines,
+  buildHiddenParentSystemLines,
+  buildNoFamilyLines,
+  buildTextRenderingSystemLines,
+  buildDuplicatePreventionLines,
+} = require('./ruleBlocks');
 
 /**
  * Build the system instruction text.
@@ -22,154 +36,65 @@ const { ART_STYLE_CONFIG, PARENT_THEMES, TEXT_RULES } = require('../config');
  * @returns {string}
  */
 function buildSystemInstruction(opts) {
-  const styleConfig = ART_STYLE_CONFIG[opts.style] || ART_STYLE_CONFIG.pixar_premium;
   const parts = [];
+
+  parts.push(buildPrecedenceBlock());
 
   parts.push('You are creating illustrations for a personalized children\'s book.');
   parts.push('You will receive reference images of the child (real photo + approved cover) in the first turn.');
   parts.push('Use those images as your ONLY source of truth for character appearance.');
   parts.push('');
 
-  // Art style
-  const LOCKED_3D_STYLES = new Set(['pixar_premium', 'cinematic_3d', 'graphic_novel_cinematic']);
-  const isLocked3D = LOCKED_3D_STYLES.has(opts.style);
-
-  parts.push(`ART STYLE (NON-NEGOTIABLE): ${styleConfig.prefix} ${styleConfig.suffix}`);
-  parts.push('This art style is MANDATORY for every single illustration. Do NOT deviate to any other rendering technique.');
-  parts.push('Every illustration must use the EXACT SAME rendering technique — if the style says 3D/CGI, every page must be 3D/CGI rendered. If it says watercolor, every page must be watercolor.');
-  if (isLocked3D) {
-    // For locked 3D styles the mandatory rendering medium overrides the cover's visual medium.
-    // Match the cover ONLY for character identity (face, outfit, hair, skin tone, colour family) —
-    // NOT for brush style, paint texture, or any 2D/painted look the cover may have.
-    parts.push('The approved cover image is your reference for CHARACTER IDENTITY ONLY (face, hair, skin tone, outfit, colour palette). DO NOT match the cover\'s rendering medium or brush style — the rendering medium is locked to premium 3D CGI as stated above, regardless of how the cover looks.');
-  } else {
-    parts.push('Match the rendering style shown in the approved cover image provided in Turn 1.');
-  }
+  parts.push(buildArtStyleLines(opts).join('\n'));
   parts.push('');
 
-  // Character consistency (image-based, no text descriptions)
-  parts.push('CHARACTER CONSISTENCY (CRITICAL — READ CAREFULLY):');
-  parts.push('- Every character must look IDENTICAL to the reference images provided in Turn 1');
-  parts.push('- HAIR: Same hair COLOR, LENGTH, STYLE, and TEXTURE in EVERY illustration. If the child has short dark curly hair on the cover, they must have short dark curly hair on every single page. NEVER change hairstyle, hair color, or hair length.');
-  parts.push('- OUTFIT: The child wears the EXACT SAME CLOTHES in EVERY illustration — same colors, same style, same accessories. No costume changes for weather, activity, time of day, or scene. Look at the cover — that outfit is what they wear on EVERY page.');
-  parts.push('- FACE: Same face shape, same skin tone, same facial features in EVERY illustration');
-  parts.push('- The child\'s eyes must ALWAYS be OPEN and expressive');
-  parts.push('- If the reference photo shows closed/squinting eyes, IGNORE that — draw them open');
+  parts.push(buildCharacterConsistencyLines().join('\n'));
   parts.push('');
 
-  // Anatomy
-  parts.push('ANATOMY RULES (COUNT BEFORE GENERATING):');
-  parts.push('- Every person has EXACTLY 2 hands, 2 arms, 2 legs, 2 feet — NO MORE, NO LESS');
-  parts.push('- Every hand has EXACTLY 5 fingers — count them before finalizing');
-  parts.push('- NEVER generate 3 hands, 3 arms, or any extra limbs');
-  parts.push('- When hands are visible, keep them SIMPLE — fists, cupped, relaxed, or wrapped around objects. AVOID showing individual spread-out fingers.');
-  parts.push('- If the child is holding something, show the object clearly and keep the grip natural — do not splay fingers.');
-  parts.push('- Proportions appropriate for a young child');
-  parts.push('- No merged body parts, no distorted limbs, no body horror');
+  parts.push(buildAnatomyLines().join('\n'));
   parts.push('');
 
-  // Composition
-  parts.push('COMPOSITION (CRITICAL):');
-  parts.push('- EVERY illustration is a SINGLE PHOTOGRAPH of ONE scene. It is NOT a book layout. It is NOT two pages. It is NOT designed to be split in half. Think of it as one wide movie still captured in one frame.');
-  parts.push('- EVERY illustration is ONE SINGLE SEAMLESS PAINTING — like a wide movie still or panoramic photograph.');
-  parts.push('- The scene flows continuously from left edge to right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break ANYWHERE.');
-  parts.push('- NEVER draw two separate images side by side. NEVER split into left panel and right panel. There must be ZERO visual indication of a center divide.');
-  parts.push('- NEVER draw a diptych, a before-and-after, mirrored halves, a filmstrip, or a comic-style panel grid.');
-  parts.push('- ONE continuous background, ONE unified lighting, ONE seamless composition across the full width.');
-  parts.push('- CONTINUITY TEST: drawing an imaginary vertical line anywhere in the image must NOT split it into two differently-lit or differently-placed scenes. Both halves of any vertical slice must show the SAME room / SAME outdoor setting / SAME time of day.');
-  parts.push('- Each illustration is one single moment — not a comic strip or sequence');
-  parts.push('- HERO SAFE ZONE: the main character\'s head and full face must sit inside the middle 80% of the frame. NEVER crop the hero\'s head at the top, bottom, left, or right edge. Leave at least 8% of image height above the top of the hero\'s head.');
-  parts.push('- Fill the entire canvas edge to edge — no blank areas');
-  parts.push('- Wide cinematic 16:9 panoramic format');
-  parts.push('- Important elements should NOT be placed at the exact left-right center');
+  parts.push(buildCompositionSystemLines().join('\n'));
   parts.push('');
 
-  // Content rules
-  parts.push('CONTENT RULES:');
-  parts.push('- All content must be age-appropriate for children ages 2-8');
-  parts.push('- Wholesome, warm, family-friendly');
-  parts.push('- No scary imagery, no violence, no dark themes');
-  parts.push('- COLOR VARIETY: Even if the scene mentions a favorite color, the illustration should have a natural, varied palette. Do NOT flood the entire scene with one color. A pink dress is fine; an all-pink world is not.');
+  parts.push(buildContentRulesLines().join('\n'));
   parts.push('');
 
-  // Parent / secondary visibility — rules compose additively.
   const isParentTheme = opts.theme && PARENT_THEMES.has(opts.theme);
   const hasSecondaryOnCover = (typeof opts.hasSecondaryOnCover === 'boolean')
     ? opts.hasSecondaryOnCover
     : !!opts.hasParentOnCover;
 
-  // Universal rule: any non-child on the cover must be locked to their cover
-  // appearance. Applies to every theme, whether or not the themed parent is
-  // among them.
+  if (isParentTheme) {
+    parts.push(buildParentLexiconLines(opts.theme).join('\n'));
+    parts.push('');
+  }
+
   if (hasSecondaryOnCover) {
-    parts.push('SECONDARY CHARACTERS ON COVER (LOCKED — APPLIES TO EVERY NON-CHILD ON THE COVER):');
-    parts.push('- Every non-child character visible on the approved cover must appear in illustrations EXACTLY as shown on the cover.');
-    parts.push('- Each of them, individually: same face shape, hair color/length/style, skin tone, outfit, build, distinguishing features. No variations across pages.');
-    if (isParentTheme && !opts.hasParentOnCover) {
-      const isMother = opts.theme === 'mothers_day';
-      parts.push(`- IMPORTANT: The person visible on the cover is NOT the ${isMother ? 'mother' : 'father'}. They are a different character (sibling, grandparent, friend). Do NOT treat them as the parent.`);
-    }
-    if (opts.hasParentOnCover) {
-      parts.push('- The themed parent IS among the cover characters and falls under this same lock — they appear in scenes where mentioned and must look identical to their cover appearance.');
-    }
+    parts.push(buildSecondaryOnCoverLines({
+      hasSecondaryOnCover,
+      hasParentOnCover: opts.hasParentOnCover,
+      theme: opts.theme,
+    }).join('\n'));
     parts.push('');
   }
 
   if (!opts.hasParentOnCover && isParentTheme) {
-    const isMother = opts.theme === 'mothers_day';
-    const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
-    const parentPronoun = isMother ? 'her' : 'his';
-    parts.push(`⚠️ PARENT CHARACTER — ${parentLabel} (FACE COMPLETELY HIDDEN — #1 RULE):`);
-    if (hasSecondaryOnCover) {
-      parts.push(`- The person visible on the cover is NOT the ${isMother ? 'mother' : 'father'}. The ${isMother ? 'mother' : 'father'} is a SEPARATE character who has NO reference image.`);
-    }
-    parts.push(`- The story references the child's ${isMother ? 'mother' : 'father'} but we have NO reference image`);
-    parts.push(`- The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}`);
-    parts.push(`- THE PARENT'S FACE MUST NEVER BE VISIBLE IN ANY ILLUSTRATION. No eyes, no mouth, no nose, no facial features. This is because we have no photo — showing a face would make it look different on every page.`);
-    parts.push(`- Show ${isMother ? 'her' : 'him'} ONLY through: hands reaching toward the child, arms around the child, back view, kneeling with face cropped out of frame, or side view with face turned away and obscured. If the parent is sitting, show from behind or with face out of frame.`);
-    parts.push('- NEVER use a solid black rectangle, black bar, opaque censor block, void, hole, or placeholder shape where a face would be — that is a broken image, not illustration. Hide faces only with real composition (angle, crop, hair, body position, soft backlight). The painting must look seamless and finished.');
-    parts.push(`- BODY ORIENTATION: The parent's body must face TOWARD the child — leaning in, bending down, reaching out. NEVER facing away from the child.`);
-    parts.push(`- The ${isMother ? 'mother' : 'father'} should feel warm and physically present — just with ${parentPronoun} face completely hidden`);
-    parts.push(`- ⚠️ FAMILY RESEMBLANCE (HARD RULE): The parent is biologically related to the child. ${isMother ? 'Her' : 'His'} SKIN TONE, HAIR COLOR, and ETHNICITY must match the child's photo. Use the child's photograph as the BASELINE for family appearance. The parent's visible skin (hands, arms, neck, back of head, ears) must be the SAME skin tone as the child's skin in the photograph — not lighter, not darker, not a different ethnicity. Hair color/texture should be in the same family as the child's. Never draw a black-skinned parent for a white-skinned child or vice versa. If the child in the photo looks East Asian, the parent is East Asian; if South Asian, the parent is South Asian; if white, the parent is white; if Black, the parent is Black; and so on.`);
-    if (opts.parentOutfit) {
-      parts.push(`- PARENT OUTFIT LOCK (CRITICAL): The ${isMother ? 'mother' : 'father'} MUST wear EXACTLY this outfit in EVERY illustration — no exceptions: ${opts.parentOutfit}`);
-      parts.push(`- Do NOT change the parent's outfit for any reason. Same garments, same colors, every single page.`);
-    }
+    parts.push(buildHiddenParentSystemLines({
+      hasSecondaryOnCover,
+      parentOutfit: opts.parentOutfit || null,
+      theme: opts.theme,
+    }).join('\n'));
     parts.push('');
   } else if (!opts.hasParentOnCover && !hasSecondaryOnCover && !isParentTheme) {
-    parts.push('NO FAMILY MEMBERS (ABSOLUTE — NO EXCEPTIONS):');
-    parts.push('- Do NOT draw any real human characters besides the child — no parents, grandparents, siblings, aunts, uncles, or any other family members.');
-    parts.push('- This rule applies EVEN IF the story text mentions a family member by name. We have NO reference image for them, so drawing them would produce inconsistent faces across pages.');
-    parts.push('- If the scene text mentions a family member, show their PRESENCE through traces only: a hand reaching from off-screen, a shadow, belongings, or evidence they were there. NEVER their face or full body.');
-    parts.push('- The child may interact with fictional/non-human characters (animals, fairies, shopkeepers).');
+    parts.push(buildNoFamilyLines().join('\n'));
     parts.push('');
   }
 
-  // Text rendering rules
-  parts.push('TEXT RENDERING RULES:');
-  parts.push('FONT IS A HARD CONSTRAINT (MOST COMMON QA FAILURE — READ TWICE):');
-  parts.push(`- Font: ${TEXT_RULES.fontStyle}`);
-  parts.push('- The font MUST be PIXEL-IDENTICAL on every single page of this book. Same family, same weight, same slant, same x-height, same stroke contrast, same letter spacing. Treat spread 1\'s font as a locked reference — every subsequent spread must match it exactly.');
-  parts.push('- NEVER switch fonts between pages. Do NOT vary the font for emphasis, for different moods, or to match the illustration.');
-  parts.push('- NEVER use: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded, Comic Sans, Papyrus, Chalkboard, Impact, Marker, Dancing Script, decorative, thin modern sans, condensed, or stenciled fonts. If any text in this book looks playful, hand-drawn, or decorative, that is a FAILURE and must be regenerated.');
-  parts.push('- Upright only — never italic, never oblique.');
-  parts.push('- When in doubt, render as plain Georgia regular weight.');
-  parts.push(`- Size: ${TEXT_RULES.fontSize}. The illustration is the star.`);
-  parts.push(`- Color: ${TEXT_RULES.fontColor}`);
-  parts.push('- Text must be CRISP and SHARP — NOT blurry or fuzzy');
-  parts.push(`- Maximum ${TEXT_RULES.maxWordsPerLine} words per line`);
-  parts.push('- Text can be placed anywhere vertically (top, bottom, upper-left, lower-right, etc.)');
-  parts.push(`- CENTER NO-TEXT ZONE (MOST COMMON MISTAKE — READ CAREFULLY): The illustration is ONE single image, not a book layout. The middle ${TEXT_RULES.centerExclusionPercent * 2}% of the image is reserved for imagery only — keep it free of text. Place ALL text entirely within either the LEFT ${50 - TEXT_RULES.centerExclusionPercent}% strip or the RIGHT ${50 - TEXT_RULES.centerExclusionPercent}% strip of the image. If in doubt, push text further toward the edge. Do NOT draw or imply any center fold, page break, or spine.`);
-  parts.push(`- EDGE PADDING: at least ${TEXT_RULES.edgePaddingPercent}% from left and right edges`);
-  parts.push(`- TOP PADDING: at least ${TEXT_RULES.topPaddingPercent}% from the TOP edge — text should never feel cramped against the top of the image.`);
-  parts.push(`- BOTTOM PADDING (CRITICAL): at least ${TEXT_RULES.bottomPaddingPercent}% from the BOTTOM edge — the bottom gets cropped during print. Text near the bottom WILL be cut off.`);
-  parts.push('- Main characters and key action should not be hidden behind text. NEVER place text over the hero\'s head, face, or eyes.');
+  parts.push(buildTextRenderingSystemLines().join('\n'));
   parts.push('');
 
-  // Duplicate item detection
-  parts.push('DUPLICATE PREVENTION:');
-  parts.push('- Check for items that appear twice in the same illustration');
-  parts.push('- No cloned/copy-pasted objects — each item should be unique');
+  parts.push(buildDuplicatePreventionLines().join('\n'));
   parts.push('');
 
   return parts.join('\n');

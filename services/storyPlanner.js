@@ -92,6 +92,7 @@ const THEME_RULES = {
 - Use dreamy imagery: stars, moonlight, soft glow, warm blankets`,
 
   mothers_day: `LOVE TO MOM THEME — a love letter from child to mom:
+- LEXICON (CRITICAL): Words for the human mother ("Mama", "Mom", "Mommy", "Mother") always mean a HUMAN woman — the parent. They NEVER refer to a toy, pet, comfort object, mascot, or other non-human companion on the cover or in favorite_object. Parental caregiving in the story is always the human mother unless a line explicitly says pretend-play AND she still appears in that beat as required (hidden-face rules). Companions keep their real type and scale; do not assign Mom's parental beats to a non-human.
 - Mom is a NAMED CHARACTER — use the name from customDetails (calls_mom / mom_name). If not provided, use "Mommy"
 - Mom MUST appear in at least 6 of 13 spreads — she is co-protagonist
 - Story is told from the child's perspective of love and gratitude for mom
@@ -107,6 +108,7 @@ const THEME_RULES = {
 - This book should make a mother cry happy tears`,
 
   fathers_day: `FATHER'S DAY THEME — a bonding adventure:
+- LEXICON (CRITICAL): Words for the human father ("Dad", "Daddy", "Papa", "Father") always mean a HUMAN man — the parent. They NEVER refer to a toy, pet, comfort object, mascot, or other non-human companion. Dad's caregiving actions are always the human adult; companions are not stand-ins unless explicit pretend-play AND Dad still appears as required.
 - Dad is a NAMED CHARACTER — use the name from customDetails (calls_dad / dad_name). If not provided, use "Daddy"
 - Dad MUST appear in at least 6 of 13 spreads — he is co-protagonist
 - Include shared activities from customDetails as story scenes
@@ -787,12 +789,20 @@ When writing beats that include Mom, note her presence explicitly so downstream 
 Describe Mom warmly and consistently each time.
 ADDITIONALLY, the uploaded photo contains a secondary person:
 ${additionalCoverCharacters}
-CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Mom and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.
+If the only non-child described above is non-human (toy, pet, etc.), it is a companion — not Mom. Parent words still mean the human mother; never assign her caregiving beats to that companion.
+ILLUSTRATION CONTRACT (spread_image_prompt on every spread):
+- One seamless panoramic scene — never a split panel, diptych, or two-page layout in one image.
+- Human mother vs non-human companion: "Mom/Mama" lines refer to the human woman; companions stay true type/scale and never replace Mom for caregiving or guardian beats.`
     : `LOVE TO MOM — MOM IN ILLUSTRATIONS (FACE COMPLETELY HIDDEN):
 Mom is a co-protagonist in this story. She MUST appear in beats for at least 6 of 13 spreads.
 When writing beats that include Mom, note her presence explicitly so downstream illustration prompts can include her.
 CRITICAL: We have NO reference image for Mom. She is FEMALE (a woman — never draw a man). Her face must NEVER be visible in ANY illustration — no eyes, no mouth, no facial features. In EVERY beat where Mom appears, describe a specific hidden-face pose: "Mom's hands wrap around the child from behind", "seen from behind, Mom kneels beside...", "Mom's arm reaches in from the side". NEVER write "Mom smiles" or "Mom looks at" — these cause the illustrator to draw her face. Her warmth comes through body language, hands, and posture only.
-Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.`)
+If favorite_object or the cover includes a non-human companion, it is not Mom. Rhymes saying "Mama" still refer to the human woman. NEVER write beats where that companion replaces Mom for parental actions (e.g. as the one walking beside the stroller in the parent's role); Mom performs those actions as the human adult with hidden face.
+Other family members (siblings, grandparents, dad) must NOT appear in illustrations — text only.
+ILLUSTRATION CONTRACT (spread_image_prompt on every spread):
+- One seamless panoramic scene — never a split panel or side-by-side "two moments."
+- Where Mom appears: every prompt must encode hidden-face composition (hands, back view, crop, frame edge) — never wording that implies a visible face (e.g. "smiles at", "looks at"); we have no Mom reference photo.`)
   : theme === 'fathers_day'
   ? (additionalCoverCharacters
     ? `FATHER'S DAY — DAD IN ILLUSTRATIONS + SECONDARY CHARACTERS:
@@ -801,12 +811,20 @@ When writing beats that include Dad, note his presence explicitly so downstream 
 Describe Dad warmly and consistently each time.
 ADDITIONALLY, the uploaded photo contains a secondary person:
 ${additionalCoverCharacters}
-CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.`
+CRITICAL: Their appearance must be CONSISTENT across all illustrations. Only Dad and the secondary character(s) listed above are allowed in illustrations — do NOT invent any other family members.
+If the only non-child on the cover is non-human, it is a companion — not Dad. Parent words still mean the human father; never assign his caregiving beats to that companion.
+ILLUSTRATION CONTRACT (spread_image_prompt on every spread):
+- One seamless panoramic scene — never a split panel, diptych, or two-page layout in one image.
+- Human father vs non-human companion: "Dad/Papa" lines refer to the human man; companions stay true type/scale and never replace Dad for caregiving or guardian beats.`
     : `FATHER'S DAY — DAD IN ILLUSTRATIONS (FACE COMPLETELY HIDDEN):
 Dad is a co-protagonist in this story. He MUST appear in beats for at least 6 of 13 spreads.
 When writing beats that include Dad, note his presence explicitly so downstream illustration prompts can include him.
 CRITICAL: We have NO reference image for Dad. He is MALE (a man — never draw a woman). His face must NEVER be visible in ANY illustration — no eyes, no mouth, no facial features. In EVERY beat where Dad appears, describe a specific hidden-face pose: "Dad's strong hands lift the child", "seen from behind, Dad walks beside...", "Dad's arm reaches in from the side". NEVER write "Dad smiles" or "Dad looks at" — these cause the illustrator to draw his face. His warmth comes through body language, hands, and posture only.
-Other family members (siblings, grandparents, mom) must NOT appear in illustrations — text only.`)
+If favorite_object or the cover includes a non-human companion, it is not Dad. Rhymes saying "Daddy/Papa" still refer to the human man. NEVER write beats where that companion replaces Dad for parental actions; Dad performs those actions as the human adult with hidden face.
+Other family members (siblings, grandparents, mom) must NOT appear in illustrations — text only.
+ILLUSTRATION CONTRACT (spread_image_prompt on every spread):
+- One seamless panoramic scene — never a split panel or side-by-side "two moments."
+- Where Dad appears: every prompt must encode hidden-face composition (hands, back view, crop, frame edge) — never wording that implies a visible face (e.g. "smiles at", "looks at"); we have no Dad reference photo.`)
   : (additionalCoverCharacters
     ? `SECONDARY CHARACTERS (from the uploaded photo):
 The uploaded photo contains more than one person. The following secondary character(s) appear on the cover and MAY appear in illustrations. Include them naturally in the story where appropriate.

@@ -34,6 +34,35 @@ function abortGuard(bookContext) {
   }
 }
 
+/**
+ * Runtime FACE RULE append only when scene text names the parent but lacks both
+ * hidden-face and companion-disambiguation cues (avoids repeating the full block).
+ * @param {string} spreadPrompt
+ * @param {boolean} isMother
+ * @returns {boolean}
+ */
+function needsParentFaceRuleInjection(spreadPrompt, isMother) {
+  const t = String(spreadPrompt || '');
+  const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
+  if (!new RegExp(parentWord, 'i').test(t)) return false;
+  const hasHiddenFaceCue = /back view|hands only|face out of frame|cropped|obscured|no facial features|face hidden|hidden face|turned away|face turned away|from behind|above the frame|reaches in from|wrap around the child|kneels beside/i.test(t);
+  const hasCompanionCue = /companion|not (the )?(mom|dad|mother|father)|toy-sized|NOT Mom|NOT Dad|non-human|human (mother|father)/i.test(t);
+  return !(hasHiddenFaceCue && hasCompanionCue);
+}
+
+/**
+ * @param {object|null|undefined} bookContext
+ * @param {Iterable<string>|string[]} tags
+ */
+function recordQaTags(bookContext, tags) {
+  if (!bookContext || tags == null) return;
+  if (!bookContext.qaTagCounts) bookContext.qaTagCounts = Object.create(null);
+  for (const t of tags) {
+    if (!t || typeof t !== 'string') continue;
+    bookContext.qaTagCounts[t] = (bookContext.qaTagCounts[t] || 0) + 1;
+  }
+}
+
 class IllustratorEngine {
   /**
    * Generate all illustrations for a children's book.
@@ -66,8 +95,9 @@ class IllustratorEngine {
 
     log('info', `Illustrator V2 (${version.illustratorVersion}) starting for book ${bookId}`);
     const pipelineStart = Date.now();
-    if (bookContext != null && typeof bookContext.qaInfraErrors !== 'number') {
-      bookContext.qaInfraErrors = 0;
+    if (bookContext != null) {
+      if (typeof bookContext.qaInfraErrors !== 'number') bookContext.qaInfraErrors = 0;
+      if (!bookContext.qaTagCounts) bookContext.qaTagCounts = Object.create(null);
     }
 
     const isParentTheme = theme && PARENT_THEMES.has(theme);
@@ -104,6 +134,8 @@ class IllustratorEngine {
 
       await establishCharacterReferences(session);
       log('info', 'Character references established successfully');
+      const sysLen = session.systemInstruction ? String(session.systemInstruction).length : 0;
+      log('info', `Session systemInstruction length: ${sysLen} chars`);
     } catch (err) {
       log('error', `Failed to establish session: ${err.message}`);
       throw new Error(`Illustrator V2 session failed: ${err.message}`);
@@ -170,13 +202,10 @@ class IllustratorEngine {
         let safeScenePrompt = spreadPrompt;
 
         if (!hasParentOnCover && isParentTheme) {
-          // Parent themes without parent on cover: inject face-hidden reminder
           const isMother = theme === 'mothers_day';
-          const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
-          const parentRegex = new RegExp(parentWord, 'i');
-          if (parentRegex.test(spreadPrompt)) {
+          if (needsParentFaceRuleInjection(spreadPrompt, isMother)) {
             const parentLabel = isMother ? 'Mom' : 'Dad';
-            safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features. NEVER use a solid black rectangle, bar, or censor block over the head — hide the face only with natural camera angle, crop, or hair; the image must look like a finished painting.`;
+            safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features. NEVER use a solid black rectangle, bar, or censor block over the head — hide the face only with natural camera angle, crop, or hair; the image must look like a finished painting. Non-human companions on the cover stay companions (true scale/type) — NOT ${parentLabel}; never show them as a life-sized adult stand-in doing ${parentLabel}'s caregiving actions when the text uses parent names.`;
           }
         } else if (!hasParentOnCover && !isParentTheme) {
           // Non-parent themes without secondary cover characters: strip family references
@@ -201,6 +230,9 @@ class IllustratorEngine {
           parentOutfit,
           storyBible,
         });
+        if (i === 0) {
+          log('info', `First spread full prompt length: ${prompt.length} chars`);
+        }
 
         // Generate within session — retry with exponential backoff up to MAX_GENERATION_RETRIES
         let result = null;
@@ -279,6 +311,7 @@ class IllustratorEngine {
               ...(Array.isArray(textCheck.tags) ? textCheck.tags : []),
               ...(Array.isArray(anatomyCheck.tags) ? anatomyCheck.tags : []),
             ]);
+            recordQaTags(bookContext, qaTags);
             const hasTextIssues = issues.some(iss => iss.startsWith('[text]'));
             const hasAnatomyIssues = issues.some(iss => iss.startsWith('[anatomy]'));
             const hasSplitPanel = qaTags.has('split_panel')
@@ -427,6 +460,7 @@ ${prompt}`;
               ...(Array.isArray(extraCheck.tags) ? extraCheck.tags : []),
               ...(Array.isArray(artStyleCheck.tags) ? artStyleCheck.tags : []),
             ]);
+            recordQaTags(bookContext, qaTags);
             const hasSplitPanel = qaTags.has('split_panel')
               || issues.some(iss => iss.toLowerCase().includes('split panel'));
             if (hasSplitPanel) {
@@ -775,6 +809,9 @@ ${prompt}`;
     const totalMs = Date.now() - pipelineStart;
     const generatedCount = generatedImages.length;
     log('info', `Illustrator V2 complete: ${generatedCount} spreads in ${totalMs}ms (avg ${generatedCount ? Math.round(totalMs / generatedCount) : 0}ms/spread)`);
+    if (bookContext?.qaTagCounts && Object.keys(bookContext.qaTagCounts).length > 0) {
+      log('info', `QA tag counts (failed-check samples): ${JSON.stringify(bookContext.qaTagCounts)}`);
+    }
 
     return results;
   }
@@ -861,10 +898,9 @@ ${prompt}`;
     let safeScenePrompt = scenePrompt;
     if (!hasParentOnCover && isParentTheme) {
       const isMother = theme === 'mothers_day';
-      const parentWord = isMother ? 'mother|mom|mama|mommy|mum' : 'father|dad|daddy|papa';
-      if (new RegExp(parentWord, 'i').test(scenePrompt)) {
+      if (needsParentFaceRuleInjection(scenePrompt, isMother)) {
         const parentLabel = isMother ? 'Mom' : 'Dad';
-        safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features. NEVER use a solid black rectangle, bar, or censor block over the head — hide the face only with natural camera angle, crop, or hair; the image must look like a finished painting.`;
+        safeScenePrompt += `\n\n⚠️ FACE RULE: ${parentLabel} appears in this scene but ${parentLabel}'s face must be COMPLETELY HIDDEN — show only hands, arms, back view, or side view with face cropped out of frame. NEVER draw ${parentLabel}'s face, eyes, or facial features. NEVER use a solid black rectangle, bar, or censor block over the head — hide the face only with natural camera angle, crop, or hair; the image must look like a finished painting. Non-human companions on the cover stay companions (true scale/type) — NOT ${parentLabel}; never show them as a life-sized adult stand-in doing ${parentLabel}'s caregiving actions when the text uses parent names.`;
       }
     } else if (!hasParentOnCover && !isParentTheme) {
       const familyRegex = /\b(grandpa|grandma|grandfather|grandmother|granny|nana|papa|nanny|uncle|aunt|auntie|daddy|dad|mommy|mom|mum|mama|father|mother|brother|sister|sibling|parent)\b/i;

@@ -317,17 +317,19 @@ async function establishCharacterReferences(session) {
 
   if (!hasParentOnCover && isParentTheme) {
     const isMother = theme === 'mothers_day';
-    const parentLabel = isMother ? 'MOTHER (a woman/female)' : 'FATHER (a man/male)';
     const parentOutfit = session.opts.parentOutfit;
-    let note = `NOTE: The story references the child's ${parentLabel} but the ${isMother ? 'mother' : 'father'} is NOT on the cover${secondaryOnCover ? ` (the character visible on the cover is a different person — a sibling, grandparent, or friend, NOT the ${isMother ? 'mother' : 'father'})` : ''}. The parent is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. The parent must NEVER show their full face — but their body must ALWAYS face TOWARD the child (leaning in, reaching out, kneeling beside). Show the parent through hands, arms, side view with face cropped/obscured, or kneeling with face just out of frame. NEVER use a solid black box, bar, or opaque mask where the face would be — that is a rendering error; hide the face only with natural camera angle, crop, hair, or back view. NEVER show the parent facing away or with their back to the child. FAMILY RESEMBLANCE: The ${isMother ? 'mother' : 'father'}'s visible skin, hair color, and ethnicity MUST match the child in the reference photo — same skin tone, same hair-color family, same ethnicity. Never invent a different ethnicity for the parent.`;
+    const lines = [
+      `NOTE: Full illustration policy (hidden-face parent, family words vs companions, anatomy, text, composition) is in the session system instruction — follow it on every spread.`,
+      `Turn-1 reminder: ${isMother ? 'Mom' : 'Dad'} is not on the cover${secondaryOnCover ? `; anyone else on the cover is not the ${isMother ? 'mother' : 'father'}` : ''}. Non-humans stay companions at true scale — never as the human ${isMother ? 'mother' : 'father'}.`,
+    ];
     if (parentOutfit) {
-      note += ` PARENT OUTFIT LOCK: The ${isMother ? 'mother' : 'father'} wears EXACTLY this outfit in every illustration: ${parentOutfit}`;
+      lines.push(`Parent outfit lock: ${parentOutfit}`);
     }
-    parts.push({ text: note });
+    parts.push({ text: lines.join(' ') });
   }
 
   parts.push({
-    text: 'Study these reference images carefully. You will generate 13 spread illustrations maintaining perfect character consistency based on these references. Acknowledge with text ONLY \u2014 do NOT generate an image yet.',
+    text: 'Study these reference images carefully. You will generate spread illustrations maintaining perfect character consistency based on these references. Acknowledge with text ONLY \u2014 do NOT generate an image yet.',
   });
 
   // Send establishment turn (text-only response)

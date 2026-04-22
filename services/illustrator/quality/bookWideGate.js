@@ -88,7 +88,12 @@ The ILLUSTRATION RULES above tell the *generator* to lock hair/outfits and famil
     ? `Cover secondary (must match when same person clearly visible in multiple spreads): ${String(opts.additionalCoverCharacters).slice(0, 600)}`
     : '';
 
-  const introText = `You are a lenient final QA pass for a children's picture book. The images below are the INTERIOR SPREADS ONLY, in order from first to last (spread 1 through spread ${ordered.length}).
+  const qaPreamble = `QA MODE — LENIENT, OVERLAP-ONLY:
+You are checking finished interior art for obvious breakage only. Prefer pass=true when unsure. Compare traits (hair, outfit, face) only where the same body region is clearly visible in two or more spreads. Do not fail on crops, lighting, or font details (handled elsewhere).
+
+`;
+
+  const introText = `${qaPreamble}You are a lenient final QA pass for a children's picture book. The images below are the INTERIOR SPREADS ONLY, in order from first to last (spread 1 through spread ${ordered.length}).
 
 ILLUSTRATION RULES (same session the book was drawn under):
 ${systemRules || '(no session rules provided)'}
