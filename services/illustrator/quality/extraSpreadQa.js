@@ -83,8 +83,9 @@ VISIBILITY / OVERLAP (same rule as cross-spread QA): Judge only what is clearly 
     instruction += `
 CHECK A — COVER SECONDARY MATCH:
 - The FIRST image below is the BOOK COVER (reference). The SECOND image is THIS SPREAD.
-- If THIS SPREAD clearly shows the same secondary person as on the cover (not just anonymous crowd), they must be the same individual. Apply the VISIBILITY rule: match only skin, hair, build, and clothing regions that are **clearly visible on both** cover and this spread. If the spread shows only a partial view, matching that partial to the cover is enough — do not require full-body agreement with unseen areas.
-- If the spread does NOT show that secondary person, pass A.
+- MEDIA EXCLUSION (critical): People depicted INSIDE media on the cover — a performer on a TV or tablet/phone/computer/cinema screen, a figure in a framed photo, a face on a poster / magazine cover / book cover / billboard / painting — are SCENE DECOR, not a "cover secondary person". The cover-secondary identity lock does NOT apply to them. If a similar media element (TV, poster, etc.) appears in this spread, the figure shown on it may look different (different show / different program / different artwork) — that is NORMAL and must PASS. Only a flesh-and-blood secondary person physically present in the cover scene counts.
+- If THIS SPREAD clearly shows the same real (non-media) secondary person as on the cover (not just anonymous crowd), they must be the same individual. Apply the VISIBILITY rule: match only skin, hair, build, and clothing regions that are **clearly visible on both** cover and this spread. If the spread shows only a partial view, matching that partial to the cover is enough — do not require full-body agreement with unseen areas.
+- If the spread does NOT show that secondary person (or shows only a media/screen version of them), pass A.
 Cover secondary description: ${String(additionalCoverCharacters).slice(0, 800)}
 `;
   }

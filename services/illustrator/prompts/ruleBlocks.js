@@ -160,6 +160,7 @@ function buildSecondaryOnCoverLines(opts) {
     'SECONDARY CHARACTERS ON COVER (LOCKED — APPLIES TO EVERY NON-CHILD ON THE COVER):',
     '- Every non-child character visible on the approved cover must appear in illustrations EXACTLY as shown on the cover.',
     '- Each of them, individually: same face shape, hair color/length/style, skin tone, outfit, build, distinguishing features. No variations across pages.',
+    '- MEDIA EXCLUSION: This lock applies only to flesh-and-blood characters physically present in the cover scene. Figures depicted INSIDE media (a performer on a TV/tablet/phone/computer/cinema screen, a face in a framed photo, poster, magazine cover, book cover, billboard, or painting) are scene decor — not recurring characters. When drawing screens/posters/photo frames in other spreads, you are FREE to show different programs/artworks/figures; do NOT try to replicate the cover\'s on-screen performer or on-poster figure.',
   ];
   if (isParentTheme && !hasParentOnCover) {
     lines.push(`- IMPORTANT: The person visible on the cover is NOT the ${isMother ? 'mother' : 'father'}. They are a different character (sibling, grandparent, friend). Do NOT treat them as the parent.`);

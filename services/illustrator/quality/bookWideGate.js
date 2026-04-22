@@ -85,7 +85,8 @@ The ILLUSTRATION RULES above tell the *generator* to lock hair/outfits and famil
     : '';
 
   const coverNote = opts.additionalCoverCharacters && opts.hasSecondaryOnCover
-    ? `Cover secondary (must match when same person clearly visible in multiple spreads): ${String(opts.additionalCoverCharacters).slice(0, 600)}`
+    ? `Cover secondary (must match when same person clearly visible in multiple spreads): ${String(opts.additionalCoverCharacters).slice(0, 600)}
+MEDIA EXCLUSION: If the cover depicts that secondary person INSIDE media — on a TV / phone / tablet / computer / cinema screen, in a framed photo, on a poster, magazine cover, book cover, billboard, or painting — they are scene decor, not a recurring character. Figures shown inside such media in other spreads (e.g. a different performer on a TV, a different poster on a wall) are free to differ from the cover. Do NOT flag that as a cover-secondary mismatch; only flesh-and-blood recurring people count.`
     : '';
 
   const qaPreamble = `QA MODE — LENIENT, OVERLAP-ONLY:
