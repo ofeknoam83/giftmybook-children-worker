@@ -19,6 +19,7 @@ const {
   MAX_HISTORY_IMAGE_BYTES,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   CONSISTENCY_REGEN_MAX_THUMB_BYTES,
+  CONSISTENCY_REGEN_MAX_THUMBS,
 } = require('./config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
 const { buildSystemInstruction } = require('./prompts/system');
@@ -58,9 +59,10 @@ async function shrinkSpreadAggressive(imageBase64, maxEdgePx, jpegQuality) {
  * @returns {Promise<Array<{index: number, thumbB64: string}>>}
  */
 async function selectReferenceThumbnails(spreadIndex, otherSpreads, maxBytes) {
-  const sorted = [...otherSpreads].sort(
-    (a, b) => Math.abs(a.index - spreadIndex) - Math.abs(b.index - spreadIndex),
-  );
+  const maxCount = CONSISTENCY_REGEN_MAX_THUMBS || 6;
+  const sorted = [...otherSpreads]
+    .sort((a, b) => Math.abs(a.index - spreadIndex) - Math.abs(b.index - spreadIndex))
+    .slice(0, maxCount);
 
   /** @type {Array<{index: number, thumbB64: string, sourceB64: string}>} */
   let refs = [];
@@ -178,16 +180,13 @@ async function regenerateWithFullContext(session, opts) {
     text: `${correctionNote}\n\nNow generate ONE new 16:9 illustration for spread ${spreadIndex + 1} only. Output a single full-bleed image (no split panels). Follow the illustration specification below exactly for scene and on-image text:\n\n${illustrationPrompt}`,
   });
 
-  const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
-  session.turnsUsed++;
+  // Stateless one-off call — consistency regen intentionally bypasses the
+  // accumulated chat history (which by this point holds 13 spreads' worth of
+  // images and would push the input past Gemini's 131072-token cap when we
+  // append child photo + cover + reference thumbnails on top).
+  const response = await _sendStatelessTurn(session, parts, { aspectRatio: '16:9' });
 
-  let result;
-  try {
-    result = _extractImage(response, spreadIndex);
-  } catch (extractErr) {
-    _removeLastExchange(session);
-    throw extractErr;
-  }
+  const result = _extractImage(response, spreadIndex);
 
   const existing = session.generatedSpreads.findIndex(s => s.index === spreadIndex);
   if (existing >= 0) {
@@ -524,6 +523,58 @@ function _removeLastExchange(session) {
     h.pop();
     console.log('[illustrator/session] Removed orphaned user message from history');
   }
+}
+
+/**
+ * Send a one-off turn to the Gemini REST API WITHOUT appending to session
+ * history. Used for consistency regen, where the accumulated chat history
+ * would push the multimodal input past the 131072-token cap. Uses the same
+ * apiKey, model, and systemInstruction as the session for stylistic parity.
+ */
+async function _sendStatelessTurn(session, userParts, genConfigOpts = {}) {
+  const { apiKey, model, systemInstruction } = session;
+  const url = `${CHAT_API_BASE}/${model}:generateContent?key=${apiKey}`;
+
+  const generationConfig = {
+    responseModalities: ['TEXT', 'IMAGE'],
+    maxOutputTokens: GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
+  };
+  if (genConfigOpts.aspectRatio) {
+    generationConfig.imageConfig = { aspectRatio: genConfigOpts.aspectRatio };
+  }
+
+  const body = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents: [{ role: 'user', parts: userParts }],
+    generationConfig,
+  };
+
+  const timeout = genConfigOpts.timeout || TURN_TIMEOUT_MS;
+  const startMs = Date.now();
+  const imgCount = userParts.reduce((n, p) => n + ((p.inline_data || p.inlineData) ? 1 : 0), 0);
+  console.log(`[illustrator/session] Stateless regen turn (images: ${imgCount})...`);
+
+  const resp = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, timeout, session.abortSignal);
+
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '');
+    const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
+    if (isNsfw) {
+      const err = new Error(`Session NSFW block: ${errBody.slice(0, 200)}`);
+      err.isNsfw = true;
+      throw err;
+    }
+    throw new Error(`Session API error ${resp.status}: ${errBody.slice(0, 300)}`);
+  }
+
+  const data = await resp.json();
+  const elapsedMs = Date.now() - startMs;
+  console.log(`[illustrator/session] Stateless regen turn complete (${elapsedMs}ms)`);
+  return data;
 }
 
 /**

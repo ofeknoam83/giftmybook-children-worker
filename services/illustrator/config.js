@@ -28,8 +28,11 @@ const MAX_SPREAD_RETRIES = 6;           // Per-spread QA retry limit (within ses
 const MAX_FRESH_SESSION_RETRIES = 5;    // Fresh-session fallbacks when in-session retries exhausted
 const MAX_REGEN_SPREADS = 5;           // Regen worst offenders first (sorted by batch hits); limits oscillation vs full-book regen
 const MAX_CONSISTENCY_ROUNDS = 5;      // Book-wide consistency regen rounds before accepting anyway
-/** Max decoded bytes for reference thumbnails in one consistency-regen multimodal turn (payload safety). */
-const CONSISTENCY_REGEN_MAX_THUMB_BYTES = 5 * 1024 * 1024;
+/** Max decoded bytes for reference thumbnails in one consistency-regen multimodal turn (payload + token safety). */
+const CONSISTENCY_REGEN_MAX_THUMB_BYTES = 3 * 1024 * 1024;
+/** Hard cap on number of reference thumbnails. Regen is stateless, so the only token cost
+ * is these thumbnails + child photo + cover + prompt — ~25k tokens at 10 thumbs (well under 131k). */
+const CONSISTENCY_REGEN_MAX_THUMBS = 10;
 const QA_HTTP_ATTEMPTS = 3;            // Retries per vision QA HTTP call before fail-closed
 const MAX_GENERATION_RETRIES = 5;      // Raw image generation attempts before aborting a spread (6 total: attempt 0..5)
 const GENERATION_RETRY_BASE_DELAY_MS = 3000;  // Base delay for exponential backoff between generation attempts
@@ -88,6 +91,7 @@ module.exports = {
   MAX_REGEN_SPREADS,
   MAX_CONSISTENCY_ROUNDS,
   CONSISTENCY_REGEN_MAX_THUMB_BYTES,
+  CONSISTENCY_REGEN_MAX_THUMBS,
   QA_HTTP_ATTEMPTS,
   MAX_GENERATION_RETRIES,
   GENERATION_RETRY_BASE_DELAY_MS,
