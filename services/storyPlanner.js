@@ -16,6 +16,7 @@ const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
+const { sanitizeForGemini } = require('./promptSanitizer');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
@@ -340,9 +341,14 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
 
   const { timeoutMs, requestLabel, ...geminiGenConfig } = genConfig || {};
 
+  // Wire-layer sanitization — see services/promptSanitizer.js. Scrubs the
+  // serialized prompt copy; upstream templates and user fields are untouched.
+  const safeSystem = sanitizeForGemini(systemPrompt);
+  const safeUser = sanitizeForGemini(userPrompt);
+
   const body = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    systemInstruction: { parts: [{ text: safeSystem }] },
+    contents: [{ role: 'user', parts: [{ text: safeUser }] }],
     generationConfig: geminiGenConfig,
   };
 
