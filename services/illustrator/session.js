@@ -455,6 +455,79 @@ async function generateSpread(session, spreadPrompt, spreadIndex) {
 }
 
 /**
+ * Text-only fallback path for spreads that persistently safety-block in the
+ * stateful chat session. Routes the prompt to the configured Gemini proxy
+ * (different classifier surface) without the child photo, cover, or sliding
+ * window. On success the generated spread is appended to
+ * `session.generatedSpreads` so subsequent spreads can still reference it for
+ * style continuity.
+ *
+ * @param {object} session
+ * @param {string} prompt - Minimal scene/style/text prompt (see engine.js buildMinimalSpreadPrompt)
+ * @param {number} spreadIndex - 0-based spread index
+ * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
+ */
+async function generateSpreadViaProxy(session, prompt, spreadIndex) {
+  const proxyUrl = process.env.GEMINI_PROXY_URL || '';
+  const proxyKey = process.env.GEMINI_PROXY_API_KEY || '';
+  if (!proxyUrl || !proxyKey) {
+    const err = new Error('Gemini proxy not configured — GEMINI_PROXY_URL/GEMINI_PROXY_API_KEY unset');
+    err.isProxyUnavailable = true;
+    throw err;
+  }
+
+  const safePrompt = sanitizeForGemini(String(prompt || ''), { mode: 'image' });
+  const body = { prompt: safePrompt, model: GEMINI_IMAGE_MODEL };
+
+  const startMs = Date.now();
+  console.log(`[illustrator/session] Proxy fallback for spread ${spreadIndex + 1} (prompt: ${safePrompt.length} chars)...`);
+
+  let resp;
+  try {
+    resp = await fetchWithTimeout(`${proxyUrl}/generate-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': proxyKey },
+      body: JSON.stringify(body),
+    }, TURN_TIMEOUT_MS, session.abortSignal);
+  } catch (err) {
+    throw new Error(`Proxy fetch failed: ${err.message}`);
+  }
+
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '');
+    const isNsfw = resp.status === 400 && /safety|SAFETY|blocked/.test(errBody);
+    const err = new Error(`Proxy error ${resp.status}: ${errBody.slice(0, 200)}`);
+    if (isNsfw) {
+      err.isSafetyBlock = true;
+      err.isEmptyResponse = true;
+    }
+    throw err;
+  }
+
+  const data = await resp.json().catch(() => ({}));
+  if (!data || !data.imageBase64) {
+    const err = new Error(`Proxy returned no image for spread ${spreadIndex + 1}`);
+    err.isEmptyResponse = true;
+    throw err;
+  }
+
+  const imageBase64 = data.imageBase64;
+  const imageBuffer = Buffer.from(imageBase64, 'base64');
+  console.log(`[illustrator/session] Proxy spread ${spreadIndex + 1} complete (${Date.now() - startMs}ms, ${imageBuffer.length} bytes)`);
+
+  // Keep the sliding window populated so subsequent in-session spreads can
+  // still reference this one for style continuity.
+  const existing = session.generatedSpreads.findIndex(s => s.index === spreadIndex);
+  if (existing >= 0) {
+    session.generatedSpreads[existing].imageBase64 = imageBase64;
+  } else {
+    session.generatedSpreads.push({ index: spreadIndex, imageBase64 });
+  }
+
+  return { imageBuffer, imageBase64 };
+}
+
+/**
  * Send a correction/retry turn within the same session.
  *
  * @param {object} session
@@ -849,6 +922,7 @@ module.exports = {
   establishCharacterReferences,
   rebuildSession,
   generateSpread,
+  generateSpreadViaProxy,
   sendCorrection,
   regenerateWithFullContext,
 };

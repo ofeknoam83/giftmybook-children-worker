@@ -9,7 +9,7 @@
  * 3. Book-wide easy consistency gate (one QA pass over all spreads; session rules + thumbnails)
  */
 
-const { createSession, establishCharacterReferences, rebuildSession, generateSpread, sendCorrection, regenerateWithFullContext } = require('./session');
+const { createSession, establishCharacterReferences, rebuildSession, generateSpread, generateSpreadViaProxy, sendCorrection, regenerateWithFullContext } = require('./session');
 const { buildSpreadPrompt } = require('./prompts/spread');
 const { verifySpreadText } = require('./quality/text');
 const { checkAnatomy } = require('./quality/anatomy');
@@ -22,8 +22,8 @@ const { upscaleForPrint } = require('./postprocess/upscale');
 const { uploadBuffer } = require('../gcsStorage');
 const { withRetry } = require('../retry');
 const { getVersion } = require('./version');
-const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS, MAX_CONSISTENCY_ROUNDS } = require('./config');
-const { getTextPlacement } = require('./prompts/text');
+const { PARENT_THEMES, MAX_SPREAD_RETRIES, MAX_FRESH_SESSION_RETRIES, TEXT_RULES, MAX_GENERATION_RETRIES, GENERATION_RETRY_BASE_DELAY_MS, MAX_CONSISTENCY_ROUNDS, ART_STYLE_CONFIG } = require('./config');
+const { getTextPlacement, buildTextInstruction } = require('./prompts/text');
 
 /** Throws if the standalone client requested cancellation. */
 function abortGuard(bookContext) {
@@ -48,6 +48,104 @@ function needsParentFaceRuleInjection(spreadPrompt, isMother) {
   const hasHiddenFaceCue = /back view|hands only|face out of frame|cropped|obscured|no facial features|face hidden|hidden face|turned away|face turned away|from behind|above the frame|reaches in from|wrap around the child|kneels beside/i.test(t);
   const hasCompanionCue = /companion|not (the )?(mom|dad|mother|father)|toy-sized|NOT Mom|NOT Dad|non-human|human (mother|father)/i.test(t);
   return !(hasHiddenFaceCue && hasCompanionCue);
+}
+
+/**
+ * Progressively soften a spread prompt on each safety-block retry.
+ *
+ * Gemini's image-model safety classifier is deterministic: re-sending the same
+ * prompt against a rebuilt session produces the same `blockReason=OTHER`.
+ * This helper mutates the prompt between attempts so each retry is a
+ * meaningfully different input.
+ *
+ * Tier 0 — original prompt, unchanged.
+ * Tier 1 — strip the runtime FACE RULE / FAMILY MEMBER RULE overlays that
+ *          engine.js appends, drop warning markers, and soften meta-negations
+ *          ("NEVER" → "do not"). Also remove lines that name the specific
+ *          defects we tell the model to avoid (black rectangles, censor blocks,
+ *          opaque masks) — the model doesn't need the list of bad outputs, and
+ *          those phrases themselves trip the classifier.
+ * Tier 2 — additionally drop bullets about hidden faces, face cropping, and
+ *          family resemblance, and remove the CRITICAL RULES header block.
+ *
+ * Tier 3+ is handled separately: the caller switches to `buildMinimalSpreadPrompt`
+ * and routes through the proxy endpoint.
+ *
+ * @param {string} prompt
+ * @param {number} tier
+ * @returns {string}
+ */
+function softenPromptForSafetyRetry(prompt, tier) {
+  if (!prompt || typeof prompt !== 'string' || tier <= 0) return prompt;
+
+  let out = prompt;
+
+  if (tier >= 1) {
+    // Remove the runtime FACE RULE / FAMILY MEMBER RULE blocks we append in
+    // the `safeScenePrompt` preamble. They end at a blank line or EOF.
+    out = out.replace(/\n+[^\n]*FACE RULE:[\s\S]*?(?=\n\n|$)/g, '');
+    out = out.replace(/\n+[^\n]*FAMILY MEMBER RULE:[\s\S]*?(?=\n\n|$)/g, '');
+    // Warning glyphs read adversarial to the image classifier.
+    out = out.replace(/[⚠️]/g, '');
+    // Absolute negations rewritten in place — preserves semantics, reduces the
+    // "threatening" tone that the safety filter correlates with bad outputs.
+    out = out.replace(/\bNEVER\b/g, 'do not');
+    // Drop lines that describe the forbidden defects themselves. Mentioning
+    // "black rectangle / censor block" to tell the model NOT to draw one is a
+    // known trigger; the softened prompt simply omits the instruction.
+    out = out.replace(
+      /^.*\b(black (rectangle|bar|box|patch|blob)|censor (block|bar|rectangle)|opaque (black|mask|censor)|missing face|placeholder shape|broken image)\b.*$\n?/gim,
+      '',
+    );
+  }
+
+  if (tier >= 2) {
+    // Drop hidden-parent / face-cropping / family-resemblance bullets. These
+    // are layered rules; a fresh attempt is better off without the extra
+    // anatomy-adjacent language.
+    out = out.replace(
+      /^[-*] .*\b(parent face|hidden face|face completely hidden|face out of frame|face cropped|face turned away|family resemblance|ethnicity|skin tone)\b.*$\n?/gim,
+      '',
+    );
+    // Remove the CRITICAL RULES section entirely — the style/scene blocks
+    // below are enough for a recovery attempt.
+    out = out.replace(/^### CRITICAL RULES[\s\S]*?(?=^### |^## )/m, '');
+  }
+
+  // Collapse any runs of blank lines introduced by the removals.
+  return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Build a minimal spread prompt for the proxy fallback path.
+ *
+ * The proxy endpoint is text-only (no child photo, no cover, no chat history),
+ * so continuity/hidden-parent rules don't apply. We want the shortest prompt
+ * that still produces a usable image: scene + style + text instruction.
+ *
+ * @param {object} opts
+ * @param {string} opts.scenePrompt - Raw scene description from the writer
+ * @param {string} [opts.leftText]
+ * @param {string} [opts.rightText]
+ * @param {string} [opts.style] - Art style key
+ * @param {number} opts.spreadIndex - 0-based spread index
+ * @returns {string}
+ */
+function buildMinimalSpreadPrompt(opts) {
+  const { scenePrompt, leftText, rightText, style, spreadIndex } = opts;
+  const styleConfig = ART_STYLE_CONFIG[style] || ART_STYLE_CONFIG.pixar_premium;
+  const scene = softenPromptForSafetyRetry(String(scenePrompt || '').trim(), 2);
+  const lines = [
+    `Wide cinematic 16:9 children's book illustration.`,
+    `Art style: ${styleConfig.prefix} ${styleConfig.suffix}`,
+    '',
+    `Scene: ${scene}`,
+  ];
+  const spreadText = [leftText, rightText].filter(Boolean).join(' ').trim();
+  if (spreadText) {
+    lines.push('', buildTextInstruction(spreadText, { spreadIndex }));
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -235,20 +333,54 @@ class IllustratorEngine {
         }
 
         // Generate within session — retry with exponential backoff up to MAX_GENERATION_RETRIES.
-        // When Gemini returns an empty/safety-blocked response, the chat session's history
-        // is probably poisoning subsequent turns. After the first such failure (safety block)
-        // or two in a row (generic empty response), rebuild the session with a fresh API key
-        // and clean history before continuing. Capped at 2 rebuilds per spread so a prompt/
-        // photo that's fundamentally incompatible with Gemini's filters still surfaces.
+        //
+        // Failure recovery strategy is tiered, because session rebuilds alone
+        // don't fix safety blocks: Gemini's image classifier is deterministic
+        // for the same inputs, so re-sending the same prompt against a fresh
+        // session produces the same `blockReason=OTHER`. On each safety block
+        // we mutate the prompt (softenPromptForSafetyRetry) in addition to
+        // rebuilding the session, and after enough consecutive safety blocks
+        // we switch to the text-only proxy endpoint (buildMinimalSpreadPrompt
+        // + generateSpreadViaProxy) which has a different classifier surface.
+        //
+        //   safetyBlocks = 0  → original prompt, in-session
+        //   safetyBlocks = 1  → tier-1 softened prompt, rebuilt session
+        //   safetyBlocks = 2  → tier-2 softened prompt, rebuilt session
+        //   safetyBlocks ≥ 3  → minimal prompt via proxy (if configured);
+        //                       otherwise keep tier-2 in-session
+        //
+        // Session rebuilds stay capped at 2 so a fundamentally incompatible
+        // child photo + cover still surfaces instead of spinning forever.
         let result = null;
         let imageBase64 = null;
         let imageBuffer = null;
         let consecutiveEmpty = 0;
         let sessionRebuilds = 0;
+        let safetyBlocks = 0;
         const MAX_SESSION_REBUILDS_PER_SPREAD = 2;
+        const PROXY_AVAILABLE = !!(process.env.GEMINI_PROXY_URL && process.env.GEMINI_PROXY_API_KEY);
+
         for (let genRetry = 0; genRetry <= MAX_GENERATION_RETRIES; genRetry++) {
+          const softenTier = Math.min(safetyBlocks, 2);
+          const useProxy = PROXY_AVAILABLE && safetyBlocks >= 3;
           try {
-            result = await generateSpread(session, prompt, i);
+            if (useProxy) {
+              const minimalPrompt = buildMinimalSpreadPrompt({
+                scenePrompt: safeScenePrompt,
+                leftText,
+                rightText,
+                style,
+                spreadIndex: i,
+              });
+              log('info', `Spread ${i + 1}: trying proxy fallback (text-only, prompt ${minimalPrompt.length} chars) after ${safetyBlocks} safety block(s)`);
+              result = await generateSpreadViaProxy(session, minimalPrompt, i);
+            } else {
+              const promptToSend = softenPromptForSafetyRetry(prompt, softenTier);
+              if (softenTier > 0 && genRetry > 0) {
+                log('info', `Spread ${i + 1}: retrying with tier-${softenTier} softened prompt (${promptToSend.length} chars, original ${prompt.length})`);
+              }
+              result = await generateSpread(session, promptToSend, i);
+            }
             imageBase64 = result.imageBase64;
             imageBuffer = result.imageBuffer;
             break;
@@ -257,15 +389,32 @@ class IllustratorEngine {
               throw genErr; // Final attempt failed — outer catch handles it
             }
 
+            const isSafetyBlock = !!genErr.isSafetyBlock;
+            if (isSafetyBlock) safetyBlocks++;
             if (genErr.isEmptyResponse) consecutiveEmpty++;
             else consecutiveEmpty = 0;
 
-            const shouldRebuild =
-              (genErr.isSafetyBlock || consecutiveEmpty >= 2) &&
+            // Proxy path is stateless; don't rebuild the session after a proxy failure.
+            // Otherwise rebuild when we see a safety block or two generic empties in a row.
+            const shouldRebuild = !useProxy &&
+              (isSafetyBlock || consecutiveEmpty >= 2) &&
               sessionRebuilds < MAX_SESSION_REBUILDS_PER_SPREAD;
 
             if (shouldRebuild) {
-              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — rebuilding session to clear poisoned chat history`);
+              // Only describe it as "clear poisoned chat history" when there
+              // actually is chat history beyond the establishment turn — on
+              // spread 1 the session holds only the character reference turn
+              // and there's nothing history-related to clear.
+              const priorSpreads = session.generatedSpreads.length;
+              const rebuildReason = priorSpreads > 0
+                ? 'rebuilding session to clear poisoned chat history'
+                : 'rebuilding session (new API key + fresh chat; spread 1 has no prior turns to clear)';
+              const nextStrategy = isSafetyBlock
+                ? (safetyBlocks >= 3 && PROXY_AVAILABLE
+                    ? '; next attempt will use proxy fallback (text-only)'
+                    : `; next attempt will use tier-${Math.min(safetyBlocks, 2)} softened prompt`)
+                : '';
+              log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — ${rebuildReason}${nextStrategy}`);
               try {
                 session = await rebuildSession(session);
                 sessionRebuilds++;
@@ -278,7 +427,14 @@ class IllustratorEngine {
             }
 
             const delayMs = Math.min(GENERATION_RETRY_BASE_DELAY_MS * Math.pow(2, genRetry), 30000);
-            log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in ${delayMs}ms`);
+            const strategyNote = useProxy
+              ? ' — next attempt: retry via proxy with same minimal prompt'
+              : isSafetyBlock
+                ? (safetyBlocks >= 3 && PROXY_AVAILABLE
+                    ? ' — next attempt: proxy fallback (text-only)'
+                    : ` — next attempt: tier-${Math.min(safetyBlocks, 2)} softened prompt`)
+                : '';
+            log('warn', `Spread ${i + 1} generation attempt ${genRetry + 1} failed: ${genErr.message} — retrying in ${delayMs}ms${strategyNote}`);
             await new Promise(r => setTimeout(r, delayMs));
           }
         }
