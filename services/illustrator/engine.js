@@ -461,6 +461,7 @@ class IllustratorEngine {
         let extraCheck = { pass: true, issues: [], tags: [] };
         let artStyleCheck = { pass: true, issues: [], tags: [] };
         let qaRetries = 0;
+        let correctionSafetyBlocked = false;
 
         // Per-spread QA: Agent 1 (text + anatomy), then Agent 2 (extra + style). Both must pass; any correction re-runs from Agent 1.
         while (true) {
@@ -595,6 +596,11 @@ ${prompt}`;
               imageBuffer = result.imageBuffer;
             } catch (retryErr) {
               log('warn', `Spread ${i + 1} Agent1 correction retry ${qaRetries} failed: ${retryErr.message}`);
+              if (retryErr.isSafetyBlock) {
+                log('warn', `Spread ${i + 1} Agent1 correction safety-blocked — in-session is deterministically poisoned; escalating to fresh session`);
+                correctionSafetyBlocked = true;
+                break;
+              }
               const isTransient = retryErr.message && (
                 retryErr.message.includes('503') ||
                 retryErr.message.includes('429') ||
@@ -670,6 +676,11 @@ ${prompt}`;
               imageBuffer = result.imageBuffer;
             } catch (retryErr) {
               log('warn', `Spread ${i + 1} Agent2 correction retry ${qaRetries} failed: ${retryErr.message}`);
+              if (retryErr.isSafetyBlock) {
+                log('warn', `Spread ${i + 1} Agent2 correction safety-blocked — in-session is deterministically poisoned; escalating to fresh session`);
+                correctionSafetyBlocked = true;
+                break;
+              }
               const isTransient = retryErr.message && (
                 retryErr.message.includes('503') ||
                 retryErr.message.includes('429') ||
@@ -691,8 +702,11 @@ ${prompt}`;
           break;
         }
 
-        // If QA still fails after correction retries, attempt one fresh in-session generation
-        if ((!textCheck.pass || !anatomyCheck.pass || !extraCheck.pass || !artStyleCheck.pass) && qaRetries > 0) {
+        // If QA still fails after correction retries, attempt one fresh in-session generation.
+        // Skip this step when an earlier correction safety-blocked — in-session is deterministically
+        // poisoned for this spread, and another in-session call will block identically. The outer
+        // fresh-session loop below uses a brand-new session and is the right recovery path.
+        if ((!textCheck.pass || !anatomyCheck.pass || !extraCheck.pass || !artStyleCheck.pass) && qaRetries > 0 && !correctionSafetyBlocked) {
           abortGuard(bookContext);
           log('warn', `Spread ${i + 1} QA still failing after ${qaRetries} corrections — attempting fresh generation`);
           try {
@@ -1245,6 +1259,10 @@ ${prompt}`;
           imageBuffer = retryResult.imageBuffer;
         } catch (retryErr) {
           log('warn', `Agent1 correction retry ${qaRetries} failed: ${retryErr.message}`);
+          if (retryErr.isSafetyBlock) {
+            log('warn', 'Single-spread Agent1 correction safety-blocked — in-session is poisoned; exiting correction loop');
+            break;
+          }
         }
         continue;
       }
@@ -1291,6 +1309,10 @@ ${prompt}`;
           imageBuffer = retryResult.imageBuffer;
         } catch (retryErr) {
           log('warn', `Agent2 correction retry ${qaRetries} failed: ${retryErr.message}`);
+          if (retryErr.isSafetyBlock) {
+            log('warn', 'Single-spread Agent2 correction safety-blocked — in-session is poisoned; exiting correction loop');
+            break;
+          }
         }
         continue;
       }
