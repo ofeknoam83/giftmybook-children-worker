@@ -896,9 +896,15 @@ function slugify(s) {
 }
 
 /**
- * Strip `OUTFIT_LOCK: ...` from the end of model output so {@link BaseThemeWriter#parseSpreads}
- * only sees spread blocks. The lock line is forwarded to the illustration pipeline
- * as `characterOutfit` (cover-coherent day clothes for the hero).
+ * Strip all trailing `OUTFIT_LOCK: ...` lines from the end of model output so
+ * {@link BaseThemeWriter#parseSpreads} only sees spread blocks. The last non-empty
+ * lock value found is returned as `outfitLock` and forwarded to the illustration
+ * pipeline as `characterOutfit` (cover-coherent day clothes for the hero).
+ *
+ * The function also tolerates other non-spread trailing lines that may follow
+ * (or be interleaved with) the lock lines — it strips everything from the first
+ * `OUTFIT_LOCK:` occurrence in the trailing tail upward, rather than stopping at
+ * the first match.
  *
  * @param {string} rawText
  * @returns {{ text: string, outfitLock: string | null }}
@@ -908,14 +914,35 @@ function stripOutfitLockFromRaw(rawText) {
     return { text: rawText, outfitLock: null };
   }
   const t = String(rawText);
-  const m = t.match(/(?:^|\n)\s*OUTFIT_LOCK:\s*([^\n]+?)\s*$/i);
-  if (m && typeof m.index === 'number') {
-    return {
-      text: t.slice(0, m.index).trim(),
-      outfitLock: (m[1] && m[1].trim()) || null,
-    };
+  const lines = t.split('\n');
+
+  let outfitLock = null;
+  let lastSpreadLineIdx = lines.length - 1;
+
+  // Walk backward, consuming all trailing OUTFIT_LOCK lines and any other
+  // non-spread trailing lines (blank or non-spread content) until we hit the
+  // last real spread line.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    const lockMatch = trimmed.match(/^OUTFIT_LOCK:\s*(.+)$/i);
+    if (lockMatch) {
+      // Keep the last (chronologically latest) non-empty value.
+      if (!outfitLock && lockMatch[1].trim()) {
+        outfitLock = lockMatch[1].trim();
+      }
+      lastSpreadLineIdx = i - 1;
+    } else if (trimmed === '') {
+      // Blank lines between / after lock lines are fine to skip.
+      lastSpreadLineIdx = i - 1;
+    } else {
+      // First non-blank, non-lock line — this is where the spread content ends.
+      lastSpreadLineIdx = i;
+      break;
+    }
   }
-  return { text: t, outfitLock: null };
+
+  const strippedText = lines.slice(0, lastSpreadLineIdx + 1).join('\n').trim();
+  return { text: strippedText || t, outfitLock };
 }
 
 module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL, splitTextAndScene, stripOutfitLockFromRaw };
