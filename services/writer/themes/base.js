@@ -918,24 +918,30 @@ function stripOutfitLockFromRaw(rawText) {
 
   let outfitLock = null;
   let lastSpreadLineIdx = lines.length - 1;
+  let seenLock = false;
 
-  // Walk backward, consuming all trailing OUTFIT_LOCK lines and any other
-  // non-spread trailing lines (blank or non-spread content) until we hit the
-  // last real spread line.
+  // Walk backward, consuming all trailing OUTFIT_LOCK lines and any blank
+  // lines that follow (or are interleaved with) them.  Blank lines that appear
+  // *before* we have seen any lock line stop the scan immediately so that
+  // in-spread blank lines are never incorrectly trimmed.
   for (let i = lines.length - 1; i >= 0; i--) {
     const trimmed = lines[i].trim();
     const lockMatch = trimmed.match(/^OUTFIT_LOCK:\s*(.+)$/i);
     if (lockMatch) {
+      seenLock = true;
       // Keep the last (chronologically latest) non-empty value.
-      if (!outfitLock && lockMatch[1].trim()) {
-        outfitLock = lockMatch[1].trim();
+      const lockValue = lockMatch[1].trim();
+      if (!outfitLock && lockValue) {
+        outfitLock = lockValue;
       }
       lastSpreadLineIdx = i - 1;
-    } else if (trimmed === '') {
-      // Blank lines between / after lock lines are fine to skip.
+    } else if (trimmed === '' && seenLock) {
+      // Blank lines between / after lock lines are fine to skip, but only
+      // once we know we are inside the trailing lock zone.
       lastSpreadLineIdx = i - 1;
     } else {
-      // First non-blank, non-lock line — this is where the spread content ends.
+      // First non-blank / non-lock line (or blank before any lock) —
+      // this is where the spread content ends.
       lastSpreadLineIdx = i;
       break;
     }
