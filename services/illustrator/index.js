@@ -121,6 +121,7 @@ async function generateBookIllustrations(opts) {
     additionalCoverCharacters,
     parentOutfit: storyPlan?.parentOutfit,
     childAppearance,
+    locationPalette: storyPlan?.locationPalette,
     abortSignal: abortSignal || bookContext?.abortController?.signal || null,
   });
   let activeSession = session;
@@ -271,6 +272,7 @@ async function regenerateSpreadIllustration(opts) {
     additionalCoverCharacters,
     parentOutfit,
     childAppearance,
+    locationPalette,
     spreadIndex,
     totalSpreads = TOTAL_SPREADS,
   } = opts;
@@ -294,6 +296,7 @@ async function regenerateSpreadIllustration(opts) {
     additionalCoverCharacters,
     parentOutfit,
     childAppearance,
+    locationPalette,
   });
 
   const log = (level, msg) => console.log(`[illustrator][regen] ${msg}`);

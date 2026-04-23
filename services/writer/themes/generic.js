@@ -158,11 +158,35 @@ class GenericThemeWriter extends BaseThemeWriter {
     // whether we adopted the seed's *beats*. The seed's favorite_object
     // and setting are valuable regardless of whether we kept the beats.
     const seed = opts.storySeed || null;
+
+    // Location palette: always attempted, even on the template path. Every
+    // spread will get a .location and .visual_anchors that the writer must
+    // honor in its SCENE block, and that the illustrator reuses for
+    // cross-spread continuity.
+    let palette = null;
+    try {
+      palette = await this.buildLocationPalette({
+        child,
+        book,
+        beats: enrichedBeats,
+        storySeed: seed,
+      });
+    } catch (err) {
+      console.warn(`[writerV2] buildLocationPalette failed for ${this.themeName}: ${err.message}`);
+    }
+    const beatsWithLocations = palette
+      ? this.applyPaletteToBeats(enrichedBeats, palette)
+      : enrichedBeats;
+    if (palette) {
+      const names = palette.palette.map(p => p.name);
+      console.log(`[writerV2] Location palette for ${this.themeName} (${names.length}): ${names.join(' | ')}`);
+    }
+
     return {
-      beats: enrichedBeats,
+      beats: beatsWithLocations,
       refrain,
       ageTier,
-      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, enrichedBeats.length) },
+      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, beatsWithLocations.length) },
       wordTargets: { total: wordLimits.maxWords, perSpread: wordLimits.wordsPerSpread },
       parentName,
       pronouns,
@@ -175,6 +199,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       storySeed: seed,
       usedSeed,
       manifest: anecdotePlot?.manifest || null,
+      locationPalette: palette,
     };
   }
 
@@ -335,9 +360,13 @@ class GenericThemeWriter extends BaseThemeWriter {
     const ageTier = story._ageTier || this.getAgeTier(child.age);
     const systemPrompt = buildSystemPrompt(this.themeName, ageTier, child, book, { role: 'reviser' });
 
-    const currentText = story.spreads.map(s => `---SPREAD ${s.spread}---\n${s.text}`).join('\n\n');
+    const currentText = story.spreads.map(s => {
+      const lines = [`---SPREAD ${s.spread}---`, 'TEXT:', s.text || ''];
+      if (s.scene) lines.push('SCENE:', s.scene);
+      return lines.join('\n');
+    }).join('\n\n');
 
-    const userPrompt = `Here is the current story:\n\n${currentText}\n\n## REVISION FEEDBACK\n\n${feedback}\n\nRevise the story to address ALL of the issues above. Keep the same number of spreads (${story.spreads.length}). Preserve the emotional arc and refrain. Fix the specific issues identified.`;
+    const userPrompt = `Here is the current story with its scene descriptions:\n\n${currentText}\n\n## REVISION FEEDBACK\n\n${feedback}\n\nRevise the story to address ALL of the issues above. Keep the same number of spreads (${story.spreads.length}). Preserve the emotional arc and refrain. Fix the specific issues identified.\n\nOUTPUT FORMAT — EVERY spread MUST still include BOTH a TEXT: block and a SCENE: block:\n\n---SPREAD 1---\nTEXT:\n<story lines>\nSCENE:\n<single-paragraph scene description — ~40-70 words — that matches the TEXT you just revised and locks the assigned palette location>\n\nRewrite the SCENE when you change the TEXT so the two stay aligned. Never omit either block.`;
 
     const result = await this.callLLM('reviser', systemPrompt, userPrompt, { maxTokens: 4000 });
 
@@ -348,9 +377,20 @@ class GenericThemeWriter extends BaseThemeWriter {
       return story;
     }
 
+    // If the reviser dropped the SCENE block on some spreads, inherit the
+    // pre-revision scene for those spreads rather than leaving them blank —
+    // it still reflects a scene that matched an earlier version of the text
+    // and is strictly better than nothing for the illustrator.
+    const priorBySpread = new Map();
+    for (const s of story.spreads) priorBySpread.set(s.spread, s.scene || '');
+    for (const s of spreads) {
+      if (!s.scene) s.scene = priorBySpread.get(s.spread) || '';
+    }
+
     checkAndFixPronouns(spreads, child.gender);
 
-    // Strip dashes from story text
+    // Strip dashes from story text ONLY — do NOT touch the SCENE field;
+    // scenes are free-form art direction, not read-aloud copy.
     for (const s of spreads) {
       if (s.text) {
         s.text = s.text
@@ -804,11 +844,14 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Suggested refrains (you may create your own):`);
     plan.refrain.suggestions.forEach(s => sections.push(`- "${s}"`));
 
+    appendLocationPaletteSection(sections, plan);
+
     sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
     sections.push(`Write exactly ${plan.spreadCount.target} spreads. The beat sketches below are STARTING INSPIRATION only — you are expected to shape the arc yourself so it serves THIS child, THIS theme, THESE anecdotes. Keep what helps, replace what doesn't. The only HARD constraints on shape are:`);
     sections.push(`- Spread 1 must open OUT IN THE WORLD, in a specific non-home setting.`);
     sections.push(`- The final spreads must land a warm, concrete image YOU invent — not a formulaic "heading home", "walking home", or "back at home" shot.`);
     sections.push(`- There is NO prescribed Scene A / Scene B / Scene C / Scene D. Decide where tension builds, where the peak sits, and how the story resolves.`);
+    sections.push(`- Each beat below is LOCKED to the palette location shown next to it. The TEXT and SCENE you write for that spread must both take place in that location.`);
     sections.push(`- Anecdote-assignment rules (if any) below are the only per-spread mandates.\n`);
     sections.push(`Sketches:`);
     plan.beats.forEach(b => {
@@ -816,6 +859,8 @@ Refine each beat description to incorporate specific details from the anecdotes.
       const desc = this._sanitizeBeatDescription(b.description);
       sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${desc} [~${b.wordTarget} words]`);
     });
+
+    appendSceneRulesSection(sections);
 
     if (plan.manifest && plan.manifest.length > 0) {
       sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
@@ -948,4 +993,67 @@ Refine each beat description to incorporate specific details from the anecdotes.
   }
 }
 
-module.exports = { GenericThemeWriter };
+// ── Shared prompt helpers (reused by mothers_day and fathers_day writers) ───
+
+/**
+ * Inject the LOCATION PALETTE section into a prompt builder's `sections` list.
+ * No-op if the plan has no palette (we quietly skip so the prompt still reads
+ * coherently when the LLM palette call failed).
+ */
+function appendLocationPaletteSection(sections, plan) {
+  const palette = plan && plan.locationPalette;
+  if (!palette || !Array.isArray(palette.palette) || palette.palette.length === 0) return;
+  sections.push(`\n## LOCATION PALETTE (the book happens in THESE named places — nowhere else)\n`);
+  sections.push(`A scout built this palette for your book. Every spread you write is LOCKED to one of these locations. This palette exists so the illustrator can render each place with visual continuity AND so the book feels designed, not dropped into generic rooms.`);
+  sections.push(``);
+  palette.palette.forEach(entry => {
+    const anchors = Array.isArray(entry.visual_anchors) && entry.visual_anchors.length
+      ? ` — visual anchors: ${entry.visual_anchors.join('; ')}`
+      : '';
+    sections.push(`- ${entry.name}${anchors}`);
+  });
+  sections.push(``);
+  sections.push(`Rules for using the palette:`);
+  sections.push(`- When a beat below lists a {location: ...}, BOTH the TEXT and SCENE for that spread must take place there. No drift.`);
+  sections.push(`- Consecutive spreads that share a location should feel continuous — the reader stays in the same place; the light, weather, sounds all carry over.`);
+  sections.push(`- When the location changes between adjacent spreads, the TEXT must narrate the transition in a single line so the reader never loses the thread.`);
+  sections.push(`- Never invent a new location outside the palette. Never use a generic "home" / "house" / "living room" / "supermarket" as a setting for a spread that has a palette location assigned.`);
+}
+
+/**
+ * Append the SCENE RULES block — this is the contract for the SCENE field that
+ * the writer emits alongside each spread's TEXT. The illustrator uses the
+ * SCENE verbatim as its scene prompt, so this text has to describe what to
+ * draw, not what the parent reads aloud.
+ */
+function appendSceneRulesSection(sections) {
+  sections.push(`\n## SCENE RULES (these govern the SCENE: block you write under every spread)\n`);
+  sections.push(`For every spread you write a TEXT block (the read-aloud poem) AND a SCENE block (art direction for the illustrator). The illustrator reads the SCENE word-for-word, so it must match the TEXT and describe the image we want.`);
+  sections.push(``);
+  sections.push(`Each SCENE block is a single paragraph of 40-70 words that includes, at minimum:`);
+  sections.push(`- The palette LOCATION NAME (written exactly as it appears in the palette above). Non-negotiable.`);
+  sections.push(`- The time of day and the quality of light (dawn gold, midday glare, overcast hush, lantern light, dusk blue).`);
+  sections.push(`- What the hero child is DOING in the moment — concrete body action that matches the TEXT (reaching up, crouching over something, running, holding, tasting).`);
+  sections.push(`- The emotion on the hero's face in one or two words ("eyes wide with delight", "nose scrunched").`);
+  sections.push(`- Two or three tangible visual anchors you borrow from the palette entry's anchor list or invent for continuity.`);
+  sections.push(`- Any objects, animals, or recurring props that appear in the TEXT (so the illustrator can plant them in the right place).`);
+  sections.push(``);
+  sections.push(`SCENE rules (strict):`);
+  sections.push(`- The SCENE must describe THE SAME moment the TEXT describes — not a paraphrase, not "a later moment". If the TEXT says the child is peeking at a fish, the SCENE shows the child peeking at a fish.`);
+  sections.push(`- Do NOT describe parent or other family faces — they appear only via hands/shoulders/silhouettes (the illustrator enforces this). You may say "mother's hand adjusting a scarf" or "dad's silhouette at the gate"; never "mother smiles warmly".`);
+  sections.push(`- Never describe on-image text, captions, or signage (the illustrator handles text placement separately).`);
+  sections.push(`- Never describe the book's style ("Pixar-style", "3D render"), the aspect ratio, or framing instructions — just describe the moment and the location.`);
+  sections.push(`- No contradictions with the TEXT. If the TEXT says the child is laughing, don't say they're crying. If the TEXT is outdoors, the SCENE is outdoors.`);
+  sections.push(`- Keep it concrete and particular. Avoid "magical", "beautiful", "amazing" as standalone adjectives — name the thing that makes it magical.`);
+  sections.push(``);
+  sections.push(`OUTPUT FORMAT for every spread (exact):`);
+  sections.push(`---SPREAD N---`);
+  sections.push(`TEXT:`);
+  sections.push(`<the 2-line or 4-line poem, exactly as the parent will read it aloud>`);
+  sections.push(`SCENE:`);
+  sections.push(`<40-70 word single-paragraph art direction for the illustrator, following every rule above>`);
+  sections.push(``);
+  sections.push(`Omitting the SCENE block on ANY spread, or letting it drift from the TEXT, is a ship-blocker.`);
+}
+
+module.exports = { GenericThemeWriter, appendLocationPaletteSection, appendSceneRulesSection };

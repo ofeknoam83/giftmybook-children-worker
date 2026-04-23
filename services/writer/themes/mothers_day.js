@@ -14,6 +14,7 @@ const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
+const { appendLocationPaletteSection, appendSceneRulesSection } = require('./generic');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -105,11 +106,31 @@ class MothersDayWriter extends BaseThemeWriter {
     }
 
     const plot = this._selectedPlot;
+
+    let palette = null;
+    try {
+      palette = await this.buildLocationPalette({
+        child,
+        book,
+        beats: enrichedBeats,
+        storySeed: storySeed || null,
+      });
+    } catch (err) {
+      console.warn(`[writerV2] buildLocationPalette failed for mothers_day: ${err.message}`);
+    }
+    const beatsWithLocations = palette
+      ? this.applyPaletteToBeats(enrichedBeats, palette)
+      : enrichedBeats;
+    if (palette) {
+      const names = palette.palette.map(p => p.name);
+      console.log(`[writerV2] Location palette for mothers_day (${names.length}): ${names.join(' | ')}`);
+    }
+
     return {
-      beats: enrichedBeats,
+      beats: beatsWithLocations,
       refrain,
       ageTier,
-      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, enrichedBeats.length) },
+      spreadCount: { min: spreadCount.min, max: spreadCount.max, target: Math.min(spreadCount.max, beatsWithLocations.length) },
       wordTargets: {
         total: wordLimits.maxWords,
         perSpread: wordLimits.wordsPerSpread,
@@ -126,6 +147,7 @@ class MothersDayWriter extends BaseThemeWriter {
       // whether we adopted the seed's *beats* — the seed's favorite_object
       // and setting are valuable regardless.
       storySeed: storySeed || null,
+      locationPalette: palette,
     };
   }
 
@@ -193,9 +215,13 @@ class MothersDayWriter extends BaseThemeWriter {
     const ageTier = story._ageTier || this.getAgeTier(child.age);
     const systemPrompt = buildSystemPrompt('mothers_day', ageTier, child, book, { role: 'reviser' });
 
-    const currentText = story.spreads.map(s => `---SPREAD ${s.spread}---\n${s.text}`).join('\n\n');
+    const currentText = story.spreads.map(s => {
+      const lines = [`---SPREAD ${s.spread}---`, 'TEXT:', s.text || ''];
+      if (s.scene) lines.push('SCENE:', s.scene);
+      return lines.join('\n');
+    }).join('\n\n');
 
-    const userPrompt = `Here is the current story:\n\n${currentText}\n\n## REVISION FEEDBACK\n\n${feedback}\n\nRevise the story to address ALL of the issues above. Keep the same number of spreads (${story.spreads.length}). Preserve the emotional arc and refrain. Fix the specific issues identified.`;
+    const userPrompt = `Here is the current story with its scene descriptions:\n\n${currentText}\n\n## REVISION FEEDBACK\n\n${feedback}\n\nRevise the story to address ALL of the issues above. Keep the same number of spreads (${story.spreads.length}). Preserve the emotional arc and refrain. Fix the specific issues identified.\n\nOUTPUT FORMAT — EVERY spread MUST still include BOTH a TEXT: block and a SCENE: block:\n\n---SPREAD 1---\nTEXT:\n<story lines>\nSCENE:\n<single-paragraph scene description — ~40-70 words — that matches the TEXT you just revised and locks the assigned palette location>\n\nRewrite the SCENE when you change the TEXT so the two stay aligned. Never omit either block.`;
 
     const result = await this.callLLM('reviser', systemPrompt, userPrompt, {
       maxTokens: 4000,
@@ -209,9 +235,16 @@ class MothersDayWriter extends BaseThemeWriter {
       return story;
     }
 
+    const priorBySpread = new Map();
+    for (const s of story.spreads) priorBySpread.set(s.spread, s.scene || '');
+    for (const s of spreads) {
+      if (!s.scene) s.scene = priorBySpread.get(s.spread) || '';
+    }
+
     checkAndFixPronouns(spreads, child.gender);
 
-    // Strip dashes from story text
+    // Strip dashes from story TEXT only — leave the SCENE field untouched
+    // because it is free-form art direction, not read-aloud copy.
     for (const s of spreads) {
       if (s.text) {
         s.text = s.text
@@ -439,11 +472,14 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Suggested refrains (you may create your own):`);
     plan.refrain.suggestions.forEach(s => sections.push(`- "${s}"`));
 
+    appendLocationPaletteSection(sections, plan);
+
     sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
     sections.push(`Write exactly ${plan.spreadCount.target} spreads. The beat sketches below are STARTING INSPIRATION only — you are expected to shape the arc yourself so it serves THIS child, THIS mother, THESE anecdotes. Keep what helps, replace what doesn't. The only HARD constraints on shape are:`);
     sections.push(`- Spread 1 must open OUT IN THE WORLD, in a specific non-home setting.`);
     sections.push(`- The final spreads must land a warm, concrete image YOU invent — not a formulaic "walking home", "heading home", or "back at home" shot.`);
     sections.push(`- There is NO prescribed Scene A / Scene B / Scene C / Scene D. Decide where tension builds, where the peak sits, and how the story resolves.`);
+    sections.push(`- Each beat below is LOCKED to the palette location shown next to it. The TEXT and SCENE you write for that spread must both take place in that location.`);
     sections.push(`- Anecdote-assignment rules (if any) below are the only per-spread mandates.\n`);
     sections.push(`Sketches:`);
     plan.beats.forEach(b => {
@@ -451,6 +487,8 @@ Refine each beat description to incorporate specific details from the anecdotes.
       const desc = this._sanitizeBeatDescription(b.description);
       sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${desc} [~${b.wordTarget} words]`);
     });
+
+    appendSceneRulesSection(sections);
 
     if (plan.manifest && plan.manifest.length > 0) {
       sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);

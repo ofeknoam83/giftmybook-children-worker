@@ -92,21 +92,31 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('}');
     sections.push('```');
   } else if (role === 'writer') {
-    sections.push('\n## OUTPUT FORMAT\n');
-    sections.push('Write the story as a sequence of spreads. Format each spread exactly like this:\n');
+    sections.push('\n## OUTPUT FORMAT — EVERY SPREAD HAS TEXT + SCENE\n');
+    sections.push('Write the story as a sequence of spreads. Every spread MUST include BOTH a TEXT block (the poem the parent will read aloud) AND a SCENE block (art direction for the illustrator).\n');
+    sections.push('Format each spread exactly like this:\n');
     sections.push('---SPREAD 1---');
+    sections.push('TEXT:');
     sections.push('The story text for spread 1 goes here.');
-    sections.push('Two or four lines of AABB couplets.\n');
+    sections.push('Two or four lines of AABB couplets.');
+    sections.push('SCENE:');
+    sections.push('A single paragraph of 40-70 words describing what the illustrator should draw for this spread. Always start by naming the palette location (exactly as written in the user prompt). Describe the light, time of day, the hero\'s body action, their expression, 2-3 concrete visual anchors, and any objects the TEXT names. Never mention style, aspect ratio, captions, or on-image text — the illustrator handles those. Never describe a family member\'s face; reference them only via hand / shoulder / silhouette.\n');
     sections.push('---SPREAD 2---');
-    sections.push('The story text for spread 2 goes here.\n');
-    sections.push('...and so on for each spread.');
-    sections.push('\nDo NOT include spread descriptions, beat labels, or any meta-commentary. Only write the story text itself.');
-  } else if (role === 'reviser') {
-    sections.push('\n## OUTPUT FORMAT\n');
-    sections.push('Return the COMPLETE revised story in the same spread format:');
-    sections.push('---SPREAD 1---');
+    sections.push('TEXT:');
+    sections.push('...');
+    sections.push('SCENE:');
     sections.push('...\n');
-    sections.push('Preserve the total number of spreads. Fix only the issues identified in the feedback.');
+    sections.push('...and so on for each spread.');
+    sections.push('\nThe TEXT block is ONLY the story text — no beat labels, no meta-commentary, nothing for the illustrator. The SCENE block is the illustrator\'s prompt. Both are mandatory on every spread. Omitting the SCENE block on any spread is a ship-blocker.');
+  } else if (role === 'reviser') {
+    sections.push('\n## OUTPUT FORMAT — EVERY SPREAD STILL HAS TEXT + SCENE\n');
+    sections.push('Return the COMPLETE revised story in the same TEXT + SCENE spread format:');
+    sections.push('---SPREAD 1---');
+    sections.push('TEXT:');
+    sections.push('<revised story text>');
+    sections.push('SCENE:');
+    sections.push('<single paragraph of 40-70 words of art direction — must match the TEXT and lock the palette location>\n');
+    sections.push('Preserve the total number of spreads. When you change the TEXT, you MUST rewrite the SCENE to match. Never drop the SCENE block. Fix only the issues identified in the feedback; keep everything that already works.');
   }
 
   return sections.join('\n');

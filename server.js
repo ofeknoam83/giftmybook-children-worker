@@ -528,27 +528,36 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
       rightText = null;
     }
 
-    // Build a richer illustration prompt that bakes in the plan's location
-    // and any hard-assigned anecdotes for this spread. The illustrator engine
-    // reads spread_image_prompt as the scene description, so packing the
-    // visible anecdote ("pancakes on the plate", "the stuffed elephant Ellie")
-    // and the physical setting here pushes them straight into the image.
+    // Build the illustrator's scene prompt. Priority order:
+    //   1. Writer-emitted SCENE block (s.scene) — this was produced alongside
+    //      s.text in the same LLM call, so it is guaranteed to match the
+    //      narrative and to lock the assigned palette location. This is the
+    //      whole point of the TEXT+SCENE refactor.
+    //   2. beat.description — legacy fallback for stories written by an older
+    //      writer (or when the writer's SCENE block was dropped on revision).
+    //   3. The rendered text itself — last-ditch fallback.
+    // The location line is still injected separately so the illustrator's
+    // NAMED LOCATIONS section can keep continuity across spreads even if the
+    // writer forgot to name the location inside the scene paragraph.
     const beat = beatsBySpread.get(s.spread);
     const anecdotesForSpread = manifestBySpread.get(s.spread) || [];
     const promptParts = [
       `Illustration for spread ${s.spread} of a ${theme} children's picture book.`,
     ];
     if (beat?.location) promptParts.push(`Setting: ${beat.location}.`);
-    if (beat?.description) {
-      promptParts.push(`Scene: ${String(beat.description).slice(0, 280)}`);
+    const writerScene = typeof s.scene === 'string' ? s.scene.trim() : '';
+    if (writerScene) {
+      promptParts.push(`Scene: ${writerScene.slice(0, 900)}`);
+    } else if (beat?.description) {
+      promptParts.push(`Scene: ${String(beat.description).slice(0, 900)}`);
     } else {
-      promptParts.push(`Scene: ${[leftText, rightText].filter(Boolean).join(' ').slice(0, 280)}`);
+      promptParts.push(`Scene: ${[leftText, rightText].filter(Boolean).join(' ').slice(0, 900)}`);
     }
     if (anecdotesForSpread.length > 0) {
       const anecdoteStrs = anecdotesForSpread.map(a => `"${a.anecdote_value}" visibly shown as ${a.use}`).join('; ');
       promptParts.push(`MUST VISUALLY INCLUDE (from this child's real life): ${anecdoteStrs}.`);
     }
-    const spread_image_prompt = promptParts.join(' ').slice(0, 700);
+    const spread_image_prompt = promptParts.join(' ').slice(0, 1400);
 
     return {
       type: 'spread',
@@ -573,7 +582,12 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
     { type: 'blank' },
   ];
 
-  return { title, entries };
+  // Surface the writer's location palette on the legacy plan so the
+  // illustrator session can render each palette entry consistently across
+  // the spreads that share it (see illustrator/systemInstruction.js).
+  const locationPalette = plan?.locationPalette || null;
+
+  return { title, entries, locationPalette };
 }
 
 function buildGraphicNovelReferencePack(storyPlan, childDetails) {

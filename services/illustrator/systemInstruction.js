@@ -22,6 +22,10 @@ const { PIXAR_STYLE, TEXT_RULES, TOTAL_SPREADS, PARENT_THEMES } = require('./con
  * @property {string} [theme] - Book theme key (e.g. 'mothers_day', 'birthday'). Controls parent-visibility policy.
  * @property {string} [parentOutfit] - Locked outfit for the themed parent when they appear via hidden-face composition.
  * @property {string} [childAppearance] - Cached short description of the child (from faceEngine). Belt-and-suspenders with cover reference.
+ * @property {{palette: Array<{id:string,name:string,visual_anchors:string[]}>, beatAssignments: Array<{spread:number, location_id:string}>}} [locationPalette]
+ *   Writer-generated palette of named locations. When present, a NAMED LOCATIONS
+ *   section is added to the system instruction so each location is rendered
+ *   consistently across the spreads that share it.
  */
 
 /**
@@ -38,6 +42,7 @@ function buildSystemInstruction(opts) {
     theme,
     parentOutfit,
     childAppearance,
+    locationPalette,
   } = opts;
 
   const secondaryOnCover = typeof hasSecondaryOnCover === 'boolean'
@@ -84,6 +89,9 @@ Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, ne
 `### RECURRING ITEMS & CHARACTERS
 If an object, animal, or secondary character appears in one spread, it MUST keep the same design, color palette, and distinguishing features in every later spread it appears in. Treat the first on-screen appearance as the canonical look. A teddy bear that is brown with a red ribbon stays brown with a red ribbon for the whole book. A pet dog keeps the same breed, size, and markings.`
   );
+
+  const namedLocationsSection = buildNamedLocationsSection(locationPalette);
+  if (namedLocationsSection) sections.push(namedLocationsSection);
 
   sections.push(
 `### COMPOSITION
@@ -212,6 +220,49 @@ Before you emit the image, mentally scan the full canvas and verify:
   (c) Does the caption appear in more than one place? If YES, delete the duplicate.
   (d) Is there ANY word on the image that is not in the provided TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
 If any check fails, re-render before emitting.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Named locations — emitted from the writer's location palette so every spread
+// set at the same palette location looks like the same place. Without this
+// section the illustrator treats each per-spread prompt as a fresh place.
+// ─────────────────────────────────────────────────────────────────────────────
+function buildNamedLocationsSection(locationPalette) {
+  if (!locationPalette || !Array.isArray(locationPalette.palette) || locationPalette.palette.length === 0) {
+    return '';
+  }
+
+  const byId = new Map(locationPalette.palette.map(p => [p.id, p]));
+  const spreadsByLoc = new Map();
+  if (Array.isArray(locationPalette.beatAssignments)) {
+    for (const a of locationPalette.beatAssignments) {
+      if (!a || !a.location_id || !Number.isFinite(Number(a.spread))) continue;
+      const arr = spreadsByLoc.get(a.location_id) || [];
+      arr.push(Number(a.spread));
+      spreadsByLoc.set(a.location_id, arr);
+    }
+  }
+
+  const lines = ['### NAMED LOCATIONS (continuity across spreads that share a place)'];
+  lines.push(
+    'The story unfolds across the named places below. Each place has its own light, architecture, materials, and mood — lock those on first appearance and reuse them exactly every time that place returns. Treat "revisiting the rooftop garden" like revisiting a set in a movie: same layout, same hero props, same sky, same plants. Changes are legitimate ONLY when the per-spread SCENE explicitly calls for them (time of day shift, weather turn, a new wing opens up). Never swap materials or palette at random between spreads set at the same place.'
+  );
+  lines.push('');
+  for (const entry of locationPalette.palette) {
+    const name = entry.name;
+    const anchors = Array.isArray(entry.visual_anchors) && entry.visual_anchors.length
+      ? entry.visual_anchors.join('; ')
+      : '(establish on first appearance and reuse every time)';
+    const spreads = (spreadsByLoc.get(entry.id) || []).sort((a, b) => a - b);
+    const spreadsHint = spreads.length > 0
+      ? ` (used on spread${spreads.length === 1 ? '' : 's'} ${spreads.join(', ')})`
+      : '';
+    lines.push(`• ${name}${spreadsHint}`);
+    lines.push(`  Locked visual anchors: ${anchors}`);
+  }
+  lines.push('');
+  lines.push('When a spread prompt says "Setting: <palette name>", render THAT specific place — not a generic version of the category. If the SCENE block in the prompt names the palette place explicitly (e.g., "at the harbor fish market at dawn"), it is mandatory to include it visibly.');
+  return lines.join('\n');
 }
 
 module.exports = { buildSystemInstruction };

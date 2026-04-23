@@ -141,6 +141,25 @@ class QualityGate {
       const errs = findPossessivePronounErrors(s?.text || '');
       for (const e of errs) possessiveErrors.push({ spread: s.spread, ...e });
     }
+
+    // Deterministic scene_continuity check. When the plan assigned each beat
+    // a palette location, the writer's SCENE block MUST name that location
+    // (the illustrator uses the SCENE verbatim as its prompt — if it doesn't
+    // name the palette location, cross-spread continuity breaks). Missing
+    // SCENE blocks also count as failures because they force the illustrator
+    // to fall back to the raw beat description, which is what this whole
+    // system was designed to replace.
+    const sceneContinuityIssues = QualityGate._collectSceneContinuityIssues(spreads, opts?.plan);
+    if (sceneContinuityIssues.length > 0) {
+      scores.sceneContinuity = Math.min(scores.sceneContinuity || 4, 4);
+      for (const sc of sceneContinuityIssues) {
+        issues.push({
+          dimension: 'sceneContinuity',
+          spread: sc.spread,
+          note: sc.note,
+        });
+      }
+    }
     let vetoFeedback = '';
     if (possessiveErrors.length > 0) {
       scores.pronouns = Math.min(scores.pronouns || 3, 3);
@@ -175,6 +194,11 @@ class QualityGate {
       feedback = feedback
         ? `${vetoFeedback}\n\nAdditional editor notes:\n${feedback}`
         : vetoFeedback;
+    }
+
+    if (sceneContinuityIssues.length > 0) {
+      const block = QualityGate._sceneContinuityFeedbackBlock(sceneContinuityIssues);
+      feedback = feedback ? `${feedback}\n\n${block}` : block;
     }
 
     return {
@@ -468,6 +492,100 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
       out[k] = Math.max(1, Math.min(10, Math.round(n)));
     }
     return out;
+  }
+
+  /**
+   * Deterministic scene-continuity check.
+   *
+   * Inputs:
+   *   - spreads: [{ spread, text, scene }]  (scene may be '' for old-path stories)
+   *   - plan:    { beats: [{ spread, location }] } (locations come from the palette)
+   *
+   * Rules:
+   *   - If the plan locked a palette location to a spread, the spread's SCENE
+   *     MUST mention that location name (or at least 2 meaningful tokens from
+   *     the name — e.g. "harbor fish market at dawn" passes if the scene says
+   *     "harbor market" or "fish market"). Missing SCENE is a fail.
+   *   - If the plan has no palette (LLM call failed), we don't penalize — we
+   *     can't score against a contract that doesn't exist.
+   *
+   * Intentionally narrow: this is a continuity check, not a full coherence
+   * check. The LLM critic handles the rest.
+   *
+   * @param {Array} spreads
+   * @param {object|null} plan
+   * @returns {Array<{spread:number, note:string}>}
+   */
+  static _collectSceneContinuityIssues(spreads, plan) {
+    const beats = plan && Array.isArray(plan.beats) ? plan.beats : [];
+    if (beats.length === 0) return [];
+
+    const locByBeat = new Map();
+    for (const b of beats) {
+      if (b && typeof b.location === 'string' && b.location.trim()) {
+        locByBeat.set(Number(b.spread), b.location.trim());
+      }
+    }
+    if (locByBeat.size === 0) return [];
+
+    const issues = [];
+    for (const s of spreads) {
+      const location = locByBeat.get(Number(s?.spread));
+      if (!location) continue;
+      const scene = typeof s.scene === 'string' ? s.scene : '';
+      if (!scene.trim()) {
+        issues.push({
+          spread: s.spread,
+          note: `SCENE block is missing — the illustrator needs a SCENE paragraph that names "${location}" and matches the TEXT.`,
+        });
+        continue;
+      }
+      if (!QualityGate._sceneNamesLocation(scene, location)) {
+        issues.push({
+          spread: s.spread,
+          note: `SCENE does not name the assigned palette location "${location}". Rewrite the SCENE so it explicitly takes place at "${location}" (the illustrator reuses this paragraph verbatim — if it does not name the place, continuity breaks).`,
+        });
+      }
+    }
+    return issues;
+  }
+
+  /**
+   * Does `scene` name `location`? Tolerant match that allows the writer to
+   * describe the place in slightly different words as long as the core
+   * content words are present.
+   *
+   * Algorithm: take all content tokens (≥4 chars, not in a small stoplist)
+   * from `location`. The scene must contain either (a) the full location
+   * string (case-insensitive substring) or (b) at least 2 of those content
+   * tokens. For single-word locations we require the one token.
+   */
+  static _sceneNamesLocation(scene, location) {
+    const sLower = scene.toLowerCase();
+    const locLower = location.toLowerCase();
+    if (sLower.includes(locLower)) return true;
+
+    const stop = new Set([
+      'the', 'and', 'for', 'with', 'from', 'into', 'onto', 'over', 'under',
+      'near', 'behind', 'where', 'when', 'that', 'this', 'there',
+      'a', 'an', 'of', 'in', 'on', 'at', 'to', 'by',
+    ]);
+    const tokens = locLower
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 4 && !stop.has(t));
+    if (tokens.length === 0) return false;
+    const matched = tokens.filter(t => sLower.includes(t));
+    if (tokens.length === 1) return matched.length === 1;
+    return matched.length >= 2;
+  }
+
+  static _sceneContinuityFeedbackBlock(issues) {
+    const lines = issues.map(i => `  - Spread ${i.spread}: ${i.note}`);
+    return [
+      'SCENE CONTINUITY — rewrite the SCENE blocks below so each one names the assigned palette location and matches its TEXT. The illustrator uses the SCENE verbatim as its prompt; when the SCENE does not name the locked location, every downstream spread drifts visually.',
+      ...lines,
+    ].join('\n');
   }
 
   /**

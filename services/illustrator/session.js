@@ -112,6 +112,7 @@ function createSession(opts) {
     theme: opts.theme,
     parentOutfit: opts.parentOutfit,
     childAppearance: opts.childAppearance,
+    locationPalette: opts.locationPalette,
   });
 
   return {

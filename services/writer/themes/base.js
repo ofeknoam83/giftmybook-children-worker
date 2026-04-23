@@ -240,6 +240,279 @@ class BaseThemeWriter {
   }
 
   /**
+   * Build a book-wide "location palette" of 3-5 thrilling, distinct, photogenic
+   * settings and assign every beat to one of them. The palette becomes the
+   * ground truth for WHERE each spread happens, and drives both the writer
+   * (SCENE block per spread) and the illustrator (named locations continuity).
+   *
+   * Design notes:
+   *  - The system prompt steers on ABSTRACT quality criteria only (thrilling,
+   *    specific, photogenic, distinct, plausibly-reachable). It does NOT list
+   *    example locations — that would bias the LLM to repeat them.
+   *  - The ONLY concrete location concepts injected into the prompt are what
+   *    the parent supplied (storySeed.setting, book.customDetails, anecdotes).
+   *  - If beats already have `location` (e.g. from anecdoteDrivenPlot), those
+   *    are preserved and the palette is built around them.
+   *  - On failure we never fabricate example defaults; we either fall back to
+   *    parent-anecdote-derived locations or leave beats unlabelled and let the
+   *    writer revert to soft-hint behavior.
+   *
+   * @param {object} params
+   * @param {object} params.child
+   * @param {object} params.book
+   * @param {Array<{spread:number, beat:string, description:string, location?:string}>} params.beats
+   * @param {object} [params.storySeed]
+   * @returns {Promise<{
+   *   palette: Array<{id: string, name: string, visual_anchors: string[]}>,
+   *   beatAssignments: Array<{spread: number, location_id: string}>,
+   * } | null>}
+   */
+  async buildLocationPalette({ child, book, beats, storySeed }) {
+    if (!Array.isArray(beats) || beats.length === 0) return null;
+
+    // Preserve any locations already assigned by upstream planners.
+    const preassigned = beats
+      .filter(b => typeof b?.location === 'string' && b.location.trim())
+      .map(b => ({ spread: b.spread, location: b.location.trim() }));
+
+    const theme = this.themeName || book?.theme || 'adventure';
+    const ambition = pickAmbition(theme);
+    const parentVisible = theme === 'mothers_day' || theme === 'fathers_day';
+
+    // Collect ONLY parent-provided concrete inputs — no hardcoded exemplars.
+    const seedSetting = (storySeed?.setting || '').toString().trim();
+    const seedSpine = (storySeed?.narrative_spine || storySeed?.storySeed || '').toString().trim();
+    const customDetails = (book?.customDetails || '').toString().trim();
+    const anecdoteBlock = this._parentProvidedLocationHints(child, book);
+
+    const systemPrompt = [
+      `You are a master scout for a children's picture book. Your job is to choose the set of physical PLACES this ${theme.replace(/_/g, ' ')} book happens in — the locations that will make readers turn the page just to see what's next.`,
+      '',
+      'QUALITY BAR (each palette entry must satisfy ALL of these):',
+      '- THRILLING. The kind of place that makes a parent say "I want to go there" and a child say "whoa". Never ordinary. Never a default.',
+      '- PHOTOGENIC AND SPECIFIC. Has at least three concrete visual anchors a painter could reproduce on every spread set there (distinctive structure, signature texture/color/material, light source, weather, time of day). Never abstract ("a magical place", "somewhere special").',
+      '- NAMED. Proper-noun-feeling short name with a qualifier. Avoid bare nouns. "the harbor at first light" is fine; "the harbor" alone is not.',
+      '- DISTINCT. No two palette entries share their dominant mood, time-of-day, OR dominant material. If two entries feel like the same place in slightly different clothes, collapse them.',
+      '- PLAUSIBLY REACHABLE. Two consecutive spreads in different palette locations must be connectable by a single sentence of narration inside a picture book.',
+      '',
+      `AMBITION — ${ambition.label}. ${ambition.guidance} Do not narrow the palette by mimicking any canonical list; invent.`,
+      '',
+      'HARD BAN-LIST (never emit these as palette entries, even if they feel cozy):',
+      '- "the supermarket", "the grocery store", "the store", "the market" without a specific named character to it',
+      '- "the living room", "the hallway", "the stairs", "the kitchen" as a dominant palette location',
+      '- "the bedroom" (unless the book theme is bedtime)',
+      '- "at home", "the house", "the apartment" as an unqualified location',
+      '- "a magical place", "somewhere special", "a faraway land" — these are abstractions, not places',
+      `${parentVisible ? '- Any palette entry that depends on a visible family-member face being drawn (the other parent, grandparent, sibling). This book only has the child\'s reference photo — the themed parent is shown through hands and hidden-face poses only.' : '- Any palette entry that depends on drawing family members who are not the hero child. Only the hero appears with full face.'}`,
+      '',
+      'STRUCTURAL RULES:',
+      '- Emit between 3 and 5 palette entries. No duplicates. Each entry is used by 1 or more consecutive spreads.',
+      `- You must assign all ${beats.length} spreads. Consecutive spreads should usually share a location — 2–4 spreads per location is the sweet spot. Transitions between locations should align with natural story turns (rising action, peak, resolution).`,
+      `- Spread 1 must NOT be an at-home opener. Spread ${beats.length} may be outdoors or indoors but must match a palette entry — not a generic "back home" shot.`,
+      '- Preserve any location that a previous planning step already locked to a specific spread (listed in the user prompt).',
+      '- Respect any parent-provided concrete place concepts (listed in the user prompt) — if the parent named a place they love, it MUST appear as a palette entry.',
+      '',
+      'OUTPUT (JSON object, no prose outside):',
+      '{',
+      '  "palette": [',
+      '    {',
+      '      "id": "<short_snake_case_id>",',
+      '      "name": "<unique, specific, named place including a qualifier — never a bare noun>",',
+      '      "visual_anchors": ["<anchor 1>", "<anchor 2>", "<anchor 3>"]',
+      '    }',
+      '  ],',
+      '  "beatAssignments": [',
+      '    { "spread": <int>, "location_id": "<id from palette>" }',
+      '  ]',
+      '}',
+    ].join('\n');
+
+    const userLines = [];
+    userLines.push(`Theme: ${theme}`);
+    userLines.push(`Child: ${child?.name || 'unnamed'}${child?.age != null ? `, age ${child.age}` : ''}`);
+    if (seedSpine) userLines.push(`Story spine: ${seedSpine}`);
+    if (seedSetting) userLines.push(`Parent-supplied setting concept (must be honored as a palette entry OR directly inspire one): ${seedSetting}`);
+    if (customDetails) userLines.push(`Parent-written custom details (every concrete place mentioned here MUST become a palette entry): ${customDetails}`);
+    if (anecdoteBlock) {
+      userLines.push('');
+      userLines.push('Parent-supplied anecdotes that hint at places the child knows (convert only the ones that name or imply a concrete location):');
+      userLines.push(anecdoteBlock);
+    }
+
+    if (preassigned.length > 0) {
+      userLines.push('');
+      userLines.push('Pre-assigned locations (these MUST appear in the palette exactly as written, and keep their spread assignments):');
+      preassigned.forEach(p => userLines.push(`- Spread ${p.spread}: ${p.location}`));
+    }
+
+    userLines.push('');
+    userLines.push(`Beats to assign (${beats.length}):`);
+    beats.forEach(b => {
+      const desc = this._sanitizeBeatDescription(b.description || '');
+      const line = `- Spread ${b.spread} (${b.beat || 'BEAT'})${b.location ? ` [locked to: ${b.location}]` : ''}: ${desc.slice(0, 160)}`;
+      userLines.push(line);
+    });
+
+    userLines.push('');
+    userLines.push('Now emit the JSON palette and beat assignments.');
+
+    const userPrompt = userLines.join('\n');
+
+    let parsed = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const result = await this.callLLM('planner', systemPrompt, userPrompt, {
+          jsonMode: true,
+          maxTokens: 1800,
+          temperature: 0.95,
+          timeoutMs: 90_000,
+        });
+        const normalized = normalizePaletteResponse(result.text, beats);
+        if (normalized) {
+          parsed = normalized;
+          break;
+        }
+        console.warn(`[writerV2] Location palette attempt ${attempt}: response did not validate, retrying`);
+      } catch (err) {
+        console.warn(`[writerV2] Location palette attempt ${attempt} failed: ${err.message}`);
+      }
+    }
+
+    if (!parsed) {
+      // Parent-anecdote-derived fallback only. We never seed generic defaults —
+      // that would bias subsequent runs and undercut the whole point of this
+      // step. If we can't find anything parent-provided, we return null and
+      // the writer reverts to soft-hint behavior.
+      return this._buildPaletteFallback({ beats, storySeed, book, preassigned });
+    }
+
+    // Preserve pre-assigned beat locations even if the LLM reshuffled them.
+    if (preassigned.length > 0) {
+      for (const pa of preassigned) {
+        const matchEntry = parsed.palette.find(p => p.name.trim().toLowerCase() === pa.location.toLowerCase());
+        if (!matchEntry) {
+          // LLM dropped a locked location — inject it.
+          const id = slugify(pa.location);
+          parsed.palette.push({ id, name: pa.location, visual_anchors: [] });
+          parsed.beatAssignments = parsed.beatAssignments.filter(a => a.spread !== pa.spread);
+          parsed.beatAssignments.push({ spread: pa.spread, location_id: id });
+          continue;
+        }
+        const existing = parsed.beatAssignments.find(a => a.spread === pa.spread);
+        if (!existing || existing.location_id !== matchEntry.id) {
+          parsed.beatAssignments = parsed.beatAssignments.filter(a => a.spread !== pa.spread);
+          parsed.beatAssignments.push({ spread: pa.spread, location_id: matchEntry.id });
+        }
+      }
+    }
+
+    return parsed;
+  }
+
+  /**
+   * Apply a palette's assignments back onto a beats array. Each beat gets
+   * `location` (the palette entry's full name) and `visual_anchors` (array of
+   * 0..N strings). Beats whose spread has no assignment are left untouched.
+   *
+   * @param {Array} beats
+   * @param {{palette: Array, beatAssignments: Array}} palette
+   * @returns {Array} new beats array
+   */
+  applyPaletteToBeats(beats, palette) {
+    if (!palette || !Array.isArray(palette.palette) || !Array.isArray(palette.beatAssignments)) {
+      return beats;
+    }
+    const entriesById = new Map();
+    palette.palette.forEach(p => entriesById.set(p.id, p));
+    const assignmentsBySpread = new Map();
+    palette.beatAssignments.forEach(a => assignmentsBySpread.set(Number(a.spread), a.location_id));
+    return beats.map(b => {
+      const id = assignmentsBySpread.get(Number(b.spread));
+      const entry = id ? entriesById.get(id) : null;
+      if (!entry) return b;
+      return {
+        ...b,
+        location: entry.name,
+        visual_anchors: Array.isArray(entry.visual_anchors) ? entry.visual_anchors.slice(0, 6) : [],
+      };
+    });
+  }
+
+  /**
+   * Pull parent-provided hints that imply concrete places from anecdotes.
+   * Used only as a prompt input to the palette builder so the LLM sees what
+   * the family has already named (their park, their favorite bakery, a pet,
+   * a favorite food that implies a kitchen, etc.). Never a location palette
+   * on its own.
+   */
+  _parentProvidedLocationHints(child, book) {
+    const a = (child && child.anecdotes) || {};
+    const lines = [];
+    if (a.favorite_activities) lines.push(`- favorite activities: ${a.favorite_activities}`);
+    if (a.meaningful_moment) lines.push(`- meaningful moment: ${a.meaningful_moment}`);
+    if (a.funny_thing) lines.push(`- funny thing they do: ${a.funny_thing}`);
+    if (a.favorite_food) lines.push(`- favorite food: ${a.favorite_food}`);
+    if (a.favorite_toys) lines.push(`- favorite toys: ${a.favorite_toys}`);
+    if (a.other_detail) lines.push(`- other detail: ${a.other_detail}`);
+    if (a.anything_else) lines.push(`- additional: ${a.anything_else}`);
+    if (Array.isArray(child?.interests) && child.interests.length) {
+      lines.push(`- interests: ${child.interests.join(', ')}`);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * Anecdote-only fallback palette. Returns null if nothing concrete can be
+   * extracted — we DO NOT invent placeholder palette entries.
+   */
+  _buildPaletteFallback({ beats, storySeed, book, preassigned }) {
+    const entries = [];
+    const seen = new Set();
+    const pushEntry = (name, anchors = []) => {
+      const clean = typeof name === 'string' ? name.trim() : '';
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push({ id: slugify(clean), name: clean, visual_anchors: anchors });
+    };
+
+    for (const p of preassigned) pushEntry(p.location);
+
+    const seedSetting = (storySeed?.setting || '').toString().trim();
+    if (seedSetting && seedSetting.length < 120) pushEntry(seedSetting);
+
+    const customDetails = (book?.customDetails || '').toString().trim();
+    if (customDetails) {
+      // Crude place extraction: look for capitalized multi-word proper-noun
+      // fragments ("Hudson Park", "Nonna's bakery"). If nothing useful is
+      // found we simply drop through — no generic fillers.
+      const matches = customDetails.match(/\b(?:the\s+)?(?:[A-Z][a-zA-Z'’]*\s+){1,3}(?:Park|Garden|Beach|Market|Bakery|Library|Bridge|Trail|Station|Harbor|Pier|Meadow|Forest|Zoo|Aquarium|Museum)\b/g);
+      if (matches) matches.forEach(m => pushEntry(m));
+    }
+
+    if (entries.length === 0) return null;
+
+    // Assign spreads round-robin across whatever entries we managed to pull.
+    // Consecutive spreads share locations to give the reader continuity.
+    const beatAssignments = [];
+    const spreadsPerEntry = Math.max(1, Math.ceil(beats.length / entries.length));
+    for (let i = 0; i < beats.length; i++) {
+      const idx = Math.min(Math.floor(i / spreadsPerEntry), entries.length - 1);
+      beatAssignments.push({ spread: beats[i].spread, location_id: entries[idx].id });
+    }
+    // Pre-assigned spreads override the round-robin.
+    for (const p of preassigned) {
+      const entry = entries.find(e => e.name.toLowerCase() === p.location.toLowerCase());
+      if (!entry) continue;
+      const at = beatAssignments.findIndex(a => a.spread === p.spread);
+      if (at >= 0) beatAssignments[at] = { spread: p.spread, location_id: entry.id };
+    }
+
+    return { palette: entries, beatAssignments };
+  }
+
+  /**
    * Get age tier name based on child's age.
    * Two tiers: young-picture (0-3) and picture-book (4-6).
    * Both produce 13-spread books; tier affects vocabulary, not structure.
@@ -344,9 +617,22 @@ class BaseThemeWriter {
 
   /**
    * Parse LLM output into structured spread array.
-   * Handles ---SPREAD N--- delimited format.
+   * Handles ---SPREAD N--- delimited format and optional TEXT: / SCENE: blocks.
+   *
+   * With TEXT + SCENE blocks (new writer format):
+   *   ---SPREAD 1---
+   *   TEXT:
+   *   The story text here...
+   *   SCENE:
+   *   Scene description for the illustrator...
+   *
+   * Returns `{ spread, text, scene }` objects. `scene` is an empty string when
+   * the writer didn't emit a SCENE block (legacy writers, older revisers, or
+   * the odd parse failure). Callers should fall back to their previous
+   * illustrator prompt source in that case.
+   *
    * @param {string} rawText
-   * @returns {Array<{ spread: number, text: string }>}
+   * @returns {Array<{ spread: number, text: string, scene: string }>}
    */
   parseSpreads(rawText) {
     const spreads = [];
@@ -354,38 +640,38 @@ class BaseThemeWriter {
       console.warn(`[writerV2] parseSpreads: received empty or null rawText`);
       return spreads;
     }
-    // Match ---SPREAD N--- or similar patterns
     const pattern = /---\s*SPREAD\s+(\d+)\s*---/gi;
     const parts = rawText.split(pattern);
 
-    // parts alternates: [preamble, "1", text1, "2", text2, ...]
     for (let i = 1; i < parts.length; i += 2) {
       const spreadNum = parseInt(parts[i], 10);
-      const text = (parts[i + 1] || '').trim();
+      const body = (parts[i + 1] || '').trim();
+      if (!body) continue;
+      const { text, scene } = splitTextAndScene(body);
       if (text) {
-        spreads.push({ spread: spreadNum, text });
+        spreads.push({ spread: spreadNum, text, scene });
       }
     }
 
-    // Fallback: try splitting by "Spread N:" or numbered patterns
     if (spreads.length === 0) {
       const fallbackPattern = /(?:^|\n)\s*(?:Spread\s+)?(\d+)[:.]\s*/gi;
       const fallbackParts = rawText.split(fallbackPattern);
       for (let i = 1; i < fallbackParts.length; i += 2) {
         const spreadNum = parseInt(fallbackParts[i], 10);
-        const text = (fallbackParts[i + 1] || '').trim();
-        if (text && spreadNum >= 1 && spreadNum <= 20) {
-          spreads.push({ spread: spreadNum, text });
+        const body = (fallbackParts[i + 1] || '').trim();
+        if (body && spreadNum >= 1 && spreadNum <= 20) {
+          const { text, scene } = splitTextAndScene(body);
+          if (text) spreads.push({ spread: spreadNum, text, scene });
         }
       }
     }
 
-    // Last resort: split by double newlines and number them
     if (spreads.length === 0 && rawText.trim()) {
       console.warn(`[writerV2] parseSpreads: no spread markers found, falling back to paragraph splitting. Raw text starts with: ${rawText.substring(0, 200)}`);
       const chunks = rawText.trim().split(/\n\s*\n/).filter(c => c.trim());
       chunks.forEach((chunk, i) => {
-        spreads.push({ spread: i + 1, text: chunk.trim() });
+        const { text, scene } = splitTextAndScene(chunk.trim());
+        spreads.push({ spread: i + 1, text, scene });
       });
     }
 
@@ -473,4 +759,138 @@ class BaseThemeWriter {
   }
 }
 
-module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL };
+// ── Module helpers (palette + parseSpreads) ──────────────────────────────────
+
+/**
+ * Split a spread body into `{ text, scene }` where `scene` is the content
+ * after a `SCENE:` marker. Tolerates writer drift:
+ *   - `TEXT:` header is optional.
+ *   - Missing SCENE block → `scene = ''`.
+ *   - `SCENE DESCRIPTION:` and `### SCENE` variants all match.
+ *   - Text inside the SCENE block keeps its internal line breaks but is
+ *     trimmed at both ends.
+ *
+ * @param {string} body
+ */
+function splitTextAndScene(body) {
+  if (!body) return { text: '', scene: '' };
+  const sceneMarker = /(?:^|\n)\s*(?:#{1,3}\s*)?SCENE(?:\s+DESCRIPTION)?\s*:?\s*(?:\n|$)/i;
+  const match = body.match(sceneMarker);
+  let textPart = body;
+  let scenePart = '';
+  if (match && typeof match.index === 'number') {
+    textPart = body.slice(0, match.index);
+    scenePart = body.slice(match.index + match[0].length);
+  }
+  textPart = textPart.replace(/^\s*(?:#{1,3}\s*)?TEXT\s*:?\s*/i, '').trim();
+  scenePart = scenePart.trim();
+  return { text: textPart, scene: scenePart };
+}
+
+/**
+ * Map a theme to a "palette ambition" — how far the imagination should
+ * stretch. The bands are broad so most themes land in the middle; the
+ * critical outliers are bedtime (cozy / small-world) and "magic" themes
+ * (fully imaginative worlds allowed).
+ */
+function pickAmbition(theme) {
+  if (theme === 'bedtime') {
+    return {
+      label: 'INTIMATE (cozy, small, warm)',
+      guidance: 'The palette should feel like a nest of quiet-yet-rich places — the kind of spots a child would lean into before sleep (a cozy tucked-away garden at dusk, a lantern-lit library alcove, a firefly meadow). Scale back on adrenaline; keep the wonder.',
+    };
+  }
+  if (['birthday', 'birthday_magic', 'adventure', 'dreams'].includes(theme)) {
+    return {
+      label: 'HIGH AMBITION (imaginative + real, leaning toward the extraordinary)',
+      guidance: 'The palette may include fantastical or dreamlike places — weather-impossible gardens, candlelit floating markets, towers that catch the wind. They must still feel like a child could wander in. Pair the fantastical with one grounded real-world location so the book breathes.',
+    };
+  }
+  if (['mothers_day', 'fathers_day'].includes(theme)) {
+    return {
+      label: 'ELEVATED REAL (everyday raised to cinematic)',
+      guidance: 'The palette should be places a parent and child could plausibly share, but photographed at their most beautiful — a garden in golden hour, a dawn market, a mountain lookout, a workshop at closing time. Not fantastical; not boring.',
+    };
+  }
+  return {
+    label: 'ELEVATED REAL (everyday raised to cinematic)',
+    guidance: 'Pick places a child could plausibly visit in this world, but at their most photogenic: distinctive light, distinctive materials, distinctive sounds. The reader should feel like they are on a guided tour of beautiful real places.',
+  };
+}
+
+/**
+ * Parse the palette builder's LLM JSON response into the canonical shape.
+ * Returns null if parsing or basic shape validation fails.
+ */
+function normalizePaletteResponse(raw, beats) {
+  if (!raw) return null;
+  let parsed;
+  try {
+    let s = String(raw).trim();
+    s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    parsed = JSON.parse(s);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const rawPalette = Array.isArray(parsed.palette) ? parsed.palette : [];
+  const rawAssignments = Array.isArray(parsed.beatAssignments) ? parsed.beatAssignments : [];
+
+  const palette = [];
+  const seen = new Set();
+  for (const entry of rawPalette) {
+    if (!entry || typeof entry !== 'object') continue;
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!name) continue;
+    let id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    if (!id) id = slugify(name);
+    if (seen.has(id)) id = `${id}_${palette.length + 1}`;
+    seen.add(id);
+    const anchors = Array.isArray(entry.visual_anchors)
+      ? entry.visual_anchors.map(a => (typeof a === 'string' ? a.trim() : '')).filter(Boolean).slice(0, 6)
+      : [];
+    palette.push({ id, name, visual_anchors: anchors });
+  }
+  if (palette.length < 2 || palette.length > 8) return null;
+
+  const paletteIds = new Set(palette.map(p => p.id));
+  const beatAssignments = [];
+  const spreadsCovered = new Set();
+  for (const a of rawAssignments) {
+    if (!a || typeof a !== 'object') continue;
+    const spread = Number(a.spread);
+    const id = typeof a.location_id === 'string' ? a.location_id.trim() : '';
+    if (!Number.isFinite(spread) || !paletteIds.has(id)) continue;
+    if (spreadsCovered.has(spread)) continue;
+    beatAssignments.push({ spread, location_id: id });
+    spreadsCovered.add(spread);
+  }
+
+  // Fill any missing beats by inheriting from the previous covered spread
+  // (consecutive spreads naturally share locations).
+  const beatSpreads = beats.map(b => Number(b.spread)).filter(Number.isFinite);
+  beatSpreads.sort((a, b) => a - b);
+  let lastId = palette[0].id;
+  for (const spread of beatSpreads) {
+    const existing = beatAssignments.find(a => a.spread === spread);
+    if (existing) {
+      lastId = existing.location_id;
+    } else {
+      beatAssignments.push({ spread, location_id: lastId });
+    }
+  }
+  beatAssignments.sort((a, b) => a.spread - b.spread);
+
+  return { palette, beatAssignments };
+}
+
+function slugify(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'location';
+}
+
+module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL, splitTextAndScene };
