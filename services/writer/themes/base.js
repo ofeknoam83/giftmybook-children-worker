@@ -895,4 +895,27 @@ function slugify(s) {
     .slice(0, 40) || 'location';
 }
 
-module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL, splitTextAndScene };
+/**
+ * Strip `OUTFIT_LOCK: ...` from the end of model output so {@link BaseThemeWriter#parseSpreads}
+ * only sees spread blocks. The lock line is forwarded to the illustration pipeline
+ * as `characterOutfit` (cover-coherent day clothes for the hero).
+ *
+ * @param {string} rawText
+ * @returns {{ text: string, outfitLock: string | null }}
+ */
+function stripOutfitLockFromRaw(rawText) {
+  if (!rawText || !String(rawText).trim()) {
+    return { text: rawText, outfitLock: null };
+  }
+  const t = String(rawText);
+  const m = t.match(/(?:^|\n)\s*OUTFIT_LOCK:\s*([^\n]+?)\s*$/i);
+  if (m && typeof m.index === 'number') {
+    return {
+      text: t.slice(0, m.index).trim(),
+      outfitLock: (m[1] && m[1].trim()) || null,
+    };
+  }
+  return { text: t, outfitLock: null };
+}
+
+module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL, splitTextAndScene, stripOutfitLockFromRaw };

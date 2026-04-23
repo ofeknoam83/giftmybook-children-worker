@@ -143,7 +143,9 @@ PANORAMA LOCK (CRITICAL — PRINT IS ONE IMAGE CUT IN HALF FOR BINDING):
 - If the scene includes a gate, path, or figure near center, **design the composition** so continuity reads as one space (e.g. gate straddles the viewing area naturally, path curves through), not as "left page scene + right page scene".
 
 SHOT VARIETY (every book):
+- The per-spread **user prompt** includes a SCENE line from the author: treat that SCENE as the **composition contract** (who is in frame, where the camera stands, what the moment is). Honor it on top of style and character locks.
 - When the story revisits the **same** setting on the next spread, keep the **place** consistent but **not** the same photograph: follow the SCENE for distance, angle, and focal action. Avoid near-duplicate compositions versus the prior spread unless the SCENE explicitly calls for it.
+- If this **named place** also appeared a few spreads earlier, do not copy that older "still" — the new SCENE should describe a different focal action or viewpoint so the two spreads do not look like the same stock image.
 
 IN-WORLD READABLE TEXT (STRICT):
 - The ONLY allowed text on the image is the manuscript caption on the CHOSEN SIDE given in the per-spread prompt — character-for-character identical to that passage.

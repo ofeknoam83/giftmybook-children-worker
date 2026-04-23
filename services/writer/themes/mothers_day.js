@@ -14,7 +14,7 @@ const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
-const { appendLocationPaletteSection, appendSceneRulesSection } = require('./generic');
+const { appendLocationPaletteSection, appendSceneRulesSection, parseWriterOutput } = require('./generic');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -166,7 +166,7 @@ class MothersDayWriter extends BaseThemeWriter {
       maxTokens: 4000,
     });
 
-    let spreads = this.parseSpreads(result.text);
+    let { spreads, outfitLock } = parseWriterOutput(this, result.text);
 
     // Validate structure and retry if needed
     const validation = this.validateStructure(spreads, child.age);
@@ -176,9 +176,10 @@ class MothersDayWriter extends BaseThemeWriter {
         maxTokens: 4000,
         temperature: 0.9,
       });
-      const retrySpreads = this.parseSpreads(retryResult.text);
-      if (retrySpreads.length >= plan.spreadCount.min) {
-        spreads = retrySpreads;
+      const ret = parseWriterOutput(this, retryResult.text);
+      if (ret.spreads.length >= plan.spreadCount.min) {
+        spreads = ret.spreads;
+        if (ret.outfitLock) outfitLock = ret.outfitLock;
       }
     }
 
@@ -200,6 +201,7 @@ class MothersDayWriter extends BaseThemeWriter {
       spreads,
       _model: result.model,
       _ageTier: plan.ageTier,
+      _outfitLock: outfitLock || null,
     };
   }
 
@@ -227,7 +229,9 @@ class MothersDayWriter extends BaseThemeWriter {
       maxTokens: 4000,
     });
 
-    let spreads = this.parseSpreads(result.text);
+    const parsed = parseWriterOutput(this, result.text);
+    let spreads = parsed.spreads;
+    const newOutfit = parsed.outfitLock || story._outfitLock || null;
 
     // If revision parsing failed, keep original
     if (spreads.length < story.spreads.length * 0.7) {
@@ -259,6 +263,7 @@ class MothersDayWriter extends BaseThemeWriter {
       spreads,
       _model: result.model,
       _ageTier: ageTier,
+      _outfitLock: newOutfit,
     };
   }
 
@@ -524,6 +529,14 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl — use she/her.' : child.gender === 'male' ? 'He is a boy — use he/him.' : ''} Use the child's name or correct pronouns. "They" is only for plural subjects (e.g., ${child.name} and ${parentName} together).`);
     sections.push(`- NEVER use dashes, hyphens, or em dashes (\u2014, \u2013, -) in the story text. Use commas, periods, or line breaks instead.`);
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
+
+    sections.push(`\n## BOOK-WIDE VISUAL SHOWRUNNER\n`);
+    sections.push(`- Before you finish, mentally storyboard all ${plan.spreadCount.target} spreads: no two spreads may reuse the **same dominant tableau** (pose + place) unless the TEXT demands a callback — and then the SCENE must change **viewpoint, scale, light, or micro-zone**.`);
+    sections.push(`- If a palette location **comes back** later in the book (not only in consecutive spreads), the new SCENE must be a different "still" — not a copy of the earlier spread at that place.`);
+
+    sections.push(`\n## OUTFIT_LOCK (MANDATORY — hero ${child.name}, after final spread)\n`);
+    sections.push(`Interior art is checked against a **pre-rendered cover**. After the last \`---SPREAD ${plan.spreadCount.target}---\` block, output **one** line on its own:`);
+    sections.push(`OUTFIT_LOCK: <one sentence: ${child.name}'s day clothes — colors, top, bottom, shoes, one accessory. Same words in every dry-land SCENE unless bath/pool per rules.>`);
 
     sections.push(`\n## CREATIVITY RULES (CRITICAL)\n`);
     sections.push(`- At least 2 spreads must use the child's IMAGINATION — transform an ordinary moment into something magical or whimsical (a puddle is a sea, a stick is a sword, the kitchen is a restaurant). ${parentName} plays along.`);
