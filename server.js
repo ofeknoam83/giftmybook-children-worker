@@ -483,148 +483,6 @@ function buildGraphicNovelStoryContentForDb(storyPlan) {
   };
 }
 
-/**
- * Convert Writer V2 result to legacy storyPlan shape for the illustration pipeline.
- * The illustration pipeline expects { title, entries: [...] } with specific entry types.
- */
-function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle) {
-  const spreads = writerResult.story.spreads || [];
-  const plan = writerResult.plan || null;
-  const manifestAssignments = Array.isArray(plan?.manifest) ? plan.manifest : [];
-  const beatsBySpread = new Map();
-  if (Array.isArray(plan?.beats)) {
-    for (const b of plan.beats) {
-      if (b && Number.isFinite(Number(b.spread))) beatsBySpread.set(Number(b.spread), b);
-    }
-  }
-  const manifestBySpread = new Map();
-  for (const m of manifestAssignments) {
-    const spread = Number(m.spread);
-    if (!Number.isFinite(spread)) continue;
-    if (!manifestBySpread.has(spread)) manifestBySpread.set(spread, []);
-    manifestBySpread.get(spread).push(m);
-  }
-  const childName = childDetails.name || childDetails.childName || 'the child';
-  const title = approvedTitle || `A Story for ${childName}`;
-  const THEME_SUBS = {
-    mothers_day: 'A story about love',
-    fathers_day: 'A story about love',
-    birthday: 'A birthday story',
-    birthday_magic: 'A birthday story',
-    adventure: 'An adventure story',
-    fantasy: 'A fantasy quest',
-    space: 'A space adventure',
-    underwater: 'An underwater adventure',
-    nature: 'A nature story',
-    bedtime: 'A bedtime story',
-    school: 'A school story',
-    friendship: 'A friendship story',
-    holiday: 'A holiday story',
-    anxiety: 'A story about being brave',
-    anger: 'A story about big feelings',
-    fear: 'A story about courage',
-    grief: 'A story about remembering',
-    loneliness: 'A story about connection',
-    new_beginnings: 'A story about new beginnings',
-    self_worth: 'A story about being you',
-    family_change: 'A story about family',
-  };
-  const subtitle = `${THEME_SUBS[theme] || 'A story'} for ${childName}`;
-
-  // Build spread entries — split text into left/right pages
-  const spreadEntries = spreads.map((s, spreadIdx) => {
-    const lines = (s.text || '').split('\n').filter(l => l.trim());
-    let leftText, rightText;
-    if (lines.length >= 4) {
-      const mid = Math.ceil(lines.length / 2);
-      leftText = lines.slice(0, mid).join('\n');
-      rightText = lines.slice(mid).join('\n');
-    } else if (lines.length >= 2) {
-      leftText = lines[0];
-      rightText = lines.slice(1).join('\n');
-    } else {
-      leftText = s.text || '';
-      rightText = null;
-    }
-
-    // Build the illustrator's scene prompt. Priority order:
-    //   1. Writer-emitted SCENE block (s.scene) — this was produced alongside
-    //      s.text in the same LLM call, so it is guaranteed to match the
-    //      narrative and to lock the assigned palette location. This is the
-    //      whole point of the TEXT+SCENE refactor.
-    //   2. beat.description — legacy fallback for stories written by an older
-    //      writer (or when the writer's SCENE block was dropped on revision).
-    //   3. The rendered text itself — last-ditch fallback.
-    // The location line is still injected separately so the illustrator's
-    // NAMED LOCATIONS section can keep continuity across spreads even if the
-    // writer forgot to name the location inside the scene paragraph.
-    const beat = beatsBySpread.get(s.spread);
-    const prevSpread = spreadIdx > 0 ? spreads[spreadIdx - 1] : null;
-    const prevBeat = prevSpread ? beatsBySpread.get(prevSpread.spread) : null;
-    const anecdotesForSpread = manifestBySpread.get(s.spread) || [];
-    const promptParts = [
-      `Illustration for spread ${s.spread} of a ${theme} children's picture book.`,
-    ];
-    if (beat?.location) promptParts.push(`Setting: ${beat.location}.`);
-    const writerScene = typeof s.scene === 'string' ? s.scene.trim() : '';
-    if (writerScene) {
-      promptParts.push(`Scene: ${writerScene.slice(0, 900)}`);
-    } else if (beat?.description) {
-      promptParts.push(`Scene: ${String(beat.description).slice(0, 900)}`);
-    } else {
-      promptParts.push(`Scene: ${[leftText, rightText].filter(Boolean).join(' ').slice(0, 900)}`);
-    }
-    const loc = beat?.location && String(beat.location).trim();
-    const prevLoc = prevBeat?.location && String(prevBeat.location).trim();
-    if (loc && prevLoc && loc === prevLoc) {
-      const sceneForHint = writerScene || (beat?.description ? String(beat.description) : '') || [leftText, rightText].filter(Boolean).join(' ');
-      if (!sceneHasFramingHint(sceneForHint)) {
-        promptParts.push('Vary camera: use a clearly different distance or angle from the previous spread in this same setting.');
-      }
-    }
-    if (anecdotesForSpread.length > 0) {
-      const anecdoteStrs = anecdotesForSpread.map(a => `"${a.anecdote_value}" visibly shown as ${a.use}`).join('; ');
-      promptParts.push(`MUST VISUALLY INCLUDE (from this child's real life): ${anecdoteStrs}.`);
-    }
-    const spread_image_prompt = promptParts.join(' ').slice(0, 1400);
-
-    return {
-      type: 'spread',
-      spread: s.spread,
-      left: { text: leftText },
-      right: { text: rightText },
-      spread_image_prompt,
-      location: beat?.location || null,
-      manifest: anecdotesForSpread.length > 0 ? anecdotesForSpread : null,
-    };
-  });
-
-  const entries = [
-    { type: 'half_title_page', title },
-    { type: 'blank' },
-    { type: 'title_page', title, subtitle },
-    { type: 'copyright_page' },
-    { type: 'dedication_page', text: `For ${childName}` },
-    ...spreadEntries,
-    { type: 'blank' },
-    { type: 'closing_page' },
-    { type: 'blank' },
-  ];
-
-  // Surface the writer's location palette on the legacy plan so the
-  // illustrator session can render each palette entry consistently across
-  // the spreads that share it (see illustrator/systemInstruction.js).
-  const locationPalette = plan?.locationPalette || null;
-
-  const characterOutfit = (writerResult && writerResult.story && writerResult.story._outfitLock)
-    ? String(writerResult.story._outfitLock).trim()
-    : null;
-
-  const characterDescription = (childDetails.appearance || childDetails.childAppearance || '').trim() || null;
-
-  return { title, entries, locationPalette, characterOutfit, characterDescription };
-}
-
 function buildGraphicNovelReferencePack(storyPlan, childDetails) {
   const storyBible = storyPlan.storyBible || {};
   const heroName = childDetails.name || childDetails.childName || 'the child';
@@ -1378,102 +1236,116 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
       } else if (!isChapterBook && !isGraphicNovel) {
-        // ── Writer V2 — unified engine for supported themes ──
+        // ── Book pipeline v1 — new plan/write/illustrate/QA engine ──
+        // Replaces the legacy Writer V2 + generateAllIllustrations path for
+        // picture books and early readers. Produces a canonical book
+        // document; we synthesize a legacy-shaped storyPlan for the
+        // downstream PDF/upsell/cover code that has not yet been ported.
         bookContext.checkAbort();
-        bookContext.log('info', 'Starting Writer V2 story generation', { theme: theme || 'adventure' });
-        if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.15, message: 'Writing story (Writer V2)...', logs: bookContext.logs });
-        }
+        bookContext.log('info', 'Starting bookPipeline v1 generation', { theme: theme || 'adventure', format });
 
-        // Inject API keys from standalone into process.env so Writer V2 can use GPT-5.4
         if (apiKeys) {
           for (const [key, val] of Object.entries(apiKeys)) {
             if (val && !process.env[key]) process.env[key] = val;
           }
         }
 
-        const { WriterEngine, WriterQualityGateError, WriterQualityCheckUnavailableError } = require('./services/writer/engine');
+        const { generateBook, PipelineError } = require('./services/bookPipeline');
+        const { toLegacyStoryPlan } = require('./services/bookPipeline/adapters/toLegacyStoryPlan');
+
         const stage3Start = Date.now();
-        if (approvedTitle && sanitized.approvedTitle !== approvedTitle) {
-          sanitized.approvedTitle = approvedTitle;
-        }
-        let writerResult;
+        const pipelineRequest = {
+          ...sanitized,
+          bookId,
+          format,
+          theme,
+          child: childDetails,
+          customDetails: plannerCustomDetails || sanitized.customDetails || {},
+          cover: {
+            title: approvedTitle || sanitized.approvedTitle || 'My Story',
+            imageUrl: approvedCoverUrl || null,
+          },
+        };
+
+        let pipelineResult;
         try {
-          writerResult = await WriterEngine.generate(sanitized, {
+          pipelineResult = await generateBook(pipelineRequest, {
             bookId,
-            onProgress: (p) => {
-              if (progressCallbackUrl) {
-                const progressMap = { planning: 0.16, writing: 0.18, quality: 0.20, revising: 0.22, complete: 0.25 };
-                reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: progressMap[p.step] || 0.20, message: p.message, logs: bookContext.logs });
-              }
-            },
-            // Revision budget: omit maxRetries to use WRITER_CONFIG.retries (critic/revise cap + full regens).
-            // Wire the brainstormed story seed so Writer V2 uses it as the beat backbone
-            // instead of picking a random plot template. Falls back to templates if beats missing.
-            storySeed: {
-              narrative_spine: storySeed?.narrative_spine || null,
-              beats: v2Vars.beats,
-              favorite_object: v2Vars.favorite_object,
-              fear: v2Vars.fear,
-              setting: v2Vars.setting,
-              repeated_phrase: v2Vars.repeated_phrase,
-              phrase_arc: v2Vars.phrase_arc,
-              storySeed: storySeed?.storySeed || '',
-              emotional_core: storySeed?.emotional_core || null,
+            abortSignal: bookContext.abortController.signal,
+            onProgress: (event) => {
+              if (!progressCallbackUrl) return;
+              const progressMap = {
+                input: 0.10,
+                planning: 0.18,
+                writing: 0.22,
+                writerQa: 0.28,
+                illustrating: 0.60,
+                bookWideQa: 0.85,
+                layout: 0.88,
+              };
+              reportProgress(progressCallbackUrl, {
+                bookId,
+                stage: event.step || 'generating',
+                progress: progressMap[event.step] || 0.30,
+                message: event.message || 'Generating...',
+                logs: bookContext.logs,
+              });
             },
           });
-        } catch (writerErr) {
-          if (writerErr instanceof WriterQualityCheckUnavailableError) {
-            bookContext.log('error', `Writer V2 quality check unavailable: ${writerErr.message}`);
-            throw new Error(`Writer V2: ${writerErr.message}${writerErr.cause ? ` (${writerErr.cause})` : ''}`);
+        } catch (pipelineErr) {
+          if (pipelineErr instanceof PipelineError) {
+            bookContext.log('error', `bookPipeline failed: ${pipelineErr.failureCode || 'unknown'}`, {
+              stage: pipelineErr.stage,
+              issues: pipelineErr.issues,
+            });
+            throw new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
           }
-          if (writerErr instanceof WriterQualityGateError) {
-            bookContext.log('error', `Writer V2 quality gate blocked illustration: ${writerErr.message}`);
-            throw new Error(`Writer V2 quality gate failed (score ${writerErr.overallScore}/10): ${writerErr.feedback ? writerErr.feedback.slice(0, 400) : writerErr.message}`);
-          }
-          throw writerErr;
+          throw pipelineErr;
         }
+
+        const synthesized = toLegacyStoryPlan(pipelineResult.document);
+        storyPlan = synthesized.storyPlan;
+
         bookContext.touchActivity();
         const stage3Ms = Date.now() - stage3Start;
-        bookContext.log('info', 'Writer V2 story complete', {
-          spreads: writerResult.story.spreads.length,
-          model: writerResult.metadata.model,
-          qualityScore: writerResult.metadata.qualityScore,
-          totalWords: writerResult.metadata.totalWords,
+        bookContext.log('info', 'bookPipeline v1 complete', {
+          spreads: pipelineResult.document.spreads.length,
+          writerQaPass: pipelineResult.document.writerQa?.pass,
+          bookWideQaPass: pipelineResult.document.bookWideQa?.pass,
           ms: stage3Ms,
         });
-        console.log(`[server] Stage timing: writerV2=${stage3Ms}ms (book ${bookId})`);
+        console.log(`[server] Stage timing: bookPipelineV1=${stage3Ms}ms (book ${bookId})`);
 
-        // Safety: if Writer V2 returned 0 spreads, fail the book instead of generating a blank PDF
-        if (!writerResult.story.spreads || writerResult.story.spreads.length === 0) {
-          throw new Error(`Writer V2 returned 0 spreads for book ${bookId} — aborting to prevent blank book`);
-        }
-
-        // Convert Writer V2 result to legacy storyPlan shape for illustration pipeline
-        storyPlan = convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approvedTitle);
-        storyPlan._writerV2Metadata = writerResult.metadata;
-
-        // All quality judgment lives inside WriterEngine now — the LLM
-        // critic decides ship/revise in a single call, and the engine
-        // retries until the critic passes (or exhausts its budget and
-        // ships best-of-N). No post-hoc check needed here.
-
-        // Save story content to DB. We persist the plan.manifest alongside the
-        // entries so downstream tooling (and humans reviewing a book) can see
-        // exactly which anecdotes were supposed to land in which spreads.
         if (progressCallbackUrl) {
           const storyContentForDb = {
             title: storyPlan.title,
-            entries: storyPlan.entries.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, title: e.title, text: e.text })),
-            characterDescription: storyPlan.characterDescription || null,
-            characterOutfit: storyPlan.characterOutfit || null,
-            writerV2Metadata: writerResult.metadata,
-            manifest: (writerResult.plan && Array.isArray(writerResult.plan.manifest)) ? writerResult.plan.manifest : null,
+            entries: storyPlan.entries.map(e => ({
+              type: e.type,
+              spread: e.spread,
+              left: e.left,
+              right: e.right,
+              spreadText: pipelineResult.document.spreads.find(s => s.spreadNumber === e.spread)?.manuscript?.text || '',
+            })),
+            characterDescription: storyPlan.characterDescription,
+            characterOutfit: storyPlan.characterOutfit,
+            pipelineVersion: storyPlan._pipelineVersion,
+            storyBible: pipelineResult.document.storyBible,
+            writerQa: pipelineResult.document.writerQa,
+            bookWideQa: pipelineResult.document.bookWideQa,
           };
           reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
         }
 
-        await saveCheckpoint(bookId, { bookId, completedStage: 'story_planning', storyPlan, timestamp: new Date().toISOString(), accumulatedCosts: costTracker.getSummary() });
+        // New pipeline has already rendered + QA'd all spreads and uploaded
+        // them to GCS, so we mark the checkpoint as 'illustration' complete.
+        await saveCheckpoint(bookId, {
+          bookId,
+          completedStage: 'illustration',
+          storyPlan,
+          illustrationResults: storyPlan.entries,
+          timestamp: new Date().toISOString(),
+          accumulatedCosts: costTracker.getSummary(),
+        });
       }
 
       // V2: Text is already in the story plan — no separate text generation needed.
@@ -1511,14 +1383,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, illustratorBytes: coverForIllustrator.length, ms: Date.now() - stage6Start });
 
           // Detect additional characters on cover (parent, grandparent, sibling, etc.)
-          // Illustrator V2 sees the cover image directly for style/outfit/appearance,
-          // but we still need to know if a secondary character is present for parent visibility logic.
-          //
-          // We also ask for each secondary's apparent gender/age so that for parent-themed
-          // books we can tell whether the parent (a woman for mother's day, a man for
-          // father's day) is actually depicted on the cover — vs. e.g. a sibling or
-          // grandparent who happens to be on the cover but is NOT the parent.
-          try {
+          // Skipped entirely for books generated by the new bookPipeline — it
+          // derives the cast policy internally from the approved cover.
+          if (storyPlan._generatedByNewPipeline) {
+            bookContext.log('info', 'Skipping legacy cover vision analysis (new pipeline handled cast policy)');
+          } else try {
             const { getNextApiKey } = require('./services/illustrationGenerator');
             const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
             const visionResp = await fetch(
@@ -1611,7 +1480,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
       // adult's hand/arm in the child photo, and the cover may show a sibling
       // or grandparent — but that should NOT override the implied-presence
       // path when the parent themselves is not on the chosen cover.
-      if (PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
+      if (!storyPlan._generatedByNewPipeline && PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
         if (detectedSecondaryCharacters) {
           bookContext.log('info', 'Parent theme without parent-on-cover — clearing residual detectedSecondaryCharacters', { was: detectedSecondaryCharacters.slice(0, 100) });
           detectedSecondaryCharacters = null;
@@ -1623,7 +1492,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
       }
 
       // Merge customer-confirmed cast with cover vision so QA allows the right people (fixes child-only cover + confirmed parents).
-      if (approvedCoverUrl && coverForIllustratorBase64 && !isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
+      if (!storyPlan._generatedByNewPipeline && approvedCoverUrl && coverForIllustratorBase64 && !isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
         const {
           formatConfirmedCharactersForIllustration,
           filterConfirmedForCoverPolicy,
@@ -1848,6 +1717,14 @@ If the main child is the ONLY character, respond with exactly: NONE` },
         });
         entriesWithIllustrations = [];
         spreadEntries = [];
+      } else if (storyPlan._generatedByNewPipeline) {
+        // ── Book pipeline v1 already rendered and QA'd every spread ──
+        // The entries are carrying signed URLs produced by the new pipeline;
+        // we just adopt them as entriesWithIllustrations and skip the legacy
+        // generateAllIllustrations path entirely.
+        bookContext.log('info', 'Using illustrations from bookPipeline v1 (skipping legacy illustration stage)');
+        entriesWithIllustrations = storyPlan.entries.slice();
+        spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
       } else {
         // ── Standard picture/early reader illustration generation ──
         bookContext.log('info', 'Starting V2 illustration generation');
