@@ -29,12 +29,21 @@ const GEMINI_IMAGE_MAX_OUTPUT_TOKENS = 8192;
 const TOTAL_SPREADS = 13;
 
 // ── Text rules (identical for every spread — one hard lock, no per-book variation) ──
+//
+// Single-side text rule:
+//   All of a spread's text lives on ONE side only (LEFT or RIGHT), never both.
+//   The side alternates deterministically by spread index (even→LEFT, odd→RIGHT)
+//   unless the caller overrides via entry.textSide. The opposite side is left
+//   text-free so the illustration breathes. The center band is a hard no-text zone.
 const TEXT_RULES = {
   maxWordsPerLine: 6,
-  edgePaddingPercent: 10,
+  edgePaddingPercent: 8,       // minimum distance from the active-side outer edge
   topPaddingPercent: 22,
   bottomPaddingPercent: 15,
-  centerExclusionPercent: 17, // each side of the midline — 34% total no-text band
+  // Horizontal bounds for the text block on the active side (fractions of width):
+  //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
+  //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
+  activeSideMaxPercent: 45,    // text block cannot cross 45% (left) or 55% (right)
   fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, stenciled. If in doubt, render as plain Georgia regular.',
   fontColor: 'white/cream with a subtle soft drop shadow',
   fontSize: 'small — like movie subtitles, NOT a headline or title. The illustration is the star.',
@@ -50,6 +59,18 @@ const PIXAR_STYLE = {
 
 // Themes where the parent is implied (hands/back-of-head) when they are not on the cover.
 const PARENT_THEMES = new Set(['mothers_day', 'fathers_day']);
+
+/**
+ * Deterministic side selector — even spread index → LEFT, odd → RIGHT.
+ * Deterministic + alternating keeps visual variety across the book while
+ * guaranteeing the exact same composition decisions on a regen of any spread.
+ *
+ * @param {number} spreadIndex - 0-based
+ * @returns {'left' | 'right'}
+ */
+function defaultTextSide(spreadIndex) {
+  return (Number(spreadIndex) % 2 === 0) ? 'left' : 'right';
+}
 
 module.exports = {
   GEMINI_IMAGE_MODEL,
@@ -67,4 +88,5 @@ module.exports = {
   TEXT_RULES,
   PIXAR_STYLE,
   PARENT_THEMES,
+  defaultTextSide,
 };

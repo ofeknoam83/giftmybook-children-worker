@@ -184,33 +184,33 @@ function buildTextSection() {
   const edge = TEXT_RULES.edgePaddingPercent;
   const top = TEXT_RULES.topPaddingPercent;
   const bottom = TEXT_RULES.bottomPaddingPercent;
-  const centerExcl = TEXT_RULES.centerExclusionPercent;
+  const activeMax = TEXT_RULES.activeSideMaxPercent;
 
   return `### ON-IMAGE TEXT (CRITICAL)
-Each per-spread prompt will give you EXACTLY ONE short passage — either LEFT TEXT or RIGHT TEXT, never both. The other side carries ONLY illustration, no text. Render the provided passage INSIDE the illustration as embedded typography. Follow these rules without deviation:
+Each per-spread prompt will give you ONE short passage (TEXT) AND a CHOSEN SIDE ("left" or "right"). Render the passage INSIDE the illustration as a single embedded caption on that side only. Follow these rules without deviation:
 
-1. ONE-SIDE-ONLY RULE (NON-NEGOTIABLE). Every spread has text on EXACTLY ONE side — LEFT or RIGHT — never both and never neither (unless the prompt explicitly says no text). If the prompt supplies LEFT TEXT, the entire RIGHT half of the image must be text-free illustration. If the prompt supplies RIGHT TEXT, the entire LEFT half must be text-free illustration. Do NOT mirror, duplicate, or split the caption across sides.
+1. ONE-SIDE-ONLY RULE (NON-NEGOTIABLE). Every spread's text lives on EXACTLY ONE side — the CHOSEN SIDE. The opposite half of the image carries ONLY illustration, no text. Do NOT mirror, duplicate, or split the caption across sides.
 2. PLACEMENT. The book is bound through the middle; any text in the center gutter gets swallowed by the spine.
-   • LEFT TEXT goes entirely in the LEFT half of the image (x: 0% to ${50 - centerExcl}%).
-   • RIGHT TEXT goes entirely in the RIGHT half of the image (x: ${50 + centerExcl}% to 100%).
-   • The CENTER BAND from ${50 - centerExcl}% to ${50 + centerExcl}% (width ${centerExcl * 2}%) is a STRICT NO-TEXT ZONE. No letter, no serif, no punctuation, no drop-shadow, no part of any word may cross or touch this band.
-   • A single text block may NEVER span from one half into the other. Never center-justified across the midline.
-   • Keep ${edge}% padding from the left/right outer edges, ${top}% from the top, ${bottom}% from the bottom. No text in the extreme corners or the top/bottom crop zones.
+   • If CHOSEN SIDE = "left": the entire text block's bounding box is inside the LEFT column, x ∈ [${edge}%, ${activeMax}%]. Nothing crosses x = ${activeMax}%. The RIGHT half (x > 50%) must be completely free of letters, punctuation, drop-shadow, or any typographic element.
+   • If CHOSEN SIDE = "right": the entire text block's bounding box is inside the RIGHT column, x ∈ [${100 - activeMax}%, ${100 - edge}%]. Nothing crosses x = ${100 - activeMax}%. The LEFT half (x < 50%) must be completely free of letters, punctuation, drop-shadow, or any typographic element.
+   • The CENTER BAND around the midline (approx x ∈ [${activeMax}%, ${100 - activeMax}%]) is a STRICT NO-TEXT ZONE. No letter, no serif, no punctuation, no part of any word may cross or touch this band.
+   • Text is never center-justified across the midline. A single text block may NEVER span from one half into the other.
+   • Keep ${top}% padding from the top and ${bottom}% padding from the bottom. No text in the extreme corners or the top/bottom crop zones.
 3. EXACT TEXT — NO HALLUCINATED WORDS. The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words. Any word on the image that is NOT in the provided passage is forbidden — including signatures, titles, labels, "THE END", dedications, love notes like "I LOVE MAMA", page numbers, book titles, or any other invented text.
-4. NO DUPLICATE CAPTIONS. Render the caption EXACTLY ONCE. Never print the same sentence in two places on the same image. Never double-print. Never copy the caption to the empty side.
+4. NO DUPLICATE CAPTIONS. Render the caption EXACTLY ONCE on the chosen side. Never print the same sentence in two places. Never double-print. Never copy the caption to the empty side.
 5. FONT: ${TEXT_RULES.fontStyle}
 6. SIZE: ${TEXT_RULES.fontSize}
 7. COLOR: ${TEXT_RULES.fontColor}. Never pure black on dark areas, never pure white on bright sky; ensure contrast against the local background with the subtle shadow.
-8. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions).
+8. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions). The whole passage stays as ONE stacked caption block on the chosen side.
 9. NOT A TITLE: The text is a subtitle-style caption, not a poster headline. The illustration is the hero — the text should feel like a quiet overlay, not dominate the frame.
-10. If BOTH LEFT TEXT and RIGHT TEXT are empty, generate a full-bleed illustration with NO on-image text.
+10. If the prompt says TEXT is empty, generate a full-bleed illustration with NO on-image text anywhere.
 
 ### MANDATORY SELF-CHECK BEFORE FINALIZING THE IMAGE
 Before you emit the image, mentally scan the full canvas and verify:
-  (a) Is text present on ONLY ONE side (left or right)? If text appears on both sides, delete it from the side the prompt did NOT specify.
-  (b) Does any text, letter, or punctuation touch the center band (${50 - centerExcl}%–${50 + centerExcl}% of width)? If YES, move it fully into the correct half.
+  (a) Is text present on ONLY the CHOSEN SIDE? If text appears on the opposite side, delete it.
+  (b) Does any text, letter, or punctuation touch the center band (${activeMax}%–${100 - activeMax}% of width)? If YES, move it fully into the chosen half.
   (c) Does the caption appear in more than one place? If YES, delete the duplicate.
-  (d) Is there ANY word on the image that is not in the provided LEFT TEXT or RIGHT TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
+  (d) Is there ANY word on the image that is not in the provided TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
 If any check fails, re-render before emitting.`;
 }
 

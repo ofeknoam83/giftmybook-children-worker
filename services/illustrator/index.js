@@ -25,6 +25,7 @@ const {
   MAX_SPREAD_CORRECTIONS,
   MAX_SESSION_REBUILDS,
   PARENT_THEMES,
+  defaultTextSide,
 } = require('./config');
 const {
   createSession,
@@ -189,8 +190,12 @@ async function generateBookIllustrations(opts) {
     reportProgress(completedSpreadCount / totalForProgress, `Generating spread ${spreadNumber}/${totalForProgress}`);
 
     const scene = entry.spread_image_prompt || entry.spreadImagePrompt || '';
-    const leftText = entry.left?.text || '';
-    const rightText = entry.right?.text || '';
+    // Merge legacy left/right halves into a SINGLE caption — the new flow
+    // renders one block on one side. entry.textSide wins if explicitly set.
+    const text = mergeSpreadText(entry);
+    const textSide = (entry.textSide === 'left' || entry.textSide === 'right')
+      ? entry.textSide
+      : defaultTextSide(spreadIndex);
 
     try {
       const { imageBuffer, imageBase64 } = await _generateSpreadWithQa(
@@ -199,8 +204,8 @@ async function generateBookIllustrations(opts) {
           spreadIndex,
           totalSpreads: TOTAL_SPREADS,
           scene,
-          leftText,
-          rightText,
+          text,
+          textSide,
           coverBase64,
           hasSecondaryOnCover,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
@@ -237,8 +242,10 @@ async function generateBookIllustrations(opts) {
  *
  * @param {object} opts
  * @param {string} opts.scenePrompt
- * @param {string} [opts.leftText]
- * @param {string} [opts.rightText]
+ * @param {string} [opts.text] - Full caption for the spread (preferred).
+ * @param {'left'|'right'} [opts.textSide] - Side to render on. Defaults to alternation by spreadIndex.
+ * @param {string} [opts.leftText] - LEGACY. Concatenated with rightText if text not given.
+ * @param {string} [opts.rightText] - LEGACY. Concatenated with leftText if text not given.
  * @param {string} opts.coverBase64 - REQUIRED for the reference lock.
  * @param {string} [opts.coverMime]
  * @param {string} [opts.theme]
@@ -253,6 +260,8 @@ async function generateBookIllustrations(opts) {
 async function regenerateSpreadIllustration(opts) {
   const {
     scenePrompt,
+    text: explicitText,
+    textSide: explicitSide,
     leftText = '',
     rightText = '',
     coverBase64,
@@ -268,6 +277,13 @@ async function regenerateSpreadIllustration(opts) {
 
   if (!coverBase64) throw new Error('regenerateSpreadIllustration: coverBase64 is required');
   if (!scenePrompt) throw new Error('regenerateSpreadIllustration: scenePrompt is required');
+
+  const text = (typeof explicitText === 'string' && explicitText.trim())
+    ? explicitText.trim()
+    : mergeSpreadText({ left: { text: leftText }, right: { text: rightText } });
+  const textSide = (explicitSide === 'left' || explicitSide === 'right')
+    ? explicitSide
+    : defaultTextSide(spreadIndex);
 
   const hasSecondaryOnCover = !!coverParentPresent || !!additionalCoverCharacters;
   let session = await _openSession({
@@ -287,8 +303,8 @@ async function regenerateSpreadIllustration(opts) {
       spreadIndex,
       totalSpreads,
       scene: scenePrompt,
-      leftText,
-      rightText,
+      text,
+      textSide,
       coverBase64,
       hasSecondaryOnCover,
       log,
@@ -297,6 +313,17 @@ async function regenerateSpreadIllustration(opts) {
 
   const printBuf = await upscaleForPrint(await stripMetadata(imageBuffer));
   return { imageBuffer: printBuf };
+}
+
+/**
+ * Concatenate legacy left + right halves into a single caption passage.
+ * Strips empty halves and collapses whitespace so the model gets a clean string.
+ */
+function mergeSpreadText(entry) {
+  const parts = [entry?.left?.text, entry?.right?.text]
+    .filter(s => typeof s === 'string' && s.trim().length > 0)
+    .map(s => s.trim());
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -320,8 +347,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     spreadIndex,
     totalSpreads,
     scene,
-    leftText,
-    rightText,
+    text,
+    textSide,
     coverBase64,
     hasSecondaryOnCover,
     abortSignal,
@@ -343,8 +370,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     let generated;
     try {
       const promptText = isFirst
-        ? buildSpreadTurn({ spreadIndex, totalSpreads, scene, leftText, rightText })
-        : buildCorrectionTurn({ spreadIndex, totalSpreads, scene, leftText, rightText, issues, tags });
+        ? buildSpreadTurn({ spreadIndex, totalSpreads, scene, text, textSide })
+        : buildCorrectionTurn({ spreadIndex, totalSpreads, scene, text, textSide, issues, tags });
       generated = isFirst
         ? await generateSpread(session, promptText, spreadIndex)
         : await sendCorrection(session, promptText, spreadIndex);
@@ -384,7 +411,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
 
     // ── QA (both checks in parallel) ──
     const [textResult, consistencyResult] = await Promise.all([
-      verifySpreadText(generated.imageBase64, { leftText, rightText }, { abortSignal }),
+      verifySpreadText(generated.imageBase64, { text, side: textSide }, { spreadIndex, abortSignal }),
       checkSpreadConsistency(generated.imageBase64, coverBase64, { hasSecondaryOnCover, abortSignal }),
     ]);
 

@@ -2291,7 +2291,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText,
     additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
-    coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl } = req.body;
+    coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl, textSide } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2325,15 +2325,11 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, error: 'A valid cover reference URL (coverImageUrl, childPhotoUrl, or firstSpreadRefUrl) is required for regeneration' });
     }
 
-    // Split page text into left/right halves if multi-line.
-    const fullText = pageText || '';
-    const lines = fullText.split('\n').filter(l => l.trim());
-    let leftText = fullText, rightText = '';
-    if (lines.length >= 2) {
-      const mid = Math.ceil(lines.length / 2);
-      leftText = lines.slice(0, mid).join('\n');
-      rightText = lines.slice(mid).join('\n');
-    }
+    // The new illustrator renders the ENTIRE spread caption on ONE side only
+    // (never split across left + right). We collapse the full page text to a
+    // single passage; the module decides the side via spreadIndex parity
+    // unless the caller passes an explicit `textSide` override.
+    const text = (pageText || '').replace(/\s+/g, ' ').trim();
 
     let scenePrompt = spreadImagePrompt;
     if (promptInjection) {
@@ -2343,8 +2339,8 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
     const { regenerateSpreadIllustration } = require('./services/illustrator');
     const result = await regenerateSpreadIllustration({
       scenePrompt,
-      leftText,
-      rightText,
+      text,
+      textSide: (textSide === 'left' || textSide === 'right') ? textSide : undefined,
       coverBase64: coverB64,
       coverMime: 'image/jpeg',
       theme: theme || null,

@@ -5,14 +5,13 @@
  * element rendered on the illustration and returns:
  *   - ocrText: concatenation of all detected text, in reading order
  *   - leftText / rightText / centerText: text split by horizontal position
- *   - textInCenterBand: boolean (any text whose bbox overlaps the center band)
- *   - textCrossesMidline: boolean (a single block that spans left↔right)
+ *   - textCrossesMidline: boolean (a single block spans left↔right)
  *
- * Then compares against the expected LEFT / RIGHT text passages:
- *   - spelling: exact character match (after unicode normalization)
- *   - word counts: each expected token appears the expected number of times
- *   - placement: nothing in the center band, no cross-midline spans
- *   - extras: no unexpected words ("the end", signatures, decorative quotes)
+ * Then compares against the expected passage on the expected side:
+ *   - Opposite side must be empty (no duplicated caption, no stray text).
+ *   - Center band must be empty.
+ *   - Expected side must contain the full expected caption, char-for-char.
+ *   - No unexpected words on either side ("the end", signatures, decorative).
  *
  * Returns {pass, issues, tags, ocrText, infra}.
  */
@@ -23,6 +22,7 @@ const {
   QA_TIMEOUT_MS,
   QA_HTTP_ATTEMPTS,
   TEXT_RULES,
+  defaultTextSide,
 } = require('./config');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
 const { sanitizeMixedScriptString } = require('../writer/quality/sanitize');
@@ -79,7 +79,7 @@ function diffTokens(expected, ocr) {
     const e = E.get(t) || 0;
     const o = O.get(t) || 0;
     if (e === o) continue;
-    if (e > 0 && o === 0) { issues.push(`Word "${t}" missing from illustration (manuscript 1×, illustration 0×)`); tags.push('missing_word'); }
+    if (e > 0 && o === 0) { issues.push(`Word "${t}" missing from illustration (manuscript ${e}×, illustration 0×)`); tags.push('missing_word'); }
     else if (e === 0 && o > 0) { issues.push(`Unexpected word "${t}" in illustration (not in manuscript)`); tags.push('extra_word'); }
     else if (o > e) { issues.push(`Word "${t}" repeated: manuscript ${e}×, illustration ${o}×`); tags.push('duplicated_word'); }
     else { issues.push(`Word "${t}" under-rendered: manuscript ${e}×, illustration ${o}×`); tags.push('missing_word'); }
@@ -89,35 +89,60 @@ function diffTokens(expected, ocr) {
 
 /**
  * Detect duplicated-caption pattern (50%+ of unique tokens at exactly 2×).
+ * A common model failure mode is to print the caption on BOTH sides.
  */
 function hasDuplicatedCaption(expected, ocr) {
   const E = countMap(tokenizeForWordCounts(expected));
-  const O = countMap(tokenizeForWordCounts(ocr));
+  const O = countMap(ocr);
   if (E.size < 3) return false;
-  const doubled = [...E.keys()].filter(t => (O.get(t) || 0) === 2 * (E.get(t) || 0) && (E.get(t) || 0) > 0);
+  const doubled = [...E.keys()].filter(t => {
+    const e = E.get(t) || 0;
+    const o = O.get(t) || 0;
+    return e > 0 && o === 2 * e;
+  });
   return doubled.length / E.size >= 0.5;
+}
+
+/**
+ * Resolve expected text + side from either the new shape ({text, side}) or
+ * the legacy split shape ({leftText, rightText}).
+ */
+function resolveExpected(expected, spreadIndex) {
+  if (!expected) return { text: '', side: defaultTextSide(spreadIndex || 0) };
+
+  let text = typeof expected.text === 'string' ? expected.text.trim() : '';
+  let side = (expected.side === 'left' || expected.side === 'right') ? expected.side : null;
+
+  if (!text) {
+    const parts = [expected.leftText, expected.rightText]
+      .filter(s => typeof s === 'string' && s.trim().length > 0)
+      .map(s => s.trim());
+    text = parts.join(' ').replace(/\s+/g, ' ').trim();
+  }
+  if (!side) side = defaultTextSide(spreadIndex || 0);
+  return { text, side };
 }
 
 /**
  * Verify text rendered on a generated spread image.
  *
  * @param {string} imageBase64
- * @param {{leftText?: string, rightText?: string}} expected
+ * @param {{text?: string, side?: 'left'|'right', leftText?: string, rightText?: string}} expected
  * @param {object} [opts]
+ * @param {number} [opts.spreadIndex] - 0-based; used to derive side when not given.
  * @param {AbortSignal} [opts.abortSignal]
  * @returns {Promise<{pass: boolean, issues: string[], tags: string[], ocrText?: string, infra?: boolean}>}
  */
 async function verifySpreadText(imageBase64, expected, opts = {}) {
-  const leftExpected = (expected?.leftText || '').trim();
-  const rightExpected = (expected?.rightText || '').trim();
-  const anyExpected = !!(leftExpected || rightExpected);
+  const { text: expectedText, side: expectedSide } = resolveExpected(expected || {}, opts.spreadIndex);
+  const anyExpected = expectedText.length > 0;
 
   const apiKey = getNextApiKey();
   if (!apiKey) {
     return { pass: false, issues: ['Text QA unavailable: no Gemini API key configured'], tags: ['qa_unavailable'], infra: true };
   }
 
-  const prompt = buildOcrPrompt({ leftExpected, rightExpected, anyExpected });
+  const prompt = buildOcrPrompt({ expectedText, expectedSide, anyExpected });
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
   const body = {
     contents: [{
@@ -156,7 +181,7 @@ async function verifySpreadText(imageBase64, expected, opts = {}) {
         await sleep(500 * attempt);
         continue;
       }
-      return evaluateOcrResult(parsed, { leftExpected, rightExpected, anyExpected });
+      return evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected });
     } catch (err) {
       lastErr = err;
       await sleep(500 * attempt);
@@ -173,35 +198,34 @@ async function verifySpreadText(imageBase64, expected, opts = {}) {
   };
 }
 
-function buildOcrPrompt({ leftExpected, rightExpected, anyExpected }) {
-  const imgW = 1; // normalized coords
-  const centerHalfWidth = TEXT_RULES.centerExclusionPercent / 100;
-  const leftBoundary = 0.5 - centerHalfWidth;
-  const rightBoundary = 0.5 + centerHalfWidth;
+function buildOcrPrompt({ expectedText, expectedSide, anyExpected }) {
+  const activeMax = TEXT_RULES.activeSideMaxPercent / 100;
 
   return `You are an OCR + layout analyst for a children's book illustration. Read the image and return a STRICT JSON object with this schema (no commentary, no markdown fences):
 
 {
   "ocrText": "<every text element visible on the image, concatenated in natural reading order, exactly as rendered>",
-  "leftText": "<only the text whose horizontal bounding-box midpoint is in the LEFT half (x < ${leftBoundary.toFixed(3)})>",
-  "rightText": "<only the text whose horizontal bounding-box midpoint is in the RIGHT half (x > ${rightBoundary.toFixed(3)})>",
-  "centerText": "<text whose bounding box overlaps the center band (${leftBoundary.toFixed(3)} <= x <= ${rightBoundary.toFixed(3)})>",
-  "crossesMidline": <true if ANY single text block has a bounding box that spans from x < ${leftBoundary.toFixed(3)} to x > ${rightBoundary.toFixed(3)}, otherwise false>,
+  "leftText": "<only the text whose horizontal bounding-box MIDPOINT is strictly in the LEFT half (x < 0.5)>",
+  "rightText": "<only the text whose horizontal bounding-box MIDPOINT is strictly in the RIGHT half (x > 0.5)>",
+  "centerText": "<text whose bounding box overlaps the center band (x ∈ [${activeMax.toFixed(3)}, ${(1 - activeMax).toFixed(3)}])>",
+  "crossesMidline": <true if ANY single text block has a bounding box that spans from x < ${activeMax.toFixed(3)} to x > ${(1 - activeMax).toFixed(3)}, otherwise false>,
+  "textOnBothSides": <true if there is text whose bbox is entirely in x < 0.5 AND text whose bbox is entirely in x > 0.5, otherwise false>,
   "fontLooksPlainBookSerif": <true ONLY if the text is rendered in an upright, plain book serif (Georgia / Book Antiqua style). Return false if the text is handwritten, script, cursive, calligraphic, italic, bold display, rounded bubble, decorative, Comic Sans, Papyrus, or any marker/chalk/crayon style.>
 }
 
-Coordinate system: x=0 is the left edge of the image, x=${imgW} is the right edge. Use the MIDPOINT of each text block's bounding box to assign it to left/right/center.
+Coordinate system: x=0 is the left edge of the image, x=1 is the right edge. Use the MIDPOINT of each text block's bounding box to assign it to left/right/center.
 
 ${anyExpected
   ? `Expected text for reference only — DO NOT edit what you read, report the EXACT glyphs on the image:
-  LEFT (expected): ${leftExpected ? JSON.stringify(leftExpected) : '""'}
-  RIGHT (expected): ${rightExpected ? JSON.stringify(rightExpected) : '""'}`
+  TEXT (expected): ${JSON.stringify(expectedText)}
+  EXPECTED SIDE: ${expectedSide.toUpperCase()}
+  Per the spread's rules, ALL of the caption text should be on the ${expectedSide.toUpperCase()} side. The opposite side and the center band should be text-free.`
   : 'No text is expected on this spread. If you see any text at all, include it in the response.'}
 
 Return ONLY the JSON object.`;
 }
 
-function evaluateOcrResult(parsed, { leftExpected, rightExpected, anyExpected }) {
+function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) {
   const issues = [];
   const tags = [];
 
@@ -210,6 +234,7 @@ function evaluateOcrResult(parsed, { leftExpected, rightExpected, anyExpected })
   const rightOcr = String(parsed.rightText || '').trim();
   const centerOcr = String(parsed.centerText || '').trim();
   const crossesMidline = !!parsed.crossesMidline;
+  const textOnBothSides = !!parsed.textOnBothSides;
   const fontOk = parsed.fontLooksPlainBookSerif !== false; // missing -> treat as OK (fail-safe on infra)
 
   // ── No-text case ──
@@ -221,7 +246,11 @@ function evaluateOcrResult(parsed, { leftExpected, rightExpected, anyExpected })
     return { pass: issues.length === 0, issues, tags, ocrText };
   }
 
-  // ── Placement ──
+  const expectedOcr = expectedSide === 'left' ? leftOcr : rightOcr;
+  const oppositeOcr = expectedSide === 'left' ? rightOcr : leftOcr;
+  const oppositeSide = expectedSide === 'left' ? 'right' : 'left';
+
+  // ── Placement: single-side enforcement ──
   if (centerOcr) {
     issues.push(`Text in center band: "${centerOcr.slice(0, 80)}"`);
     tags.push('text_in_center_band');
@@ -230,6 +259,14 @@ function evaluateOcrResult(parsed, { leftExpected, rightExpected, anyExpected })
     issues.push('A text block crosses the midline (spans left↔right)');
     tags.push('text_crosses_midline');
   }
+  if (textOnBothSides || oppositeOcr) {
+    issues.push(
+      textOnBothSides
+        ? `Text appears on BOTH sides. The spread's caption must be on the ${expectedSide.toUpperCase()} side only; the ${oppositeSide.toUpperCase()} side must be text-free.`
+        : `Unexpected text on the ${oppositeSide.toUpperCase()} side (should be text-free): "${oppositeOcr.slice(0, 120)}"`
+    );
+    tags.push('text_on_both_sides');
+  }
 
   // ── Font ──
   if (!fontOk) {
@@ -237,46 +274,22 @@ function evaluateOcrResult(parsed, { leftExpected, rightExpected, anyExpected })
     tags.push('wrong_font');
   }
 
-  // ── Left side spelling + tokens ──
-  const leftExpNorm = sanitizeMixedScriptString(leftExpected);
-  const leftOcrNorm = sanitizeMixedScriptString(leftOcr);
-  if (leftExpected) {
-    if (leftExpNorm.replace(/\s+/g, ' ').trim() !== leftOcrNorm.replace(/\s+/g, ' ').trim()) {
-      issues.push(`Left-side text mismatch. Expected: "${leftExpected}". Got: "${leftOcr}"`);
-      tags.push('spelling_mismatch');
-    }
-    const d = diffTokens(leftExpected, leftOcr);
-    if (d.issues.length && !issues.some(i => i.startsWith('Left-side text mismatch'))) {
-      issues.push(...d.issues.map(i => `Left: ${i}`));
-    }
-    tags.push(...d.tags);
-  } else if (leftOcr) {
-    issues.push(`Unexpected text on the left half: "${leftOcr.slice(0, 80)}"`);
-    tags.push('extra_word');
+  // ── Expected-side spelling + tokens ──
+  const expNorm = sanitizeMixedScriptString(expectedText).replace(/\s+/g, ' ').trim();
+  const gotNorm = sanitizeMixedScriptString(expectedOcr).replace(/\s+/g, ' ').trim();
+  if (expNorm !== gotNorm) {
+    issues.push(`${expectedSide.toUpperCase()}-side text mismatch. Expected: "${expectedText}". Got: "${expectedOcr}"`);
+    tags.push('spelling_mismatch');
   }
-
-  // ── Right side spelling + tokens ──
-  const rightExpNorm = sanitizeMixedScriptString(rightExpected);
-  const rightOcrNorm = sanitizeMixedScriptString(rightOcr);
-  if (rightExpected) {
-    if (rightExpNorm.replace(/\s+/g, ' ').trim() !== rightOcrNorm.replace(/\s+/g, ' ').trim()) {
-      issues.push(`Right-side text mismatch. Expected: "${rightExpected}". Got: "${rightOcr}"`);
-      tags.push('spelling_mismatch');
-    }
-    const d = diffTokens(rightExpected, rightOcr);
-    if (d.issues.length && !issues.some(i => i.startsWith('Right-side text mismatch'))) {
-      issues.push(...d.issues.map(i => `Right: ${i}`));
-    }
-    tags.push(...d.tags);
-  } else if (rightOcr) {
-    issues.push(`Unexpected text on the right half: "${rightOcr.slice(0, 80)}"`);
-    tags.push('extra_word');
+  const d = diffTokens(expectedText, expectedOcr);
+  if (d.issues.length && !issues.some(i => i.includes('-side text mismatch'))) {
+    issues.push(...d.issues.map(i => `${expectedSide.toUpperCase()}: ${i}`));
   }
+  tags.push(...d.tags);
 
-  // ── Caption-doubled ──
-  const fullExpected = [leftExpected, rightExpected].filter(Boolean).join(' ');
-  if (hasDuplicatedCaption(fullExpected, ocrText)) {
-    issues.push('Caption appears to be printed twice on the image');
+  // ── Caption-doubled (common failure: print caption on BOTH sides) ──
+  if (hasDuplicatedCaption(expectedText, ocrText)) {
+    issues.push('Caption appears to be printed twice on the image (likely duplicated onto both sides)');
     tags.push('text_duplicated_caption');
   }
 
@@ -293,4 +306,5 @@ module.exports = {
   // exported for unit-tests
   tokenizeForWordCounts,
   diffTokens,
+  resolveExpected,
 };
