@@ -314,17 +314,30 @@ async function renderAllSpreads(doc) {
   let current = doc;
   const bookId = doc.operationalContext?.bookId || doc.request.bookId;
 
-  for (const spread of current.spreads) {
+  const totalSpreads = current.spreads.length;
+  const emit = (event) => {
+    const fn = doc.operationalContext?.onProgress;
+    if (typeof fn === 'function') {
+      try { fn(event); } catch { /* ignore */ }
+    }
+  };
+
+  for (let i = 0; i < current.spreads.length; i++) {
+    const spread = current.spreads[i];
     if (!spread.spec) {
       const err = new Error(`spread ${spread.spreadNumber}: spec missing`);
       err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
       throw err;
     }
 
-    const fn = doc.operationalContext?.onProgress;
-    if (typeof fn === 'function') {
-      try { fn({ step: 'illustrating', message: `Rendering spread ${spread.spreadNumber}` }); } catch { /* ignore */ }
-    }
+    emit({
+      step: 'illustrating',
+      message: `Rendering spread ${spread.spreadNumber} of ${totalSpreads}`,
+      spreadIndex: i,
+      spreadNumber: spread.spreadNumber,
+      totalSpreads,
+      subProgress: i / totalSpreads,
+    });
 
     const result = await processOneSpread({
       doc: current,
@@ -342,6 +355,20 @@ async function renderAllSpreads(doc) {
       err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
       throw err;
     }
+
+    emit({
+      step: 'illustrating',
+      message: `Spread ${spread.spreadNumber} of ${totalSpreads} accepted`,
+      spreadIndex: i,
+      spreadNumber: spread.spreadNumber,
+      totalSpreads,
+      subProgress: (i + 1) / totalSpreads,
+      // Attach the latest document so the server can push an incremental
+      // storyContent update to the admin content tab — lets the user watch
+      // hasImage flags flip to true one spread at a time while the rest
+      // keep rendering.
+      document: current,
+    });
   }
 
   return current;

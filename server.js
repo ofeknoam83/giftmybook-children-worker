@@ -1274,22 +1274,72 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             abortSignal: bookContext.abortController.signal,
             onProgress: (event) => {
               if (!progressCallbackUrl) return;
-              const progressMap = {
-                input: 0.10,
-                planning: 0.18,
-                writing: 0.22,
-                writerQa: 0.28,
-                illustrating: 0.60,
-                bookWideQa: 0.85,
-                layout: 0.88,
+              // Stage progress bands. The illustrating band is deliberately
+              // wide (0.30 → 0.85) because it's by far the longest stage
+              // (~4–5 min of a ~5–6 min run). We interpolate within it using
+              // the per-spread `subProgress` the pipeline emits.
+              const stageBands = {
+                input: [0.08, 0.12],
+                planning: [0.12, 0.22],
+                writing: [0.22, 0.26],
+                writerQa: [0.26, 0.30],
+                illustrating: [0.30, 0.85],
+                bookWideQa: [0.85, 0.90],
+                layout: [0.90, 0.95],
               };
+              const band = stageBands[event.step];
+              let progress;
+              if (band && typeof event.subProgress === 'number') {
+                const t = Math.max(0, Math.min(1, event.subProgress));
+                progress = band[0] + (band[1] - band[0]) * t;
+              } else if (band) {
+                progress = band[0];
+              } else {
+                progress = 0.30;
+              }
               reportProgress(progressCallbackUrl, {
                 bookId,
                 stage: event.step || 'generating',
-                progress: progressMap[event.step] || 0.30,
+                progress,
                 message: event.message || 'Generating...',
                 logs: bookContext.logs,
               });
+
+              // When the pipeline attaches a live document snapshot (after
+              // writerQa and after every accepted spread), push an updated
+              // storyContent payload to the admin content tab so text and
+              // per-spread hasImage flags populate incrementally rather
+              // than all at the end of the run.
+              if (event.document) {
+                try {
+                  const { storyPlan: livePlan, entriesWithIllustrations: liveEntries } = toLegacyStoryPlan(event.document);
+                  const liveStoryContent = {
+                    title: livePlan.title,
+                    entries: liveEntries.map(e => ({
+                      type: e.type,
+                      spread: e.spread,
+                      left: e.left,
+                      right: e.right,
+                      spreadText: event.document.spreads.find(s => s.spreadNumber === e.spread)?.manuscript?.text || '',
+                      hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl),
+                    })),
+                    characterDescription: livePlan.characterDescription,
+                    characterOutfit: livePlan.characterOutfit,
+                    pipelineVersion: livePlan._pipelineVersion,
+                    storyBible: event.document.storyBible,
+                    writerQa: event.document.writerQa,
+                    bookWideQa: event.document.bookWideQa,
+                  };
+                  reportProgressForce(progressCallbackUrl, {
+                    bookId,
+                    stage: event.step || 'generating',
+                    storyContent: liveStoryContent,
+                    logs: bookContext.logs,
+                  }).catch(() => {});
+                } catch (adapterErr) {
+                  console.warn(`[server] incremental storyContent push skipped: ${adapterErr.message}`);
+                }
+              }
             },
           });
         } catch (pipelineErr) {

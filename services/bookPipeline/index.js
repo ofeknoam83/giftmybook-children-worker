@@ -187,6 +187,11 @@ async function generateBook(rawRequest, opts = {}) {
   reportProgress(doc, { step: 'writerQa', message: 'Reviewing and revising text' });
   doc = await runStage(doc, 'writerQa', () => writerQaAndRewrite(doc), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
 
+  // Emit the final text snapshot so the admin content tab can show the
+  // full manuscript while illustrations render. Previously this only
+  // happened at end-of-pipeline, leaving the content tab blank for ~5 min.
+  reportProgress(doc, { step: 'writerQa', message: 'Manuscript ready', document: doc });
+
   reportProgress(doc, { step: 'illustrating', message: 'Rendering spreads' });
   doc = await runStage(doc, 'illustration', () => renderAllSpreads(doc), validateAllIllustrations, FAILURE_CODES.SPREAD_UNRESOLVABLE);
 
