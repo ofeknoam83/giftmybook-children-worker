@@ -47,6 +47,9 @@ const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** When Gemini returns 0 content parts (e.g. finishReason=IMAGE_OTHER), retry before counting as a hard failure. */
+const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
+
 /**
  * Resolve the cover image as base64. Accepts either a pre-supplied base64
  * payload on `cover.imageBase64` or downloads `cover.imageUrl` and converts.
@@ -97,6 +100,7 @@ async function processOneSpread(params) {
   let correctionNote = null;
   let lastTags = [];
   let attempt = 0;
+  let transientEmptyRetries = 0;
 
   while (attempt < totalBudget) {
     attempt += 1;
@@ -138,7 +142,18 @@ async function processOneSpread(params) {
         image = await sendCorrection(currentSession, correction, spec.spreadIndex, { reanchorCover: needsReanchor });
       }
     } catch (err) {
-      const isSafety = /safety|prohibited|blocked/i.test(err?.message || '');
+      // Model sometimes returns no image (e.g. IMAGE_OTHER, 0 parts) — treat as transient and
+      // re-run the same logical attempt (decrement so isFirstAttempt / correction path stay correct).
+      if (err.isEmptyResponse && !err.isSafetyBlock && transientEmptyRetries < MAX_TRANSIENT_EMPTY_IMAGE_RETRIES) {
+        transientEmptyRetries += 1;
+        attempt -= 1;
+        console.warn(
+          `[${logTag}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
+          `[transient empty image ${transientEmptyRetries}/${MAX_TRANSIENT_EMPTY_IMAGE_RETRIES}, finishReason=${err.finishReason || 'n/a'}] — retrying`,
+        );
+        continue;
+      }
+      const isSafety = Boolean(err.isSafetyBlock) || /safety|prohibited|blocked/i.test(err?.message || '');
       console.warn(`[${logTag}] render error on attempt ${attempt}/${totalBudget} (${Date.now() - attemptStart}ms): ${err.message}${isSafety ? ' [safety]' : ''}`);
       if (isSafety && currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
         console.log(`[${logTag}] rebuilding session after safety block`);
@@ -147,6 +162,8 @@ async function processOneSpread(params) {
       }
       return { accepted: false, doc: currentDoc, session: currentSession, issues: [err.message], tags: ['render_error'] };
     }
+
+    transientEmptyRetries = 0;
 
     const stripped = await stripMetadata(image.imageBuffer);
     const printable = await upscaleForPrint(stripped);

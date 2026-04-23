@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "jest --coverage",
+    "test:gpt-image-2": "node -r dotenv/config scripts/testGptImage2Generations.js",
     "capture-commits": "node scripts/captureCommits.js"
   },
   "dependencies": {

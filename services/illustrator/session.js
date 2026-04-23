@@ -34,6 +34,10 @@ const { sanitizeForGemini, sanitizeHistory } = require('../promptSanitizer');
 // Gemini finishReason values that mean the response was suppressed by a safety
 // or policy filter rather than a transient glitch. These should trigger a
 // session rebuild (once) rather than more in-session retries.
+//
+// Note: `IMAGE_OTHER` (and empty `content.parts`) is *not* in this set — the API
+// can return it for capacity/transient model issues. `renderAllSpreads` retries
+// those as transient before failing the book.
 const SAFETY_FINISH_REASONS = new Set([
   'SAFETY',
   'PROHIBITED_CONTENT',
