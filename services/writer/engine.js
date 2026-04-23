@@ -142,168 +142,83 @@ class WriterEngine {
       throw new Error(`Writer V2 produced 0 spreads after ${writeRetries + 1} attempts — cannot continue. Model: ${story._model || 'unknown'}`);
     }
 
-    // 4. Quality gate — per draft: check → revise → check. If the draft
-    // still fails the numeric floor after revision budget, optionally run a
-    // full fresh write() and try again (see maxQualityFullRegenerations).
+    // 4. Quality gate — deterministic rules only; optional LLM notes never block.
+    // Loop: check → revise with machine-check feedback → re-check.
     const retryLimit = maxRetries ?? WRITER_CONFIG.retries.maxQualityRetries;
-    const maxFullRegenerations = WRITER_CONFIG.retries.maxQualityFullRegenerations ?? 3;
-    console.log(`[writerV2] quality config`, { bookId, maxQualityRetries: retryLimit, maxFullRegenerations, theme: book.theme, age: child.age });
+    console.log(`[writerV2] quality config`, { bookId, maxQualityRetries: retryLimit, theme: book.theme, age: child.age });
 
-    let regenWave = 0;
-    let finalStory = story;
-    let finalQuality;
+    onProgress?.({ step: 'quality', message: 'Running quality checks...' });
+    const qWaveStart = Date.now();
+    let quality = await QualityGate.check(story, child, book, { plan, bookId });
+    console.log(`[writerV2] quality: checkpoint`, {
+      bookId,
+      ms: Date.now() - qWaveStart,
+      pass: quality.pass,
+      vetoes: quality.deterministicVetoes,
+      feedbackLen: (quality.feedback || '').length,
+      feedbackDigest: v2FeedbackDigest(quality.feedback),
+    });
+    pipeline.stages.push({
+      name: 'quality',
+      output: { pass: quality.pass, scores: quality.scores },
+      feedback: quality.feedback || null,
+      timestamp: new Date().toISOString(),
+    });
 
-    while (true) {
-      if (regenWave > 0) {
-        onProgress?.({ step: 'writing', message: `Rewriting story from scratch (${regenWave}/${maxFullRegenerations})...` });
-        console.warn(`[writerV2] fullRegen: starting wave ${regenWave}/${maxFullRegenerations} (previous draft did not pass gate)`, { bookId });
-        story = await themeWriter.write(plan, child, book);
-        console.log(`[writerV2] Regen draft: ${story.spreads.length} spreads, model ${story._model}`);
-        pipeline.stages.push({
-          name: `write_full_regen_${regenWave}`,
-          output: { spreads: story.spreads.length, model: story._model },
-          timestamp: new Date().toISOString(),
-        });
-        let wr = 0;
-        while (story.spreads.length < MIN_SPREADS && wr < 2) {
-          wr++;
-          console.warn(`[writerV2] Regen write returned ${story.spreads.length} spreads — retry ${wr}/2`);
-          try {
-            story = await themeWriter.write(plan, child, book);
-          } catch (e) {
-            console.error(`[writerV2] Regen write retry failed: ${e.message}`);
-          }
-        }
-        if (story.spreads.length === 0) {
-          throw new Error(`Writer V2 regen produced 0 spreads — cannot continue. Model: ${story._model || 'unknown'}`);
-        }
+    let best = { story, quality };
+    let attempts = 0;
+    while (!quality.pass && attempts < retryLimit) {
+      attempts++;
+      onProgress?.({ step: 'revising', message: `Revising story (attempt ${attempts}/${retryLimit})...` });
+      const revStart = Date.now();
+      console.log(`[writerV2] revise: start ${attempts}/${retryLimit}`, {
+        bookId,
+        feedbackLen: (quality.feedback || '').length,
+        feedbackDigest: v2FeedbackDigest(quality.feedback),
+      });
+      try {
+        story = await themeWriter.revise(story, quality.feedback, child, book);
+      } catch (err) {
+        console.warn(`[writerV2] Revise attempt ${attempts} failed: ${err.message} — keeping best-so-far`);
+        break;
+      }
+      if (!story || !Array.isArray(story.spreads) || story.spreads.length === 0) {
+        console.warn(`[writerV2] Revise attempt ${attempts} produced 0 spreads — keeping best-so-far`);
+        break;
       }
 
-      onProgress?.({ step: 'quality', message: regenWave === 0 ? 'Running quality checks...' : `Quality checks (draft ${regenWave + 1})...` });
-      const qWaveStart = Date.now();
-      let quality = await QualityGate.check(story, child, book, { plan, bookId });
-      console.log(`[writerV2] quality: draft ${regenWave + 1} checkpoint`, {
+      quality = await QualityGate.check(story, child, book, { plan, bookId });
+      console.log(`[writerV2] revise: done attempt ${attempts}`, {
         bookId,
-        ms: Date.now() - qWaveStart,
-        overall: quality.overallScore,
+        ms: Date.now() - revStart,
         pass: quality.pass,
-        llmPass: quality.llmPass,
-        numericPass: quality.numericPass,
-        criticFailed: quality.criticFailed,
-        vetoes: quality.deterministicVetoes,
         feedbackLen: (quality.feedback || '').length,
         feedbackDigest: v2FeedbackDigest(quality.feedback),
       });
       pipeline.stages.push({
-        name: regenWave === 0 ? 'quality' : `quality_regen_${regenWave}`,
-        output: { overallScore: quality.overallScore, pass: quality.pass, scores: quality.scores },
+        name: `revision_${attempts}`,
+        output: { pass: quality.pass, scores: quality.scores },
         feedback: quality.feedback || null,
         timestamp: new Date().toISOString(),
       });
 
-      let best = { story, quality };
-      let attempts = 0;
-      while (!quality.pass && attempts < retryLimit) {
-        if (quality.criticFailed) {
-          console.warn('[writerV2] Critic did not complete — skipping revision loop (no actionable feedback).');
-          break;
-        }
-        attempts++;
-        const revLabel = regenWave === 0 ? `${attempts}/${retryLimit}` : `draft${regenWave + 1} ${attempts}/${retryLimit}`;
-        onProgress?.({ step: 'revising', message: `Revising story (attempt ${revLabel})...` });
-        const prevScore = best.quality?.overallScore;
-        const revStart = Date.now();
-        console.log(`[writerV2] revise: start ${revLabel}`, {
-          bookId,
-          feedbackLen: (quality.feedback || '').length,
-          feedbackDigest: v2FeedbackDigest(quality.feedback),
-          priorOverall: prevScore,
-        });
-        try {
-          story = await themeWriter.revise(story, quality.feedback, child, book);
-        } catch (err) {
-          console.warn(`[writerV2] Revise attempt ${attempts} failed: ${err.message} — keeping best-so-far`);
-          break;
-        }
-        if (!story || !Array.isArray(story.spreads) || story.spreads.length === 0) {
-          console.warn(`[writerV2] Revise attempt ${attempts} produced 0 spreads — keeping best-so-far`);
-          break;
-        }
-
-        quality = await QualityGate.check(story, child, book, { plan, bookId });
-        const improved = quality.overallScore > (prevScore ?? -1) || (quality.pass && !best.quality?.pass);
-        console.log(`[writerV2] revise: done attempt ${attempts}`, {
-          bookId,
-          ms: Date.now() - revStart,
-          overall: quality.overallScore,
-          pass: quality.pass,
-          llmPass: quality.llmPass,
-          numericPass: quality.numericPass,
-          improved,
-          feedbackLen: (quality.feedback || '').length,
-          feedbackDigest: v2FeedbackDigest(quality.feedback),
-        });
-        pipeline.stages.push({
-          name: regenWave === 0 ? `revision_${attempts}` : `regen${regenWave}_revision_${attempts}`,
-          output: { overallScore: quality.overallScore, pass: quality.pass, scores: quality.scores },
-          feedback: quality.feedback || null,
-          timestamp: new Date().toISOString(),
-        });
-
-        if (quality.criticFailed) {
-          console.warn('[writerV2] Critic failed after revise — reverting to last best story and scores.');
-          story = best.story;
-          quality = best.quality;
-          break;
-        }
-
-        const isBetter = (quality.pass && !best.quality.pass)
-          || (quality.pass && best.quality.pass && quality.overallScore > best.quality.overallScore)
-          || (!quality.pass && !best.quality.pass && quality.overallScore > best.quality.overallScore);
-        if (isBetter) best = { story, quality };
-
-        if (quality.pass) break;
-      }
-
-      finalStory = best.story;
-      finalQuality = best.quality;
-      if (!finalQuality.pass) {
-        console.warn(`[writerV2] Draft ${regenWave + 1}: exhausted ${retryLimit} revision retries — best seen at ${finalQuality.overallScore}/10`);
-      }
-
-      if (finalQuality.criticFailed) break;
-      if (finalQuality.pass) break;
-      if (regenWave >= maxFullRegenerations) break;
-
-      regenWave++;
+      best = { story, quality };
+      if (quality.pass) break;
     }
 
-    // Critic never returned scores — do not illustrate (avoids shipping unrated / damaged drafts).
-    if (finalQuality.criticFailed) {
-      const cause = finalQuality.issues?.find(i => i.dimension === 'critic_error')?.note || '';
-      throw new WriterQualityCheckUnavailableError(
-        'Automated story review did not complete after multiple attempts. Please try again shortly.',
-        cause,
-      );
-    }
-
-    // Block illustration unless the critic + deterministic gate fully pass (no "best effort" ship with ship=false).
+    const finalStory = best.story;
+    const finalQuality = best.quality;
     if (!finalQuality.pass) {
       const head = (finalQuality.feedback || '').slice(0, 500);
-      console.error(`[writerV2] quality gate FAILED (throwing WriterQualityGateError)`, {
+      console.error(`[writerV2] deterministic quality gate did not pass after ${attempts} revision(s)`, {
         bookId,
-        overall: finalQuality.overallScore,
-        llmPass: finalQuality.llmPass,
-        numericPass: finalQuality.numericPass,
         vetoes: finalQuality.deterministicVetoes,
         feedbackHead: head,
-        feedbackLen: (finalQuality.feedback || '').length,
-        feedbackDigest: v2FeedbackDigest(finalQuality.feedback),
       });
       throw new WriterQualityGateError(
-        `Story did not pass quality review (score ${finalQuality.overallScore}/10). ${head}`,
+        `Story did not pass machine checks (pronouns, rhyme, read-aloud, or SCENE/palette) after ${retryLimit} attempts. ${head}`,
         finalQuality.feedback || '',
-        finalQuality.overallScore,
+        finalQuality.overallScore ?? 0,
       );
     }
 

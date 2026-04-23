@@ -16,7 +16,7 @@ const { BaseThemeWriter, stripOutfitLockFromRaw } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
-const { selectPlotTemplate, matchTitleToPlot, generateCustomPlot, generateAnecdoteDrivenPlot, isPlaceholderTitle } = require('./plots');
+const { isPlaceholderTitle } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
 
 /**
@@ -65,107 +65,30 @@ class GenericThemeWriter extends BaseThemeWriter {
     const parentName = this.getParentName(child, book);
     const pronouns = this.getPronouns(child);
 
-    // ── Seed backbone path ──
-    // If the caller (server.js) handed us a validated brainstormStorySeed with 13 beats,
-    // use those as the beat backbone instead of selecting a random plot template.
-    // This keeps the creative seed work (narrative_spine, beats, favorite_object, etc.)
-    // from being discarded. Falls back to template flow if seed is missing/invalid.
-    const seedBeats = this._normalizeSeedBeats(opts.storySeed?.beats, ageTier);
-    let beats;
-    let usedSeed = false;
-    let anecdotePlot = null;
-    const anecdoteDrivenCategories = new Set(['celebration', 'parent']);
+    this._selectedPlot = null;
+    this._manifest = null;
+    this._storySeed = opts.storySeed || null;
 
-    if (seedBeats && this.category !== 'emotional') {
-      this._selectedPlot = null;
-      this._storySeed = opts.storySeed;
-      beats = seedBeats;
-      usedSeed = true;
-    } else if (
-      anecdoteDrivenCategories.has(this.category)
-      && !book.plotId
-      && child.anecdotes
-      && Object.keys(child.anecdotes).length > 0
-    ) {
-      try {
-        const isYoung = ageTier === 'young-picture';
-        const wt = isYoung ? 16 : 28;
-        anecdotePlot = await generateAnecdoteDrivenPlot({
-          theme: this.themeName,
-          child,
-          book,
-          parentName,
-          isYoung,
-          wt,
-          writer: this,
-          storySeed: opts.storySeed || null,
-        });
-      } catch (err) {
-        console.warn(`[writerV2] Anecdote-driven plot generation failed for ${this.themeName}: ${err.message}`);
-      }
-
-      if (anecdotePlot) {
-        this._selectedPlot = anecdotePlot;
-        this._manifest = anecdotePlot.manifest;
-        beats = anecdotePlot.beats;
-        console.log(`[writerV2] Using anecdote-driven plot "${anecdotePlot.id}" for ${this.themeName} (${anecdotePlot.manifest?.length || 0} anecdote assignments)`);
-      } else {
-        // Fall back to template flow
-        let titleMatchFailed = false;
-        if (book.title) {
-          try {
-            const matchedId = await matchTitleToPlot(book.title, this.themeName);
-            if (matchedId) book = { ...book, plotId: matchedId };
-            else titleMatchFailed = true;
-          } catch (err) {
-            console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
-            titleMatchFailed = true;
-          }
-        }
-        beats = titleMatchFailed
-          ? await this._buildBeatsWithCustomFallback(ageTier, child, parentName, book)
-          : this._buildBeats(ageTier, child, parentName, book);
-      }
-    } else {
-      let titleMatchFailed = false;
-      if (!book.plotId && book.title && this.category !== 'emotional') {
-        try {
-          const matchedId = await matchTitleToPlot(book.title, this.themeName);
-          if (matchedId) {
-            book = { ...book, plotId: matchedId };
-          } else {
-            titleMatchFailed = true;
-          }
-        } catch (err) {
-          console.warn(`[writerV2] Title-to-plot matching failed for "${book.title}": ${err.message}`);
-          titleMatchFailed = true;
-        }
-      }
-
-      beats = titleMatchFailed
-        ? await this._buildBeatsWithCustomFallback(ageTier, child, parentName, book)
-        : this._buildBeats(ageTier, child, parentName, book);
-    }
+    // Always invent beats with the creative LLM (brainstorm seed still informs the prompt via storySeed).
+    console.log(`[writerV2] plan: _generateCreativeBeats`, { theme: this.themeName });
+    const beats = await this._generateCreativeBeats(child, book, {
+      storySeed: opts.storySeed,
+      parentName,
+      ageTier,
+    });
 
     const refrain = this._chooseRefrain(child, parentName, opts.storySeed);
 
-    // Only run the generic enrichment pass when we're NOT using the anecdote-driven
-    // plot. That plot's two-pass flow already hard-assigns anecdotes to beats —
-    // re-enriching would dilute the specificity.
     let enrichedBeats = beats;
-    if (!anecdotePlot && child.anecdotes && Object.keys(child.anecdotes).length > 0) {
+    if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
       try {
         enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier);
       } catch (err) {
-        console.warn(`[writerV2] Plan enrichment failed, using template beats: ${err.message}`);
+        console.warn(`[writerV2] Plan enrichment failed, using unenriched beats: ${err.message}`);
       }
     }
 
     const plot = this._selectedPlot;
-    // Always surface the upstream seed so downstream prompt builders
-    // (e.g. FAVORITE OBJECT LOCK) can read it. `usedSeed` only indicates
-    // whether we adopted the seed's *beats*. The seed's favorite_object
-    // and setting are valuable regardless of whether we kept the beats.
     const seed = opts.storySeed || null;
 
     // Location palette: always attempted, even on the template path. Every
@@ -206,50 +129,139 @@ class GenericThemeWriter extends BaseThemeWriter {
       plotName: plot?.name || null,
       plotSynopsis: plot?.synopsis || (seed?.narrative_spine || null),
       storySeed: seed,
-      usedSeed,
-      manifest: anecdotePlot?.manifest || null,
+      usedSeed: false,
+      manifest: null,
       locationPalette: palette,
     };
   }
 
   /**
-   * Convert the brainstormed `beats` (array of 13 one-line strings) into the
-   * Writer V2 beat-object shape: { spread, beat, description, wordTarget }.
-   * Returns null if the seed beats aren't usable (missing, too few, wrong shape).
+   * Invent a full 13-spread beat list with one LLM call — no canned plot templates.
+   *
+   * @param {object} child
+   * @param {object} book
+   * @param {{ storySeed?: object, parentName?: string, ageTier: string }} params
+   * @returns {Promise<Array<{ spread: number, beat: string, description: string, wordTarget: number }>>}
    */
-  _normalizeSeedBeats(rawBeats, ageTier) {
-    if (!Array.isArray(rawBeats) || rawBeats.length < 10) return null;
+  async _generateCreativeBeats(child, book, params) {
+    const { storySeed, parentName, ageTier } = params;
     const isYoung = ageTier === 'young-picture';
     const wt = isYoung ? 16 : 28;
-    // Canonical beat labels for a 13-spread arc (fallback when seed lacks them)
-    const DEFAULT_LABELS = [
-      'HOOK', 'DISCOVERY', 'RISING_1', 'RISING_2', 'DEEP_EXPLORE',
-      'CHALLENGE', 'CLEVERNESS', 'TRIUMPH', 'WONDER', 'GIFT',
-      'HOMECOMING', 'REFLECTION', 'CLOSING',
-    ];
-    const normalized = rawBeats.slice(0, 13).map((b, i) => {
-      const spread = i + 1;
-      const label = DEFAULT_LABELS[i] || `SPREAD_${spread}`;
-      let description = '';
-      if (typeof b === 'string') {
-        description = b.trim();
-      } else if (b && typeof b === 'object') {
-        description = (b.description || b.text || b.beat || '').toString().trim();
+    const themeLabel = this.themeName.replace(/_/g, ' ');
+    const seed = storySeed || {};
+    const seedBlock = [
+      `favorite_object (concrete prop): ${(seed.favorite_object || '').toString().trim() || '(invent one that fits age and theme)'}`,
+      `emotional friction / fear: ${(seed.fear || '').toString().trim() || '(invent, age-safe, theme-true)'}`,
+      `world / setting: ${(seed.setting || '').toString().trim() || '(one vivid sentence — specific, photogenic)'}`,
+      `inner journey (one line): ${(seed.storySeed || '').toString().trim() || '(optional)'}`,
+      `plot spine (what happens): ${(seed.narrative_spine || '').toString().trim() || '(optional)'}`,
+    ].join('\n');
+
+    const systemPrompt = [
+      `You are a senior children's picture-book story architect for a ${themeLabel} book (category: ${this.category}).`,
+      'Invent ONE original through-line — not a fill-in-the-blank template.',
+      'Each beat is a single vivid line: concrete WHERE + concrete ACTION that causes the next beat.',
+      'Prioritize **breathtaking, paintable** moments: light, material, scale, weather, a clear focal action.',
+      'Vary real locations; avoid 13 similar domestic tableaux unless the parent brief demands it.',
+      'Return JSON only: { "beats": [ { "spread":1, "beat":"HOOK", "description":"one line", "wordTarget":16 }, ... ] } with exactly 13 items, spreads 1..13.',
+      `wordTarget: use ${wt} for most spreads; use ${isYoung ? 12 : 15} for the quietest emotional beat and the last spread if appropriate.`,
+    ].join('\n');
+
+    const refBeats = this._formatBrainstormBeatsForCreativePlan(seed);
+    const userPrompt = [
+      `Child: ${child.name}, age ${child.age ?? 5}, gender: ${child.gender || 'unspecified'}.`,
+      book.title ? `Working title: ${book.title}` : null,
+      (this.category === 'parent' || this.category === 'celebration') && parentName
+        ? `Parent figure (relationship language): ${parentName}`
+        : null,
+      '--- Seed / brief ---',
+      seedBlock,
+      refBeats,
+      '---',
+      'Questionnaire and custom details (weave in where specific):',
+      this._formatAnecdotesForCreativePlan(child, book),
+      'Emit the JSON "beats" array now.',
+    ].filter(Boolean).join('\n\n');
+
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const result = await this.callLLM('planner', systemPrompt, userPrompt, {
+          jsonMode: true,
+          maxTokens: 4500,
+          temperature: 0.95,
+        });
+        const raw = String(result.text || '').trim();
+        const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim());
+        const arr = Array.isArray(parsed?.beats) ? parsed.beats : (Array.isArray(parsed) ? parsed : null);
+        if (!arr || arr.length < 10) throw new Error('missing beats array');
+        const out = arr.slice(0, 13).map((b, i) => {
+          const spread = i + 1;
+          const beat = (b && (b.beat || b.label) || `SPREAD_${spread}`).toString().trim().replace(/\s+/g, '_').toUpperCase() || 'BEAT';
+          const desc = (b && (b.description || b.text) || '').toString().trim();
+          const w = Number(b && b.wordTarget);
+          const wordTarget = Number.isFinite(w) && w > 0 ? Math.round(w) : (spread >= 12 ? (isYoung ? 12 : 15) : wt);
+          if (!desc) return null;
+          return { spread, beat, description: this._sanitizeBeatDescription(desc), wordTarget };
+        }).filter(Boolean);
+        if (out.length >= 10) {
+          while (out.length < 13) {
+            const n = out.length + 1;
+            out.push({
+              spread: n,
+              beat: `LATE_${n}`,
+              description: this._sanitizeBeatDescription(`A concrete beat that pays off the story — invent a specific action and place for ${child.name}.`),
+              wordTarget: n >= 12 ? (isYoung ? 12 : 15) : wt,
+            });
+          }
+          return out;
+        }
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[writerV2] _generateCreativeBeats attempt ${attempt} failed: ${err.message}`);
       }
-      if (!description) return null;
-      // Strip a leading "Spread N:" / "Spread N -" / "Spread N (LABEL):" prefix if present
-      description = description
-        .replace(/^\s*spread\s*\d+\s*[:\-\u2014]\s*/i, '')
-        .replace(/^\s*spread\s*\d+\s*\([^)]*\)\s*[:\-\u2014]?\s*/i, '')
-        .trim();
-      // Pick a slightly smaller word target for the quiet/wish/closing beats
-      const quietBeats = new Set(['WONDER', 'CLOSING']);
-      const wordTarget = quietBeats.has(label) ? (isYoung ? 12 : 15) : wt;
-      return { spread, beat: label, description, wordTarget };
+    }
+    throw new Error(`Writer V2: could not generate creative beats from LLM${lastErr ? ` (${lastErr.message})` : ''}`);
+  }
+
+  /**
+   * One line per spread from brainstormer — the creative LLM may rewrite; output JSON is canonical.
+   * @param {object} storySeed
+   * @returns {string}
+   */
+  _formatBrainstormBeatsForCreativePlan(storySeed) {
+    const raw = storySeed?.beats;
+    if (!Array.isArray(raw) || raw.length === 0) return '';
+    const lines = raw.slice(0, 13).map((b, i) => {
+      const t = typeof b === 'string' ? b : (b && (b.description || b.text || b.beat)) || '';
+      const s = String(t).trim();
+      if (!s) return null;
+      return `  ${i + 1}. ${s}`;
     }).filter(Boolean);
-    // Require at least 10 valid beats; pad to 13 from canonical adventure fallback if short
-    if (normalized.length < 10) return null;
-    return normalized;
+    if (lines.length === 0) return '';
+    return [
+      'Brainstormed arc (optional reference — improve or replace freely; your JSON output is the book plan):',
+      ...lines,
+    ].join('\n');
+  }
+
+  /**
+   * @param {object} child
+   * @param {object} book
+   * @returns {string}
+   */
+  _formatAnecdotesForCreativePlan(child, book) {
+    const fromAn = child.anecdotes && typeof child.anecdotes === 'object' ? child.anecdotes : {};
+    const lines = Object.entries(fromAn)
+      .filter(([, v]) => typeof v === 'string' && v.trim())
+      .map(([k, v]) => `- ${k}: ${v.trim()}`);
+    if (book.customDetails && String(book.customDetails).trim()) {
+      lines.push(`- customDetails: ${String(book.customDetails).trim()}`);
+    }
+    if (book.emotionalSituation && String(book.emotionalSituation).trim()) {
+      lines.push(`- emotionalSituation: ${String(book.emotionalSituation).trim()}`);
+    }
+    return lines.length ? lines.join('\n') : '(none provided)';
   }
 
   // ──────────────────────────────────────────
@@ -416,191 +428,6 @@ class GenericThemeWriter extends BaseThemeWriter {
     sanitizeNonLatinChars(spreads);
 
     return { spreads, _model: result.model, _ageTier: ageTier, _outfitLock: newOutfit };
-  }
-
-  // ──────────────────────────────────────────
-  // Beat structures by theme category
-  // ──────────────────────────────────────────
-
-  _buildBeats(ageTier, child, parentName, book) {
-    const isYoung = ageTier === 'young-picture';
-    const wt = isYoung ? 16 : 28;
-
-    // Try plot templates for non-emotional themes
-    if (this.category !== 'emotional') {
-      const plotTemplate = selectPlotTemplate(this.themeName, { plotId: book?.plotId });
-      if (plotTemplate) {
-        this._selectedPlot = plotTemplate;
-        return plotTemplate.beats({ child, isYoung, wt, parentName, book, theme: this.themeName });
-      }
-    }
-
-    // Fallback to hardcoded beats (emotional themes + unknown themes without templates)
-    this._selectedPlot = null;
-    switch (this.category) {
-      case 'parent':     return this._parentBeats(isYoung, child, parentName);
-      case 'celebration': return this._celebrationBeats(isYoung, child);
-      case 'adventure':  return this._adventureBeats(isYoung, child);
-      case 'daily_life': return this._dailyLifeBeats(isYoung, child);
-      case 'emotional':  return this._emotionalBeats(isYoung, child, book);
-      default:           return this._adventureBeats(isYoung, child);
-    }
-  }
-
-  /**
-   * Async wrapper for _buildBeats that supports custom plot generation.
-   * Called from plan() instead of _buildBeats when a title exists but no plot matched.
-   */
-  async _buildBeatsWithCustomFallback(ageTier, child, parentName, book) {
-    const isYoung = ageTier === 'young-picture';
-    const wt = isYoung ? 16 : 28;
-
-    if (this.category !== 'emotional' && book?.title && !isPlaceholderTitle(book.title) && !book.plotId) {
-      try {
-        const customPlot = await generateCustomPlot(book.title, this.themeName, { child, isYoung, wt });
-        if (customPlot) {
-          this._selectedPlot = customPlot;
-          return customPlot.beats;
-        }
-      } catch (err) {
-        console.warn(`[writerV2] Custom plot generation failed, using template: ${err.message}`);
-      }
-    }
-
-    return this._buildBeats(ageTier, child, parentName, book);
-  }
-
-  // ── Parent themes (fathers_day) ──
-
-  _parentBeats(isYoung, child, parentName) {
-    const p = parentName || 'Daddy';
-    const wt = isYoung ? 16 : 28;
-    return [
-      { spread: 1,  beat: 'OPENING',          description: `Open OUT IN THE WORLD — NOT at home. Place ${child.name} and ${p} already somewhere specific and vivid: a park bench, a splash pad, a garden gate, a bakery queue, a market stall, a meadow, a forest path. Mid-action, sensory, concrete.`, wordTarget: wt },
-      { spread: 2,  beat: 'TOGETHERNESS',     description: `Soft hint: something that shows how ${child.name} and ${p} work together — a shared joke, a small ritual, a signature move. Feel free to place this wherever in the opening it best fits your arc.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'ANECDOTE_LANDING', description: `Soft hint: weave in one of the child's real anecdotes as a concrete moment between them. Where and when is up to you.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'RISING',           description: `Soft hint: escalation — the day opens up, the activity deepens, or something new pulls them forward. Invent the turn.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'PARENT_SHINES',    description: `Soft hint: ${p} does something that ${child.name} watches with awe — a skill, a trick, a fix, a steady hand. Invent what.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'PLAYFUL',          description: `Soft hint: a funny or physical-comedy beat — stick swords, chase, a silly voice. Lean on humor.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'BREATH',           description: `Soft hint: a quieter beat so the story can breathe before the peak. Side-by-side, watching, a shared quiet moment.`, wordTarget: wt },
-      { spread: 8,  beat: 'BIG_MOMENT',       description: `Soft hint: the arc's high-stakes beat — the thing the day has been building toward. Invent what.`, wordTarget: wt + 2 },
-      { spread: 9,  beat: 'PEAK_JOY',         description: `Soft hint: the emotional peak. Physical, specific, full of energy. A high-five, a leap, a finished-thing reveal.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'CHILD_LEADS',      description: `Soft hint: ${child.name} surprises or impresses ${p} — a gift, a skill, a warm role reversal.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'BOND',             description: `Soft hint: the deepest-but-quietest beat. A look, a word, a gesture. Admiration flowing both ways.`, wordTarget: wt },
-      { spread: 12, beat: 'RESOLUTION_1',     description: `Invent a closing beat — NOT a "heading home" / "walking home" shot (banned formula). A still moment at wherever they are, a shared look, a final gesture between them.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',          description: `The last line. Invent a warm, concrete final image specific to THIS story. NO "heading home" / "back at home" formula. NOT sleepy, NOT bedtime (unless bedtime theme). A parent should want to read it twice.`, wordTarget: isYoung ? 12 : 15 },
-    ];
-  }
-
-  // ── Celebration themes (birthday, birthday_magic) ──
-
-  _celebrationBeats(isYoung, child) {
-    const wt = isYoung ? 16 : 28;
-    return [
-      { spread: 1,  beat: 'OPENING',       description: `Open OUT IN THE WORLD — NOT at home, not waking up. ${child.name} is on the way to (or already arriving at) somewhere special for the big day: the bakery picking up the cake, the park with balloons already on the gate, the town square where friends are gathering, the entrance of a favorite place decked out. Sensory, particular.`, wordTarget: wt },
-      { spread: 2,  beat: 'BUILDING',      description: `Soft hint: build excitement through concrete images — a balloon wrestled in the wind, frosting glimpsed through a shop window, streamers strung between trees. Where this lands in the arc is up to you.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'PREPARATION',   description: `Soft hint: finishing touches at or near the celebration spot — decorations, outfit, a favorite flavor spotted on the cake. Use favorite_cake_flavor if available.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'PARTY_BEGINS',  description: `Soft hint: the celebration itself starts. Friends or family arrive. Noise, color, action. Make the location feel specific.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'ACTIVITIES',    description: `Soft hint: party games, play, laughter. Use favorite_toys or interests if available.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'CONNECTION',    description: `Soft hint: a quiet moment amid the fun. ${child.name} notices something, feels something deeper.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'CAKE_CANDLES',  description: `The cake arrives. Candles lit. Faces glow in warm light. Build to the wish.`, wordTarget: wt },
-      { spread: 8,  beat: 'WISH_MOMENT',   description: `Eyes closed, a wish forming. The quietest, most magical spread. Fewest words.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 9,  beat: 'BLOW',          description: `The breath, the candles out, cheering erupts. Joy and release.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'WARMTH',        description: `Soft hint: surrounded by love. The feeling of being celebrated just for being you. An emotional high.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'FIRST_BITE',    description: `Soft hint: sharing / eating the cake, a favorite gift opened, a joyful burst of the day's best thing. Use favorite_cake_flavor.`, wordTarget: wt },
-      { spread: 12, beat: 'RESOLUTION_1',  description: `Invent the second-to-last beat — can be still at the party, or the aftermath, or a private moment. NOT a "heading home" / "walking home" shot (banned formula). NOT bedtime, NOT sleepy.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',       description: `The last line. Invent a specific closing image rooted in THIS story. Bright, joyful, awake, daylight. NO "heading home", NO "back at home", NO "goodnight", NO "asleep". A wish fulfilled, a secret smile, a frosting-on-a-finger moment, a dance pose — your invention.`, wordTarget: isYoung ? 12 : 15 },
-    ];
-  }
-
-  // ── Adventure themes (adventure, fantasy, space, underwater, nature) ──
-
-  _adventureBeats(isYoung, child) {
-    const wt = isYoung ? 16 : 28;
-    const setting = {
-      adventure: 'a path beyond the garden gate',
-      fantasy: 'a world that shimmers just past the wardrobe',
-      space: 'the stars above the rooftop',
-      underwater: 'the waves that lap the shore',
-      nature: 'the wild woods past the meadow',
-    }[this.themeName] || 'somewhere just past the familiar';
-    return [
-      { spread: 1,  beat: 'HOOK',          description: `Open OUT IN THE WORLD — NOT at home. ${child.name} discovers something at a specific non-home place (a garden gate, a tidepool, a meadow, a forest path, a rooftop under stars) that calls them toward ${setting}. Vivid, sensory, immediate.`, wordTarget: wt },
-      { spread: 2,  beat: 'DISCOVERY',     description: `Soft hint: the new world opens up. Colors, sounds, textures. Wonder fills the scene. The threshold crossing.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'RISING_1',      description: `Soft hint: ${child.name} ventures deeper. A companion or guide may appear. Use child's interests.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'RISING_2',      description: `Soft hint: a second discovery, stranger and more wonderful. The world reveals its rules.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'DEEP_EXPLORE',  description: `Soft hint: the heart of the adventure world. ${child.name} is fully immersed, confident, curious.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'CHALLENGE',     description: `Soft hint: something goes wrong or gets tricky. A puzzle, a blockage, a moment of doubt.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'CLEVERNESS',    description: `Soft hint: ${child.name} uses something they know to solve it. Resourcefulness. Invent what.`, wordTarget: wt + 2 },
-      { spread: 8,  beat: 'TRIUMPH',       description: `Soft hint: the problem is solved. Joy, relief, pride. The world responds.`, wordTarget: wt },
-      { spread: 9,  beat: 'WONDER',        description: `Soft hint: a quiet beat of pure wonder. The most beautiful image in the book. Fewest words.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 10, beat: 'GIFT',          description: `Soft hint: the world gives ${child.name} something to carry — a token, a memory, a new understanding.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'RESOLUTION_1',  description: `Invent this beat. Could be a farewell to the adventure world, a new perspective on the familiar, a first-step-back. NOT a generic "walking home" / "heading home" shot.`, wordTarget: wt },
-      { spread: 12, beat: 'RESOLUTION_2',  description: `Invent this beat. The adventure lives on inside ${child.name} in some concrete way. Don't default to "safe at home" or "back in bed".`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',       description: `The last line. Invent a warm, specific closing image — a whisper of the adventure still waiting, a glance back, a kept token, an echo of the opening. NOT a formulaic home-return shot.`, wordTarget: isYoung ? 12 : 15 },
-    ];
-  }
-
-  // ── Daily life themes (bedtime, school, friendship, holiday) ──
-
-  _dailyLifeBeats(isYoung, child) {
-    const wt = isYoung ? 16 : 28;
-    const settingWord = { bedtime: 'evening', school: 'morning', friendship: 'afternoon', holiday: 'day' }[this.themeName] || 'day';
-    const isBedtime = this.themeName === 'bedtime';
-    return [
-      { spread: 1,  beat: 'SETTING',        description: isBedtime
-        ? `The ${settingWord} begins for ${child.name}. Can start anywhere that grounds the evening mood — a garden at dusk, a bath, a window seat, a porch.`
-        : `Open OUT IN THE WORLD — NOT at home. The ${settingWord} begins for ${child.name} at a specific non-home place (school gate, playground, park path, bakery, sidewalk, bus stop). Sensory grounding.`, wordTarget: wt },
-      { spread: 2,  beat: 'ROUTINE',        description: `Soft hint: the rhythm of the ordinary unfolds. Concrete details.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'DISRUPTION',     description: `Soft hint: something new or unexpected enters the scene. A change in the pattern.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'CURIOSITY',      description: `Soft hint: ${child.name} responds to the new thing with curiosity. The disruption draws them forward.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'DEEPENING',      description: `Soft hint: the new thing leads somewhere unexpected. Richer than first thought.`, wordTarget: wt + 2 },
-      { spread: 6,  beat: 'EMOTIONAL_CORE', description: `Soft hint: the heart of the story. What this really means to ${child.name}. A feeling, not a lesson.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'QUIET_MOMENT',   description: `Soft hint: a pause. Fewest words. ${child.name} sits with the feeling.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 8,  beat: 'CONNECTION',     description: `Soft hint: someone else shares the moment. Togetherness. The feeling is no longer alone.`, wordTarget: wt + 2 },
-      { spread: 9,  beat: 'RESOLUTION',     description: `Soft hint: the disruption resolves. Not fixed, but understood. Comfort returns.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'RETURN',         description: `Soft hint: back into the rhythm, but it feels a little different now.`, wordTarget: wt },
-      { spread: 11, beat: 'COMFORT',        description: `Soft hint: safety, warmth, soft light, gentle sounds.`, wordTarget: wt },
-      { spread: 12, beat: 'ECHO',           description: isBedtime
-        ? `Close on a settling image — a parent's hand, a bedside lamp, a kept toy. The refrain may land here.`
-        : `Invent a specific beat that lets the refrain land one more time. Close on an image, not a declaration. NOT a "heading home" shot.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',        description: isBedtime
-        ? `The last line. A settle-to-sleep image is fine for bedtime themes. Concrete, specific, tender.`
-        : `The last line. Invent a warm, specific closing image. The world is the same, but ${child.name} is a little more. NOT a formulaic "heading home" or "asleep" shot.`, wordTarget: isYoung ? 12 : 15 },
-    ];
-  }
-
-  // ── Emotional themes (anxiety, anger, fear, grief, loneliness, etc.) ──
-
-  _emotionalBeats(isYoung, child, book) {
-    const wt = isYoung ? 16 : 28;
-    const feeling = {
-      anxiety: 'a worry that buzzes',
-      anger: 'a hot feeling that rises',
-      fear: 'a shadow that follows',
-      grief: 'a missing that aches',
-      loneliness: 'a quiet that spreads',
-      new_beginnings: 'a strange new feeling',
-      self_worth: 'a whisper that says "not enough"',
-      family_change: 'a shift in the air at home',
-    }[this.themeName] || 'a feeling that grows';
-    const situation = book.emotionalSituation || '';
-    const situationNote = situation ? ` Situation context: ${situation}.` : '';
-    return [
-      { spread: 1,  beat: 'NORMAL_DAY',      description: `A regular moment for ${child.name} in a specific non-home place (a playground, a schoolyard, a sidewalk, a park path, a bus stop, a garden). Everything seems fine on the surface.${situationNote}`, wordTarget: wt },
-      { spread: 2,  beat: 'FEELING_ARRIVES', description: `Soft hint: ${feeling} appears. Small at first. A physical sensation, not a label.`, wordTarget: wt + 2 },
-      { spread: 3,  beat: 'FEELING_GROWS',   description: `Soft hint: the feeling gets bigger. It shows up in the body and the world looks different.`, wordTarget: wt + 2 },
-      { spread: 4,  beat: 'TRIES_TO_COPE',   description: `Soft hint: ${child.name} tries to handle it alone. Maybe hides, maybe pushes back. It doesn't work yet.`, wordTarget: wt + 2 },
-      { spread: 5,  beat: 'OVERWHELM',       description: `Soft hint: the feeling fills everything. The hardest spread. Honest, not scary. The low point.`, wordTarget: wt },
-      { spread: 6,  beat: 'TURNING_POINT',   description: `Soft hint: someone notices. A gentle adult or friend reaches toward ${child.name}. No lecture, just presence.`, wordTarget: wt + 2 },
-      { spread: 7,  beat: 'NAMING',          description: `Soft hint: the feeling gets a name. Spoken aloud, it shrinks a little. Fewest words.`, wordTarget: isYoung ? 12 : 15 },
-      { spread: 8,  beat: 'UNDERSTANDING',   description: `Soft hint: ${child.name} learns the feeling is allowed. Everyone has it sometimes. Comfort.`, wordTarget: wt + 2 },
-      { spread: 9,  beat: 'PRACTICE',        description: `Soft hint: a small tool or action to try when the feeling comes back. Concrete, not abstract.`, wordTarget: wt + 2 },
-      { spread: 10, beat: 'TRYING_AGAIN',    description: `Soft hint: ${child.name} goes back to the thing that was hard. The feeling is still there, but smaller.`, wordTarget: wt + 2 },
-      { spread: 11, beat: 'SMALL_WIN',       description: `Soft hint: a moment of bravery, or calm, or acceptance. Not perfection, just enough.`, wordTarget: wt },
-      { spread: 12, beat: 'SAFETY',          description: `Soft hint: the refrain lands one final time. ${child.name} is held, safe, understood.`, wordTarget: wt },
-      { spread: 13, beat: 'CLOSING',         description: `The last line. Invent a specific closing image. The feeling may come back, but ${child.name} knows what to do. Hope, not cure. NOT a formulaic "heading home" shot.`, wordTarget: isYoung ? 12 : 15 },
-    ];
   }
 
   // ──────────────────────────────────────────

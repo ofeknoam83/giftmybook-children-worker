@@ -363,7 +363,7 @@ class BaseThemeWriter {
     const userPrompt = userLines.join('\n');
 
     let parsed = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const result = await this.callLLM('planner', systemPrompt, userPrompt, {
           jsonMode: true,
@@ -383,11 +383,9 @@ class BaseThemeWriter {
     }
 
     if (!parsed) {
-      // Parent-anecdote-derived fallback only. We never seed generic defaults —
-      // that would bias subsequent runs and undercut the whole point of this
-      // step. If we can't find anything parent-provided, we return null and
-      // the writer reverts to soft-hint behavior.
-      return this._buildPaletteFallback({ beats, storySeed, book, preassigned });
+      // No template/invented fallback — writer works without locked locations;
+      // scene-continuity gate only runs when palette locations exist on beats.
+      return null;
     }
 
     // Preserve pre-assigned beat locations even if the LLM reshuffled them.
@@ -463,57 +461,6 @@ class BaseThemeWriter {
       lines.push(`- interests: ${child.interests.join(', ')}`);
     }
     return lines.join('\n');
-  }
-
-  /**
-   * Anecdote-only fallback palette. Returns null if nothing concrete can be
-   * extracted — we DO NOT invent placeholder palette entries.
-   */
-  _buildPaletteFallback({ beats, storySeed, book, preassigned }) {
-    const entries = [];
-    const seen = new Set();
-    const pushEntry = (name, anchors = []) => {
-      const clean = typeof name === 'string' ? name.trim() : '';
-      if (!clean) return;
-      const key = clean.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      entries.push({ id: slugify(clean), name: clean, visual_anchors: anchors });
-    };
-
-    for (const p of preassigned) pushEntry(p.location);
-
-    const seedSetting = (storySeed?.setting || '').toString().trim();
-    if (seedSetting && seedSetting.length < 120) pushEntry(seedSetting);
-
-    const customDetails = (book?.customDetails || '').toString().trim();
-    if (customDetails) {
-      // Crude place extraction: look for capitalized multi-word proper-noun
-      // fragments ("Hudson Park", "Nonna's bakery"). If nothing useful is
-      // found we simply drop through — no generic fillers.
-      const matches = customDetails.match(/\b(?:the\s+)?(?:[A-Z][a-zA-Z'’]*\s+){1,3}(?:Park|Garden|Beach|Market|Bakery|Library|Bridge|Trail|Station|Harbor|Pier|Meadow|Forest|Zoo|Aquarium|Museum)\b/g);
-      if (matches) matches.forEach(m => pushEntry(m));
-    }
-
-    if (entries.length === 0) return null;
-
-    // Assign spreads round-robin across whatever entries we managed to pull.
-    // Consecutive spreads share locations to give the reader continuity.
-    const beatAssignments = [];
-    const spreadsPerEntry = Math.max(1, Math.ceil(beats.length / entries.length));
-    for (let i = 0; i < beats.length; i++) {
-      const idx = Math.min(Math.floor(i / spreadsPerEntry), entries.length - 1);
-      beatAssignments.push({ spread: beats[i].spread, location_id: entries[idx].id });
-    }
-    // Pre-assigned spreads override the round-robin.
-    for (const p of preassigned) {
-      const entry = entries.find(e => e.name.toLowerCase() === p.location.toLowerCase());
-      if (!entry) continue;
-      const at = beatAssignments.findIndex(a => a.spread === p.spread);
-      if (at >= 0) beatAssignments[at] = { spread: p.spread, location_id: entry.id };
-    }
-
-    return { palette: entries, beatAssignments };
   }
 
   /**

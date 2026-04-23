@@ -13,14 +13,11 @@ const WRITER_CONFIG = {
 
   retries: {
     maxWriteAttempts: 3,
-    // Quality is judged entirely by an LLM critic; the writer retries
-    // until the critic says ship=true. This budget is the safety cap per
-    // draft — worst case ~1 min per retry (revise + critic).
-    maxQualityRetries: 10,
-    // After a draft exhausts maxQualityRetries without passing the numeric
-    // floor, run a full fresh write() and restart the quality loop — up to
-    // this many extra drafts (latency/cost tradeoff).
-    maxQualityFullRegenerations: 4,
+    // Revisions to fix **deterministic** checks only (regex / scene-continuity).
+    // The editorial LLM is advisory and never blocks shipping.
+    maxQualityRetries: 8,
+    // Full rewrites from plan are not used; quality is not score-gated.
+    maxQualityFullRegenerations: 0,
   },
 
   timeouts: {
@@ -58,25 +55,16 @@ const WRITER_CONFIG = {
     },
   },
 
+  // Legacy: numeric story scoring was removed; the gate is deterministic + advisory only.
   qualityThresholds: {
-    // The LLM critic applies these thresholds directly inside its prompt
-    // when deciding ship=true/false. They are included here so the values
-    // stay tunable in one place; the critic prompt interpolates them.
-    passScore: 8.5,
-    minDimensionScore: 6,
-    /** Enforced in JS (QualityGate) so a critic cannot ship=true with flat, generic prose. */
-    creativityFloor: 7,
+    passScore: 0,
+    minDimensionScore: 0,
+    creativityFloor: 0,
   },
-
-  /**
-   * Stricter verse + simpler vocabulary for ages 0–3 makes the default bar
-   * harder to hit; QualityGate uses these overrides when child age ≤ 3.
-   * Critic prompt and JS numeric gate stay in sync via gate._qualityThresholdsForChild.
-   */
   qualityThresholdsYoungPicture: {
-    passScore: 8,
-    minDimensionScore: 5,
-    creativityFloor: 6.5,
+    passScore: 0,
+    minDimensionScore: 0,
+    creativityFloor: 0,
   },
 };
 
