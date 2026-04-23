@@ -8,6 +8,7 @@
  */
 
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
+const { defaultTextCorner, resolveSideAndCorner } = require('../../illustrator/config');
 
 /**
  * Compose a compact SCENE paragraph from visualBible + spreadSpec. The scene
@@ -82,6 +83,24 @@ function composeScene(doc, spread) {
     ].join('\n')
     : '';
 
+  // Tell the scene composition where the caption will sit so the busy focal
+  // action lands AWAY from that corner (without emptying the corner out).
+  const spreadIndex = Math.max(0, (Number(spread.spreadNumber) || 1) - 1);
+  const manuscript = spread.manuscript;
+  const { side: resolvedSide, corner: resolvedCorner } = resolveSideAndCorner(
+    spreadIndex,
+    manuscript?.side || spec?.textSide,
+    undefined,
+  );
+  const captionSideOpp = resolvedSide === 'left' ? 'right' : 'left';
+  const captionVertical = resolvedCorner.startsWith('top') ? 'top' : 'bottom';
+  const captionOppVertical = captionVertical === 'top' ? 'bottom' : 'top';
+  const captionPlacementLine =
+    `Caption placement (single-scene composition): the spread caption will be tucked into the ${resolvedCorner.toUpperCase()} corner of the final image. ` +
+    `Treat the ENTIRE 16:9 frame as ONE continuous environment — both halves must be the same place (same ground, sky, light, perspective, atmosphere), never two images stitched together. ` +
+    `Place the focal action and main subject toward the ${captionSideOpp} side / ${captionOppVertical} area of the frame, so the ${resolvedCorner} corner naturally shows a less-busy region of the SAME scene (open sky, soft-focus background, shaded path, foliage, water, ground). ` +
+    `Do NOT blur, empty, or flatten that corner into a "text panel" — scenery continues softly behind the caption.`;
+
   const lines = [
     `Focal action: ${spec.focalAction}.`,
     `Location: ${spec.location}.`,
@@ -93,6 +112,7 @@ function composeScene(doc, spread) {
     environment ? `World anchors: ${environment}.` : '',
     priorAnchors,
     offCoverCastBlock,
+    captionPlacementLine,
     spec.forbiddenMistakes?.length ? `Avoid: ${spec.forbiddenMistakes.join('; ')}.` : '',
   ].filter(Boolean);
 
@@ -116,12 +136,20 @@ function buildIllustrationSpec(doc, spread) {
   const retries = selectRetryMemory(doc.retryMemory, 'spreadRender', spread.spreadNumber);
   const retryBlock = renderRetryMemoryForPrompt(retries);
 
+  const spreadIndex = spread.spreadNumber - 1;
+  const { side, corner } = resolveSideAndCorner(
+    spreadIndex,
+    manuscript?.side || spec?.textSide,
+    undefined,
+  );
+
   return {
     spreadNumber: spread.spreadNumber,
-    spreadIndex: spread.spreadNumber - 1,
+    spreadIndex,
     scene: retryBlock ? `${scene}\n\n${retryBlock}` : scene,
     text: manuscript?.text || '',
-    textSide: manuscript?.side || spec?.textSide || 'right',
+    textSide: side,
+    textCorner: corner,
     textLineTarget: spec?.textLineTarget || 3,
     theme: doc.request.theme,
     lineBreakHints: manuscript?.lineBreakHints || [],

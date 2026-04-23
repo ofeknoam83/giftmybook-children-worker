@@ -154,13 +154,22 @@ async function establishCharacterReference(session) {
 
   const parts = [
     {
-      text: 'BOOK COVER — CHARACTER + STYLE GROUND TRUTH. This is the approved rendered likeness of the hero child in stylized 3D Pixar-like CGI (NOT a photograph, NOT live-action). Use it as the canonical reference for the child (face, skin tone, hair, outfit) AND for any other person visible on the cover. Every interior spread must remain stylized 3D CGI matching this cover — never output a photorealistic snapshot, stock photo, or smartphone picture. Interior spreads are each **one** seamless wide panorama (16:9) — never two illustrations stitched side-by-side.',
+      text: [
+        'BOOK COVER — CHARACTER + STYLE GROUND TRUTH.',
+        'This is the approved rendered likeness of the hero child. It is a 3D CGI Pixar-film render — NOT a 2D illustration, NOT a painted children\'s-book illustration, NOT a photograph, NOT live-action.',
+        'Use it as the canonical reference for BOTH the character (face shape, skin tone, hair, outfit) AND the art style (3D CGI Pixar-film render).',
+        'Every interior spread must read as the SAME feature-film render as this cover:',
+        '  - photoreal 3D CGI with subsurface skin scattering, individually rendered hair strands, physically based materials, ray-traced volumetric lighting, and real optical depth-of-field.',
+        '  - FORBIDDEN styles for interior spreads (hard fail): 2D flat illustration, painterly soft storybook illustration, watercolor, gouache, pencil, ink-and-wash, cel-shaded anime, paper cutout, pixel art, digital painting, or any "drawn" look.',
+        '  - If the cover reads as a Pixar film frame, every interior spread reads as a Pixar film frame.',
+        'Every interior spread is also ONE continuous wide panorama (16:9) — never two illustrations stitched side-by-side.',
+      ].join('\n'),
     },
     {
       inline_data: { mimeType: session.coverMime, data: session.coverBase64 },
     },
     {
-      text: 'Study this reference carefully. Acknowledge with TEXT ONLY — do NOT generate an image yet. Say you have the character and style locked in.',
+      text: 'Study this reference carefully. Acknowledge with TEXT ONLY — do NOT generate an image yet. Confirm you have the character AND the 3D CGI Pixar-film style locked in (not a 2D illustration style).',
     },
   ];
 

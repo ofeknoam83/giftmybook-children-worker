@@ -32,7 +32,12 @@ function renderCorrectionNote(issues, tags) {
   if (tags.includes('text_on_both_sides') || tags.includes('text_crosses_midline') || tags.includes('text_in_center_band')) {
     lines.push('Place ALL caption text on the chosen side only. No letters in the center band.');
   }
-  if (tags.includes('hero_identity_drift') || tags.includes('hero_face_mismatch') || tags.includes('outfit_mismatch')) {
+  if (
+    tags.includes('hero_mismatch')
+    || tags.includes('hero_identity_drift')
+    || tags.includes('hero_face_mismatch')
+    || tags.includes('outfit_mismatch')
+  ) {
     lines.push('Match the approved cover for hero face, hair, and outfit. Do not restyle the hero.');
   }
   if (tags.includes('disembodied_limb')) {
@@ -46,6 +51,11 @@ function renderCorrectionNote(issues, tags) {
   if (tags.includes('parent_turned_away')) {
     lines.push(
       'Re-stage the parent so their body language is visibly engaged with the hero child: oriented toward the child, eyes on the child, leaning in, holding the child, walking alongside, or sharing the child\'s focus on a shared object. Never the parent\'s back to the child with no narrative reason. For partial presence, the implied hand/arm must reach TOWARD the child, not away.',
+    );
+  }
+  if (tags.includes('style_drift')) {
+    lines.push(
+      'Re-render in a 3D CGI Pixar feature-film style — a frame from a modern Pixar movie (photoreal subsurface skin scattering, individually rendered hair strands, physically based materials, volumetric ray-traced lighting, real optical depth-of-field). NOT a 2D illustration, NOT a soft painted children\'s book illustration, NOT watercolor/gouache/pencil/ink/anime/paper-cutout. Characters must read as real 3D models, backgrounds as real 3D environments — not as painted images with blur. Match the BOOK COVER\'s art style exactly.',
     );
   }
   return lines.join('\n');

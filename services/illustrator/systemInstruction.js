@@ -85,9 +85,12 @@ function buildSystemInstruction(opts) {
   );
 
   sections.push(
-`### ART STYLE (FROZEN — every spread)
-${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
-Never drift toward 2D flat, watercolor, pencil sketch, gouache, paper cutout, anime cel-shading, storybook ink-and-wash, pixel art, or any other style. If the cover looks 3D Pixar, every spread must look 3D Pixar. No exceptions.`
+`### ART STYLE (FROZEN — every spread must be 3D CGI, not 2D illustration)
+POSITIVE style: ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
+
+NEGATIVE style (FORBIDDEN — hard fail if any of these read on the image): ${PIXAR_STYLE.antiStyle}.
+
+Think: a still frame from a modern Disney-Pixar feature film (e.g. the visual language of Toy Story 4, Inside Out 2, Soul, Luca, Turning Red, Elemental) — NOT a traditional children's-book illustration with soft shading. Characters are real 3D models with surface depth, volumetric fur/hair, physically based cloth, ray-traced lighting, and a real shallow-focus camera — not flat painted figures on a painted background. The cover is the style ground truth: if you are ever torn between "CGI render" and "painterly illustration", go CGI.`
   );
 
   sections.push(
@@ -137,9 +140,11 @@ If an object, animal, or secondary character appears in one spread, it MUST keep
 One hero. One moment. One seamless painting — no split panels, no visible seams, no diptychs, no before/after layouts, no comic grids. Full bleed 16:9. The scene should fill the frame with a clear focal point and cinematic depth.
 
 PANORAMA LOCK (CRITICAL — PRINT IS ONE IMAGE CUT IN HALF FOR BINDING):
-- This spread is **one** continuous wide photograph / film frame. The left and right halves are **not** two separate illustrations pasted together.
-- **FORBIDDEN:** a sharp vertical seam, gutter line, color shift, lighting jump, perspective change, or style change exactly down the middle; backgrounds that "restart" at center; a bench or person **cut off** at mid-frame as if the other half were a different picture; two different skies or horizons meeting at center.
-- **REQUIRED:** unified lighting, atmosphere, ground plane, and horizon across the **entire** width; objects and scenery flow naturally across the middle — the spine is invisible in the art.
+- This spread is **one** continuous wide photograph / film frame of a **single environment**. The left and right halves show different parts of the **same** place, not two different pictures.
+- **FORBIDDEN:** a sharp vertical seam, gutter line, color shift, lighting jump, perspective change, or style change exactly down the middle; backgrounds that "restart" at center; a bench, stall, or person **cut off** at mid-frame as if the other half were a different picture; two different skies or horizons meeting at center.
+- **FORBIDDEN — "text-canvas half":** never compose the scene as "busy subject on one side, blurred empty path / empty sky / blank slab on the other side" so the caption has somewhere to sit. That reads as two images glued together. The text-side is still part of the **same environment** — same perspective, same ground, same atmosphere — just a quieter region of that one scene.
+- **REQUIRED:** unified lighting, atmosphere, ground plane, and horizon across the **entire** width; scenery continues naturally across the middle; the spine is invisible in the art.
+- **COMPOSE FOR THE CAPTION INSIDE THE SCENE:** place the caption over a naturally less-busy region of the SAME environment — open sky, a soft-focus background, shaded wall, a wash of foliage, water, snow, a tablecloth — so the text is legible without emptying out that part of the frame. Details (distant stalls, far-off flowers, background figures, leaves, rooftops, clouds) should keep softly reading under / behind the caption, not be erased.
 - If the scene includes a gate, path, or figure near center, **design the composition** so continuity reads as one space (e.g. gate straddles the viewing area naturally, path curves through), not as "left page scene + right page scene".
 
 SHOT VARIETY (every book):
@@ -254,34 +259,36 @@ Words like "family", "we", "our", "together" refer to people. A pet or a plush t
 function buildTextSection() {
   const maxWords = TEXT_RULES.maxWordsPerLine;
   const edge = TEXT_RULES.edgePaddingPercent;
-  const top = TEXT_RULES.topPaddingPercent;
-  const bottom = TEXT_RULES.bottomPaddingPercent;
+  const corner = TEXT_RULES.cornerVerticalPaddingPercent;
 
   return `### ON-IMAGE TEXT (CRITICAL)
-Each per-spread prompt will give you ONE short passage (TEXT) AND a CHOSEN SIDE ("left" or "right"). Render the passage INSIDE the illustration as a single embedded caption on that side only. Follow these rules without deviation:
+Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("left" or "right"), and a CHOSEN CORNER (one of "top-left", "top-right", "bottom-left", "bottom-right"). Render the passage INSIDE the illustration as a single embedded caption anchored to that corner. Follow these rules without deviation:
 
-1. ONE-SIDE-ONLY RULE (NON-NEGOTIABLE). Every spread's text lives on EXACTLY ONE side — the CHOSEN SIDE. The opposite half of the image carries ONLY illustration, no text. Do NOT mirror, duplicate, or split the caption across sides.
-2. PLACEMENT. The book is bound through the middle; any lettering in the spine gutter is unreadable in print.
-   • If CHOSEN SIDE = "left": keep the entire caption block on the left half of the spread, tucked toward the outer (left) edge with a comfortable margin from the trim — stay well to the left of the page center and the spine. The right half must be completely free of letters, punctuation, drop-shadows, or any typographic marks.
-   • If CHOSEN SIDE = "right": mirror that — the whole caption stays on the right half toward the outer (right) edge with comfortable trim margin, well clear of center and spine. The left half must be illustration-only with no type.
-   • The vertical strip around the spine (the middle of the spread) is a STRICT NO-TEXT ZONE. No caption line, word fragment, or punctuation may sit in or cross that gutter band.
+1. CORNER-ANCHOR RULE (NON-NEGOTIABLE). The caption is one compact stacked block in the CHOSEN CORNER of the frame — NOT centered vertically in its half, NOT floating in the middle of a blurred region, NOT spread across the whole side. It sits near the corner with generous safe padding (see PLACEMENT) so the rest of the frame is free to show the illustration.
+2. ONE-SIDE-ONLY RULE. The caption lives fully on the CHOSEN SIDE. The opposite half of the image carries ONLY illustration. Do NOT mirror, duplicate, or split the caption across sides.
+3. PLACEMENT (exact geometry — the book is bound through the middle so gutter lettering is unreadable in print):
+   • Horizontal: the caption block is snug against the outer trim on its side — about ${edge}% in from the outer edge (never less, never flush to the bleed), and its inner edge stays far from the center spine (well inside the outer ~35% of the width).
+   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${corner}% in from that edge (never less, never flush to the bleed). Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
+   • The vertical strip around the spine (middle of the spread) is a STRICT NO-TEXT ZONE. No caption line, word fragment, or punctuation may sit in or cross that gutter band.
    • Never center-justify type across the spine. One caption block must never visually bridge from one half into the other.
-   • Keep ${top}% of the frame clear of text from the top edge and ${bottom}% clear from the bottom edge. Leave the outer trim margin generous (about ${edge}% in from the outer side) so nothing feels cramped or clipped.
-3. EXACT TEXT — NO HALLUCINATED WORDS. The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words. Any word on the image that is NOT in the provided passage is forbidden — including signatures, titles, labels, "THE END", dedications, love notes like "I LOVE MAMA", page numbers, book titles, math symbols, measurement notes, or any other invented text.
-4. NO DUPLICATE CAPTIONS. Render the caption EXACTLY ONCE on the chosen side. Never print the same sentence in two places. Never double-print. Never copy the caption to the empty side.
-5. FONT: ${TEXT_RULES.fontStyle}
-6. SIZE: ${TEXT_RULES.fontSize}
-7. COLOR: ${TEXT_RULES.fontColor}. Never pure black on dark areas, never pure white on bright sky; ensure contrast against the local background with the subtle shadow.
-8. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions). The whole passage stays as ONE stacked caption block on the chosen side.
-9. NOT A TITLE: The text is a subtitle-style caption, not a poster headline. The illustration is the hero — the text should feel like a quiet overlay, not dominate the frame.
-10. If the prompt says TEXT is empty, generate a full-bleed illustration with NO on-image text anywhere.
+4. THE CORNER IS NOT A BLANK CANVAS. Do not empty out or heavily blur the corner region just to "make room for text". The scene continues underneath — open sky, soft-focus background, shaded foliage, ground, water, or any other naturally less-busy region of the SAME environment reads through behind the caption. The caption overlays the scene; the scene is never deleted for it.
+5. EXACT TEXT — NO HALLUCINATED WORDS. The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words. Any word on the image that is NOT in the provided passage is forbidden — including signatures, titles, labels, "THE END", dedications, love notes like "I LOVE MAMA", page numbers, book titles, math symbols, measurement notes, or any other invented text.
+6. NO DUPLICATE CAPTIONS. Render the caption EXACTLY ONCE in the chosen corner. Never print the same sentence in two places. Never double-print. Never copy the caption to the empty side.
+7. FONT: ${TEXT_RULES.fontStyle}
+8. SIZE: ${TEXT_RULES.fontSize}
+9. COLOR: ${TEXT_RULES.fontColor}. Never pure black on dark areas, never pure white on bright sky; ensure contrast against the local background with the subtle shadow.
+10. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions). The whole passage stays as ONE stacked caption block in the chosen corner.
+11. NOT A TITLE: The text is a subtitle-style caption, not a poster headline. The illustration is the hero — the text should feel like a quiet overlay tucked in the corner, not dominate the frame.
+12. If the prompt says TEXT is empty, generate a full-bleed illustration with NO on-image text anywhere.
 
 ### MANDATORY SELF-CHECK BEFORE FINALIZING THE IMAGE
 Before you emit the image, mentally scan the full canvas and verify:
   (a) Is text present on ONLY the CHOSEN SIDE? If text appears on the opposite side, delete it.
-  (b) Does any text, letter, or punctuation intrude into the middle spine band? If YES, move the whole caption fully into the chosen outer half.
-  (c) Does the caption appear in more than one place? If YES, delete the duplicate.
-  (d) Is there ANY word on the image that is not in the provided TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
+  (b) Is the caption tucked into the CHOSEN CORNER — near the outer edge AND near the top/bottom edge — and NOT floating in the vertical middle of its half? If it drifted to the middle, move it into the corner.
+  (c) Does any text, letter, or punctuation intrude into the middle spine band? If YES, move the whole caption fully into the chosen outer corner.
+  (d) Does the caption appear in more than one place? If YES, delete the duplicate.
+  (e) Is there ANY word on the image that is not in the provided TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
+  (f) Do both halves of the frame clearly show the SAME environment (same ground, sky, lighting, perspective, atmosphere) — NOT one "picture" on the subject side and a separate blurred "text canvas" on the other? If the text-side reads as a second image, re-render as one continuous scene.
 If any check fails, re-render before emitting.`;
 }
 

@@ -90,7 +90,7 @@ async function processOneSpread(params) {
   const expected = { text: spec.text, side: spec.textSide };
   const hero = currentDoc.visualBible?.hero?.physicalDescription || '';
 
-  console.log(`[${logTag}] starting (budget=${totalBudget}, textSide=${spec.textSide}, textLen=${(spec.text || '').length})`);
+  console.log(`[${logTag}] starting (budget=${totalBudget}, textSide=${spec.textSide}, textCorner=${spec.textCorner}, textLen=${(spec.text || '').length})`);
 
   let scene = spec.scene;
   let correctionNote = null;
@@ -110,6 +110,7 @@ async function processOneSpread(params) {
           scene,
           text: spec.text,
           textSide: spec.textSide,
+          textCorner: spec.textCorner,
           theme: spec.theme,
         });
         image = await generateSpread(currentSession, turn, spec.spreadIndex);
@@ -119,6 +120,7 @@ async function processOneSpread(params) {
           scene,
           text: spec.text,
           textSide: spec.textSide,
+          textCorner: spec.textCorner,
           issues: [correctionNote || 'Fix the previous attempt.'],
           tags: [],
         });

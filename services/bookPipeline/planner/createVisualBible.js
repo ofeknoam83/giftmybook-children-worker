@@ -110,7 +110,7 @@ function userPrompt(doc) {
  */
 async function createVisualBible(doc) {
   const result = await callText({
-    model: MODELS.PLANNER,
+    model: MODELS.VISUAL_BIBLE,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt: userPrompt(doc),
     jsonMode: true,

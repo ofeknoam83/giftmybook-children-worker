@@ -98,10 +98,50 @@ const TEXT_VERIFY_MODEL = 'gemini-2.5-flash';
 /**
  * Art style configurations for illustration prompts.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// pixar_premium — the cover (and legacy interior) art style.
+//
+// CAVEAT: the cover is the style anchor for every interior spread. Gemini
+// weighs the reference image more than any text prompt, so if the cover is
+// rendered soft / painterly, every interior spread will average toward that
+// softness no matter how strong the interior system prompt is.
+//
+// Style language below deliberately:
+//   - says "Cinematic 3D Pixar feature-film CGI still" (not "soft render
+//     children's book illustration"),
+//   - describes physically-based 3D geometry, subsurface scattering, true
+//     optical DOF, real materials — the language Gemini associates with
+//     modern Pixar CG,
+//   - includes an `antiStyle` list that names the 2D / painterly looks the
+//     model must AVOID. Consumers append this to the prompt as a hard-no.
+//
+// Keep this in sync with services/illustrator/config.js PIXAR_STYLE so the
+// cover and interior spreads speak the same visual language.
+// ─────────────────────────────────────────────────────────────────────────────
 const ART_STYLE_CONFIG = {
   pixar_premium: {
-    prefix: 'Cinematic 3D Pixar-like soft render children\'s book illustration,',
-    suffix: 'photorealistic 3D CGI render, soft volumetric cinematic lighting, subsurface skin scattering, warm saturated color palette, emotionally expressive face and posture, rich fabric textures, dreamy depth-of-field bokeh background, Disney-Pixar production quality, magical storybook atmosphere',
+    prefix: 'Cinematic 3D Pixar feature-film CGI still,',
+    suffix: [
+      'photorealistic 3D CGI render (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration)',
+      'Disney-Pixar feature-film production quality — reads like a high-resolution frame from a modern Pixar movie',
+      'physically based 3D modeling — real three-dimensional character geometry with volume, weight, and rim-lit silhouettes',
+      'photoreal subsurface skin scattering on faces, ears, and hands (warm backlit translucency)',
+      'individually rendered hair strands with light passing through, not painted hair shapes',
+      'physically based materials — real fabric weave, real wood grain, real foliage geometry',
+      'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
+      'true optical lens depth-of-field with genuine bokeh (circular highlights from physical lenses), not a painterly blur',
+      'warm saturated color palette, emotionally expressive face and body acting',
+      'magical, cinematic atmosphere',
+    ].join(', '),
+    antiStyle: [
+      'NOT a 2D flat illustration',
+      'NOT a painterly children\'s book illustration',
+      'NOT watercolor, gouache, pencil, pen-and-ink, cel-shaded anime, paper cutout, pixel art, or vector style',
+      'NOT a hand-drawn soft storybook look',
+      'NOT a digital painting or concept painting',
+      'NOT a flat graphic illustration with a blurred background',
+      'the characters must read as real 3D models, not as drawings with soft shading',
+    ].join('; '),
   },
   watercolor: {
     prefix: 'children\'s book watercolor illustration,',
@@ -144,14 +184,52 @@ const ART_STYLE_CONFIG = {
     suffix: 'clean simple shapes, flat design with subtle texture, muted Nordic color palette (soft sage, dusty rose, warm cream, birch white), generous negative space, cozy hygge atmosphere, elegant simplicity',
   },
   cinematic_3d: {
-    prefix: 'Cinematic 3D animated children\'s book illustration,',
-    suffix: 'photorealistic 3D CGI render, volumetric cinematic lighting, depth of field, rich textures, dramatic warm golden glow, Disney-Pixar production quality, emotionally expressive characters, vivid saturated palette, subsurface skin scattering, magical storybook atmosphere',
+    prefix: 'Cinematic 3D Pixar feature-film CGI still,',
+    suffix: [
+      'photorealistic 3D CGI render (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration)',
+      'Disney-Pixar feature-film production quality — reads like a high-resolution frame from a modern Pixar movie',
+      'physically based 3D modeling — real three-dimensional character geometry with volume, weight, and rim-lit silhouettes',
+      'photoreal subsurface skin scattering on faces, ears, and hands (warm backlit translucency)',
+      'individually rendered hair strands with light passing through, not painted hair shapes',
+      'physically based materials — real fabric weave, real wood grain, real foliage geometry',
+      'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
+      'true optical lens depth-of-field with genuine bokeh, not a painterly blur',
+      'warm saturated palette, emotionally expressive face and body acting',
+      'magical, cinematic atmosphere',
+    ].join(', '),
+    antiStyle: [
+      'NOT a 2D flat illustration',
+      'NOT a painterly children\'s book illustration',
+      'NOT watercolor, gouache, pencil, pen-and-ink, cel-shaded anime, paper cutout, pixel art, or vector style',
+      'NOT a hand-drawn soft storybook look',
+      'NOT a digital painting or concept painting',
+      'the characters must read as real 3D models, not as drawings with soft shading',
+    ].join('; '),
   },
   graphic_novel_cinematic: {
     prefix: 'Cinematic 3D middle-grade graphic novel panel illustration,',
     suffix: 'Pixar-like 3D CGI animation adapted for sequential art, photorealistic subsurface skin scattering, volumetric cinematic lighting with dramatic rim lights, rich saturated color palette, emotionally expressive characters with readable facial acting, clean graphic silhouettes, simplified backgrounds in small panels with full environments in establishing shots, controlled depth of field, Disney-Pixar production quality, print-optimized color contrast, warm golden-hour atmosphere, premium sequential-art storytelling',
   },
 };
+
+/**
+ * Render the full style block for a prompt: positive prefix+suffix and, when
+ * the style carries an `antiStyle`, an explicit hard-no list so the model
+ * doesn't average toward the dominant painterly / 2D storybook look that
+ * over-indexes in its training data. Keep this helper colocated with
+ * ART_STYLE_CONFIG so new styles can opt in just by declaring `antiStyle`.
+ *
+ * @param {{ prefix: string, suffix: string, antiStyle?: string }} styleConfig
+ * @returns {string}
+ */
+function renderStyleBlock(styleConfig) {
+  if (!styleConfig) return '';
+  const positive = `${styleConfig.prefix || ''} ${styleConfig.suffix || ''}`.trim();
+  if (styleConfig.antiStyle) {
+    return `${positive}. AVOID (hard no): ${styleConfig.antiStyle}.`;
+  }
+  return positive;
+}
 
 /** Words that may trigger NSFW filters in children's book contexts */
 const NSFW_TRIGGER_WORDS = /\b(naked|nude|bare|undress|strip|blood|kill|dead|death|gun|knife|weapon|fight|violent|scary|horror|monster|demon|devil|drunk|alcohol|drug|kiss|love|romantic|sexy|seductive|provocative|sensual|intimate|lingerie)\b/gi;
@@ -170,7 +248,8 @@ function sanitizePrompt(prompt) {
  */
 function buildGenericSafePrompt(artStyle) {
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
-  return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}`;
+  const avoid = styleConfig.antiStyle ? `. AVOID (hard no): ${styleConfig.antiStyle}.` : '';
+  return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}${avoid}`;
 }
 
 function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
@@ -252,7 +331,7 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
   parts.push('- preserve continuity with previous panels and references');
   parts.push('- no split-screen, no multi-panel collage, no caption boxes, no speech bubbles, no letters, no words');
   parts.push('');
-  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push(`STYLE: ${renderStyleBlock(styleConfig)}`);
   if (opts.aspectRatioHint) parts.push(`ASPECT RATIO INTENT: ${opts.aspectRatioHint}`);
   parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
 
@@ -313,7 +392,7 @@ function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
 
   // ── PRIORITY 4: Art style (same premium Pixar 3D as children's books) ──
   parts.push('=== ART STYLE ===');
-  parts.push(`${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push(`${renderStyleBlock(styleConfig)}`);
   parts.push('The art in each panel must be PREMIUM 3D CINEMATIC PIXAR QUALITY — the same lush, photorealistic 3D CGI render style used in Pixar and DreamWorks animated films.');
   parts.push('Volumetric cinematic lighting with warm golden tones, subsurface skin scattering, rich saturated colors, dreamy depth-of-field bokeh backgrounds.');
   parts.push('Characters must be emotionally expressive with soft, appealing Pixar-style faces.');
@@ -939,7 +1018,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   parts.push('');
   // Always use the configured art style (pixar_premium by default)
-  parts.push(`STYLE: ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push(`STYLE: ${renderStyleBlock(styleConfig)}`);
   if (isSpread) {
     parts.push('FORMAT: Wide cinematic panoramic landscape illustration, 16:9 aspect ratio.');
     parts.push('THIS IS ONE SINGLE SEAMLESS PAINTING — like a wide movie still or a panoramic photograph. The scene flows continuously from the left edge to the right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break at the center or anywhere else.');
@@ -1007,10 +1086,10 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push(`12. CHARACTER OFF-CENTER: the main character is positioned in the left third or right third of the image — NOT at the horizontal center. \u2713`);
     parts.push(`13. SEAMLESS SCENE: the illustration is ONE continuous painting with no visible split, seam, or panel break anywhere — uniform lighting and color across the entire width. \u2713`);
   }
-  parts.push(`14. ART STYLE: ${styleConfig.prefix} ${styleConfig.suffix} \u2713`);
+  parts.push(`14. ART STYLE: ${renderStyleBlock(styleConfig)} \u2713`);
   parts.push('If any check fails, adjust the scene before generating.');
   parts.push('');
-  parts.push(`FINAL STYLE REMINDER: This MUST be rendered as ${styleConfig.prefix} ${styleConfig.suffix}`);
+  parts.push(`FINAL STYLE REMINDER: This MUST be rendered as ${renderStyleBlock(styleConfig)}`);
 
   return parts.join('\n');
 }
@@ -1667,4 +1746,4 @@ ${anchors.map((a, i) => `Anchor ${i + 1}: ${a.label}`).join('\n')}
   );
 }
 
-module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, PARENT_THEMES, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency };
+module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, PARENT_THEMES, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, renderStyleBlock };

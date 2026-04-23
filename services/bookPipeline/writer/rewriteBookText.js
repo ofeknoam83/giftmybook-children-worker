@@ -18,11 +18,17 @@ const { checkWriterDraft } = require('../qa/checkWriterDraft');
 const SYSTEM_PROMPT = `You are rewriting specific spreads of a children's book.
 You keep the rest of the book intact. For each spread listed, produce an improved version that fixes the listed issues.
 Hard rules (same as original writer):
-- Honor the spread spec (side, line target, personalization).
+- Honor the spread spec (side, personalization, beat).
 - Read-aloud first. Musical, simple, low repetition, no big metaphors.
 - Third-person by default. Funny/playful tone. Never preachy.
 - Text must be plausible to render in a few lines on one side without crossing center.
-Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "...", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }.`;
+
+Picture-book structure (MANDATORY when format is picture_book):
+- Every rewritten spread's "text" is EXACTLY 4 lines, separated by "\\n".
+- AABB rhyme scheme: line 1 rhymes with line 2, line 3 rhymes with line 4. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
+- 6–12 words per line, consistent pulse across each couplet.
+
+Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks.`;
 
 /**
  * @param {object} doc

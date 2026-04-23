@@ -97,9 +97,9 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   }
   textElements.push(`Near the bottom center:\n"Made with love for ${childName || 'you'}"\n"GiftMyBook.com"`);
 
-  const prompt = `Create a back cover illustration for a children's picture book.
+  const prompt = `Create the back cover image for a book, rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
 
-STYLE REFERENCE: Match the EXACT same art style, color palette, and visual mood as the reference image (the front cover). Use the same lighting, texture, and illustration technique.
+STYLE REFERENCE: Match the EXACT same art style, color palette, lighting, textures, and visual mood as the reference image (the front cover). If the front cover is a 3D CGI render, this back cover must also be a 3D CGI render — same rendering technique, same 3D geometry, same photoreal materials.
 
 LAYOUT REQUIREMENTS:
 - This is the BACK COVER of the book — it should feel like a companion to the front cover
@@ -249,6 +249,13 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     const childAge = childDetails.childAge || childDetails.age || 5;
     const childName = childDetails.childName || childDetails.name;
     const safeZoneInstruction = buildCoverSafeZoneInstruction(isHardcover);
+    // IMPORTANT: the cover is the style anchor for every interior spread.
+    // Gemini weighs the reference image more than any interior prompt, so the
+    // scene string below deliberately avoids phrases that prime the model
+    // toward 2D painterly output ("children's book illustration", "whimsical
+    // painting", "storybook cover"). Instead it frames the cover as a 3D CGI
+    // Pixar feature-film key art shot. The concrete 3D rendering techniques
+    // come from ART_STYLE_CONFIG[pixar_premium] inside generateIllustration.
     const coverScene = isGraphicNovel
       ? `A dramatic graphic novel cover illustration in a cinematic ${artStyle} style. `
         + `The main character is a ${childAge}-year-old child named ${childName}. `
@@ -258,11 +265,11 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         + `Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide. `
         + `Style: graphic novel / comic book cover aesthetic with strong composition.\n\n`
         + safeZoneInstruction
-      : `A beautiful ${artStyle} children's book cover illustration. `
-        + `The main character is a ${childAge}-year-old child named ${childName}. `
-        + `The scene should be inviting, colorful, and magical — suggesting the start of an adventure. `
-        + `The child should be centered, looking happy and confident. `
-        + `Background should be thematic and whimsical. `
+      : `A cinematic 3D Pixar feature-film key art cover — a single high-resolution frame that could be the opening poster of a modern Pixar movie. `
+        + `The main character is a ${childAge}-year-old child named ${childName}, rendered as a believable 3D CGI character (real three-dimensional geometry, photoreal subsurface skin scattering, strand-by-strand hair, physically based materials — NOT a flat painting, NOT a watercolor, NOT a soft storybook illustration). `
+        + `The scene should feel inviting, wondrous, and cinematic — promising a real adventure from the very first frame. `
+        + `The child is the clear focal point, confident and emotionally expressive, with a strong silhouette and Pixar-quality facial acting. `
+        + `Background is a thematic 3D environment with ray-traced volumetric lighting, real depth, and genuine optical bokeh — fully modeled, not painted. `
         + aspectHint + '\n\n'
         + safeZoneInstruction;
 
@@ -587,10 +594,9 @@ Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
  * @returns {string}
  */
 function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyle, identity = {}) {
-  const { ART_STYLE_CONFIG } = require('./illustrationGenerator');
+  const { ART_STYLE_CONFIG, renderStyleBlock } = require('./illustrationGenerator');
   const styleConfig = ART_STYLE_CONFIG?.[artStyle] || {};
-  const prefix = styleConfig.prefix || '';
-  const suffix = styleConfig.suffix || '';
+  const styleBlock = renderStyleBlock(styleConfig);
 
   const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'young child';
 
@@ -614,7 +620,7 @@ function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyl
     parts.push(`PHYSICAL IDENTITY LOCK: ${identity.characterAnchor}`);
   }
 
-  parts.push(`${prefix} Children's picture book front cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom. ${suffix}`);
+  parts.push(`Book cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom.\n\nART STYLE: ${styleBlock}`);
 
   return parts.join('\n\n');
 }

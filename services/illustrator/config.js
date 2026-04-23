@@ -43,9 +43,15 @@ const TOTAL_SPREADS = 13;
 //   text-free so the illustration breathes. The center band is a hard no-text zone.
 const TEXT_RULES = {
   maxWordsPerLine: 6,
-  edgePaddingPercent: 8,       // minimum distance from the active-side outer edge
-  topPaddingPercent: 20,
-  bottomPaddingPercent: 20,
+  // Minimum distance from the outer-side edge so the caption never risks
+  // being clipped by the printer trim.
+  edgePaddingPercent: 7,
+  // Minimum distance of the caption block from the top or bottom edge of
+  // the frame — generous so no line lands in the bleed zone.
+  cornerVerticalPaddingPercent: 9,
+  // Legacy fields kept for backwards compatibility with older prompt paths.
+  topPaddingPercent: 9,
+  bottomPaddingPercent: 9,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
@@ -57,11 +63,37 @@ const TEXT_RULES = {
 };
 
 // ── Frozen 3D Premium Pixar style — CANNOT be overridden from outside the module ──
-// Copied from services/illustrationGenerator.js ART_STYLE_CONFIG.pixar_premium and pinned here
-// so the picture-book pipeline has no style switch and every spread matches every other spread.
+// Every word here skews toward **3D CGI feature-film render**. Words that pull
+// the model toward 2D (flat illustration, painted, soft illustration, hand-drawn,
+// storybook illustration, watercolor, etc.) are intentionally EXCLUDED from the
+// positive prompt and listed in `antiStyle` so we can re-inject them as a
+// NOT-THIS block in prompts. Observed empirically: Gemini averages mixed cues
+// so mixing "soft render" + "children's book illustration" with "3D CGI" gave
+// us a 2D illustrated look — we had to separate positive (3D) from negative
+// (2D) instead of blending them in one sentence.
 const PIXAR_STYLE = {
-  prefix: "Cinematic 3D Pixar-like soft render children's book illustration,",
-  suffix: 'photorealistic 3D CGI render, soft volumetric cinematic lighting, subsurface skin scattering, warm saturated color palette, emotionally expressive face and posture, rich fabric textures, dreamy depth-of-field bokeh background, Disney-Pixar production quality, magical storybook atmosphere',
+  prefix: 'Cinematic 3D Pixar feature-film CGI still,',
+  suffix: [
+    'photorealistic 3D CGI render (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration)',
+    'Disney-Pixar feature-film production quality — reads like a high-resolution frame from a modern Pixar movie',
+    'physically based 3D modeling — real three-dimensional character geometry with volume, weight, and rim-lit silhouettes',
+    'photoreal subsurface skin scattering on faces, ears, and hands (warm backlit translucency)',
+    'individually rendered hair strands with light passing through, not painted hair shapes',
+    'physically based materials — real fabric weave, real wood grain, real foliage geometry',
+    'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
+    'true optical lens depth-of-field with genuine bokeh (circular highlights from physical lenses), not a painterly blur',
+    'warm saturated color palette, emotionally expressive face and body acting',
+    'magical, cinematic atmosphere',
+  ].join(', '),
+  antiStyle: [
+    'NOT a 2D flat illustration',
+    'NOT a painterly children\'s book illustration',
+    'NOT watercolor, gouache, pencil, pen-and-ink, cel-shaded anime, paper cutout, pixel art, or vector style',
+    'NOT a hand-drawn soft storybook look',
+    'NOT a digital painting or concept painting',
+    'NOT a flat graphic illustration with a blurred background',
+    'the characters must read as real 3D models, not as drawings with soft shading',
+  ].join('; '),
 };
 
 // Themes where the parent is implied (hands/back-of-head) when they are not on the cover.
@@ -77,6 +109,56 @@ const PARENT_THEMES = new Set(['mothers_day', 'fathers_day']);
  */
 function defaultTextSide(spreadIndex) {
   return (Number(spreadIndex) % 2 === 0) ? 'left' : 'right';
+}
+
+/**
+ * Deterministic corner selector. Pairs with `defaultTextSide` and rotates
+ * across all four corners over every 4 spreads so a 13-spread book gets
+ * real top/bottom + left/right variety (not every caption in the same
+ * corner of the frame). Given `side` is a function of index parity, the
+ * corner rotation just adds a top/bottom alternation per side.
+ *
+ *   index % 4 === 0 → top-left    (side=left)
+ *   index % 4 === 1 → bottom-right (side=right)
+ *   index % 4 === 2 → bottom-left  (side=left)
+ *   index % 4 === 3 → top-right    (side=right)
+ *
+ * @param {number} spreadIndex - 0-based
+ * @returns {'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'}
+ */
+function defaultTextCorner(spreadIndex) {
+  const mod = ((Number(spreadIndex) % 4) + 4) % 4;
+  switch (mod) {
+    case 0: return 'top-left';
+    case 1: return 'bottom-right';
+    case 2: return 'bottom-left';
+    case 3: return 'top-right';
+    default: return 'top-left';
+  }
+}
+
+/**
+ * Resolve a {side, corner} pair. If a caller overrides `side` but not
+ * `corner`, pick the corner that sits on the chosen side — preferring the
+ * default index-derived corner when it already matches, otherwise the
+ * top-of-side fallback.
+ *
+ * @param {number} spreadIndex
+ * @param {'left' | 'right'} [side]
+ * @param {string} [corner]
+ * @returns {{ side: 'left' | 'right', corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' }}
+ */
+function resolveSideAndCorner(spreadIndex, side, corner) {
+  const validCorners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  const resolvedSide = (side === 'left' || side === 'right') ? side : defaultTextSide(spreadIndex);
+  const defaultCorner = defaultTextCorner(spreadIndex);
+  let resolvedCorner = validCorners.includes(corner) ? corner : defaultCorner;
+  // If the explicit side disagrees with the corner, fall back to a corner
+  // on the right side of the frame (top-of-side keeps it natural for captions).
+  if (!resolvedCorner.endsWith(resolvedSide)) {
+    resolvedCorner = defaultCorner.endsWith(resolvedSide) ? defaultCorner : `top-${resolvedSide}`;
+  }
+  return { side: resolvedSide, corner: resolvedCorner };
 }
 
 module.exports = {
@@ -97,4 +179,6 @@ module.exports = {
   PIXAR_STYLE,
   PARENT_THEMES,
   defaultTextSide,
+  defaultTextCorner,
+  resolveSideAndCorner,
 };

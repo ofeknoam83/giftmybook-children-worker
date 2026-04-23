@@ -23,8 +23,11 @@ const AGE_BANDS = {
 const TOTAL_SPREADS = 13;
 
 const TEXT_LINE_TARGET = {
-  [AGE_BANDS.PB_TODDLER]: { min: 2, max: 3 },
-  [AGE_BANDS.PB_PRESCHOOL]: { min: 2, max: 4 },
+  // Picture books (ages 0-6) are locked at exactly 4 lines per spread,
+  // in AABB rhyming couplets — musical, read-aloud cadence, consistent
+  // page shape. Early readers stay at 3-4 prose lines.
+  [AGE_BANDS.PB_TODDLER]: { min: 4, max: 4 },
+  [AGE_BANDS.PB_PRESCHOOL]: { min: 4, max: 4 },
   [AGE_BANDS.ER_EARLY]: { min: 3, max: 4 },
 };
 
@@ -40,14 +43,32 @@ const TEXT_PLACEMENT = {
   NEVER_CROSS_CENTER: true,
 };
 
+// Model routing — we deliberately split by creativity level. The big model
+// (gpt-5.4) is reserved for stages that MAKE story — the creative story
+// bible and the actual manuscript text. Everything else (visual bible
+// extraction, spread-beat distribution, illustration-spec composition, QA)
+// is structural transformation of already-creative inputs and runs on a
+// fast / cheap model. Cost: gpt-5.4-mini is ~17× cheaper than gpt-5.4.
 const MODELS = {
-  PLANNER: 'gpt-5.4',
+  // --- Creative stages (expensive, high-reasoning) ---
+  STORY_BIBLE: 'gpt-5.4',
   WRITER: 'gpt-5.4',
-  ILLUSTRATION_SPEC: 'gpt-5.4',
+
+  // --- Structural stages (fast / cheap) ---
+  VISUAL_BIBLE: 'gpt-5.4-mini',
+  SPREAD_SPECS: 'gpt-5.4-mini',
+  ILLUSTRATION_SPEC: 'gpt-5.4-mini',
+
+  // --- QA models ---
   WRITER_QA: 'gemini-2.5-flash',
   BOOK_WIDE_QA: 'gemini-2.5-flash',
   SPREAD_QA_VISION: 'gemini-2.5-flash',
+
+  // --- Image rendering ---
   SPREAD_RENDER: 'gemini-3-flash-image-preview',
+
+  // Deprecated alias — keep until callers are fully migrated.
+  PLANNER: 'gpt-5.4',
 };
 
 const REPAIR_BUDGETS = {

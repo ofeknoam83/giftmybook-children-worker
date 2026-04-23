@@ -26,6 +26,11 @@ jest.mock('../../services/illustrationGenerator', () => ({
     cinematic_3d: { prefix: '3D render.', suffix: 'Pixar quality.' },
     scandinavian_minimal: { prefix: 'Scandi minimal.', suffix: 'Muted palette.' },
   },
+  renderStyleBlock: (cfg) => {
+    if (!cfg) return '';
+    const positive = `${cfg.prefix || ''} ${cfg.suffix || ''}`.trim();
+    return cfg.antiStyle ? `${positive}. AVOID (hard no): ${cfg.antiStyle}.` : positive;
+  },
   getNextApiKey: jest.fn(() => 'fake-key'),
   fetchWithTimeout: jest.fn(),
 }));

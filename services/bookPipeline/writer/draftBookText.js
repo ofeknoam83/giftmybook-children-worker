@@ -12,17 +12,26 @@ const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 
-const SYSTEM_PROMPT = `You write premium children's book prose for image-first spreads.
+const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
-Hard rules:
-- Write the actual spread text. Honor the spread spec exactly (side, line target, personalization).
+Hard rules (apply to every spread):
+- Honor the spread spec exactly (side, personalization, beat).
 - Read-aloud quality comes first. Musical cadence, simple words, no large metaphors, low repetition.
 - Third-person by default unless the user prompt overrides.
 - Funny/playful tone, character-based humor. Mostly implicit emotional meaning — never preach.
 - Use the child's name sometimes, not constantly. Use custom details concretely.
-- Each spread's text must be plausible to render in ${2}-${4} lines on one side of the illustration.
-- No line may be longer than ~14 words. No text that would cross the horizontal center of the spread when painted.
-- Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "...", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }.`;
+
+Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
+- The "text" field for each spread is EXACTLY 4 lines, separated by a single "\\n" character.
+- Rhyme scheme is AABB: line 1's last word rhymes with line 2's last word, and line 3's last word rhymes with line 4's last word. Lines 2 and 4 do NOT need to rhyme with each other.
+- Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable.
+- Each of the 4 lines is 6–12 words (never more than 14), a natural phrase unit, with a consistent musical pulse across each couplet. If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
+- No line may cross the horizontal center of the spread when painted.
+
+Early reader structure (when format is early_reader):
+- 3–4 short prose lines per spread. Rhyme optional — do not force it.
+
+Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks — do NOT emit it as an array.`;
 
 function userPrompt(doc) {
   const { storyBible, visualBible, spreads } = doc;

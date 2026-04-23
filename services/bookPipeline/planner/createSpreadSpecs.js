@@ -40,7 +40,9 @@ function userPrompt(doc) {
     `Child: ${brief.child.name}, age ${brief.child.age}. Age band: ${request.ageBand}. Format: ${request.format}.`,
     `Theme: ${request.theme}.`,
     themeBlock,
-    `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
+    request.format === 'picture_book'
+      ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets). Set textLineTarget to 4 on every spread.`
+      : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',
@@ -89,7 +91,7 @@ function userPrompt(doc) {
  */
 async function createSpreadSpecs(doc) {
   const result = await callText({
-    model: MODELS.PLANNER,
+    model: MODELS.SPREAD_SPECS,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt: userPrompt(doc),
     jsonMode: true,

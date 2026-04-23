@@ -68,7 +68,7 @@ function userPrompt(doc) {
  */
 async function createStoryBible(doc) {
   const result = await callText({
-    model: MODELS.PLANNER,
+    model: MODELS.STORY_BIBLE,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt: userPrompt(doc),
     jsonMode: true,

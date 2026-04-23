@@ -7,7 +7,7 @@
  * emotional meaning, rhyme by default for picture books.
  */
 
-const { FORMATS, AGE_BANDS, RHYME_POLICY } = require('../constants');
+const { FORMATS, AGE_BANDS, RHYME_POLICY, TEXT_LINE_TARGET } = require('../constants');
 
 /**
  * @param {string} ageBand
@@ -78,12 +78,37 @@ function renderTextPolicyBlock(doc) {
   const rules = ageRules(doc.request.ageBand);
   const rhyme = resolveRhymePolicy(doc.request.format, doc.brief);
   const narration = resolveNarration(doc.brief);
-  return [
+  const lineTarget = TEXT_LINE_TARGET[doc.request.ageBand] || { min: 3, max: 4 };
+  const isPictureBook = doc.request.format === FORMATS.PICTURE_BOOK;
+
+  const lines = [
     `Age band: ${doc.request.ageBand}. Format: ${doc.request.format}.`,
     `Voice: ${rules.voice}`,
     `Vocabulary: ${rules.vocabulary}`,
     `Narration: ${narration === 'third' ? 'third-person' : 'first-person (child)'}.`,
-    `Rhyme policy: ${rhyme === 'default_rhyme' ? 'use rhyming couplets by default; near-rhymes are fine' : 'prose by default; do not force rhyme'}.`,
+  ];
+
+  if (isPictureBook) {
+    lines.push(
+      '',
+      '### STRUCTURE (NON-NEGOTIABLE for picture books — every single spread):',
+      '- EXACTLY 4 lines of text per spread. Not 3. Not 5. Always 4. Each line separated by a single "\\n".',
+      '- RHYME SCHEME: AABB (two rhyming couplets per spread). Line 1 rhymes with line 2. Line 3 rhymes with line 4. Lines 2 and 4 do NOT have to rhyme with each other.',
+      '- Rhymes must be real end-rhymes — the FINAL word of line 1 rhymes with the FINAL word of line 2 (and 3 with 4). Near-rhymes (e.g. "high/sky", "wide/side", "tune/moon") are fine. Slant rhymes and identity rhymes (same word twice) are NOT acceptable. Forced or dictionary-stretching rhymes are NOT acceptable.',
+      '- METER: a consistent musical pulse across each couplet — not strict iambic, but roughly the same number of stressed beats in line 1 as line 2, and line 3 as line 4. Read every couplet aloud in your head and confirm both lines sing at the same pace.',
+      '- LINE LENGTH: each of the 4 lines is short — about 6 to 12 words, never more than 14. No run-ons.',
+      '- LINE BREAKS: the 4 lines are natural phrase units. Never break mid-phrase just to force a rhyme.',
+      '- SOUND: musical and read-aloud first. If a couplet does not actually rhyme, rewrite the couplet — do not ship it.',
+      '',
+    );
+  } else {
+    lines.push(
+      `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
+      `Rhyme policy: ${rhyme === 'default_rhyme' ? 'use rhyming couplets by default; near-rhymes are fine' : 'prose by default; do not force rhyme'}.`,
+    );
+  }
+
+  lines.push(
     'Tone: funny/playful with character-based humor. Never preachy.',
     'Dialogue: light. Most spreads are narration; dialogue when it earns its place.',
     'Repetition: low. Repetition only when it clearly improves rhythm.',
@@ -91,7 +116,9 @@ function renderTextPolicyBlock(doc) {
     'Ending: story-specific. Do not force a bedtime/quiet-close ending.',
     'Personalization: use custom details concretely and recognizably.',
     'Child\'s name: used sometimes, not constantly.',
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 module.exports = {
