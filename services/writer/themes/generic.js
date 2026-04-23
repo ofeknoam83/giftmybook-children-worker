@@ -849,8 +849,10 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`- Humor and wordplay are welcome. Literary flourishes are not.`);
     }
 
-    sections.push(`\n## REFRAIN\n`);
-    sections.push(`The story MUST have a refrain, a short phrase that recurs exactly 3 times (evenly spaced, not in consecutive spreads).`);
+    sections.push(`\n## REFRAIN (SHIP-BLOCKER — matches automated QA)\n`);
+    sections.push(`Pick ONE refrain wording before you write spread 1 and use the **exact same words** every time it appears (minimum 3 times, not back-to-back spreads).`);
+    sections.push(`**Closure rule:** At least one occurrence MUST appear on spread 10, 11, 12, or 13. A refrain that only appears in spreads 1–8 will fail QA.`);
+    sections.push(`Space repeats across early, middle, and late — the last repeat should land when the emotional arc resolves.`);
     if (plan.refrain.parentWord) {
       sections.push(`It should use "${plan.refrain.parentWord}" and be under 8 words.`);
     } else {
@@ -908,6 +910,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Group spreads that share a location or emotional space. Do NOT jump to a new location within a group of spreads without narrating the transition.`);
     sections.push(`- Location transitions must be clear — the reader must always know WHERE the characters are and WHY they moved.`);
     sections.push(`- **Setting variety:** Prefer **at least 4 distinct physical settings** with clear movement between them. Avoid the “home → brief outing → home for the rest” sandwich unless the theme truly requires a homebound story — that pattern often feels repetitive in illustrations.`);
+    sections.push(`- If the story seed’s **intended setting** is a backyard or yard “adventure course,” treat sub-zones (tall-grass jungle, sand pit, splash patch, climb zone) as **different photographable places** with explicit transitions so QA does not read the book as one static lawn.`);
     sections.push(`- CLARITY: Every image and metaphor must be literal enough for a 3-year-old to picture. If you mix imagination and reality, signal the shift clearly.`);
 
     sections.push(`\n## CRITICAL REMINDERS\n`);
@@ -918,7 +921,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- Close on an IMAGE, not a declaration, no "I love you" as the last line`);
     sections.push(`- Every spread needs at least one concrete, specific noun`);
     sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
-    sections.push(`- The refrain must appear exactly 3 times, evenly spaced (not in consecutive spreads). More than 4 appearances makes the story monotonous.`);
+    sections.push(`- The refrain must appear exactly 3 times (4 only if required for the closing couplet), evenly spaced (not in consecutive spreads), with **at least one hit on spread 10–13**. More than 4 appearances makes the story monotonous.`);
     sections.push(`- RHYME VARIETY: Do NOT let one rhyme sound dominate. If the refrain ends with a word like "here," other spreads must use different end-rhyme sounds. Each spread should find its own fresh rhyme pair.`);
     if (plan.parentName) {
       sections.push(`- Use ONLY the parent name "${plan.parentName}", do NOT invent any other name for the parent`);

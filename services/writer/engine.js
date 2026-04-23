@@ -129,7 +129,6 @@ class WriterEngine {
     // full fresh write() and try again (see maxQualityFullRegenerations).
     const retryLimit = maxRetries ?? WRITER_CONFIG.retries.maxQualityRetries;
     const maxFullRegenerations = WRITER_CONFIG.retries.maxQualityFullRegenerations ?? 3;
-    const minDim = WRITER_CONFIG.qualityThresholds?.minDimensionScore ?? 6;
 
     let regenWave = 0;
     let finalStory = story;
@@ -225,7 +224,6 @@ class WriterEngine {
 
       if (finalQuality.criticFailed) break;
       if (finalQuality.pass) break;
-      if (typeof finalQuality.overallScore === 'number' && finalQuality.overallScore >= minDim) break;
       if (regenWave >= maxFullRegenerations) break;
 
       regenWave++;

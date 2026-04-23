@@ -1405,7 +1405,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: progressMap[p.step] || 0.20, message: p.message, logs: bookContext.logs });
               }
             },
-            maxRetries: 2,
+            // Revision budget: omit maxRetries to use WRITER_CONFIG (≥5 revise rounds + full regens).
             // Wire the brainstormed story seed so Writer V2 uses it as the beat backbone
             // instead of picking a random plot template. Falls back to templates if beats missing.
             storySeed: {

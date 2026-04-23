@@ -357,6 +357,7 @@ PRE-SCAN J — Ending rhyme & final-line image
 PRE-SCAN K — Opening location (no home / no mundane park-garden default)
   Inspect SPREAD 1. FAIL if the action is AT HOME: waking in bed; bedroom; kitchen table / living-room rug / sofa / playroom; breakfast routine; laundry, crib, pajamas start-of-day.
   ALSO FAIL spread 1 if the primary setting is a **mundane default**: generic neighborhood park or playground, backyard or private garden / flower garden / picnic garden, front yard sidewalk-only, or "the park" with no epic differentiator (lighthouse district, cliff overlook, etc.).
+  **Exception:** If ### Story seed lists an **Intended setting** that clearly describes a backyard, yard adventure course, patio, or home outdoor play space as the commissioned world, spread 1 MAY open there (outdoor play is not an indoor-home open). Still FAIL if the opener is vague wallpaper with no concrete adventure framing.
   Strong openings feel **epic or striking**: lighthouse rock, rope bridge, balloon deck, waterfall ledge, canyon overlook, ice cave mouth, castle approach, tide cave, observatory terrace, floating market pier, desert ridge, causeway ruins — or another invented place with similar scale (still age-safe).
   → On violation add an entry with dimension="narrativeCoherence", spread=1, note="Spread 1 opens in a banned mundane setting (home, generic park, or backyard garden). Rewrite to a vivid, epic-feeling non-domestic location and adjust the next 1-2 spreads for continuity", and force narrativeCoherence score to ≤ 4.
 
@@ -371,7 +372,8 @@ PRE-SCAN M — "Home sandwich" / dead setting loop (boring for illustrations)
     (b) the only "away" beats are **2 or fewer consecutive spreads** surrounded by long home blocks (the classic "mostly home, one outing, back home" loop).
   **Also FAIL** if the book has **fewer than 3 distinct non-home** physical settings in spreads 1-12 and the rest are a single home interior (weak variety even if not a perfect sandwich).
   **PASS examples:** at least 4 different **memorable / epic-feeling** places with clear transitions. **FAIL examples:** 8 spreads in living room + kitchen, or half the book in generic park + backyard garden + home, unless a theme (e.g. staycation/sick day) is explicit in the prompt.
-  → On violation, add an entry with dimension="settingVariety" (and optionally "narrativeCoherence"), name the spread numbers, and force settingVariety ≤ 3. Feedback must tell the reviser to add **2+ more distinct, thrilling, non-domestic locations** in the mid-book (not another generic park beat), or redistribute beats so the story is not a home / garden / local-park sandwich.
+  **Exception:** If ### Story seed **Intended setting** is a backyard or yard adventure course, count clearly different yard zones / activity stations as distinct settings when the text narrates movement between them — do not collapse the whole book to "one backyard" if micro-locations read as different photographable sets.
+  → On violation, add an entry with dimension="settingVariety" (and optionally "narrativeCoherence"), name the spread numbers, and force settingVariety ≤ 3. Feedback must tell the reviser to add **2+ more distinct, thrilling, non-domestic locations** in the mid-book (not another generic park beat), or redistribute beats so the story is not a home / garden / local-park sandwich; when the seed is yard-based, vary **zones** within the course so spreads are not interchangeable lawn shots.
 
 PRE-SCAN N — Thrill vs. flat mundane spine
   Count spreads 1-12 whose dominant setting is one of: at home (any room), generic neighborhood park/playground, backyard/private garden, or a tame "walk around the block" with no larger destination.
@@ -452,6 +454,28 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
 }`;
   }
 
+  /**
+   * Canonical refrain text for the critic user prompt. `plan.refrain` is an object
+   * ({ suggestions, parentWord }) in production — using `.toString()` produced
+   * "[object Object]" and broke PRE-SCAN I (refrain coverage).
+   *
+   * @param {object|null} plan
+   * @param {object|null} storySeed
+   * @returns {{ primary: string, alts: string[] }}
+   */
+  static _formatRefrainForCritic(plan, storySeed) {
+    const fromSeed = (storySeed?.repeated_phrase || '').toString().trim();
+    if (fromSeed) return { primary: fromSeed, alts: [] };
+
+    const r = plan?.refrain;
+    if (r && typeof r === 'object' && Array.isArray(r.suggestions)) {
+      const sugs = r.suggestions.map(s => String(s).trim()).filter(Boolean);
+      if (sugs.length) return { primary: sugs[0], alts: sugs.slice(1) };
+    }
+    if (typeof r === 'string' && r.trim()) return { primary: r.trim(), alts: [] };
+    return { primary: '', alts: [] };
+  }
+
   static _buildUserPrompt(story, child, book, opts) {
     const spreads = story.spreads || [];
     const plan = opts?.plan || null;
@@ -492,13 +516,19 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
       const spine = (storySeed.narrative_spine || storySeed.storySeed || '').toString().trim();
       const setting = (storySeed.setting || '').toString().trim();
       const favObject = (storySeed.favorite_object || '').toString().trim();
-      const refrain = (plan?.refrain || storySeed.repeated_phrase || '').toString().trim();
+      const { primary: refrainPrimary, alts: refrainAlts } = QualityGate._formatRefrainForCritic(plan, storySeed);
       const seedLines = [];
       if (fear) seedLines.push(`- Fear (must be dramatized in spreads 5-9 and RESOLVED in spreads 10-13): ${fear}`);
       if (spine) seedLines.push(`- Narrative spine (the emotional arc the book promised): ${spine}`);
       if (setting) seedLines.push(`- Intended setting: ${setting}`);
       if (favObject) seedLines.push(`- Favorite object (must land concretely in the story): ${favObject}`);
-      if (refrain) seedLines.push(`- Refrain (must appear ≥ 2 times, at least once in spreads 10-13): "${refrain}"`);
+      if (refrainPrimary) {
+        let refrainLine = `- Refrain (must appear ≥ 2 times, at least once in spreads 10-13): "${refrainPrimary}"`;
+        if (refrainAlts.length) {
+          refrainLine += ` Acceptable alternatives if meter demands: ${refrainAlts.map(a => `"${a}"`).join(', ')}.`;
+        }
+        seedLines.push(refrainLine);
+      }
       if (seedLines.length > 0) {
         parts.push('');
         parts.push('### Story seed (the emotional contract the book is judged against)');

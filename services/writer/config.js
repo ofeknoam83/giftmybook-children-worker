@@ -20,7 +20,7 @@ const WRITER_CONFIG = {
     // After a draft exhausts maxQualityRetries without passing the numeric
     // floor, run a full fresh write() and restart the quality loop — up to
     // this many extra drafts (latency/cost tradeoff).
-    maxQualityFullRegenerations: 3,
+    maxQualityFullRegenerations: 4,
   },
 
   timeouts: {
