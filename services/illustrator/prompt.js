@@ -116,15 +116,14 @@ function buildTextBlock(text, side) {
 None. Generate a full-bleed illustration with NO text overlay anywhere on this spread.`;
   }
 
-  const activeMax = TEXT_RULES.activeSideMaxPercent;
-  const bounds = side === 'left'
-    ? `x ∈ [${TEXT_RULES.edgePaddingPercent}%, ${activeMax}%] (LEFT column only)`
-    : `x ∈ [${100 - activeMax}%, ${100 - TEXT_RULES.edgePaddingPercent}%] (RIGHT column only)`;
+  const opp = oppositeSide(side);
+  const sideU = side === 'left' ? 'LEFT' : 'RIGHT';
+  const oppU = opp === 'left' ? 'LEFT' : 'RIGHT';
 
   return `### ON-IMAGE TEXT (render exactly as written — one caption, one side)
 TEXT: "${text}"
-CHOSEN SIDE: ${side.toUpperCase()}
-BOUNDS: ${bounds}. The ${oppositeSide(side).toUpperCase()} half of the image must be text-free. Do NOT repeat the caption on the opposite side. Do NOT split the caption across both sides.`;
+CHOSEN SIDE: ${sideU}
+PLACEMENT: Render the TEXT line above exactly once as a single stacked caption on the ${sideU} half only — tucked toward the outer page edge and well away from the middle spine. The ${oppU} half must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type.`;
 }
 
 /**
@@ -197,8 +196,6 @@ function buildTagDirectives(tags, opts) {
     leftText: opts.leftText,
     rightText: opts.rightText,
   });
-  const activeMax = TEXT_RULES.activeSideMaxPercent;
-
   if (set.has('text_on_both_sides')) {
     out.push(
       `Text appeared on BOTH sides in the previous attempt. Delete ALL text from the ${side === 'left' ? 'RIGHT' : 'LEFT'} half of the image — the entire caption must live on the ${side.toUpperCase()} side only. Do not mirror, duplicate, or echo the caption across the midline.`,
@@ -206,8 +203,8 @@ function buildTagDirectives(tags, opts) {
   }
   if (set.has('text_in_center_band') || set.has('text_crosses_midline')) {
     out.push(
-      `No text may touch the center band (${activeMax}%–${100 - activeMax}% of image width). ` +
-      `If any text from the previous attempt landed there, DELETE it — any word in the center that is NOT part of the TEXT above is a hallucination and must not appear anywhere on the image.`,
+      'No text may sit in or cross the middle band around the book spine (the gutter). ' +
+      'If any lettering from the previous attempt landed there, DELETE it — that zone is illustration-only unless it is clearly part of the scene (signage in-world is forbidden unless it matches the TEXT exactly).',
     );
   }
   if (set.has('text_duplicated_caption') || set.has('duplicated_word')) {

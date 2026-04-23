@@ -62,6 +62,8 @@ const WRITER_CONFIG = {
     // stay tunable in one place; the critic prompt interpolates them.
     passScore: 8.5,
     minDimensionScore: 6,
+    /** Enforced in JS (QualityGate) so a critic cannot ship=true with flat, generic prose. */
+    creativityFloor: 7,
   },
 };
 

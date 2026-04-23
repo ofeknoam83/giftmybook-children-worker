@@ -27,12 +27,14 @@
  *   settingVariety, pronouns, endingAppropriateness, parentNameDiscipline,
  *   wordCount.
  *
- * The critic — not a separate threshold computation — decides `pass`. It
- * applies the shipping rubric directly: the book ships iff every anecdote
- * that was provided lands, pronouns are correct, parent-name discipline
- * holds, the ending matches the theme, and no single dimension is below
- * the per-dimension floor. When it fails, the `feedback` field is a
- * concrete, actionable rewrite brief for the reviser.
+ * The critic proposes `ship` / `pass`, but **JavaScript enforces numeric
+ * floors** (`passScore`, `minDimensionScore`, `creativityFloor` from
+ * WRITER_CONFIG) so an inconsistent critic cannot return ship=true with a 6.x
+ * average. When numeric checks fail, `pass` is false and targeted feedback
+ * (including a creativity brief when relevant) is prepended for the reviser.
+ *
+ * Deterministic vetoes on top of that: possessive-pronoun errors and (when
+ * scored) scene continuity caps.
  */
 
 const { WRITER_CONFIG } = require('../config');
@@ -44,6 +46,14 @@ const _llm = new BaseThemeWriter('_quality_gate');
 const CRITIC_ATTEMPTS = 3;
 /** Critic emits scores + issues + often long per-spread feedback — must not truncate mid-JSON (was 1800 → parse errors ~6–8k chars). */
 const CRITIC_MAX_OUTPUT_TOKENS = 8192;
+
+/** Must match the critic JSON schema in _buildSystemPrompt — used for deterministic numeric shipping gate. */
+const CRITIC_DIMENSION_KEYS = [
+  'rhyme', 'meter', 'ageAppropriateness', 'readAloud', 'emotionalArc',
+  'specificity', 'creativity', 'variety', 'narrativeCoherence', 'anecdoteUsage',
+  'settingVariety', 'pronouns', 'endingAppropriateness', 'parentNameDiscipline',
+  'wordCount', 'seedArcFulfillment',
+];
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -183,13 +193,25 @@ class QualityGate {
     const overallScore = values.length
       ? values.reduce((a, b) => a + b, 0) / values.length
       : 0;
+    const overallRounded = Math.round(overallScore * 10) / 10;
 
     const llmPass = parsed.ship === true || parsed.pass === true;
-    const pass = llmPass && possessiveErrors.length === 0;
+    const numericEval = QualityGate._evaluateNumericGate(scores, overallRounded);
+    const numericPass = numericEval.pass;
+
+    const pass = llmPass && numericPass && possessiveErrors.length === 0;
 
     let feedback = typeof parsed.feedback === 'string' && parsed.feedback.trim()
       ? parsed.feedback.trim()
       : QualityGate._synthesizeFeedback(issues);
+
+    // Critic sometimes returns ship=true while numeric averages / floors are not met.
+    // Deterministic gate overrides that so the revise loop runs.
+    if (llmPass && !numericPass) {
+      const numBlock = QualityGate._buildNumericGateFeedback(numericEval);
+      feedback = feedback ? `${numBlock}\n\n${feedback}` : numBlock;
+    }
+
     if (vetoFeedback) {
       feedback = feedback
         ? `${vetoFeedback}\n\nAdditional editor notes:\n${feedback}`
@@ -203,7 +225,7 @@ class QualityGate {
 
     return {
       pass,
-      overallScore: Math.round(overallScore * 10) / 10,
+      overallScore: overallRounded,
       scores,
       issues,
       feedback: pass ? '' : feedback,
@@ -483,6 +505,86 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Enforce the same floors as the critic rubric in JS so `ship=true` cannot
+   * bypass revision when scores are still weak.
+   *
+   * @param {Record<string, number>} scores
+   * @param {number} overallRounded — mean of all numeric values in `scores`, 1dp
+   * @returns {{ pass: boolean, failures: Array<{kind:string, key?:string, detail:string}> }}
+   */
+  static _evaluateNumericGate(scores, overallRounded) {
+    const { passScore, minDimensionScore, creativityFloor } = WRITER_CONFIG.qualityThresholds;
+    const failures = [];
+
+    if (overallRounded < passScore) {
+      failures.push({
+        kind: 'overall',
+        detail: `Overall average is ${overallRounded}/10; shipping requires ≥ ${passScore}/10.`,
+      });
+    }
+
+    for (const key of CRITIC_DIMENSION_KEYS) {
+      const v = scores[key];
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        failures.push({
+          kind: 'dimension',
+          key,
+          detail: `Missing or invalid score for "${key}" (every dimension must be scored 1–10).`,
+        });
+        continue;
+      }
+      if (v < minDimensionScore) {
+        failures.push({
+          kind: 'dimension',
+          key,
+          detail: `"${key}" is ${v}/10; minimum for shipping is ${minDimensionScore}/10.`,
+        });
+      }
+    }
+
+    const cr = scores.creativity;
+    const creativityDimFailed = failures.some(f => f.kind === 'dimension' && f.key === 'creativity');
+    if (!creativityDimFailed && (typeof cr !== 'number' || !Number.isFinite(cr) || cr < creativityFloor)) {
+      const shown = typeof cr === 'number' && Number.isFinite(cr) ? `${cr}` : 'unscored';
+      failures.push({
+        kind: 'creativity_floor',
+        key: 'creativity',
+        detail: `creativity is ${shown}/10; shipping requires ≥ ${creativityFloor}/10 (imaginative leaps, fresh imagery, refrain that deepens — not a flat list of errands).`,
+      });
+    }
+
+    if (typeof scores.sceneContinuity === 'number' && scores.sceneContinuity < minDimensionScore) {
+      failures.push({
+        kind: 'dimension',
+        key: 'sceneContinuity',
+        detail: `sceneContinuity is ${scores.sceneContinuity}/10; minimum for shipping is ${minDimensionScore}/10.`,
+      });
+    }
+
+    return { pass: failures.length === 0, failures };
+  }
+
+  /**
+   * @param {{ failures: Array<{kind:string, key?:string, detail:string}> }} evalResult
+   * @returns {string}
+   */
+  static _buildNumericGateFeedback(evalResult) {
+    const lines = evalResult.failures.map(f => `  - ${f.detail}`);
+    const creativityFail = evalResult.failures.some(f => f.kind === 'creativity_floor'
+      || (f.kind === 'dimension' && f.key === 'creativity'));
+
+    const creativityBrief = creativityFail
+      ? `\n\nCREATIVITY (actionable): Introduce more novel, specific imagery — distinctive verbs, surprising sensory details, and settings that are not generic domestic routines unless the brief demands it. Give at least one clear imaginative turn (metaphor, playful scale, or transformation) and make each spread feel like a new beat, not a checklist. Deepen the refrain so it lands with new emotional weight on repeats.`
+      : '';
+
+    return [
+      'NUMERIC GATE — the automated editor scores do not meet shipping floors (this overrides ship=true from the critic until fixed):',
+      ...lines,
+      creativityBrief,
+    ].join('\n');
+  }
 
   static _clampScores(raw) {
     const out = {};

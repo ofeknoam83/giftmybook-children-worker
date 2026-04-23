@@ -205,10 +205,11 @@ class WriterEngine {
       );
     }
 
-    // Block illustration when the critic ran and scored the story too low.
-    if (!finalQuality.pass && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < 4) {
+    // Block illustration when the critic ran but the story never cleared numeric floors.
+    const minDim = WRITER_CONFIG.qualityThresholds?.minDimensionScore ?? 6;
+    if (!finalQuality.pass && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < minDim) {
       throw new WriterQualityGateError(
-        `Story quality too low for illustration (score ${finalQuality.overallScore}/10). ${(finalQuality.feedback || '').slice(0, 500)}`,
+        `Story quality too low for illustration (score ${finalQuality.overallScore}/10, need ≥${minDim}/10 after retries). ${(finalQuality.feedback || '').slice(0, 500)}`,
         finalQuality.feedback || '',
         finalQuality.overallScore,
       );
