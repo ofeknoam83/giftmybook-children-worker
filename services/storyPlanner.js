@@ -101,7 +101,7 @@ const THEME_RULES = {
 - Include moms_favorite_moment if provided
 - NARRATIVE SPINE: The story MUST follow one simple through-line (a journey together, a shared project, or a gift the child prepares). Every spread connects to this spine. Do NOT write a slideshow of unrelated activities.
 - CELEBRATION WITH MOMENTUM: NO tantrums, NO crying, NO anger, NO conflict. But the story MUST have forward momentum — anticipation, a small goal, curiosity, or a surprise that pulls the reader through. Every spread should make the reader want to turn the page. A flat sequence of "nice moments" is not a story.
-- LOCATION VARIETY (CRITICAL): Use at least 4 **distinct, photographable physical settings** (e.g. park, bakery, riverside path, a different public space — not “living room, then kitchen, then hallway” counting as three). The story must feel like a day that **moves** through the world, not a loop: **BANNED** — one dominant home interior for most spreads with only 1-2 “outing” spreads in the middle, then back inside. **BANNED** — more than 3 consecutive spreads in the same small room. Group 2-3 spreads per “chapter” in a place when it deepens the beat, but keep **changing setting** as the through-line travels (grocery → bus stop → field → stoop, etc.).
+- LOCATION VARIETY (CRITICAL): Use at least 4 **distinct, photographable physical settings** (e.g. riverside market, community hall, pier boardwalk, festival gate — not generic “the park” or “our backyard” as the default — and not “living room, then kitchen, then hallway” counting as three). The story must feel like a day that **moves** through the world, not a loop: **BANNED** — one dominant home interior for most spreads with only 1-2 “outing” spreads in the middle, then back inside. **BANNED** — more than 3 consecutive spreads in the same small room. Group 2-3 spreads per “chapter” in a place when it deepens the beat, but keep **changing setting** as the through-line travels (grocery → bus stop → field → stoop, etc.).
 - TRANSITIONS: Every scene change must be clear to a 3-year-old listener. Show HOW they got from one place to the next.
 - NO BEDTIME ENDING: The story must NOT end with sleeping, goodnight, tucking in, dreams, nightlights, or the house going quiet. End in DAYLIGHT with warmth, togetherness, and joy.
 - CREATIVITY: At least 2 spreads must use the child's imagination — transforming something ordinary into something magical WITHIN the story's spine. Include one reversal where the child tries to take care of Mom. Avoid flat documentary narration.
@@ -554,6 +554,7 @@ function getThemeBeatStructure(theme, age) {
    AGE-WEAVING RULE: The child is turning ${age}. This specific age must feel meaningful throughout — not just mentioned in spread 1. In at least 3 spreads, the story should reflect what it MEANS to be ${age}: something they can now do that they couldn't before, something they understand now, a milestone only a ${age}-year-old would have. The number ${age} should feel earned by spread 13.
    BIRTHDAY ENERGY RULE: This story should feel like the BEST DAY OF THE CHILD'S LIFE from the very first spread. Joy, warmth, and excitement are the emotional BASELINE — not something to be earned. The obstacle at spread 6 is light, quickly overcome, and never threatening. EVERY spread must feel drenched in birthday — decorations, friends, the smell of something baking, the specific golden light of a birthday afternoon, the feeling of being the most special person in the world today. The tension rule is SUSPENDED — joy fills every spread.
    BIRTHDAY SATURATION RULE: The birthday must be FELT in every single spread — not just spread 1 and 13. Balloons, streamers, friends gathering, wrapped gifts in the corner, candles being carried, a banner going up, the sound of singing practicing in another room — choose different birthday details for each spread so the celebration builds and accumulates. By spread 12 the reader should feel surrounded by birthday.
+   LOCATION VARIETY (birthday): Do not keep **every** beat in the same **kitchen / living room / backyard** unless the parent asked for a home-only party. Add **at least two** vivid outings or party venues (e.g. bakery pickup, parade route, pool deck, community hall, pier fireworks, rooftop picnic) so spreads are not one beige house loop.
    - Spread 1: The child wakes up and the birthday hits them — something is immediately, unmistakably different. Balloons on the door, a banner, the smell of their favorite breakfast, a parent's voice singing. They are ${age} today and the whole world knows it.
    - Spread 2: The birthday morning unfolds — getting ready, something special about being ${age}. A birthday outfit, a birthday crown, a first look in the mirror at this new version of themselves.
    - Spread 3: First guests or celebrations arrive — friends, family, decorations going up. The house or location transforms into a birthday world.
@@ -633,8 +634,8 @@ function getThemeBeatStructure(theme, age) {
 
     case 'nature':
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Follow this NATURE arc:
-   - Spread 1: The child steps outside — something in nature catches their eye or calls them.
-   - Spread 2: Following the call — into the garden, the forest, the field, or the river.
+   - Spread 1: The child steps into a **specific** outdoor place (name it — e.g. misty bluff, tidal marsh, not generic "the park") — something catches their eye or calls them.
+   - Spread 2: Following the call — into a **named** wild or semi-wild place (pine ridge, creek bend, wildflower levee) — not a boring default of "the backyard" or "the garden" unless the parent brief requires it.
    - Spreads 3-4: Discovery — animals, plants, weather. Each encounter vivid and specific.
    - Spread 5: The child finds something that needs help (a lost creature, a wilting plant, a blocked stream).
    - Spread 6: THE HINGE — the child can't fix it alone. Something is too big, too tangled, too far.
@@ -707,6 +708,7 @@ function getThemeBeatStructure(theme, age) {
     default: // adventure, bedtime
       return `8. beats: An array of exactly 13 one-line descriptions — one per spread. Invent a tight, original arc — not a mandatory "home → journey → hinge → home" template.
 
+   LOCATION: Do NOT anchor the book in a **generic park, playground, backyard, or private garden** for most beats — unless the parent's brief demands it. Use distinct, memorable, visually exciting places (invented or specific real-world-adjacent). At least 4–5 different primary locations; spread 1 should open somewhere **striking**, not the default "at home" or "at the park."
    QUEST RULE: Name a concrete goal early (spread 1): something to find, reach, help, or solve. "Go on an adventure" is not enough — the goal must be visual and specific. The story builds toward resolving that goal; spread 13 lands the success in a vivid final image (NOT sleep/bedroom as default).
    PACING: Rising tension through the middle (include a real hinge — spread 5-8 — where success feels unsure), then breakthrough and resolution. Locations and obstacles are YOUR choices as long as causality is clear beat-to-beat.
    Each beat: specific WHERE + specific ACTION. Avoid formulaic "heading home" as the only climax unless the story truly earns it.`;
@@ -737,10 +739,16 @@ CREATIVITY FIRST (this step is generative — not a template):
 - Consecutive beats should cause-and-effect into each other (a young listener can follow WHY the day moves forward). That does NOT require exactly 3–4 locations, a Scene A/B/C/D pattern, or a "heading home" beat.
 - Single-location and multi-location stories are both valid. Avoid ${spreadCount} unrelated vignettes with no causal chain — that is the only structural failure mode.
 
+LOCATION CREATIVITY (applies to \`setting\` and to **every** line in \`beats\`):
+- Reject lazy location spines: generic **park**, **playground**, **backyard**, **private garden**, or a loop of **home rooms** (kitchen, living room, bed) — unless the parent's answers explicitly require staying home.
+- Prefer **memorable, specific, paintable** places: invented venues, public epic or quirky spaces (festival gate, market hall, pier, treetop walk, train platform, community parade, cave mouth, science museum, lighthouse steps). Nature: name the **ridge, tidepool, riverbend**, not "the park" or "the garden" by default.
+- **Spread 1** must not default to "waking at home" or "playing in the yard" when another open would serve the theme — only use those if the brief demands it.
+- Across 13 beats, aim for **at least 4–5 clearly distinct primary locations** when the theme allows; avoid ten spreads in the same boring yard.
+
 FIELD DISTINCTNESS (avoid repeating the same idea in every string):
 - favorite_object: a concrete prop or companion — not a paragraph that restates the whole plot.
 - fear: internal worry or emotional friction for this story — NOT a plot summary, NOT a second copy of storySeed.
-- setting: WHERE / atmosphere in one vivid sentence — not a list of every room or every beat.
+- setting: WHERE / atmosphere in one vivid sentence — a world that feels **fresh on the page**, not a list of every room. Not "at the park" or "around the house" as the whole concept unless the customer asked.
 - storySeed: the inner emotional journey in ONE sentence.
 - narrative_spine: the external what-happens plot in ONE sentence (concrete actions). May but need not follow "[Name] and [parent] …" — any clear logline is fine.
 
@@ -754,11 +762,11 @@ Return a JSON object with these fields:
 
 2. fear: The specific emotional challenge or obstacle the child must face IN THIS STORY. It must fit the theme — for birthday it might be "the celebration almost ruined", for space it's "lost between stars", for adventure it's a physical barrier. NOT always "the dark".
 
-3. setting: A vivid, specific world matching the theme. One sentence describing the overall world (e.g. "a glittering undersea kingdom beneath the bay at the end of their street"). The beats will name the specific locations within it.
+3. setting: A vivid, specific world matching the theme — **not** a default "neighborhood park + backyard" unless the parent locked that. One sentence (e.g. "a glittering undersea kingdom beneath the bay at the end of their street" or "one long carnival day that moves through three impossible venues"). The beats will name the specific locations within it.
 
 4. storySeed: One sentence — the unique emotional journey (inner arc). Must reflect the theme. Do not paste the same wording as narrative_spine.
 
-5. narrative_spine: One sentence — the external plot thread (what happens). Answer "what is this book about?" with concrete actions. Examples: "Logan and Mama walk to the park together", "Gianna bakes Mama a surprise cake", "They turn a thunderstorm into a living-room fort day." Every beat must connect to this spine.
+5. narrative_spine: One sentence — the external plot thread (what happens). Answer "what is this book about?" with concrete actions. Examples (avoid generic-park / house-only as the **whole** spine unless the parent asked): "Morgan and Mom chase a runaway birthday banner across a pier fair and back", "Gianna bakes Mama a surprise cake in Nona's sunlit kitchen before the family parade", "They ride the storm into a one-night lantern festival on the estuary path." Every beat must connect to this spine.
 
 6. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
 

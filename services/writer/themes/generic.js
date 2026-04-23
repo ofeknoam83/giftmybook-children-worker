@@ -162,7 +162,9 @@ class GenericThemeWriter extends BaseThemeWriter {
       'Invent ONE original through-line — not a fill-in-the-blank template.',
       'Each beat is a single vivid line: concrete WHERE + concrete ACTION that causes the next beat.',
       'Prioritize **breathtaking, paintable** moments: light, material, scale, weather, a clear focal action.',
-      'Vary real locations; avoid 13 similar domestic tableaux unless the parent brief demands it.',
+      '**Locations — avoid the boring default spine:** do NOT build the book around a generic neighborhood park, a plain backyard, a private garden, a chain of "rooms at home" (kitchen, living room, bedroom on repeat), or a tame "playground" unless the parent questionnaire explicitly demands that shape.',
+      '**Instead:** use at least **five** distinct, memorable, visually rich places. Invent a place or use specific epic or quirky venues (e.g. lighthouse causeway, indoor market atrium, treetop walk, science museum after dark, zipline platform, cavern mouth, train station mezzanine, river ferry, community parade route). Vary the world so each spread is a new *canvas*, not a sofa loop.',
+      '**Spread 1** must start somewhere **striking and specific** — not "at home in the garden" or "at the park" as the go-to open unless the brief requires it.',
       'Return JSON only: { "beats": [ { "spread":1, "beat":"HOOK", "description":"one line", "wordTarget":16 }, ... ] } with exactly 13 items, spreads 1..13.',
       `wordTarget: use ${wt} for most spreads; use ${isYoung ? 12 : 15} for the quietest emotional beat and the last spread if appropriate.`,
     ].join('\n');
@@ -178,7 +180,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       seedBlock,
       refBeats,
       '---',
-      'Questionnaire and custom details (weave in where specific):',
+      'Questionnaire and custom details (weave in where specific; if a named real place is boring, reframe the beat in a more vivid invented or public venue while keeping the emotional beat):',
       this._formatAnecdotesForCreativePlan(child, book),
       'Emit the JSON "beats" array now.',
     ].filter(Boolean).join('\n\n');
