@@ -948,7 +948,7 @@ function stripOutfitLockFromRaw(rawText) {
   }
 
   const strippedText = lines.slice(0, lastSpreadLineIdx + 1).join('\n').trim();
-  return { text: strippedText || t, outfitLock };
+  return { text: strippedText, outfitLock };
 }
 
 module.exports = { BaseThemeWriter, callGeminiText, GEMINI_FLASH_MODEL, splitTextAndScene, stripOutfitLockFromRaw };
