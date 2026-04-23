@@ -15,6 +15,18 @@
 const { PIXAR_STYLE, TEXT_RULES, TOTAL_SPREADS, PARENT_THEMES } = require('./config');
 
 /**
+ * Shared rule for hidden-face implied presence — prevents disembodied hands/arms.
+ * Injected wherever the illustrator may show a parent/adult via partial body only.
+ */
+const IMPLIED_PRESENCE_ANCHORING_RULE = `ANCHORING RULE (when showing a hand, arm, or shoulder of a hidden-face person):
+- The visible limb MUST be believably anchored. Use ONE of these two options:
+    (a) the sleeve and arm continue cleanly to the edge of the frame with a natural elbow/shoulder angle, reading as "the body is just offscreen"; OR
+    (b) a shoulder, upper arm, or cropped torso is visible in-frame as the anchor (face still hidden — cropped above shoulders, turned away, or behind the child).
+- FORBIDDEN: a disembodied hand or forearm floating in mid-image with no sleeve-to-edge AND no torso anchor. A single cuff ending mid-frame is NEVER acceptable.
+- FORBIDDEN: a limb entering from a direction inconsistent with a plausible adult standing, kneeling, or sitting beside/behind the child. Hands must match where a real body could be.
+- If in doubt, prefer option (b) — a partial shoulder or cropped torso — over a long reaching arm, because it's easier to read.`;
+
+/**
  * @typedef {Object} SystemInstructionOpts
  * @property {boolean} hasParentOnCover - Is the themed parent (mother / father) on the cover?
  * @property {boolean} [hasSecondaryOnCover] - Is ANY non-child person on the cover? Default: derived from additionalCoverCharacters.
@@ -155,6 +167,8 @@ When a per-spread prompt explicitly references an adult (e.g., "Mommy", "Daddy",
   • An empty chair / coat on a hook / mug on a table that implies them.
 NEVER show the referenced adult's face. NEVER render a full-body adult figure. NEVER substitute a pet or plush toy as a stand-in for a referenced human.
 
+${IMPLIED_PRESENCE_ANCHORING_RULE}
+
 The implicit adult must stay CONSISTENT across every spread they appear in: lock their skin tone, visible clothing colors/fabric, and hand/arm details on their first appearance and keep them identical in later spreads. Treat them like any other recurring character — same look every time.
 
 When in doubt, show the hero alone with the environment and any companions (pets, toys).`
@@ -169,7 +183,9 @@ This is a ${isMother ? "Mother's Day" : "Father's Day"} book and the ${parentWor
   • The back of their head or a shoulder silhouette.
   • A cropped torso from chest-down, face out of frame.
   • An empty chair / coat on a hook / mug on a table that implies them.
-NEVER show the ${parentWord}'s face. NEVER invent a full-body ${parentWord}. NEVER substitute a pet, plush toy, or inanimate object as a stand-in for the human ${parentWord} — non-human companions stay at their true scale and are NOT a replacement for the human ${parentWord}.`
+NEVER show the ${parentWord}'s face. NEVER invent a full-body ${parentWord}. NEVER substitute a pet, plush toy, or inanimate object as a stand-in for the human ${parentWord} — non-human companions stay at their true scale and are NOT a replacement for the human ${parentWord}.
+
+${IMPLIED_PRESENCE_ANCHORING_RULE}`
     );
     if (parentOutfit) {
       lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head), they wear: ${parentOutfit}. This outfit is locked across every spread.`);
