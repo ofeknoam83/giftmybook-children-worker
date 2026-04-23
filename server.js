@@ -1400,6 +1400,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         let writerResult;
         try {
           writerResult = await WriterEngine.generate(sanitized, {
+            bookId,
             onProgress: (p) => {
               if (progressCallbackUrl) {
                 const progressMap = { planning: 0.16, writing: 0.18, quality: 0.20, revising: 0.22, complete: 0.25 };
@@ -3576,6 +3577,7 @@ app.post('/qa/generate-story', authenticate, async (req, res) => {
   try {
     const { WriterEngine } = require('./services/writer/engine');
     const result = await WriterEngine.generate(req.body, {
+      bookId: req.body.bookId || req.body.brief?.bookId || 'qa-generate-story',
       onProgress: (progress) => sendEvent('progress', progress),
     });
     // Flatten story + metadata + pipeline for frontend (fixes "0 words across 0 spreads" bug)

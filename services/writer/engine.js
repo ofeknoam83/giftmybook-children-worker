@@ -7,11 +7,18 @@
  * without any changes to the standalone.
  */
 
+const crypto = require('crypto');
 const { getThemeWriter } = require('./themes');
 const { QualityGate } = require('./quality/gate');
 const { stampBook } = require('./version');
 const { WRITER_CONFIG } = require('./config');
 const { fixPossessivePronounErrors } = require('../pronouns');
+
+/** Short hash of reviser/critic feedback for logs (not reversible). */
+function v2FeedbackDigest(s) {
+  if (!s) return '';
+  return crypto.createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 12);
+}
 
 /** Thrown when the critic never passed and the best score is below the illustration floor. */
 class WriterQualityGateError extends Error {
@@ -43,11 +50,12 @@ class WriterEngine {
    * Generate a story for a children's book.
    *
    * @param {object} bookJson - The book payload (new format or legacy flat format)
-   * @param {object} opts - { onProgress: fn, maxRetries: number }
+   * @param {object} opts - { onProgress, maxRetries, storySeed, bookId (for [writerV2] logs) }
    * @returns {{ story: { spreads: [...] }, metadata: { writerVersion, timestamp, model, qualityScore, ... } }}
    */
   static async generate(bookJson, opts = {}) {
-    const { onProgress, maxRetries, storySeed } = opts;
+    const { onProgress, maxRetries, storySeed, bookId: bookIdOpt } = opts;
+    const bookId = bookIdOpt || 'n/a';
 
     // Pipeline transparency: record stages, context, and LLM calls
     const pipeline = {
@@ -78,9 +86,19 @@ class WriterEngine {
 
     // 2. Plan the story
     onProgress?.({ step: 'planning', message: 'Planning story beats...' });
-    console.log(`[writerV2] Planning story for ${child.name}, age ${child.age}, theme ${book.theme}`);
+    console.log(`[writerV2] Planning story for ${child.name}, age ${child.age}, theme ${book.theme}`, { bookId });
     const plan = await themeWriter.plan(child, book, { storySeed });
-    console.log(`[writerV2] Plan complete: ${plan.beats.length} beats, tier ${plan.ageTier}, target ${plan.wordTargets.total} words`);
+    const refrainHint = (plan.refrain && Array.isArray(plan.refrain.suggestions) && plan.refrain.suggestions[0])
+      ? String(plan.refrain.suggestions[0]).slice(0, 80)
+      : (plan.refrain?.toString?.() || '').slice(0, 80);
+    console.log(`[writerV2] plan complete`, {
+      bookId,
+      beats: plan.beats?.length,
+      usedSeed: plan.usedSeed === true,
+      ageTier: plan.ageTier,
+      wordTarget: plan.wordTargets?.total,
+      refrainHint: refrainHint || null,
+    });
     pipeline.stages.push({
       name: 'plan',
       input: { child: child.name, age: child.age, theme: book.theme },
@@ -91,7 +109,7 @@ class WriterEngine {
     // 3. Write the story (with catastrophic retry if 0 spreads)
     onProgress?.({ step: 'writing', message: 'Writing story text...' });
     let story = await themeWriter.write(plan, child, book);
-    console.log(`[writerV2] First draft: ${story.spreads.length} spreads, model ${story._model}`);
+    console.log(`[writerV2] first draft`, { bookId, spreads: story.spreads.length, model: story._model });
     pipeline.stages.push({
       name: 'write',
       output: { spreads: story.spreads.length, model: story._model },
@@ -129,6 +147,7 @@ class WriterEngine {
     // full fresh write() and try again (see maxQualityFullRegenerations).
     const retryLimit = maxRetries ?? WRITER_CONFIG.retries.maxQualityRetries;
     const maxFullRegenerations = WRITER_CONFIG.retries.maxQualityFullRegenerations ?? 3;
+    console.log(`[writerV2] quality config`, { bookId, maxQualityRetries: retryLimit, maxFullRegenerations, theme: book.theme, age: child.age });
 
     let regenWave = 0;
     let finalStory = story;
@@ -137,7 +156,7 @@ class WriterEngine {
     while (true) {
       if (regenWave > 0) {
         onProgress?.({ step: 'writing', message: `Rewriting story from scratch (${regenWave}/${maxFullRegenerations})...` });
-        console.warn(`[writerV2] Full story regeneration ${regenWave}/${maxFullRegenerations} — previous draft best was below illustration floor`);
+        console.warn(`[writerV2] fullRegen: starting wave ${regenWave}/${maxFullRegenerations} (previous draft did not pass gate)`, { bookId });
         story = await themeWriter.write(plan, child, book);
         console.log(`[writerV2] Regen draft: ${story.spreads.length} spreads, model ${story._model}`);
         pipeline.stages.push({
@@ -161,8 +180,20 @@ class WriterEngine {
       }
 
       onProgress?.({ step: 'quality', message: regenWave === 0 ? 'Running quality checks...' : `Quality checks (draft ${regenWave + 1})...` });
-      let quality = await QualityGate.check(story, child, book, { plan });
-      console.log(`[writerV2] Draft ${regenWave + 1} quality: ${quality.overallScore}/10, pass=${quality.pass}, scores=${JSON.stringify(quality.scores)}`);
+      const qWaveStart = Date.now();
+      let quality = await QualityGate.check(story, child, book, { plan, bookId });
+      console.log(`[writerV2] quality: draft ${regenWave + 1} checkpoint`, {
+        bookId,
+        ms: Date.now() - qWaveStart,
+        overall: quality.overallScore,
+        pass: quality.pass,
+        llmPass: quality.llmPass,
+        numericPass: quality.numericPass,
+        criticFailed: quality.criticFailed,
+        vetoes: quality.deterministicVetoes,
+        feedbackLen: (quality.feedback || '').length,
+        feedbackDigest: v2FeedbackDigest(quality.feedback),
+      });
       pipeline.stages.push({
         name: regenWave === 0 ? 'quality' : `quality_regen_${regenWave}`,
         output: { overallScore: quality.overallScore, pass: quality.pass, scores: quality.scores },
@@ -180,7 +211,14 @@ class WriterEngine {
         attempts++;
         const revLabel = regenWave === 0 ? `${attempts}/${retryLimit}` : `draft${regenWave + 1} ${attempts}/${retryLimit}`;
         onProgress?.({ step: 'revising', message: `Revising story (attempt ${revLabel})...` });
-        console.log(`[writerV2] Revise ${revLabel}: ${quality.feedback.slice(0, 240)}`);
+        const prevScore = best.quality?.overallScore;
+        const revStart = Date.now();
+        console.log(`[writerV2] revise: start ${revLabel}`, {
+          bookId,
+          feedbackLen: (quality.feedback || '').length,
+          feedbackDigest: v2FeedbackDigest(quality.feedback),
+          priorOverall: prevScore,
+        });
         try {
           story = await themeWriter.revise(story, quality.feedback, child, book);
         } catch (err) {
@@ -192,8 +230,19 @@ class WriterEngine {
           break;
         }
 
-        quality = await QualityGate.check(story, child, book, { plan });
-        console.log(`[writerV2] After revision ${attempts}: ${quality.overallScore}/10, pass=${quality.pass}`);
+        quality = await QualityGate.check(story, child, book, { plan, bookId });
+        const improved = quality.overallScore > (prevScore ?? -1) || (quality.pass && !best.quality?.pass);
+        console.log(`[writerV2] revise: done attempt ${attempts}`, {
+          bookId,
+          ms: Date.now() - revStart,
+          overall: quality.overallScore,
+          pass: quality.pass,
+          llmPass: quality.llmPass,
+          numericPass: quality.numericPass,
+          improved,
+          feedbackLen: (quality.feedback || '').length,
+          feedbackDigest: v2FeedbackDigest(quality.feedback),
+        });
         pipeline.stages.push({
           name: regenWave === 0 ? `revision_${attempts}` : `regen${regenWave}_revision_${attempts}`,
           output: { overallScore: quality.overallScore, pass: quality.pass, scores: quality.scores },
@@ -240,8 +289,19 @@ class WriterEngine {
 
     // Block illustration unless the critic + deterministic gate fully pass (no "best effort" ship with ship=false).
     if (!finalQuality.pass) {
+      const head = (finalQuality.feedback || '').slice(0, 500);
+      console.error(`[writerV2] quality gate FAILED (throwing WriterQualityGateError)`, {
+        bookId,
+        overall: finalQuality.overallScore,
+        llmPass: finalQuality.llmPass,
+        numericPass: finalQuality.numericPass,
+        vetoes: finalQuality.deterministicVetoes,
+        feedbackHead: head,
+        feedbackLen: (finalQuality.feedback || '').length,
+        feedbackDigest: v2FeedbackDigest(finalQuality.feedback),
+      });
       throw new WriterQualityGateError(
-        `Story did not pass quality review (score ${finalQuality.overallScore}/10). ${(finalQuality.feedback || '').slice(0, 500)}`,
+        `Story did not pass quality review (score ${finalQuality.overallScore}/10). ${head}`,
         finalQuality.feedback || '',
         finalQuality.overallScore,
       );
@@ -270,7 +330,7 @@ class WriterEngine {
 
     // 5. Stamp with version + timestamp
     const metadata = stampBook(finalStory, finalQuality, book.theme);
-    console.log(`[writerV2] Complete: v${metadata.writerVersion}, ${metadata.totalWords} words, score ${metadata.qualityScore}`);
+    console.log(`[writerV2] complete`, { bookId, version: metadata.writerVersion, words: metadata.totalWords, qualityScore: metadata.qualityScore });
 
     onProgress?.({ step: 'complete', message: 'Story generation complete.' });
 

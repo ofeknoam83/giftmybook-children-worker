@@ -266,7 +266,7 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     const validation = this.validateStructure(spreads, child.age);
     if (!validation.valid && spreads.length < plan.spreadCount.min) {
-      console.warn(`[writerV2] First write attempt has issues: ${validation.issues.join('; ')}. Retrying...`);
+      console.warn(`[writerV2] write: structure validation failed, retrying full write`, { theme: this.themeName, issues: validation.issues, spreadCount: spreads.length, min: plan.spreadCount.min });
       const retryResult = await this.callLLM('writer', systemPrompt,
         userPrompt + '\n\nIMPORTANT: You MUST write exactly ' + plan.spreadCount.target + ' spreads.',
         { maxTokens: 4000, temperature: 0.9 });
@@ -286,7 +286,7 @@ class GenericThemeWriter extends BaseThemeWriter {
         const combined = spreads.map(s => (s.text || '')).join(' ').toLowerCase();
         const matches = titleKeywords.filter(k => combined.includes(k));
         if (matches.length === 0) {
-          console.warn(`[writerV2] Title-coherence check FAILED for "${book.title}" — none of [${titleKeywords.join(', ')}] in story text. Retrying with stronger anchoring.`);
+          console.warn(`[writerV2] titleCoherence: FAILED — no title keywords in text; retrying`, { title: book.title, keywords: titleKeywords });
           const anchorAddendum = `\n\nCRITICAL TITLE ANCHOR — READ BEFORE REWRITING:\nThe book's cover title is "${book.title}". The previous draft did NOT include the title's core concept. In this rewrite, at least TWO of these title keywords MUST appear literally in the story text: ${titleKeywords.map(k => `"${k}"`).join(', ')}. The title's subject MUST be concretely present in spread 1 or 2, at the climax around spread 7, and in the final spread. Do NOT write a generic theme story — the text must clearly belong under this cover.`;
           try {
             const retryResult = await this.callLLM('writer', systemPrompt, userPrompt + anchorAddendum, { maxTokens: 4000, temperature: 0.85 });
@@ -298,7 +298,7 @@ class GenericThemeWriter extends BaseThemeWriter {
               if (retryMatches.length >= matches.length) {
                 spreads = ret.spreads;
                 if (ret.outfitLock) outfitLock = ret.outfitLock;
-                console.log(`[writerV2] Title-coherence retry succeeded: ${retryMatches.length}/${titleKeywords.length} title keywords present.`);
+                console.log(`[writerV2] titleCoherence: retry succeeded`, { matched: retryMatches.length, of: titleKeywords.length });
               }
             }
           } catch (err) {
@@ -325,7 +325,7 @@ class GenericThemeWriter extends BaseThemeWriter {
         const flavor = child.anecdotes?.favorite_cake_flavor
           ? ` (${child.anecdotes.favorite_cake_flavor})`
           : '';
-        console.warn(`[writerV2] Cake-coherence check FAILED — spreads 12-13 missing cake imagery. Retrying with stronger anchoring.`);
+        console.warn(`[writerV2] cakeCoherence: FAILED — spreads 12–13 missing cake/candles/wish/bite; retrying`, { has12, has13, theme: this.themeName });
         const cakeAddendum = `\n\nCRITICAL CAKE CLIMAX — READ BEFORE REWRITING:\nThis is a BIRTHDAY book for ${child.name}. The previous draft did NOT land the cake climax.\n- Spread 12 MUST be the wish-and-blow moment: the cake${flavor} with lit candles in front of ${child.name}, eyes closing for a wish, candles blown out. Name the cake and the candles in the text.\n- Spread 13 MUST be the first-bite joy: ${child.name} taking the first bite of cake${flavor}, pure happiness on their face. Name the cake in the text.\n- The ending must be JOYFUL and in DAYLIGHT — never a bedtime / sleep / goodnight ending.\nKeep spreads 1-11 substantially the same. Only rewrite the final two spreads to deliver the cake climax.`;
         try {
           const retryResult = await this.callLLM('writer', systemPrompt, userPrompt + cakeAddendum, { maxTokens: 4000, temperature: 0.85 });
@@ -338,7 +338,7 @@ class GenericThemeWriter extends BaseThemeWriter {
             if ((retryHas12 ? 1 : 0) + (retryHas13 ? 1 : 0) > (has12 ? 1 : 0) + (has13 ? 1 : 0)) {
               spreads = ret.spreads;
               if (ret.outfitLock) outfitLock = ret.outfitLock;
-              console.log(`[writerV2] Cake-coherence retry succeeded: spread12=${retryHas12}, spread13=${retryHas13}`);
+              console.log(`[writerV2] cakeCoherence: retry succeeded`, { spread12: retryHas12, spread13: retryHas13 });
             }
           }
         } catch (err) {
@@ -756,6 +756,15 @@ Refine each beat description to incorporate specific details from the anecdotes.
       if (child.anecdotes?.favorite_cake_flavor) sections.push(`Favorite cake flavor: ${child.anecdotes.favorite_cake_flavor}`);
       if (child.anecdotes?.favorite_toys) sections.push(`Favorite toys: ${child.anecdotes.favorite_toys}`);
       if (child.anecdotes?.birth_date) sections.push(`Birth date: ${child.anecdotes.birth_date}`);
+    }
+
+    if (this.category === 'celebration' && (this.themeName === 'birthday' || this.themeName === 'birthday_magic')) {
+      sections.push(`\n## BIRTHDAY CAKE ARC (NON-NEGOTIABLE)\n`);
+      sections.push(`This is a **birthday** book. The story must **coherently lead** to a birthday-cake ending — not a random set of activities with cake tacked on at the end.`);
+      sections.push(`- **Build-up:** Spreads 1 through ~9 should read as one day moving toward the party climax (anticipation, games, songs, small obstacles or excitement — specifics are up to you). Each spread should be a **new visible beat**, not a duplicate tableau.`);
+      sections.push(`- **Climax:** Spread **12** = wish + **lit candles** + blow (name cake/candles in TEXT). Spread **13** = **first bite** of cake and pure joy (name the cake; use favorite flavor if provided).`);
+      sections.push(`- **No alternative ending** — the book closes on cake joy, in **daylight / warm party light**, not bedtime, not "heading home" as the main beat.`);
+      sections.push(`- **Coherence for QA:** Mid-book party or yard settings are FINE if transitions are clear and the reader feels **forward motion to the table**. Do not teleport from unrelated errands straight to spread 12 without set-up.`);
     }
 
     if (this.category === 'emotional') {

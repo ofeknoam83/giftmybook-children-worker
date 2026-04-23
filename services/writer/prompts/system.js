@@ -92,6 +92,13 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('}');
     sections.push('```');
   } else if (role === 'writer') {
+    if (tierName === 'young-picture') {
+      sections.push('\n## BEFORE YOU OUTPUT (ages 0–3 — self-check every spread)\n');
+      sections.push('- Each couplet: the two rhyming lines end on **different** words (not the same word twice).');
+      sections.push('- Clap the line: ~4 **stressed beats** per line if you are using iambic tetrameter, or a steady sing-song if you must simplify.');
+      sections.push('- Read the spread aloud once in your head; if you stumble, rewrite.');
+      sections.push('- **Creativity** here means: a surprising **verb**, one **specific** prop or sound, a **refrain** that gains meaning — not similes, not abstract praise.');
+    }
     sections.push('\n## OUTPUT FORMAT — EVERY SPREAD HAS TEXT + SCENE\n');
     sections.push('Write the story as a sequence of spreads. Every spread MUST include BOTH a TEXT block (the poem the parent will read aloud) AND a SCENE block (art direction for the illustrator).\n');
     sections.push('Format each spread exactly like this:\n');

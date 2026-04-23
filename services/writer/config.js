@@ -67,6 +67,17 @@ const WRITER_CONFIG = {
     /** Enforced in JS (QualityGate) so a critic cannot ship=true with flat, generic prose. */
     creativityFloor: 7,
   },
+
+  /**
+   * Stricter verse + simpler vocabulary for ages 0–3 makes the default bar
+   * harder to hit; QualityGate uses these overrides when child age ≤ 3.
+   * Critic prompt and JS numeric gate stay in sync via gate._qualityThresholdsForChild.
+   */
+  qualityThresholdsYoungPicture: {
+    passScore: 8,
+    minDimensionScore: 5,
+    creativityFloor: 6.5,
+  },
 };
 
 module.exports = { WRITER_CONFIG };

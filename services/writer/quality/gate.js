@@ -82,8 +82,8 @@ class QualityGate {
    * @param {object} story - { spreads: [{ spread, text }] }
    * @param {object} child - { name, age, gender, anecdotes }
    * @param {object} book  - { theme, mom_name, dad_name, heartfeltNote, customDetails, ... }
-   * @param {object} [opts] - { plan, missingCritical }
-   * @returns {Promise<{pass, overallScore, scores, feedback, issues, criticFailed?: boolean}>}
+   * @param {object} [opts] - { plan, missingCritical, bookId (for logs) }
+   * @returns {Promise<{pass, overallScore, scores, feedback, issues, criticFailed?: boolean, llmPass: boolean, numericPass: boolean, deterministicVetoes: object}>}
    */
   static async check(story, child, book, opts = {}) {
     const spreads = Array.isArray(story?.spreads) ? story.spreads : [];
@@ -95,22 +95,27 @@ class QualityGate {
         issues: [{ dimension: 'catastrophic', note: 'Story has 0 spreads.' }],
         feedback: 'CATASTROPHIC: Story has 0 spreads. The writer produced no output.',
         criticFailed: false,
+        llmPass: false,
+        numericPass: false,
+        deterministicVetoes: { possessive: false, rhymeLint: false, longWords: false, sceneContinuity: false },
       };
     }
 
-    const system = QualityGate._buildSystemPrompt(child, book, opts);
+    const qTh = QualityGate._qualityThresholdsForChild(child);
+    const system = QualityGate._buildSystemPrompt(child, book, { ...opts, qualityThresholds: qTh });
     const user = QualityGate._buildUserPrompt(story, child, book, opts);
 
     let parsed = null;
     let lastErr = null;
+    let lastFinishReason = '';
     for (let attempt = 0; attempt < CRITIC_ATTEMPTS; attempt++) {
       try {
         const result = await _llm.callLLM('critic', system, user, {
           jsonMode: true,
           maxTokens: CRITIC_MAX_OUTPUT_TOKENS,
         });
-        const fr = String(result.finishReason || '');
-        if (/MAX_TOKEN|LENGTH|length/i.test(fr)) {
+        lastFinishReason = String(result.finishReason || '');
+        if (/MAX_TOKEN|LENGTH|length/i.test(lastFinishReason)) {
           console.warn(`[writerV2] QualityGate critic hit output limit (finishReason=${result.finishReason}) — JSON may be incomplete; will retry if parse fails`);
         }
         parsed = parseCriticResponse(result.text);
@@ -126,6 +131,8 @@ class QualityGate {
     }
 
     if (!parsed) {
+      const logCtx = { bookId: opts.bookId || 'n/a', lastFinishReason: lastFinishReason || 'n/a' };
+      console.warn(`[writerV2] qualityGate: critic did not return JSON`, logCtx);
       return {
         pass: false,
         overallScore: 0,
@@ -133,6 +140,9 @@ class QualityGate {
         issues: [{ dimension: 'critic_error', note: lastErr?.message || 'unknown' }],
         feedback: 'Quality check could not be completed after multiple attempts. Please try again shortly.',
         criticFailed: true,
+        llmPass: false,
+        numericPass: false,
+        deterministicVetoes: { possessive: false, rhymeLint: false, longWords: false, sceneContinuity: false },
       };
     }
 
@@ -230,7 +240,7 @@ class QualityGate {
     const overallRounded = Math.round(overallScore * 10) / 10;
 
     const llmPass = parsed.ship === true || parsed.pass === true;
-    const numericEval = QualityGate._evaluateNumericGate(scores, overallRounded);
+    const numericEval = QualityGate._evaluateNumericGate(scores, overallRounded, qTh);
     const numericPass = numericEval.pass;
 
     const pass = llmPass && numericPass && possessiveErrors.length === 0 && rhymeLintIssues.length === 0
@@ -240,10 +250,10 @@ class QualityGate {
       ? parsed.feedback.trim()
       : QualityGate._synthesizeFeedback(issues);
 
-    // Critic sometimes returns ship=true while numeric averages / floors are not met.
-    // Deterministic gate overrides that so the revise loop runs.
-    if (llmPass && !numericPass) {
-      const numBlock = QualityGate._buildNumericGateFeedback(numericEval);
+    // Always surface JS numeric floors in reviser feedback when the numeric gate fails
+    // (not only when the critic said ship but JS disagrees).
+    if (!numericPass) {
+      const numBlock = QualityGate._buildNumericGateFeedback(numericEval, llmPass);
       feedback = feedback ? `${numBlock}\n\n${feedback}` : numBlock;
     }
 
@@ -258,6 +268,37 @@ class QualityGate {
       feedback = feedback ? `${feedback}\n\n${block}` : block;
     }
 
+    const deterministicVetoes = {
+      possessive: possessiveErrors.length > 0,
+      rhymeLint: rhymeLintIssues.length > 0,
+      longWords: readAloudLongWords.length > 0,
+      sceneContinuity: sceneContinuityIssues.length > 0,
+    };
+
+    const logPayload = {
+      bookId: opts.bookId || 'n/a',
+      pass,
+      overallScore: overallRounded,
+      llmPass,
+      numericPass,
+      criticShip: Boolean(parsed.ship === true || parsed.pass === true),
+      deterministicVetoes,
+      finishReason: lastFinishReason || 'ok',
+    };
+    if (!pass) {
+      const failing = [];
+      for (const k of CRITIC_DIMENSION_KEYS) {
+        const v = scores[k];
+        if (typeof v === 'number' && v < (qTh.minDimensionScore ?? WRITER_CONFIG.qualityThresholds.minDimensionScore)) {
+          failing.push(k);
+        }
+      }
+      if (typeof scores.sceneContinuity === 'number' && scores.sceneContinuity < (qTh.minDimensionScore ?? 6)) failing.push('sceneContinuity');
+      logPayload.failingDimensions = failing;
+      logPayload.feedbackCharCount = (feedback || '').length;
+    }
+    console.log(`[writerV2] qualityGate:`, logPayload);
+
     return {
       pass,
       overallScore: overallRounded,
@@ -265,16 +306,35 @@ class QualityGate {
       issues,
       feedback: pass ? '' : feedback,
       criticFailed: false,
+      llmPass,
+      numericPass,
+      deterministicVetoes,
     };
   }
 
   // ── Prompt construction ──────────────────────────────────────────────
 
+  /**
+   * Critic + JS floors for picture-book (default) vs ages 0–3 (slightly looser bar).
+   * @param {object} child
+   * @returns {typeof WRITER_CONFIG.qualityThresholds}
+   */
+  static _qualityThresholdsForChild(child) {
+    const age = Number(child?.age);
+    const yp = WRITER_CONFIG.qualityThresholdsYoungPicture;
+    if (Number.isFinite(age) && age <= 3 && yp) {
+      return { ...WRITER_CONFIG.qualityThresholds, ...yp };
+    }
+    return { ...WRITER_CONFIG.qualityThresholds };
+  }
+
   static _buildSystemPrompt(child, book, opts) {
     const theme = book?.theme || 'general';
     const isBedtime = theme === 'bedtime';
     const isCelebration = ['mothers_day', 'fathers_day', 'birthday', 'birthday_magic'].includes(theme);
-    const { passScore, minDimensionScore } = WRITER_CONFIG.qualityThresholds;
+    const isBirthdayTheme = theme === 'birthday' || theme === 'birthday_magic';
+    const th = { ...WRITER_CONFIG.qualityThresholds, ...(opts.qualityThresholds || {}) };
+    const { passScore, minDimensionScore, creativityFloor } = th;
 
     const parentWord = theme === 'fathers_day' ? 'Dad' : theme === 'mothers_day' ? 'Mom' : 'the parent';
     const momReal = (book?.mom_name || child?.anecdotes?.mom_name || '').toString().trim();
@@ -286,6 +346,13 @@ class QualityGate {
 
     const celebrationRule = isCelebration
       ? 'Celebration themes (Mother\'s Day, Father\'s Day, birthday) build toward a warm, connected, joyful climax — never quiet, never sleepy. Tantrums, crying, anger, or bedtime imagery on the last 3 spreads are a HARD FAIL.'
+      : '';
+
+    const birthdayCakeRule = isBirthdayTheme
+      ? `
+
+## BIRTHDAY (birthday / birthday_magic) — arc to cake
+The book must end on a **paintable birthday-cake** climax in the last spreads. Use **PRE-SCAN O** for gating. Score **narrativeCoherence** and **emotionalArc** on whether each beat **moves the day toward the cake** (anticipation, party energy, then candles and bite) — not on how many "epic" locations appear.`
       : '';
 
     const parentNameRule = (momReal || dadReal)
@@ -381,7 +448,11 @@ PRE-SCAN N — Thrill vs. flat mundane spine
   Also scan for emotional arc: if there is **no** clear mid-book rise (wonder, stakes, near-miss, discovery, height, race-against-time — age appropriate) and the text reads as interchangeable cozy activities, that is a weak arc.
   → On violation add entries: dimension="settingVariety" AND dimension="emotionalArc", force settingVariety ≤ 3 and emotionalArc ≤ 5. Feedback must tell the reviser to **rewrite at least half the middle spreads** into more epic, specific locations and to add one clear thrilling beat before the resolution.
 
-If any of A, B, C, D, E, F, G, H, I, J, K, L, M, or N find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change. (Exception: follow each pre-scan’s own "→" line for which dimensions to cap.)
+PRE-SCAN O — Birthday / birthday_magic only (when the book theme is birthday or birthday_magic)
+  The book must **earn** a cake ending: spreads 1–11 should read as **forward motion** (party energy, games, gifts, small beats of anticipation — not random errands). The **final two spreads** should deliver the birthday climax: **wish + candles** (spread 12) and **first bite / cake joy** (spread 13), in daylight, warm, not bedtime. Do **not** fail **settingVariety** or **narrativeCoherence** solely because the world is a yard, party, or single venue — a coherent party with distinct **zones or beats** is enough. **Do** fail if the text reads as unrelated activities with cake pasted on, or 12–13 are not a concrete cake moment.
+  → On violation, add "issues" with dimension "narrativeCoherence" and/or "endingAppropriateness" and name the spread numbers. Cap at ≤ 4 if the story does not build to cake. When the arc clearly leads to the table, score those dimensions **6+** even in one party setting.
+
+If any of A, B, C, D, E, F, G, H, I, J, K, L, M, N, or O find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change. (Exception: follow each pre-scan’s own "→" line for which dimensions to cap.)
 
 ## RATING DIMENSIONS
 
@@ -411,13 +482,14 @@ If any of A, B, C, D, E, F, G, H, I, J, K, L, M, or N find ANYTHING, the book CA
 15. wordCount — Word count per spread and total are within the age-tier limits (the writer was given these). Penalize oversized spreads proportionally.
 16. seedArcFulfillment — (Only scored when a storySeed is provided.) Did the book dramatize the seed's FEAR in the middle act (spreads 5-9) and RESOLVE it in the final act (spreads 10-13)? A flat list of activities that never touches the seed's emotional question is a FAIL. A clean plant → peak → resolve arc is a STRONG. If no storySeed is provided in the user prompt, score this 10 (N/A pass-through) and do not gate on it.
 
-${celebrationRule}
+${celebrationRule}${birthdayCakeRule}
 
 ## SHIP CRITERIA (the "ship" boolean)
 
 Set ship=true iff ALL of the following hold:
   - Overall average across all 16 dimensions ≥ ${passScore}/10
   - No single dimension scores below ${minDimensionScore}/10
+  - creativity ≥ ${creativityFloor} (project creativity floor; flat lists fail here)
   - rhyme ≥ 7 (cheap rhymes are a ship-blocker — a parent reading aloud should never feel the rhyme is lazy)
   - meter ≥ 7 (a mix of 2-line and 4-line spreads is an automatic meter HARD FAIL — see PRE-SCAN E)
   - anecdoteUsage ≥ 7
@@ -586,8 +658,9 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
    * @param {number} overallRounded — mean of all numeric values in `scores`, 1dp
    * @returns {{ pass: boolean, failures: Array<{kind:string, key?:string, detail:string}> }}
    */
-  static _evaluateNumericGate(scores, overallRounded) {
-    const { passScore, minDimensionScore, creativityFloor } = WRITER_CONFIG.qualityThresholds;
+  static _evaluateNumericGate(scores, overallRounded, thresholds) {
+    const th = thresholds && typeof thresholds === 'object' ? thresholds : WRITER_CONFIG.qualityThresholds;
+    const { passScore, minDimensionScore, creativityFloor } = th;
     const failures = [];
 
     if (overallRounded < passScore) {
@@ -642,20 +715,20 @@ Otherwise set ship=false and write a concrete revision brief in "feedback". The 
    * @param {{ failures: Array<{kind:string, key?:string, detail:string}> }} evalResult
    * @returns {string}
    */
-  static _buildNumericGateFeedback(evalResult) {
+  static _buildNumericGateFeedback(evalResult, llmPass = true) {
     const lines = evalResult.failures.map(f => `  - ${f.detail}`);
     const creativityFail = evalResult.failures.some(f => f.kind === 'creativity_floor'
       || (f.kind === 'dimension' && f.key === 'creativity'));
 
     const creativityBrief = creativityFail
-      ? `\n\nCREATIVITY (actionable): Introduce more novel, specific imagery — distinctive verbs, surprising sensory details, and settings that are not generic domestic routines unless the brief demands it. Give at least one clear imaginative turn (metaphor, playful scale, or transformation) and make each spread feel like a new beat, not a checklist. Deepen the refrain so it lands with new emotional weight on repeats.`
+      ? `\n\nCREATIVITY (actionable): Introduce more novel, specific imagery — distinctive verbs, surprising sensory details, and settings that are not generic domestic routines unless the brief demands it. Give at least one clear imaginative turn (playful scale, or transformation) and make each spread feel like a new beat, not a checklist. Deepen the refrain so it lands with new emotional weight on repeats.`
       : '';
 
-    return [
-      'NUMERIC GATE — the automated editor scores do not meet shipping floors (this overrides ship=true from the critic until fixed):',
-      ...lines,
-      creativityBrief,
-    ].join('\n');
+    const header = llmPass
+      ? 'NUMERIC GATE — the automated editor scores do not meet shipping floors (this overrides ship=true from the critic until fixed):'
+      : 'NUMERIC GATE — the automated editor scores do not meet shipping floors (address these in addition to the critic brief):';
+
+    return [header, ...lines, creativityBrief].filter(Boolean).join('\n');
   }
 
   static _clampScores(raw) {

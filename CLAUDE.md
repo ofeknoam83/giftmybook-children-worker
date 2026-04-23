@@ -38,6 +38,12 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 Rules are layered: **session system instruction** and **per-spread prompt** carry the full policy (composition, characters, text, parent themes). **Per-spread QA** (text, anatomy, extra, style) catches repeatable defects and triggers in-session corrections. **Book-wide QA** (`bookWideGate`) is intentionally lenient and overlap-based; it may regen suspect spreads but does not hard-fail the book. Prefer fixing issues at the prompt layer; use QA telemetry (`bookContext.qaTagCounts`, `qaInfraErrors`) to see which tags drive retries.
 
+## Writer V2 (selected picture-book themes)
+
+- **Entry:** `services/writer/engine.js` — `WriterEngine.generate` (plan → write → `QualityGate` → revise loop → full regen waves).
+- **Book id in logs:** pass `bookId` in the generate options (main pipeline does this) so every `[writerV2]` line is filterable in Cloud Logging.
+- **Two planning passes (by design):** the job first brainstorms a **story seed** in `storyPlanner`, then Writer V2 runs its own **`plan()`** (beats, location palette, refrain). The seed is wired as `storySeed` so brainstormed beats are kept when valid. A future simplification is to merge into a single planner call; not required for correct output today.
+
 ## Conventions
 
 - All functions use JSDoc comments

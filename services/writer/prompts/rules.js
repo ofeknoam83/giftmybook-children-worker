@@ -33,6 +33,7 @@ const RULES_BY_TIER = {
       'POSSESSIVE PRONOUNS: use "his" / "her" / "their" for possession — NEVER "him" / "he" / "them" in that role. Write "his hair", "his arm", "her hand" — NEVER "him hair", "him arm", "he hand". Using an object pronoun ("him") where a possessive ("his") belongs is a ship-blocker, even when it fits the meter.',
       'DEFAULT to exactly 2 lines per spread (one AABB couplet). Use 4 lines ONLY on rare climactic spreads, and only as TWO clean AABB couplets — never 3 lines, never mixed.',
       'Clever and playful, not literary. Think Dr. Seuss, not poetry.',
+      'CREATIVITY without metaphors: use specific verbs, one fresh sensory or sound detail per spread, and a refrain that deepens on repeats — that counts as "imaginative" for this age.',
       'The parent is the reader. Write for the parent\'s pleasure and the child\'s ear.',
     ],
     rhyme: [
