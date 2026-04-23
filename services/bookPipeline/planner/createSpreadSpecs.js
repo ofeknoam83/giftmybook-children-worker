@@ -10,6 +10,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET } = require('../constants');
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
+const { renderThemeDirectiveBlock } = require('./themeDirectives');
 
 const SYSTEM_PROMPT = `You design spread-level contracts for a premium personalized children's book.
 
@@ -27,6 +28,7 @@ function userPrompt(doc) {
   const { storyBible, visualBible, brief, request } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'spreadSpecs');
   const retryBlock = renderRetryMemoryForPrompt(retries);
+  const themeBlock = renderThemeDirectiveBlock(request.theme);
   const lineTarget = TEXT_LINE_TARGET[request.ageBand] || { min: 2, max: 4 };
 
   const customDetailsBlock = Object.entries(brief.customDetails || {})
@@ -36,7 +38,8 @@ function userPrompt(doc) {
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}. Age band: ${request.ageBand}. Format: ${request.format}.`,
-    `Theme guidance (light): ${request.theme}.`,
+    `Theme: ${request.theme}.`,
+    themeBlock,
     `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,

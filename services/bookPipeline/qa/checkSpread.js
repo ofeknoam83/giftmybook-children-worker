@@ -16,8 +16,10 @@ const { checkSpreadConsistency } = require('../../illustrator/consistencyQa');
  * @param {{ text: string, side: 'left'|'right' }} params.expected
  * @param {object} params.coverRef - { base64, mime } for consistency QA
  * @param {string} params.hero - hero description string for consistency QA
- * @param {string} [params.additionalCoverCharacters]
- * @param {boolean} [params.coverParentPresent]
+ * @param {string} [params.additionalCoverCharacters] - declared off-cover humans
+ *   that QA should allow to appear even though they are not on the cover
+ * @param {boolean} [params.coverParentPresent] - true if the approved cover
+ *   itself depicts a secondary (parent/sibling) in addition to the hero
  * @param {number} params.spreadIndex - 0-based
  * @param {AbortSignal} [params.abortSignal]
  * @returns {Promise<{ pass: boolean, issues: string[], tags: string[], ocrText?: string, text: object, consistency: object }>}
@@ -34,17 +36,25 @@ async function checkSpread(params) {
     abortSignal,
   } = params;
 
+  const hasDeclaredExtraCast = typeof additionalCoverCharacters === 'string' && additionalCoverCharacters.trim().length > 0;
+
+  // NOTE: `hasSecondaryOnCover` means "the cover image literally shows a
+  // secondary human figure next to the hero". Without dedicated cover vision
+  // we default to false — being declared in the brief does NOT put someone on
+  // the cover. `qaAllowedHumansNote` independently allows declared off-cover
+  // humans to appear in spreads without being flagged as strangers.
   const [textQa, consistencyQa] = await Promise.all([
     verifySpreadText(imageBase64, expected, { spreadIndex, abortSignal }),
-    checkSpreadConsistency({
+    checkSpreadConsistency(
       imageBase64,
-      coverBase64: coverRef?.base64,
-      coverMime: coverRef?.mime || 'image/jpeg',
-      childAppearance: hero,
-      additionalCoverCharacters,
-      coverParentPresent,
-      abortSignal,
-    }).catch(err => ({
+      coverRef?.base64,
+      {
+        characterDescription: hero,
+        hasSecondaryOnCover: coverParentPresent === true,
+        qaAllowedHumansNote: hasDeclaredExtraCast ? additionalCoverCharacters : '',
+        abortSignal,
+      },
+    ).catch(err => ({
       pass: false,
       issues: [`consistency QA error: ${err?.message || 'unknown'}`],
       tags: ['qa_consistency_error'],

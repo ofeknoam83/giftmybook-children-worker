@@ -264,10 +264,12 @@ async function callOpenaiOnce(params) {
 }
 
 /**
- * Call Gemini text (fallback when OpenAI is down).
+ * Call Gemini text. Used both as a first-class provider (when the caller
+ * passes a `gemini-*` model) and as an OpenAI fallback.
  */
 async function callGeminiOnce(params) {
   const {
+    model,
     systemPrompt,
     userPrompt,
     jsonMode,
@@ -279,9 +281,10 @@ async function callGeminiOnce(params) {
   } = params;
 
   const key = resolveGeminiKey(apiKey);
-  if (!key) throw new Error(`${label}: no Gemini key for fallback`);
+  if (!key) throw new Error(`${label}: no Gemini key`);
 
-  const url = `${GEMINI_BASE_URL}/${GEMINI_TEXT_MODEL}:generateContent?key=${key}`;
+  const resolvedModel = model && /^gemini-/i.test(model) ? model : GEMINI_TEXT_MODEL;
+  const url = `${GEMINI_BASE_URL}/${resolvedModel}:generateContent?key=${key}`;
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
@@ -362,8 +365,9 @@ async function callText(params) {
 
   let lastErr = null;
   let resolvedModel = model;
+  const isGeminiPrimary = /^gemini-/i.test(model);
 
-  console.log(`[llm:${label}] calling ${model} (maxTokens=${maxTokens}, jsonMode=${!!jsonMode}, temperature=${temperature}, stream=${maxTokens >= STREAM_THRESHOLD_TOKENS})`);
+  console.log(`[llm:${label}] calling ${model} (provider=${isGeminiPrimary ? 'gemini' : 'openai'}, maxTokens=${maxTokens}, jsonMode=${!!jsonMode}, temperature=${temperature}, stream=${!isGeminiPrimary && maxTokens >= STREAM_THRESHOLD_TOKENS})`);
   const overallStart = Date.now();
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -371,17 +375,29 @@ async function callText(params) {
 
     const attemptStart = Date.now();
     try {
-      const resp = await callOpenaiOnce({
-        model,
-        systemPrompt,
-        userPrompt,
-        jsonMode,
-        maxTokens,
-        temperature,
-        timeoutMs,
-        apiKey,
-        label,
-      });
+      const resp = isGeminiPrimary
+        ? await callGeminiOnce({
+            model,
+            systemPrompt,
+            userPrompt,
+            jsonMode,
+            maxTokens,
+            temperature,
+            timeoutMs,
+            apiKey: geminiApiKey,
+            label,
+          })
+        : await callOpenaiOnce({
+            model,
+            systemPrompt,
+            userPrompt,
+            jsonMode,
+            maxTokens,
+            temperature,
+            timeoutMs,
+            apiKey,
+            label,
+          });
 
       if (resp.finishReason === 'length') {
         if (autoExtendOnTruncation && attempt < maxAttempts) {
@@ -428,7 +444,7 @@ async function callText(params) {
       const transient = err?.isTransient === true;
       const truncation = err?.isTruncation === true;
       if (!transient && !truncation && !(err instanceof LlmParseError)) {
-        if (allowGeminiFallback && resolveGeminiKey(geminiApiKey)) {
+        if (!isGeminiPrimary && allowGeminiFallback && resolveGeminiKey(geminiApiKey)) {
           try {
             console.warn(`[llm:${label}] OpenAI error after ${Date.now() - attemptStart}ms: '${err.message}', falling back to Gemini (${GEMINI_TEXT_MODEL})`);
             const fbStart = Date.now();

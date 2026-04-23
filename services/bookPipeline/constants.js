@@ -43,9 +43,9 @@ const TEXT_PLACEMENT = {
 const MODELS = {
   PLANNER: 'gpt-5.4',
   WRITER: 'gpt-5.4',
-  WRITER_QA: 'gpt-5.4',
   ILLUSTRATION_SPEC: 'gpt-5.4',
-  BOOK_WIDE_QA: 'gpt-5.4',
+  WRITER_QA: 'gemini-2.5-flash',
+  BOOK_WIDE_QA: 'gemini-2.5-flash',
   SPREAD_QA_VISION: 'gemini-2.5-flash',
   SPREAD_RENDER: 'gemini-3-flash-image-preview',
 };

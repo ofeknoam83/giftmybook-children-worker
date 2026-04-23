@@ -11,6 +11,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS } = require('../constants');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
+const { renderThemeDirectiveBlock } = require('./themeDirectives');
 
 const SYSTEM_PROMPT = `You are a senior children's picture-book story architect.
 You design the narrative spine for a premium personalized book, not the final prose.
@@ -28,6 +29,7 @@ function userPrompt(doc) {
   const { brief, cover, request } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'storyBible');
   const retryBlock = renderRetryMemoryForPrompt(retries);
+  const themeBlock = renderThemeDirectiveBlock(request.theme);
 
   const customDetailsBlock = Object.entries(brief.customDetails || {})
     .filter(([, v]) => v != null && String(v).trim())
@@ -36,8 +38,9 @@ function userPrompt(doc) {
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
-    `Format: ${request.format}. Age band: ${request.ageBand}. Theme guidance: ${request.theme} (light, not formulaic).`,
+    `Format: ${request.format}. Age band: ${request.ageBand}. Theme: ${request.theme}.`,
     `Approved cover title: "${cover.title}".`,
+    themeBlock,
     `Custom details (must be used concretely unless they hurt the story):`,
     customDetailsBlock,
     '',

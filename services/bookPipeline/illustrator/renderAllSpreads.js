@@ -78,6 +78,8 @@ async function resolveCoverBase64(cover) {
  */
 async function processOneSpread(params) {
   const { doc, session, cover, spread, bookId } = params;
+  const logTag = `bookPipeline:${bookId || 'n/a'}:spread${spread.spreadNumber}`;
+  const totalBudget = REPAIR_BUDGETS.perSpreadInSessionCorrections + REPAIR_BUDGETS.perSpreadPromptRepairs;
   let currentDoc = doc;
   let currentSession = session;
 
@@ -85,13 +87,16 @@ async function processOneSpread(params) {
   const expected = { text: spec.text, side: spec.textSide };
   const hero = currentDoc.visualBible?.hero?.physicalDescription || '';
 
+  console.log(`[${logTag}] starting (budget=${totalBudget}, textSide=${spec.textSide}, textLen=${(spec.text || '').length})`);
+
   let scene = spec.scene;
   let correctionNote = null;
   let attempt = 0;
 
-  while (attempt <= REPAIR_BUDGETS.perSpreadInSessionCorrections + REPAIR_BUDGETS.perSpreadPromptRepairs) {
+  while (attempt <= totalBudget) {
     attempt += 1;
     const isFirstAttempt = attempt === 1;
+    const attemptStart = Date.now();
 
     let image;
     try {
@@ -116,9 +121,10 @@ async function processOneSpread(params) {
         image = await sendCorrection(currentSession, correction, spec.spreadIndex);
       }
     } catch (err) {
-      // Safety or transient block: try one session rebuild if the budget allows
       const isSafety = /safety|prohibited|blocked/i.test(err?.message || '');
+      console.warn(`[${logTag}] render error on attempt ${attempt}/${totalBudget} (${Date.now() - attemptStart}ms): ${err.message}${isSafety ? ' [safety]' : ''}`);
       if (isSafety && currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
+        console.log(`[${logTag}] rebuilding session after safety block`);
         currentSession = await rebuildSession(currentSession);
         continue;
       }
@@ -129,18 +135,33 @@ async function processOneSpread(params) {
     const printable = await upscaleForPrint(stripped);
     const printableBase64 = printable.toString('base64');
 
+    const supportingCast = Array.isArray(currentDoc.visualBible?.supportingCast)
+      ? currentDoc.visualBible.supportingCast
+      : [];
+    const additionalCoverCharacters = supportingCast
+      .filter(c => c?.description)
+      .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
+      .join('; ') || null;
+    // Being declared in the brief does NOT put someone on the cover.
+    // Without cover vision, default to false; declared off-cover family is
+    // still allowed to appear via `additionalCoverCharacters` (QA policy note).
+    const coverParentPresent = false;
+
+    const qaStart = Date.now();
     const qa = await checkSpread({
       imageBase64: printableBase64,
       expected,
       coverRef: { base64: cover.base64, mime: cover.mime },
       hero,
-      additionalCoverCharacters: currentDoc.visualBible?.supportingCast?.filter(c => c?.description).map(c => c.description).join('; ') || null,
-      coverParentPresent: false,
+      additionalCoverCharacters,
+      coverParentPresent,
       spreadIndex: spec.spreadIndex,
       abortSignal: currentDoc.operationalContext?.abortSignal,
     });
+    const qaMs = Date.now() - qaStart;
 
     if (qa.pass) {
+      console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
       markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
 
       const destination = `books/${bookId || currentDoc.request.bookId || 'nobookid'}/spreads/spread-${spread.spreadNumber}.jpg`;
@@ -167,7 +188,12 @@ async function processOneSpread(params) {
       return { accepted: true, doc: nextDoc, session: currentSession, issues: [], tags: [], imageBase64: image.imageBase64, imageUrl };
     }
 
-    // Failure path — prune the bad image, plan a repair, and try again.
+    console.warn(
+      `[${logTag}] REJECTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms) ` +
+      `tags=[${(qa.tags || []).join(',')}] issues=${JSON.stringify((qa.issues || []).slice(0, 4))}` +
+      (qa.ocrText ? ` ocr="${String(qa.ocrText).slice(0, 120).replace(/\s+/g, ' ')}"` : '')
+    );
+
     pruneLastTurn(currentSession);
 
     const plan = planSpreadRepair({
@@ -191,15 +217,18 @@ async function processOneSpread(params) {
     }));
 
     if (shouldDeescalateSceneForQaFail(qa.tags, scene)) {
+      console.log(`[${logTag}] de-escalating scene for next attempt`);
       scene = deescalateSceneForSignage(scene);
     }
 
     if (attempt > REPAIR_BUDGETS.perSpreadInSessionCorrections &&
         currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
+      console.log(`[${logTag}] rebuilding session (attempt ${attempt} > ${REPAIR_BUDGETS.perSpreadInSessionCorrections})`);
       currentSession = await rebuildSession(currentSession);
     }
   }
 
+  console.error(`[${logTag}] EXHAUSTED budget (${totalBudget} attempts) — spread unresolvable`);
   return { accepted: false, doc: currentDoc, session: currentSession, issues: ['spread exhausted repair budget'], tags: ['spread_unresolvable'] };
 }
 
@@ -212,14 +241,22 @@ async function processOneSpread(params) {
 async function renderAllSpreads(doc) {
   const cover = await resolveCoverBase64(doc.cover);
 
+  // Cover presence flags reflect the cover image literally, not the brief.
+  // Without dedicated cover vision we default both to false; declared
+  // off-cover family is surfaced via `additionalCoverCharacters` so the
+  // illustrator may draw them even though they are not on the cover.
+  const sessionCast = Array.isArray(doc.visualBible?.supportingCast) ? doc.visualBible.supportingCast : [];
   let session = createSession({
     coverBase64: cover.base64,
     coverMime: cover.mime,
     theme: doc.request.theme,
     childAppearance: doc.visualBible?.hero?.physicalDescription || '',
     hasParentOnCover: false,
-    hasSecondaryOnCover: Array.isArray(doc.visualBible?.supportingCast) && doc.visualBible.supportingCast.length > 0,
-    additionalCoverCharacters: doc.visualBible?.supportingCast?.filter(c => c?.description).map(c => c.description).join('; ') || null,
+    hasSecondaryOnCover: false,
+    additionalCoverCharacters: sessionCast
+      .filter(c => c?.description)
+      .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
+      .join('; ') || null,
     abortSignal: doc.operationalContext?.abortSignal,
   });
   await establishCharacterReference(session);

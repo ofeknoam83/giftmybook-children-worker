@@ -13,6 +13,7 @@
 const { callText } = require('../llm/openaiClient');
 const { MODELS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
+const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
 
 const PREACH_MARKERS = [
   /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
@@ -79,8 +80,11 @@ function literaryQaUserPrompt(doc) {
     text: s.manuscript?.text,
     side: s.manuscript?.side,
   }));
+  const themeBlock = renderThemeDirectiveBlock(doc.request.theme);
   return [
     `Format: ${doc.request.format}. Age band: ${doc.request.ageBand}. Theme: ${doc.request.theme}.`,
+    themeBlock,
+    themeBlock ? 'If the manuscript uses any BANNED CLICHÉS from the theme directive, tag those spreads with "theme_cliche" and fail.' : '',
     `Story bible:\n${JSON.stringify(doc.storyBible, null, 2)}`,
     `Spreads:\n${JSON.stringify(spreads, null, 2)}`,
     '',
