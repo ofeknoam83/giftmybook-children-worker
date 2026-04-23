@@ -656,7 +656,7 @@ Front matter pages (half-title, title page, copyright) are added automatically �
 The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 entries.
 
 Rules:
-- Every spread MUST have text. null text is not allowed — both left and right may have text, or just one, but at least one must be non-null.
+- ONE-SIDE TEXT RULE (CRITICAL): Each spread MUST have text in EXACTLY ONE of left or right. The other side MUST be null. NEVER put text on both sides — a spread is never text-on-both-left-and-right. Choose the side that best serves the rhythm (hook on the right for page-turn suspense; opening statement on the left). Alternate sides across spreads for visual variety.
 - spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
 - IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point and the environment surrounding them naturally. The child MUST be positioned in the left third or right third of the scene — NOT at the center. Never describe the child as standing in the middle of the scene.
 - Do NOT specify art medium in spread_image_prompt.
@@ -1152,7 +1152,7 @@ Right: "[text]"
 
 Rules:
 - Write exactly 13 spreads.
-- Each spread has Left and Right. At least one must have text — no spread may have both null.
+- Each spread has Left and Right. EXACTLY ONE must have text; the other MUST be null. NEVER put text on both sides of the same spread — pick the side that serves the rhythm (opening beats on Left, page-turn hooks on Right) and alternate across the book for visual variety.
 - Do NOT include illustration descriptions, JSON, or metadata.
 - Focus entirely on the story text and its quality.
 
@@ -1252,7 +1252,7 @@ The "entries" array must contain exactly: 1 dedication_page + 13 spreads = 14 en
 
 Rules:
 - PRESERVE all story text EXACTLY as written in the input — do not rewrite, paraphrase, or edit.
-- Every spread MUST have text. null text is not allowed — both left and right may have text, or just one, but at least one must be non-null.
+- ONE-SIDE TEXT RULE (CRITICAL): Each spread MUST have text in EXACTLY ONE of left.text or right.text. The other side MUST be null. NEVER both sides. If the input accidentally has text on both sides of any spread, do NOT invent new text — move/merge the text onto whichever side reads best and set the other side to null.
 - Every spread MUST include "shot_type" (one of: "wide", "medium", "close-up", "overhead") and "character_position" (one of: "left_third", "center", "right_third").
 - spread_image_prompt describes ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still or panoramic photograph). Write it as a single unified scene — NOT as separate left-side and right-side descriptions.
 - IMPORTANT: Do NOT describe content as being "on the left" and other content "on the right." Describe ONE flowing scene with the child as the focal point. The child MUST be positioned in the left third or right third of the scene — NOT at the center. Never describe the child as standing in the middle of the scene.

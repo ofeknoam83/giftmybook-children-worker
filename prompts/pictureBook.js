@@ -350,7 +350,7 @@ IMPORTANT:
 - Each spread must have spread_image_prompt — ONE CONTINUOUS PANORAMIC SCENE (wide landscape, like a movie still). Describe a single unified scene, NOT separate left-side and right-side content. Do NOT split the composition into two halves.
 - CHARACTER POSITION: The child MUST be in the left third or right third of the scene — NOT at the horizontal center. Never describe the child as standing in the middle. The center of the panorama is reserved for environment, depth, or secondary elements.
 - Do NOT re-describe the outfit in spread_image_prompt — it is defined once at the top level.
-- Every spread MUST have text in at least one of left.text or right.text — null text is not allowed.
+- ONE-SIDE TEXT RULE (CRITICAL): Each spread MUST have text in EXACTLY ONE of left.text or right.text — the other MUST be null. NEVER put text on both sides. Alternate which side carries the text across spreads for visual variety.
 - All image prompts must specify: lighting, color palette, perspective, one texture detail.
 - Do NOT specify art medium or style in image prompts — that is handled separately by the illustration engine.
 - Follow ALL rules from the system brief (age tier, pacing, dialogue, etc.).
