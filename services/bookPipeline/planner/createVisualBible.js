@@ -21,7 +21,10 @@ Hard rules:
 - Interior continuity uses the cover plus accepted interior spreads. No uploaded photo reference.
 - Support richer, busier worlds with high camera-angle variety, but keep one clear focal action per spread.
 - Text is painted INTO the illustration. Text usually lives on one side of the spread; no single line may cross the horizontal center of the spread.
-- Family members NOT shown on the cover may only appear if the brief declares them. Undeclared family members must not be introduced visually.
+- CAST VISIBILITY RULE (strict): only characters depicted on the approved cover may appear as FULL FIGURES (full face / full body) in interior spreads. Any other character declared by the brief is a STORY presence only — they may be narrated, voiced, and implied through partial presence (a hand, arm, shoulder, back-of-head, silhouette, distant unfocused figure, or a personal object that stands in for them). They must never be drawn with a full face or full body.
+- PARTIAL PRESENCE MUST STAY CONSISTENT: for every off-cover character, produce a "partialPresenceLock" describing exactly how their visible parts look every time they appear (skin tone, hand/arm, sleeve or outfit fragment, and an optional signature item like a ring, bracelet, scarf, or watch). The spread-level prompts will echo this lock, so it must be concrete and reusable.
+- SKIN-TONE DEFAULT FOR FAMILY: supporting cast skin tone defaults to plausibly matching the hero on the cover (same family ethnicity). Deviate ONLY if the brief explicitly declares a different ethnicity for that character.
+- Undeclared characters never appear, visually or otherwise.
 - Return ONLY strict JSON matching the schema in the user message.`;
 
 function formatCoverLocks(cover) {
@@ -62,10 +65,23 @@ function userPrompt(doc) {
   "supportingCastPolicy": {
     "declaredCast": ["named family members/friends that the brief explicitly provided"],
     "maxIncidentalCharacters": 2,
-    "rules": ["planner-guided introductions only, never invent named family members"]
+    "rules": ["planner-guided introductions only, never invent named family members"],
+    "castVisibility": "Only characters on the cover appear as full figures. Off-cover declared characters appear only in text and as partial presence (hand, shoulder, back-of-head, silhouette, or a personal object)."
   },
   "supportingCast": [
-    { "role": "e.g. mom|dad|sibling|friend|creature", "name": "string or null", "description": "visual description if they may appear" }
+    {
+      "role": "e.g. mom|dad|sibling|friend|creature",
+      "name": "string or null",
+      "onCover": false,
+      "description": "short description for text/voice color; full-figure appearance is forbidden when onCover=false",
+      "partialPresenceIdeas": ["a warm hand", "a silhouette in a doorway", "gardening gloves on a bench", "a familiar knitted scarf"],
+      "partialPresenceLock": {
+        "skinTone": "concrete phrase that is plausible for the hero's family (e.g. 'warm medium, same family as hero', 'fair with pink undertone, matching hero')",
+        "hand": "one specific sentence describing the hand/arm (age signals, nails, veins if relevant, finger shape) — reusable every spread",
+        "sleeve": "one specific sentence describing a sleeve, cuff or outfit fragment that will always be visible",
+        "signatureProp": "one small reusable accessory that always appears with the partial presence (ring, bracelet, watch, scarf color) — or null"
+      }
+    }
   ],
   "environmentAnchors": ["3-6 reusable visual anchors: palette cues, lighting cues, recurring props"],
   "palette": "one sentence about color palette and light logic",
@@ -105,11 +121,27 @@ async function createVisualBible(doc) {
   });
 
   const json = result.json || {};
+  const supportingCast = (Array.isArray(json.supportingCast) ? json.supportingCast : []).map(c => {
+    const lock = c?.partialPresenceLock || {};
+    return {
+      role: c?.role ? String(c.role) : null,
+      name: c?.name ? String(c.name) : null,
+      onCover: c?.onCover === true,
+      description: c?.description ? String(c.description) : '',
+      partialPresenceIdeas: Array.isArray(c?.partialPresenceIdeas) ? c.partialPresenceIdeas.map(String) : [],
+      partialPresenceLock: {
+        skinTone: lock.skinTone ? String(lock.skinTone) : '',
+        hand: lock.hand ? String(lock.hand) : '',
+        sleeve: lock.sleeve ? String(lock.sleeve) : '',
+        signatureProp: lock.signatureProp ? String(lock.signatureProp) : '',
+      },
+    };
+  });
   const visualBible = {
     hero: json.hero || null,
     outfitLocks: json.outfitLocks || null,
     supportingCastPolicy: json.supportingCastPolicy || null,
-    supportingCast: Array.isArray(json.supportingCast) ? json.supportingCast : [],
+    supportingCast,
     environmentAnchors: Array.isArray(json.environmentAnchors) ? json.environmentAnchors.map(String) : [],
     palette: String(json.palette || '').trim(),
     styleRules: Array.isArray(json.styleRules) ? json.styleRules.map(String) : [],

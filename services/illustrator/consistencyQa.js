@@ -161,6 +161,10 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "recurringItemConcerns": "<empty string, or a short note if a previously-introduced item (pet, toy, accessory) appears with a clearly different design from how it would be established in the book's reference cover>",
   "impliedParentSkinMismatch": <true ONLY if Image 2 shows visible skin on an implied adult's partial body (hands, forearms, legs, arms) AND that skin is clearly inconsistent with the hero child's skin tone on Image 1 (e.g. clearly different ethnicity or a large tone gap — such as dark brown adult hands with a fair-skinned child on the cover). false if no partial adult skin is visible, or skin matches plausibly for a parent and child, or comparison is unclear — when unclear, prefer false.>,
   "impliedParentSkinNotes": "<short note if impliedParentSkinMismatch is true, else empty string>",
+  "disembodiedLimb": <true ONLY if Image 2 shows a partial-presence limb (hand, arm, shoulder) that looks UNCANNY: a hand or arm floating in mid-frame with no visible path to a body, a limb that does not enter from a frame edge or from behind a foreground object, a limb whose off-frame body would be physically impossible for the staging, an extra/duplicated limb, a ghostly second arm, or a silhouette pasted at an obviously wrong depth/scale. false if any visible limb clearly continues off the edge of the frame in a believable way (wrist + forearm + sleeve continuing off-screen) and an off-frame body is plausible for the composition (e.g. parent seated beside the child, kneeling above, leaning over a railing). When unclear, prefer false.>,
+  "disembodiedLimbNotes": "<short note if disembodiedLimb is true (which limb, why it reads as floating), else empty string>",
+  "parentTurnedAway": <true ONLY if a mother or father appears in Image 2 (full figure OR partial presence — visible limb or silhouette) AND their body language is clearly disconnected from the hero child in a way that reads as unnatural for a children's book: the parent's back is turned to the child with no narrative reason, the parent is walking away from the child, the parent is looking off into empty space while the child is behind them, or (for partial presence) the implied hand/arm extends AWAY from the child instead of toward them. false if the parent is oriented toward the child, leaning in, holding the child, sharing the child's focus on a shared object, walking ALONGSIDE the child, leading the child by the hand in profile, or both facing a shared focus together (fireworks, sunset, cake). false if no parent is in the frame. When unclear, prefer false.>,
+  "parentTurnedAwayNotes": "<short note if parentTurnedAway is true (e.g. 'mother walking away from child with her back turned, child sitting behind looking at her'), else empty string>",
   "bathModestyOk": <true if the scene is not a bath/shower/swim modesty context, OR if it is, the child is modest per preschool picture-book standards (bubble cover, towel wrap, modest swimwear) — not naked with explicit detail and not fully dressed in street clothes submerged in water. false only on clear modesty violations.>,
   "bathModestyNotes": "<empty or short note if bathModestyOk is false>"
 }
@@ -211,6 +215,16 @@ function evaluateConsistencyResult(parsed) {
     const notes = (parsed.impliedParentSkinNotes || '').trim();
     issues.push(`Implied parent's visible skin does not match the hero child's skin on the cover${notes ? `: ${notes}` : ''}`);
     tags.push('implied_parent_skin_mismatch');
+  }
+  if (parsed.disembodiedLimb === true) {
+    const notes = (parsed.disembodiedLimbNotes || '').trim();
+    issues.push(`Uncanny partial presence — a limb appears without a plausibly anchored off-frame body${notes ? `: ${notes}` : ''}`);
+    tags.push('disembodied_limb');
+  }
+  if (parsed.parentTurnedAway === true) {
+    const notes = (parsed.parentTurnedAwayNotes || '').trim();
+    issues.push(`Parent is unnaturally facing away from the hero child${notes ? `: ${notes}` : ''}`);
+    tags.push('parent_turned_away');
   }
   if (parsed.bathModestyOk === false) {
     const bn = (parsed.bathModestyNotes || '').trim();

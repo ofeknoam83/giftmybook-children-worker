@@ -241,11 +241,48 @@ async function processOneSpread(params) {
 async function renderAllSpreads(doc) {
   const cover = await resolveCoverBase64(doc.cover);
 
-  // Cover presence flags reflect the cover image literally, not the brief.
-  // Without dedicated cover vision we default both to false; declared
-  // off-cover family is surfaced via `additionalCoverCharacters` so the
-  // illustrator may draw them even though they are not on the cover.
+  // Cover is the full visual cast. Declared characters in the brief who are
+  // NOT on the cover are story-only — allowed as partial presence (hand,
+  // shoulder, silhouette, back-of-head, distant unfocused figure) but never
+  // as a full face or full body figure. The string we send into the session
+  // is explicit about that so every interior turn inherits the same rule.
   const sessionCast = Array.isArray(doc.visualBible?.supportingCast) ? doc.visualBible.supportingCast : [];
+  const offCoverSessionCast = sessionCast.filter(c => (c?.description || c?.name || c?.role) && c?.onCover !== true);
+  const renderSessionLock = (c) => {
+    const lock = c?.partialPresenceLock || {};
+    const parts = [
+      lock.skinTone ? `skin=${lock.skinTone}` : '',
+      lock.hand ? `hand=${lock.hand}` : '',
+      lock.sleeve ? `sleeve=${lock.sleeve}` : '',
+      lock.signatureProp ? `signature=${lock.signatureProp}` : '',
+    ].filter(Boolean).join('; ');
+    return parts ? `    LOCK (must match every spread where this character is implied): ${parts}` : '';
+  };
+  const offCoverCastNote = offCoverSessionCast.length > 0
+    ? [
+      'OFF-COVER CAST (story-only; partial presence only — never full face or full body):',
+      ...offCoverSessionCast.flatMap(c => {
+        const label = [c.role, c.name ? `(${c.name})` : ''].filter(Boolean).join(' ') || 'supporting character';
+        return [
+          `  - ${label}: may appear only as a hand, arm, shoulder, back-of-head, silhouette, distant unfocused figure, or a personal object that stands in for them. Never a full face. Never a full body.`,
+          renderSessionLock(c),
+        ].filter(Boolean);
+      }),
+      'Skin tone of every implied family member must plausibly match the hero on the cover; no unexplained ethnicity mismatch.',
+      'Parent–child orientation (HARD — for any parent in frame, full figure OR partial presence):',
+      '  - The parent must be visibly engaged with the hero child: oriented toward them, eyes on them, sharing their focus, leaning in, holding hands, or walking alongside.',
+      '  - Never turn the parent\'s back to the child with no narrative reason. No walking away, no ignoring, no parent looking off into empty space while the child is behind them.',
+      '  - For partial presence: the implied hand/arm must reach TOWARD the child (offering, holding, steadying, pointing at a shared focus) — not away from the child.',
+      '  - Allowed exceptions: parent in profile leading the child by the hand, both facing a shared focus (fireworks, sunset, cake), parent kneeling beside the child reaching for something for them — in all of these the body language still reads as connected to the child.',
+      'Partial-presence anatomy (HARD — natural, never uncanny):',
+      '  - Any visible limb must enter from a clear frame edge (or behind a foreground object) and continue plausibly off-screen. NEVER a hand or arm floating in mid-frame with no path to a body.',
+      '  - The off-frame body must be physically plausible for the staging (seated beside, kneeling above, leaning in from a railing). The viewer must instantly read where the rest of the body is.',
+      '  - Show enough of the limb (wrist + forearm + start of elbow or sleeve continuing off-frame) that it is clearly attached to a real body. Bare disembodied hands are forbidden.',
+      '  - Silhouettes and back-of-head views must sit at a believable depth and scale relative to the hero. No floating ghosts, no double silhouettes, no pasted look.',
+      '  - Never add extra or duplicated limbs. One implied character contributes one set of limbs per spread.',
+      '  - If a clean partial presence cannot be staged naturally, prefer the signature object from the lock instead of a limb.',
+    ].join('\n')
+    : null;
   let session = createSession({
     coverBase64: cover.base64,
     coverMime: cover.mime,
@@ -253,10 +290,7 @@ async function renderAllSpreads(doc) {
     childAppearance: doc.visualBible?.hero?.physicalDescription || '',
     hasParentOnCover: false,
     hasSecondaryOnCover: false,
-    additionalCoverCharacters: sessionCast
-      .filter(c => c?.description)
-      .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
-      .join('; ') || null,
+    additionalCoverCharacters: offCoverCastNote,
     abortSignal: doc.operationalContext?.abortSignal,
   });
   await establishCharacterReference(session);

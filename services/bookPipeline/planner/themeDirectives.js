@@ -18,15 +18,24 @@
  * itself, not a handmade card or breakfast tray.
  */
 
+// Parent-centric themes where the parent is frequently NOT on the approved
+// cover. The visual cast is strictly limited to the cover, so the parent is
+// treated as a story presence — narrated, voiced, and implied through partial
+// presence (a hand, a silhouette, a waiting figure, a shared object) but not
+// drawn as a full face or full body figure in interior spreads.
+//
+// If a future book has the parent on the cover, this framing still works —
+// the cover itself becomes their full-figure reference for any spread that
+// needs it.
 const PARENT_SHARED_ADVENTURE = {
   framing:
-    "This book is a shared adventure between the child and the parent. The parent is a full co-hero — funny, brave, curious, with their own beats — not a passive recipient of a gift. The 'gift' is the memory of what they do together, not an object the child hands over.",
+    "This book is an adventure the child lives with the parent in mind — a journey that gathers meaning and returns to the parent. The parent is present throughout (voice, thought, anticipation, partial presence like a warm hand or waiting figure) but is NOT a visible full-figure co-hero unless the approved cover already shows them. The 'gift' is the shared memory or the journey itself, not an object handed over.",
   mustInclude: [
-    "the parent and child travel across at least 4 visually distinct real-world locations together",
-    "the parent has at least one moment where they lead the action (not just smile from the sidelines)",
-    "the child and parent share a running in-joke, signature move, or shared prop that evolves across the book",
+    "the child travels across at least 4 visually distinct real-world locations, each one collecting something that ties back to the parent",
+    "the parent is felt on every spread (thought, memory, voice, a small signature prop they love, a trait the child mirrors) even when not visually present",
     "at least one playful surprise that changes the plan (weather, detour, misread map, small disaster played for laughs)",
-    "the final payoff is a shared moment or shared triumph, not a card, gift, or breakfast-in-bed reveal",
+    "partial presence of the parent is welcome — a hand, a silhouette in a doorway, a back-of-head, a shared object — but never a full face or full body figure unless the cover already depicts them",
+    "the final payoff is a shared moment or shared triumph (a homecoming, a reveal, a hug seen from behind, a co-created thing) — not a card, gift, or breakfast-in-bed trope",
   ],
 };
 

@@ -36,13 +36,17 @@ async function checkSpread(params) {
     abortSignal,
   } = params;
 
-  const hasDeclaredExtraCast = typeof additionalCoverCharacters === 'string' && additionalCoverCharacters.trim().length > 0;
+  // Product rule: the cover defines the full visual cast. Off-cover
+  // characters (declared in the brief but not on the cover) may only appear
+  // as partial presence (hand, silhouette, back-of-head, distant unfocused
+  // figure). Any full adult face or full body figure not on the cover is a
+  // failure. We therefore do NOT pass an allowed-humans note; consistency
+  // QA flags every full non-hero human. `additionalCoverCharacters` is kept
+  // on the API for future use (e.g. when we add cover vision and can declare
+  // which adults actually appear on the cover), but intentionally ignored
+  // here.
+  void additionalCoverCharacters;
 
-  // NOTE: `hasSecondaryOnCover` means "the cover image literally shows a
-  // secondary human figure next to the hero". Without dedicated cover vision
-  // we default to false — being declared in the brief does NOT put someone on
-  // the cover. `qaAllowedHumansNote` independently allows declared off-cover
-  // humans to appear in spreads without being flagged as strangers.
   const [textQa, consistencyQa] = await Promise.all([
     verifySpreadText(imageBase64, expected, { spreadIndex, abortSignal }),
     checkSpreadConsistency(
@@ -51,7 +55,7 @@ async function checkSpread(params) {
       {
         characterDescription: hero,
         hasSecondaryOnCover: coverParentPresent === true,
-        qaAllowedHumansNote: hasDeclaredExtraCast ? additionalCoverCharacters : '',
+        qaAllowedHumansNote: '',
         abortSignal,
       },
     ).catch(err => ({

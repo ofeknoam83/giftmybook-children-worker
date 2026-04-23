@@ -28,6 +28,60 @@ function composeScene(doc, spread) {
     : '';
   const environment = (visualBible?.environmentAnchors || []).slice(0, 3).join('; ');
 
+  // Off-cover cast rule: anyone declared in the brief who is NOT on the
+  // approved cover may be present in the story but may NEVER be drawn as a
+  // full face or full body figure. Allowed: partial presence only (hand,
+  // arm, shoulder, back-of-head, silhouette, distant unfocused figure,
+  // shadow, or a personal object that stands in for them). This rule keeps
+  // identity consistent across the book without depending on an unreliable
+  // invented likeness.
+  const declaredOffCoverCast = (visualBible?.supportingCast || [])
+    .filter(c => (c?.description || c?.name || c?.role) && c?.onCover !== true);
+
+  function renderPartialPresenceLock(c) {
+    const lock = c?.partialPresenceLock || {};
+    const parts = [
+      lock.skinTone ? `skin tone: ${lock.skinTone}` : '',
+      lock.hand ? `hand/arm: ${lock.hand}` : '',
+      lock.sleeve ? `sleeve/outfit fragment: ${lock.sleeve}` : '',
+      lock.signatureProp ? `signature: ${lock.signatureProp}` : '',
+    ].filter(Boolean);
+    return parts.length > 0
+      ? `        Partial-presence LOCK (use EVERY time this character is implied; must match across all spreads): ${parts.join('; ')}.`
+      : '';
+  }
+
+  const offCoverCastBlock = declaredOffCoverCast.length > 0
+    ? [
+      'Off-cover cast rule (HARD):',
+      ...declaredOffCoverCast.flatMap(c => {
+        const label = [c.role, c.name ? `(${c.name})` : ''].filter(Boolean).join(' ');
+        const ideas = Array.isArray(c.partialPresenceIdeas) && c.partialPresenceIdeas.length > 0
+          ? ` Partial-presence ideas: ${c.partialPresenceIdeas.join(' / ')}.`
+          : '';
+        const lockLine = renderPartialPresenceLock(c);
+        return [
+          `  - ${label || 'supporting character'} is present in the story but is NOT on the cover. Render only as partial presence: a hand, arm, shoulder, back-of-head, silhouette, or a distant unfocused figure. Never a full face. Never a full body. A personal object (a favorite cup, a knitted scarf, a worn hat) may stand in for them.${ideas}`,
+          lockLine,
+        ].filter(Boolean);
+      }),
+      '  Any adult full face or full body figure not on the cover is forbidden.',
+      '  Skin tone of every implied family member MUST plausibly match the hero on the cover — no unexplained ethnicity mismatch.',
+      '  Parent–child orientation rule (HARD — applies to ANY parent in the frame, full figure OR partial presence):',
+      '    - Whenever a mother or father appears (visible body OR implied through a hand/arm/silhouette), they must be visibly engaged with the hero child: oriented toward the child, eyes on the child, sharing the child\'s focus on a shared object, leaning in, holding hands, or walking alongside.',
+      '    - The parent\'s back must NEVER be turned to the child with no narrative reason. No walking away from the child, no ignoring the child, no parent looking off into empty space while the child sits behind them.',
+      '    - For partial presence: the implied hand or arm must reach TOWARD the child (offering, holding, steadying, pointing at the same thing) — not extending away from the child.',
+      '    - Allowed natural exceptions: parent in profile leading the child forward by the hand, both parent and child facing the same shared focus (fireworks, a sunset, a cake), parent kneeling beside the child reaching for something for them. In all these the parent\'s body language still reads as connected to the child.',
+      '  Partial-presence anatomy rule (HARD — image must look natural, never uncanny):',
+      '    - Any visible limb (hand, arm, shoulder) MUST enter the frame from a clear edge (left, right, top, bottom, or behind a foreground object) and continue plausibly off-screen. Never a hand or limb floating in mid-frame with no path to a body.',
+      '    - The off-frame body MUST be physically plausible for the composition: e.g. a parent seated on the swing beside the child, kneeling just out of frame, leaning over the porch railing, sitting across the picnic blanket. The viewer should instantly read where the rest of the body is.',
+      '    - Show enough of the limb that it is unambiguously attached to a body — typically wrist + forearm + at least the start of the elbow or sleeve continuing off-frame. A bare floating hand is forbidden.',
+      '    - Silhouettes and back-of-head views must sit at a believable depth and scale relative to the hero — not pasted at the wrong distance, not hovering, not duplicated.',
+      '    - Never draw extra or duplicated limbs, ghostly second arms, or ambiguous body parts. One implied character contributes one set of limbs in any given spread.',
+      '    - If a clean partial presence cannot be staged naturally in this composition, prefer a personal object (the signature item from the lock) instead of a limb.',
+    ].join('\n')
+    : '';
+
   const lines = [
     `Focal action: ${spec.focalAction}.`,
     `Location: ${spec.location}.`,
@@ -38,6 +92,7 @@ function composeScene(doc, spread) {
     hero.outfitDescription ? `Hero outfit (locked to cover): ${hero.outfitDescription}` : '',
     environment ? `World anchors: ${environment}.` : '',
     priorAnchors,
+    offCoverCastBlock,
     spec.forbiddenMistakes?.length ? `Avoid: ${spec.forbiddenMistakes.join('; ')}.` : '',
   ].filter(Boolean);
 

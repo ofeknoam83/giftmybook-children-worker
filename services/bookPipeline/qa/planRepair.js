@@ -35,6 +35,19 @@ function renderCorrectionNote(issues, tags) {
   if (tags.includes('hero_identity_drift') || tags.includes('hero_face_mismatch') || tags.includes('outfit_mismatch')) {
     lines.push('Match the approved cover for hero face, hair, and outfit. Do not restyle the hero.');
   }
+  if (tags.includes('disembodied_limb')) {
+    lines.push(
+      'Remove any floating or disembodied limbs. If a partial-presence character is implied, the visible hand/arm MUST enter from a clear frame edge (or from behind a foreground object) with at least wrist + forearm + the start of the elbow or sleeve continuing off-screen, and the off-frame body must be physically plausible for the staging (seated beside the child, kneeling above, leaning over a railing). If you cannot stage that naturally, replace the limb with the character\'s signature object (cup, scarf, glasses, ring) instead.',
+    );
+  }
+  if (tags.includes('implied_parent_skin_mismatch')) {
+    lines.push('Any visible adult skin on partial-presence limbs must plausibly match the hero\'s family skin tone from the cover.');
+  }
+  if (tags.includes('parent_turned_away')) {
+    lines.push(
+      'Re-stage the parent so their body language is visibly engaged with the hero child: oriented toward the child, eyes on the child, leaning in, holding the child, walking alongside, or sharing the child\'s focus on a shared object. Never the parent\'s back to the child with no narrative reason. For partial presence, the implied hand/arm must reach TOWARD the child, not away.',
+    );
+  }
   return lines.join('\n');
 }
 
