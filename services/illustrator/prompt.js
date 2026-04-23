@@ -86,8 +86,9 @@ None. Generate a full-bleed illustration with NO text overlay for this spread.`;
   }
 
   const lines = ['### ON-IMAGE TEXT (render exactly as written — no paraphrasing, no duplicates)'];
-  lines.push(`LEFT TEXT: ${hasLeft ? `"${leftText.trim()}"` : '(none — leave the left half text-free)'}`);
-  lines.push(`RIGHT TEXT: ${hasRight ? `"${rightText.trim()}"` : '(none — leave the right half text-free)'}`);
+  lines.push('ONE-SIDE-ONLY RULE: text appears on EXACTLY ONE side of this spread. The opposite side must stay entirely text-free illustration. Do NOT mirror, duplicate, or split the caption across sides.');
+  lines.push(`LEFT TEXT: ${hasLeft ? `"${leftText.trim()}"` : '(none — the LEFT half must be text-free illustration)'}`);
+  lines.push(`RIGHT TEXT: ${hasRight ? `"${rightText.trim()}"` : '(none — the RIGHT half must be text-free illustration)'}`);
   return lines.join('\n');
 }
 

@@ -345,7 +345,7 @@ describe('validateStoryText', () => {
     expect(issues.some(i => i.type === 'word_count' && i.spread === 1)).toBe(true);
   });
 
-  test('flags insufficient visual-only spreads', () => {
+  test('flags spreads with text on both sides', () => {
     const plan = {
       entries: Array.from({ length: 12 }, (_, i) => ({
         type: 'spread',
@@ -355,7 +355,39 @@ describe('validateStoryText', () => {
       })),
     };
     const { issues } = validateStoryText(plan, 30);
-    expect(issues.some(i => i.type === 'visual_spreads')).toBe(true);
+    const bothSides = issues.filter(i => i.type === 'text_on_both_sides');
+    expect(bothSides.length).toBe(12);
+    expect(bothSides[0].spread).toBe(1);
+  });
+
+  test('passes when every spread has text on exactly one side', () => {
+    const plan = {
+      entries: Array.from({ length: 12 }, (_, i) => ({
+        type: 'spread',
+        spread: i + 1,
+        left: { text: i % 2 === 0 ? 'Left-side beat.' : null },
+        right: { text: i % 2 === 0 ? null : 'Right-side beat.' },
+      })),
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'text_on_both_sides')).toBe(false);
+    expect(issues.some(i => i.type === 'empty_spread')).toBe(false);
+  });
+
+  test('flags a fully empty spread', () => {
+    const plan = {
+      entries: [
+        { type: 'spread', spread: 1, left: { text: null }, right: { text: null } },
+        ...Array.from({ length: 11 }, (_, i) => ({
+          type: 'spread',
+          spread: i + 2,
+          left: { text: 'Short.' },
+          right: { text: null },
+        })),
+      ],
+    };
+    const { issues } = validateStoryText(plan, 30);
+    expect(issues.some(i => i.type === 'empty_spread' && i.spread === 1)).toBe(true);
   });
 
   test.each([

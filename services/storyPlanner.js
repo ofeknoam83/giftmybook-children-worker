@@ -197,7 +197,7 @@ const RHYTHM_RULE = `RHYTHM — these books are READ ALOUD by parents. Every lin
 - ONE-WORD or TWO-WORD sentences are powerful when earned: "Silence." / "Not yet." / "Almost." Use sparingly — max 2 per story.
 - The LAST LINE of spread 13 must be the most beautiful sentence in the entire book. It should feel inevitable — like the only possible ending. A parent should want to read it twice.
 - At least ONE line in the story must be memorable enough that a parent would quote it at dinner — not because it's wise, but because it's perfectly said.
-- PACING WITHIN SPREADS: The left page sets up. The right page lands. Don't put all the energy on one side. The page turn between left and right is a breath; the page turn between spreads is a heartbeat.`;
+- PACING ACROSS SPREADS: Each spread carries its text on EXACTLY ONE side (left OR right, never both). The empty side is reserved for the illustration. Pacing happens between spreads, not within a spread. Alternate sides across the book so the reader's eye moves; place page-turn hooks on the right side of a spread, and use the left side for opening beats or landings.`;
 
 function getAgeAppropriateFallbackObject(age) {
   const a = Number(age) || 5;
@@ -1366,18 +1366,24 @@ function validateStoryText(storyPlan, maxWordsPerSpread) {
     }
   }
 
-  const visualBreathingSpreads = spreads.filter((s) => !s.left?.text || !s.right?.text).length;
-  if (spreads.length > 0 && visualBreathingSpreads < Math.max(2, Math.ceil(spreads.length * 0.25))) {
-    issues.push({
-      type: 'visual_spreads',
-      message: `Only ${visualBreathingSpreads} spreads leave one side visual. Picture books need more visual breathing room.`,
-    });
-  }
-
-  // All spreads must have text — no visual-only spreads allowed
-  const emptySpread = spreads.find(s => !s.left?.text && !s.right?.text);
-  if (emptySpread) {
-    issues.push({ spread: emptySpread.spread, type: 'empty_spread', message: `Spread ${emptySpread.spread} has no text on either page — all spreads must have text` });
+  // One-side text rule — each spread's text must live on EXACTLY one side
+  // (left OR right, never both). The opposite side carries the illustration.
+  for (const s of spreads) {
+    const hasLeft = !!(s.left?.text && s.left.text.trim());
+    const hasRight = !!(s.right?.text && s.right.text.trim());
+    if (hasLeft && hasRight) {
+      issues.push({
+        spread: s.spread,
+        type: 'text_on_both_sides',
+        message: `Spread ${s.spread} has text on BOTH left and right — text must be on only one side per spread`,
+      });
+    } else if (!hasLeft && !hasRight) {
+      issues.push({
+        spread: s.spread,
+        type: 'empty_spread',
+        message: `Spread ${s.spread} has no text on either page — all spreads must have text on one side`,
+      });
+    }
   }
 
   if (spreads.length < 10) {
