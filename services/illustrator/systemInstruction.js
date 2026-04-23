@@ -142,6 +142,9 @@ PANORAMA LOCK (CRITICAL — PRINT IS ONE IMAGE CUT IN HALF FOR BINDING):
 - **REQUIRED:** unified lighting, atmosphere, ground plane, and horizon across the **entire** width; objects and scenery flow naturally across the middle — the spine is invisible in the art.
 - If the scene includes a gate, path, or figure near center, **design the composition** so continuity reads as one space (e.g. gate straddles the viewing area naturally, path curves through), not as "left page scene + right page scene".
 
+SHOT VARIETY (every book):
+- When the story revisits the **same** setting on the next spread, keep the **place** consistent but **not** the same photograph: follow the SCENE for distance, angle, and focal action. Avoid near-duplicate compositions versus the prior spread unless the SCENE explicitly calls for it.
+
 IN-WORLD READABLE TEXT (STRICT):
 - The ONLY allowed text on the image is the manuscript caption on the CHOSEN SIDE given in the per-spread prompt — character-for-character identical to that passage.
 - **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). Describe places without inviting the model to render type.`
@@ -320,6 +323,10 @@ function buildNamedLocationsSection(locationPalette) {
   }
   lines.push('');
   lines.push('When a spread prompt says "Setting: <palette name>", render THAT specific place — not a generic version of the category. If the SCENE block in the prompt names the palette place explicitly (e.g., "at the harbor fish market at dawn"), it is mandatory to include it visibly.');
+  lines.push('');
+  lines.push('### SHOT VARIETY (same place ≠ same photograph)');
+  lines.push('Continuity means **environment**: same architecture, materials, signature props, and palette anchors — not identical camera distance, angle, or hero placement every time.');
+  lines.push('When multiple spreads use the same named place, follow the **per-spread SCENE** for framing and focal action. **Avoid** near-duplicate compositions versus the immediately previous spread unless the SCENE explicitly calls for a matched beat (rare).');
   return lines.join('\n');
 }
 

@@ -76,6 +76,34 @@ describe('buildSystemInstruction — panorama / no diptych', () => {
   });
 });
 
+describe('buildSystemInstruction — shot variety', () => {
+  test('COMPOSITION includes global SHOT VARIETY guidance', () => {
+    const out = buildSystemInstruction({
+      hasParentOnCover: false,
+      hasSecondaryOnCover: false,
+      theme: 'birthday',
+    });
+    expect(out).toMatch(/SHOT VARIETY/);
+    expect(out).toMatch(/same setting|revisits/i);
+  });
+
+  test('NAMED LOCATIONS section repeats shot variety when palette present', () => {
+    const out = buildSystemInstruction({
+      hasParentOnCover: false,
+      hasSecondaryOnCover: false,
+      theme: 'mothers_day',
+      locationPalette: {
+        palette: [
+          { id: 'harbor', name: 'the old harbor at dawn', visual_anchors: ['rust red crane', 'wooden pier'] },
+        ],
+        beatAssignments: [{ spread: 1, location_id: 'harbor' }, { spread: 2, location_id: 'harbor' }],
+      },
+    });
+    expect(out).toMatch(/SHOT VARIETY \(same place/);
+    expect(out).toMatch(/near-duplicate/i);
+  });
+});
+
 describe('buildSystemInstruction — IMPLIED_PARENT skin tone lock', () => {
   function countSkinLocks(text) {
     return (text.match(/SKIN TONE LOCK \(implied parent\):/g) || []).length;

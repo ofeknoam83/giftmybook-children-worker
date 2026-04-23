@@ -100,7 +100,7 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('The story text for spread 1 goes here.');
     sections.push('Two or four lines of AABB couplets.');
     sections.push('SCENE:');
-    sections.push('A single paragraph of 40-70 words describing what the illustrator should draw for this spread. Always start by naming the palette location (exactly as written in the user prompt). Describe the light, time of day, the hero\'s body action, their expression, 2-3 concrete visual anchors, and any objects the TEXT names. Never mention style, aspect ratio, captions, or on-image text — the illustrator handles those. Never describe a family member\'s face; reference them only via hand / shoulder / silhouette.\n');
+    sections.push('A single paragraph of 40-70 words describing what the illustrator should draw for this spread. Always start by naming the palette location (exactly as written in the user prompt). Include a clear **viewpoint / framing** in plain language (e.g. wide establishing, medium, closer on the hero, low angle, looking toward a landmark). If this spread shares its palette location with the **previous** spread, change at least two of: distance to the hero, camera height, viewing direction, or dominant foreground — so the illustration is not a near-duplicate. Describe the light, time of day, the hero\'s body action, their expression, 2-3 concrete visual anchors, and any objects the TEXT names. Never mention art style, aspect ratio, captions, or on-image text. Never describe a family member\'s face; reference them only via hand / shoulder / silhouette.\n');
     sections.push('---SPREAD 2---');
     sections.push('TEXT:');
     sections.push('...');
@@ -115,7 +115,7 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('TEXT:');
     sections.push('<revised story text>');
     sections.push('SCENE:');
-    sections.push('<single paragraph of 40-70 words of art direction — must match the TEXT and lock the palette location>\n');
+    sections.push('<single paragraph of 40-70 words of art direction — must match the TEXT, lock the palette location, and include viewpoint/framing; when location matches the prior spread, vary distance, angle, or foreground as required>\n');
     sections.push('Preserve the total number of spreads. When you change the TEXT, you MUST rewrite the SCENE to match. Never drop the SCENE block. Fix only the issues identified in the feedback; keep everything that already works.');
   }
 

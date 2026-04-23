@@ -68,6 +68,7 @@ const { CostTracker } = require('./services/costTracker');
 const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
+const { sceneHasFramingHint } = require('./services/writer/sceneFramingHint');
 
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
@@ -530,7 +531,7 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
   const subtitle = `${THEME_SUBS[theme] || 'A story'} for ${childName}`;
 
   // Build spread entries — split text into left/right pages
-  const spreadEntries = spreads.map((s) => {
+  const spreadEntries = spreads.map((s, spreadIdx) => {
     const lines = (s.text || '').split('\n').filter(l => l.trim());
     let leftText, rightText;
     if (lines.length >= 4) {
@@ -557,6 +558,8 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
     // NAMED LOCATIONS section can keep continuity across spreads even if the
     // writer forgot to name the location inside the scene paragraph.
     const beat = beatsBySpread.get(s.spread);
+    const prevSpread = spreadIdx > 0 ? spreads[spreadIdx - 1] : null;
+    const prevBeat = prevSpread ? beatsBySpread.get(prevSpread.spread) : null;
     const anecdotesForSpread = manifestBySpread.get(s.spread) || [];
     const promptParts = [
       `Illustration for spread ${s.spread} of a ${theme} children's picture book.`,
@@ -569,6 +572,14 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
       promptParts.push(`Scene: ${String(beat.description).slice(0, 900)}`);
     } else {
       promptParts.push(`Scene: ${[leftText, rightText].filter(Boolean).join(' ').slice(0, 900)}`);
+    }
+    const loc = beat?.location && String(beat.location).trim();
+    const prevLoc = prevBeat?.location && String(prevBeat.location).trim();
+    if (loc && prevLoc && loc === prevLoc) {
+      const sceneForHint = writerScene || (beat?.description ? String(beat.description) : '') || [leftText, rightText].filter(Boolean).join(' ');
+      if (!sceneHasFramingHint(sceneForHint)) {
+        promptParts.push('Vary camera: use a clearly different distance or angle from the previous spread in this same setting.');
+      }
     }
     if (anecdotesForSpread.length > 0) {
       const anecdoteStrs = anecdotesForSpread.map(a => `"${a.anecdote_value}" visibly shown as ${a.use}`).join('; ');

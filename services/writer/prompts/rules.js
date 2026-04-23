@@ -21,6 +21,7 @@ const RULES_BY_TIER = {
       'Imagery must match the time of day — no moon at noon, no sunrise at bedtime.',
       'NARRATIVE FLOW: Each spread must connect to the previous. A 3-year-old must be able to follow every transition. Do NOT write a slideshow of unrelated activities.',
       'SETTING COHERENCE: Do NOT invent unusual compound-noun locations ("bath shop", "swim play spot", "hall rug seat") just to rhyme. Ordinary single-use places (meadow, stream, kitchen) are fine on a journey. If the characters change locations, narrate the transition in one line so the reader tracks where they are.',
+      'VISUAL PROGRESSION (for illustrations): Each spread must advance what the reader can **see** — a new action, a new zone of the place, a time or weather shift, or a prop introduced or paid off. Avoid interchangeable stanzas that would paint the same tableau twice.',
     ],
     language: [
       'Simple, fun sentences — parents read this aloud, so it must be easy AND enjoyable.',
@@ -77,6 +78,7 @@ const RULES_BY_TIER = {
       'Imagery must match the time of day — no moon at noon, no sunrise at bedtime.',
       'NARRATIVE FLOW: Each spread must connect to the previous. Do NOT write a slideshow of unrelated activities. The reader should always know WHERE the characters are and WHY.',
       'SETTING COHERENCE: Do NOT invent unusual compound-noun locations ("bath shop", "swim play spot", "hall rug seat") just to rhyme. Ordinary single-use places (park, stream, kitchen) are fine on a journey. If the characters change locations, narrate the transition in one line so the reader tracks where they are.',
+      'VISUAL PROGRESSION (for illustrations): Each spread must advance what the reader can **see** — a new action, a new zone of the place, a time or weather shift, or a prop introduced or paid off. Avoid interchangeable stanzas that would paint the same tableau twice.',
     ],
     language: [
       'Simple, clear sentences that a 4-year-old can follow on first listen.',

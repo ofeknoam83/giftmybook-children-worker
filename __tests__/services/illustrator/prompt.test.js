@@ -7,7 +7,7 @@ jest.mock('../../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(),
 }));
 
-const { buildCorrectionTurn } = require('../../../services/illustrator/prompt');
+const { buildCorrectionTurn, buildSpreadTurn } = require('../../../services/illustrator/prompt');
 
 const base = {
   spreadIndex: 2,
@@ -15,6 +15,18 @@ const base = {
   leftText: 'They pass the pond, where two ducks dip and glide.',
   rightText: 'Vivienne points and sings, and Mama sings beside.',
 };
+
+describe('buildSpreadTurn — shot variety reminder', () => {
+  test('REMINDERS include shot variety line', () => {
+    const out = buildSpreadTurn({
+      spreadIndex: 3,
+      scene: 'A calm pond at midday.',
+      text: 'The ducks glide by.',
+    });
+    expect(out).toMatch(/Shot variety/i);
+    expect(out).toMatch(/framing|angle/i);
+  });
+});
 
 describe('buildCorrectionTurn — tag directives', () => {
   test('text_in_center_band adds a delete-hallucinated-words directive', () => {

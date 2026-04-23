@@ -849,6 +849,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## PLOT ↔ ILLUSTRATION (paintable beats)\n`);
     sections.push(`Every spread's TEXT must describe a **concrete story moment** — a specific action, interaction, discovery, or turn that naturally belongs in that spread's assigned palette location. Avoid vague mood-only lines that could swap between spreads without changing the story.`);
     sections.push(`The emotional arc should **progress**: new situations, time or weather shifts, props introduced or paid off, relationship beats that land — so spreads are not interchangeable "nice day" stanzas. If a spread does not advance something the reader can **see**, rewrite it.`);
+    sections.push(`Each SCENE block must describe a **different visible moment** from the prior spread — not the same pose and framing with new rhyme text. When two consecutive spreads share a palette location, the SCENE must still change sub-area, action, and **camera viewpoint** so the art does not look like a duplicate spread.`);
     sections.push(`The illustrator only has your words: concrete beats produce beautiful, specific art; abstraction produces generic stock scenes.`);
 
     sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
@@ -1020,7 +1021,7 @@ function appendLocationPaletteSection(sections, plan) {
   sections.push(``);
   sections.push(`Rules for using the palette:`);
   sections.push(`- When a beat below lists a {location: ...}, BOTH the TEXT and SCENE for that spread must take place there. No drift.`);
-  sections.push(`- Consecutive spreads that share a location should feel continuous — the reader stays in the same place; the light, weather, sounds all carry over.`);
+  sections.push(`- Continuity means **same place and same locked anchors** — not the same illustration twice. Consecutive spreads that share a location should feel continuous in story time (light, weather, sound may carry over), but each SCENE must show a **different slice** of the moment: different action, micro-zone of the space, or prop beat — and a **different viewpoint** (see SCENE RULES). Never reuse the same composition as the prior spread.`);
   sections.push(`- When the location changes between adjacent spreads, the TEXT must narrate the transition in a single line so the reader never loses the thread.`);
   sections.push(`- Never invent a new location outside the palette. Never use a generic "home" / "house" / "living room" / "supermarket" as a setting for a spread that has a palette location assigned.`);
 }
@@ -1045,6 +1046,7 @@ function appendSceneRulesSection(sections, options = {}) {
   sections.push(`- What the hero child is DOING in the moment — concrete body action that matches the TEXT (reaching up, crouching over something, running, holding, tasting).`);
   sections.push(`- The emotion on the hero's face in one or two words ("eyes wide with delight", "nose scrunched").`);
   sections.push(`- Two or three tangible visual anchors you borrow from the palette entry's anchor list or invent for continuity.`);
+  sections.push(`- A **VIEWPOINT / FRAMING** clause every spread — plain language only (e.g. wide shot of the whole plaza, medium on the hero at the fountain, low angle toward the clock tower, over-the-shoulder toward the gate, closer framing on hands and object). This is how we avoid 13 near-identical compositions.`);
   sections.push(`- Any objects, animals, or recurring props that appear in the TEXT (so the illustrator can plant them in the right place).`);
   sections.push(`- The **same plot beat** as the TEXT: same cause-and-effect, same actions and props — in visually specific language (who, what, where, light). The SCENE earns the illustration; it must not read like a generic stock photo when the TEXT already implies something more specific.`);
   sections.push(``);
@@ -1054,7 +1056,8 @@ function appendSceneRulesSection(sections, options = {}) {
   sections.push(`- **No readable business or storefront copy in the SCENE.** Do not invent shop names, bakery or bookstore lettering, or phrases like "a sign reading …". The illustrator must not paint words in the environment. Describe retail streets generically: warm window glow, striped awnings, blurred distant shapes, baskets of goods without legible labels.`);
   sections.push(`- Never describe on-image manuscript captions (the illustrator places the read-aloud TEXT separately). Do not instruct painted signage, posters, chalkboards, or labels with words — those invite OCR failures.`);
   sections.push(`- **One continuous panorama:** The SCENE must read as a **single** wide outdoor/indoor space flowing across the spread — not "on the left page X, on the right page Y" as two separate compositions. Describe one unified moment (path, gate, garden) so the illustrator paints **one** image later split for printing, not two pictures side-by-side.`);
-  sections.push(`- Never describe the book's style ("Pixar-style", "3D render"), the aspect ratio, or framing instructions — just describe the moment and the location.`);
+  sections.push(`- **Same location as the previous spread?** If the beat list shows the same {location: ...} on this spread and the one before, you MUST change **at least two** of: distance to the hero (wide vs closer), camera height (eye level vs low vs high), viewing direction / which landmark faces camera, or dominant foreground vs midground — while keeping palette anchors consistent. Do not paste the prior SCENE with one word changed.`);
+  sections.push(`- Never describe art style ("Pixar-style", "3D render") or aspect ratio. Viewpoint words (wide, closer, low angle, over-the-shoulder) are required; they describe the moment, not technical metadata.`);
   sections.push(`- No contradictions with the TEXT. If the TEXT says the child is laughing, don't say they're crying. If the TEXT is outdoors, the SCENE is outdoors.`);
   sections.push(`- **Bathtub / bath time:** If the child is in the tub, do NOT describe them wearing their usual day outfit (overalls, jeans, dress) in the water. Describe **thick bubble-bath foam** piled high so it is clearly bath time while shoulders, arms, and face stay visible — modest, age-appropriate, no nudity, no bare-chest detail. You may instead describe stepping in/out with a **towel wrapped** around the torso. Never use words like naked or nude.`);
   if (parentGiftTheme) {
