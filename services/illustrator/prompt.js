@@ -95,7 +95,8 @@ ${scene.trim()}`
 `### REMINDERS
 - Keep the hero child and any on-cover characters identical to the cover and to the approved spreads you've already generated in this session.
 - Text rule for this spread: render the caption on the ${side.toUpperCase()} side ONLY. The ${oppositeSide(side).toUpperCase()} side and the center band must be completely text-free. Text must be CHARACTER-FOR-CHARACTER identical to what is listed above — no duplicates, no "the end", no extras.
-- One hero, one moment, one seamless painting.`
+- One hero, one moment, **one continuous panoramic illustration** (single wide shot). Do NOT compose this as two different scenes side-by-side. No vertical seam, no lighting or palette break down the middle, no object or person truncated at center as if two images were stitched.
+- The book printer will crop this **one** image into two pages — you must paint **one** unified environment edge to edge.`
   );
 
   if (correctionNote && correctionNote.trim()) {
@@ -219,6 +220,16 @@ function buildTagDirectives(tags, opts) {
   }
   if (set.has('missing_word') || set.has('spelling_mismatch')) {
     out.push(`Render the TEXT character-for-character identical to the passage above on the ${side.toUpperCase()} side. No paraphrasing, no dropped words, no added words.`);
+  }
+  if (set.has('implied_parent_skin_mismatch')) {
+    out.push(
+      'Any visible skin on the implied parent (hands, forearms, legs, arms) MUST match the hero child\'s skin tone and undertone from the BOOK COVER — same family, same household. Re-render those partial-body areas to align with the cover child; keep the parent\'s face hidden per policy.',
+    );
+  }
+  if (set.has('split_panel')) {
+    out.push(
+      'The image looked like TWO illustrations stitched together (diptych) with a visible vertical seam or mismatched halves. Re-render as ONE seamless wide panorama: identical lighting and atmosphere across the full width, one ground plane, one continuous background — no seam at the vertical center, no abrupt crop of props or people at mid-frame. Think one cinematic still, not two pages.',
+    );
   }
 
   return out;

@@ -19,6 +19,19 @@ describe('buildCharacterPrompt', () => {
     expect(prompt).toContain('family-friendly');
   });
 
+  test('bath scene uses modest water guidance instead of street outfit lock', () => {
+    const prompt = buildCharacterPrompt(
+      'Warm bathroom, child stands in a bathtub with rubber duck and thick soap bubbles',
+      'pixar_premium',
+      'Ellis',
+      'Mama reached for soap while Ellis stood tall in the tub.',
+      'brown overalls over a white tee, sneakers',
+      'young boy, brown hair, blue eyes',
+    );
+    expect(prompt).toMatch(/BATH \/ WATER|bubble|BATH\/WATER MODE/i);
+    expect(prompt).not.toContain('FORBIDDEN OUTFIT CHANGES: Even if the story describes water');
+  });
+
   test('includes child name when provided', () => {
     const prompt = buildCharacterPrompt('scene', 'watercolor', null, 'Emma');
     expect(prompt).toContain('Emma');

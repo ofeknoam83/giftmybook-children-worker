@@ -94,7 +94,7 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
       const txt = extractGeminiResponseText(data);
       const parsed = parseJsonBlock(txt);
       if (!parsed) { lastErr = new Error('Consistency QA unparseable response'); await sleep(500 * attempt); continue; }
-      return evaluateResult(parsed);
+      return evaluateConsistencyResult(parsed);
     } catch (err) {
       lastErr = err;
       await sleep(500 * attempt);
@@ -122,16 +122,18 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "artStyleIs3DPixar": <true if the spread is rendered in a 3D Pixar CGI style matching the cover — photorealistic soft render, volumetric lighting, subsurface skin scattering, warm palette. False if it drifts into 2D flat, watercolor, pencil sketch, gouache, anime cel, storybook ink, paper cutout, or any other 2D style.>,
   "artStyleNotes": "<short description if artStyleIs3DPixar is false>",
   "heroCount": <integer — how many copies of the hero child appear in the spread. 1 is correct; 2+ is a duplicated-hero bug>,
-  "splitPanel": <true if the spread looks like two separate scenes with a visible seam / diptych / before-after layout>,
+  "splitPanel": <true if the spread looks like two separate illustrations joined together: visible vertical seam or "hard line" down the middle; abrupt change in lighting, color grade, perspective, or art style at center; background elements that do not align across the midline; a person or large object cut off unnaturally at center as if the right half were a different render; two different skies/horizons meeting at center. FALSE for a single coherent wide scene where the middle is just open garden/path/sky with natural continuity.>,
   "explicitStranger": <true ONLY if the spread shows a non-child human's FULL FACE or a FULL-BODY adult figure that is NOT visible on the cover. ${hasSecondaryOnCover ? 'Adults visible on the cover are allowed to appear fully — they are NOT strangers.' : 'When no adult is on the cover, a fully-rendered adult (face visible, or full body figure) is a failure.'} Hands, arms, back-of-head, a shoulder, or a cropped torso with the face out of frame are NOT explicit — do not flag those as strangers even if the adult is not on the cover. Implied/partial adult presence is expected whenever the spread text references a parent or family member.>,
   "strangerDescription": "<short description of the explicit stranger (full face or full body), or empty>",
-  "recurringItemConcerns": "<empty string, or a short note if a previously-introduced item (pet, toy, accessory) appears with a clearly different design from how it would be established in the book's reference cover>"
+  "recurringItemConcerns": "<empty string, or a short note if a previously-introduced item (pet, toy, accessory) appears with a clearly different design from how it would be established in the book's reference cover>",
+  "impliedParentSkinMismatch": <true ONLY if Image 2 shows visible skin on an implied adult's partial body (hands, forearms, legs, arms) AND that skin is clearly inconsistent with the hero child's skin tone on Image 1 (e.g. clearly different ethnicity or a large tone gap — such as dark brown adult hands with a fair-skinned child on the cover). false if no partial adult skin is visible, or skin matches plausibly for a parent and child, or comparison is unclear — when unclear, prefer false.>,
+  "impliedParentSkinNotes": "<short note if impliedParentSkinMismatch is true, else empty string>"
 }
 
 Be strict. A slight style drift (e.g., flatter shading, missing subsurface glow) is still a fail on artStyleIs3DPixar. Duplicated heroes or diptych seams are always a fail. Return ONLY the JSON.`;
 }
 
-function evaluateResult(parsed) {
+function evaluateConsistencyResult(parsed) {
   const issues = [];
   const tags = [];
 
@@ -170,6 +172,11 @@ function evaluateResult(parsed) {
     issues.push(`Recurring item concern: ${parsed.recurringItemConcerns}`);
     tags.push('recurring_item_drift');
   }
+  if (parsed.impliedParentSkinMismatch === true) {
+    const notes = (parsed.impliedParentSkinNotes || '').trim();
+    issues.push(`Implied parent's visible skin does not match the hero child's skin on the cover${notes ? `: ${notes}` : ''}`);
+    tags.push('implied_parent_skin_mismatch');
+  }
 
   return {
     pass: issues.length === 0,
@@ -178,4 +185,4 @@ function evaluateResult(parsed) {
   };
 }
 
-module.exports = { checkSpreadConsistency };
+module.exports = { checkSpreadConsistency, evaluateConsistencyResult };

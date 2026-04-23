@@ -27,6 +27,19 @@ const IMPLIED_PRESENCE_ANCHORING_RULE = `ANCHORING RULE (when showing a hand, ar
 - If in doubt, prefer option (b) — a partial shoulder or cropped torso — over a long reaching arm, because it's easier to read.`;
 
 /**
+ * Implied parent's visible skin must match the hero child (family-plausible).
+ * @param {string} [childAppearance]
+ * @returns {string}
+ */
+function impliedParentSkinToneLock(childAppearance) {
+  const tail = childAppearance
+    ? ` The child's reference also states: ${childAppearance} — apply the same skin tone and undertone to any visible implied-parent skin.`
+    : '';
+  return `SKIN TONE LOCK (implied parent):
+Any visible skin on the implied mother, father, or other referenced adult (hands, forearms, legs, arms, visible neck) MUST match the hero child's skin tone and undertone as rendered on the BOOK COVER — family-plausible, same household. Do not render a different ethnicity or a clearly mismatched skin color for partial parent bodies versus the child.${tail}`;
+}
+
+/**
  * @typedef {Object} SystemInstructionOpts
  * @property {boolean} hasParentOnCover - Is the themed parent (mother / father) on the cover?
  * @property {boolean} [hasSecondaryOnCover] - Is ANY non-child person on the cover? Default: derived from additionalCoverCharacters.
@@ -82,7 +95,20 @@ Never drift toward 2D flat, watercolor, pencil sketch, gouache, paper cutout, an
 The hero child on the cover is the ONLY hero of every spread. Preserve their face, ethnicity, skin tone, eye color, hair color + hairstyle, and body proportions EXACTLY as rendered on the cover.
 ${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
 Outfit: the hero wears the SAME outfit they wear on the cover across every spread, unless the story prompt explicitly calls for a costume swap (pajamas for bedtime, swimwear at a pool, a coat in the snow). When the outfit swaps, keep the palette and silhouette consistent with the cover look.
+**Bathtub / shower:** the usual street outfit does NOT apply while the child is in bath water — see ### BATH, SHOWER, AND SWIMMING below (bubbles/towel; never fully clothed in the tub).
 Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, never montages of the hero doing multiple things.`
+  );
+
+  sections.push(
+`### BATH, SHOWER, AND SWIMMING (MODEST — MODEL-SAFE)
+When the scene places the hero in a **bathtub**, **shower**, or **swimming pool**:
+- NEVER depict the child naked, nude, or with explicit bare chest, bare bottom, or genital detail. Keep everything **PG**, preschool-picture-book modest — same standard as broadcast family animation.
+- NEVER submerge the hero in water while still wearing their **usual street outfit** (overalls, jeans, dresses, sneakers, layered day clothes) — that reads absurd and is forbidden. Do not "solve" modesty by drowning the outfit.
+- **Bathtub / bubble bath (preferred):** Fill the tub with **thick, opaque soap foam** (bubble bath) piled generously so the scene clearly reads as bath time. Show **face, expression, wet hair, arms to about mid-forearm, maybe hands and toy**; let **foam hide torso, hips, and legs** below the waterline. Bubbles should be **milky and dense**, not a few tiny clear circles. Rubber duck, toy boat, splashes are welcome.
+- **Stepping in or out:** A **large towel** wrapped around the torso and tucked — child can wear that beat instead of foam if the moment is about drying off or wrapping up.
+- **Public pool / swim lesson:** Simple **modest swimwear** is allowed — e.g. one-piece suit, or swim shirt with trunks — solid kid-friendly colors, not teen/adult fashion styling. Still no explicit bare chest for little kids if avoidable.
+- **Shower:** Prefer **steam**, **silhouette**, **frosted glass**, or **towel-wrapped** beats; avoid detailed wet bare skin.
+Face, hair, skin tone, and proportions still match the cover reference on every spread — only **coverage for this water beat** changes.`
   );
 
   // ── Who else can appear ────────────────────────────────────────────────────
@@ -95,6 +121,7 @@ Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, ne
     parentShort,
     parentOutfit,
     additionalCoverCharacters,
+    childAppearance,
   }));
 
   sections.push(
@@ -107,7 +134,13 @@ If an object, animal, or secondary character appears in one spread, it MUST keep
 
   sections.push(
 `### COMPOSITION
-One hero. One moment. One seamless painting — no split panels, no visible seams, no diptychs, no before/after layouts, no comic grids. Full bleed 16:9. The scene should fill the frame with a clear focal point and cinematic depth.`
+One hero. One moment. One seamless painting — no split panels, no visible seams, no diptychs, no before/after layouts, no comic grids. Full bleed 16:9. The scene should fill the frame with a clear focal point and cinematic depth.
+
+PANORAMA LOCK (CRITICAL — PRINT IS ONE IMAGE CUT IN HALF FOR BINDING):
+- This spread is **one** continuous wide photograph / film frame. The left and right halves are **not** two separate illustrations pasted together.
+- **FORBIDDEN:** a sharp vertical seam, gutter line, color shift, lighting jump, perspective change, or style change exactly down the middle; backgrounds that "restart" at center; a bench or person **cut off** at mid-frame as if the other half were a different picture; two different skies or horizons meeting at center.
+- **REQUIRED:** unified lighting, atmosphere, ground plane, and horizon across the **entire** width; objects and scenery flow naturally across the middle — the spine is invisible in the art.
+- If the scene includes a gate, path, or figure near center, **design the composition** so continuity reads as one space (e.g. gate straddles the viewing area naturally, path curves through), not as "left page scene + right page scene".`
   );
 
   sections.push(buildTextSection());
@@ -139,7 +172,9 @@ function buildFamilyPolicySection(ctx) {
     parentShort,
     parentOutfit,
     additionalCoverCharacters,
+    childAppearance,
   } = ctx;
+  const skinLock = impliedParentSkinToneLock(childAppearance);
 
   const lines = ['### WHO MAY APPEAR ON SPREADS'];
 
@@ -169,6 +204,8 @@ NEVER show the referenced adult's face. NEVER render a full-body adult figure. N
 
 ${IMPLIED_PRESENCE_ANCHORING_RULE}
 
+${skinLock}
+
 The implicit adult must stay CONSISTENT across every spread they appear in: lock their skin tone, visible clothing colors/fabric, and hand/arm details on their first appearance and keep them identical in later spreads. Treat them like any other recurring character — same look every time.
 
 When in doubt, show the hero alone with the environment and any companions (pets, toys).`
@@ -185,7 +222,9 @@ This is a ${isMother ? "Mother's Day" : "Father's Day"} book and the ${parentWor
   • An empty chair / coat on a hook / mug on a table that implies them.
 NEVER show the ${parentWord}'s face. NEVER invent a full-body ${parentWord}. NEVER substitute a pet, plush toy, or inanimate object as a stand-in for the human ${parentWord} — non-human companions stay at their true scale and are NOT a replacement for the human ${parentWord}.
 
-${IMPLIED_PRESENCE_ANCHORING_RULE}`
+${IMPLIED_PRESENCE_ANCHORING_RULE}
+
+${skinLock}`
     );
     if (parentOutfit) {
       lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head), they wear: ${parentOutfit}. This outfit is locked across every spread.`);

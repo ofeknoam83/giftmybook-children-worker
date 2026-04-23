@@ -846,6 +846,11 @@ Refine each beat description to incorporate specific details from the anecdotes.
 
     appendLocationPaletteSection(sections, plan);
 
+    sections.push(`\n## PLOT ↔ ILLUSTRATION (paintable beats)\n`);
+    sections.push(`Every spread's TEXT must describe a **concrete story moment** — a specific action, interaction, discovery, or turn that naturally belongs in that spread's assigned palette location. Avoid vague mood-only lines that could swap between spreads without changing the story.`);
+    sections.push(`The emotional arc should **progress**: new situations, time or weather shifts, props introduced or paid off, relationship beats that land — so spreads are not interchangeable "nice day" stanzas. If a spread does not advance something the reader can **see**, rewrite it.`);
+    sections.push(`The illustrator only has your words: concrete beats produce beautiful, specific art; abstraction produces generic stock scenes.`);
+
     sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
     sections.push(`Write exactly ${plan.spreadCount.target} spreads. The beat sketches below are STARTING INSPIRATION only — you are expected to shape the arc yourself so it serves THIS child, THIS theme, THESE anecdotes. Keep what helps, replace what doesn't. The only HARD constraints on shape are:`);
     sections.push(`- Spread 1 must open OUT IN THE WORLD, in a specific non-home setting.`);
@@ -1037,13 +1042,16 @@ function appendSceneRulesSection(sections) {
   sections.push(`- The emotion on the hero's face in one or two words ("eyes wide with delight", "nose scrunched").`);
   sections.push(`- Two or three tangible visual anchors you borrow from the palette entry's anchor list or invent for continuity.`);
   sections.push(`- Any objects, animals, or recurring props that appear in the TEXT (so the illustrator can plant them in the right place).`);
+  sections.push(`- The **same plot beat** as the TEXT: same cause-and-effect, same actions and props — in visually specific language (who, what, where, light). The SCENE earns the illustration; it must not read like a generic stock photo when the TEXT already implies something more specific.`);
   sections.push(``);
   sections.push(`SCENE rules (strict):`);
   sections.push(`- The SCENE must describe THE SAME moment the TEXT describes — not a paraphrase, not "a later moment". If the TEXT says the child is peeking at a fish, the SCENE shows the child peeking at a fish.`);
   sections.push(`- Do NOT describe parent or other family faces — they appear only via hands/shoulders/silhouettes (the illustrator enforces this). You may say "mother's hand adjusting a scarf" or "dad's silhouette at the gate"; never "mother smiles warmly".`);
   sections.push(`- Never describe on-image text, captions, or signage (the illustrator handles text placement separately).`);
+  sections.push(`- **One continuous panorama:** The SCENE must read as a **single** wide outdoor/indoor space flowing across the spread — not "on the left page X, on the right page Y" as two separate compositions. Describe one unified moment (path, gate, garden) so the illustrator paints **one** image later split for printing, not two pictures side-by-side.`);
   sections.push(`- Never describe the book's style ("Pixar-style", "3D render"), the aspect ratio, or framing instructions — just describe the moment and the location.`);
   sections.push(`- No contradictions with the TEXT. If the TEXT says the child is laughing, don't say they're crying. If the TEXT is outdoors, the SCENE is outdoors.`);
+  sections.push(`- **Bathtub / bath time:** If the child is in the tub, do NOT describe them wearing their usual day outfit (overalls, jeans, dress) in the water. Describe **thick bubble-bath foam** piled high so it is clearly bath time while shoulders, arms, and face stay visible — modest, age-appropriate, no nudity, no bare-chest detail. You may instead describe stepping in/out with a **towel wrapped** around the torso. Never use words like naked or nude.`);
   sections.push(`- Keep it concrete and particular. Avoid "magical", "beautiful", "amazing" as standalone adjectives — name the thing that makes it magical.`);
   sections.push(``);
   sections.push(`OUTPUT FORMAT for every spread (exact):`);

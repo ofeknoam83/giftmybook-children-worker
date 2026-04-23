@@ -14,11 +14,13 @@ const WRITER_CONFIG = {
   retries: {
     maxWriteAttempts: 3,
     // Quality is judged entirely by an LLM critic; the writer retries
-    // until the critic says ship=true. This budget is the safety cap —
-    // worst case we pay ~1 min per retry (revise + critic), so 6 means
-    // the generator can spend ~6 extra minutes fighting for a pass
-    // before we ship best-of-N.
-    maxQualityRetries: 6,
+    // until the critic says ship=true. This budget is the safety cap per
+    // draft — worst case ~1 min per retry (revise + critic).
+    maxQualityRetries: 10,
+    // After a draft exhausts maxQualityRetries without passing the numeric
+    // floor, run a full fresh write() and restart the quality loop — up to
+    // this many extra drafts (latency/cost tradeoff).
+    maxQualityFullRegenerations: 3,
   },
 
   timeouts: {

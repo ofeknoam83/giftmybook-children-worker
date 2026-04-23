@@ -422,6 +422,23 @@ function stripHairFromScene(scene) {
 }
 
 /**
+ * Bathtub / pool / shower: use modest coverage (dense bubbles, towel, simple swimwear)
+ * per system instruction — not street clothes submerged in water.
+ * @param {string} scene
+ * @param {string} [pageText]
+ * @returns {boolean}
+ */
+function isModestBathWaterScene(scene, pageText) {
+  const s = `${scene || ''} ${pageText || ''}`.toLowerCase();
+  if (!s.trim()) return false;
+  if (/\b(bathtub|bath tub|bubble bath|bubble-bath|in the tub|in the bath|tub time|bath time|bathtime|soapy water|soap suds|suds|shampoo|wash(ing)? (?:hair )?in (?:the )?(?:tub|bath))\b/.test(s)) return true;
+  if (/\bbathroom\b/.test(s) && /\b(tub|bathtub|bubbles?|bubble bath|splashing|soapy)\b/.test(s)) return true;
+  if (/\b(swimming pool|swim lesson|in the pool|pool deck)\b/.test(s)) return true;
+  if (/\bshower\b/.test(s) && /\b(bathroom|steam|showerhead|shower curtain)\b/.test(s)) return true;
+  return false;
+}
+
+/**
  * Build explicit negative instructions for hair accessories NOT present in
  * the character description. Tells the model exactly what NOT to add.
  */
@@ -630,6 +647,8 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // Strip any hair-accessory mentions from the per-spread scene so only the
   // locked characterDescription defines the child's hair.
   const cleanScene = stripHairFromScene(sceneDescription);
+  const pageTextStr = (pageText && String(pageText)) || '';
+  const bathWaterScene = isModestBathWaterScene(cleanScene, pageTextStr);
 
   // Use full characterDescription (no regex extraction) — Change 14
   const hairstyleDesc = characterDescription || '';
@@ -658,11 +677,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     }
   }
   if (characterOutfit) {
-    parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
+    if (bathWaterScene) {
+      parts.push(`CHARACTER OUTFIT (dry-land default for this book): ${characterOutfit}`);
+      parts.push(`THIS SPREAD IS BATH / WATER CONTEXT: Do NOT render the child in this outfit while submerged in bath or pool water. Follow the system instruction "BATH, SHOWER, AND SWIMMING" — thick opaque bubble foam (preferred in tub), OR towel wrap, OR modest simple swimwear at a pool. Face, hair, and skin tone still match the reference.`);
+    } else {
+      parts.push(`CHARACTER OUTFIT (MUST match exactly — no changes): ${characterOutfit}`);
+    }
   }
 
   // Fix 1B: Strengthened character locking — ALL characters
-  parts.push(`\nLOCKED APPEARANCE — EVERY character must look IDENTICAL in every illustration. Same face shape, same hair color/style, same skin tone, same outfit. Any deviation will be rejected.`);
+  parts.push(`\nLOCKED APPEARANCE — EVERY character must look IDENTICAL in every illustration. Same face shape, same hair color/style, same skin tone, same outfit on dry-land spreads.${bathWaterScene ? ' This spread is water context — outfit coverage follows BATH/WATER MODE, not literal street clothes in the water.' : ''} Any deviation will be rejected.`);
   if (opts.additionalCoverCharacters) {
     parts.push(`SECONDARY CHARACTER LOCK: ${opts.additionalCoverCharacters}`);
     parts.push(`The secondary character(s) above must ALSO look identical across all illustrations — same face, hair, skin tone, build, and outfit. This is just as important as the child's consistency.`);
@@ -692,9 +716,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   const hairMatch = (characterDescription || '').match(/hair[:\s]+([^.;,]+)/i) || (characterDescription || '').match(/((?:straight|curly|wavy|coily|braided|short|long|medium)[^.;]*hair[^.;]*)/i);
   const hairStyle = hairMatch ? hairMatch[1].trim() : (characterDescription || 'as shown in the reference photo');
   parts.push(`HAIR: ${hairStyle} — IDENTICAL in every illustration, never changes.`);
-  parts.push(`OUTFIT: ${characterOutfit || 'match the reference photo'} — IDENTICAL in every illustration, never changes.`);
+  if (bathWaterScene) {
+    parts.push(`OUTFIT (this spread): Modest bath/water coverage per system instruction — dense bubble foam and/or towel OR modest swimwear at a pool — NOT the street outfit in the water. On other spreads the child wears: ${characterOutfit || 'match the reference photo'}.`);
+  } else {
+    parts.push(`OUTFIT: ${characterOutfit || 'match the reference photo'} — IDENTICAL in every illustration, never changes.`);
+  }
   parts.push(`This is the ONLY child in this book. Their appearance does NOT change between illustrations.`);
-  parts.push(`Do not modify their hair, outfit, or any physical features.`);
+  parts.push(bathWaterScene
+    ? `Do not modify hair or facial likeness. Body coverage follows BATH/WATER MODE for this water scene only.`
+    : `Do not modify their hair, outfit, or any physical features.`);
   parts.push(``);
 
   // Change 22: Per-spread continuity anchor
@@ -739,13 +769,22 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(``);
 
   if (characterOutfit) {
-    parts.push(`5. OUTFIT LOCK (CRITICAL): The child MUST wear EXACTLY this outfit — verify EACH item: ${characterOutfit}`);
-    parts.push(`   COLOR VERIFICATION: Before finishing, check EACH garment's color matches the description above. A red shirt must be RED, not maroon, not pink, not orange. A blue jacket must be BLUE, not teal, not purple.`);
-    parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
-    parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described.`);
-    parts.push(`   In THIS illustration, the child is wearing EXACTLY the outfit described above — every garment, color, pattern, and accessory. Do NOT change any item. Do NOT add or remove layers based on the scene's weather or activity. The outfit must be PIXEL-FOR-PIXEL IDENTICAL to every other illustration in this book.`);
-    parts.push(`   FORBIDDEN OUTFIT CHANGES: Even if the story describes water, swimming, sleeping, rain, mud, snow, sports, cooking, or any other activity — the child wears the EXACT same outfit. Never adapt clothing to the scene. Never add rain gear, swimwear, sleepwear, costumes, aprons, helmets, or any activity-specific clothing. Never remove shoes, socks, or any garment. The outfit is UNCHANGEABLE regardless of context.`);
-    parts.push(``);
+    if (bathWaterScene) {
+      parts.push(`5. BATH / WATER OUTFIT (CRITICAL): This scene is bath, shower, or pool context.`);
+      parts.push(`   - FORBIDDEN: ${characterOutfit} (or any street-day clothes) visible while the child is in bath or pool water.`);
+      parts.push(`   - REQUIRED: Modest coverage per system instruction — **thick opaque bubble-bath foam** in a tub (preferred), OR **towel** wrap when drying off, OR **simple modest child swimwear** at a public pool.`);
+      parts.push(`   - FORBIDDEN: undressed body detail, bare-chest detail, or sexualized rendering. Preschool-PG modesty only.`);
+      parts.push(`   - Hair color/style and facial likeness still match the reference; only coverage changes for this beat.`);
+      parts.push(``);
+    } else {
+      parts.push(`5. OUTFIT LOCK (CRITICAL): The child MUST wear EXACTLY this outfit — verify EACH item: ${characterOutfit}`);
+      parts.push(`   COLOR VERIFICATION: Before finishing, check EACH garment's color matches the description above. A red shirt must be RED, not maroon, not pink, not orange. A blue jacket must be BLUE, not teal, not purple.`);
+      parts.push(`   Do NOT change any garment, color, pattern, or accessory. Do NOT add jackets, hats, capes, or accessories not listed. Do NOT remove any item. This outfit is IDENTICAL on every single page. If the outfit does not match this description exactly, the image will be rejected.`);
+      parts.push(`   OUTFIT ADDITIONS FORBIDDEN: Do not add any item not explicitly listed in the outfit above. No scarves, hats, backpacks, capes, stickers, extra accessories, or additional clothing layers unless specifically named. The outfit is complete as described.`);
+      parts.push(`   In THIS illustration, the child is wearing EXACTLY the outfit described above — every garment, color, pattern, and accessory. Do NOT change any item. Do NOT add or remove layers based on the scene's weather or activity. The outfit must be PIXEL-FOR-PIXEL IDENTICAL to every other illustration in this book.`);
+      parts.push(`   FORBIDDEN OUTFIT CHANGES: Even if the story describes water, swimming, sleeping, rain, mud, snow, sports, cooking, or any other activity — the child wears the EXACT same outfit. Never adapt clothing to the scene. Never add rain gear, swimwear, sleepwear, costumes, aprons, helmets, or any activity-specific clothing. Never remove shoes, socks, or any garment. The outfit is UNCHANGEABLE regardless of context.`);
+      parts.push(``);
+    }
   }
 
   if (characterDescription) {
@@ -818,12 +857,16 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   if (hairNegatives) {
     parts.push(`- ${hairNegatives}`);
   }
-  parts.push('- The child\'s clothing must be IDENTICAL in every illustration: same garments, same colors, same patterns.');
+  parts.push(bathWaterScene
+    ? '- **This spread — bath/water:** Modest bubble foam / towel / simple swimwear per system instruction. NOT street clothes in the water. On all other spreads: same garments, colors, patterns as the locked outfit.'
+    : '- The child\'s clothing must be IDENTICAL in every illustration: same garments, same colors, same patterns.');
   if (characterDescription) {
     parts.push(`- APPEARANCE (copy exactly): ${characterDescription}`);
   }
   if (characterOutfit) {
-    parts.push(`- OUTFIT (copy exactly): ${characterOutfit}`);
+    parts.push(bathWaterScene
+      ? `- OUTFIT NOTE: Default book outfit is "${characterOutfit}" — apply on dry spreads only; THIS spread uses BATH/WATER MODE instead.`
+      : `- OUTFIT (copy exactly): ${characterOutfit}`);
   }
 
   if (recurringElement) {
@@ -850,7 +893,9 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`- The child's FACE must have the same bone structure, nose shape, and eye placement as the reference photo`);
   parts.push(`- HAIR must be exactly ${hairStyle} — no variation, no accessories added or removed`);
   parts.push(`- SKIN TONE must be exactly ${skinTone} — not lighter, not darker, regardless of scene lighting`);
-  parts.push(`- OUTFIT must be exactly ${outfitDesc} — same colors, same design, same details`);
+  parts.push(bathWaterScene
+    ? `- OUTFIT on THIS spread: BATH/WATER MODE (bubbles/towel/modest swimwear) — not ${outfitDesc} in the water.`
+    : `- OUTFIT must be exactly ${outfitDesc} — same colors, same design, same details`);
   parts.push(`- If ANYTHING about the child doesn't match the reference, it is WRONG`);
   parts.push(`- Character consistency is MORE IMPORTANT than artistic creativity or scene composition`);
 
@@ -899,13 +944,18 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('FORMAT: Wide cinematic panoramic landscape illustration, 16:9 aspect ratio.');
     parts.push('THIS IS ONE SINGLE SEAMLESS PAINTING — like a wide movie still or a panoramic photograph. The scene flows continuously from the left edge to the right edge with NO visual break, NO divider, NO seam, NO panel split, NO color change, NO lighting change, and NO composition break at the center or anywhere else.');
     parts.push('IMPORTANT: Do NOT treat this as two separate images side by side. There must be ZERO visual indication that this image will be split into two pages. Paint it as one unified wide scene.');
+    parts.push('ANTI-DIPTYCH: No vertical seam, no "stitched" halves, no bench or torso chopped at the exact center as if another image continues — one continuous environment, one light source, one ground plane across the full width.');
     parts.push('CHARACTER POSITION (CRITICAL): The main character MUST be positioned off-center horizontally — clearly in the left third or right third of the image. Do NOT place the main character at the horizontal midpoint (50%) of the image. The exact center of the image is reserved for background scenery, open space, or environmental elements. A character standing at dead-center will be rejected.');
     parts.push('SAFE ZONE (printing will crop edges):');
     parts.push('- Keep important content (faces, hands, key objects) within the middle 85% of the height. Top/bottom 7.5% may be cropped.');
   } else {
     parts.push('FORMAT: Square image, 1:1 aspect ratio. The image must be perfectly square.');
   }
-  parts.push('Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.');
+  parts.push(
+    bathWaterScene
+      ? 'Children\'s book illustration, whimsical, warm, family-friendly, age-appropriate modesty (follow BATH/WATER MODE — no undressed rendering, never street clothes in the tub).'
+      : 'Children\'s book illustration, whimsical, warm, fully clothed characters, family-friendly.'
+  );
 
   // Text handling — embed text when using chat illustrations with admin regen, otherwise no text
   parts.push('');
@@ -941,7 +991,11 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`5. NO FLOATING: all held objects are gripped; all resting objects are on surfaces. \u2713`);
   parts.push(`6. CORRECT SCALE: the child's head, body, and limbs are in normal human proportion. \u2713`);
   parts.push(`7. NO DUPLICATES: the child does not appear twice; no reflections showing the child's face. \u2713`);
-  parts.push(`8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`);
+  parts.push(
+    bathWaterScene
+      ? `8. BATH/WATER MODE: modest bubbles/towel/swimwear — NOT street outfit in water; still PG-modest. \u2713`
+      : `8. OUTFIT MATCH: child is wearing exactly: ${characterOutfit || '[match reference photo]'}. \u2713`
+  );
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (opts.embedText && pageText && pageText.trim()) {
     parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely within the left 35% or right 35% (not in the center 30% gutter zone), with at least 10% padding from left/right/top and at least 15% from the bottom edge. \u2713`);

@@ -292,7 +292,7 @@ class BaseThemeWriter {
       '- THRILLING. The kind of place that makes a parent say "I want to go there" and a child say "whoa". Never ordinary. Never a default.',
       '- PHOTOGENIC AND SPECIFIC. Has at least three concrete visual anchors a painter could reproduce on every spread set there (distinctive structure, signature texture/color/material, light source, weather, time of day). Never abstract ("a magical place", "somewhere special").',
       '- NAMED. Proper-noun-feeling short name with a qualifier. Avoid bare nouns. "the harbor at first light" is fine; "the harbor" alone is not.',
-      '- DISTINCT. No two palette entries share their dominant mood, time-of-day, OR dominant material. If two entries feel like the same place in slightly different clothes, collapse them.',
+      '- DISTINCT. No two palette entries share their dominant mood, time-of-day, OR dominant material. If two entries could be the same suburban house or yard in different lighting, collapse them into one.',
       '- PLAUSIBLY REACHABLE. Two consecutive spreads in different palette locations must be connectable by a single sentence of narration inside a picture book.',
       '',
       `AMBITION — ${ambition.label}. ${ambition.guidance} Do not narrow the palette by mimicking any canonical list; invent.`,
@@ -303,11 +303,12 @@ class BaseThemeWriter {
       '- "the bedroom" (unless the book theme is bedtime)',
       '- "at home", "the house", "the apartment" as an unqualified location',
       '- "a magical place", "somewhere special", "a faraway land" — these are abstractions, not places',
+      '- Undifferentiated generic backyard patio, deck, "outdoor play area", sandbox yard, OR generic living room / playroom / nursery / "family room" as a dominant palette entry — UNLESS the user prompt (parent anecdotes, customDetails, or pre-assigned beat) explicitly names that exact place. If home-adjacent is required, every such entry MUST include a cinematic differentiator in visual_anchors (e.g. golden-hour storm light, one impossible-looking natural moment, unusual architecture, regional specificity, a signature prop) — never catalog-stock suburban default.',
       `${parentVisible ? '- Any palette entry that depends on a visible family-member face being drawn (the other parent, grandparent, sibling). This book only has the child\'s reference photo — the themed parent is shown through hands and hidden-face poses only.' : '- Any palette entry that depends on drawing family members who are not the hero child. Only the hero appears with full face.'}`,
       '',
       'STRUCTURAL RULES:',
       '- Emit between 3 and 5 palette entries. No duplicates. Each entry is used by 1 or more consecutive spreads.',
-      `- You must assign all ${beats.length} spreads. Consecutive spreads should usually share a location — 2–4 spreads per location is the sweet spot. Transitions between locations should align with natural story turns (rising action, peak, resolution).`,
+      `- You must assign all ${beats.length} spreads. Consecutive spreads should usually share a location — 2–4 spreads per location is the sweet spot. Transitions between locations should align with natural story turns (rising action, peak, resolution) so the book's images track the plot — not one static place unless the beats truly require it.`,
       `- Spread 1 must NOT be an at-home opener. Spread ${beats.length} may be outdoors or indoors but must match a palette entry — not a generic "back home" shot.`,
       '- Preserve any location that a previous planning step already locked to a specific spread (listed in the user prompt).',
       '- Respect any parent-provided concrete place concepts (listed in the user prompt) — if the parent named a place they love, it MUST appear as a palette entry.',
@@ -809,7 +810,7 @@ function pickAmbition(theme) {
   if (['mothers_day', 'fathers_day'].includes(theme)) {
     return {
       label: 'ELEVATED REAL (everyday raised to cinematic)',
-      guidance: 'The palette should be places a parent and child could plausibly share, but photographed at their most beautiful — a garden in golden hour, a dawn market, a mountain lookout, a workshop at closing time. Not fantastical; not boring.',
+      guidance: 'Each palette entry must feel postcard-worthy: distinctive light, materials, and mood — the kind of place a parent would travel to photograph, not a default subdivision backyard or bland playroom. Real-world places only (not fantasy), but every entry needs one clear visual hook (weather, architecture, time of day, signature prop). Avoid catalog-flat domestic stock unless a parent anecdote explicitly names that exact home space.',
     };
   }
   return {

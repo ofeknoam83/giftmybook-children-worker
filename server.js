@@ -22,14 +22,14 @@ process.on('SIGTERM', async () => {
   try {
     const inFlight = Array.from(activeBooks.keys());
     console.warn(`[PROCESS] SIGTERM: ${inFlight.length} in-flight book(s): ${inFlight.join(', ')}`);
-    for (const bookId of inFlight) {
-      const ctx = activeBooks.get(bookId);
+    for (const mapKey of inFlight) {
+      const ctx = activeBooks.get(mapKey);
       // Abort in-progress LLM calls so the generation fails fast
       ctx?.abortController?.abort();
       if (ctx?.progressCallbackUrl) {
         const { reportProgressForce } = require('./services/progressReporter');
         reportProgressForce(ctx.progressCallbackUrl, {
-          bookId,
+          bookId: ctx.bookId,
           stage: 'failed',
           progress: 0,
           message: 'Worker instance was shut down mid-generation (Cloud Run SIGTERM). Will be retried.',
@@ -287,12 +287,26 @@ global.touchActivity = function (bookId) {
 };
 
 /**
+ * Map key for coloring jobs — must NOT collide with parent /generate-book (same bookId).
+ * Otherwise a race right after completion (callback before parent finally removes ctx)
+ * returns 409 and the standalone marks the coloring add-on failed.
+ * @param {string} bookId - parent children's book id
+ * @returns {string}
+ */
+function coloringActiveJobKey(bookId) {
+  return `coloring:${bookId}`;
+}
+
+/**
  * Create a tracking context for an active book generation.
- * @param {string} bookId
+ * @param {string} bookId - logical book id (used in callbacks / progress payloads)
+ * @param {{ progressCallbackUrl?: string, callbackUrl?: string, mapKey?: string }} [opts]
+ *   mapKey — if set, register under this key in activeBooks (e.g. coloringActiveJobKey(bookId))
  * @returns {{ bookId: string, lastActivity: number, abortController: AbortController, abortSignal: AbortSignal }}
  */
 function createBookContext(bookId, opts = {}) {
   const abortController = new AbortController();
+  const mapKey = opts.mapKey || bookId;
   const context = {
     bookId,
     abortSignal: abortController.signal,
@@ -317,13 +331,16 @@ function createBookContext(bookId, opts = {}) {
       }
     },
   };
-  activeBooks.set(bookId, context);
+  activeBooks.set(mapKey, context);
   return context;
 }
 
-function removeBookContext(bookId) {
-  activeBooks.delete(bookId);
-  clearThrottle(bookId);
+function removeBookContext(mapKey) {
+  const ctx = activeBooks.get(mapKey);
+  activeBooks.delete(mapKey);
+  clearThrottle(mapKey);
+  // Progress throttling keys use logical bookId (parent id), not e.g. coloring:${bookId}
+  if (ctx?.bookId) clearThrottle(ctx.bookId);
 }
 
 // Per-book watchdog: abort books idle > 15 minutes
@@ -2737,15 +2754,20 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
 
   console.log(`[server] /generate-coloring-book: bookId=${bookId}, mode=${mode}, callbackUrl=${callbackUrl ? 'yes' : 'none'}`);
 
-  // Reject if this bookId is already being generated
-  if (activeBooks.has(bookId)) {
+  // Reject only if a coloring job is already in flight (not parent /generate-book — different map key)
+  const coloringKey = coloringActiveJobKey(bookId);
+  if (activeBooks.has(coloringKey)) {
     return res.status(409).json({ success: false, error: 'Coloring book generation already in progress for this bookId' });
   }
 
   res.status(202).json({ success: true, bookId, status: 'generating' });
 
-  // Register with activeBooks tracking (enables watchdog, SIGTERM cleanup, cancel)
-  const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
+  // Register with activeBooks under a dedicated key so parent book + coloring can overlap safely
+  const bookContext = createBookContext(bookId, {
+    progressCallbackUrl,
+    callbackUrl,
+    mapKey: coloringKey,
+  });
 
   // Absolute timeout for coloring book generation
   const absoluteTimer = setTimeout(() => {
@@ -2997,7 +3019,7 @@ app.post('/generate-coloring-book', authenticate, async (req, res) => {
       }
     } finally {
       clearTimeout(absoluteTimer);
-      removeBookContext(bookId);
+      removeBookContext(coloringKey);
     }
   })();
 });
@@ -3010,7 +3032,7 @@ app.post('/cancel-coloring-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: 'bookId is required' });
   }
 
-  const ctx = activeBooks.get(bookId);
+  const ctx = activeBooks.get(coloringActiveJobKey(bookId));
   if (!ctx) {
     return res.status(404).json({ success: false, error: 'No active generation found for this bookId' });
   }

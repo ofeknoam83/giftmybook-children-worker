@@ -26,7 +26,7 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/SPECIFIC ACTIONS/);
     expect(out).toMatch(/center band/);
     expect(out).toMatch(/DELETE it/);
-    expect(out).toMatch(/hallucination/);
+    expect(out).toMatch(/illustration-only/);
   });
 
   test('text_duplicated_caption adds a render-once directive', () => {
@@ -77,5 +77,27 @@ describe('buildCorrectionTurn — tag directives', () => {
     });
     expect(out).toMatch(/center band/);
     expect(out).toMatch(/EXACTLY ONCE/);
+  });
+
+  test('split_panel adds seamless panorama directive', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Spread looks like a split panel / diptych with a visible seam'],
+      tags: ['split_panel'],
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/ONE seamless wide panorama|one seamless wide panorama/i);
+    expect(out).toMatch(/diptych|stitched/i);
+  });
+
+  test('implied_parent_skin_mismatch adds skin-matching directive', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Parent hands wrong tone'],
+      tags: ['implied_parent_skin_mismatch'],
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/BOOK COVER/);
+    expect(out).toMatch(/skin tone/);
   });
 });
