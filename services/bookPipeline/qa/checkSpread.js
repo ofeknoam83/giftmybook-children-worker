@@ -65,14 +65,25 @@ async function checkSpread(params) {
     })),
   ]);
 
-  const issues = [
+  let issues = [
     ...(textQa.issues || []),
     ...(consistencyQa.issues || []),
   ];
-  const tags = [
+  let tags = [
     ...(textQa.tags || []),
     ...(consistencyQa.tags || []),
   ];
+
+  // Cascade suppression: if the hero itself is wrong on the spread, the
+  // implied-parent skin comparison against the COVER is almost always a
+  // cascading false positive ("the parent hand looks mismatched because the
+  // child is darker/lighter than the cover") — the real bug is hero_mismatch.
+  // Drop the skin tag so the correction turn focuses on fixing the child
+  // rather than fighting two conflicting signals at once.
+  if (tags.includes('hero_mismatch') && tags.includes('implied_parent_skin_mismatch')) {
+    tags = tags.filter(t => t !== 'implied_parent_skin_mismatch');
+    issues = issues.filter(i => !/Implied parent/i.test(i));
+  }
 
   return {
     pass: issues.length === 0,

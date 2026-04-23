@@ -113,7 +113,12 @@ function hasDuplicatedCaption(expected, ocr) {
 function normalizeCaptionForOcrCompare(s) {
   let t = sanitizeMixedScriptString(String(s || ''));
   t = t
-    .replace(/[\u2018\u2019\u201A\u201B\u2032\u00B4\u0060\u02B9\u02BC\uFF07\u201C\u201D\u201E\u00AB\u00BB\u2039\u203A\uFEFF]/g, "'")
+    // Collapse all quote families (curly single/double, prime, guillemets,
+    // ASCII double-quote, ASCII single-quote/apostrophe) to a single neutral
+    // marker so "Austin said X." and 'Austin said X.' and "Austin said X."
+    // all compare equal. A children's book renderer often substitutes one
+    // quote glyph for another — that's not a spelling mismatch.
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u00B4\u0060\u02B9\u02BC\uFF07\u201C\u201D\u201E\u00AB\u00BB\u2039\u203A\uFEFF"']/g, "'")
     .replace(/[\u2013\u2014\u2212\uFE63\uFF0D]/g, '-')
     .replace(/\s+/g, ' ')
     .trim();

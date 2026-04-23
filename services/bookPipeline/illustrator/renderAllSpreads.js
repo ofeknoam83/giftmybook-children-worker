@@ -63,9 +63,12 @@ async function resolveCoverBase64(cover) {
   if (!resp.ok) throw new Error(`cover fetch failed: HTTP ${resp.status}`);
   const arrayBuffer = await resp.arrayBuffer();
   const buf = Buffer.from(arrayBuffer);
+  // 1024px gives the vision model enough detail to lock skin tone, hair
+  // texture, and face features. 512px was too low-detail — the identity kept
+  // drifting and every correction turn made it worse.
   const resized = await sharp(buf)
-    .resize({ width: 512, withoutEnlargement: true })
-    .jpeg({ quality: 85 })
+    .resize({ width: 1024, withoutEnlargement: true })
+    .jpeg({ quality: 90 })
     .toBuffer();
   return { base64: resized.toString('base64'), mime: 'image/jpeg' };
 }
@@ -91,9 +94,10 @@ async function processOneSpread(params) {
 
   let scene = spec.scene;
   let correctionNote = null;
+  let lastTags = [];
   let attempt = 0;
 
-  while (attempt <= totalBudget) {
+  while (attempt < totalBudget) {
     attempt += 1;
     const isFirstAttempt = attempt === 1;
     const attemptStart = Date.now();
@@ -118,7 +122,17 @@ async function processOneSpread(params) {
           issues: [correctionNote || 'Fix the previous attempt.'],
           tags: [],
         });
-        image = await sendCorrection(currentSession, correction, spec.spreadIndex);
+        // Re-anchor the cover image on the correction turn whenever the last
+        // attempt drifted on hero identity or outfit. This is the single most
+        // reliable fix for identity loss — a text reminder isn't enough once
+        // the model has committed to a different face.
+        const needsReanchor = lastTags.includes('hero_mismatch')
+          || lastTags.includes('outfit_mismatch')
+          || lastTags.includes('implied_parent_skin_mismatch');
+        if (needsReanchor) {
+          console.log(`[${logTag}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
+        }
+        image = await sendCorrection(currentSession, correction, spec.spreadIndex, { reanchorCover: needsReanchor });
       }
     } catch (err) {
       const isSafety = /safety|prohibited|blocked/i.test(err?.message || '');
@@ -195,6 +209,8 @@ async function processOneSpread(params) {
     );
 
     pruneLastTurn(currentSession);
+
+    lastTags = Array.isArray(qa.tags) ? qa.tags : [];
 
     const plan = planSpreadRepair({
       spreadNumber: spread.spreadNumber,

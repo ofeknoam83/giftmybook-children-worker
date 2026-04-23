@@ -210,13 +210,32 @@ async function generateSpread(session, spreadPromptText, spreadIndex) {
  * @param {IllustratorSession} session
  * @param {string} correctionPromptText
  * @param {number} spreadIndex
+ * @param {object} [opts]
+ * @param {boolean} [opts.reanchorCover] - If true, re-attach the pinned cover
+ *   image as a live reference in this correction turn. Use when the previous
+ *   attempt drifted on hero identity or outfit — the cover image is the only
+ *   reliable anchor and sending it fresh on the rejecting turn dramatically
+ *   improves match rates. Safe to call every correction turn, but we keep it
+ *   optional so we don't inflate token spend when the reject was unrelated.
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
-async function sendCorrection(session, correctionPromptText, spreadIndex) {
+async function sendCorrection(session, correctionPromptText, spreadIndex, opts = {}) {
   if (session.abandoned) throw new Error('Session abandoned — cannot correct');
 
   _trimHistoryToSlidingWindow(session);
-  const response = await _sendTurn(session, [{ text: correctionPromptText }], { aspectRatio: '16:9' });
+
+  const parts = [];
+  if (opts.reanchorCover && session.coverBase64) {
+    parts.push({
+      text: 'RE-ANCHOR — the approved BOOK COVER below is the canonical rendering of the hero child. Match it exactly: face shape, skin tone, hair color and texture, eye color, and outfit family. Do NOT invent a different child.',
+    });
+    parts.push({
+      inline_data: { mimeType: session.coverMime, data: session.coverBase64 },
+    });
+  }
+  parts.push({ text: correctionPromptText });
+
+  const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
   session.turnsUsed++;
 
   try {
