@@ -93,7 +93,7 @@ function diffTokens(expected, ocr) {
  */
 function hasDuplicatedCaption(expected, ocr) {
   const E = countMap(tokenizeForWordCounts(expected));
-  const O = countMap(ocr);
+  const O = countMap(tokenizeForWordCounts(ocr));
   if (E.size < 3) return false;
   const doubled = [...E.keys()].filter(t => {
     const e = E.get(t) || 0;
@@ -343,4 +343,5 @@ module.exports = {
   resolveExpected,
   normalizeCaptionForOcrCompare,
   evaluateOcrResult,
+  hasDuplicatedCaption,
 };
