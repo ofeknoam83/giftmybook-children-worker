@@ -616,7 +616,11 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
   // the spreads that share it (see illustrator/systemInstruction.js).
   const locationPalette = plan?.locationPalette || null;
 
-  return { title, entries, locationPalette };
+  const characterOutfit = (writerResult && writerResult.story && writerResult.story._outfitLock)
+    ? String(writerResult.story._outfitLock).trim()
+    : null;
+
+  return { title, entries, locationPalette, characterOutfit };
 }
 
 function buildGraphicNovelReferencePack(storyPlan, childDetails) {

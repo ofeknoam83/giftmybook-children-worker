@@ -135,9 +135,10 @@ ${scene.trim()}`
     '### REMINDERS',
     '- Keep the hero child and any on-cover characters identical to the cover and to the approved spreads you\'ve already generated in this session.',
     `- Text rule for this spread: render the caption on the ${side.toUpperCase()} side ONLY. The ${oppositeSide(side).toUpperCase()} side and the center band must be completely text-free. Text must be CHARACTER-FOR-CHARACTER identical to what is listed above — no duplicates, no "the end", no extras.`,
+    '- **SCENE first:** Fulfil the SCENE block above (camera, focal action, who is in frame). It is the author\'s shot list — do not substitute a generic repeat of a prior spread unless the scene text is shallow (then still vary framing vs the last time this place appeared).',
     '- One hero, one moment, **one continuous panoramic illustration** (single wide shot). Do NOT compose this as two different scenes side-by-side. No vertical seam, no lighting or palette break down the middle, no object or person truncated at center as if two images were stitched.',
     '- The book printer will crop this **one** image into two pages — you must paint **one** unified environment edge to edge.',
-    '- **Shot variety:** If this spread shares the same setting as the previous one, change framing (distance, angle, focal point) per the SCENE — keep the **place** consistent, not a duplicate composition.',
+    '- **Shot variety:** If this spread shares the same setting as the previous one, change framing (distance, angle, focal point) per the SCENE — keep the **place** consistent, not a duplicate composition. If this place also appeared non-consecutively, still follow the new SCENE so it is not a clone of that earlier still.',
   ];
 
   const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
@@ -323,7 +324,7 @@ function buildTagDirectives(tags, opts) {
       );
     } else {
       out.push(
-        'Only the hero child may appear as a full person. Remove any other full humans from the scene (no background pedestrians, no strangers).',
+        'Child-only / no secondaries on cover: only the hero may appear as a full, faced person. Remove pairs of full adults, "mom and dad" stroller shots, and any other full-body grown-ups — use implied care (one hand, cropped sleeve, off-panel) or show the hero alone. No background crowds of recognizable adults.',
       );
     }
   }

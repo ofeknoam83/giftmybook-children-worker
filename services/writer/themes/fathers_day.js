@@ -14,7 +14,7 @@ const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
-const { appendLocationPaletteSection, appendSceneRulesSection } = require('./generic');
+const { appendLocationPaletteSection, appendSceneRulesSection, parseWriterOutput } = require('./generic');
 
 class FathersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -185,7 +185,7 @@ class FathersDayWriter extends BaseThemeWriter {
       maxTokens: 4000,
     });
 
-    let spreads = this.parseSpreads(result.text);
+    let { spreads, outfitLock } = parseWriterOutput(this, result.text);
 
     // Validate structure and retry if needed
     const validation = this.validateStructure(spreads, child.age);
@@ -195,9 +195,10 @@ class FathersDayWriter extends BaseThemeWriter {
         maxTokens: 4000,
         temperature: 0.9,
       });
-      const retrySpreads = this.parseSpreads(retryResult.text);
-      if (retrySpreads.length >= plan.spreadCount.min) {
-        spreads = retrySpreads;
+      const ret = parseWriterOutput(this, retryResult.text);
+      if (ret.spreads.length >= plan.spreadCount.min) {
+        spreads = ret.spreads;
+        if (ret.outfitLock) outfitLock = ret.outfitLock;
       }
     }
 
@@ -219,6 +220,7 @@ class FathersDayWriter extends BaseThemeWriter {
       spreads,
       _model: result.model,
       _ageTier: plan.ageTier,
+      _outfitLock: outfitLock || null,
     };
   }
 
@@ -246,7 +248,9 @@ class FathersDayWriter extends BaseThemeWriter {
       maxTokens: 4000,
     });
 
-    let spreads = this.parseSpreads(result.text);
+    const parsed = parseWriterOutput(this, result.text);
+    let spreads = parsed.spreads;
+    const newOutfit = parsed.outfitLock || story._outfitLock || null;
 
     // If revision parsing failed, keep original
     if (spreads.length < story.spreads.length * 0.7) {
@@ -277,6 +281,7 @@ class FathersDayWriter extends BaseThemeWriter {
       spreads,
       _model: result.model,
       _ageTier: ageTier,
+      _outfitLock: newOutfit,
     };
   }
 
@@ -540,6 +545,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`- NEVER use dashes, hyphens, or em dashes (\u2014, \u2013, -) in the story text. Use commas, periods, or line breaks instead.`);
     sections.push(`- Maximum 6 words per line.`);
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
+
+    sections.push(`\n## BOOK-WIDE VISUAL SHOWRUNNER\n`);
+    sections.push(`- Mentally storyboard all ${plan.spreadCount.target} spreads: no two spreads may reuse the **same dominant tableau** (pose + place) without a new SCENE focal beat and different camera.`);
+    sections.push(`- When a location **reappears** after other beats, the SCENE must not echo an earlier still from that place.`);
+
+    sections.push(`\n## OUTFIT_LOCK (MANDATORY — hero ${child.name}, after final spread)\n`);
+    sections.push(`After the last \`---SPREAD ${plan.spreadCount.target}---\` block, output one line: OUTFIT_LOCK: <one sentence describing ${child.name}'s day clothes for every dry-land spread — same garments in every SCENE unless bath/pool per rules.>`);
 
     return sections.join('\n');
   }

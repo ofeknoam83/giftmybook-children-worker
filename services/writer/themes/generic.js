@@ -12,12 +12,21 @@
  * Follows the same plan → write → revise pipeline as MothersDayWriter.
  */
 
-const { BaseThemeWriter } = require('./base');
+const { BaseThemeWriter, stripOutfitLockFromRaw } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, generateCustomPlot, generateAnecdoteDrivenPlot, isPlaceholderTitle } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
+
+/**
+ * @param {{ parseSpreads: (raw: string) => Array<{ spread: number, text: string, scene: string }> }} writer
+ * @param {string} rawText
+ */
+function parseWriterOutput(writer, rawText) {
+  const { text, outfitLock } = stripOutfitLockFromRaw(rawText);
+  return { spreads: writer.parseSpreads(text), outfitLock };
+}
 
 // ── Theme category membership ──
 
@@ -253,7 +262,7 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     const result = await this.callLLM('writer', systemPrompt, userPrompt, { maxTokens: 4000 });
 
-    let spreads = this.parseSpreads(result.text);
+    let { spreads, outfitLock } = parseWriterOutput(this, result.text);
 
     const validation = this.validateStructure(spreads, child.age);
     if (!validation.valid && spreads.length < plan.spreadCount.min) {
@@ -261,9 +270,10 @@ class GenericThemeWriter extends BaseThemeWriter {
       const retryResult = await this.callLLM('writer', systemPrompt,
         userPrompt + '\n\nIMPORTANT: You MUST write exactly ' + plan.spreadCount.target + ' spreads.',
         { maxTokens: 4000, temperature: 0.9 });
-      const retrySpreads = this.parseSpreads(retryResult.text);
-      if (retrySpreads.length >= plan.spreadCount.min) {
-        spreads = retrySpreads;
+      const ret = parseWriterOutput(this, retryResult.text);
+      if (ret.spreads.length >= plan.spreadCount.min) {
+        spreads = ret.spreads;
+        if (ret.outfitLock) outfitLock = ret.outfitLock;
       }
     }
 
@@ -280,13 +290,14 @@ class GenericThemeWriter extends BaseThemeWriter {
           const anchorAddendum = `\n\nCRITICAL TITLE ANCHOR — READ BEFORE REWRITING:\nThe book's cover title is "${book.title}". The previous draft did NOT include the title's core concept. In this rewrite, at least TWO of these title keywords MUST appear literally in the story text: ${titleKeywords.map(k => `"${k}"`).join(', ')}. The title's subject MUST be concretely present in spread 1 or 2, at the climax around spread 7, and in the final spread. Do NOT write a generic theme story — the text must clearly belong under this cover.`;
           try {
             const retryResult = await this.callLLM('writer', systemPrompt, userPrompt + anchorAddendum, { maxTokens: 4000, temperature: 0.85 });
-            const retrySpreads = this.parseSpreads(retryResult.text);
-            if (retrySpreads.length >= plan.spreadCount.min) {
-              const retryCombined = retrySpreads.map(s => (s.text || '')).join(' ').toLowerCase();
+            const ret = parseWriterOutput(this, retryResult.text);
+            if (ret.spreads.length >= plan.spreadCount.min) {
+              const retryCombined = ret.spreads.map(s => (s.text || '')).join(' ').toLowerCase();
               const retryMatches = titleKeywords.filter(k => retryCombined.includes(k));
               // Prefer the retry if it improves keyword coverage OR ties; otherwise keep original.
               if (retryMatches.length >= matches.length) {
-                spreads = retrySpreads;
+                spreads = ret.spreads;
+                if (ret.outfitLock) outfitLock = ret.outfitLock;
                 console.log(`[writerV2] Title-coherence retry succeeded: ${retryMatches.length}/${titleKeywords.length} title keywords present.`);
               }
             }
@@ -318,14 +329,15 @@ class GenericThemeWriter extends BaseThemeWriter {
         const cakeAddendum = `\n\nCRITICAL CAKE CLIMAX — READ BEFORE REWRITING:\nThis is a BIRTHDAY book for ${child.name}. The previous draft did NOT land the cake climax.\n- Spread 12 MUST be the wish-and-blow moment: the cake${flavor} with lit candles in front of ${child.name}, eyes closing for a wish, candles blown out. Name the cake and the candles in the text.\n- Spread 13 MUST be the first-bite joy: ${child.name} taking the first bite of cake${flavor}, pure happiness on their face. Name the cake in the text.\n- The ending must be JOYFUL and in DAYLIGHT — never a bedtime / sleep / goodnight ending.\nKeep spreads 1-11 substantially the same. Only rewrite the final two spreads to deliver the cake climax.`;
         try {
           const retryResult = await this.callLLM('writer', systemPrompt, userPrompt + cakeAddendum, { maxTokens: 4000, temperature: 0.85 });
-          const retrySpreads = this.parseSpreads(retryResult.text);
-          if (retrySpreads.length >= plan.spreadCount.min) {
-            const retry12 = retrySpreads.find(s => s.spread === 12) || retrySpreads[11];
-            const retry13 = retrySpreads.find(s => s.spread === 13) || retrySpreads[12];
+          const ret = parseWriterOutput(this, retryResult.text);
+          if (ret.spreads.length >= plan.spreadCount.min) {
+            const retry12 = ret.spreads.find(s => s.spread === 12) || ret.spreads[11];
+            const retry13 = ret.spreads.find(s => s.spread === 13) || ret.spreads[12];
             const retryHas12 = cakeTerms.test(retry12?.text || '');
             const retryHas13 = cakeTerms.test(retry13?.text || '');
             if ((retryHas12 ? 1 : 0) + (retryHas13 ? 1 : 0) > (has12 ? 1 : 0) + (has13 ? 1 : 0)) {
-              spreads = retrySpreads;
+              spreads = ret.spreads;
+              if (ret.outfitLock) outfitLock = ret.outfitLock;
               console.log(`[writerV2] Cake-coherence retry succeeded: spread12=${retryHas12}, spread13=${retryHas13}`);
             }
           }
@@ -349,7 +361,7 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     sanitizeNonLatinChars(spreads);
 
-    return { spreads, _model: result.model, _ageTier: plan.ageTier };
+    return { spreads, _model: result.model, _ageTier: plan.ageTier, _outfitLock: outfitLock || null };
   }
 
   // ──────────────────────────────────────────
@@ -370,7 +382,9 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     const result = await this.callLLM('reviser', systemPrompt, userPrompt, { maxTokens: 4000 });
 
-    let spreads = this.parseSpreads(result.text);
+    const parsed = parseWriterOutput(this, result.text);
+    let spreads = parsed.spreads;
+    const newOutfit = parsed.outfitLock || story._outfitLock || null;
 
     if (spreads.length < story.spreads.length * 0.7) {
       console.warn(`[writerV2] Revision produced only ${spreads.length} spreads (expected ~${story.spreads.length}), keeping original`);
@@ -401,7 +415,7 @@ class GenericThemeWriter extends BaseThemeWriter {
 
     sanitizeNonLatinChars(spreads);
 
-    return { spreads, _model: result.model, _ageTier: ageTier };
+    return { spreads, _model: result.model, _ageTier: ageTier, _outfitLock: newOutfit };
   }
 
   // ──────────────────────────────────────────
@@ -772,12 +786,13 @@ Refine each beat description to incorporate specific details from the anecdotes.
     }
 
     if (this.category !== 'parent') {
-      sections.push(`\n## ILLUSTRATION CONSTRAINT — NO FAMILY MEMBERS IN IMAGES (CRITICAL)\n`);
-      sections.push(`We only have the CHILD's photo. Family members (parents, grandparents, siblings, aunts, uncles) must NEVER appear as visible characters in the story.`);
-      sections.push(`- The story text must NOT describe a family member as physically present in a scene. Do NOT write lines like "Grandpa stood there" or "Mom waved hello" — these cause the illustrator to draw them, and without a reference photo they look different on every page.`);
-      sections.push(`- Instead, show family presence through TRACES and EFFECTS: a packed lunch from Grandpa, a note in Mom's handwriting, a jacket that smells like Dad, a garden that Grandma planted.`);
-      sections.push(`- The child is the ONLY human character visible in every spread. Animals, fantasy creatures, and environmental characters (fairies, talking animals, shopkeepers) are fine.`);
-      sections.push(`- "Book from: ${book.bookFrom || 'family'}" tells you who ordered the book — honor their relationship through the story's emotional core, NOT by drawing them into scenes.`);
+      sections.push(`\n## ILLUSTRATION CONSTRAINT — CHILD-ONLY HUMAN (CRITICAL — QA WILL REJECT THE BOOK)\n`);
+      sections.push(`We only have the CHILD's reference for interior art. The printed cover may show the hero alone. Every interior spread must be drawable with **only the hero** as a full, recognizable person.`);
+      sections.push(`- The TEXT and SCENE must NOT require two adults, a couple, "mom and dad", or any pair of full grown-ups in the frame. Lines like "parents strolled", "Mama and Daddy push the pram", or "they walked beside the stroller" **will fail automated illustration QA** (unexpected people).`);
+      sections.push(`- Strollers, wagons, sand, and outings: show **${child.name}** in the seat or beside the object. Caregivers may appear only as **implied** presence: a single hand on a pushbar entering from the edge, a shoulder or sleeve cropped so **no face** shows, a distant indistinct silhouette, OR skip adults entirely.`);
+      sections.push(`- The story text must NOT name a family member as standing next to the child in a way that forces two full bodies. Do NOT write "Grandpa stood there" or "Mom waved" as visible beats. Use traces instead: a packed lunch, a note, footsteps in sand, a kite string rising toward someone off-panel.`);
+      sections.push(`- The child is the ONLY human with a face in every spread. Animals, fantasy creatures, and nature are fine — do not add named walk-on adults the illustrator must render in full.`);
+      sections.push(`- "Book from: ${book.bookFrom || 'family'}" is emotional context, not a license to add visible relatives.`);
     }
 
     if (book.title && !isPlaceholderTitle(book.title)) {
@@ -849,7 +864,8 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`\n## PLOT ↔ ILLUSTRATION (paintable beats)\n`);
     sections.push(`Every spread's TEXT must describe a **concrete story moment** — a specific action, interaction, discovery, or turn that naturally belongs in that spread's assigned palette location. Avoid vague mood-only lines that could swap between spreads without changing the story.`);
     sections.push(`The emotional arc should **progress**: new situations, time or weather shifts, props introduced or paid off, relationship beats that land — so spreads are not interchangeable "nice day" stanzas. If a spread does not advance something the reader can **see**, rewrite it.`);
-    sections.push(`Each SCENE block must describe a **different visible moment** from the prior spread — not the same pose and framing with new rhyme text. When two consecutive spreads share a palette location, the SCENE must still change sub-area, action, and **camera viewpoint** so the art does not look like a duplicate spread.`);
+    sections.push(`Each SCENE block must describe a **different visible moment** from the prior spread — not the same pose and framing with new rhyme text. When two **consecutive** spreads share a palette location, the SCENE must still change sub-area, action, and **camera viewpoint** so the art does not look like a duplicate spread.`);
+    sections.push(`When a location **reappears later** in the book (not only back-to-back spreads), treat it as a new "still" — different action, time-of-day cue, or micro-zone; do not echo an earlier spread's composition from the same place.`);
     sections.push(`The illustrator only has your words: concrete beats produce beautiful, specific art; abstraction produces generic stock scenes.`);
 
     sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
@@ -914,6 +930,16 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`- NO BEDTIME ENDING: Unless the theme is bedtime, the story must NOT end with the child falling asleep, going to bed, tucking in, closing eyes to sleep, dreaming, or any nighttime/goodnight imagery. End with warmth, togetherness, and energy — in DAYLIGHT or at least awake.`);
     }
     sections.push(`- Format each spread as: ---SPREAD N--- followed by the text`);
+
+    sections.push(`\n## BOOK-WIDE VISUAL SHOWRUNNER (before you finish, mentally storyboard all spreads)\n`);
+    sections.push(`- No two spreads may land on the **same dominant tableau** (same emotional pose + same backdrop) unless the TEXT truly demands a callback — and even then, change **viewpoint, scale, time-of-day, or micro-zone** in the SCENE so the "photograph" is obviously different.`);
+    sections.push(`- If two spreads (even **non-consecutive** ones) use the same palette location, they must not look like the same stock image: reread your SCENES and ensure different focal actions, camera distance, and foreground.`);
+    sections.push(`- Keep **light and time** coherent across a single day: do not default every outdoor beat to the same golden-hour orange unless the story is stuck at one moment; let morning, mid-day, and late-day read differently in the SCENE.`);
+
+    sections.push(`\n## OUTFIT_LOCK (MANDATORY — one line after spread ${plan.spreadCount.target})\n`);
+    sections.push(`Interior art is checked against a **pre-rendered cover**. After \`---SPREAD ${plan.spreadCount.target}---\` (TEXT + SCENE), output a **single** final line on its own, not inside any spread block:`);
+    sections.push(`OUTFIT_LOCK: <one sentence: ${child.name}'s **day** clothes in plain words — colors, top, bottom, shoes, and any one accessory. This exact outfit must appear in every **dry-land** SCENE; only bath/pool/sleep per system rules may swap it.>`);
+    sections.push(`Every SCENE paragraph must **repeat the same garment words** (not "sometimes a dress, sometimes shorts") unless you are in a permitted situational mode.`);
 
     return sections.join('\n');
   }
@@ -1062,7 +1088,10 @@ function appendSceneRulesSection(sections, options = {}) {
   sections.push(`- **Bathtub / bath time:** If the child is in the tub, do NOT describe them wearing their usual day outfit (overalls, jeans, dress) in the water. Describe **thick bubble-bath foam** piled high so it is clearly bath time while shoulders, arms, and face stay visible — modest, age-appropriate, no nudity, no bare-chest detail. You may instead describe stepping in/out with a **towel wrapped** around the torso. Never use words like naked or nude.`);
   if (parentGiftTheme) {
     sections.push(`- **Parent-gift theme (Mother's/Father's Day):** Avoid busy sidewalks crowded with implied pedestrians. If the beat needs shops or a main street, keep **no extra full humans** in frame besides the hero (and any on-cover companion the palette allows). The parent is **implied presence only** when not on the cover — hands, stroller push bar, shoulder edge, silhouette — never a named crowd or "people walking by".`);
+  } else {
+    sections.push(`- **Non-parent / adventure-etc. themes (child-only cover path):** The SCENE must **not** stage two full adults, a man-and-woman couple, "parents beside the pram", or any beat that would force the illustrator to paint two full caregivers. The hero is the only full human. Use implied hands, one cropped adult edge, off-panel voice, or empty stroller path — or non-human companions. If the TEXT mentions love/family, show it with objects, weather, and gesture — not extra full-size adults in frame.`);
   }
+  sections.push(`- **SCENE = composition contract:** The illustrator will follow your SCENE as the main shot; every SCENE should specify a different focal "still" from other spreads, especially when the palette location repeats.`);
   sections.push(`- Keep it concrete and particular. Avoid "magical", "beautiful", "amazing" as standalone adjectives — name the thing that makes it magical.`);
   sections.push(``);
   sections.push(`OUTPUT FORMAT for every spread (exact):`);
@@ -1075,4 +1104,4 @@ function appendSceneRulesSection(sections, options = {}) {
   sections.push(`Omitting the SCENE block on ANY spread, or letting it drift from the TEXT, is a ship-blocker.`);
 }
 
-module.exports = { GenericThemeWriter, appendLocationPaletteSection, appendSceneRulesSection };
+module.exports = { GenericThemeWriter, appendLocationPaletteSection, appendSceneRulesSection, parseWriterOutput };

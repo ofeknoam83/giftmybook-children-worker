@@ -100,7 +100,7 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('The story text for spread 1 goes here.');
     sections.push('Two or four lines of AABB couplets.');
     sections.push('SCENE:');
-    sections.push('A single paragraph of 40-70 words describing what the illustrator should draw for this spread. Always start by naming the palette location (exactly as written in the user prompt). Include a clear **viewpoint / framing** in plain language (e.g. wide establishing, medium, closer on the hero, low angle, looking toward a landmark). If this spread shares its palette location with the **previous** spread, change at least two of: distance to the hero, camera height, viewing direction, or dominant foreground — so the illustration is not a near-duplicate. Describe the light, time of day, the hero\'s body action, their expression, 2-3 concrete visual anchors, and any objects the TEXT names. Never mention art style, aspect ratio, captions, or on-image text. Never describe a family member\'s face; reference them only via hand / shoulder / silhouette.\n');
+    sections.push('A single paragraph of 40-70 words describing what the illustrator should draw for this spread. Always start by naming the palette location (exactly as written in the user prompt). Include a clear **viewpoint / framing** in plain language (e.g. wide establishing, medium, closer on the hero, low angle, looking toward a landmark). If this spread **repeats a palette location** (same place as the previous spread OR a place the book visited earlier), change at least two of: distance to the hero, camera height, viewing direction, dominant foreground, or time-of-day light — so the still is not a near-duplicate of that other moment. Describe the light, time of day, the hero\'s body action, their expression, 2-3 concrete visual anchors, and any objects the TEXT names. Never mention art style, aspect ratio, captions, or on-image text. Never describe a family member\'s face; reference them only via hand / shoulder / silhouette (when policy allows an implied caregiver).\n');
     sections.push('---SPREAD 2---');
     sections.push('TEXT:');
     sections.push('...');
@@ -108,6 +108,7 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('...\n');
     sections.push('...and so on for each spread.');
     sections.push('\nThe TEXT block is ONLY the story text — no beat labels, no meta-commentary, nothing for the illustrator. The SCENE block is the illustrator\'s prompt. Both are mandatory on every spread. Omitting the SCENE block on any spread is a ship-blocker.');
+    sections.push('After the last spread, output exactly one line: OUTFIT_LOCK: <one sentence describing the hero\'s day outfit (matches the cover) for every dry-land SCENE.>');
   } else if (role === 'reviser') {
     sections.push('\n## OUTPUT FORMAT — EVERY SPREAD STILL HAS TEXT + SCENE\n');
     sections.push('Return the COMPLETE revised story in the same TEXT + SCENE spread format:');
@@ -117,6 +118,7 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     sections.push('SCENE:');
     sections.push('<single paragraph of 40-70 words of art direction — must match the TEXT, lock the palette location, and include viewpoint/framing; when location matches the prior spread, vary distance, angle, or foreground as required>\n');
     sections.push('Preserve the total number of spreads. When you change the TEXT, you MUST rewrite the SCENE to match. Never drop the SCENE block. Fix only the issues identified in the feedback; keep everything that already works.');
+    sections.push('Keep or update the final OUTFIT_LOCK line so the hero\'s clothes stay consistent with the cover.');
   }
 
   return sections.join('\n');
