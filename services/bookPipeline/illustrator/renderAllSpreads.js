@@ -47,8 +47,31 @@ const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** When Gemini returns 0 content parts (e.g. finishReason=IMAGE_OTHER), retry before counting as a hard failure. */
+/** When Gemini returns 0 content parts (e.g. finishReason=IMAGE_OTHER), wait + retry before failing the spread. */
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
+const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
+const TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS = 25000;
+
+/**
+ * @param {number} ms
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<void>}
+ */
+function delayRespectingAbort(ms, signal) {
+  if (signal?.aborted) {
+    return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+  }
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    if (signal) {
+      const onAbort = () => {
+        clearTimeout(t);
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
 
 /**
  * Resolve the cover image as base64. Accepts either a pre-supplied base64
@@ -147,10 +170,23 @@ async function processOneSpread(params) {
       if (err.isEmptyResponse && !err.isSafetyBlock && transientEmptyRetries < MAX_TRANSIENT_EMPTY_IMAGE_RETRIES) {
         transientEmptyRetries += 1;
         attempt -= 1;
+        const delayMs = Math.min(
+          TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS,
+          TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS * 2 ** (transientEmptyRetries - 1),
+        );
         console.warn(
           `[${logTag}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
-          `[transient empty image ${transientEmptyRetries}/${MAX_TRANSIENT_EMPTY_IMAGE_RETRIES}, finishReason=${err.finishReason || 'n/a'}] — retrying`,
+          `[transient empty image ${transientEmptyRetries}/${MAX_TRANSIENT_EMPTY_IMAGE_RETRIES}, finishReason=${err.finishReason || 'n/a'}] ` +
+          `— waiting ${delayMs}ms then retrying`,
         );
+        try {
+          await delayRespectingAbort(delayMs, currentDoc.operationalContext?.abortSignal);
+        } catch (waitErr) {
+          if (waitErr.name === 'AbortError' || currentDoc.operationalContext?.abortSignal?.aborted) {
+            return { accepted: false, doc: currentDoc, session: currentSession, issues: ['aborted'], tags: ['aborted'] };
+          }
+          throw waitErr;
+        }
         continue;
       }
       const isSafety = Boolean(err.isSafetyBlock) || /safety|prohibited|blocked/i.test(err?.message || '');

@@ -181,7 +181,7 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
   const vertical = cornerU.startsWith('TOP-') ? 'top' : 'bottom';
   const edgeWord = side === 'left' ? 'left' : 'right';
   const edgePct = TEXT_RULES.edgePaddingPercent;
-  const cornerPct = TEXT_RULES.cornerVerticalPaddingPercent || 14;
+  const cornerPct = TEXT_RULES.cornerVerticalPaddingPercent || 16;
 
   const blend = TEXT_RULES.textIntegration || '';
   const typeLock = TEXT_RULES.typographyConsistency || '';

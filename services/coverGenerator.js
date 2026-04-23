@@ -65,13 +65,13 @@ function softenColor(color, amount = 0.5) {
  * @returns {string} Multi-line instruction appended to the AI prompt
  */
 function buildCoverSafeZoneInstruction(isHardcover) {
-  const edgePct = isHardcover ? 12 : 8;
-  const topPct = isHardcover ? 15 : 10;
+  const topBottomPct = 16;
+  const sidePct = isHardcover ? 12 : 8;
   return [
     `COVER PRINT SAFETY (CRITICAL — Lulu ${isHardcover ? 'hardcover casewrap' : 'paperback'}):`,
-    `- The outer ~${edgePct}% of every edge of this image will be TRIMMED, BLED, OR WRAPPED around the book during printing. Anything placed there WILL BE CUT OFF or hidden on the inside of the cover.`,
-    `- Keep ALL title text, the child's face, logos, subtitles, and any critical element at least ${topPct}% away from the TOP edge and at least ${edgePct}% away from the bottom, left, and right edges.`,
-    `- Place the title with generous top margin — the top of every letter (including tall letters like D, R, W, L, h) must sit well below the top ${topPct}% of the image. If the title is long, make it SMALLER rather than pushing it closer to the top.`,
+    `- The outer ~${sidePct}% of every edge of this image will be TRIMMED, BLED, OR WRAPPED around the book during printing. Anything placed there WILL BE CUT OFF or hidden on the inside of the cover.`,
+    `- Keep ALL title text, the child's face, logos, subtitles, and any critical element at least ${topBottomPct}% away from the TOP and BOTTOM edges and at least ${sidePct}% away from the left and right edges.`,
+    `- Place the title with generous top margin — the top of every letter (including tall letters like D, R, W, L, h) must sit well below the top ${topBottomPct}% of the image. If the title is long, make it SMALLER rather than pushing it closer to the top.`,
     `- The background/illustration itself should still extend edge-to-edge (no white borders) — ONLY the critical content needs to stay inside the safe zone.`,
   ].join('\n');
 }
