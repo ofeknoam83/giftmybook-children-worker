@@ -12,7 +12,7 @@
  *      b. stripMetadata + upscaleForPrint.
  *      c. Run text QA + consistency QA (stateless, in parallel).
  *      d. If both pass → markSpreadAccepted + upload to GCS.
- *      e. If any fails → sendCorrection with the issues (up to MAX_SPREAD_CORRECTIONS).
+ *      e. If any fails → sendCorrection with the issues (up to MAX_SPREAD_CORRECTIONS in-session retries per session).
  *      f. If a safety block fires and we haven't rebuilt yet → rebuildSession, retry once.
  *      g. If we exhaust the budget → hard fail the book.
  *
@@ -209,6 +209,11 @@ async function generateBookIllustrations(opts) {
           textSide,
           coverBase64,
           hasSecondaryOnCover,
+          theme,
+          characterOutfit: storyPlan?.characterOutfit,
+          characterDescription: storyPlan?.characterDescription,
+          coverParentPresent,
+          additionalCoverCharacters,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
           log,
         },
@@ -254,6 +259,8 @@ async function generateBookIllustrations(opts) {
  * @param {string} [opts.additionalCoverCharacters]
  * @param {string} [opts.parentOutfit]
  * @param {string} [opts.childAppearance]
+ * @param {string} [opts.characterOutfit] - From story plan; improves QA retry directives.
+ * @param {string} [opts.characterDescription]
  * @param {number} opts.spreadIndex - 0-based
  * @param {number} [opts.totalSpreads]
  * @returns {Promise<{imageBuffer: Buffer}>}
@@ -272,6 +279,8 @@ async function regenerateSpreadIllustration(opts) {
     additionalCoverCharacters,
     parentOutfit,
     childAppearance,
+    characterOutfit,
+    characterDescription,
     locationPalette,
     spreadIndex,
     totalSpreads = TOTAL_SPREADS,
@@ -310,6 +319,11 @@ async function regenerateSpreadIllustration(opts) {
       textSide,
       coverBase64,
       hasSecondaryOnCover,
+      theme,
+      characterOutfit,
+      characterDescription,
+      coverParentPresent,
+      additionalCoverCharacters,
       log,
     },
   );
@@ -354,6 +368,11 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     textSide,
     coverBase64,
     hasSecondaryOnCover,
+    theme,
+    characterOutfit,
+    characterDescription,
+    coverParentPresent,
+    additionalCoverCharacters,
     abortSignal,
     log,
   } = ctx;
@@ -372,9 +391,22 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
 
     let generated;
     try {
+      const spreadCtx = {
+        spreadIndex,
+        totalSpreads,
+        scene,
+        text,
+        textSide,
+        characterOutfit,
+        characterDescription,
+        theme,
+        hasSecondaryOnCover,
+        coverParentPresent,
+        additionalCoverCharacters,
+      };
       const promptText = isFirst
-        ? buildSpreadTurn({ spreadIndex, totalSpreads, scene, text, textSide })
-        : buildCorrectionTurn({ spreadIndex, totalSpreads, scene, text, textSide, issues, tags });
+        ? buildSpreadTurn(spreadCtx)
+        : buildCorrectionTurn({ ...spreadCtx, issues, tags });
       generated = isFirst
         ? await generateSpread(session, promptText, spreadIndex)
         : await sendCorrection(session, promptText, spreadIndex);
@@ -444,7 +476,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     // This enforces the contract stated at session.js:11-13.
     pruneLastTurn(sessionRef.getSession());
 
-    // QA exhausted all in-session attempts → refresh the session and try again with a fresh 5-attempt round.
+    // QA exhausted all in-session attempts → refresh the session and try again with a fresh round (1 + MAX_SPREAD_CORRECTIONS attempts).
     if (attempt === MAX_ATTEMPTS && rebuildsUsed < MAX_SESSION_REBUILDS) {
       log('warn', `Spread ${spreadIndex + 1}: QA exhausted after ${MAX_ATTEMPTS} attempts — rebuilding session and retrying`);
       const newSession = await rebuildSession(sessionRef.getSession());

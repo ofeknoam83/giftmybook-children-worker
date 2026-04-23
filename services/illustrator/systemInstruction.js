@@ -140,7 +140,11 @@ PANORAMA LOCK (CRITICAL — PRINT IS ONE IMAGE CUT IN HALF FOR BINDING):
 - This spread is **one** continuous wide photograph / film frame. The left and right halves are **not** two separate illustrations pasted together.
 - **FORBIDDEN:** a sharp vertical seam, gutter line, color shift, lighting jump, perspective change, or style change exactly down the middle; backgrounds that "restart" at center; a bench or person **cut off** at mid-frame as if the other half were a different picture; two different skies or horizons meeting at center.
 - **REQUIRED:** unified lighting, atmosphere, ground plane, and horizon across the **entire** width; objects and scenery flow naturally across the middle — the spine is invisible in the art.
-- If the scene includes a gate, path, or figure near center, **design the composition** so continuity reads as one space (e.g. gate straddles the viewing area naturally, path curves through), not as "left page scene + right page scene".`
+- If the scene includes a gate, path, or figure near center, **design the composition** so continuity reads as one space (e.g. gate straddles the viewing area naturally, path curves through), not as "left page scene + right page scene".
+
+IN-WORLD READABLE TEXT (STRICT):
+- The ONLY allowed text on the image is the manuscript caption on the CHOSEN SIDE given in the per-spread prompt — character-for-character identical to that passage.
+- **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). Describe places without inviting the model to render type.`
   );
 
   sections.push(buildTextSection());

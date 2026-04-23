@@ -19,7 +19,7 @@
  * them to systemInstruction.js instead.
  */
 
-const { TEXT_RULES, TOTAL_SPREADS, defaultTextSide } = require('./config');
+const { TEXT_RULES, TOTAL_SPREADS, defaultTextSide, PARENT_THEMES } = require('./config');
 
 /**
  * @typedef {Object} SpreadTurnOpts
@@ -31,6 +31,12 @@ const { TEXT_RULES, TOTAL_SPREADS, defaultTextSide } = require('./config');
  * @property {string} [leftText] - LEGACY. Concatenated with rightText if text is not provided.
  * @property {string} [rightText] - LEGACY. Concatenated with leftText if text is not provided.
  * @property {string} [correctionNote] - Optional per-retry correction (appended when non-empty).
+ * @property {string} [characterOutfit] - Locked outfit string from story plan (QA retries + reminders).
+ * @property {string} [characterDescription] - Optional short hero description for directives.
+ * @property {string} [theme] - Book theme id (e.g. mothers_day).
+ * @property {boolean} [hasSecondaryOnCover] - True if parent or other non-child human on cover.
+ * @property {boolean} [coverParentPresent] - Themed parent visible on cover.
+ * @property {string} [additionalCoverCharacters] - Non-child people on cover description.
  */
 
 /**
@@ -91,13 +97,26 @@ ${scene.trim()}`
 
   sections.push(buildTextBlock(text, side));
 
-  sections.push(
-`### REMINDERS
-- Keep the hero child and any on-cover characters identical to the cover and to the approved spreads you've already generated in this session.
-- Text rule for this spread: render the caption on the ${side.toUpperCase()} side ONLY. The ${oppositeSide(side).toUpperCase()} side and the center band must be completely text-free. Text must be CHARACTER-FOR-CHARACTER identical to what is listed above — no duplicates, no "the end", no extras.
-- One hero, one moment, **one continuous panoramic illustration** (single wide shot). Do NOT compose this as two different scenes side-by-side. No vertical seam, no lighting or palette break down the middle, no object or person truncated at center as if two images were stitched.
-- The book printer will crop this **one** image into two pages — you must paint **one** unified environment edge to edge.`
-  );
+  const reminderLines = [
+    '### REMINDERS',
+    '- Keep the hero child and any on-cover characters identical to the cover and to the approved spreads you\'ve already generated in this session.',
+    `- Text rule for this spread: render the caption on the ${side.toUpperCase()} side ONLY. The ${oppositeSide(side).toUpperCase()} side and the center band must be completely text-free. Text must be CHARACTER-FOR-CHARACTER identical to what is listed above — no duplicates, no "the end", no extras.`,
+    '- One hero, one moment, **one continuous panoramic illustration** (single wide shot). Do NOT compose this as two different scenes side-by-side. No vertical seam, no lighting or palette break down the middle, no object or person truncated at center as if two images were stitched.',
+    '- The book printer will crop this **one** image into two pages — you must paint **one** unified environment edge to edge.',
+  ];
+
+  const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
+  const outfit = typeof opts.characterOutfit === 'string' ? opts.characterOutfit.trim() : '';
+  if (outfit && theme && PARENT_THEMES.has(theme)) {
+    reminderLines.push(
+      `- Outfit lock: the hero must wear exactly this locked outfit (same as cover unless bath, pool, or pajamas per system rules): ${outfit}`,
+    );
+    reminderLines.push(
+      '- No background strangers or extra full-face adults. For this parent-gift theme, any parent not on the cover appears only as implied presence (hands, stroller bar, shoulder, silhouette) — never a clear parent face unless they are on the approved cover.',
+    );
+  }
+
+  sections.push(reminderLines.join('\n'));
 
   if (correctionNote && correctionNote.trim()) {
     sections.push(`### CORRECTION FOR THIS RETRY
@@ -172,6 +191,12 @@ function buildCorrectionTurn(opts) {
     leftText: opts.leftText,
     rightText: opts.rightText,
     correctionNote: lines.join('\n'),
+    characterOutfit: opts.characterOutfit,
+    characterDescription: opts.characterDescription,
+    theme: opts.theme,
+    hasSecondaryOnCover: opts.hasSecondaryOnCover,
+    coverParentPresent: opts.coverParentPresent,
+    additionalCoverCharacters: opts.additionalCoverCharacters,
   });
 }
 
@@ -182,7 +207,7 @@ function buildCorrectionTurn(opts) {
  * words, text on both sides).
  *
  * @param {string[]} tags
- * @param {{text?: string, textSide?: 'left'|'right', leftText?: string, rightText?: string}} opts
+ * @param {object} opts - Spread + book context for tag-specific remediation.
  * @returns {string[]}
  */
 function buildTagDirectives(tags, opts) {
@@ -229,6 +254,52 @@ function buildTagDirectives(tags, opts) {
   if (set.has('split_panel')) {
     out.push(
       'The image looked like TWO illustrations stitched together (diptych) with a visible vertical seam or mismatched halves. Re-render as ONE seamless wide panorama: identical lighting and atmosphere across the full width, one ground plane, one continuous background — no seam at the vertical center, no abrupt crop of props or people at mid-frame. Think one cinematic still, not two pages.',
+    );
+  }
+
+  const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
+  const isParentTheme = theme.length > 0 && PARENT_THEMES.has(theme);
+  const hasSecondary = opts.hasSecondaryOnCover === true;
+
+  if (set.has('outfit_mismatch')) {
+    const outfit = typeof opts.characterOutfit === 'string' ? opts.characterOutfit.trim() : '';
+    out.push(
+      outfit
+        ? `The hero's clothing must match the cover exactly. Locked outfit (reproduce precisely — no swaps unless bath, pool, or pajamas per system rules): ${outfit}`
+        : 'The hero\'s clothing must match the cover reference exactly — same garments, colors, and silhouette. No outfit drift unless the story beat explicitly calls for bath, pool, or pajamas per system rules.',
+    );
+  }
+  if (set.has('hero_mismatch')) {
+    const desc = typeof opts.characterDescription === 'string' ? opts.characterDescription.trim() : '';
+    out.push(
+      desc
+        ? `Face, hair, skin tone, and proportions must match the BOOK COVER reference exactly — no drift. Story reference: ${desc}`
+        : 'Face, hair, skin tone, eye color, hairstyle, and body proportions must match the BOOK COVER reference exactly — no drift, no "similar" substitute child.',
+    );
+  }
+  if (set.has('unexpected_person')) {
+    if (!hasSecondary && isParentTheme) {
+      out.push(
+        'Remove any full-face or full-body adults and all background pedestrians. Only the hero child belongs in frame; the parent for this theme appears only as IMPLIED presence (hands, stroller push bar, shoulder edge, silhouette) — never a recognizable parent face unless they are on the approved cover.',
+      );
+    } else if (hasSecondary) {
+      out.push(
+        'Only characters who appear on the approved cover may show as full people. Remove every other person — no extras, no crowd filler, no background pedestrians.',
+      );
+    } else {
+      out.push(
+        'Only the hero child may appear as a full person. Remove any other full humans from the scene (no background pedestrians, no strangers).',
+      );
+    }
+  }
+  if (set.has('duplicated_hero')) {
+    out.push(
+      'Exactly ONE hero child in the image. Remove mirror duplicates, reflections that read as a second child, twinning, or a second full figure of the same character.',
+    );
+  }
+  if (set.has('wrong_font')) {
+    out.push(
+      `Font for the caption must follow this lock exactly: ${TEXT_RULES.fontStyle}`,
     );
   }
 

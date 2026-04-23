@@ -488,7 +488,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${desc} [~${b.wordTarget} words]`);
     });
 
-    appendSceneRulesSection(sections);
+    appendSceneRulesSection(sections, { parentGiftTheme: true });
 
     if (plan.manifest && plan.manifest.length > 0) {
       sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);

@@ -865,7 +865,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${desc} [~${b.wordTarget} words]`);
     });
 
-    appendSceneRulesSection(sections);
+    appendSceneRulesSection(sections, { parentGiftTheme: false });
 
     if (plan.manifest && plan.manifest.length > 0) {
       sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
@@ -1030,8 +1030,12 @@ function appendLocationPaletteSection(sections, plan) {
  * the writer emits alongside each spread's TEXT. The illustrator uses the
  * SCENE verbatim as its scene prompt, so this text has to describe what to
  * draw, not what the parent reads aloud.
+ *
+ * @param {string[]} sections
+ * @param {{ parentGiftTheme?: boolean }} [options]
  */
-function appendSceneRulesSection(sections) {
+function appendSceneRulesSection(sections, options = {}) {
+  const parentGiftTheme = options.parentGiftTheme === true;
   sections.push(`\n## SCENE RULES (these govern the SCENE: block you write under every spread)\n`);
   sections.push(`For every spread you write a TEXT block (the read-aloud poem) AND a SCENE block (art direction for the illustrator). The illustrator reads the SCENE word-for-word, so it must match the TEXT and describe the image we want.`);
   sections.push(``);
@@ -1047,11 +1051,15 @@ function appendSceneRulesSection(sections) {
   sections.push(`SCENE rules (strict):`);
   sections.push(`- The SCENE must describe THE SAME moment the TEXT describes — not a paraphrase, not "a later moment". If the TEXT says the child is peeking at a fish, the SCENE shows the child peeking at a fish.`);
   sections.push(`- Do NOT describe parent or other family faces — they appear only via hands/shoulders/silhouettes (the illustrator enforces this). You may say "mother's hand adjusting a scarf" or "dad's silhouette at the gate"; never "mother smiles warmly".`);
-  sections.push(`- Never describe on-image text, captions, or signage (the illustrator handles text placement separately).`);
+  sections.push(`- **No readable business or storefront copy in the SCENE.** Do not invent shop names, bakery or bookstore lettering, or phrases like "a sign reading …". The illustrator must not paint words in the environment. Describe retail streets generically: warm window glow, striped awnings, blurred distant shapes, baskets of goods without legible labels.`);
+  sections.push(`- Never describe on-image manuscript captions (the illustrator places the read-aloud TEXT separately). Do not instruct painted signage, posters, chalkboards, or labels with words — those invite OCR failures.`);
   sections.push(`- **One continuous panorama:** The SCENE must read as a **single** wide outdoor/indoor space flowing across the spread — not "on the left page X, on the right page Y" as two separate compositions. Describe one unified moment (path, gate, garden) so the illustrator paints **one** image later split for printing, not two pictures side-by-side.`);
   sections.push(`- Never describe the book's style ("Pixar-style", "3D render"), the aspect ratio, or framing instructions — just describe the moment and the location.`);
   sections.push(`- No contradictions with the TEXT. If the TEXT says the child is laughing, don't say they're crying. If the TEXT is outdoors, the SCENE is outdoors.`);
   sections.push(`- **Bathtub / bath time:** If the child is in the tub, do NOT describe them wearing their usual day outfit (overalls, jeans, dress) in the water. Describe **thick bubble-bath foam** piled high so it is clearly bath time while shoulders, arms, and face stay visible — modest, age-appropriate, no nudity, no bare-chest detail. You may instead describe stepping in/out with a **towel wrapped** around the torso. Never use words like naked or nude.`);
+  if (parentGiftTheme) {
+    sections.push(`- **Parent-gift theme (Mother's/Father's Day):** Avoid busy sidewalks crowded with implied pedestrians. If the beat needs shops or a main street, keep **no extra full humans** in frame besides the hero (and any on-cover companion the palette allows). The parent is **implied presence only** when not on the cover — hands, stroller push bar, shoulder edge, silhouette — never a named crowd or "people walking by".`);
+  }
   sections.push(`- Keep it concrete and particular. Avoid "magical", "beautiful", "amazing" as standalone adjectives — name the thing that makes it magical.`);
   sections.push(``);
   sections.push(`OUTPUT FORMAT for every spread (exact):`);

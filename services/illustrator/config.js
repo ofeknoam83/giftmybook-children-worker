@@ -17,8 +17,11 @@ const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
 
 // ── Retry budgets ──
-const MAX_SPREAD_CORRECTIONS = 4;   // per-spread in-session correction retries before the session is rebuilt (yields 5 attempts per session: 1 initial + 4 corrections)
-const MAX_SESSION_REBUILDS = 1;     // per-spread session rebuilds; covers both safety-block recovery AND QA exhaustion fallback (one rebuild = a fresh 5-attempt round in a new session)
+// Higher values improve pass rates on difficult spreads but increase latency and
+// API cost roughly linearly (each correction is another image + QA). Tune down if
+// cost or time becomes an issue after observing production pass rates.
+const MAX_SPREAD_CORRECTIONS = 6;   // per-spread in-session corrections → 1 initial + 6 = 7 attempts per session before rebuild
+const MAX_SESSION_REBUILDS = 2;     // full session rebuilds per spread (safety + QA exhaustion); worst case ≈ 7 × 3 = 21 attempts
 const QA_HTTP_ATTEMPTS = 3;         // retries per vision QA HTTP call before fail-open (infra)
 
 // ── Sliding window ──

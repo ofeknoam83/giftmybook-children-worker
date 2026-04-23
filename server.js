@@ -2322,7 +2322,8 @@ If the main child is the ONLY character, respond with exactly: NONE` },
 app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText,
     additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
-    coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl, textSide } = req.body;
+    coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl, textSide,
+    characterOutfit, characterDescription } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2379,6 +2380,8 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       coverParentPresent: coverParentPresent === true,
       parentOutfit: parentOutfit || null,
       childAppearance: childAppearance || null,
+      characterOutfit: typeof characterOutfit === 'string' ? characterOutfit : null,
+      characterDescription: typeof characterDescription === 'string' ? characterDescription : null,
       spreadIndex,
       totalSpreads: totalSpreads || 13,
     });

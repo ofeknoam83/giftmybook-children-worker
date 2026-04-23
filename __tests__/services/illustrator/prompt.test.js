@@ -100,4 +100,39 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/BOOK COVER/);
     expect(out).toMatch(/skin tone/);
   });
+
+  test('outfit_mismatch repeats locked outfit string when provided', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Hero outfit differs from cover'],
+      tags: ['outfit_mismatch'],
+      characterOutfit: 'navy overalls, red sneakers, yellow tee',
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/navy overalls/);
+    expect(out).toMatch(/Locked outfit/);
+  });
+
+  test('unexpected_person (parent theme, no secondary on cover) forbids strangers and full adults', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Extra person in background'],
+      tags: ['unexpected_person'],
+      theme: 'mothers_day',
+      hasSecondaryOnCover: false,
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/background pedestrians|Remove any full-face/i);
+    expect(out).toMatch(/IMPLIED presence/i);
+  });
+
+  test('wrong_font reinforces TEXT_RULES font lock', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Caption font looks handwritten'],
+      tags: ['wrong_font'],
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/Georgia|Book Antiqua|serif/i);
+  });
 });
