@@ -1,24 +1,28 @@
-jest.mock('openai');
 jest.mock('../../services/gemini');
 
-const OpenAI = require('openai');
 const gemini = require('../../services/gemini');
 
-// Set env before requiring module
-process.env.OPENAI_API_KEY = 'test-key';
+process.env.GEMINI_API_KEY = 'test-gemini-key';
 
-const mockCreate = jest.fn();
-
-beforeAll(() => {
-  OpenAI.mockImplementation(() => ({
-    chat: {
-      completions: { create: mockCreate },
-    },
-  }));
-});
+/**
+ * Mocks a successful Gemini `generateContent` REST response.
+ * @param {string} text
+ * @param {number} [inputTokens]
+ * @param {number} [outputTokens]
+ */
+function mockGeminiFetchResponse(text, inputTokens = 200, outputTokens = 50) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text }] } }],
+      usageMetadata: { promptTokenCount: inputTokens, candidatesTokenCount: outputTokens },
+    }),
+  };
+}
 
 beforeEach(() => {
-  mockCreate.mockReset();
+  global.fetch = jest.fn().mockImplementation(() => Promise.resolve(mockGeminiFetchResponse('fallback')));
   gemini.generateContent.mockReset();
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -52,10 +56,9 @@ describe('generateSpreadText', () => {
   };
 
   test('generates and returns text', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: 'Emma found a flower that glowed so bright, it lit up the garden with golden light.' } }],
-      usage: { prompt_tokens: 200, completion_tokens: 50 },
-    });
+    global.fetch.mockResolvedValue(
+      mockGeminiFetchResponse('Emma found a flower that glowed so bright, it lit up the garden with golden light.'),
+    );
     gemini.generateContent.mockResolvedValue({ text: 'no changes needed', inputTokens: 10, outputTokens: 5 });
 
     const text = await generateSpreadText(spreadPlan, childDetails, 'picture_book', storyContext);
@@ -64,10 +67,9 @@ describe('generateSpreadText', () => {
   });
 
   test('strips markdown formatting', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: '## Title\n**Emma** found a *magic* flower.' } }],
-      usage: {},
-    });
+    global.fetch.mockResolvedValue(
+      mockGeminiFetchResponse('## Title\n**Emma** found a *magic* flower.'),
+    );
     gemini.generateContent.mockResolvedValue({ text: 'no changes', inputTokens: 0, outputTokens: 0 });
 
     const text = await generateSpreadText(spreadPlan, childDetails, 'picture_book', storyContext);
@@ -77,12 +79,12 @@ describe('generateSpreadText', () => {
   });
 
   test('uses vocabulary-corrected text when Gemini suggests changes', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: 'Emma discovered an extraordinary phenomenon.' } }],
-      usage: {},
-    });
+    global.fetch.mockResolvedValue(mockGeminiFetchResponse('Emma discovered an extraordinary phenomenon.'));
     gemini.generateContent.mockResolvedValue({
-      text: 'Emma found something amazing and wonderful.',
+      text: JSON.stringify({
+        approved: false,
+        suggestion: 'Emma found something amazing and wonderful.',
+      }),
       inputTokens: 10,
       outputTokens: 10,
     });
@@ -92,10 +94,7 @@ describe('generateSpreadText', () => {
   });
 
   test('falls back to original text when vocab check fails', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: 'Emma found a flower.' } }],
-      usage: {},
-    });
+    global.fetch.mockResolvedValue(mockGeminiFetchResponse('Emma found a flower.'));
     gemini.generateContent.mockRejectedValue(new Error('Gemini unavailable'));
 
     const text = await generateSpreadText(spreadPlan, childDetails, 'picture_book', storyContext);
@@ -103,35 +102,25 @@ describe('generateSpreadText', () => {
   });
 
   test('throws on empty response', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: '' } }],
-      usage: {},
-    });
+    global.fetch.mockResolvedValue(mockGeminiFetchResponse(''));
 
     await expect(generateSpreadText(spreadPlan, childDetails, 'picture_book', storyContext))
       .rejects.toThrow('Empty text response');
   });
 
   test('tracks costs when costTracker provided', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: 'Some text here.' } }],
-      usage: { prompt_tokens: 200, completion_tokens: 50 },
-    });
+    global.fetch.mockResolvedValue(mockGeminiFetchResponse('Some text here.', 200, 50));
     gemini.generateContent.mockResolvedValue({ text: 'no changes', inputTokens: 10, outputTokens: 5 });
 
     const costTracker = { addTextUsage: jest.fn() };
     await generateSpreadText(spreadPlan, childDetails, 'picture_book', storyContext, { costTracker });
 
-    expect(costTracker.addTextUsage).toHaveBeenCalledWith('gpt-5.4', 200, 50);
+    expect(costTracker.addTextUsage).toHaveBeenCalledWith('gemini-2.5-flash', 200, 50);
     expect(costTracker.addTextUsage).toHaveBeenCalledWith('gemini-2.5-flash', 10, 5);
   });
 
   test('handles gemini returning string (backwards compat)', async () => {
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: 'Emma found a flower.' } }],
-      usage: {},
-    });
-    // Old-style string return
+    global.fetch.mockResolvedValue(mockGeminiFetchResponse('Emma found a flower.'));
     gemini.generateContent.mockResolvedValue('no changes needed');
 
     const text = await generateSpreadText(spreadPlan, childDetails, 'picture_book', storyContext);

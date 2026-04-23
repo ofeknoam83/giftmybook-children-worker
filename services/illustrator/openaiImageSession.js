@@ -26,7 +26,7 @@ const {
   TURN_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
 } = require('./config');
-const { fetchWithTimeout } = require('../illustrationGenerator');
+const { postImagesEdits } = require('./openaiImagesHttp');
 const { buildSystemInstruction } = require('./systemInstruction');
 
 /**
@@ -214,53 +214,39 @@ function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount })
 }
 
 /**
- * Build the multipart form body with the cover + last N accepted spreads.
+ * Cover + last N accepted spreads as buffers for `images/edits` `image[]` parts.
+ * @returns {{ imageFiles: Array<{ buffer: Buffer, filename: string, mimeType: string }>, continuityCount: number }}
  */
-function buildEditForm(session, promptText) {
-  if (typeof FormData === 'undefined' || typeof Blob === 'undefined') {
-    throw new Error('Node >= 20 required for built-in FormData / Blob (OpenAI image adapter)');
-  }
-  const fd = new FormData();
-  fd.append('model', session.model);
-  fd.append('prompt', promptText);
-  fd.append('size', OPENAI_IMAGE_SIZE);
-  // `images/edits` does not accept `quality` (only `images/generations` does) —
-  // sending it causes OpenAI 400: unknown_parameter "quality".
-  fd.append('n', '1');
-
-  // Cover always first.
+function collectEditImageFiles(session) {
   const coverBuf = Buffer.from(session.coverBase64, 'base64');
-  fd.append(
-    'image[]',
-    new Blob([coverBuf], { type: session.coverMime || 'image/jpeg' }),
-    `cover.${(session.coverMime || 'image/jpeg').includes('png') ? 'png' : 'jpg'}`,
-  );
-
-  // Continuity refs: last N accepted spreads in book order.
+  const imageFiles = [
+    {
+      buffer: coverBuf,
+      filename: `cover.${(session.coverMime || 'image/jpeg').includes('png') ? 'png' : 'jpg'}`,
+      mimeType: session.coverMime || 'image/jpeg',
+    },
+  ];
   const tail = [...session.acceptedSpreads]
     .filter(s => s && typeof s.index === 'number' && s.imageBase64)
     .sort((a, b) => a.index - b.index)
     .slice(-SLIDING_WINDOW_ACCEPTED_SPREADS);
   for (const accepted of tail) {
-    const buf = Buffer.from(accepted.imageBase64, 'base64');
-    fd.append(
-      'image[]',
-      new Blob([buf], { type: 'image/png' }),
-      `spread-${accepted.index + 1}.png`,
-    );
+    imageFiles.push({
+      buffer: Buffer.from(accepted.imageBase64, 'base64'),
+      filename: `spread-${accepted.index + 1}.png`,
+      mimeType: 'image/png',
+    });
   }
-
-  return { form: fd, continuityCount: tail.length };
+  return { imageFiles, continuityCount: tail.length };
 }
 
 async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = false }) {
-  const { form, continuityCount } = buildEditForm(session, ''); // prompt re-attached below after we know continuityCount
+  const { imageFiles, continuityCount } = collectEditImageFiles(session);
   const combinedPrompt = buildCombinedPrompt({
     systemInstruction: session.systemInstruction,
     userPrompt,
     continuityCount,
   });
-  form.set('prompt', combinedPrompt);
 
   const turnLabel = isCorrection ? 'correction' : 'generate';
   const startMs = Date.now();
@@ -269,22 +255,25 @@ async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = fals
     + `(${continuityCount + 1} reference images, size=${OPENAI_IMAGE_SIZE})...`,
   );
 
-  let resp;
+  let result;
   try {
-    resp = await fetchWithTimeout(OPENAI_IMAGES_EDIT_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session.apiKey}` },
-      body: form,
-    }, TURN_TIMEOUT_MS, session.abortSignal);
+    result = await postImagesEdits({
+      apiKey: session.apiKey,
+      url: OPENAI_IMAGES_EDIT_URL,
+      model: session.model,
+      prompt: combinedPrompt,
+      size: OPENAI_IMAGE_SIZE,
+      imageFiles,
+      timeoutMs: TURN_TIMEOUT_MS,
+      signal: session.abortSignal,
+    });
   } catch (err) {
     throw new Error(`OpenAI image ${turnLabel} network error: ${err.message}`);
   }
 
-  if (!resp.ok) {
-    const errBody = await resp.text().catch(() => '');
-    const err = new Error(`OpenAI image API ${resp.status}: ${errBody.slice(0, 400)}`);
-    // gpt-image-2 surfaces content-policy rejections with `"code": "moderation_blocked"`
-    // or `"error": { "type": "image_generation_user_error" }`.
+  if (!result.ok) {
+    const errBody = result.text || '';
+    const err = new Error(`OpenAI image API ${result.status}: ${errBody.slice(0, 400)}`);
     if (/moderation_blocked|safety|policy_violation|content_policy/i.test(errBody)) {
       err.isSafetyBlock = true;
       err.isEmptyResponse = true;
@@ -292,8 +281,7 @@ async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = fals
     throw err;
   }
 
-  const data = await resp.json();
-  const b64 = data?.data?.[0]?.b64_json;
+  const b64 = result.data?.data?.[0]?.b64_json;
   if (!b64) {
     throw new Error('OpenAI image API returned no b64_json payload');
   }

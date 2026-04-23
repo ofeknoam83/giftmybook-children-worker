@@ -16,10 +16,11 @@ const {
   ART_STYLE_CONFIG,
 } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
+const { OPENAI_IMAGES_EDIT_URL } = require('./illustrator/config');
+const { postImagesEdits } = require('./illustrator/openaiImagesHttp');
 const sharp = require('sharp');
 
 const OPENAI_COVER_HARMONIZE_MODEL = 'gpt-image-2';
-const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
 const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image-preview';
 const GEMINI_IMAGE_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -131,37 +132,26 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
 
   const size = isPictureBook ? '2048x2048' : '1024x1536';
   const apiKey = process.env.OPENAI_API_KEY;
-  if (apiKey && typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
+  if (apiKey) {
     try {
-      const fd = new FormData();
-      fd.append('model', OPENAI_COVER_HARMONIZE_MODEL);
-      fd.append('prompt', basePrompt);
-      fd.append('size', size);
-      // `images/edits` rejects `quality` (OpenAI 400 unknown_parameter) — same as openaiImageSession.
-      fd.append('n', '1');
-      fd.append(
-        'image[]',
-        new Blob([jpegRef], { type: 'image/jpeg' }),
-        'chosen-cover.jpg',
-      );
-
-      const resp = await fetchWithTimeout(OPENAI_IMAGES_EDIT_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: fd,
-      }, 180000);
-
-      if (resp.ok) {
-        const data = await resp.json();
-        const b64 = data?.data?.[0]?.b64_json;
+      const result = await postImagesEdits({
+        apiKey,
+        url: OPENAI_IMAGES_EDIT_URL,
+        model: OPENAI_COVER_HARMONIZE_MODEL,
+        prompt: basePrompt,
+        size,
+        imageFiles: [{ buffer: jpegRef, filename: 'chosen-cover.jpg', mimeType: 'image/jpeg' }],
+        timeoutMs: 180000,
+      });
+      if (result.ok) {
+        const b64 = result.data?.data?.[0]?.b64_json;
         if (b64) {
           console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (OpenAI gpt-image-2)');
           if (opts.costTracker) opts.costTracker.addImageGeneration(OPENAI_COVER_HARMONIZE_MODEL, 1);
           return Buffer.from(b64, 'base64');
         }
       } else {
-        const errT = await resp.text().catch(() => '');
-        console.warn('[CoverGenerator] OpenAI cover harmonize failed:', resp.status, errT.slice(0, 300));
+        console.warn('[CoverGenerator] OpenAI cover harmonize failed:', result.status, (result.text || '').slice(0, 300));
       }
     } catch (e) {
       console.warn('[CoverGenerator] OpenAI cover harmonize error:', e.message);
