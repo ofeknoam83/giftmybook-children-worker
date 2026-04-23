@@ -23,7 +23,6 @@ const {
   OPENAI_IMAGE_MODEL,
   OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGE_SIZE,
-  OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
 } = require('./config');
@@ -225,7 +224,8 @@ function buildEditForm(session, promptText) {
   fd.append('model', session.model);
   fd.append('prompt', promptText);
   fd.append('size', OPENAI_IMAGE_SIZE);
-  fd.append('quality', OPENAI_IMAGE_QUALITY);
+  // `images/edits` does not accept `quality` (only `images/generations` does) —
+  // sending it causes OpenAI 400: unknown_parameter "quality".
   fd.append('n', '1');
 
   // Cover always first.
@@ -266,7 +266,7 @@ async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = fals
   const startMs = Date.now();
   console.log(
     `[illustrator/openaiImageSession] ${turnLabel} spread ${spreadIndex + 1} `
-    + `(${continuityCount + 1} reference images, size=${OPENAI_IMAGE_SIZE}, quality=${OPENAI_IMAGE_QUALITY})...`,
+    + `(${continuityCount + 1} reference images, size=${OPENAI_IMAGE_SIZE})...`,
   );
 
   let resp;

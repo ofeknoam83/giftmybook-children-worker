@@ -22,8 +22,9 @@ const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
 // 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
 // pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
 const OPENAI_IMAGE_SIZE = '1792x1008';
-// "medium" is the production sweet spot: strong quality with acceptable
-// latency/cost. Flip to "high" if output quality proves insufficient.
+// Note: `images/edits` (used by `openaiImageSession.js`) does not support the
+// `quality` form field in the current API — only `images/generations` does.
+// Kept for documentation / a future switch to the generations endpoint.
 const OPENAI_IMAGE_QUALITY = 'medium';
 
 // ── Timeouts ──

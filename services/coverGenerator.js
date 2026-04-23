@@ -137,7 +137,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
       fd.append('model', OPENAI_COVER_HARMONIZE_MODEL);
       fd.append('prompt', basePrompt);
       fd.append('size', size);
-      fd.append('quality', 'high');
+      // `images/edits` rejects `quality` (OpenAI 400 unknown_parameter) — same as openaiImageSession.
       fd.append('n', '1');
       fd.append(
         'image[]',
