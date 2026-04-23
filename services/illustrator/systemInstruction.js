@@ -94,7 +94,7 @@ Never drift toward 2D flat, watercolor, pencil sketch, gouache, paper cutout, an
 `### CHARACTER LOCK
 The hero child on the cover is the ONLY hero of every spread. Preserve their face, ethnicity, skin tone, eye color, hair color + hairstyle, and body proportions EXACTLY as rendered on the cover.
 ${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
-Outfit: the hero wears the SAME outfit they wear on the cover across every spread, unless the story prompt explicitly calls for a costume swap (pajamas for bedtime, swimwear at a pool, a coat in the snow). When the outfit swaps, keep the palette and silhouette consistent with the cover look.
+Outfit (visual lock only — no separate text wardrobe list): Copy the hero's clothing **as it appears on the BOOK COVER image** and keep it aligned with **your own prior interior frames in this chat**. Same shirt/dress/pants/shoes family, colors, and silhouette across spreads unless the SCENE explicitly calls for a situational swap (pajamas, swimwear, coat in snow, bath/towel per rules below). Do not invent a new outfit each spread when the cover and recent frames show a consistent look.
 **Bathtub / shower:** the usual street outfit does NOT apply while the child is in bath water — see ### BATH, SHOWER, AND SWIMMING below (bubbles/towel; never fully clothed in the tub).
 Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, never montages of the hero doing multiple things.`
   );

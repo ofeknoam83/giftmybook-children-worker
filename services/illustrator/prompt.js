@@ -65,7 +65,7 @@ function shouldDeescalateSceneForQaFail(tags, scene) {
  * @property {string} [leftText] - LEGACY. Concatenated with rightText if text is not provided.
  * @property {string} [rightText] - LEGACY. Concatenated with leftText if text is not provided.
  * @property {string} [correctionNote] - Optional per-retry correction (appended when non-empty).
- * @property {string} [characterOutfit] - Locked outfit string from story plan (QA retries + reminders).
+ * @property {string} [characterOutfit] - Legacy; not used for outfit (visual lock is cover + session).
  * @property {string} [characterDescription] - Optional short hero description for directives.
  * @property {string} [theme] - Book theme id (e.g. mothers_day).
  * @property {boolean} [hasSecondaryOnCover] - True if parent or other non-child human on cover.
@@ -131,8 +131,12 @@ ${scene.trim()}`
 
   sections.push(buildTextBlock(text, side));
 
+  const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
+  const isParentTheme = theme && PARENT_THEMES.has(theme);
+
   const reminderLines = [
     '### REMINDERS',
+    '- **Hero look (outfit + face):** Match the **BOOK COVER** image and your **earlier interior images in this same chat** — not a new costume each time. Reuse the same visible clothing, colors, and hair as in those images unless this SCENE explicitly requires a situational change (bath, pool, pajamas, cold-weather layer) per the system instruction.',
     '- Keep the hero child and any on-cover characters identical to the cover and to the approved spreads you\'ve already generated in this session.',
     `- Text rule for this spread: render the caption on the ${side.toUpperCase()} side ONLY. The ${oppositeSide(side).toUpperCase()} side and the center band must be completely text-free. Text must be CHARACTER-FOR-CHARACTER identical to what is listed above — no duplicates, no "the end", no extras.`,
     '- **SCENE first:** Fulfil the SCENE block above (camera, focal action, who is in frame). It is the author\'s shot list — do not substitute a generic repeat of a prior spread unless the scene text is shallow (then still vary framing vs the last time this place appeared).',
@@ -141,12 +145,7 @@ ${scene.trim()}`
     '- **Shot variety:** If this spread shares the same setting as the previous one, change framing (distance, angle, focal point) per the SCENE — keep the **place** consistent, not a duplicate composition. If this place also appeared non-consecutively, still follow the new SCENE so it is not a clone of that earlier still.',
   ];
 
-  const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
-  const outfit = typeof opts.characterOutfit === 'string' ? opts.characterOutfit.trim() : '';
-  if (outfit && theme && PARENT_THEMES.has(theme)) {
-    reminderLines.push(
-      `- Outfit lock: the hero must wear exactly this locked outfit (same as cover unless bath, pool, or pajamas per system rules): ${outfit}`,
-    );
+  if (isParentTheme) {
     reminderLines.push(
       '- No background strangers or extra full-face adults. For this parent-gift theme, any parent not on the cover appears only as implied presence (hands, stroller bar, shoulder, silhouette) — never a clear parent face unless they are on the approved cover.',
     );
@@ -298,11 +297,8 @@ function buildTagDirectives(tags, opts) {
   const hasSecondary = opts.hasSecondaryOnCover === true;
 
   if (set.has('outfit_mismatch')) {
-    const outfit = typeof opts.characterOutfit === 'string' ? opts.characterOutfit.trim() : '';
     out.push(
-      outfit
-        ? `The hero's clothing must match the cover exactly. Locked outfit (reproduce precisely — no swaps unless bath, pool, or pajamas per system rules): ${outfit}`
-        : 'The hero\'s clothing must match the cover reference exactly — same garments, colors, and silhouette. No outfit drift unless the story beat explicitly calls for bath, pool, or pajamas per system rules.',
+      'Hero clothing: copy **exactly** from the **BOOK COVER** (turn 1 in this chat) and from **your last accepted interior image(s)** here — same top/bottom/dress/shoes and color family. Do not invent a new outfit. Re-lighting, folds, and pose may change; the wardrobe must not. If this SCENE requires bath/pool/pajamas/snow layer per system rules, only then swap; otherwise keep street clothes identical to the cover render.',
     );
   }
   if (set.has('hero_mismatch')) {

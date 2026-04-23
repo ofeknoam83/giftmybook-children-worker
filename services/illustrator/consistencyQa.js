@@ -142,14 +142,16 @@ function buildConsistencyPrompt({ hasSecondaryOnCover, characterDescription, has
     : '';
   return `You are a quality reviewer comparing a book COVER (Image 1) to a generated interior SPREAD (Image 2). Both should be from the same 3D Pixar children's book (stylized CGI — NOT a real photograph).${photoNote}${desc}${castNote}
 
-Judgment style: fail heroChildMatches or outfitMatches only on a CLEAR, confident mismatch. If uncertain or differences are plausibly lighting/pose, prefer heroChildMatches=true. Baby vs older toddler: not an automatic fail if the same character could plausibly be the cover child in a different moment — only fail on clearly different hair color family, face shape, skin tone, or a clearly different child identity.
+Judgment style: fail heroChildMatches or outfitMatches only on a **clear** mismatch. If uncertain, prefer **true** (pass). Differences in **lighting, shadow, wrinkle/fold, viewing angle, foreshortening, or partial occlusion** are NOT outfit failures. Baby vs older toddler: not an automatic fail for identity — only fail on clearly different hair color family, face shape, skin tone, or a clearly different child.
+
+**Outfit (Image 1 cover vs Image 2 spread only — no external text list):** Compare only the **visible clothing** on the hero in Image 1 to Image 2. Set **outfitMatches: true** if the spread shows the **same outfit family** (same type of top/bottom/dress, same overall color story) as the cover, even if: colors shift slightly under different light, a jacket is open vs closed, or only part of the outfit is visible. Set **outfitMatches: true** for **explicit situational swaps** that the scene could explain (pajamas, swimwear, towel, heavy coat in snow) **if** they read as that situation. Set **outfitMatches: false** only when the main garments are **clearly** a different set (e.g. cover in a red dress, spread in unrelated blue overalls; or a complete style change) with no plausible situational reason.
 
 Return STRICT JSON with this schema (no markdown, no commentary):
 
 {
   "heroChildMatches": <true if the spread hero (Image 2) is clearly the same identity as the child on the cover (Image 1) — same face, ethnicity, skin tone, hair color/style, eye color, within normal illustration variance>,
   "heroChildDifferences": "<short description of any visible differences, or empty string>",
-  "outfitMatches": <true if the hero's outfit on the spread is the same outfit family as the cover OR is an explicit situational swap like pajamas/swimwear/coat. False if the outfit is arbitrarily different.>,
+  "outfitMatches": <true per the OUTFIT rules above; prefer true when in doubt.>,
   "artStyleIs3DPixar": <true if the spread is rendered in a 3D Pixar CGI style matching the cover — stylized soft CGI render, volumetric lighting, subsurface skin scattering, warm palette. False if Image 2 looks like a real photograph, smartphone snapshot, stock photo, 2D flat, watercolor, pencil sketch, gouache, anime cel, storybook ink, paper cutout, or any non-CGI style.>,
   "artStyleNotes": "<short description if artStyleIs3DPixar is false>",
   "heroCount": <integer — how many copies of the hero child appear in the spread. 1 is correct; 2+ is a duplicated-hero bug>,

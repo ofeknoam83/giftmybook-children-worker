@@ -113,7 +113,7 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/skin tone/);
   });
 
-  test('outfit_mismatch repeats locked outfit string when provided', () => {
+  test('outfit_mismatch uses cover + session visual lock (no prose wardrobe)', () => {
     const out = buildCorrectionTurn({
       ...base,
       issues: ['Hero outfit differs from cover'],
@@ -121,8 +121,9 @@ describe('buildCorrectionTurn — tag directives', () => {
       characterOutfit: 'navy overalls, red sneakers, yellow tee',
     });
     expect(out).toMatch(/SPECIFIC ACTIONS/);
-    expect(out).toMatch(/navy overalls/);
-    expect(out).toMatch(/Locked outfit/);
+    expect(out).toMatch(/BOOK COVER/);
+    expect(out).toMatch(/last accepted interior image/);
+    expect(out).not.toMatch(/navy overalls/);
   });
 
   test('unexpected_person (parent theme, no secondary on cover) forbids strangers and full adults', () => {
