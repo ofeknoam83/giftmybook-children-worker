@@ -120,7 +120,10 @@ async function generateBookIllustrations(opts) {
   const spreadEntries = entries.filter(e => e.type === 'spread');
   log('info', `Starting illustration generation for ${spreadEntries.length} spreads (book=${bookId || '?'})`);
 
-  const hasSecondaryOnCover = !!coverParentPresent || !!additionalCoverCharacters;
+  const hasSecondaryOnCover = !!coverParentPresent || !!(additionalCoverCharacters && String(additionalCoverCharacters).trim());
+  const qaAllowedHumansNote = typeof storyPlan?.illustrationPolicy?.qaAllowedHumansNote === 'string'
+    ? storyPlan.illustrationPolicy.qaAllowedHumansNote.trim()
+    : '';
   const session = await _openSession({
     coverBase64,
     coverMime,
@@ -224,6 +227,7 @@ async function generateBookIllustrations(opts) {
           childPhotoBase64: childPhotoFromOpts || null,
           coverParentPresent,
           additionalCoverCharacters,
+          qaAllowedHumansNote,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
           log,
         },
@@ -287,6 +291,7 @@ async function regenerateSpreadIllustration(opts) {
     theme,
     coverParentPresent,
     additionalCoverCharacters,
+    qaAllowedHumansNote = '',
     parentOutfit,
     childAppearance,
     characterOutfit,
@@ -306,7 +311,7 @@ async function regenerateSpreadIllustration(opts) {
     ? explicitSide
     : defaultTextSide(spreadIndex);
 
-  const hasSecondaryOnCover = !!coverParentPresent || !!additionalCoverCharacters;
+  const hasSecondaryOnCover = !!coverParentPresent || !!(additionalCoverCharacters && String(additionalCoverCharacters).trim());
   let session = await _openSession({
     coverBase64,
     coverMime,
@@ -333,8 +338,11 @@ async function regenerateSpreadIllustration(opts) {
       theme,
       characterOutfit,
       characterDescription,
+      childPhotoBase64: null,
       coverParentPresent,
       additionalCoverCharacters,
+      qaAllowedHumansNote: typeof qaAllowedHumansNote === 'string' ? qaAllowedHumansNote.trim() : '',
+      abortSignal: null,
       log,
     },
   );
@@ -385,6 +393,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     childPhotoBase64,
     coverParentPresent,
     additionalCoverCharacters,
+    qaAllowedHumansNote = '',
     abortSignal,
     log,
   } = ctx;
@@ -487,6 +496,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         abortSignal,
         characterDescription,
         childPhotoBase64: childPhotoBase64 || null,
+        qaAllowedHumansNote,
       }),
     ]);
 

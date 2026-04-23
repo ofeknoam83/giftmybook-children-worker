@@ -154,7 +154,7 @@ async function establishCharacterReference(session) {
 
   const parts = [
     {
-      text: 'BOOK COVER — CHARACTER + STYLE GROUND TRUTH. This is the approved rendered likeness of the hero child in the target 3D Pixar art style. Use it as the canonical reference for the child (face, skin tone, hair, outfit) AND for any other person visible on the cover. Every spread you generate must match this character and this art style exactly. Interior spreads are each **one** seamless wide panorama (16:9) — never two illustrations stitched side-by-side.',
+      text: 'BOOK COVER — CHARACTER + STYLE GROUND TRUTH. This is the approved rendered likeness of the hero child in stylized 3D Pixar-like CGI (NOT a photograph, NOT live-action). Use it as the canonical reference for the child (face, skin tone, hair, outfit) AND for any other person visible on the cover. Every interior spread must remain stylized 3D CGI matching this cover — never output a photorealistic snapshot, stock photo, or smartphone picture. Interior spreads are each **one** seamless wide panorama (16:9) — never two illustrations stitched side-by-side.',
     },
     {
       inline_data: { mimeType: session.coverMime, data: session.coverBase64 },

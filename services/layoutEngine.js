@@ -501,9 +501,8 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
   buildTitlePage(pdfDoc, pw, ph, fonts, { title, childName });
 
   // ── Story spreads ─────────────────────────────────────────────────────────
-  // picture_book (age ≤5): spreadIllustrationBuffer = wide 16:9 image → split into left+right pages
-  // Always use spread format — illustrations are always wide 16:9 split down center
-  const isPictureBook = true; // was: (bookFormat || '').toUpperCase() !== 'EARLY_READER'
+  // picture_book & early_reader: spreadIllustrationBuffer = wide 16:9 image → split into left+right pages.
+  // Format only changes trim size (FORMATS), vocabulary, and word targets — not spread layout.
 
   for (const entry of storyEntries) {
     if (entry.type === 'reflection') {
@@ -516,36 +515,21 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
     }
     if (entry.type !== 'spread') continue;
 
-    if (isPictureBook) {
-      // ── PICTURE BOOK: wide landscape image split down the middle ──
-      const leftPage  = pdfDoc.addPage([pw, ph]);
-      const rightPage = pdfDoc.addPage([pw, ph]);
-      if (entry.spreadIllustrationBuffer) {
-        try {
-          const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
-          await embedFullBleed(pdfDoc, leftPage,  leftBuf);
-          await embedFullBleed(pdfDoc, rightPage, rightBuf);
-        } catch (e) {
-          console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
-        }
-      } else {
-        // Fallback: pre-split buffers
-        if (entry.leftIllustrationBuffer)  await embedFullBleed(pdfDoc, leftPage,  entry.leftIllustrationBuffer);
-        if (entry.rightIllustrationBuffer) await embedFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer);
+    // Wide landscape image split down the middle (both trim sizes)
+    const leftPage  = pdfDoc.addPage([pw, ph]);
+    const rightPage = pdfDoc.addPage([pw, ph]);
+    if (entry.spreadIllustrationBuffer) {
+      try {
+        const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+        await embedFullBleed(pdfDoc, leftPage,  leftBuf);
+        await embedFullBleed(pdfDoc, rightPage, rightBuf);
+      } catch (e) {
+        console.warn(`[LayoutEngine] spread split failed: ${e.message}`);
       }
-
     } else {
-      // ── EARLY READER: each illustration = one full page (1:1 square) ──
-      if (entry.leftIllustrationBuffer) {
-        await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.leftIllustrationBuffer);
-      }
-      if (entry.rightIllustrationBuffer) {
-        await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.rightIllustrationBuffer);
-      }
-      // Single spread image fallback
-      if (!entry.leftIllustrationBuffer && !entry.rightIllustrationBuffer && entry.spreadIllustrationBuffer) {
-        await embedFullBleed(pdfDoc, pdfDoc.addPage([pw, ph]), entry.spreadIllustrationBuffer);
-      }
+      // Fallback: pre-split buffers
+      if (entry.leftIllustrationBuffer)  await embedFullBleed(pdfDoc, leftPage,  entry.leftIllustrationBuffer);
+      if (entry.rightIllustrationBuffer) await embedFullBleed(pdfDoc, rightPage, entry.rightIllustrationBuffer);
     }
   }
   // ── Closing ───────────────────────────────────────────────────────────────

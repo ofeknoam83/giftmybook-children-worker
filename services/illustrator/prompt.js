@@ -338,6 +338,16 @@ function buildTagDirectives(tags, opts) {
       `Font for the caption must follow this lock exactly: ${TEXT_RULES.fontStyle}`,
     );
   }
+  if (set.has('style_drift')) {
+    out.push(
+      'The previous image drifted to a photograph, flat 2D art, or non-CGI style. Re-render as stylized 3D Pixar-like CGI matching the BOOK COVER — soft render, volumetric light, subsurface skin — NOT a real camera photo, NOT watercolor, NOT anime.',
+    );
+  }
+  if (set.has('bath_modesty')) {
+    out.push(
+      'Bath/swim scene: keep the hero modest — thick bubble foam or towel wrap or modest child swimwear; never explicit nudity; never the hero fully dressed in street clothes inside the tub.',
+    );
+  }
 
   return out;
 }
