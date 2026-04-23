@@ -99,7 +99,7 @@ async function createVisualBible(doc) {
     userPrompt: userPrompt(doc),
     jsonMode: true,
     temperature: 0.7,
-    maxTokens: 4000,
+    maxTokens: 8000,
     label: 'visualBible',
     abortSignal: doc.operationalContext?.abortSignal,
   });

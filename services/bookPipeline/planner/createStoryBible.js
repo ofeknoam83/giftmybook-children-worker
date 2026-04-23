@@ -70,7 +70,7 @@ async function createStoryBible(doc) {
     userPrompt: userPrompt(doc),
     jsonMode: true,
     temperature: 0.9,
-    maxTokens: 3500,
+    maxTokens: 8000,
     label: 'storyBible',
     abortSignal: doc.operationalContext?.abortSignal,
   });

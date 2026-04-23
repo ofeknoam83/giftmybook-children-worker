@@ -363,9 +363,13 @@ async function callText(params) {
   let lastErr = null;
   let resolvedModel = model;
 
+  console.log(`[llm:${label}] calling ${model} (maxTokens=${maxTokens}, jsonMode=${!!jsonMode}, temperature=${temperature}, stream=${maxTokens >= STREAM_THRESHOLD_TOKENS})`);
+  const overallStart = Date.now();
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     if (abortSignal?.aborted) throw new Error(`${label} aborted`);
 
+    const attemptStart = Date.now();
     try {
       const resp = await callOpenaiOnce({
         model,
@@ -382,12 +386,13 @@ async function callText(params) {
       if (resp.finishReason === 'length') {
         if (autoExtendOnTruncation && attempt < maxAttempts) {
           const bumped = Math.min(maxTokens * 2, 32000);
-          console.warn(`[${label}] response truncated (${resp.outputTokens} tok); bumping budget ${maxTokens} -> ${bumped} and retrying`);
+          console.warn(`[llm:${label}] truncated after ${Date.now() - attemptStart}ms (out=${resp.outputTokens}); bumping budget ${maxTokens} -> ${bumped} and retrying`);
           maxTokens = bumped;
           lastErr = new LlmTruncationError(`${label} truncated at ${resp.outputTokens} tokens`, resp.text);
           await sleep(300);
           continue;
         }
+        console.error(`[llm:${label}] truncated (final) after ${Date.now() - attemptStart}ms (out=${resp.outputTokens})`);
         throw new LlmTruncationError(`${label} truncated at ${resp.outputTokens} tokens`, resp.text);
       }
 
@@ -397,15 +402,18 @@ async function callText(params) {
           json = parseJsonLoose(resp.text);
         } catch (err) {
           if (attempt < maxAttempts) {
+            console.warn(`[llm:${label}] JSON parse failed on attempt ${attempt} (${err.message}); retrying`);
             lastErr = err;
             await sleep(300 * attempt);
             continue;
           }
+          console.error(`[llm:${label}] JSON parse failed (final) after ${Date.now() - attemptStart}ms: ${err.message}`);
           throw err;
         }
       }
 
       resolvedModel = model;
+      console.log(`[llm:${label}] done ${model} in ${Date.now() - overallStart}ms (in=${resp.inputTokens} out=${resp.outputTokens} finish=${resp.finishReason} attempts=${attempt})`);
       return {
         text: resp.text,
         json,
@@ -422,7 +430,8 @@ async function callText(params) {
       if (!transient && !truncation && !(err instanceof LlmParseError)) {
         if (allowGeminiFallback && resolveGeminiKey(geminiApiKey)) {
           try {
-            console.warn(`[${label}] OpenAI error '${err.message}', falling back to Gemini`);
+            console.warn(`[llm:${label}] OpenAI error after ${Date.now() - attemptStart}ms: '${err.message}', falling back to Gemini (${GEMINI_TEXT_MODEL})`);
+            const fbStart = Date.now();
             const fb = await callGeminiOnce({
               systemPrompt,
               userPrompt,
@@ -435,6 +444,7 @@ async function callText(params) {
             });
             let json = null;
             if (jsonMode) json = parseJsonLoose(fb.text);
+            console.log(`[llm:${label}] gemini fallback done in ${Date.now() - fbStart}ms (in=${fb.inputTokens} out=${fb.outputTokens} finish=${fb.finishReason})`);
             return {
               text: fb.text,
               json,
@@ -445,12 +455,18 @@ async function callText(params) {
               finishReason: fb.finishReason,
             };
           } catch (fbErr) {
+            console.error(`[llm:${label}] gemini fallback failed: ${fbErr.message}`);
             throw new Error(`${label} failed on OpenAI (${err.message}) and Gemini fallback (${fbErr.message})`);
           }
         }
+        console.error(`[llm:${label}] non-transient error after ${Date.now() - attemptStart}ms: ${err.message}`);
         throw err;
       }
-      if (attempt >= maxAttempts) throw err;
+      if (attempt >= maxAttempts) {
+        console.error(`[llm:${label}] exhausted ${maxAttempts} attempts after ${Date.now() - overallStart}ms: ${err.message}`);
+        throw err;
+      }
+      console.warn(`[llm:${label}] transient error on attempt ${attempt} after ${Date.now() - attemptStart}ms: ${err.message}; will retry`);
       await sleep(400 * attempt);
     }
   }

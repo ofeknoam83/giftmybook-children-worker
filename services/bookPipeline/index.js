@@ -56,13 +56,18 @@ class PipelineError extends Error {
 }
 
 /**
- * Report pipeline progress through whatever callback the server attached.
- * Never throws.
+ * Report pipeline progress through whatever callback the server attached,
+ * and always emit a local console log so Cloud Logging shows every stage
+ * transition even without a progress callback.
  *
  * @param {object} doc
  * @param {{ step: string, message?: string, progress?: number }} event
  */
 function reportProgress(doc, event) {
+  const bookId = doc?.operationalContext?.bookId || 'n/a';
+  const step = event?.step || 'stage';
+  const message = event?.message || '';
+  console.log(`[bookPipeline:${bookId}] ${step}${message ? ` — ${message}` : ''}`);
   try {
     const fn = doc?.operationalContext?.onProgress;
     if (typeof fn === 'function') fn(event);
@@ -97,11 +102,14 @@ function assertNotAborted(doc) {
  */
 async function runStage(doc, stageName, run, gate, failureCode) {
   assertNotAborted(doc);
+  const bookId = doc?.operationalContext?.bookId || 'n/a';
   const started = Date.now();
+  console.log(`[bookPipeline:${bookId}] stage '${stageName}' starting`);
   let next;
   try {
     next = await run();
   } catch (err) {
+    console.error(`[bookPipeline:${bookId}] stage '${stageName}' threw after ${Date.now() - started}ms: ${err.message}`);
     throw new PipelineError(err.message || `${stageName} failed`, {
       stage: stageName,
       failureCode: err.failureCode || failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
@@ -111,6 +119,7 @@ async function runStage(doc, stageName, run, gate, failureCode) {
   if (gate) {
     const issues = gate(next) || [];
     if (issues.length > 0) {
+      console.error(`[bookPipeline:${bookId}] stage '${stageName}' gate failed after ${Date.now() - started}ms: ${issues.join('; ')}`);
       throw new PipelineError(`${stageName} produced invalid output`, {
         stage: stageName,
         failureCode: failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
@@ -118,7 +127,9 @@ async function runStage(doc, stageName, run, gate, failureCode) {
       });
     }
   }
-  const traced = appendStageTrace(next, { name: stageName, durationMs: Date.now() - started });
+  const durationMs = Date.now() - started;
+  console.log(`[bookPipeline:${bookId}] stage '${stageName}' done in ${durationMs}ms`);
+  const traced = appendStageTrace(next, { name: stageName, durationMs });
   return traced;
 }
 
