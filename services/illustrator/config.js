@@ -24,6 +24,9 @@ const MAX_SPREAD_CORRECTIONS = 6;   // per-spread in-session corrections → 1 i
 const MAX_SESSION_REBUILDS = 2;     // full session rebuilds per spread (safety + QA exhaustion); worst case ≈ 7 × 3 = 21 attempts
 const QA_HTTP_ATTEMPTS = 3;         // retries per vision QA HTTP call before fail-open (infra)
 
+/** Consecutive model safety blocks on the same spread before appending a stricter "no in-world text" scene clause. */
+const SAFETY_STRIKES_BEFORE_SCENE_DEESCAL = 2;
+
 // ── Sliding window ──
 const SLIDING_WINDOW_ACCEPTED_SPREADS = 3; // pinned ref + last N accepted spreads travel in history
 const GEMINI_IMAGE_MAX_OUTPUT_TOKENS = 8192;
@@ -85,6 +88,7 @@ module.exports = {
   MAX_SPREAD_CORRECTIONS,
   MAX_SESSION_REBUILDS,
   QA_HTTP_ATTEMPTS,
+  SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   TOTAL_SPREADS,

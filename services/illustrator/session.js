@@ -45,6 +45,13 @@ const SAFETY_FINISH_REASONS = new Set([
   'BLOCKED',
 ]);
 
+let _sessionKeyRound = 0;
+
+/**
+ * Picks a Gemini API key with deterministic round-robin across the key pool
+ * (per new session) so different books spread load; avoids retrying the same
+ * key after safety blocks.
+ */
 function pickSessionApiKey() {
   const keys = [];
   for (let i = 1; i <= 10; i++) {
@@ -56,7 +63,9 @@ function pickSessionApiKey() {
     if (single) keys.push(single);
   }
   if (keys.length === 0) return '';
-  return keys[Math.floor(Math.random() * keys.length)];
+  const idx = _sessionKeyRound % keys.length;
+  _sessionKeyRound += 1;
+  return keys[idx];
 }
 
 /**
@@ -92,8 +101,8 @@ function pickSessionApiKey() {
  * @param {object} opts
  * @param {string} opts.coverBase64 - Approved cover image as base64 (character + style ground truth).
  * @param {string} [opts.coverMime='image/jpeg']
- * @param {boolean} opts.hasParentOnCover
- * @param {boolean} [opts.hasSecondaryOnCover]
+ * @param {boolean} [opts.hasParentOnCover] - True if the themed parent appears on the cover (same as server coverParentPresent).
+ * @param {boolean} [opts.hasSecondaryOnCover] - True if any non-hero person appears on the cover.
  * @param {string} [opts.additionalCoverCharacters]
  * @param {string} [opts.theme]
  * @param {string} [opts.parentOutfit]

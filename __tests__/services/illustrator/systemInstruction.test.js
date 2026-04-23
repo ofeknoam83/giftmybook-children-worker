@@ -41,6 +41,18 @@ describe('buildSystemInstruction — IMPLIED_PRESENCE_ANCHORING_RULE', () => {
     expect(countAnchoringHeaders(out)).toBe(0);
   });
 
+  test('mothers_day + parent on cover: must not claim the secondary on cover is NOT the mother (regression: session opts wiring)', () => {
+    const out = buildSystemInstruction({
+      hasParentOnCover: true,
+      hasSecondaryOnCover: true,
+      additionalCoverCharacters: 'Mom holding the child',
+      theme: 'mothers_day',
+    });
+    expect(out).not.toMatch(/additional person on the cover is NOT the mother/i);
+    expect(out).toMatch(/themed mother IS on the cover/);
+    expect(out).toMatch(/exact-match lock/);
+  });
+
   test('fathers_day + child-only cover: two anchoring blocks', () => {
     const out = buildSystemInstruction({
       hasParentOnCover: false,

@@ -47,6 +47,8 @@ function parseJsonBlock(text) {
  * @param {string} coverBase64 - Pinned reference cover image.
  * @param {object} [opts]
  * @param {boolean} [opts.hasSecondaryOnCover]
+ * @param {string} [opts.characterDescription] - Writer/face copy; disambiguates identity when judging cover vs spread.
+ * @param {string} [opts.childPhotoBase64] - Optional real photo; third reference only — rendered hero must still match the COVER.
  * @param {AbortSignal} [opts.abortSignal]
  * @returns {Promise<{pass: boolean, issues: string[], tags: string[], infra?: boolean}>}
  */
@@ -59,20 +61,37 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
     return { pass: false, issues: ['Consistency QA needs cover reference'], tags: ['qa_unavailable'], infra: true };
   }
 
+  const charDesc = typeof opts.characterDescription === 'string' ? opts.characterDescription.trim() : '';
+  const childPhoto = typeof opts.childPhotoBase64 === 'string' && opts.childPhotoBase64.length > 200
+    ? opts.childPhotoBase64
+    : null;
+
   const prompt = buildConsistencyPrompt({
     hasSecondaryOnCover: !!opts.hasSecondaryOnCover,
+    characterDescription: charDesc,
+    hasChildPhoto: !!childPhoto,
   });
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
+
+  const userParts = [];
+  if (childPhoto) {
+    userParts.push(
+      { text: 'IMAGE 0 — REAL PHOTO of the child (rough identity; lighting and age may differ from the book). Use only to disambiguate when the cover is unclear — the CANONICAL rendered look is still IMAGE 1.' },
+      { inline_data: { mimeType: 'image/jpeg', data: childPhoto } },
+    );
+  }
+  userParts.push(
+    { text: 'IMAGE 1 — BOOK COVER (ground truth for 3D Pixar hero, outfit, and style):' },
+    { inline_data: { mimeType: 'image/jpeg', data: coverBase64 } },
+    { text: 'IMAGE 2 — GENERATED SPREAD (to verify):' },
+    { inline_data: { mimeType: 'image/png', data: spreadBase64 } },
+    { text: prompt },
+  );
+
   const body = {
     contents: [{
       role: 'user',
-      parts: [
-        { text: 'IMAGE 1 — BOOK COVER (ground truth):' },
-        { inline_data: { mimeType: 'image/jpeg', data: coverBase64 } },
-        { text: 'IMAGE 2 — GENERATED SPREAD (to verify):' },
-        { inline_data: { mimeType: 'image/png', data: spreadBase64 } },
-        { text: prompt },
-      ],
+      parts: userParts,
     }],
     generationConfig: {
       responseMimeType: 'application/json',
@@ -110,13 +129,21 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
   };
 }
 
-function buildConsistencyPrompt({ hasSecondaryOnCover }) {
-  return `You are a quality reviewer comparing a book COVER (Image 1) to a generated interior SPREAD (Image 2). Both should be from the same 3D Pixar children's book.
+function buildConsistencyPrompt({ hasSecondaryOnCover, characterDescription, hasChildPhoto }) {
+  const desc = typeof characterDescription === 'string' && characterDescription.trim()
+    ? ` Story-author reference (may clarify intent; COVER is still the render truth): ${characterDescription.trim()}`
+    : '';
+  const photoNote = hasChildPhoto
+    ? ' If a real child photo was also provided, use it only to disambiguate identity when the cover is ambiguous. The interior spread (Image 2) must still match the RENDER of the child on the COVER (Image 1), not necessarily the snapshot lighting in the photo.'
+    : '';
+  return `You are a quality reviewer comparing a book COVER (Image 1) to a generated interior SPREAD (Image 2). Both should be from the same 3D Pixar children's book.${photoNote}${desc}
+
+Judgment style: fail heroChildMatches or outfitMatches only on a CLEAR, confident mismatch. If uncertain or differences are plausibly lighting/pose, prefer heroChildMatches=true. Baby vs older toddler: not an automatic fail if the same character could plausibly be the cover child in a different moment — only fail on clearly different hair color family, face shape, skin tone, or different kid identity.
 
 Return STRICT JSON with this schema (no markdown, no commentary):
 
 {
-  "heroChildMatches": <true if the spread hero looks like the child on the cover — same face, ethnicity, skin tone, hair color/style, eye color>,
+  "heroChildMatches": <true if the spread hero (Image 2) is clearly the same identity as the child on the cover (Image 1) — same face, ethnicity, skin tone, hair color/style, eye color, within normal illustration variance>,
   "heroChildDifferences": "<short description of any visible differences, or empty string>",
   "outfitMatches": <true if the hero's outfit on the spread is the same outfit family as the cover OR is an explicit situational swap like pajamas/swimwear/coat. False if the outfit is arbitrarily different.>,
   "artStyleIs3DPixar": <true if the spread is rendered in a 3D Pixar CGI style matching the cover — photorealistic soft render, volumetric lighting, subsurface skin scattering, warm palette. False if it drifts into 2D flat, watercolor, pencil sketch, gouache, anime cel, storybook ink, paper cutout, or any other 2D style.>,
@@ -130,7 +157,7 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "impliedParentSkinNotes": "<short note if impliedParentSkinMismatch is true, else empty string>"
 }
 
-Be strict. A slight style drift (e.g., flatter shading, missing subsurface glow) is still a fail on artStyleIs3DPixar. Duplicated heroes or diptych seams are always a fail. Return ONLY the JSON.`;
+Be strict on art style (2D drift is a fail) and on duplicated hero / diptych seams. Be conservative on face matching — do not mark heroChildMatches false over minor or ambiguous differences. Return ONLY the JSON.`;
 }
 
 function evaluateConsistencyResult(parsed) {

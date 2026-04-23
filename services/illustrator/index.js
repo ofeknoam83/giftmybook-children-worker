@@ -26,6 +26,7 @@ const {
   MAX_SESSION_REBUILDS,
   PARENT_THEMES,
   defaultTextSide,
+  SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
 } = require('./config');
 const {
   createSession,
@@ -37,7 +38,12 @@ const {
   rebuildSession,
   seedHistoryFromAccepted,
 } = require('./session');
-const { buildSpreadTurn, buildCorrectionTurn } = require('./prompt');
+const {
+  buildSpreadTurn,
+  buildCorrectionTurn,
+  deescalateSceneForSignage,
+  shouldDeescalateSceneForQaFail,
+} = require('./prompt');
 const { verifySpreadText } = require('./textQa');
 const { checkSpreadConsistency } = require('./consistencyQa');
 const { stripMetadata } = require('./postprocess/strip');
@@ -72,6 +78,7 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
  * @property {Array<SpreadEntry>} [existingIllustrations] - Checkpoint data — spreads already generated are skipped.
  * @property {function(number, string):void} [onProgress] - Optional progress callback: (fraction0to1, message).
  * @property {AbortSignal} [abortSignal]
+ * @property {string} [childPhotoBase64] - Optional real child photo (JPEG base64) for consistency QA disambiguation only.
  */
 
 /**
@@ -95,6 +102,7 @@ async function generateBookIllustrations(opts) {
     existingIllustrations = [],
     onProgress,
     abortSignal,
+    childPhotoBase64: childPhotoFromOpts,
   } = opts;
 
   if (!coverBase64) {
@@ -112,12 +120,13 @@ async function generateBookIllustrations(opts) {
   const spreadEntries = entries.filter(e => e.type === 'spread');
   log('info', `Starting illustration generation for ${spreadEntries.length} spreads (book=${bookId || '?'})`);
 
-  const hasSecondaryOnCover = coverParentPresent || !!additionalCoverCharacters;
+  const hasSecondaryOnCover = !!coverParentPresent || !!additionalCoverCharacters;
   const session = await _openSession({
     coverBase64,
     coverMime,
     theme,
-    coverParentPresent,
+    hasParentOnCover: coverParentPresent === true,
+    hasSecondaryOnCover,
     additionalCoverCharacters,
     parentOutfit: storyPlan?.parentOutfit,
     childAppearance,
@@ -212,6 +221,7 @@ async function generateBookIllustrations(opts) {
           theme,
           characterOutfit: storyPlan?.characterOutfit,
           characterDescription: storyPlan?.characterDescription,
+          childPhotoBase64: childPhotoFromOpts || null,
           coverParentPresent,
           additionalCoverCharacters,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
@@ -301,7 +311,8 @@ async function regenerateSpreadIllustration(opts) {
     coverBase64,
     coverMime,
     theme,
-    coverParentPresent,
+    hasParentOnCover: coverParentPresent === true,
+    hasSecondaryOnCover,
     additionalCoverCharacters,
     parentOutfit,
     childAppearance,
@@ -371,6 +382,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     theme,
     characterOutfit,
     characterDescription,
+    childPhotoBase64,
     coverParentPresent,
     additionalCoverCharacters,
     abortSignal,
@@ -381,6 +393,9 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
   let issues = [];
   let tags = [];
   let lastError = null;
+  let activeScene = scene;
+  let mixedStagedStep = 0;
+  let safetyStrikesForSpread = 0;
 
   // Attempts per spread: 1 initial + MAX_SPREAD_CORRECTIONS corrections.
   const MAX_ATTEMPTS = 1 + MAX_SPREAD_CORRECTIONS;
@@ -394,7 +409,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
       const spreadCtx = {
         spreadIndex,
         totalSpreads,
-        scene,
+        scene: activeScene,
         text,
         textSide,
         characterOutfit,
@@ -410,11 +425,22 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
       generated = isFirst
         ? await generateSpread(session, promptText, spreadIndex)
         : await sendCorrection(session, promptText, spreadIndex);
+      safetyStrikesForSpread = 0;
     } catch (err) {
       lastError = err;
       // Safety block → rebuild session once, then retry without consuming an attempt budget.
       if (err.isSafetyBlock && rebuildsUsed < MAX_SESSION_REBUILDS) {
-        log('warn', `Spread ${spreadIndex + 1} attempt ${attempt}: safety block → rebuilding session`);
+        safetyStrikesForSpread += 1;
+        log('warn', `Spread ${spreadIndex + 1} attempt ${attempt}: safety block → rebuilding session`, {
+          finishReason: err.finishReason,
+          blockReason: err.blockReason,
+          safetyRatings: err.safetyRatings,
+          scenePreview: (activeScene || '').slice(0, 220),
+          safetyStrikesForSpread,
+        });
+        if (safetyStrikesForSpread >= SAFETY_STRIKES_BEFORE_SCENE_DEESCAL) {
+          activeScene = deescalateSceneForSignage(activeScene);
+        }
         const newSession = await rebuildSession(session);
         sessionRef.setSession(newSession);
         rebuildsUsed++;
@@ -422,19 +448,28 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         attempt = 0; // the loop increments to 1 on the next iteration
         issues = [];
         tags = [];
+        mixedStagedStep = 0;
         continue;
       }
       log('warn', `Spread ${spreadIndex + 1} attempt ${attempt} failed: ${err.message}`);
       if (attempt === MAX_ATTEMPTS) {
         // Exhausted in-session attempts on a generation error — refresh session and try again if budget remains.
         if (rebuildsUsed < MAX_SESSION_REBUILDS) {
-          log('warn', `Spread ${spreadIndex + 1}: generation error on final attempt — rebuilding session and retrying`);
+          log('warn', `Spread ${spreadIndex + 1}: generation error on final attempt — rebuilding session and retrying`, {
+            finishReason: err.finishReason,
+            blockReason: err.blockReason,
+            scenePreview: (activeScene || '').slice(0, 220),
+          });
+          if (err.isSafetyBlock) {
+            activeScene = deescalateSceneForSignage(activeScene);
+          }
           const newSession = await rebuildSession(session);
           sessionRef.setSession(newSession);
           rebuildsUsed++;
           attempt = 0;
           issues = [];
           tags = [];
+          mixedStagedStep = 0;
           continue;
         }
         throw err;
@@ -447,7 +482,12 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     // ── QA (both checks in parallel) ──
     const [textResult, consistencyResult] = await Promise.all([
       verifySpreadText(generated.imageBase64, { text, side: textSide }, { spreadIndex, abortSignal }),
-      checkSpreadConsistency(generated.imageBase64, coverBase64, { hasSecondaryOnCover, abortSignal }),
+      checkSpreadConsistency(generated.imageBase64, coverBase64, {
+        hasSecondaryOnCover,
+        abortSignal,
+        characterDescription,
+        childPhotoBase64: childPhotoBase64 || null,
+      }),
     ]);
 
     const qaInfraFailure = !!(textResult.infra || consistencyResult.infra);
@@ -464,8 +504,25 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
       return generated;
     }
 
-    issues = [...textResult.issues, ...consistencyResult.issues];
-    tags = [...(textResult.tags || []), ...(consistencyResult.tags || [])];
+    const textFailed = !textResult.pass;
+    const charFailed = !consistencyResult.pass;
+    if (textFailed && charFailed && mixedStagedStep === 0) {
+      issues = [...(textResult.issues || [])];
+      tags = [...(textResult.tags || [])];
+      mixedStagedStep = 1;
+    } else {
+      issues = [...(textResult.issues || []), ...(consistencyResult.issues || [])];
+      tags = [...(textResult.tags || []), ...(consistencyResult.tags || [])];
+    }
+
+    if (shouldDeescalateSceneForQaFail(tags, activeScene)) {
+      const next = deescalateSceneForSignage(activeScene);
+      if (next !== activeScene) {
+        log('info', `Spread ${spreadIndex + 1}: de-escalating scene (stricter in-world text ban for next attempt)`);
+        activeScene = next;
+      }
+    }
+
     log('warn', `Spread ${spreadIndex + 1} attempt ${attempt} QA failed (tags=${tags.join(',')}): ${issues.slice(0, 3).join(' | ')}`);
     lastError = new Error(`QA failed: ${issues.slice(0, 2).join(' | ')}`);
 
@@ -485,6 +542,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
       attempt = 0;
       issues = [];
       tags = [];
+      mixedStagedStep = 0;
       continue;
     }
   }

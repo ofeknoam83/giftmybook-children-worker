@@ -442,6 +442,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       || detectedSecondaryCharacters
       || null,
     childAppearance: storyPlan.characterDescription || childDetails?.appearance || null,
+    childPhotoBase64: opts.cachedPhotoBase64 || null,
     bookId,
     bookContext,
     costTracker,

@@ -21,6 +21,40 @@
 
 const { TEXT_RULES, TOTAL_SPREADS, defaultTextSide, PARENT_THEMES } = require('./config');
 
+/** Tags from textQa (layout + caption fidelity) — used for staged corrections before hero/outfit fixes. */
+const ILLUSTRATOR_TEXT_QA_TAGS = new Set([
+  'text_on_both_sides', 'spelling_mismatch', 'duplicated_word', 'extra_word',
+  'unexpected_text', 'text_in_center_band', 'text_crosses_midline', 'wrong_font',
+  'text_duplicated_caption', 'missing_word',
+]);
+
+const SIGNAGE_SCENE_HINT = /\b(sign|signs|banner|billboard|headquarters|headquarter|marquee|plaque|label|league)\b/i;
+
+/**
+ * Appends a hard constraint that the model must not add readable environmental text
+ * (common source of `extra_word` QA failures). Idempotent: does not double-append.
+ *
+ * @param {string} scene
+ * @returns {string}
+ */
+function deescalateSceneForSignage(scene) {
+  const s = String(scene || '').trim();
+  if (!s) return s;
+  if (/\[Print constraint\]/i.test(s) && /in-world|legible/i.test(s)) return s;
+  return `${s}\n\n[Print constraint] Do not paint legible in-world text on signs, storefronts, building names, or props — use blank panels, pictograms, or illegible blur. The ONLY readable text in the image must be the book caption in the margin on the chosen side.`;
+}
+
+/**
+ * @param {string[]} tags
+ * @param {string} [scene]
+ * @returns {boolean}
+ */
+function shouldDeescalateSceneForQaFail(tags, scene) {
+  const t = Array.isArray(tags) ? tags : [];
+  if (t.includes('extra_word') || t.includes('unexpected_text')) return true;
+  return SIGNAGE_SCENE_HINT.test(String(scene || ''));
+}
+
 /**
  * @typedef {Object} SpreadTurnOpts
  * @property {number} spreadIndex - 0-based spread index (0..12).
@@ -311,4 +345,7 @@ module.exports = {
   buildSpreadTurn,
   buildCorrectionTurn,
   resolveTextAndSide,
+  ILLUSTRATOR_TEXT_QA_TAGS,
+  deescalateSceneForSignage,
+  shouldDeescalateSceneForQaFail,
 };

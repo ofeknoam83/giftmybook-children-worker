@@ -104,6 +104,28 @@ function hasDuplicatedCaption(expected, ocr) {
 }
 
 /**
+ * Normalizes typographic differences between manuscript and rendered OCR
+ * (curly quotes, dashes, extra wrapping quotes) for comparison.
+ *
+ * @param {string} s
+ * @returns {string}
+ */
+function normalizeCaptionForOcrCompare(s) {
+  let t = sanitizeMixedScriptString(String(s || ''));
+  t = t
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u00B4\u0060\u02B9\u02BC\uFF07\u201C\u201D\u201E\u00AB\u00BB\u2039\u203A\uFEFF]/g, "'")
+    .replace(/[\u2013\u2014\u2212\uFE63\uFF0D]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (t.length >= 2) {
+    const a = t[0];
+    const b = t[t.length - 1];
+    if ((a === b) && (a === "'" || a === '"')) t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+/**
  * Resolve expected text + side from either the new shape ({text, side}) or
  * the legacy split shape ({leftText, rightText}).
  */
@@ -225,6 +247,13 @@ ${anyExpected
 Return ONLY the JSON object.`;
 }
 
+/**
+ * @param {object} parsed - OCR model JSON
+ * @param {object} ctx
+ * @param {string} ctx.expectedText
+ * @param {'left'|'right'} ctx.expectedSide
+ * @param {boolean} ctx.anyExpected
+ */
 function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) {
   const issues = [];
   const tags = [];
@@ -274,14 +303,19 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
     tags.push('wrong_font');
   }
 
-  // ── Expected-side spelling + tokens ──
+  // ── Expected-side spelling + tokens (typography-tolerant) ──
   const expNorm = sanitizeMixedScriptString(expectedText).replace(/\s+/g, ' ').trim();
   const gotNorm = sanitizeMixedScriptString(expectedOcr).replace(/\s+/g, ' ').trim();
-  if (expNorm !== gotNorm) {
+  const expCanon = normalizeCaptionForOcrCompare(expectedText);
+  const gotCanon = normalizeCaptionForOcrCompare(expectedOcr);
+  const stringMatchAfterNormalize = expCanon === gotCanon;
+  if (!stringMatchAfterNormalize && expNorm !== gotNorm) {
     issues.push(`${expectedSide.toUpperCase()}-side text mismatch. Expected: "${expectedText}". Got: "${expectedOcr}"`);
     tags.push('spelling_mismatch');
   }
-  const d = diffTokens(expectedText, expectedOcr);
+  const d = stringMatchAfterNormalize
+    ? { issues: [], tags: [] }
+    : diffTokens(expCanon, gotCanon);
   if (d.issues.length && !issues.some(i => i.includes('-side text mismatch'))) {
     issues.push(...d.issues.map(i => `${expectedSide.toUpperCase()}: ${i}`));
   }
@@ -307,4 +341,6 @@ module.exports = {
   tokenizeForWordCounts,
   diffTokens,
   resolveExpected,
+  normalizeCaptionForOcrCompare,
+  evaluateOcrResult,
 };
