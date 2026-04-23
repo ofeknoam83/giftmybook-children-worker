@@ -18,6 +18,7 @@ You do NOT generate spread prompts. You produce a visual contract that every spr
 Hard rules:
 - Visual language is locked globally: premium 3D character-driven ("${VISUAL_STYLE}"), warm cinematic lighting, materials with weight.
 - The approved cover is the hard anchor for hero identity, face, body, hair, and outfit. Do not contradict the cover.
+- **Narrative visual thread:** read \`storyBible.visualJourneySpine\` and \`storyBible.recurringVisualMotifs\`. The \`environmentAnchors\` and \`palette\` you output MUST weave those motifs in (concrete, repeatable art cues) so the book feels like one journey across varied places — not unrelated wallpapers.
 - Interior continuity uses the cover plus accepted interior spreads. No uploaded photo reference.
 - Support richer, busier worlds with high camera-angle variety, but keep one clear focal action per spread.
 - Text is painted INTO the illustration. Text usually lives on one side of the spread; no single line may cross the horizontal center of the spread.
@@ -91,7 +92,9 @@ function userPrompt(doc) {
     "text usually on one side of the spread",
     "no single line crosses the horizontal center",
     "near-exact wording from the manuscript; no stray or duplicated text",
-    "guided line breaks honor the spread spec"
+    "guided line breaks honor the spread spec",
+    "on-image type is lit and color-graded like the 3D scene — not a flat sticker or UI bar; match scene warmth/cool and soft shadow to depth",
+    "one consistent Georgia-like book serif and one modest readable size across all spreads — never headline scale; vary only local light on the letters for blend"
   ],
   "continuityRules": {
     "hardLocks": ["things that MUST stay identical across all spreads"],

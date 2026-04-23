@@ -26,7 +26,7 @@ Hard rules (same as original writer):
 Picture-book structure (MANDATORY when format is picture_book):
 - Every rewritten spread's "text" is EXACTLY 4 lines, separated by "\\n".
 - AABB rhyme scheme: line 1 rhymes with line 2, line 3 rhymes with line 4. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
-- 6–12 words per line, consistent pulse across each couplet.
+- LINE LENGTH — match the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Consistent pulse across each couplet.
 
 Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks.`;
 

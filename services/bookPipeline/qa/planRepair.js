@@ -40,6 +40,11 @@ function renderCorrectionNote(issues, tags) {
   ) {
     lines.push('Match the approved cover for hero face, hair, and outfit. Do not restyle the hero.');
   }
+  if (tags.includes('body_disconnected') || tags.includes('duplicated_hero')) {
+    lines.push(
+      'Render the hero as ONE single connected body — one silhouette from head to feet, in one pose, at one scale. Head, neck, torso, hips, legs, and feet must all be attached on the same body. The upper-body garment (shirt/dress top) must visibly connect to the lower-body garment (pants/shorts/skirt) on the SAME torso. Do NOT render a second pair of legs, a ghost torso, or disconnected lower-body shorts standing beside the child. If the child is reaching or on tiptoe, the legs and feet must stay attached to the hips that support the torso. Exactly ONE child figure, ONE outfit, ONE set of limbs.',
+    );
+  }
   if (tags.includes('disembodied_limb')) {
     lines.push(
       'Remove any floating or disembodied limbs. If a partial-presence character is implied, the visible hand/arm MUST enter from a clear frame edge (or from behind a foreground object) with at least wrist + forearm + the start of the elbow or sleeve continuing off-screen, and the off-frame body must be physically plausible for the staging (seated beside the child, kneeling above, leaning over a railing). If you cannot stage that naturally, replace the limb with the character\'s signature object (cup, scarf, glasses, ring) instead.',

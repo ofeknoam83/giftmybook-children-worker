@@ -20,12 +20,14 @@ Hard rules (apply to every spread):
 - Third-person by default unless the user prompt overrides.
 - Funny/playful tone, character-based humor. Mostly implicit emotional meaning — never preach.
 - Use the child's name sometimes, not constantly. Use custom details concretely.
+- **Scene flow:** when \`sceneBridge\` and \`continuityAnchors\` are present on a spread, let the verse acknowledge the *same* story movement — cause, discovery, or callback — so the read-aloud feels like a single adventure, not isolated vignettes. You may imply the bridge subtly (a repeated object, a "still following", "the trail led", "the friend from before") without naming camera directions.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
 - The "text" field for each spread is EXACTLY 4 lines, separated by a single "\\n" character.
 - Rhyme scheme is AABB: line 1's last word rhymes with line 2's last word, and line 3's last word rhymes with line 4's last word. Lines 2 and 4 do NOT need to rhyme with each other.
 - Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable.
-- Each of the 4 lines is 6–12 words (never more than 14), a natural phrase unit, with a consistent musical pulse across each couplet. If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
+- LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
+- If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
 - No line may cross the horizontal center of the spread when painted.
 
 Early reader structure (when format is early_reader):
@@ -41,6 +43,7 @@ function userPrompt(doc) {
     spreadNumber: s.spreadNumber,
     purpose: s.spec?.purpose,
     plotBeat: s.spec?.plotBeat,
+    sceneBridge: s.spec?.sceneBridge,
     emotionalBeat: s.spec?.emotionalBeat,
     humorBeat: s.spec?.humorBeat,
     location: s.spec?.location,
@@ -48,6 +51,7 @@ function userPrompt(doc) {
     textSide: s.spec?.textSide,
     textLineTarget: s.spec?.textLineTarget,
     mustUseDetails: s.spec?.mustUseDetails,
+    continuityAnchors: s.spec?.continuityAnchors,
     forbiddenMistakes: s.spec?.forbiddenMistakes,
   }));
 

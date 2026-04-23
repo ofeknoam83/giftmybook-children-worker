@@ -31,6 +31,17 @@ const TEXT_LINE_TARGET = {
   [AGE_BANDS.ER_EARLY]: { min: 3, max: 4 },
 };
 
+// Words-per-line budgets. Picture-book toddler band (0-3) reads much more
+// musically with very short lines (bedtime/board-book cadence), so we hold
+// each of the 4 AABB lines to ~3-7 words. Preschool band (3-6) can carry
+// the slightly longer ~6-12 word phrasing that works for parent-read-aloud.
+// Early readers can run longer but remain sentence-length.
+const WORDS_PER_LINE_TARGET = {
+  [AGE_BANDS.PB_TODDLER]: { min: 3, max: 7, hardMax: 8 },
+  [AGE_BANDS.PB_PRESCHOOL]: { min: 6, max: 12, hardMax: 14 },
+  [AGE_BANDS.ER_EARLY]: { min: 6, max: 14, hardMax: 18 },
+};
+
 const VISUAL_STYLE = 'premium-3d-pixar';
 
 const RHYME_POLICY = {
@@ -65,7 +76,10 @@ const MODELS = {
   SPREAD_QA_VISION: 'gemini-2.5-flash',
 
   // --- Image rendering ---
-  SPREAD_RENDER: 'gemini-3-flash-image-preview',
+  // Switchable via services/illustrator/sessionDispatch.js:
+  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless)
+  //   - 'gemini-3-flash-image-preview'    → Gemini chat session (stateful)
+  SPREAD_RENDER: 'gpt-image-2',
 
   // Deprecated alias — keep until callers are fully migrated.
   PLANNER: 'gpt-5.4',
@@ -95,6 +109,7 @@ module.exports = {
   AGE_BANDS,
   TOTAL_SPREADS,
   TEXT_LINE_TARGET,
+  WORDS_PER_LINE_TARGET,
   VISUAL_STYLE,
   RHYME_POLICY,
   TEXT_PLACEMENT,

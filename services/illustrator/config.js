@@ -11,6 +11,21 @@ const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const GEMINI_QA_MODEL = 'gemini-2.5-flash';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+// ── OpenAI image model (gpt-image-2) ──
+// The OpenAI Images 2.0 API is stateless — each call re-sends the cover +
+// last N accepted spreads as reference images along with the per-spread
+// prompt. The adapter (services/illustrator/openaiImageSession.js) emulates
+// the Gemini chat-session interface so the orchestrator can swap providers
+// by flipping `MODELS.SPREAD_RENDER` in bookPipeline/constants.js.
+const OPENAI_IMAGE_MODEL = 'gpt-image-2';
+const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
+// 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
+// pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
+const OPENAI_IMAGE_SIZE = '1792x1008';
+// "medium" is the production sweet spot: strong quality with acceptable
+// latency/cost. Flip to "high" if output quality proves insufficient.
+const OPENAI_IMAGE_QUALITY = 'medium';
+
 // ── Timeouts ──
 const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
@@ -46,20 +61,29 @@ const TEXT_RULES = {
   // Minimum distance from the outer-side edge so the caption never risks
   // being clipped by the printer trim.
   edgePaddingPercent: 7,
-  // Minimum distance of the caption block from the top or bottom edge of
-  // the frame — generous so no line lands in the bleed zone.
-  cornerVerticalPaddingPercent: 9,
+  // Minimum distance of the caption block from the top OR bottom edge of the
+  // frame. Picture-book PDFs are full-bleed; Lulu trim/bleed plus
+  // `layoutEngine` vertical center-crop on 16:9→square spreads can shave
+  // the top and bottom of the art. Keep type well inside so descenders and
+  // the last line never clip. (Bumped from 9% after production clipping.)
+  cornerVerticalPaddingPercent: 14,
   // Legacy fields kept for backwards compatibility with older prompt paths.
-  topPaddingPercent: 9,
-  bottomPaddingPercent: 9,
+  topPaddingPercent: 14,
+  bottomPaddingPercent: 14,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
   // activeSideMaxPercent 35 → center no-text band x ∈ [0.35, 0.65] (30% of width) for OCR QA
   activeSideMaxPercent: 35,
   fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, stenciled. If in doubt, render as plain Georgia regular.',
-  fontColor: 'white/cream with a subtle soft drop shadow',
-  fontSize: 'small — like movie subtitles, NOT a headline or title. The illustration is the star.',
+  // One art-director spec for the whole book — models drift if each spread re-invents type.
+  typographyConsistency: 'BOOK-WIDE LOCK (all 13 spreads + session history): The caption must use the **identical** font family, weight, and general character of stroke as every other spread in this book — one continuous series, one subtitle spec. **Do not** use a different face, weight, or a noticeably larger/smaller point size on later spreads. Match the **apparent** cap height and line spacing you used on earlier interior frames in this same chat (if any) so parents see one calm, consistent caption treatment through the book. You may only vary how light falls on the letters (color temperature, soft shadow) to match each scene’s blend — not the underlying type scale or family.',
+  // Type must read as in-world, lit by the same environment as the characters — not
+  // a generic subtitle overlay. Per-spread, vary warmth/cool and shadow to match.
+  fontColor: 'Match the scene’s light. Warm ivory, honey, or desaturated warm white in tungsten, sunset, or golden-hour air; cool blue-gray, silver, or desaturated near-white in moonlight; soft green-tinged or neutral off-white in forest shade. Never the same flat pure-white on every spread — tune fill color to the local background. Edge/shadow: a whisper-soft contact shadow and/or haze, with direction and softness consistent with the frame’s key light and depth fog — not a one-size-fits-all hard black drop shadow.',
+  fontSize: 'Modest, **very readable** on print — the comfortable middle: clearly legible (never miniature or faint), but **not** large and never “cover title” scale. Think restrained film subtitle: **small** on the art, but sharp and easy to read at arm’s length. That same legible modest size on **every** spread; do not grow or shrink the type dramatically versus prior spreads in this book.',
+  // Extra guidance for prompt builders and system instruction (not always concatenated in old paths).
+  textIntegration: 'The caption is part of the same cinematic 3D frame: same color grade, same atmospheric haze, same exposure logic. No floating UI bar, no sharp rectangular panel behind lines, no sticker-like cutout with mismatched brightening, no highlighter blocks. If the rest of the frame is backlit, let the type pick up a slight rim/edge that matches. If there is depth fog, letters soften very slightly at the micro-edges. Readability is mandatory, but the text must "live in" the light of the world, not sit on top as a separate layer of flat graphic design. **Typography** stays stable book-wide; only local light/color on the glyphs may shift for blend.',
 };
 
 // ── Frozen 3D Premium Pixar style — CANNOT be overridden from outside the module ──
@@ -165,6 +189,10 @@ module.exports = {
   GEMINI_IMAGE_MODEL,
   GEMINI_QA_MODEL,
   CHAT_API_BASE,
+  OPENAI_IMAGE_MODEL,
+  OPENAI_IMAGES_EDIT_URL,
+  OPENAI_IMAGE_SIZE,
+  OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,
   ESTABLISHMENT_TIMEOUT_MS,

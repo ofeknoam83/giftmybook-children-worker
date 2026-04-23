@@ -7,7 +7,7 @@
  * emotional meaning, rhyme by default for picture books.
  */
 
-const { FORMATS, AGE_BANDS, RHYME_POLICY, TEXT_LINE_TARGET } = require('../constants');
+const { FORMATS, AGE_BANDS, RHYME_POLICY, TEXT_LINE_TARGET, WORDS_PER_LINE_TARGET } = require('../constants');
 
 /**
  * @param {string} ageBand
@@ -89,6 +89,23 @@ function renderTextPolicyBlock(doc) {
   ];
 
   if (isPictureBook) {
+    const wordBudget = WORDS_PER_LINE_TARGET[doc.request.ageBand] || WORDS_PER_LINE_TARGET[AGE_BANDS.PB_PRESCHOOL];
+    const isToddler = doc.request.ageBand === AGE_BANDS.PB_TODDLER;
+    const lineLengthRule = isToddler
+      ? `- LINE LENGTH (ages 0-3 are the shortest): each of the 4 lines is VERY short — about ${wordBudget.min} to ${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, board-book cadence. No run-ons, no sub-clauses, no "and... and... and..." chaining.`
+      : `- LINE LENGTH: each of the 4 lines is short — about ${wordBudget.min} to ${wordBudget.max} words, never more than ${wordBudget.hardMax}. No run-ons.`;
+    const voiceRule = isToddler
+      ? '- TONE (ages 0-3 specific): simple, musical, concrete. Tiny actions and feelings, named things a toddler knows (hand, moon, song, sky, hug). Big, punchy end-rhymes. Never abstract, never preachy.'
+      : null;
+    const toddlerStructureExample = isToddler
+      ? [
+          '- EXAMPLE CADENCE for ages 0-3 (do not copy these words — copy the shape):',
+          '    "Little hand reached high.',
+          '     Stars danced in the sky.',
+          '     Mommy hummed a tune.',
+          '     Up floated the moon."',
+        ]
+      : [];
     lines.push(
       '',
       '### STRUCTURE (NON-NEGOTIABLE for picture books — every single spread):',
@@ -96,9 +113,11 @@ function renderTextPolicyBlock(doc) {
       '- RHYME SCHEME: AABB (two rhyming couplets per spread). Line 1 rhymes with line 2. Line 3 rhymes with line 4. Lines 2 and 4 do NOT have to rhyme with each other.',
       '- Rhymes must be real end-rhymes — the FINAL word of line 1 rhymes with the FINAL word of line 2 (and 3 with 4). Near-rhymes (e.g. "high/sky", "wide/side", "tune/moon") are fine. Slant rhymes and identity rhymes (same word twice) are NOT acceptable. Forced or dictionary-stretching rhymes are NOT acceptable.',
       '- METER: a consistent musical pulse across each couplet — not strict iambic, but roughly the same number of stressed beats in line 1 as line 2, and line 3 as line 4. Read every couplet aloud in your head and confirm both lines sing at the same pace.',
-      '- LINE LENGTH: each of the 4 lines is short — about 6 to 12 words, never more than 14. No run-ons.',
+      lineLengthRule,
+      ...(voiceRule ? [voiceRule] : []),
       '- LINE BREAKS: the 4 lines are natural phrase units. Never break mid-phrase just to force a rhyme.',
       '- SOUND: musical and read-aloud first. If a couplet does not actually rhyme, rewrite the couplet — do not ship it.',
+      ...toddlerStructureExample,
       '',
     );
   } else {

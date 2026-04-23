@@ -135,6 +135,9 @@ ${scene.trim()}`
   const cornerU = corner.toUpperCase();
   const reminderLines = [
     '### REMINDERS',
+    '- **One story, many places:** if the SCENE block names a journey thread, recurring motifs, or a scene bridge, treat this image as the next beat in that SAME adventure — not a random wallpaper change. Keep motifs and emotional through-line visually believable across spreads.',
+    '- **Caption = in-scene type:** the painted words must be **lit and color-graded like the rest of the frame** — same key light, matching warmth/cool, soft shadow/haze that fits depth. No flat subtitle bar, no sticker look, no sharp panel behind the lines.',
+    '- **One subtitle spec for the book:** same Georgia-like serif, same weight, same **apparent** type size (modest, very legible, not big) on every spread — match your prior caption renders in this session. If this spread’s text is bigger, bolder, or a different font, fix it before emitting.',
     '- **Art style (HARD — check before emitting):** Render as a 3D CGI Pixar-film frame — photoreal subsurface skin scattering, rendered hair strands, physically based materials, volumetric ray-traced lighting, real optical depth-of-field bokeh. NOT a 2D illustration, NOT a painterly children\'s-book illustration, NOT watercolor/gouache/pencil/ink/anime/paper-cutout. If you find yourself drifting toward "soft painted storybook", stop and re-render as a Pixar-film CGI frame matching the BOOK COVER exactly.',
     '- **Hero look (outfit + face):** Match the **BOOK COVER** image and your **earlier interior images in this same chat** — not a new costume each time. Reuse the same visible clothing, colors, and hair as in those images unless this SCENE explicitly requires a situational change (bath, pool, pajamas, cold-weather layer) per the system instruction.',
     '- Keep the hero child and any on-cover characters identical to the cover and to the approved spreads you\'ve already generated in this session.',
@@ -178,13 +181,21 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
   const vertical = cornerU.startsWith('TOP-') ? 'top' : 'bottom';
   const edgeWord = side === 'left' ? 'left' : 'right';
   const edgePct = TEXT_RULES.edgePaddingPercent;
-  const cornerPct = TEXT_RULES.cornerVerticalPaddingPercent || 9;
+  const cornerPct = TEXT_RULES.cornerVerticalPaddingPercent || 14;
+
+  const blend = TEXT_RULES.textIntegration || '';
+  const typeLock = TEXT_RULES.typographyConsistency || '';
 
   return `### ON-IMAGE TEXT (render exactly as written — one caption, one corner)
 TEXT: "${text}"
 CHOSEN SIDE: ${sideU}
 CHOSEN CORNER: ${cornerU}
-PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (about ${cornerPct}% in from the ${vertical}). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.`;
+PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${cornerPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
+
+TYPOGRAPHY (same book, same spec): ${typeLock}
+Size note: ${TEXT_RULES.fontSize}
+NATURAL BLEND: ${blend}
+COLOR/LIGHT (for blend, not for changing type size): ${TEXT_RULES.fontColor}`;
 }
 
 /**

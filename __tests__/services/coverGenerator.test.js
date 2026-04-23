@@ -21,6 +21,7 @@ jest.mock('../../services/gcsStorage', () => ({
 }));
 jest.mock('../../services/illustrationGenerator', () => ({
   ART_STYLE_CONFIG: {
+    pixar_premium: { prefix: 'Cinematic 3D Pixar.', suffix: 'PBR materials.', antiStyle: '2D' },
     paper_cutout: { prefix: 'Paper cutout style.', suffix: 'Layered paper textures.' },
     watercolor: { prefix: 'Watercolor style.', suffix: 'Soft wet-on-wet washes.' },
     cinematic_3d: { prefix: '3D render.', suffix: 'Pixar quality.' },

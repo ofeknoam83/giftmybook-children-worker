@@ -122,10 +122,10 @@ async function splitSpreadImage(buf, pw, ph) {
   const scaledH = Math.round(meta.height * spreadW / meta.width);
 
   // Balanced vertical crop. 16:9 images are taller than the 2:1 spread ratio, so
-  // we must crop vertically. Earlier we biased 65% off the top to preserve bottom text,
-  // but that regularly clipped the hero's head. A 50/50 split pairs with the illustrator's
-  // 22% top-padding + 15% bottom-padding text rules and the hero-safe-zone prompt rule to
-  // keep both heads and text safe post-crop.
+  // we must crop vertically. A 50/50 split (half the excess from top, half from bottom)
+  // keeps composition centered. The illustrator insets on-image caption text
+  // ~14% from the top or bottom of the 16:9 frame (`TEXT_RULES.cornerVerticalPaddingPercent`)
+  // so type stays clear of Lulu trim/bleed after this crop.
   const excessH = Math.max(0, scaledH - hp);
   const cropTop = Math.floor(excessH * 0.5);
 

@@ -11,7 +11,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, FORMATS } = require('../constants');
+const { MODELS, FORMATS, WORDS_PER_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
 
@@ -19,8 +19,18 @@ const PREACH_MARKERS = [
   /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
 ];
 
-const MAX_WORDS_PER_LINE = 14;
+const MAX_WORDS_PER_LINE_FALLBACK = 14;
 const PICTURE_BOOK_LINES = 4;
+
+/**
+ * Resolve the hard per-line word cap for a given age band. Picture-book
+ * toddler band (0-3) is tight: we fail at `hardMax` so the writer can't
+ * ship 15-word run-ons for pre-readers.
+ */
+function resolveHardMaxWordsPerLine(ageBand) {
+  const budget = WORDS_PER_LINE_TARGET[ageBand];
+  return budget && Number.isFinite(budget.hardMax) ? budget.hardMax : MAX_WORDS_PER_LINE_FALLBACK;
+}
 
 function splitLines(text) {
   return String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
@@ -162,9 +172,13 @@ function deterministicCheck(spread, doc) {
     tags.push('too_many_lines');
   }
 
-  const overLong = lines.filter(l => wordCount(l) > MAX_WORDS_PER_LINE);
+  const hardMax = resolveHardMaxWordsPerLine(doc?.request?.ageBand);
+  const overLong = lines.filter(l => wordCount(l) > hardMax);
   if (overLong.length) {
-    issues.push(`lines too long (>${MAX_WORDS_PER_LINE} words): ${overLong.length}`);
+    const ageNote = doc?.request?.ageBand === AGE_BANDS.PB_TODDLER
+      ? ' (ages 0-3 require very short lines — sing-song board-book cadence)'
+      : '';
+    issues.push(`lines too long (>${hardMax} words${ageNote}): ${overLong.length}`);
     tags.push('line_too_long');
   }
 

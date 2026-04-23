@@ -7,7 +7,8 @@
  *
  * Baked-in policies (no callsite toggles):
  *   - Frozen 3D Premium Pixar style
- *   - Plain Georgia-like book serif, small subtitle size, L/R placement only
+ *   - Plain Georgia-like book serif, one modest readable size tier for the whole book, scene-matched light/color on type (natural blend, not a sticker)
+ *   - L/R placement only
  *   - Family-member visibility derived from cover membership
  *   - One hero, one moment, one seamless painting
  */
@@ -99,7 +100,13 @@ The hero child on the cover is the ONLY hero of every spread. Preserve their fac
 ${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
 Outfit (visual lock only — no separate text wardrobe list): Copy the hero's clothing **as it appears on the BOOK COVER image** and keep it aligned with **your own prior interior frames in this chat**. Same shirt/dress/pants/shoes family, colors, and silhouette across spreads unless the SCENE explicitly calls for a situational swap (pajamas, swimwear, coat in snow, bath/towel per rules below). Do not invent a new outfit each spread when the cover and recent frames show a consistent look.
 **Bathtub / shower:** the usual street outfit does NOT apply while the child is in bath water — see ### BATH, SHOWER, AND SWIMMING below (bubbles/towel; never fully clothed in the tub).
-Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, never montages of the hero doing multiple things.`
+Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, never montages of the hero doing multiple things.
+
+ONE SINGLE CONNECTED BODY (CRITICAL — anatomy fail if violated):
+- The hero is ONE real 3D character, rendered as a single continuous body. Head → neck → shoulders → torso → hips → legs → feet must all be anatomically connected, on ONE vertical line, in ONE pose, at ONE scale, in the same outfit from top to bottom.
+- FORBIDDEN: a torso in one position with a second pair of legs / hips / shorts floating next to it; a shirt on the upper body that does NOT connect to the pants/shorts/skirt below; two overlapping versions of the child (e.g. one reaching up on the left, and a disembodied pair of legs standing to the right); a "ghost" of the body offset sideways or vertically; any visible seam where the child's upper body ends and a second lower body begins.
+- The outfit is ONE outfit on ONE body: if the upper half shows a white shirt, the lower half must be the matching pants/shorts/dress of the SAME outfit attached to the SAME torso. Do NOT render an upper body in one garment and a disconnected lower body in a different garment nearby.
+- Mental check before output: trace the hero's silhouette with your finger. You must be able to go head → neck → chest → waist → hips → thighs → knees → shins → feet in ONE continuous path, without ever crossing empty background or jumping to a second body.`
   );
 
   sections.push(
@@ -161,7 +168,14 @@ IN-WORLD READABLE TEXT (STRICT):
 
   sections.push(
 `### QUALITY BAR
-Anatomically correct hands (five fingers, normal proportions), feet, and faces. No floating limbs, no duplicated body parts, no melted or extra fingers. Eyes aligned, symmetric features, readable expression. Background details must look deliberate, not noisy or broken.`
+Anatomically correct hands (five fingers, normal proportions), feet, and faces. No floating limbs, no duplicated body parts, no melted or extra fingers. Eyes aligned, symmetric features, readable expression. Background details must look deliberate, not noisy or broken.
+
+BODY CONTINUITY SELF-CHECK (do this mentally BEFORE outputting):
+1. Is the hero's body ONE single connected silhouette from head to feet, with no second overlapping figure? ✓
+2. Does the upper-body outfit (shirt/dress top) visibly connect to the lower-body outfit (pants/shorts/skirt) on the SAME torso-to-hips line, in the SAME garment system? ✓
+3. Are there any "ghost" or duplicated torsos / extra pairs of legs / stray pairs of shoes rendered next to the hero? (There should be NONE.) ✓
+4. If the child is reaching, tip-toeing, or leaning, do their legs and feet stay attached to the same hips that support the torso — not floating beside the body? ✓
+If any of those fails, re-pose the child so there is ONE clean body, ONE outfit, ONE set of limbs.`
   );
 
   sections.push(
@@ -268,18 +282,20 @@ Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("l
 2. ONE-SIDE-ONLY RULE. The caption lives fully on the CHOSEN SIDE. The opposite half of the image carries ONLY illustration. Do NOT mirror, duplicate, or split the caption across sides.
 3. PLACEMENT (exact geometry — the book is bound through the middle so gutter lettering is unreadable in print):
    • Horizontal: the caption block is snug against the outer trim on its side — about ${edge}% in from the outer edge (never less, never flush to the bleed), and its inner edge stays far from the center spine (well inside the outer ~35% of the width).
-   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${corner}% in from that edge (never less, never flush to the bleed). Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
+   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${corner}% in from that edge (never less, never closer — print PDFs have trim and bleed, and the layout step may crop a band off the top and bottom of the image). Leave comfortable extra space so ascenders, descenders, and the full caption block stay fully inside the safe area. Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
    • The vertical strip around the spine (middle of the spread) is a STRICT NO-TEXT ZONE. No caption line, word fragment, or punctuation may sit in or cross that gutter band.
    • Never center-justify type across the spine. One caption block must never visually bridge from one half into the other.
 4. THE CORNER IS NOT A BLANK CANVAS. Do not empty out or heavily blur the corner region just to "make room for text". The scene continues underneath — open sky, soft-focus background, shaded foliage, ground, water, or any other naturally less-busy region of the SAME environment reads through behind the caption. The caption overlays the scene; the scene is never deleted for it.
 5. EXACT TEXT — NO HALLUCINATED WORDS. The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words. Any word on the image that is NOT in the provided passage is forbidden — including signatures, titles, labels, "THE END", dedications, love notes like "I LOVE MAMA", page numbers, book titles, math symbols, measurement notes, or any other invented text.
 6. NO DUPLICATE CAPTIONS. Render the caption EXACTLY ONCE in the chosen corner. Never print the same sentence in two places. Never double-print. Never copy the caption to the empty side.
-7. FONT: ${TEXT_RULES.fontStyle}
-8. SIZE: ${TEXT_RULES.fontSize}
-9. COLOR: ${TEXT_RULES.fontColor}. Never pure black on dark areas, never pure white on bright sky; ensure contrast against the local background with the subtle shadow.
-10. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions). The whole passage stays as ONE stacked caption block in the chosen corner.
-11. NOT A TITLE: The text is a subtitle-style caption, not a poster headline. The illustration is the hero — the text should feel like a quiet overlay tucked in the corner, not dominate the frame.
-12. If the prompt says TEXT is empty, generate a full-bleed illustration with NO on-image text anywhere.
+7. FONT (locked for the whole book): ${TEXT_RULES.fontStyle}
+8. CROSS-SPREAD CONSISTENCY: ${TEXT_RULES.typographyConsistency}
+9. SIZE (locked tier — readable, not big): ${TEXT_RULES.fontSize} Headlines, poster type, and giant storybook display lettering are forbidden. The reader should never wonder “why is this page’s text a different size or font from the last page?”
+10. COLOR & LIGHT (match the world, not the point size): ${TEXT_RULES.fontColor} Contrast for reading is required, but the caption must not look like generic video subtitles glued on top of the art — it should read as **type that lives in the same 3D lighting pass** as the characters and set. Adjust **tint and shadow** for blend, not type scale.
+11. NATURAL BLEND (NOT a sticker): ${TEXT_RULES.textIntegration}
+12. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions). The whole passage stays as ONE stacked caption block in the chosen corner.
+13. NOT A TITLE: The text is restrained in-scene typography, not a poster headline. The illustration is the hero — the letters should feel **painted into the comp** (same render), not a separate graphic design layer.
+14. If the prompt says TEXT is empty, generate a full-bleed illustration with NO on-image text anywhere.
 
 ### MANDATORY SELF-CHECK BEFORE FINALIZING THE IMAGE
 Before you emit the image, mentally scan the full canvas and verify:
@@ -289,6 +305,8 @@ Before you emit the image, mentally scan the full canvas and verify:
   (d) Does the caption appear in more than one place? If YES, delete the duplicate.
   (e) Is there ANY word on the image that is not in the provided TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
   (f) Do both halves of the frame clearly show the SAME environment (same ground, sky, lighting, perspective, atmosphere) — NOT one "picture" on the subject side and a separate blurred "text canvas" on the other? If the text-side reads as a second image, re-render as one continuous scene.
+  (g) Does the caption **look blended into the illustration** — same color grade, plausible light on the letters, soft edge treatment that matches depth and atmosphere — or does it read as a flat sticker / UI bar / sharp box? If it looks pasted on, re-render with type lit and graded like the rest of the Pixar-style frame.
+  (h) Is the **font, weight, and apparent size** of the caption consistent with the on-image caption style in the **earlier interior spreads in this same session** (and with rule 7–9 above)? If this spread’s text looks like a different font, bolder, or much larger/smaller, re-render to match the series.
 If any check fails, re-render before emitting.`;
 }
 

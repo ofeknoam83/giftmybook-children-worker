@@ -37,6 +37,12 @@ function validateStoryBible(doc) {
   for (const k of required) {
     if (!sb[k] || String(sb[k]).trim().length < 6) issues.push(`storyBible.${k} weak`);
   }
+  if (!sb.visualJourneySpine || String(sb.visualJourneySpine).trim().length < 20) {
+    issues.push('storyBible.visualJourneySpine weak (need causal thread connecting settings)');
+  }
+  if (!Array.isArray(sb.recurringVisualMotifs) || sb.recurringVisualMotifs.length < 2) {
+    issues.push('storyBible.recurringVisualMotifs must have at least 2 items');
+  }
   if (!Array.isArray(sb.personalizationTargets) || sb.personalizationTargets.length === 0) {
     issues.push('storyBible.personalizationTargets empty');
   }
@@ -77,6 +83,13 @@ function validateSpreadSpecs(doc) {
     }
     if (!Number.isFinite(s.spec.textLineTarget) || s.spec.textLineTarget < 1 || s.spec.textLineTarget > 5) {
       issues.push(`spread ${s.spreadNumber}: spec.textLineTarget invalid`);
+    }
+    const bridge = String(s.spec.sceneBridge || '').trim();
+    if (s.spreadNumber > 1 && bridge.length < 8) {
+      issues.push(`spread ${s.spreadNumber}: spec.sceneBridge weak (need bridge from prior spread)`);
+    }
+    if (s.spreadNumber === 1 && bridge.length < 6) {
+      issues.push('spread 1: spec.sceneBridge weak (need opening launch line)');
     }
   }
   return issues;

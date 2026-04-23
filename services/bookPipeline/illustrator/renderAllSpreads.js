@@ -27,7 +27,8 @@ const {
   markSpreadAccepted,
   pruneLastTurn,
   rebuildSession,
-} = require('../../illustrator/session');
+  providerName,
+} = require('../../illustrator/sessionDispatch');
 const {
   buildSpreadTurn,
   buildCorrectionTurn,
@@ -311,6 +312,7 @@ async function renderAllSpreads(doc) {
     additionalCoverCharacters: offCoverCastNote,
     abortSignal: doc.operationalContext?.abortSignal,
   });
+  console.log(`[bookPipeline/renderAllSpreads] Using illustrator provider: ${providerName}`);
   await establishCharacterReference(session);
 
   let current = doc;

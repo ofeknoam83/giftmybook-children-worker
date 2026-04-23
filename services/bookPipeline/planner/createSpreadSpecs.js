@@ -16,7 +16,9 @@ const SYSTEM_PROMPT = `You design spread-level contracts for a premium personali
 
 Hard rules:
 - Produce exactly ${TOTAL_SPREADS} spread specs. Do not merge or skip.
-- Strong location variety: the book must travel across at least 4 visually distinct, photogenic places.
+- **Variety + connection:** the book must travel across at least 4 visually distinct, photogenic places — but those places must feel like **one connected journey**, not a slideshow. Honor \`storyBible.visualJourneySpine\` and \`storyBible.recurringVisualMotifs\` when you pick \`location\` and \`focalAction\`. Each spread after the first should have a clear story reason to exist where it is (discovery, following, escalation, return, echo of an earlier beat). Avoid unmotivated "teleport" jumps.
+- **continuityAnchors (required substance):** for spread 1, name motifs or props you will reuse later. For spreads 2–${TOTAL_SPREADS}, include at least one anchor that explicitly ties to an earlier spread (same object, same companion beat, same weather/light trail, or a callback location-type). Empty continuityAnchors on spreads 2+ is a failure.
+- **sceneBridge:** for spread 1, one line launching the quest/world. For spreads 2–${TOTAL_SPREADS}, one short sentence: how this beat follows the previous spread and what it hands off to the next (cause → effect, question → answer, problem → try).
 - The child hero appears in almost every spread. Outfit stays locked to the cover unless the brief justifies change.
 - Text usually lives on one side; no text line may cross the horizontal center. Alternate sides where possible.
 - Each spread has ONE clear focal action, even when the world behind it is rich.
@@ -73,9 +75,10 @@ function userPrompt(doc) {
       "textSide": "left|right",
       "textLineTarget": ${Math.round((lineTarget.min + lineTarget.max) / 2)},
       "mustUseDetails": ["custom-detail keys this spread must land"],
-      "continuityAnchors": ["elements from earlier spreads that must persist"],
+      "sceneBridge": "spread 1: one line that launches the journey | spreads 2-13: one line that bridges from the prior spread to this one (causal, emotional, or prop-based)",
+      "continuityAnchors": ["elements from earlier spreads that must persist — spreads 2+ must include at least one explicit callback"],
       "qaTargets": ["things QA should specifically verify on this spread"],
-      "forbiddenMistakes": ["things this spread must not do"]
+      "forbiddenMistakes": ["things this spread must not do (include 'unmotivated location change' for any spread that would otherwise teleport)"]
     }
   ]
 }`,
@@ -117,6 +120,7 @@ async function createSpreadSpecs(doc) {
       textSide: rawSpec.textSide === 'left' ? 'left' : 'right',
       textLineTarget: Number.isFinite(Number(rawSpec.textLineTarget)) ? Number(rawSpec.textLineTarget) : 3,
       mustUseDetails: Array.isArray(rawSpec.mustUseDetails) ? rawSpec.mustUseDetails.map(String) : [],
+      sceneBridge: String(rawSpec.sceneBridge || '').trim(),
       continuityAnchors: Array.isArray(rawSpec.continuityAnchors) ? rawSpec.continuityAnchors.map(String) : [],
       qaTargets: Array.isArray(rawSpec.qaTargets) ? rawSpec.qaTargets.map(String) : [],
       forbiddenMistakes: Array.isArray(rawSpec.forbiddenMistakes) ? rawSpec.forbiddenMistakes.map(String) : [],

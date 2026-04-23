@@ -21,13 +21,22 @@ const { defaultTextCorner, resolveSideAndCorner } = require('../../illustrator/c
  * @returns {string}
  */
 function composeScene(doc, spread) {
-  const { visualBible } = doc;
+  const { visualBible, storyBible } = doc;
   const spec = spread.spec;
   const hero = visualBible?.hero || {};
   const priorAnchors = spread.spec?.continuityAnchors?.length
     ? `Continuity anchors to preserve: ${spec.continuityAnchors.join('; ')}.`
     : '';
   const environment = (visualBible?.environmentAnchors || []).slice(0, 3).join('; ');
+  const journey = storyBible?.visualJourneySpine
+    ? `Story journey thread (keep this setting consistent with the arc — do not treat as a random one-off): ${String(storyBible.visualJourneySpine).trim()}`
+    : '';
+  const motifs = Array.isArray(storyBible?.recurringVisualMotifs) && storyBible.recurringVisualMotifs.length
+    ? `Recurring visual motifs to echo when the scene allows (same book, one adventure): ${storyBible.recurringVisualMotifs.join('; ')}.`
+    : '';
+  const bridge = spec?.sceneBridge
+    ? `Scene bridge (how this moment connects to the rest of the book): ${String(spec.sceneBridge).trim()}`
+    : '';
 
   // Off-cover cast rule: anyone declared in the brief who is NOT on the
   // approved cover may be present in the story but may NEVER be drawn as a
@@ -107,6 +116,9 @@ function composeScene(doc, spread) {
     `Camera: ${spec.cameraIntent}.`,
     spec.emotionalBeat ? `Emotional beat: ${spec.emotionalBeat}.` : '',
     spec.humorBeat ? `Humor beat: ${spec.humorBeat}.` : '',
+    journey,
+    motifs,
+    bridge,
     hero.physicalDescription ? `Hero ground truth: ${hero.physicalDescription}` : '',
     hero.outfitDescription ? `Hero outfit (locked to cover): ${hero.outfitDescription}` : '',
     environment ? `World anchors: ${environment}.` : '',

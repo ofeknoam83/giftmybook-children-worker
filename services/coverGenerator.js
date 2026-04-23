@@ -8,9 +8,20 @@
  */
 
 const { PDFDocument, rgb, StandardFonts, degrees } = require('pdf-lib');
-const { generateIllustration, getNextApiKey } = require('./illustrationGenerator');
+const {
+  generateIllustration,
+  getNextApiKey,
+  fetchWithTimeout,
+  renderStyleBlock,
+  ART_STYLE_CONFIG,
+} = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
 const sharp = require('sharp');
+
+const OPENAI_COVER_HARMONIZE_MODEL = 'gpt-image-2';
+const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
+const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_IMAGE_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
  * Extract dominant color from an image buffer using sharp.
@@ -64,6 +75,146 @@ function buildCoverSafeZoneInstruction(isHardcover) {
     `- Place the title with generous top margin — the top of every letter (including tall letters like D, R, W, L, h) must sit well below the top ${topPct}% of the image. If the title is long, make it SMALLER rather than pushing it closer to the top.`,
     `- The background/illustration itself should still extend edge-to-edge (no white borders) — ONLY the critical content needs to stay inside the safe zone.`,
   ].join('\n');
+}
+
+/**
+ * Re-render a customer-chosen cover (any prior art style) in the same
+ * **cinematic 3D Pixar-style CGI** language as the book's interior spreads, while
+ * preserving layout, text, and likeness. Used when the PDF is built from
+ * `preGeneratedCoverBuffer` (selected cover) instead of a fresh `generateIllustration`
+ * call — those assets can be 2D or off-style vs interiors.
+ *
+ * OpenAI `gpt-image-2` edits first (matches book-pipeline gpt-image-2 when configured);
+ * falls back to Gemini image if OpenAI is unavailable or fails. On total failure
+ * returns the original buffer.
+ *
+ * @param {Buffer} frontCoverBuffer
+ * @param {object} [opts]
+ * @param {string} [opts.bookFormat] - PICTURE_BOOK (square) vs portrait early reader
+ * @param {object} [opts.costTracker]
+ * @param {boolean} [opts.skipCoverStyleHarmonize] - if true, no-op
+ * @returns {Promise<Buffer>}
+ */
+async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) {
+  if (opts.skipCoverStyleHarmonize) {
+    return frontCoverBuffer;
+  }
+  if (!Buffer.isBuffer(frontCoverBuffer) || frontCoverBuffer.length < 100) {
+    return frontCoverBuffer;
+  }
+
+  const isPictureBook = (opts.bookFormat || '').toLowerCase() === 'picture_book';
+  const styleConfig = ART_STYLE_CONFIG.pixar_premium || ART_STYLE_CONFIG.cinematic_3d;
+  const styleBlock = renderStyleBlock(styleConfig);
+
+  let jpegRef;
+  try {
+    jpegRef = await sharp(frontCoverBuffer)
+      .rotate() // respect EXIF
+      .jpeg({ quality: 93 })
+      .toBuffer();
+  } catch (e) {
+    console.warn('[CoverGenerator] harmonize: could not normalize to JPEG, using raw buffer:', e.message);
+    jpegRef = frontCoverBuffer;
+  }
+
+  const basePrompt = [
+    'INPUT: the attached image is the customer-approved book cover (composition and title may already be final).',
+    'TASK: Re-create this cover as a **cinematic 3D Pixar feature-film CGI key-art render** that matches the interior illustrations of the same product — the same 3D language as inside the book, not a separate art style.',
+    'PRESERVE: The same overall composition, the child’s placement and pose, the same on-image title and subtitle (character-for-character if visible), the same number of people, and the same story mood. Do not invent a new layout.',
+    'TRANSFORM: If the input is 2D, watercolor, painterly, or flat illustrated, re-render it as true 3D CGI: photoreal subsurface skin, strand hair, PBR materials, ray-traced volumetric lighting, real optical bokeh, fully modeled environment — NOT a soft storybook painting.',
+    'FORBID: a different book title, extra characters, missing characters, or a new scene. No poster typography that ignores the input text.',
+    '',
+    'STYLE LOCK (match book interiors):',
+    styleBlock,
+  ].join('\n');
+
+  const size = isPictureBook ? '2048x2048' : '1024x1536';
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (apiKey && typeof FormData !== 'undefined' && typeof Blob !== 'undefined') {
+    try {
+      const fd = new FormData();
+      fd.append('model', OPENAI_COVER_HARMONIZE_MODEL);
+      fd.append('prompt', basePrompt);
+      fd.append('size', size);
+      fd.append('quality', 'high');
+      fd.append('n', '1');
+      fd.append(
+        'image[]',
+        new Blob([jpegRef], { type: 'image/jpeg' }),
+        'chosen-cover.jpg',
+      );
+
+      const resp = await fetchWithTimeout(OPENAI_IMAGES_EDIT_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: fd,
+      }, 180000);
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const b64 = data?.data?.[0]?.b64_json;
+        if (b64) {
+          console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (OpenAI gpt-image-2)');
+          if (opts.costTracker) opts.costTracker.addImageGeneration(OPENAI_COVER_HARMONIZE_MODEL, 1);
+          return Buffer.from(b64, 'base64');
+        }
+      } else {
+        const errT = await resp.text().catch(() => '');
+        console.warn('[CoverGenerator] OpenAI cover harmonize failed:', resp.status, errT.slice(0, 300));
+      }
+    } catch (e) {
+      console.warn('[CoverGenerator] OpenAI cover harmonize error:', e.message);
+    }
+  }
+
+  // --- Gemini image fallback (same model family as back cover) ---
+  const gKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+  if (!gKey) {
+    console.warn('[CoverGenerator] No API keys for cover harmonize — using chosen cover as-is');
+    return frontCoverBuffer;
+  }
+
+  try {
+    const refB64 = jpegRef.toString('base64');
+    const url = `${GEMINI_IMAGE_API}/${GEMINI_HARMONIZE_MODEL}:generateContent?key=${gKey}`;
+    const out = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: basePrompt },
+              { inline_data: { mimeType: 'image/jpeg', data: refB64 } },
+            ],
+          }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+      },
+      180000,
+    );
+    if (!out.ok) {
+      const t = await out.text().catch(() => '');
+      console.warn('[CoverGenerator] Gemini cover harmonize HTTP', out.status, t.slice(0, 200));
+      return frontCoverBuffer;
+    }
+    const data = await out.json();
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData?.mimeType?.startsWith('image/') && part.inlineData?.data) {
+        console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (Gemini fallback)');
+        if (opts.costTracker) opts.costTracker.addImageGeneration(GEMINI_HARMONIZE_MODEL, 1);
+        return Buffer.from(part.inlineData.data, 'base64');
+      }
+    }
+  } catch (e) {
+    console.warn('[CoverGenerator] Gemini cover harmonize error:', e.message);
+  }
+
+  return frontCoverBuffer;
 }
 
 /**
@@ -184,6 +335,10 @@ ${buildCoverSafeZoneInstruction(!!isHardcover)}`;
  * @param {string} characterRefUrl
  * @param {string} bookFormat - PICTURE_BOOK or EARLY_READER
  * @param {object} opts
+ * @param {Buffer} [opts.preGeneratedCoverBuffer] - Customer-chosen cover; is re-rendered through
+ *   {@link harmonizeChosenCoverToInteriorStyle} so the wrap PDF matches 3D interior art unless
+ *   `skipCoverStyleHarmonize` is set.
+ * @param {boolean} [opts.skipCoverStyleHarmonize] - If true, embed the chosen cover buffer as-is (no restyle pass).
  * @returns {Promise<{coverPdfBuffer: Buffer, frontCoverImageUrl: string}>}
  */
 async function generateCover(title, childDetails, characterRefUrl, bookFormat, opts = {}) {
@@ -239,8 +394,13 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   let frontCoverBuffer = null;
 
   if (opts.preGeneratedCoverBuffer) {
-    console.log('[CoverGenerator] Using pre-generated cover buffer');
-    frontCoverBuffer = opts.preGeneratedCoverBuffer;
+    console.log('[CoverGenerator] Using pre-generated cover buffer — harmonizing to interior 3D illustration style');
+    const raw = opts.preGeneratedCoverBuffer;
+    frontCoverBuffer = await harmonizeChosenCoverToInteriorStyle(raw, {
+      bookFormat,
+      costTracker: opts.costTracker,
+      skipCoverStyleHarmonize: opts.skipCoverStyleHarmonize,
+    });
   } else {
     const artStyle = opts.artStyle || 'pixar_premium';
     const aspectHint = isPictureBook
