@@ -34,5 +34,9 @@ module.exports = {
   markSpreadAccepted: (session, idx, imageBase64) => adapter.markSpreadAccepted(session, idx, imageBase64),
   pruneLastTurn: (session) => adapter.pruneLastTurn(session),
   rebuildSession: (oldSession) => adapter.rebuildSession(oldSession),
-  providerName: String(MODELS.SPREAD_RENDER || '').toLowerCase().startsWith('gpt-image') ? 'openai-gpt-image-2' : 'gemini',
+  providerName: (() => {
+    const m = String(MODELS.SPREAD_RENDER || '').toLowerCase();
+    if (m.startsWith('gpt-image') || m.startsWith('openai-image')) return 'openai-gpt-image-2';
+    return String(MODELS.SPREAD_RENDER || 'gemini');
+  })(),
 };

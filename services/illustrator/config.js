@@ -18,12 +18,16 @@ const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // the Gemini chat-session interface so the orchestrator can swap providers
 // by flipping `MODELS.SPREAD_RENDER` in bookPipeline/constants.js.
 const OPENAI_IMAGE_MODEL = 'gpt-image-2';
+/** DALL·E 2–only in many accounts; do not use for `gpt-image-2` (see `OPENAI_IMAGES_GENERATIONS_URL`). */
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
+/** Reference-image + `gpt-image-2` jobs: production API returns 400 on `/v1/images/edits` for this model — use generations. */
+const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations';
 // 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
 // pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
 const OPENAI_IMAGE_SIZE = '1792x1008';
-// Note: `images/edits` (used by `openaiImageSession.js`) does not support the
-// `quality` form field in the current API — only `images/generations` does.
+// Spreads + cover harmonize use `images/generations` (with `image[]` refs) for
+// gpt-image-2. The `quality` form field applies to that endpoint, not to legacy
+// DALL·E `images/edits`.
 // Kept for documentation / a future switch to the generations endpoint.
 const OPENAI_IMAGE_QUALITY = 'medium';
 
@@ -192,6 +196,7 @@ module.exports = {
   CHAT_API_BASE,
   OPENAI_IMAGE_MODEL,
   OPENAI_IMAGES_EDIT_URL,
+  OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,

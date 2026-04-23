@@ -16,11 +16,9 @@ const {
   ART_STYLE_CONFIG,
 } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
-const { OPENAI_IMAGES_EDIT_URL } = require('./illustrator/config');
-const { postImagesEdits } = require('./illustrator/openaiImagesHttp');
 const sharp = require('sharp');
 
-const OPENAI_COVER_HARMONIZE_MODEL = 'gpt-image-2';
+/** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
 const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image-preview';
 const GEMINI_IMAGE_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -85,9 +83,8 @@ function buildCoverSafeZoneInstruction(isHardcover) {
  * `preGeneratedCoverBuffer` (selected cover) instead of a fresh `generateIllustration`
  * call — those assets can be 2D or off-style vs interiors.
  *
- * OpenAI `gpt-image-2` edits first (matches book-pipeline gpt-image-2 when configured);
- * falls back to Gemini image if OpenAI is unavailable or fails. On total failure
- * returns the original buffer.
+ * Uses **Nano Banana 2** (`gemini-3.1-flash-image-preview`) for img2img harmonization.
+ * On total failure returns the original buffer.
  *
  * @param {Buffer} frontCoverBuffer
  * @param {object} [opts]
@@ -130,35 +127,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     styleBlock,
   ].join('\n');
 
-  const size = isPictureBook ? '2048x2048' : '1024x1536';
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (apiKey) {
-    try {
-      const result = await postImagesEdits({
-        apiKey,
-        url: OPENAI_IMAGES_EDIT_URL,
-        model: OPENAI_COVER_HARMONIZE_MODEL,
-        prompt: basePrompt,
-        size,
-        imageFiles: [{ buffer: jpegRef, filename: 'chosen-cover.jpg', mimeType: 'image/jpeg' }],
-        timeoutMs: 180000,
-      });
-      if (result.ok) {
-        const b64 = result.data?.data?.[0]?.b64_json;
-        if (b64) {
-          console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (OpenAI gpt-image-2)');
-          if (opts.costTracker) opts.costTracker.addImageGeneration(OPENAI_COVER_HARMONIZE_MODEL, 1);
-          return Buffer.from(b64, 'base64');
-        }
-      } else {
-        console.warn('[CoverGenerator] OpenAI cover harmonize failed:', result.status, (result.text || '').slice(0, 300));
-      }
-    } catch (e) {
-      console.warn('[CoverGenerator] OpenAI cover harmonize error:', e.message);
-    }
-  }
-
-  // --- Gemini image fallback (same model family as back cover) ---
+  // --- Nano Banana 2 (gemini-3.1-flash-image-preview), same as interior spreads default ---
   const gKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!gKey) {
     console.warn('[CoverGenerator] No API keys for cover harmonize — using chosen cover as-is');
@@ -195,7 +164,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     const parts = data.candidates?.[0]?.content?.parts || [];
     for (const part of parts) {
       if (part.inlineData?.mimeType?.startsWith('image/') && part.inlineData?.data) {
-        console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (Gemini fallback)');
+        console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (Gemini / Nano Banana 2)');
         if (opts.costTracker) opts.costTracker.addImageGeneration(GEMINI_HARMONIZE_MODEL, 1);
         return Buffer.from(part.inlineData.data, 'base64');
       }

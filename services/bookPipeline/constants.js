@@ -77,9 +77,9 @@ const MODELS = {
 
   // --- Image rendering ---
   // Switchable via services/illustrator/sessionDispatch.js:
+  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — default
   //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless)
-  //   - 'gemini-3-flash-image-preview'    → Gemini chat session (stateful)
-  SPREAD_RENDER: 'gpt-image-2',
+  SPREAD_RENDER: 'gemini-3.1-flash-image-preview',
 
   // Deprecated alias — keep until callers are fully migrated.
   PLANNER: 'gpt-5.4',

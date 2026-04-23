@@ -12,7 +12,7 @@
  *   whatever reference images the model should see. We emulate the chat
  *   session by:
  *     - storing the cover + last N accepted spreads on the session object
- *     - re-uploading them as `image[]` on every `/v1/images/edits` call
+ *     - re-uploading them as `image[]` on every `/v1/images/generations` call
  *     - prepending the full system instruction to the user prompt text
  *     - treating "markSpreadAccepted" as "add to references"
  *
@@ -21,12 +21,13 @@
 
 const {
   OPENAI_IMAGE_MODEL,
-  OPENAI_IMAGES_EDIT_URL,
+  OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
+  OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
 } = require('./config');
-const { postImagesEdits } = require('./openaiImagesHttp');
+const { postImagesGenerations } = require('./openaiImagesHttp');
 const { buildSystemInstruction } = require('./systemInstruction');
 
 /**
@@ -257,12 +258,13 @@ async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = fals
 
   let result;
   try {
-    result = await postImagesEdits({
+    result = await postImagesGenerations({
       apiKey: session.apiKey,
-      url: OPENAI_IMAGES_EDIT_URL,
+      url: OPENAI_IMAGES_GENERATIONS_URL,
       model: session.model,
       prompt: combinedPrompt,
       size: OPENAI_IMAGE_SIZE,
+      quality: OPENAI_IMAGE_QUALITY,
       imageFiles,
       timeoutMs: TURN_TIMEOUT_MS,
       signal: session.abortSignal,
