@@ -3777,7 +3777,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   let seed;
   let enrichedCustomDetails;
   let narrativePatterns;
-  const gnChildAge = childDetails.childAge || childDetails.age || 8;
+  const gnChildAge = childDetails.childAge || childDetails.age || 10;
   try {
     const [seedResult, enrichedResult, patternsResult] = await Promise.all([
       brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters })

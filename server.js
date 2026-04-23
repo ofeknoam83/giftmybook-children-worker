@@ -728,6 +728,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
   const {
     apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
     resolvedChildPhotoUrl, characterRefBase64, characterRefMime,
+    theme: storyTheme = null,
   } = opts;
   const pages = storyPlan.pages || [];
   // Only generate illustrations for illustrated pages, not text interstitials
@@ -803,7 +804,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
           promptInjection: completed === 0
             ? 'STYLE ESTABLISHMENT: This is the FIRST page of the graphic novel. The art style, color palette, lighting mood, character rendering, and text style you establish HERE will be the reference for ALL subsequent pages. Commit to a specific, rich, consistent style. '
             : '',
-          theme: theme || null,
+          theme: storyTheme,
           parentOutfit: storyPlan.parentOutfit || null,
         }
       );
@@ -877,7 +878,7 @@ async function generateGraphicNovelPages(storyPlan, childDetails, style, opts) {
                   abortSignal: bookContext.abortController.signal,
                   deadlineMs: 180000,
                   firstPageRefBase64: firstPageRefBase64 || null,
-                  theme: theme || null,
+                  theme: storyTheme,
                   parentOutfit: storyPlan.parentOutfit || null,
                 }
               );
@@ -1842,6 +1843,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           resolvedChildPhotoUrl: characterRef || resolvedChildPhotoUrl,
           characterRefBase64,
           characterRefMime,
+          theme,
         });
         entriesWithIllustrations = [];
         spreadEntries = [];
