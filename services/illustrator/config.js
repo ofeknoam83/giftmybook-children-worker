@@ -44,12 +44,13 @@ const TOTAL_SPREADS = 13;
 const TEXT_RULES = {
   maxWordsPerLine: 6,
   edgePaddingPercent: 8,       // minimum distance from the active-side outer edge
-  topPaddingPercent: 22,
-  bottomPaddingPercent: 15,
+  topPaddingPercent: 20,
+  bottomPaddingPercent: 20,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
-  activeSideMaxPercent: 45,    // text block cannot cross 45% (left) or 55% (right)
+  // activeSideMaxPercent 35 → center no-text band x ∈ [0.35, 0.65] (30% of width) for OCR QA
+  activeSideMaxPercent: 35,
   fontStyle: 'A plain, traditional book serif resembling Georgia or Book Antiqua, regular weight. Upright (never italic), round and even letterforms, moderate x-height, consistent stroke contrast. STRICTLY FORBIDDEN: handwritten, script, cursive, calligraphic, italic, bold display, bubble, rounded sans-serif, Comic Sans, Papyrus, Chalkboard, Impact, Marker, decorative, thin modern sans, condensed, stenciled. If in doubt, render as plain Georgia regular.',
   fontColor: 'white/cream with a subtle soft drop shadow',
   fontSize: 'small — like movie subtitles, NOT a headline or title. The illustration is the star.',

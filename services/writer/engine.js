@@ -240,10 +240,10 @@ class WriterEngine {
       );
     }
 
-    // Block illustration when the critic ran but the story never cleared numeric floors.
-    if (!finalQuality.pass && typeof finalQuality.overallScore === 'number' && finalQuality.overallScore < minDim) {
+    // Block illustration unless the critic + deterministic gate fully pass (no "best effort" ship with ship=false).
+    if (!finalQuality.pass) {
       throw new WriterQualityGateError(
-        `Story quality too low for illustration (score ${finalQuality.overallScore}/10, need ≥${minDim}/10 after retries). ${(finalQuality.feedback || '').slice(0, 500)}`,
+        `Story did not pass quality review (score ${finalQuality.overallScore}/10). ${(finalQuality.feedback || '').slice(0, 500)}`,
         finalQuality.feedback || '',
         finalQuality.overallScore,
       );

@@ -620,7 +620,9 @@ function convertWriterV2ToLegacyPlan(writerResult, childDetails, theme, approved
     ? String(writerResult.story._outfitLock).trim()
     : null;
 
-  return { title, entries, locationPalette, characterOutfit };
+  const characterDescription = (childDetails.appearance || childDetails.childAppearance || '').trim() || null;
+
+  return { title, entries, locationPalette, characterOutfit, characterDescription };
 }
 
 function buildGraphicNovelReferencePack(storyPlan, childDetails) {
@@ -1544,6 +1546,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
               }
             );
             if (visionResp.ok) {
+              storyPlan.coverHadVisionSecondaries = false;
               const visionData = await visionResp.json();
               const addlText = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
               const isNone = !addlText || /^none[.!]?$/i.test(addlText.trim()) || addlText.trim().length <= 5;
@@ -1556,8 +1559,10 @@ If the main child is the ONLY character, respond with exactly: NONE` },
                   bookContext.log('info', 'Cover secondary is a depiction/drawing — treating as no usable reference', { snippet: addlText.slice(0, 200) });
                   storyPlan.additionalCoverCharacters = null;
                   storyPlan.coverParentPresent = false;
+                  storyPlan.coverHadVisionSecondaries = false;
                 } else {
                   storyPlan.additionalCoverCharacters = addlText;
+                  storyPlan.coverHadVisionSecondaries = true;
                   // Classify detected secondaries by apparent gender so we can tell
                   // whether the themed parent is actually depicted on the cover.
                   const hasWoman = /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText);
@@ -1583,6 +1588,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
               } else {
                 storyPlan.additionalCoverCharacters = null;
                 storyPlan.coverParentPresent = false;
+                storyPlan.coverHadVisionSecondaries = false;
                 bookContext.log('info', 'No additional cover characters detected');
               }
             }
@@ -1612,6 +1618,50 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           bookContext.log('info', 'Parent theme without parent-on-cover — clearing storyPlan.secondaryCharacterDescription (parent must not be drawn explicitly)', { was: storyPlan.secondaryCharacterDescription.slice(0, 100) });
           storyPlan.secondaryCharacterDescription = null;
         }
+      }
+
+      // Merge customer-confirmed cast with cover vision so QA allows the right people (fixes child-only cover + confirmed parents).
+      if (approvedCoverUrl && coverForIllustratorBase64 && !isChapterBook && !storyPlan.isChapterBook && !isGraphicNovel && !storyPlan.isGraphicNovel) {
+        const {
+          formatConfirmedCharactersForIllustration,
+          filterConfirmedForCoverPolicy,
+          mergeCoverAndConfirmedSecondaries,
+          buildQaAllowedHumansNote,
+        } = require('./services/illustrator/illustrationPolicy');
+        const { applyScenePolicyToEntries } = require('./services/illustrator/scenePolicyGate');
+        const { describeHeroOutfitFromCover } = require('./services/coverHeroOutfit');
+
+        const confirmedRaw = Array.isArray(req.body.confirmedCharacters) ? req.body.confirmedCharacters : null;
+        const visionOnlySecondaries = storyPlan.additionalCoverCharacters;
+        const coverHadVisionSecondaries = storyPlan.coverHadVisionSecondaries === true;
+        const filteredConfirmed = filterConfirmedForCoverPolicy(confirmedRaw, theme);
+        const confirmedBlock = formatConfirmedCharactersForIllustration(filteredConfirmed);
+        storyPlan.additionalCoverCharacters = mergeCoverAndConfirmedSecondaries(visionOnlySecondaries, confirmedBlock);
+        if (confirmedBlock && storyPlan.additionalCoverCharacters) {
+          bookContext.log('info', 'Illustration secondaries after merge', { preview: storyPlan.additionalCoverCharacters.slice(0, 220) });
+        }
+
+        try {
+          const outfitSnap = await describeHeroOutfitFromCover(coverForIllustratorBase64, { abortSignal: bookContext.abortController.signal });
+          if (outfitSnap) {
+            storyPlan.heroOutfitFromCover = outfitSnap;
+            storyPlan.characterOutfit = outfitSnap;
+            bookContext.log('info', 'Hero outfit locked from cover image', { preview: outfitSnap.slice(0, 120) });
+          }
+        } catch (outfitErr) {
+          bookContext.log('warn', 'Cover outfit snapshot failed — using writer outfit lock', { error: outfitErr.message });
+        }
+
+        storyPlan.illustrationPolicy = {
+          qaAllowedHumansNote: buildQaAllowedHumansNote(storyPlan.additionalCoverCharacters || ''),
+        };
+
+        applyScenePolicyToEntries(storyPlan.entries, {
+          theme,
+          coverParentPresent: storyPlan.coverParentPresent === true,
+          coverHadVisionSecondaries,
+          hasConfirmedCast: confirmedBlock.length > 0,
+        });
       }
 
       // If we still have no characterAnchor but parent provided one, use it

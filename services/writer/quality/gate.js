@@ -40,6 +40,7 @@
 const { WRITER_CONFIG } = require('../config');
 const { BaseThemeWriter } = require('../themes/base');
 const { findPossessivePronounErrors } = require('../../pronouns');
+const { findIdenticalAdjacentEndWordRhymes, findOverlongWordsForYoungReader } = require('./rhymeLint');
 
 const _llm = new BaseThemeWriter('_quality_gate');
 
@@ -152,6 +153,12 @@ class QualityGate {
       for (const e of errs) possessiveErrors.push({ spread: s.spread, ...e });
     }
 
+    const rhymeLintIssues = findIdenticalAdjacentEndWordRhymes(spreads);
+    const childAge = Number(child?.age);
+    const readAloudLongWords = Number.isFinite(childAge) && childAge <= 3
+      ? findOverlongWordsForYoungReader(spreads, child?.name)
+      : [];
+
     // Deterministic scene_continuity check. When the plan assigned each beat
     // a palette location, the writer's SCENE block MUST name that location
     // (the illustrator uses the SCENE verbatim as its prompt — if it doesn't
@@ -189,6 +196,33 @@ class QualityGate {
         + errorLines;
     }
 
+    if (rhymeLintIssues.length > 0) {
+      scores.rhyme = Math.min(scores.rhyme || 3, 3);
+      const rhymeLines = rhymeLintIssues
+        .map(r => `  - Spread ${r.spread}: ${r.note}`)
+        .join('\n');
+      for (const r of rhymeLintIssues) {
+        issues.push({ dimension: 'rhyme', spread: r.spread, note: r.note });
+      }
+      const rhymeBlock =
+        'HARD FAIL — identical-word rhyme (adjacent lines end on the same word). '
+        + 'Rewrite so couplets use different final words:\n'
+        + rhymeLines;
+      vetoFeedback = vetoFeedback ? `${vetoFeedback}\n\n${rhymeBlock}` : rhymeBlock;
+    }
+
+    if (readAloudLongWords.length > 0) {
+      scores.readAloud = Math.min(scores.readAloud || 5, 5);
+      const rwLines = readAloudLongWords
+        .map(r => `  - Spread ${r.spread}: ${r.note}`)
+        .join('\n');
+      for (const r of readAloudLongWords) {
+        issues.push({ dimension: 'readAloud', spread: r.spread, note: r.note });
+      }
+      const rwBlock = `HARD FAIL (ages 0–3) — overlong words hurt read-aloud rhythm:\n${rwLines}`;
+      vetoFeedback = vetoFeedback ? `${vetoFeedback}\n\n${rwBlock}` : rwBlock;
+    }
+
     const values = Object.values(scores);
     const overallScore = values.length
       ? values.reduce((a, b) => a + b, 0) / values.length
@@ -199,7 +233,8 @@ class QualityGate {
     const numericEval = QualityGate._evaluateNumericGate(scores, overallRounded);
     const numericPass = numericEval.pass;
 
-    const pass = llmPass && numericPass && possessiveErrors.length === 0;
+    const pass = llmPass && numericPass && possessiveErrors.length === 0 && rhymeLintIssues.length === 0
+      && readAloudLongWords.length === 0;
 
     let feedback = typeof parsed.feedback === 'string' && parsed.feedback.trim()
       ? parsed.feedback.trim()
@@ -319,10 +354,11 @@ PRE-SCAN J — Ending rhyme & final-line image
     - The FINAL line must be a concrete image the illustrator can draw (a hug, a spin, toast on the table, a child tucked into bed for bedtime themes), not an abstract or vague phrase ("grin for more", "love so true", "feels so right").
   → On violation add an entry with dimension="endingAppropriateness" and force that score to ≤ 4.
 
-PRE-SCAN K — Opening location (no home-openings allowed)
-  Inspect SPREAD 1 and decide whether the action is set AT HOME. Flags include: waking up in bed; in a bedroom; at the kitchen table / on a rug / in the living room / on the sofa / in the playroom; mother/father pouring breakfast; laundry, crib, cot, night light, pajamas at start-of-day.
-  Non-home openings are required: park, splash pad, meadow, beach, tidepool, bakery, market, garden, garden gate, forest path, bus stop, swim lesson, stroller walk, farmer's market, etc.
-  → If spread 1 opens at home, add an entry with dimension="narrativeCoherence", spread=1, note="Story opens at home — home openings are banned; rewrite spread 1 to start in a vivid non-home setting", and force narrativeCoherence score to ≤ 4. The feedback MUST tell the reviser to pick a specific non-home setting (suggest one) and rewrite the opening spreads there, keeping the rest of the arc intact.
+PRE-SCAN K — Opening location (no home / no mundane park-garden default)
+  Inspect SPREAD 1. FAIL if the action is AT HOME: waking in bed; bedroom; kitchen table / living-room rug / sofa / playroom; breakfast routine; laundry, crib, pajamas start-of-day.
+  ALSO FAIL spread 1 if the primary setting is a **mundane default**: generic neighborhood park or playground, backyard or private garden / flower garden / picnic garden, front yard sidewalk-only, or "the park" with no epic differentiator (lighthouse district, cliff overlook, etc.).
+  Strong openings feel **epic or striking**: lighthouse rock, rope bridge, balloon deck, waterfall ledge, canyon overlook, ice cave mouth, castle approach, tide cave, observatory terrace, floating market pier, desert ridge, causeway ruins — or another invented place with similar scale (still age-safe).
+  → On violation add an entry with dimension="narrativeCoherence", spread=1, note="Spread 1 opens in a banned mundane setting (home, generic park, or backyard garden). Rewrite to a vivid, epic-feeling non-domestic location and adjust the next 1-2 spreads for continuity", and force narrativeCoherence score to ≤ 4.
 
 PRE-SCAN L — Closing must not default to "heading home"
   Inspect the FINAL 2 spreads. A closing that is literally a journey-home shot ("they head home", "walking home", "back at home", "the long walk back") is a banned formula. The closing should be a specific image invented for THIS story — a moment at wherever the story ended up, a quiet shared gesture, a final found detail, etc. A return to home IS allowed if the story organically lives there, but the narration must not reduce the closing to a generic "heading home" transition beat.
@@ -334,10 +370,16 @@ PRE-SCAN M — "Home sandwich" / dead setting loop (boring for illustrations)
     (a) **6+ spreads** read as the same home / indoor domestic space (not counting a clearly different "away" place), AND
     (b) the only "away" beats are **2 or fewer consecutive spreads** surrounded by long home blocks (the classic "mostly home, one outing, back home" loop).
   **Also FAIL** if the book has **fewer than 3 distinct non-home** physical settings in spreads 1-12 and the rest are a single home interior (weak variety even if not a perfect sandwich).
-  **PASS examples:** at least 4 different places; or a day that moves: bakery → bus → stream → home porch (reader tracks movement). **FAIL examples:** 8 spreads in living room + kitchen, 2 spreads at the park, 3 more at home, unless a theme (e.g. staycation/sick day) is explicit in the prompt.
-  → On violation, add an entry with dimension="settingVariety" (and optionally "narrativeCoherence"), name the spread numbers, and force settingVariety ≤ 3. Feedback must tell the reviser to add **2+ more distinct, narrated away-from-home (or at least non–living-room) locations** in the mid-book, or to redistribute outdoor/public beats so the story is not a home sandwich.
+  **PASS examples:** at least 4 different **memorable / epic-feeling** places with clear transitions. **FAIL examples:** 8 spreads in living room + kitchen, or half the book in generic park + backyard garden + home, unless a theme (e.g. staycation/sick day) is explicit in the prompt.
+  → On violation, add an entry with dimension="settingVariety" (and optionally "narrativeCoherence"), name the spread numbers, and force settingVariety ≤ 3. Feedback must tell the reviser to add **2+ more distinct, thrilling, non-domestic locations** in the mid-book (not another generic park beat), or redistribute beats so the story is not a home / garden / local-park sandwich.
 
-If any of A, B, C, D, E, F, G, H, I, J, K, L, or M find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change. (Exception: follow each pre-scan’s own "→" line for which dimensions to cap.)
+PRE-SCAN N — Thrill vs. flat mundane spine
+  Count spreads 1-12 whose dominant setting is one of: at home (any room), generic neighborhood park/playground, backyard/private garden, or a tame "walk around the block" with no larger destination.
+  If **7 or more** of 12 spreads fall in that bucket (unless the user prompt explicitly demands a homebound or sick-day story), the book reads as **flat**, not thrilling.
+  Also scan for emotional arc: if there is **no** clear mid-book rise (wonder, stakes, near-miss, discovery, height, race-against-time — age appropriate) and the text reads as interchangeable cozy activities, that is a weak arc.
+  → On violation add entries: dimension="settingVariety" AND dimension="emotionalArc", force settingVariety ≤ 3 and emotionalArc ≤ 5. Feedback must tell the reviser to **rewrite at least half the middle spreads** into more epic, specific locations and to add one clear thrilling beat before the resolution.
+
+If any of A, B, C, D, E, F, G, H, I, J, K, L, M, or N find ANYTHING, the book CANNOT ship — set ship=false and the feedback MUST quote every offending line and tell the reviser exactly what to change. (Exception: follow each pre-scan’s own "→" line for which dimensions to cap.)
 
 ## RATING DIMENSIONS
 
@@ -351,14 +393,14 @@ If any of A, B, C, D, E, F, G, H, I, J, K, L, or M find ANYTHING, the book CANNO
 2. meter — Is meter consistent (iambic tetrameter for ages 3+)? Does the rhythm feel musical? Also HARD FAIL (score ≤ 4) if any spread has an odd number of lines (3, 5, 7) — every spread must be 2 or 4 lines forming clean AABB couplets.
 3. ageAppropriateness — Vocabulary and sentence length appropriate for the child\'s age. For ages 0-3: simple daily words only; penalize multi-syllable abstractions heavily.
 4. readAloud — Would a parent read this aloud without stumbling? Does it sound like Dr. Seuss / Julia Donaldson?
-5. emotionalArc — Does the story build, climax, and resolve with real emotional beats — not a flat list of activities?
+5. emotionalArc — Does the story **build and thrill** — a hook, a rising mid-book beat (wonder, stakes, discovery — age-safe), and a satisfying resolution? Penalize hard if it reads as a flat checklist of cozy domestic or park/garden activities with no escalation.
 6. specificity — Concrete actions, specific nouns. No greeting-card abstractions. No "she loved him very much" declarations.
 7. creativity — At least one imaginative leap or transformation of the ordinary. Refrain deepens rather than just repeating. Fresh rhyme pairs.
 8. variety — Each spread covers a DISTINCT activity or moment. Penalize repeated activities (food-sharing 3 times, etc.).
 9. narrativeCoherence — One clear through-line. The reader always knows WHERE the characters are. Transitions are visible.
 10. anecdoteUsage — Every anecdote the questionnaire provided must land concretely somewhere in the story. Euphemisms and natural picture-book phrasing count (a "toot" or "Pffft" lands a "farts"). But the ACTION / PERSON / OBJECT / MOMENT must be recognizably present. Score by ratio landed:
      ratio=1.0 → 10, >=0.8 → 9, >=0.6 → 7, >=0.4 → 5, <0.4 → 3.
-11. settingVariety — **Strong** books: **at least 4** distinct, visually different physical settings with narrated movement between them. **Fail (score 1-3):** 8+ spreads "at home" in the same interior; or the "home sandwich" in PRE-SCAN M (long home blocks, 1-2 "away" spreads, back home) unless the user prompt is explicitly homebound. **Aim 7+** when the story travels through a satisfying mix of places; **3-4** only when the loop pattern or low variety drags the read down.
+11. settingVariety — **Strong** books: **at least 4** distinct, **memorable or epic-feeling** physical settings (not the same generic park + garden + kitchen on repeat) with narrated movement. **Fail (score 1-3):** dominance of home, backyard garden, and neighborhood park per PRE-SCAN N; or the "home sandwich" in PRE-SCAN M unless the user prompt is explicitly homebound. **Aim 7+** when the story travels through thrilling, varied places; **3-4** when settings feel mundane or repetitive.
 12. pronouns — Two rules, both enforced:
      (a) Pronouns for the child match the child\'s stated gender in every reference. Any mismatch → score ≤ 4.
      (b) Object vs. possessive grammar is correct: "his hair", "his arm", "her hand", "their toys" — NEVER "him hair", "him arm", "he hand", "them toys". Object pronouns used in possessive position are a HARD FAIL → score ≤ 3. This rule applies even when the error fits the meter.
