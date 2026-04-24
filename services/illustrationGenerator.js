@@ -8,6 +8,7 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
+const { TEXT_RULES } = require('./illustrator/config');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
@@ -1046,15 +1047,15 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
     parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
     parts.push('- TEXT PLACEMENT (CRITICAL): Text can be placed anywhere vertically (top, bottom, etc.) EXCEPT it must NEVER appear in the middle 30% of the image (15% on each side of center). The entire text block must be within the left 35% or the right 35% of the image.');
-    parts.push('- EDGE PADDING (CRITICAL): Leave at least 10% padding from left and right edges, and at least 16% from the TOP edge so text won\'t be cut in print.');
-    parts.push('- BOTTOM PADDING (CRITICAL): Leave at least 16% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom 16% of the image.');
+    parts.push(`- EDGE PADDING (CRITICAL): Leave at least 10% padding from left and right edges, and at least ${TEXT_RULES.cornerVerticalPaddingPercent}% from the TOP edge so text won\'t be cut in print.`);
+    parts.push(`- BOTTOM PADDING (CRITICAL): Leave at least ${TEXT_RULES.cornerVerticalPaddingPercent}% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${TEXT_RULES.cornerVerticalPaddingPercent}% of the image.`);
     parts.push('- Main characters and key action should not be hidden behind the text');
     // Fix 2B: Font matching for admin regen
     parts.push('- MATCH the font style from other pages in this book — same family, same size, same color, same weight. Do not introduce a new font.');
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push('\nREMINDER: Text must stay completely within the left 35% or right 35% of the image — NEVER in the middle 30% (the center gutter zone). Leave at least 10% padding from left/right edges and at least 16% from the TOP and BOTTOM edges (bottom gets cropped in print).');
+    parts.push(`\nREMINDER: Text must stay completely within the left 35% or right 35% of the image — NEVER in the middle 30% (the center gutter zone). Leave at least 10% padding from left/right edges and at least ${TEXT_RULES.cornerVerticalPaddingPercent}% from the TOP and BOTTOM edges (bottom gets cropped in print).`);
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -1077,7 +1078,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   );
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (opts.embedText && pageText && pageText.trim()) {
-    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely within the left 35% or right 35% (not in the center 30% gutter zone), with at least 10% padding from left/right and at least 16% from top and bottom edges. \u2713`);
+    parts.push(`10. TEXT RENDERED: story text is included exactly as provided, entirely within the left 35% or right 35% (not in the center 30% gutter zone), with at least 10% padding from left/right and at least ${TEXT_RULES.cornerVerticalPaddingPercent}% from top and bottom edges. \u2713`);
   } else {
     parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
   }

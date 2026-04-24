@@ -16,6 +16,7 @@ const {
   ART_STYLE_CONFIG,
 } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
+const { TEXT_RULES } = require('./illustrator/config');
 const sharp = require('sharp');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
@@ -81,7 +82,7 @@ function softenColor(color, amount = 0.5) {
  * @returns {string} Multi-line instruction appended to the AI prompt
  */
 function buildCoverSafeZoneInstruction(isHardcover) {
-  const topBottomPct = 16;
+  const topBottomPct = TEXT_RULES.cornerVerticalPaddingPercent;
   const sidePct = isHardcover ? 12 : 8;
   return [
     `COVER PRINT SAFETY (CRITICAL — Lulu ${isHardcover ? 'hardcover casewrap' : 'paperback'}):`,

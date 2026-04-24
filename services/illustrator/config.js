@@ -84,11 +84,11 @@ const TEXT_RULES = {
   // frame. Picture-book PDFs are full-bleed; Lulu trim/bleed plus
   // `layoutEngine` vertical center-crop on 16:9→square spreads can shave
   // the top and bottom of the art. Keep type well inside so descenders and
-  // the last line never clip. (Bumped from 9% → 14% → 16% for production trim.)
-  cornerVerticalPaddingPercent: 16,
+  // the last line never clip. (Bumped from 9% → 14% → 16% → 21% for production trim.)
+  cornerVerticalPaddingPercent: 21,
   // Legacy fields kept for backwards compatibility with older prompt paths.
-  topPaddingPercent: 16,
-  bottomPaddingPercent: 16,
+  topPaddingPercent: 21,
+  bottomPaddingPercent: 21,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
