@@ -19,7 +19,14 @@
  * them to systemInstruction.js instead.
  */
 
-const { TEXT_RULES, TOTAL_SPREADS, defaultTextSide, resolveSideAndCorner, PARENT_THEMES } = require('./config');
+const {
+  TEXT_RULES,
+  TOTAL_SPREADS,
+  defaultTextSide,
+  resolveSideAndCorner,
+  PARENT_THEMES,
+  resolvePictureBookTextRules,
+} = require('./config');
 
 /** Tags from textQa (layout + caption fidelity) — used for staged corrections before hero/outfit fixes. */
 const ILLUSTRATOR_TEXT_QA_TAGS = new Set([
@@ -157,6 +164,7 @@ function minimalSafeSceneFallback(spreadIndex, theme) {
  * @property {boolean} [hasSecondaryOnCover] - True if parent or other non-child human on cover.
  * @property {boolean} [coverParentPresent] - Themed parent visible on cover.
  * @property {string} [additionalCoverCharacters] - Non-child people on cover description.
+ * @property {number|string|null} [childAge] - 3–8 triggers compact caption tier in ON-IMAGE TEXT block.
  */
 
 /**
@@ -202,6 +210,7 @@ function buildSpreadTurn(opts) {
   }
 
   const { text, side, corner } = resolveTextAndSide(opts);
+  const textRules = resolvePictureBookTextRules(opts.childAge);
 
   const human = spreadIndex + 1;
   const sections = [];
@@ -213,7 +222,7 @@ function buildSpreadTurn(opts) {
 ${scene.trim()}`
   );
 
-  sections.push(buildTextBlock(text, side, corner));
+  sections.push(buildTextBlock(text, side, corner, textRules));
 
   const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
   const isParentTheme = theme && PARENT_THEMES.has(theme);
@@ -233,6 +242,12 @@ ${scene.trim()}`
     '- No vertical seam, no lighting or palette break down the middle, no object or person truncated at center as if two images were stitched. The printer crops this ONE image into two pages.',
     '- **Shot variety:** If this spread shares the same setting as the previous one, change framing (distance, angle, focal point) per the SCENE — keep the **place** consistent, not a duplicate composition. If this place also appeared non-consecutively, still follow the new SCENE so it is not a clone of that earlier still.',
   ];
+
+  if (textRules.maxWordsPerLine !== TEXT_RULES.maxWordsPerLine) {
+    reminderLines.push(
+      `- **Longer read-aloud lines (this book):** wrap to at most ${textRules.maxWordsPerLine} words per line; keep the **compact** caption size from the system instruction — do not enlarge type to fit.`,
+    );
+  }
 
   if (isParentTheme) {
     reminderLines.push(
@@ -254,7 +269,13 @@ function oppositeSide(side) {
   return side === 'left' ? 'right' : 'left';
 }
 
-function buildTextBlock(text, side, corner) {
+/**
+ * @param {string} text
+ * @param {'left'|'right'} side
+ * @param {string} corner
+ * @param {typeof TEXT_RULES} [textRules]
+ */
+function buildTextBlock(text, side, corner, textRules = TEXT_RULES) {
   if (!text) {
     return `### ON-IMAGE TEXT
 None. Generate a full-bleed illustration with NO text overlay anywhere on this spread.`;
@@ -266,11 +287,11 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
   const cornerU = (corner || (side === 'left' ? 'top-left' : 'top-right')).toUpperCase();
   const vertical = cornerU.startsWith('TOP-') ? 'top' : 'bottom';
   const edgeWord = side === 'left' ? 'left' : 'right';
-  const edgePct = TEXT_RULES.edgePaddingPercent;
-  const cornerPct = TEXT_RULES.cornerVerticalPaddingPercent || 21;
+  const edgePct = textRules.edgePaddingPercent;
+  const cornerPct = textRules.cornerVerticalPaddingPercent || 21;
 
-  const blend = TEXT_RULES.textIntegration || '';
-  const typeLock = TEXT_RULES.typographyConsistency || '';
+  const blend = textRules.textIntegration || '';
+  const typeLock = textRules.typographyConsistency || '';
 
   return `### ON-IMAGE TEXT (render exactly as written — one caption, one corner)
 TEXT: "${text}"
@@ -279,9 +300,9 @@ CHOSEN CORNER: ${cornerU}
 PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${cornerPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
 
 TYPOGRAPHY (same book, same spec): ${typeLock}
-Size note: ${TEXT_RULES.fontSize}
+Size note: ${textRules.fontSize}
 NATURAL BLEND: ${blend}
-COLOR/LIGHT (for blend, not for changing type size): ${TEXT_RULES.fontColor}`;
+COLOR/LIGHT (for blend, not for changing type size): ${textRules.fontColor}`;
 }
 
 /**
@@ -336,6 +357,7 @@ function buildCorrectionTurn(opts) {
     hasSecondaryOnCover: opts.hasSecondaryOnCover,
     coverParentPresent: opts.coverParentPresent,
     additionalCoverCharacters: opts.additionalCoverCharacters,
+    childAge: opts.childAge,
   });
 }
 

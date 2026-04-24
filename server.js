@@ -442,6 +442,7 @@ async function generateAllIllustrations(entries, storyPlan, childDetails, charac
       || detectedSecondaryCharacters
       || null,
     childAppearance: storyPlan.characterDescription || childDetails?.appearance || null,
+    childAge: childDetails?.age ?? childDetails?.childAge ?? storyPlan?.childAge ?? storyPlan?.age ?? null,
     childPhotoBase64: opts.cachedPhotoBase64 || null,
     bookId,
     bookContext,
@@ -2317,7 +2318,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
   const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText,
     additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
     coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl, textSide,
-    characterOutfit, characterDescription } = req.body;
+    characterOutfit, characterDescription, childAge } = req.body;
 
   if (!bookId || typeof spreadIndex !== 'number') {
     return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
@@ -2376,6 +2377,7 @@ app.post('/regenerate-illustration', authenticate, async (req, res) => {
       childAppearance: childAppearance || null,
       characterOutfit: typeof characterOutfit === 'string' ? characterOutfit : null,
       characterDescription: typeof characterDescription === 'string' ? characterDescription : null,
+      childAge: childAge != null ? childAge : null,
       spreadIndex,
       totalSpreads: totalSpreads || 13,
     });

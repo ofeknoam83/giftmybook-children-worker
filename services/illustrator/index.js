@@ -79,6 +79,7 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
  * @property {function(number, string):void} [onProgress] - Optional progress callback: (fraction0to1, message).
  * @property {AbortSignal} [abortSignal]
  * @property {string} [childPhotoBase64] - Optional real child photo (JPEG base64) for consistency QA disambiguation only.
+ * @property {number|string|null} [childAge] - 3–8 uses compact on-image caption tier; also inferred from storyPlan when omitted.
  */
 
 /**
@@ -103,7 +104,10 @@ async function generateBookIllustrations(opts) {
     onProgress,
     abortSignal,
     childPhotoBase64: childPhotoFromOpts,
+    childAge: childAgeFromOpts,
   } = opts;
+
+  const childAge = childAgeFromOpts ?? storyPlan?.childAge ?? storyPlan?.age ?? null;
 
   if (!coverBase64) {
     throw new Error('generateBookIllustrations: coverBase64 (approved cover) is required');
@@ -133,6 +137,7 @@ async function generateBookIllustrations(opts) {
     additionalCoverCharacters,
     parentOutfit: storyPlan?.parentOutfit,
     childAppearance,
+    childAge,
     locationPalette: storyPlan?.locationPalette,
     abortSignal: abortSignal || bookContext?.abortController?.signal || null,
   });
@@ -228,6 +233,7 @@ async function generateBookIllustrations(opts) {
           coverParentPresent,
           additionalCoverCharacters,
           qaAllowedHumansNote,
+          childAge,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
           log,
         },
@@ -275,6 +281,7 @@ async function generateBookIllustrations(opts) {
  * @param {string} [opts.childAppearance]
  * @param {string} [opts.characterOutfit] - From story plan; improves QA retry directives.
  * @param {string} [opts.characterDescription]
+ * @param {number|string|null} [opts.childAge]
  * @param {number} opts.spreadIndex - 0-based
  * @param {number} [opts.totalSpreads]
  * @returns {Promise<{imageBuffer: Buffer}>}
@@ -297,6 +304,7 @@ async function regenerateSpreadIllustration(opts) {
     characterOutfit,
     characterDescription,
     locationPalette,
+    childAge,
     spreadIndex,
     totalSpreads = TOTAL_SPREADS,
   } = opts;
@@ -321,6 +329,7 @@ async function regenerateSpreadIllustration(opts) {
     additionalCoverCharacters,
     parentOutfit,
     childAppearance,
+    childAge: childAge != null ? childAge : null,
     locationPalette,
   });
 
@@ -342,6 +351,7 @@ async function regenerateSpreadIllustration(opts) {
       coverParentPresent,
       additionalCoverCharacters,
       qaAllowedHumansNote: typeof qaAllowedHumansNote === 'string' ? qaAllowedHumansNote.trim() : '',
+      childAge: childAge != null ? childAge : null,
       abortSignal: null,
       log,
     },
@@ -394,6 +404,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     coverParentPresent,
     additionalCoverCharacters,
     qaAllowedHumansNote = '',
+    childAge,
     abortSignal,
     log,
   } = ctx;
@@ -427,6 +438,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         hasSecondaryOnCover,
         coverParentPresent,
         additionalCoverCharacters,
+        childAge,
       };
       const promptText = isFirst
         ? buildSpreadTurn(spreadCtx)

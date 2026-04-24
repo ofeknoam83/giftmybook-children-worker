@@ -67,6 +67,17 @@ describe('buildSpreadTurn — shot variety reminder', () => {
     expect(out).toMatch(/Shot variety/i);
     expect(out).toMatch(/framing|angle/i);
   });
+
+  test('childAge 3–8 uses larger vertical padding and longer-line reminder', () => {
+    const out = buildSpreadTurn({
+      spreadIndex: 0,
+      scene: 'A sunny park.',
+      text: 'We walked and talked and laughed all afternoon long.',
+      childAge: 6,
+    });
+    expect(out).toMatch(/at least 26%/);
+    expect(out).toMatch(/7 words per line|at most 7 words/i);
+  });
 });
 
 describe('buildCorrectionTurn — tag directives', () => {

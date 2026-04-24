@@ -105,6 +105,33 @@ const TEXT_RULES = {
   textIntegration: 'The caption is part of the same cinematic 3D frame: same color grade, same atmospheric haze, same exposure logic. No floating UI bar, no sharp rectangular panel behind lines, no sticker-like cutout with mismatched brightening, no highlighter blocks. If the rest of the frame is backlit, let the type pick up a slight rim/edge that matches. If there is depth fog, letters soften very slightly at the micro-edges. Readability is mandatory, but the text must "live in" the light of the world, not sit on top as a separate layer of flat graphic design. **Typography** stays stable book-wide; only local light/color on the glyphs may shift for blend.',
 };
 
+/**
+ * Ages 3–8 picture books use longer read-aloud lines. Tighten the on-image type
+ * tier and widen vertical safe margins so PDF trim + layoutEngine center-crop
+ * do not clip ascenders, descenders, or multi-line blocks.
+ *
+ * @param {number|string|null|undefined} childAge
+ * @returns {typeof TEXT_RULES}
+ */
+function resolvePictureBookTextRules(childAge) {
+  const n = Number(childAge);
+  if (!Number.isFinite(n) || n < 3 || n > 8) {
+    return { ...TEXT_RULES };
+  }
+  return {
+    ...TEXT_RULES,
+    maxWordsPerLine: 7,
+    edgePaddingPercent: 8,
+    cornerVerticalPaddingPercent: 26,
+    topPaddingPercent: 26,
+    bottomPaddingPercent: 26,
+    fontSize:
+      '**Compact read-aloud tier (ages 3–8, longer lines):** Use a **slightly smaller** on-image caption than a typical toddler picture book — still crisp, sharp, and easy to read at arm’s length, but stepped down one clear notch so a multi-line block never crowds the vertical safe zone. Modest film subtitle, not miniature; never poster or title scale. Hold this **same** compact size on every spread.',
+    typographyConsistency:
+      `${TEXT_RULES.typographyConsistency} This book uses the **compact read-aloud** size tier — match that slightly smaller baseline on every spread; do not drift back to a larger "little kid" caption scale.`,
+  };
+}
+
 // ── Frozen 3D Premium Pixar style — CANNOT be overridden from outside the module ──
 // Every word here skews toward **3D CGI feature-film render**. Words that pull
 // the model toward 2D (flat illustration, painted, soft illustration, hand-drawn,
@@ -225,6 +252,7 @@ module.exports = {
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   TOTAL_SPREADS,
   TEXT_RULES,
+  resolvePictureBookTextRules,
   PIXAR_STYLE,
   PARENT_THEMES,
   defaultTextSide,

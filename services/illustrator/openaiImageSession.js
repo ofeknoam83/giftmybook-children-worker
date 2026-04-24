@@ -65,6 +65,7 @@ function createSession(opts) {
     parentOutfit: opts.parentOutfit,
     childAppearance: opts.childAppearance,
     locationPalette: opts.locationPalette,
+    childAge: opts.childAge,
   });
 
   return {

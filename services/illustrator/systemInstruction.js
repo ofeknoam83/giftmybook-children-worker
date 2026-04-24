@@ -13,7 +13,7 @@
  *   - One hero, one moment, one seamless painting
  */
 
-const { PIXAR_STYLE, TEXT_RULES, TOTAL_SPREADS, PARENT_THEMES } = require('./config');
+const { PIXAR_STYLE, TEXT_RULES, TOTAL_SPREADS, PARENT_THEMES, resolvePictureBookTextRules } = require('./config');
 
 /**
  * Shared rule for hidden-face implied presence — prevents disembodied hands/arms.
@@ -52,6 +52,7 @@ Any visible skin on the implied mother, father, or other referenced adult (hands
  *   Writer-generated palette of named locations. When present, a NAMED LOCATIONS
  *   section is added to the system instruction so each location is rendered
  *   consistently across the spreads that share it.
+ * @property {number|string|null} [childAge] - When 3–8, use compact caption tier (smaller type, extra vertical safe margin).
  */
 
 /**
@@ -69,7 +70,10 @@ function buildSystemInstruction(opts) {
     parentOutfit,
     childAppearance,
     locationPalette,
+    childAge,
   } = opts;
+
+  const textRules = resolvePictureBookTextRules(childAge);
 
   const secondaryOnCover = typeof hasSecondaryOnCover === 'boolean'
     ? hasSecondaryOnCover
@@ -164,7 +168,7 @@ IN-WORLD READABLE TEXT (STRICT):
 - **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). Describe places without inviting the model to render type.`
   );
 
-  sections.push(buildTextSection());
+  sections.push(buildTextSection(textRules));
 
   sections.push(
 `### QUALITY BAR
@@ -270,10 +274,13 @@ Words like "family", "we", "our", "together" refer to people. A pet or a plush t
 // ─────────────────────────────────────────────────────────────────────────────
 // Text rules — font lock, size, placement, content-fidelity.
 // ─────────────────────────────────────────────────────────────────────────────
-function buildTextSection() {
-  const maxWords = TEXT_RULES.maxWordsPerLine;
-  const edge = TEXT_RULES.edgePaddingPercent;
-  const corner = TEXT_RULES.cornerVerticalPaddingPercent;
+/**
+ * @param {typeof TEXT_RULES} textRules
+ */
+function buildTextSection(textRules = TEXT_RULES) {
+  const maxWords = textRules.maxWordsPerLine;
+  const edge = textRules.edgePaddingPercent;
+  const corner = textRules.cornerVerticalPaddingPercent;
 
   return `### ON-IMAGE TEXT (CRITICAL)
 Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("left" or "right"), and a CHOSEN CORNER (one of "top-left", "top-right", "bottom-left", "bottom-right"). Render the passage INSIDE the illustration as a single embedded caption anchored to that corner. Follow these rules without deviation:
@@ -288,11 +295,11 @@ Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("l
 4. THE CORNER IS NOT A BLANK CANVAS. Do not empty out or heavily blur the corner region just to "make room for text". The scene continues underneath — open sky, soft-focus background, shaded foliage, ground, water, or any other naturally less-busy region of the SAME environment reads through behind the caption. The caption overlays the scene; the scene is never deleted for it.
 5. EXACT TEXT — NO HALLUCINATED WORDS. The text you render must be CHARACTER-FOR-CHARACTER identical to the passage in the prompt. Same spelling, same apostrophes, same punctuation, same capitalization. NO paraphrasing, NO substitutions, NO added words, NO dropped words, NO repeated words. Any word on the image that is NOT in the provided passage is forbidden — including signatures, titles, labels, "THE END", dedications, love notes like "I LOVE MAMA", page numbers, book titles, math symbols, measurement notes, or any other invented text.
 6. NO DUPLICATE CAPTIONS. Render the caption EXACTLY ONCE in the chosen corner. Never print the same sentence in two places. Never double-print. Never copy the caption to the empty side.
-7. FONT (locked for the whole book): ${TEXT_RULES.fontStyle}
-8. CROSS-SPREAD CONSISTENCY: ${TEXT_RULES.typographyConsistency}
-9. SIZE (locked tier — readable, not big): ${TEXT_RULES.fontSize} Headlines, poster type, and giant storybook display lettering are forbidden. The reader should never wonder “why is this page’s text a different size or font from the last page?”
-10. COLOR & LIGHT (match the world, not the point size): ${TEXT_RULES.fontColor} Contrast for reading is required, but the caption must not look like generic video subtitles glued on top of the art — it should read as **type that lives in the same 3D lighting pass** as the characters and set. Adjust **tint and shadow** for blend, not type scale.
-11. NATURAL BLEND (NOT a sticker): ${TEXT_RULES.textIntegration}
+7. FONT (locked for the whole book): ${textRules.fontStyle}
+8. CROSS-SPREAD CONSISTENCY: ${textRules.typographyConsistency}
+9. SIZE (locked tier — readable, not big): ${textRules.fontSize} Headlines, poster type, and giant storybook display lettering are forbidden. The reader should never wonder “why is this page’s text a different size or font from the last page?”
+10. COLOR & LIGHT (match the world, not the point size): ${textRules.fontColor} Contrast for reading is required, but the caption must not look like generic video subtitles glued on top of the art — it should read as **type that lives in the same 3D lighting pass** as the characters and set. Adjust **tint and shadow** for blend, not type scale.
+11. NATURAL BLEND (NOT a sticker): ${textRules.textIntegration}
 12. WRAPPING: Break long text into short lines — at most ${maxWords} words per line. Use natural phrase breaks (after commas, conjunctions). The whole passage stays as ONE stacked caption block in the chosen corner.
 13. NOT A TITLE: The text is restrained in-scene typography, not a poster headline. The illustration is the hero — the letters should feel **painted into the comp** (same render), not a separate graphic design layer.
 14. If the prompt says TEXT is empty, generate a full-bleed illustration with NO on-image text anywhere.

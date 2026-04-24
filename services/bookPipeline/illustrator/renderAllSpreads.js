@@ -214,6 +214,7 @@ async function processOneSpread(params) {
             textSide: spec.textSide,
             textCorner: spec.textCorner,
             theme: spec.theme,
+            childAge: currentDoc.brief?.child?.age ?? null,
           });
           image = await generateSpread(currentSession, turn, spec.spreadIndex);
         } else {
@@ -225,6 +226,7 @@ async function processOneSpread(params) {
             textCorner: spec.textCorner,
             issues: [correctionNote || 'Fix the previous attempt.'],
             tags: [],
+            childAge: currentDoc.brief?.child?.age ?? null,
           });
           // Re-anchor the cover image on the correction turn whenever the last
           // attempt drifted on hero identity or outfit. If Gemini safety-blocks
@@ -536,6 +538,7 @@ async function renderAllSpreads(doc) {
     coverMime: cover.mime,
     theme: doc.request.theme,
     childAppearance: doc.visualBible?.hero?.physicalDescription || '',
+    childAge: doc.brief?.child?.age ?? null,
     hasParentOnCover: false,
     hasSecondaryOnCover: false,
     additionalCoverCharacters: offCoverCastNote,

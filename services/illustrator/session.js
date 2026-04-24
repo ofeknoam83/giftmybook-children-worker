@@ -112,6 +112,7 @@ function pickSessionApiKey() {
  * @param {string} [opts.theme]
  * @param {string} [opts.parentOutfit]
  * @param {string} [opts.childAppearance]
+ * @param {number|string|null} [opts.childAge]
  * @param {AbortSignal} [opts.abortSignal]
  * @returns {IllustratorSession}
  */
@@ -127,6 +128,7 @@ function createSession(opts) {
     parentOutfit: opts.parentOutfit,
     childAppearance: opts.childAppearance,
     locationPalette: opts.locationPalette,
+    childAge: opts.childAge,
   });
 
   return {
