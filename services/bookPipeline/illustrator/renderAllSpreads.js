@@ -43,7 +43,7 @@ const {
 } = require('../../illustrator/prompt');
 const { stripMetadata } = require('../../illustrator/postprocess/strip');
 const { upscaleForPrint } = require('../../illustrator/postprocess/upscale');
-const { uploadBuffer, getSignedUrl } = require('../../gcsStorage');
+const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../../gcsStorage');
 
 const { checkSpread } = require('../qa/checkSpread');
 const { planSpreadRepair } = require('../qa/planRepair');
@@ -118,12 +118,23 @@ async function resolveCoverBase64(cover) {
   if (cover.imageBase64) {
     return { base64: cover.imageBase64, mime: cover.coverMime || 'image/jpeg' };
   }
-  if (!cover.imageUrl) throw new Error('cover missing both imageBase64 and imageUrl');
-
-  const resp = await fetch(cover.imageUrl);
-  if (!resp.ok) throw new Error(`cover fetch failed: HTTP ${resp.status}`);
-  const arrayBuffer = await resp.arrayBuffer();
-  const buf = Buffer.from(arrayBuffer);
+  const storageKey = cover.imageStorageKey || cover.gcsPath;
+  let buf;
+  if (storageKey) {
+    try {
+      buf = await downloadBuffer(storageKey);
+    } catch (e) {
+      throw new Error(`cover GCS download failed (${storageKey.slice(0, 80)}): ${e.message}`);
+    }
+  } else if (cover.imageUrl) {
+    try {
+      buf = await downloadBuffer(cover.imageUrl);
+    } catch (e) {
+      throw new Error(`cover fetch failed: ${e.message}`);
+    }
+  } else {
+    throw new Error('cover missing imageBase64, imageUrl, and imageStorageKey/gcsPath');
+  }
   // 1024px gives the vision model enough detail to lock skin tone, hair
   // texture, and face features. 512px was too low-detail — the identity kept
   // drifting and every correction turn made it worse.

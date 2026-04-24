@@ -48,21 +48,36 @@ async function uploadFromUrl(url, destination) {
  * @returns {Promise<Buffer>}
  */
 async function downloadBuffer(source) {
-  // Try to extract GCS path from signed URLs and use SDK (faster + more reliable from Cloud Run)
+  // Prefer GCS SDK for googleapis URLs so expired/invalid signed query strings
+  // (HTTP 400/403 from fetch) do not break Cloud Run jobs — IAM reads the object.
   if (source.startsWith('https://storage.googleapis.com/')) {
     try {
       const url = new URL(source);
       // Path format: /bucket-name/path/to/file
-      const pathParts = url.pathname.split('/');
-      const bucket = pathParts[1];
-      const filePath = pathParts.slice(2).join('/');
-      if (bucket === bucketName && filePath) {
-        console.log(`[gcsStorage] Downloading via SDK: ${filePath.slice(0, 60)}`);
-        const [buffer] = await getBucket().file(decodeURIComponent(filePath)).download();
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      const bucket = pathParts[0];
+      const filePath = pathParts.slice(1).join('/');
+      if (bucket && filePath) {
+        const objectPath = decodeURIComponent(filePath);
+        console.log(`[gcsStorage] Downloading via SDK gs://${bucket}/${objectPath.slice(0, 80)}`);
+        const [buffer] = await storage.bucket(bucket).file(objectPath).download();
         return buffer;
       }
     } catch (sdkErr) {
       console.warn(`[gcsStorage] SDK download failed, falling back to fetch: ${sdkErr.message}`);
+    }
+  }
+  // Virtual-hosted style: https://BUCKET.storage.googleapis.com/OBJECT
+  const vhost = /^https:\/\/([a-z0-9.\-_]+)\.storage\.googleapis\.com\/([^?]+)/i.exec(source);
+  if (vhost) {
+    try {
+      const [, bucket, rawPath] = vhost;
+      const objectPath = decodeURIComponent(rawPath);
+      console.log(`[gcsStorage] Downloading via SDK (vhost) gs://${bucket}/${objectPath.slice(0, 80)}`);
+      const [buffer] = await storage.bucket(bucket).file(objectPath).download();
+      return buffer;
+    } catch (sdkErr) {
+      console.warn(`[gcsStorage] SDK vhost download failed, falling back to fetch: ${sdkErr.message}`);
     }
   }
   // Fallback: public URLs or other origins via fetch

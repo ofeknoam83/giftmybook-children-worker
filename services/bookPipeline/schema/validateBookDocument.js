@@ -16,7 +16,9 @@ function validateInput(doc) {
   if (!Object.values(FORMATS).includes(doc.request?.format)) issues.push('request.format invalid');
   if (!Object.values(AGE_BANDS).includes(doc.request?.ageBand)) issues.push('request.ageBand invalid');
   if (!doc.brief?.child?.name) issues.push('brief.child.name missing');
-  if (!doc.cover?.imageUrl) issues.push('cover.imageUrl missing');
+  if (!doc.cover?.imageUrl && !doc.cover?.imageBase64 && !doc.cover?.imageStorageKey) {
+    issues.push('cover image reference missing (need imageUrl, imageBase64, or imageStorageKey)');
+  }
   if (!doc.cover?.title) issues.push('cover.title missing');
   return issues;
 }

@@ -82,15 +82,16 @@ function extractCustomDetails(raw) {
  * user-approved cover before interior work begins.
  *
  * @param {object} raw
- * @returns {{ title: string, imageUrl: string, imageBase64: string|null, characterLocks: object, outfitLocks: object }}
+ * @returns {{ title: string, imageUrl: string, imageBase64: string|null, imageStorageKey?: string, characterLocks: object, outfitLocks: object }}
  */
 function extractCover(raw) {
   const src = raw.cover || raw.approvedCover || {};
   const title = src.title || raw.title || raw.approvedTitle || '';
   const imageUrl = src.imageUrl || src.url || raw.coverImageUrl || '';
   const imageBase64 = src.imageBase64 || raw.coverImageBase64 || null;
+  const imageStorageKey = src.imageStorageKey || src.gcsPath || raw.coverImageGcsPath || raw.coverGcsPath || '';
 
-  if (!imageUrl && !imageBase64) {
+  if (!imageUrl && !imageBase64 && !imageStorageKey) {
     throw new InputError('approved cover is required', FAILURE_CODES.COVER_MISSING);
   }
   if (!title) {
@@ -101,6 +102,7 @@ function extractCover(raw) {
     title,
     imageUrl,
     imageBase64,
+    ...(imageStorageKey ? { imageStorageKey } : {}),
     characterLocks: src.characterLocks || {},
     outfitLocks: src.outfitLocks || {},
   };
