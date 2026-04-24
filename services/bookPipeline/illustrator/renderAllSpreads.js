@@ -549,6 +549,11 @@ async function renderAllSpreads(doc) {
 
   const totalSpreads = current.spreads.length;
   const emit = (event) => {
+    try {
+      doc.operationalContext?.touchActivity?.();
+    } catch {
+      /* ignore */
+    }
     const fn = doc.operationalContext?.onProgress;
     if (typeof fn === 'function') {
       try { fn(event); } catch { /* ignore */ }

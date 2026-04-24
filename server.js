@@ -1269,6 +1269,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           pipelineResult = await generateBook(pipelineRequest, {
             bookId,
             abortSignal: bookContext.abortController.signal,
+            touchActivity: () => bookContext.touchActivity(),
             onProgress: (event) => {
               if (!progressCallbackUrl) return;
               // Stage progress bands. The illustrating band is deliberately

@@ -64,6 +64,11 @@ class PipelineError extends Error {
  * @param {{ step: string, message?: string, progress?: number }} event
  */
 function reportProgress(doc, event) {
+  try {
+    doc?.operationalContext?.touchActivity?.();
+  } catch {
+    /* ignore — activity hooks must not break the pipeline */
+  }
   const bookId = doc?.operationalContext?.bookId || 'n/a';
   const step = event?.step || 'stage';
   const message = event?.message || '';
@@ -143,6 +148,7 @@ async function runStage(doc, stageName, run, gate, failureCode) {
  * @param {(event: object) => void} [opts.onProgress]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {string} [opts.bookId]
+ * @param {() => void} [opts.touchActivity] - called on progress so server idle watchdogs stay reset during long runs
  * @returns {Promise<{ document: object, layout: object }>}
  */
 async function generateBook(rawRequest, opts = {}) {
@@ -150,6 +156,7 @@ async function generateBook(rawRequest, opts = {}) {
     onProgress: opts.onProgress,
     abortSignal: opts.abortSignal,
     bookId: opts.bookId || rawRequest?.bookId || 'n/a',
+    touchActivity: typeof opts.touchActivity === 'function' ? opts.touchActivity : null,
   };
 
   reportProgress({ operationalContext }, { step: 'input', message: 'Normalizing request' });
