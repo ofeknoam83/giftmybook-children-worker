@@ -56,6 +56,92 @@ function shouldDeescalateSceneForQaFail(tags, scene) {
 }
 
 /**
+ * Remove long per-spread policy blocks (off-cover cast, caption placement) that
+ * duplicate the session system instruction. Cuts redundant NEVER/HARD wording
+ * from the user turn for any book — general mitigation for PROHIBITED_CONTENT.
+ *
+ * @param {string} scene
+ * @returns {string}
+ */
+function compactSceneForImageSafetyRetry(scene) {
+  const s = String(scene || '').trim();
+  if (!s) return s;
+  let cut = s.search(/\n\s*Off-cover cast rule\b/i);
+  if (cut === -1) cut = s.search(/\n\s*Caption placement\b/i);
+  if (cut === -1) return s;
+  const head = s.slice(0, cut).trim();
+  if (!head) return s;
+  return (
+    `${head}\n\n`
+    + '[System note: Off-cover visibility, caption corner placement, and anatomy rules '
+    + 'are defined in the session system instruction — follow that policy.]'
+  );
+}
+
+/**
+ * Caption wording softening for last-resort safety retries. Can break strict
+ * rhyme; used before rebuild so the book can complete.
+ *
+ * @param {string} caption
+ * @returns {string}
+ */
+function softenCaptionForImageSafetyRetry(caption) {
+  if (typeof caption !== 'string' || !caption) return caption;
+  let s = caption;
+  s = s.replace(/\bpeeking\b/gi, 'looking');
+  s = s.replace(/\bpeeks\b/gi, 'looks');
+  s = s.replace(/\bpeek\b/gi, 'look');
+  s = s.replace(/\bpeep\b/gi, 'glance');
+  s = s.replace(/\bin every pack\b/gi, 'in each lunch bag');
+  s = s.replace(/\bevery pack\b/gi, 'each lunch bag');
+  return s;
+}
+
+/**
+ * Extra phrase-level softening on the SCENE string (optional second line of defense).
+ *
+ * @param {string} scene
+ * @returns {string}
+ */
+function softenSceneForImageSafetyRetry(scene) {
+  let s = String(scene || '').trim();
+  if (!s) return s;
+
+  s = s.replace(/\bpeeking\b/gi, 'looking');
+  s = s.replace(/\bpeeks\b/gi, 'looks');
+  s = s.replace(/\bpeek\b/gi, 'look');
+  s = s.replace(/\bpeep\b/gi, 'glance');
+
+  s = s.replace(/\bin every pack\b/gi, 'in each lunch bag');
+  s = s.replace(/\bevery pack\b/gi, 'each lunch bag');
+  s = s.replace(/\bthe pack\b/gi, 'the bag');
+
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+/**
+ * Last-resort scene when softening is not enough — keeps spread index + theme
+ * for continuity but strips planner detail that may trip the classifier.
+ *
+ * @param {number} spreadIndex - 0-based
+ * @param {string} [theme]
+ * @returns {string}
+ */
+function minimalSafeSceneFallback(spreadIndex, theme) {
+  const t = typeof theme === 'string' && theme
+    ? theme.replace(/_/g, ' ')
+    : 'family';
+  const n = spreadIndex + 1;
+  return (
+    `Wholesome picture-book moment for spread ${n} (gentle ${t} story). ` +
+    'Bright, cheerful daytime outdoor or park setting; same 3D Pixar-style CGI as the cover. ' +
+    'Hero child with family figures nearby if the story needs them; playful, calm, age-appropriate. ' +
+    'No scary imagery, no suggestive staging, no photoreal documentary look.'
+  );
+}
+
+/**
  * @typedef {Object} SpreadTurnOpts
  * @property {number} spreadIndex - 0-based spread index (0..12).
  * @property {number} [totalSpreads] - Defaults to TOTAL_SPREADS (13).
@@ -373,4 +459,8 @@ module.exports = {
   ILLUSTRATOR_TEXT_QA_TAGS,
   deescalateSceneForSignage,
   shouldDeescalateSceneForQaFail,
+  compactSceneForImageSafetyRetry,
+  softenSceneForImageSafetyRetry,
+  softenCaptionForImageSafetyRetry,
+  minimalSafeSceneFallback,
 };

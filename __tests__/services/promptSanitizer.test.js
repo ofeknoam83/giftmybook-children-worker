@@ -53,6 +53,10 @@ describe('sanitizeForGemini', () => {
       .toBe('do not draw Dad face');
     expect(sanitizeForGemini('black rectangle over head', { mode: 'image' }))
       .toBe('dark shape over head');
+    expect(sanitizeForGemini('FORBIDDEN: floating hand', { mode: 'image' }))
+      .toBe('Avoid: floating hand');
+    expect(sanitizeForGemini('Line FORBIDDEN — bad seam', { mode: 'image' }))
+      .toBe('Line Avoid — bad seam');
     // Story content (grief/fear themes) must pass through unchanged.
     expect(sanitizeForGemini('Mia felt scared of the dark forest', { mode: 'image' }))
       .toBe('Mia felt scared of the dark forest');

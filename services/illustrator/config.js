@@ -11,6 +11,20 @@ const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const GEMINI_QA_MODEL = 'gemini-2.5-flash';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+/**
+ * Per-request thresholds for the image model. BLOCK_ONLY_HIGH reduces false
+ * PROHIBITED_CONTENT / OTHER on wholesome child scenes; core child-safety
+ * policies remain (cannot be disabled via API).
+ *
+ * @type {Array<{ category: string, threshold: string }>}
+ */
+const GEMINI_IMAGE_SAFETY_SETTINGS = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+];
+
 // ── OpenAI image model (gpt-image-2) ──
 // The OpenAI Images 2.0 API is stateless — each call re-sends the cover +
 // last N accepted spreads as reference images along with the per-spread
@@ -194,6 +208,7 @@ module.exports = {
   GEMINI_IMAGE_MODEL,
   GEMINI_QA_MODEL,
   CHAT_API_BASE,
+  GEMINI_IMAGE_SAFETY_SETTINGS,
   OPENAI_IMAGE_MODEL,
   OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGES_GENERATIONS_URL,

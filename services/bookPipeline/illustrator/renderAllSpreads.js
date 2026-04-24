@@ -36,6 +36,10 @@ const {
   buildCorrectionTurn,
   deescalateSceneForSignage,
   shouldDeescalateSceneForQaFail,
+  compactSceneForImageSafetyRetry,
+  softenSceneForImageSafetyRetry,
+  softenCaptionForImageSafetyRetry,
+  minimalSafeSceneFallback,
 } = require('../../illustrator/prompt');
 const { stripMetadata } = require('../../illustrator/postprocess/strip');
 const { upscaleForPrint } = require('../../illustrator/postprocess/upscale');
@@ -144,10 +148,22 @@ async function processOneSpread(params) {
   let currentSession = session;
 
   const spec = buildIllustrationSpec(currentDoc, spread);
-  const expected = { text: spec.text, side: spec.textSide };
+  const baselineCaption = spec.text;
+  let renderCaption = baselineCaption;
+  let expected = { text: renderCaption, side: spec.textSide };
   const hero = currentDoc.visualBible?.hero?.physicalDescription || '';
 
-  console.log(`[${logTag}] starting (budget=${totalBudget}, textSide=${spec.textSide}, textCorner=${spec.textCorner}, textLen=${(spec.text || '').length})`);
+  /** Tier-2 safety: soften caption tripwires for the image API; syncs QA + manuscript on accept. */
+  function applyTier2CaptionSoftening() {
+    const softCap = softenCaptionForImageSafetyRetry(baselineCaption);
+    if (softCap !== baselineCaption) {
+      renderCaption = softCap;
+      expected = { text: renderCaption, side: spec.textSide };
+      console.warn(`[${logTag}] safety — caption wording softened for image API (tier 2; may affect rhyme)`);
+    }
+  }
+
+  console.log(`[${logTag}] starting (budget=${totalBudget}, textSide=${spec.textSide}, textCorner=${spec.textCorner}, textLen=${(baselineCaption || '').length})`);
 
   let scene = spec.scene;
   let correctionNote = null;
@@ -158,9 +174,13 @@ async function processOneSpread(params) {
     let attempt = 0;
     let transientEmptyRetries = 0;
     let suppressReanchorOnce = false;
+    /** Image-safety mitigations before rebuild: 1 = lean scene, 2 = soften or generic+caption. */
+    let safetyMitigationPass = 0;
     correctionNote = null;
     lastTags = [];
     scene = spec.scene;
+    renderCaption = baselineCaption;
+    expected = { text: renderCaption, side: spec.textSide };
 
     while (attempt < totalBudget) {
       attempt += 1;
@@ -179,7 +199,7 @@ async function processOneSpread(params) {
           const turn = buildSpreadTurn({
             spreadIndex: spec.spreadIndex,
             scene,
-            text: spec.text,
+            text: renderCaption,
             textSide: spec.textSide,
             textCorner: spec.textCorner,
             theme: spec.theme,
@@ -189,7 +209,7 @@ async function processOneSpread(params) {
           const correction = buildCorrectionTurn({
             spreadIndex: spec.spreadIndex,
             scene,
-            text: spec.text,
+            text: renderCaption,
             textSide: spec.textSide,
             textCorner: spec.textCorner,
             issues: [correctionNote || 'Fix the previous attempt.'],
@@ -235,6 +255,7 @@ async function processOneSpread(params) {
         }
         const isSafety = Boolean(err.isSafetyBlock) || /safety|prohibited|blocked/i.test(err?.message || '');
         const meta = [];
+        if (err.finishReason) meta.push(`finishReason=${err.finishReason}`);
         if (err.blockReason) meta.push(`blockReason=${err.blockReason}`);
         if (err.safetyRatings != null) {
           let sr = err.safetyRatings;
@@ -259,6 +280,31 @@ async function processOneSpread(params) {
           continue;
         }
 
+        if (isSafety) {
+          safetyMitigationPass += 1;
+          attempt -= 1;
+          if (safetyMitigationPass === 1) {
+            const compacted = compactSceneForImageSafetyRetry(spec.scene);
+            scene = (compacted !== spec.scene.trim())
+              ? compacted
+              : softenSceneForImageSafetyRetry(spec.scene);
+            console.warn(`[${logTag}] safety pass 1/2: lean scene (strip duplicate policy) or phrase soften`);
+            continue;
+          }
+          if (safetyMitigationPass === 2) {
+            const sw = softenSceneForImageSafetyRetry(scene);
+            if (sw !== scene) {
+              scene = sw;
+              console.warn(`[${logTag}] safety pass 2/2: phrase soften on current scene`);
+              continue;
+            }
+            scene = minimalSafeSceneFallback(spec.spreadIndex, spec.theme);
+            applyTier2CaptionSoftening();
+            console.warn(`[${logTag}] safety pass 2/2: generic safe scene + optional caption soften`);
+            continue;
+          }
+        }
+
         if (isSafety && currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
           const exp = Math.min(currentSession.rebuilds, 4);
           const delayMs = Math.min(
@@ -277,6 +323,10 @@ async function processOneSpread(params) {
           console.log(`[${logTag}] rebuilding session after safety block`);
           currentSession = await rebuildSession(currentSession);
           suppressReanchorOnce = false;
+          scene = spec.scene;
+          safetyMitigationPass = 0;
+          renderCaption = baselineCaption;
+          expected = { text: renderCaption, side: spec.textSide };
           continue;
         }
         return { accepted: false, doc: currentDoc, session: currentSession, issues: [err.message], tags: ['render_error'] };
@@ -324,6 +374,9 @@ async function processOneSpread(params) {
 
         const nextDoc = updateSpread(currentDoc, spread.spreadNumber, s => ({
           ...s,
+          manuscript: s.manuscript && renderCaption !== baselineCaption
+            ? { ...s.manuscript, text: renderCaption }
+            : s.manuscript,
           illustration: {
             prompt: scene,
             imageUrl,

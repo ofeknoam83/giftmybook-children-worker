@@ -7,7 +7,14 @@ jest.mock('../../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(),
 }));
 
-const { buildCorrectionTurn, buildSpreadTurn } = require('../../../services/illustrator/prompt');
+const {
+  buildCorrectionTurn,
+  buildSpreadTurn,
+  compactSceneForImageSafetyRetry,
+  softenSceneForImageSafetyRetry,
+  softenCaptionForImageSafetyRetry,
+  minimalSafeSceneFallback,
+} = require('../../../services/illustrator/prompt');
 
 const base = {
   spreadIndex: 2,
@@ -15,6 +22,40 @@ const base = {
   leftText: 'They pass the pond, where two ducks dip and glide.',
   rightText: 'Vivienne points and sings, and Mama sings beside.',
 };
+
+describe('compactSceneForImageSafetyRetry / soften / caption / minimal fallback', () => {
+  test('compact strips off-cover and caption placement blocks', () => {
+    const scene = 'Focal action: walk.\nLocation: park.\n\nOff-cover cast rule (HARD):\n  - no full face.\n\nCaption placement (single-scene): NEVER blah';
+    const out = compactSceneForImageSafetyRetry(scene);
+    expect(out).toContain('Focal action: walk');
+    expect(out).not.toMatch(/Off-cover cast rule/i);
+    expect(out).not.toMatch(/Caption placement/i);
+    expect(out).toMatch(/session system instruction/i);
+  });
+
+  test('compact returns original when no strip markers', () => {
+    const s = 'Focal action: x.\nLocation: y.';
+    expect(compactSceneForImageSafetyRetry(s)).toBe(s);
+  });
+
+  test('softens peek and pack phrasing in planner scenes', () => {
+    expect(softenSceneForImageSafetyRetry('She peeks in every pack near a bench.'))
+      .toMatch(/looks in each lunch bag/i);
+  });
+
+  test('softenCaptionForImageSafetyRetry matches scene rules', () => {
+    const cap = 'Past play, she spots a snack.\nShe peeks in every pack.\nA star peeks by the seat.';
+    const out = softenCaptionForImageSafetyRetry(cap);
+    expect(out).toContain('looks in each lunch bag');
+    expect(out).toContain('A star looks by the seat');
+  });
+
+  test('minimalSafeSceneFallback is generic and includes spread index', () => {
+    const s = minimalSafeSceneFallback(2, 'birthday');
+    expect(s).toMatch(/spread 3/i);
+    expect(s).toMatch(/birthday/i);
+  });
+});
 
 describe('buildSpreadTurn — shot variety reminder', () => {
   test('REMINDERS include shot variety line', () => {

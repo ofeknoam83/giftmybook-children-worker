@@ -73,6 +73,9 @@ const IMAGE_SOFTENERS = [
   [/\bblack\s+(rectangle|bar|box|patch|blob)\b/gi, 'dark shape'],
   [/\bcensor\s+(block|bar|rectangle)\b/gi, 'obscured shape'],
   [/\bopaque\s+black\b/gi, 'solid dark'],
+  // Meta-rules in system instructions — harsh wording can skew toward PROHIBITED_CONTENT on image API.
+  [/\bFORBIDDEN:\s*/gi, 'Avoid: '],
+  [/\bFORBIDDEN —/gi, 'Avoid —'],
 ];
 
 /**

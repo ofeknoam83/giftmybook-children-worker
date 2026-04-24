@@ -26,6 +26,7 @@ const {
   ESTABLISHMENT_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
+  GEMINI_IMAGE_SAFETY_SETTINGS,
 } = require('./config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
 const { buildSystemInstruction } = require('./systemInstruction');
@@ -456,6 +457,9 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
     systemInstruction: { parts: [{ text: safeSystem }] },
     contents: safeHistory,
     generationConfig,
+    ...(Array.isArray(GEMINI_IMAGE_SAFETY_SETTINGS) && GEMINI_IMAGE_SAFETY_SETTINGS.length > 0
+      ? { safetySettings: GEMINI_IMAGE_SAFETY_SETTINGS }
+      : {}),
   };
 
   const timeout = genConfigOpts.timeout || TURN_TIMEOUT_MS;
