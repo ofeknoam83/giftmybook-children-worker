@@ -78,6 +78,10 @@ const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
 const TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS = 25000;
 
+/** Backoff before rebuildSession on safety blocks (bursty OTHER). */
+const SAFETY_REBUILD_BASE_DELAY_MS = 2000;
+const SAFETY_REBUILD_MAX_DELAY_MS = 12000;
+
 /**
  * @param {number} ms
  * @param {AbortSignal} [signal]
@@ -153,192 +157,241 @@ async function processOneSpread(params) {
   for (;;) {
     let attempt = 0;
     let transientEmptyRetries = 0;
+    let suppressReanchorOnce = false;
     correctionNote = null;
     lastTags = [];
     scene = spec.scene;
 
     while (attempt < totalBudget) {
       attempt += 1;
-    const isFirstAttempt = attempt === 1;
-    const attemptStart = Date.now();
+      const isFirstAttempt = attempt === 1;
+      const attemptStart = Date.now();
 
-    let image;
-    try {
-      if (isFirstAttempt) {
-        const turn = buildSpreadTurn({
-          spreadIndex: spec.spreadIndex,
-          scene,
-          text: spec.text,
-          textSide: spec.textSide,
-          textCorner: spec.textCorner,
-          theme: spec.theme,
-        });
-        image = await generateSpread(currentSession, turn, spec.spreadIndex);
-      } else {
-        const correction = buildCorrectionTurn({
-          spreadIndex: spec.spreadIndex,
-          scene,
-          text: spec.text,
-          textSide: spec.textSide,
-          textCorner: spec.textCorner,
-          issues: [correctionNote || 'Fix the previous attempt.'],
-          tags: [],
-        });
-        // Re-anchor the cover image on the correction turn whenever the last
-        // attempt drifted on hero identity or outfit. This is the single most
-        // reliable fix for identity loss — a text reminder isn't enough once
-        // the model has committed to a different face.
-        const needsReanchor = lastTags.includes('hero_mismatch')
-          || lastTags.includes('outfit_mismatch')
-          || lastTags.includes('implied_parent_skin_mismatch');
-        if (needsReanchor) {
-          console.log(`[${logTag}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
-        }
-        image = await sendCorrection(currentSession, correction, spec.spreadIndex, { reanchorCover: needsReanchor });
-      }
-    } catch (err) {
-      // Model sometimes returns no image (e.g. IMAGE_OTHER, 0 parts) — treat as transient and
-      // re-run the same logical attempt (decrement so isFirstAttempt / correction path stay correct).
-      if (err.isEmptyResponse && !err.isSafetyBlock && transientEmptyRetries < MAX_TRANSIENT_EMPTY_IMAGE_RETRIES) {
-        transientEmptyRetries += 1;
-        attempt -= 1;
-        const delayMs = Math.min(
-          TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS,
-          TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS * 2 ** (transientEmptyRetries - 1),
-        );
-        console.warn(
-          `[${logTag}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
-          `[transient empty image ${transientEmptyRetries}/${MAX_TRANSIENT_EMPTY_IMAGE_RETRIES}, finishReason=${err.finishReason || 'n/a'}] ` +
-          `— waiting ${delayMs}ms then retrying`,
-        );
-        try {
-          await delayRespectingAbort(delayMs, currentDoc.operationalContext?.abortSignal);
-        } catch (waitErr) {
-          if (waitErr.name === 'AbortError' || currentDoc.operationalContext?.abortSignal?.aborted) {
-            return { accepted: false, doc: currentDoc, session: currentSession, issues: ['aborted'], tags: ['aborted'] };
+      const needsReanchor = !isFirstAttempt && (
+        lastTags.includes('hero_mismatch')
+        || lastTags.includes('outfit_mismatch')
+        || lastTags.includes('implied_parent_skin_mismatch'));
+      const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
+
+      let image;
+      try {
+        if (isFirstAttempt) {
+          const turn = buildSpreadTurn({
+            spreadIndex: spec.spreadIndex,
+            scene,
+            text: spec.text,
+            textSide: spec.textSide,
+            textCorner: spec.textCorner,
+            theme: spec.theme,
+          });
+          image = await generateSpread(currentSession, turn, spec.spreadIndex);
+        } else {
+          const correction = buildCorrectionTurn({
+            spreadIndex: spec.spreadIndex,
+            scene,
+            text: spec.text,
+            textSide: spec.textSide,
+            textCorner: spec.textCorner,
+            issues: [correctionNote || 'Fix the previous attempt.'],
+            tags: [],
+          });
+          // Re-anchor the cover image on the correction turn whenever the last
+          // attempt drifted on hero identity or outfit. If Gemini safety-blocks
+          // that turn (common with a second inline child reference), we retry
+          // once without re-anchoring (see catch block).
+          if (reanchorThisTurn) {
+            console.log(`[${logTag}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
+          } else if (needsReanchor) {
+            console.log(
+              `[${logTag}] correction without inline cover re-anchor on attempt ${attempt} (prev tags: ${lastTags.join(',')})`,
+            );
           }
-          throw waitErr;
+          image = await sendCorrection(currentSession, correction, spec.spreadIndex, { reanchorCover: reanchorThisTurn });
         }
-        continue;
+      } catch (err) {
+        // Model sometimes returns no image (e.g. IMAGE_OTHER, 0 parts) — treat as transient and
+        // re-run the same logical attempt (decrement so isFirstAttempt / correction path stay correct).
+        if (err.isEmptyResponse && !err.isSafetyBlock && transientEmptyRetries < MAX_TRANSIENT_EMPTY_IMAGE_RETRIES) {
+          transientEmptyRetries += 1;
+          attempt -= 1;
+          const delayMs = Math.min(
+            TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS,
+            TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS * 2 ** (transientEmptyRetries - 1),
+          );
+          console.warn(
+            `[${logTag}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
+            `[transient empty image ${transientEmptyRetries}/${MAX_TRANSIENT_EMPTY_IMAGE_RETRIES}, finishReason=${err.finishReason || 'n/a'}] ` +
+            `— waiting ${delayMs}ms then retrying`,
+          );
+          try {
+            await delayRespectingAbort(delayMs, currentDoc.operationalContext?.abortSignal);
+          } catch (waitErr) {
+            if (waitErr.name === 'AbortError' || currentDoc.operationalContext?.abortSignal?.aborted) {
+              return { accepted: false, doc: currentDoc, session: currentSession, issues: ['aborted'], tags: ['aborted'] };
+            }
+            throw waitErr;
+          }
+          continue;
+        }
+        const isSafety = Boolean(err.isSafetyBlock) || /safety|prohibited|blocked/i.test(err?.message || '');
+        const meta = [];
+        if (err.blockReason) meta.push(`blockReason=${err.blockReason}`);
+        if (err.safetyRatings != null) {
+          let sr = err.safetyRatings;
+          try {
+            sr = JSON.stringify(sr);
+          } catch {
+            sr = String(sr);
+          }
+          if (sr.length > 800) sr = `${sr.slice(0, 800)}…`;
+          meta.push(`safetyRatings=${sr}`);
+        }
+        const metaStr = meta.length ? ` (${meta.join('; ')})` : '';
+        console.warn(
+          `[${logTag}] render error on attempt ${attempt}/${totalBudget} (${Date.now() - attemptStart}ms): ${err.message}` +
+          `${metaStr}${isSafety ? ' [safety]' : ''}`,
+        );
+
+        if (isSafety && !isFirstAttempt && reanchorThisTurn) {
+          console.warn(`[${logTag}] safety after re-anchor — retrying correction without inline cover reference`);
+          suppressReanchorOnce = true;
+          attempt -= 1;
+          continue;
+        }
+
+        if (isSafety && currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
+          const exp = Math.min(currentSession.rebuilds, 4);
+          const delayMs = Math.min(
+            SAFETY_REBUILD_MAX_DELAY_MS,
+            SAFETY_REBUILD_BASE_DELAY_MS * 2 ** exp,
+          );
+          console.log(`[${logTag}] waiting ${delayMs}ms before rebuild after safety block`);
+          try {
+            await delayRespectingAbort(delayMs, currentDoc.operationalContext?.abortSignal);
+          } catch (waitErr) {
+            if (waitErr.name === 'AbortError' || currentDoc.operationalContext?.abortSignal?.aborted) {
+              return { accepted: false, doc: currentDoc, session: currentSession, issues: ['aborted'], tags: ['aborted'] };
+            }
+            throw waitErr;
+          }
+          console.log(`[${logTag}] rebuilding session after safety block`);
+          currentSession = await rebuildSession(currentSession);
+          suppressReanchorOnce = false;
+          continue;
+        }
+        return { accepted: false, doc: currentDoc, session: currentSession, issues: [err.message], tags: ['render_error'] };
       }
-      const isSafety = Boolean(err.isSafetyBlock) || /safety|prohibited|blocked/i.test(err?.message || '');
-      console.warn(`[${logTag}] render error on attempt ${attempt}/${totalBudget} (${Date.now() - attemptStart}ms): ${err.message}${isSafety ? ' [safety]' : ''}`);
-      if (isSafety && currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
-        console.log(`[${logTag}] rebuilding session after safety block`);
-        currentSession = await rebuildSession(currentSession);
-        continue;
+
+      suppressReanchorOnce = false;
+      transientEmptyRetries = 0;
+
+      const stripped = await stripMetadata(image.imageBuffer);
+      const printable = await upscaleForPrint(stripped);
+      const printableBase64 = printable.toString('base64');
+
+      const supportingCast = Array.isArray(currentDoc.visualBible?.supportingCast)
+        ? currentDoc.visualBible.supportingCast
+        : [];
+      const additionalCoverCharacters = supportingCast
+        .filter(c => c?.description)
+        .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
+        .join('; ') || null;
+      // Being declared in the brief does NOT put someone on the cover.
+      // Without cover vision, default to false; declared off-cover family is
+      // still allowed to appear via `additionalCoverCharacters` (QA policy note).
+      const coverParentPresent = false;
+
+      const qaStart = Date.now();
+      const qa = await checkSpread({
+        imageBase64: printableBase64,
+        expected,
+        coverRef: { base64: cover.base64, mime: cover.mime },
+        hero,
+        additionalCoverCharacters,
+        coverParentPresent,
+        spreadIndex: spec.spreadIndex,
+        abortSignal: currentDoc.operationalContext?.abortSignal,
+      });
+      const qaMs = Date.now() - qaStart;
+
+      if (qa.pass) {
+        console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
+        markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
+
+        const destination = `books/${bookId || currentDoc.request.bookId || 'nobookid'}/spreads/spread-${spread.spreadNumber}.jpg`;
+        await uploadBuffer(printable, destination, 'image/jpeg');
+        const imageUrl = await getSignedUrl(destination, SIGNED_URL_TTL_MS);
+
+        const nextDoc = updateSpread(currentDoc, spread.spreadNumber, s => ({
+          ...s,
+          illustration: {
+            prompt: scene,
+            imageUrl,
+            imageStorageKey: destination,
+            accepted: true,
+            attempts: attempt,
+          },
+          qa: {
+            ...s.qa,
+            spreadChecks: [
+              ...s.qa.spreadChecks,
+              { attempt, pass: true, issues: [], tags: [] },
+            ],
+          },
+        }));
+        return { accepted: true, doc: nextDoc, session: currentSession, issues: [], tags: [], imageBase64: image.imageBase64, imageUrl };
       }
-      return { accepted: false, doc: currentDoc, session: currentSession, issues: [err.message], tags: ['render_error'] };
-    }
 
-    transientEmptyRetries = 0;
+      const rawExpected = String(expected.text || '');
+      const expectedPreview = rawExpected.replace(/\s+/g, ' ').slice(0, QA_REJECT_LOG_EXPECTED_CHARS);
+      const rawOcr = qa.ocrText != null ? String(qa.ocrText) : '';
+      const ocrPreview = rawOcr.replace(/\s+/g, ' ').slice(0, QA_REJECT_LOG_OCR_CHARS);
+      console.warn(
+        `[${logTag}] REJECTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms) ` +
+        `textSide=${spec.textSide} textCorner=${spec.textCorner} ` +
+        `tags=[${(qa.tags || []).join(',')}] ` +
+        `expectedPreview="${expectedPreview}${rawExpected.length > QA_REJECT_LOG_EXPECTED_CHARS ? '…' : ''}" ` +
+        (rawOcr
+          ? `ocrPreview="${ocrPreview}${rawOcr.length > QA_REJECT_LOG_OCR_CHARS ? '…' : ''}" `
+          : '') +
+        `issues=${formatQaRejectIssuesForLog(qa.issues)}`,
+      );
 
-    const stripped = await stripMetadata(image.imageBuffer);
-    const printable = await upscaleForPrint(stripped);
-    const printableBase64 = printable.toString('base64');
+      pruneLastTurn(currentSession);
 
-    const supportingCast = Array.isArray(currentDoc.visualBible?.supportingCast)
-      ? currentDoc.visualBible.supportingCast
-      : [];
-    const additionalCoverCharacters = supportingCast
-      .filter(c => c?.description)
-      .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
-      .join('; ') || null;
-    // Being declared in the brief does NOT put someone on the cover.
-    // Without cover vision, default to false; declared off-cover family is
-    // still allowed to appear via `additionalCoverCharacters` (QA policy note).
-    const coverParentPresent = false;
+      lastTags = Array.isArray(qa.tags) ? qa.tags : [];
 
-    const qaStart = Date.now();
-    const qa = await checkSpread({
-      imageBase64: printableBase64,
-      expected,
-      coverRef: { base64: cover.base64, mime: cover.mime },
-      hero,
-      additionalCoverCharacters,
-      coverParentPresent,
-      spreadIndex: spec.spreadIndex,
-      abortSignal: currentDoc.operationalContext?.abortSignal,
-    });
-    const qaMs = Date.now() - qaStart;
-
-    if (qa.pass) {
-      console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
-      markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
-
-      const destination = `books/${bookId || currentDoc.request.bookId || 'nobookid'}/spreads/spread-${spread.spreadNumber}.jpg`;
-      await uploadBuffer(printable, destination, 'image/jpeg');
-      const imageUrl = await getSignedUrl(destination, SIGNED_URL_TTL_MS);
-
-      const nextDoc = updateSpread(currentDoc, spread.spreadNumber, s => ({
+      const plan = planSpreadRepair({
+        spreadNumber: spread.spreadNumber,
+        attemptNumber: attempt,
+        issues: qa.issues,
+        tags: qa.tags,
+      });
+      correctionNote = plan.correctionNote;
+      currentDoc = appendRetryMemory(currentDoc, plan.retryEntry);
+      currentDoc = updateSpread(currentDoc, spread.spreadNumber, s => ({
         ...s,
-        illustration: {
-          prompt: scene,
-          imageUrl,
-          imageStorageKey: destination,
-          accepted: true,
-          attempts: attempt,
-        },
         qa: {
           ...s.qa,
           spreadChecks: [
             ...s.qa.spreadChecks,
-            { attempt, pass: true, issues: [], tags: [] },
+            { attempt, pass: false, issues: qa.issues, tags: qa.tags },
           ],
+          repairHistory: [...s.qa.repairHistory, { attempt, tags: qa.tags }],
         },
       }));
-      return { accepted: true, doc: nextDoc, session: currentSession, issues: [], tags: [], imageBase64: image.imageBase64, imageUrl };
-    }
 
-    const rawExpected = String(expected.text || '');
-    const expectedPreview = rawExpected.replace(/\s+/g, ' ').slice(0, QA_REJECT_LOG_EXPECTED_CHARS);
-    const rawOcr = qa.ocrText != null ? String(qa.ocrText) : '';
-    const ocrPreview = rawOcr.replace(/\s+/g, ' ').slice(0, QA_REJECT_LOG_OCR_CHARS);
-    console.warn(
-      `[${logTag}] REJECTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms) ` +
-      `textSide=${spec.textSide} textCorner=${spec.textCorner} ` +
-      `tags=[${(qa.tags || []).join(',')}] ` +
-      `expectedPreview="${expectedPreview}${rawExpected.length > QA_REJECT_LOG_EXPECTED_CHARS ? '…' : ''}" ` +
-      (rawOcr
-        ? `ocrPreview="${ocrPreview}${rawOcr.length > QA_REJECT_LOG_OCR_CHARS ? '…' : ''}" `
-        : '') +
-      `issues=${formatQaRejectIssuesForLog(qa.issues)}`,
-    );
+      if (shouldDeescalateSceneForQaFail(qa.tags, scene)) {
+        console.log(`[${logTag}] de-escalating scene for next attempt`);
+        scene = deescalateSceneForSignage(scene);
+      }
 
-    pruneLastTurn(currentSession);
-
-    lastTags = Array.isArray(qa.tags) ? qa.tags : [];
-
-    const plan = planSpreadRepair({
-      spreadNumber: spread.spreadNumber,
-      attemptNumber: attempt,
-      issues: qa.issues,
-      tags: qa.tags,
-    });
-    correctionNote = plan.correctionNote;
-    currentDoc = appendRetryMemory(currentDoc, plan.retryEntry);
-    currentDoc = updateSpread(currentDoc, spread.spreadNumber, s => ({
-      ...s,
-      qa: {
-        ...s.qa,
-        spreadChecks: [
-          ...s.qa.spreadChecks,
-          { attempt, pass: false, issues: qa.issues, tags: qa.tags },
-        ],
-        repairHistory: [...s.qa.repairHistory, { attempt, tags: qa.tags }],
-      },
-    }));
-
-    if (shouldDeescalateSceneForQaFail(qa.tags, scene)) {
-      console.log(`[${logTag}] de-escalating scene for next attempt`);
-      scene = deescalateSceneForSignage(scene);
-    }
-
-    if (attempt > REPAIR_BUDGETS.perSpreadInSessionCorrections &&
-        currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
-      console.log(`[${logTag}] rebuilding session (attempt ${attempt} > ${REPAIR_BUDGETS.perSpreadInSessionCorrections})`);
-      currentSession = await rebuildSession(currentSession);
-    }
+      if (attempt > REPAIR_BUDGETS.perSpreadInSessionCorrections &&
+          currentSession.rebuilds < REPAIR_BUDGETS.perSpreadEscalations) {
+        console.log(`[${logTag}] rebuilding session (attempt ${attempt} > ${REPAIR_BUDGETS.perSpreadInSessionCorrections})`);
+        currentSession = await rebuildSession(currentSession);
+        suppressReanchorOnce = false;
+      }
     }
 
     if (extraRoundsRemaining <= 0) {
@@ -490,4 +543,4 @@ async function renderAllSpreads(doc) {
   return current;
 }
 
-module.exports = { renderAllSpreads };
+module.exports = { renderAllSpreads, processOneSpread };

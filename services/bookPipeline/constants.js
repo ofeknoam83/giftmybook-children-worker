@@ -89,7 +89,8 @@ const REPAIR_BUDGETS = {
   writerRewriteWaves: 3,
   perSpreadInSessionCorrections: 3,
   perSpreadPromptRepairs: 2,
-  perSpreadEscalations: 1,
+  /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
+  perSpreadEscalations: 3,
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
   perSpreadExtraSessionRounds: 2,
   bookWideRepairWaves: 2,

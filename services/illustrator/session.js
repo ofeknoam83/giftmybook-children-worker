@@ -11,12 +11,12 @@
  *   1. Only ACCEPTED spreads enter the history sliding window. Failed
  *      (safety-blocked, QA-rejected, empty) exchanges are pruned immediately
  *      so history never gets poisoned by a bad image or a flagged turn.
- *   2. At most ONE session rebuild per book on safety blocks. A rebuild
- *      re-establishes character from the cover and carries forward the already-
- *      accepted spreads so continuity survives.
+ *   2. On safety blocks, the pipeline may rebuild the session (bounded by
+ *      REPAIR_BUDGETS.perSpreadEscalations) after optional backoff; rebuilds
+ *      re-establish character from the cover and carry forward accepted spreads.
  *   3. No proxy fallback, no safety rewrite, no thumbnail selection gymnastics
- *      — if corrections + one rebuild can't get a spread through, the book
- *      fails fast.
+ *      — if in-session repairs, re-anchor fallbacks, and bounded rebuilds
+ *      exhaust REPAIR_BUDGETS, the book fails that spread.
  */
 
 const {
