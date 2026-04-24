@@ -1009,13 +1009,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
             cachedPhotoBase64 = cachedBuf.toString('base64');
             bookContext.log('info', 'Child photo loaded from cache', { bytes: cachedBuf.length });
           } else {
-            // Download original and resize
-            const sharp = require('sharp');
+            // Download original and resize (HEIC fallback via heic-convert when sharp/libvips cannot decode)
+            const { resizeChildPhotoForCache } = require('./services/childPhotoDecode');
             const photoBuf = await downloadBuffer(childPhotoUrl);
-            const resizedBuf = await sharp(photoBuf)
-              .resize(512, 512, { fit: 'cover' })
-              .jpeg({ quality: 80 })
-              .toBuffer();
+            const resizedBuf = await resizeChildPhotoForCache(photoBuf, childPhotoUrl);
             cachedPhotoBase64 = resizedBuf.toString('base64');
             bookContext.log('info', 'Child photo cached (resized to 512px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
             // Save resized photo to GCS for reuse (fire-and-forget)

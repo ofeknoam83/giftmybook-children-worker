@@ -23,6 +23,22 @@ const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image-preview';
 const GEMINI_IMAGE_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
+ * Gemini generateContent JSON uses camelCase `inlineData` or snake_case `inline_data`;
+ * mime may be `mimeType` or `mime_type`.
+ *
+ * @param {object} part - A single content `parts` entry
+ * @returns {{ data: string, mime: string } | null}
+ */
+function geminiImagePartFromResponsePart(part) {
+  if (!part || typeof part !== 'object') return null;
+  const id = part.inlineData || part.inline_data;
+  if (!id || typeof id.data !== 'string' || !id.data.length) return null;
+  const mime = id.mimeType || id.mime_type || '';
+  if (mime && !String(mime).startsWith('image/')) return null;
+  return { data: id.data, mime: mime || 'image/jpeg' };
+}
+
+/**
  * Extract dominant color from an image buffer using sharp.
  * Returns {r, g, b} normalized to 0-1.
  */
@@ -150,7 +166,10 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
               { inline_data: { mimeType: 'image/jpeg', data: refB64 } },
             ],
           }],
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+          generationConfig: {
+            responseModalities: ['TEXT', 'IMAGE'],
+            maxOutputTokens: 8192,
+          },
         }),
       },
       180000,
@@ -163,12 +182,18 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     const data = await out.json();
     const parts = data.candidates?.[0]?.content?.parts || [];
     for (const part of parts) {
-      if (part.inlineData?.mimeType?.startsWith('image/') && part.inlineData?.data) {
+      const img = geminiImagePartFromResponsePart(part);
+      if (img) {
         console.log('[CoverGenerator] Chosen cover harmonized to 3D interior style (Gemini / Nano Banana 2)');
         if (opts.costTracker) opts.costTracker.addImageGeneration(GEMINI_HARMONIZE_MODEL, 1);
-        return Buffer.from(part.inlineData.data, 'base64');
+        return Buffer.from(img.data, 'base64');
       }
     }
+    const fr = data.candidates?.[0]?.finishReason;
+    console.warn(
+      '[CoverGenerator] harmonize: no image in Gemini response — using chosen cover as-is',
+      { finishReason: fr || 'n/a', partCount: parts.length },
+    );
   } catch (e) {
     console.warn('[CoverGenerator] Gemini cover harmonize error:', e.message);
   }
@@ -255,7 +280,7 @@ ${buildCoverSafeZoneInstruction(!!isHardcover)}`;
             { text: prompt },
             { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
           ]}],
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192 },
         }),
       }
     );
@@ -268,13 +293,14 @@ ${buildCoverSafeZoneInstruction(!!isHardcover)}`;
     const data = await resp.json();
     const parts = data.candidates?.[0]?.content?.parts || [];
     for (const part of parts) {
-      if (part.inlineData?.mimeType?.startsWith('image/')) {
+      const img = geminiImagePartFromResponsePart(part);
+      if (img) {
         const ms = Date.now() - startTime;
         console.log(`[CoverGenerator] Back cover generated in ${ms}ms`);
         if (costTracker) {
           costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
         }
-        return Buffer.from(part.inlineData.data, 'base64');
+        return Buffer.from(img.data, 'base64');
       }
     }
     throw new Error('No image in Gemini response');
@@ -782,7 +808,7 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
         { text: prompt },
         { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
       ]}],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192 },
     }),
   }, 3 * 60 * 1000); // 3-min timeout
 
@@ -791,9 +817,8 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
   const data = await resp.json();
   const parts = data.candidates?.[0]?.content?.parts || [];
   for (const part of parts) {
-    if (part.inlineData?.mimeType?.startsWith('image/')) {
-      return Buffer.from(part.inlineData.data, 'base64');
-    }
+    const img = geminiImagePartFromResponsePart(part);
+    if (img) return Buffer.from(img.data, 'base64');
   }
   // Fallback: try proxy if direct call returned no image
   const PROXY_URL = process.env.GEMINI_PROXY_URL || '';
@@ -893,4 +918,11 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
   return covers;
 }
 
-module.exports = { generateCover, generateUpsellCovers, buildUpsellCoverPrompt, UPSELL_STYLES, UPSELL_STYLE_LABELS };
+module.exports = {
+  generateCover,
+  generateUpsellCovers,
+  buildUpsellCoverPrompt,
+  UPSELL_STYLES,
+  UPSELL_STYLE_LABELS,
+  geminiImagePartFromResponsePart,
+};

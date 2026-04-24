@@ -10,7 +10,9 @@
  *       4. per-spread QA (text + consistency) in parallel
  *       5. if pass:   markSpreadAccepted, upload to GCS, record on doc
  *          if fail:   planSpreadRepair -> sendCorrection (in-session)
- *                     -> after N corrections, rebuildSession (once per book)
+ *                     -> after N corrections, rebuildSession (once per spread phase)
+ *                     -> if budget exhausted: up to REPAIR_BUDGETS.perSpreadExtraSessionRounds
+ *                        fresh session + full attempt budget again
  *                     -> escalate by failing the spread
  *
  * All schema reads come from the new book document. No legacy
@@ -46,6 +48,30 @@ const { REPAIR_BUDGETS, FAILURE_CODES } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** QA reject logs: keep Cloud Logging lines useful but bounded. */
+const QA_REJECT_LOG_MAX_ISSUE_CHARS = 3500;
+const QA_REJECT_LOG_MAX_ISSUES_JSON_CHARS = 24000;
+const QA_REJECT_LOG_OCR_CHARS = 600;
+const QA_REJECT_LOG_EXPECTED_CHARS = 500;
+
+/**
+ * @param {unknown[]} issues
+ * @returns {string}
+ */
+function formatQaRejectIssuesForLog(issues) {
+  if (!Array.isArray(issues) || issues.length === 0) return '[]';
+  const parts = issues.map((issue) => {
+    const s = typeof issue === 'string' ? issue : JSON.stringify(issue);
+    if (s.length <= QA_REJECT_LOG_MAX_ISSUE_CHARS) return s;
+    return `${s.slice(0, QA_REJECT_LOG_MAX_ISSUE_CHARS)}…`;
+  });
+  let out = JSON.stringify(parts);
+  if (out.length > QA_REJECT_LOG_MAX_ISSUES_JSON_CHARS) {
+    out = `${out.slice(0, QA_REJECT_LOG_MAX_ISSUES_JSON_CHARS)}…`;
+  }
+  return out;
+}
 
 /** When Gemini returns 0 content parts (e.g. finishReason=IMAGE_OTHER), wait + retry before failing the spread. */
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
@@ -122,11 +148,17 @@ async function processOneSpread(params) {
   let scene = spec.scene;
   let correctionNote = null;
   let lastTags = [];
-  let attempt = 0;
-  let transientEmptyRetries = 0;
+  let extraRoundsRemaining = REPAIR_BUDGETS.perSpreadExtraSessionRounds;
 
-  while (attempt < totalBudget) {
-    attempt += 1;
+  for (;;) {
+    let attempt = 0;
+    let transientEmptyRetries = 0;
+    correctionNote = null;
+    lastTags = [];
+    scene = spec.scene;
+
+    while (attempt < totalBudget) {
+      attempt += 1;
     const isFirstAttempt = attempt === 1;
     const attemptStart = Date.now();
 
@@ -258,10 +290,19 @@ async function processOneSpread(params) {
       return { accepted: true, doc: nextDoc, session: currentSession, issues: [], tags: [], imageBase64: image.imageBase64, imageUrl };
     }
 
+    const rawExpected = String(expected.text || '');
+    const expectedPreview = rawExpected.replace(/\s+/g, ' ').slice(0, QA_REJECT_LOG_EXPECTED_CHARS);
+    const rawOcr = qa.ocrText != null ? String(qa.ocrText) : '';
+    const ocrPreview = rawOcr.replace(/\s+/g, ' ').slice(0, QA_REJECT_LOG_OCR_CHARS);
     console.warn(
       `[${logTag}] REJECTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms) ` +
-      `tags=[${(qa.tags || []).join(',')}] issues=${JSON.stringify((qa.issues || []).slice(0, 4))}` +
-      (qa.ocrText ? ` ocr="${String(qa.ocrText).slice(0, 120).replace(/\s+/g, ' ')}"` : '')
+      `textSide=${spec.textSide} textCorner=${spec.textCorner} ` +
+      `tags=[${(qa.tags || []).join(',')}] ` +
+      `expectedPreview="${expectedPreview}${rawExpected.length > QA_REJECT_LOG_EXPECTED_CHARS ? '…' : ''}" ` +
+      (rawOcr
+        ? `ocrPreview="${ocrPreview}${rawOcr.length > QA_REJECT_LOG_OCR_CHARS ? '…' : ''}" `
+        : '') +
+      `issues=${formatQaRejectIssuesForLog(qa.issues)}`,
     );
 
     pruneLastTurn(currentSession);
@@ -298,10 +339,28 @@ async function processOneSpread(params) {
       console.log(`[${logTag}] rebuilding session (attempt ${attempt} > ${REPAIR_BUDGETS.perSpreadInSessionCorrections})`);
       currentSession = await rebuildSession(currentSession);
     }
-  }
+    }
 
-  console.error(`[${logTag}] EXHAUSTED budget (${totalBudget} attempts) — spread unresolvable`);
-  return { accepted: false, doc: currentDoc, session: currentSession, issues: ['spread exhausted repair budget'], tags: ['spread_unresolvable'] };
+    if (extraRoundsRemaining <= 0) {
+      console.error(
+        `[${logTag}] EXHAUSTED budget (${totalBudget} attempts/session) and ` +
+        `${REPAIR_BUDGETS.perSpreadExtraSessionRounds} extra session round(s) — spread unresolvable`,
+      );
+      return {
+        accepted: false,
+        doc: currentDoc,
+        session: currentSession,
+        issues: ['spread exhausted repair budget'],
+        tags: ['spread_unresolvable'],
+      };
+    }
+    extraRoundsRemaining -= 1;
+    console.log(
+      `[${logTag}] Fresh illustrator session after exhausting ${totalBudget} attempts ` +
+      `(extra round ${REPAIR_BUDGETS.perSpreadExtraSessionRounds - extraRoundsRemaining}/${REPAIR_BUDGETS.perSpreadExtraSessionRounds})`,
+    );
+    currentSession = await rebuildSession(currentSession);
+  }
 }
 
 /**

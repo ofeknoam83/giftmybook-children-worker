@@ -500,6 +500,17 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
   const elapsedMs = Date.now() - startMs;
   console.log(`[illustrator/session] Turn ${session.turnsUsed + 1} complete (${elapsedMs}ms)`);
 
+  const um = data.usageMetadata;
+  if (um && (um.promptTokenCount != null || um.totalTokenCount != null)) {
+    const parts = [
+      `prompt=${um.promptTokenCount ?? 'n/a'}`,
+      `candidates=${um.candidatesTokenCount ?? 'n/a'}`,
+      `total=${um.totalTokenCount ?? 'n/a'}`,
+    ];
+    if (um.cachedContentTokenCount != null) parts.push(`cached=${um.cachedContentTokenCount}`);
+    console.log(`[illustrator/session] usageMetadata: ${parts.join(' ')} (historyMsgs=${history.length})`);
+  }
+
   // Preserve thoughtSignature when storing model response — Gemini requires
   // it for continuation of thinking across turns.
   const modelParts = data.candidates?.[0]?.content?.parts;

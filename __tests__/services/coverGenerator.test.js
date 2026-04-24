@@ -36,7 +36,7 @@ jest.mock('../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(),
 }));
 
-const { buildUpsellCoverPrompt } = require('../../services/coverGenerator');
+const { buildUpsellCoverPrompt, geminiImagePartFromResponsePart } = require('../../services/coverGenerator');
 
 describe('buildUpsellCoverPrompt', () => {
   const base = {
@@ -110,5 +110,27 @@ describe('buildUpsellCoverPrompt', () => {
     const prompt = buildUpsellCoverPrompt(base.title, base.childName, base.childAge, 'female', base.artStyle, {});
     expect(prompt).not.toContain('CHARACTER APPEARANCE LOCK');
     expect(prompt).not.toContain('PHYSICAL IDENTITY LOCK');
+  });
+});
+
+describe('geminiImagePartFromResponsePart', () => {
+  test('reads camelCase inlineData', () => {
+    expect(
+      geminiImagePartFromResponsePart({
+        inlineData: { mimeType: 'image/jpeg', data: 'eA==' },
+      }),
+    ).toEqual({ data: 'eA==', mime: 'image/jpeg' });
+  });
+
+  test('reads snake_case inline_data and mime_type (Gemini REST JSON)', () => {
+    expect(
+      geminiImagePartFromResponsePart({
+        inline_data: { mime_type: 'image/png', data: 'abc' },
+      }),
+    ).toEqual({ data: 'abc', mime: 'image/png' });
+  });
+
+  test('returns null for text-only part', () => {
+    expect(geminiImagePartFromResponsePart({ text: 'hello' })).toBeNull();
   });
 });

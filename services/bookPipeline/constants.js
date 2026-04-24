@@ -90,6 +90,8 @@ const REPAIR_BUDGETS = {
   perSpreadInSessionCorrections: 3,
   perSpreadPromptRepairs: 2,
   perSpreadEscalations: 1,
+  /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
+  perSpreadExtraSessionRounds: 2,
   bookWideRepairWaves: 2,
 };
 

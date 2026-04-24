@@ -63,6 +63,21 @@ function renderCorrectionNote(issues, tags) {
       'Re-render in a 3D CGI Pixar feature-film style — a frame from a modern Pixar movie (photoreal subsurface skin scattering, individually rendered hair strands, physically based materials, volumetric ray-traced lighting, real optical depth-of-field). NOT a 2D illustration, NOT a soft painted children\'s book illustration, NOT watercolor/gouache/pencil/ink/anime/paper-cutout. Characters must read as real 3D models, backgrounds as real 3D environments — not as painted images with blur. Match the BOOK COVER\'s art style exactly.',
     );
   }
+  if (tags.includes('split_panel')) {
+    lines.push(
+      'ONE continuous wide 16:9 panorama — a single cinematic frame with NO diptych, NO vertical seam, NO visible split down the middle, NO two panels stitched side-by-side. Lighting, perspective, and ground plane must read as one unified 3D shot.',
+    );
+  }
+  if (
+    tags.includes('duplicated_word')
+    || tags.includes('text_duplicated_caption')
+    || tags.includes('spelling_mismatch')
+    || tags.includes('missing_word')
+  ) {
+    lines.push(
+      'Render the caption exactly once as a single block. Match the provided TEXT line WORD-FOR-WORD (same words, same order, no doubled words like “a a”, no repeated stanza, no copy on both halves of the frame).',
+    );
+  }
   return lines.join('\n');
 }
 
