@@ -36,7 +36,7 @@ jest.mock('../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(),
 }));
 
-const { buildUpsellCoverPrompt, geminiImagePartFromResponsePart } = require('../../services/coverGenerator');
+const { buildUpsellCoverPrompt, geminiImagePartFromResponsePart, shouldSkipCoverStyleHarmonize } = require('../../services/coverGenerator');
 
 describe('buildUpsellCoverPrompt', () => {
   const base = {
@@ -132,5 +132,25 @@ describe('geminiImagePartFromResponsePart', () => {
 
   test('returns null for text-only part', () => {
     expect(geminiImagePartFromResponsePart({ text: 'hello' })).toBeNull();
+  });
+});
+
+describe('shouldSkipCoverStyleHarmonize', () => {
+  test('true for admin-upload path', () => {
+    expect(shouldSkipCoverStyleHarmonize('https://storage.googleapis.com/b/children-covers/90079/admin-upload-1.png'))
+      .toBe(true);
+  });
+
+  test('true for children-jobs upsell cover', () => {
+    expect(shouldSkipCoverStyleHarmonize('gs://giftmybook-bucket/children-jobs/abc-123/upsell/0/cover.png'))
+      .toBe(true);
+  });
+
+  test('false for unrelated URL', () => {
+    expect(shouldSkipCoverStyleHarmonize('https://example.com/approved-cover.png')).toBe(false);
+  });
+
+  test('false for empty', () => {
+    expect(shouldSkipCoverStyleHarmonize('')).toBe(false);
   });
 });

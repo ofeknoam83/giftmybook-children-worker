@@ -40,6 +40,53 @@ function geminiImagePartFromResponsePart(part) {
 }
 
 /**
+ * Log Gemini safety / block signals when the image model returns no image parts
+ * (finishReason and promptFeedback are often more informative than partCount: 0).
+ *
+ * @param {object} data - Parsed JSON from generateContent
+ * @param {string} label - Log context (e.g. "harmonize" | "back cover attempt 0")
+ */
+function logGeminiImageResponseDiagnostics(data, label) {
+  if (!data || typeof data !== 'object') {
+    console.warn(`[CoverGenerator] ${label}: empty/invalid response JSON`);
+    return;
+  }
+  const c0 = data.candidates?.[0];
+  const parts = c0?.content?.parts || [];
+  const pf = data.promptFeedback;
+  console.warn(`[CoverGenerator] ${label}: Gemini response diagnostics`, {
+    finishReason: c0?.finishReason || 'n/a',
+    partCount: parts.length,
+    candidateSafety: c0?.safetyRatings,
+    promptBlockReason: pf?.blockReason,
+    promptBlockMessage: pf?.blockReasonMessage,
+    promptSafety: pf?.safetyRatings,
+  });
+}
+
+/**
+ * Heuristic: skip cover "harmonize" img2img for sources that are already on-brand 3D
+ * upsell renders or an explicit admin-chosen file — avoids Gemini input blocks on
+ * young-child reference faces and unnecessary restyle.
+ *
+ * @param {string} [coverSourceUrl] - GCS path, https URL, or signed URL
+ * @returns {boolean}
+ */
+function shouldSkipCoverStyleHarmonize(coverSourceUrl) {
+  if (!coverSourceUrl || typeof coverSourceUrl !== 'string') return false;
+  let s = coverSourceUrl;
+  try {
+    s = decodeURIComponent(coverSourceUrl);
+  } catch {
+    /* keep raw */
+  }
+  if (/admin-upload/i.test(s)) return true;
+  if (/\/children-jobs\/[^/]+\/upsell\//i.test(s)) return true;
+  if (/\/upsell\/\d+\/cover\.(png|jpg|jpeg)/i.test(s)) return true;
+  return false;
+}
+
+/**
  * Extract dominant color from an image buffer using sharp.
  * Returns {r, g, b} normalized to 0-1.
  */
@@ -137,7 +184,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     'INPUT: the attached image is the customer-approved book cover (composition and title may already be final).',
     'TASK: Re-create this cover as a **cinematic 3D Pixar feature-film CGI key-art render** that matches the interior illustrations of the same product — the same 3D language as inside the book, not a separate art style.',
     'PRESERVE: The same overall composition, the child’s placement and pose, the same on-image title and subtitle (character-for-character if visible), the same number of people, and the same story mood. Do not invent a new layout.',
-    'TRANSFORM: If the input is 2D, watercolor, painterly, or flat illustrated, re-render it as true 3D CGI: photoreal subsurface skin, strand hair, PBR materials, ray-traced volumetric lighting, real optical bokeh, fully modeled environment — NOT a soft storybook painting.',
+    'TRANSFORM: If the input is 2D, watercolor, painterly, or flat illustrated, restyle it toward true 3D CGI in the same family as the interiors: believable 3D geometry, soft-feature-film character shading, PBR materials, clean volumetric lighting, modeled environment — do NOT increase skin/hair “photorealism” beyond a family-friendly 3D animated film look, and do NOT re-light faces to look like a real photograph.',
     'FORBID: a different book title, extra characters, missing characters, or a new scene. No poster typography that ignores the input text.',
     '',
     'STYLE LOCK (match book interiors):',
@@ -190,16 +237,56 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
         return Buffer.from(img.data, 'base64');
       }
     }
-    const fr = data.candidates?.[0]?.finishReason;
+    logGeminiImageResponseDiagnostics(data, 'harmonize (no image)');
     console.warn(
       '[CoverGenerator] harmonize: no image in Gemini response — using chosen cover as-is',
-      { finishReason: fr || 'n/a', partCount: parts.length },
     );
   } catch (e) {
     console.warn('[CoverGenerator] Gemini cover harmonize error:', e.message);
   }
 
   return frontCoverBuffer;
+}
+
+/**
+ * Build a small style-reference JPEG from a **corner crop** of the front cover
+ * (avoids centering a child's face, which often trips Gemini input safety on
+ * the image model when the back cover must not show the child).
+ *
+ * @param {Buffer} frontCoverBuffer
+ * @returns {Promise<Buffer|null>}
+ */
+async function buildBackCoverStyleReferenceBuffer(frontCoverBuffer) {
+  if (!Buffer.isBuffer(frontCoverBuffer) || frontCoverBuffer.length < 100) return null;
+  const rotated = await sharp(frontCoverBuffer).rotate();
+  const meta = await rotated.metadata();
+  const w = meta.width || 0;
+  const h = meta.height || 0;
+  if (w < 64 || h < 64) return null;
+
+  const frac = 0.35;
+  const rw = Math.max(32, Math.round(w * frac));
+  const rh = Math.max(32, Math.round(h * frac));
+  const regions = [
+    { left: Math.max(0, w - rw), top: 0, width: rw, height: rh },
+    { left: 0, top: 0, width: rw, height: rh },
+    { left: 0, top: Math.max(0, h - rh), width: rw, height: rh },
+    { left: Math.max(0, w - rw), top: Math.max(0, h - rh), width: rw, height: rh },
+  ];
+  for (const ex of regions) {
+    try {
+      const out = await sharp(frontCoverBuffer)
+        .rotate()
+        .extract(ex)
+        .resize(512, 512, { fit: 'cover' })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      if (out && out.length > 500) return out;
+    } catch {
+      /* try next region */
+    }
+  }
+  return null;
 }
 
 /**
@@ -210,15 +297,10 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
  * @returns {Promise<Buffer|null>} Back cover image buffer, or null on failure
  */
 async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
-  const { title, childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat, isHardcover } = opts;
+  const { childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat, isHardcover } = opts;
   const isSquare = (bookFormat || '').toLowerCase() === 'picture_book';
 
-  // Resize front cover to use as style reference
-  const refBuffer = await sharp(frontCoverBuffer)
-    .resize(512, 512, { fit: 'cover' })
-    .jpeg({ quality: 80 })
-    .toBuffer();
-  const refBase64 = refBuffer.toString('base64');
+  const refFromCorner = await buildBackCoverStyleReferenceBuffer(frontCoverBuffer);
 
   // Build the text elements for the back cover
   const textElements = [];
@@ -233,11 +315,7 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   }
   textElements.push(`Near the bottom center:\n"Made with love for ${childName || 'you'}"\n"GiftMyBook.com"`);
 
-  const prompt = `Create the back cover image for a book, rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
-
-STYLE REFERENCE: Match the EXACT same art style, color palette, lighting, textures, and visual mood as the reference image (the front cover). If the front cover is a 3D CGI render, this back cover must also be a 3D CGI render — same rendering technique, same 3D geometry, same photoreal materials.
-
-LAYOUT REQUIREMENTS:
+  const layoutBlock = `LAYOUT REQUIREMENTS:
 - This is the BACK COVER of the book — it should feel like a companion to the front cover
 - Background: Use a softer, calmer version of the front cover's scene/colors — like a continuation of the world
 - The main character should NOT appear on the back cover
@@ -260,48 +338,77 @@ FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 asp
 
 ${buildCoverSafeZoneInstruction(!!isHardcover)}`;
 
+  const withRefBlock = `Create the back cover image for a book, rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
+
+STYLE REFERENCE: A small CROP from the front cover (corner/background) is attached ONLY to match color palette, lighting, and 3D rendering look. Do NOT copy or depict any person, child, or face from the reference. The main story character must NOT appear on the back cover.
+
+${layoutBlock}`;
+
+  const noRefBlock = `Create the back cover image for a book, rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
+
+STYLE: No reference image is attached. Use a warm, premium 3D animated storybook look: cohesive palette, soft lighting, gentle decorative motifs — it should read as a calm companion to a personalized children’s book back cover. No characters in the image.
+
+${layoutBlock}`;
+
   const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn('[CoverGenerator] No Gemini API key available for back cover generation');
     return null;
   }
 
-  console.log('[CoverGenerator] Generating back cover illustration with Gemini...');
+  console.log('[CoverGenerator] Generating back cover illustration with Gemini...', {
+    styleRef: refFromCorner ? 'corner-crop' : 'none (text-only)',
+  });
   const startTime = Date.now();
+  const model = 'gemini-3.1-flash-image-preview';
+  const maxAttempts = refFromCorner ? 2 : 1;
 
   try {
-    const model = 'gemini-3.1-flash-image-preview';
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [
-            { text: prompt },
-            { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
-          ]}],
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192 },
-        }),
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const useImage = refFromCorner && attempt === 0;
+      const prompt = useImage ? withRefBlock : noRefBlock;
+      const userParts = [{ text: prompt }];
+      if (useImage) {
+        userParts.push({ inline_data: { mimeType: 'image/jpeg', data: refFromCorner.toString('base64') } });
       }
-    );
 
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`Gemini API error ${resp.status}: ${err.slice(0, 200)}`);
-    }
-
-    const data = await resp.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    for (const part of parts) {
-      const img = geminiImagePartFromResponsePart(part);
-      if (img) {
-        const ms = Date.now() - startTime;
-        console.log(`[CoverGenerator] Back cover generated in ${ms}ms`);
-        if (costTracker) {
-          costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: userParts }],
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192 },
+          }),
         }
-        return Buffer.from(img.data, 'base64');
+      );
+
+      if (!resp.ok) {
+        const err = await resp.text();
+        if (attempt < maxAttempts - 1) {
+          console.warn(`[CoverGenerator] Back cover attempt ${attempt + 1} HTTP error — retry:`, resp.status, err.slice(0, 200));
+          continue;
+        }
+        throw new Error(`Gemini API error ${resp.status}: ${err.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        const img = geminiImagePartFromResponsePart(part);
+        if (img) {
+          const ms = Date.now() - startTime;
+          console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
+          if (costTracker) {
+            costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+          }
+          return Buffer.from(img.data, 'base64');
+        }
+      }
+      logGeminiImageResponseDiagnostics(data, `back cover attempt ${attempt + 1} (no image)`);
+      if (refFromCorner && attempt === 0) {
+        console.warn('[CoverGenerator] Back cover: no image with corner-crop ref — retrying text-only');
       }
     }
     throw new Error('No image in Gemini response');
@@ -375,17 +482,26 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
   console.log(`[CoverGenerator] Cover canvas: ${(totalWidth/72).toFixed(3)}"x${(totalHeight/72).toFixed(3)}", spine=${(spineWidth/72).toFixed(3)}", edge=${(edgeBleed/72).toFixed(3)}" (${pageCount}pp, ${isHardcover ? 'hardcover' : 'paperback'})`);
 
+  const coverSourceUrl = opts.coverSourceUrl || '';
+  const skipCoverStyleHarmonize = typeof opts.skipCoverStyleHarmonize === 'boolean'
+    ? opts.skipCoverStyleHarmonize
+    : shouldSkipCoverStyleHarmonize(coverSourceUrl);
+
   // ── Obtain front cover image ──
   let frontCoverImageUrl = null;
   let frontCoverBuffer = null;
 
   if (opts.preGeneratedCoverBuffer) {
-    console.log('[CoverGenerator] Using pre-generated cover buffer — harmonizing to interior 3D illustration style');
+    if (skipCoverStyleHarmonize) {
+      console.log('[CoverGenerator] Using pre-generated cover buffer — skip harmonize (on-style or admin/upsell source or explicit flag)');
+    } else {
+      console.log('[CoverGenerator] Using pre-generated cover buffer — harmonizing to interior 3D illustration style');
+    }
     const raw = opts.preGeneratedCoverBuffer;
     frontCoverBuffer = await harmonizeChosenCoverToInteriorStyle(raw, {
       bookFormat,
       costTracker: opts.costTracker,
-      skipCoverStyleHarmonize: opts.skipCoverStyleHarmonize,
+      skipCoverStyleHarmonize,
     });
   } else {
     const artStyle = opts.artStyle || 'pixar_premium';
@@ -926,4 +1042,5 @@ module.exports = {
   UPSELL_STYLES,
   UPSELL_STYLE_LABELS,
   geminiImagePartFromResponsePart,
+  shouldSkipCoverStyleHarmonize,
 };

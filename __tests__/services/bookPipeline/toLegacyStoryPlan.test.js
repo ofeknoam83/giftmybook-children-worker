@@ -6,6 +6,9 @@ function makeDoc(overrides = {}) {
     version: 'book-pipeline-v1',
     request: { theme: 'adventure', child: { name: 'Luna', age: 5 } },
     brief: { child: { name: 'Luna', age: 5, gender: 'girl' } },
+    storyBible: {
+      narrativeSpine: 'A magical journey of discovery and friendship for Luna.',
+    },
     cover: { title: "Luna's Big Day", imageUrl: 'https://example.com/cover.png' },
     visualBible: {
       hero: {
@@ -78,9 +81,10 @@ describe('toLegacyStoryPlan', () => {
     expect(pageCount % 2).toBe(0);
   });
 
-  test('computeSynopsis derives a non-empty back-cover blurb from manuscript', () => {
+  test('computeSynopsis uses storyBible.narrativeSpine, not raw spread text', () => {
     const { storyPlan } = toLegacyStoryPlan(makeDoc());
     const synopsis = computeSynopsis(storyPlan, { name: 'Luna' });
-    expect(synopsis).toMatch(/Spread 1/);
+    expect(synopsis).toMatch(/magical journey/);
+    expect(synopsis).not.toMatch(/Spread 1/);
   });
 });

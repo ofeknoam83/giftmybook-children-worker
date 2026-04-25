@@ -1325,6 +1325,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                     characterDescription: livePlan.characterDescription,
                     characterOutfit: livePlan.characterOutfit,
                     pipelineVersion: livePlan._pipelineVersion,
+                    synopsis: livePlan.synopsis || null,
+                    plotSynopsis: livePlan.plotSynopsis || null,
+                    tagline: livePlan.tagline || null,
                     storyBible: event.document.storyBible,
                     writerQa: event.document.writerQa,
                     bookWideQa: event.document.bookWideQa,
@@ -1378,6 +1381,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             characterDescription: storyPlan.characterDescription,
             characterOutfit: storyPlan.characterOutfit,
             pipelineVersion: storyPlan._pipelineVersion,
+            synopsis: storyPlan.synopsis || null,
+            plotSynopsis: storyPlan.plotSynopsis || null,
+            tagline: storyPlan.tagline || null,
             storyBible: pipelineResult.document.storyBible,
             writerQa: pipelineResult.document.writerQa,
             bookWideQa: pipelineResult.document.bookWideQa,
@@ -2135,6 +2141,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
         coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
           heartfeltNote, bookFrom, bindingType,
+          coverSourceUrl: approvedCoverUrl || '',
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
@@ -2189,6 +2196,10 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           characterOutfit: storyPlan.characterOutfit || null,
           characterAnchor: storyPlan.characterAnchor || null,
           additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+          synopsis: storyPlan.synopsis || null,
+          plotSynopsis: storyPlan.plotSynopsis || null,
+          tagline: storyPlan.tagline || null,
+          storyBible: storyPlan.storyBible || null,
         };
       }
 
@@ -3246,6 +3257,7 @@ app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
         heartfeltNote: heartfeltNote || '',
         bookFrom: bookFrom || '',
         bindingType: bindingType || '',
+        coverSourceUrl: coverImageUrl || '',
       },
     );
     if (!coverData?.coverPdfBuffer) throw new Error('generateCover returned no buffer');

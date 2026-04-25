@@ -71,15 +71,32 @@ describe('computeSynopsis', () => {
     expect(computeSynopsis(source, child)).toBe('Epic tale');
   });
 
-  test('picture book falls back to first 2 spreads when synopsis missing', () => {
+  test('picture book does not use spread narration when synopsis is missing', () => {
     const source = {
       entries: [
         { type: 'spread', left: { text: 'Once' }, right: { text: 'upon a time' } },
         { type: 'spread', left: { text: 'there was' }, right: { text: 'a brave child' } },
-        { type: 'spread', left: { text: 'ignored' } },
       ],
     };
-    expect(computeSynopsis(source, child)).toBe('Once upon a time there was a brave child');
+    expect(computeSynopsis(source, child)).toBe('A personalized bedtime story for Luna');
+  });
+
+  test('picture book uses storyBible.narrativeSpine when synopsis missing', () => {
+    const source = {
+      entries: [{ type: 'spread', left: { text: 'ignored' } }],
+      storyBible: { narrativeSpine: 'A quest for courage and kindness.' },
+    };
+    expect(computeSynopsis(source, child)).toBe('A quest for courage and kindness.');
+  });
+
+  test('picture book uses plotSynopsis when higher-priority fields missing', () => {
+    const source = { plotSynopsis: 'One-line plot from the writer plan.' };
+    expect(computeSynopsis(source, child)).toBe('One-line plot from the writer plan.');
+  });
+
+  test('picture book uses tagline when synopsis and bible missing', () => {
+    const source = { tagline: 'Reach for the stars.' };
+    expect(computeSynopsis(source, child)).toBe('Reach for the stars.');
   });
 
   test('picture book fallback when no entries', () => {

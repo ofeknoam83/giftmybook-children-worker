@@ -105,13 +105,21 @@ function computeSynopsis(source = {}, childDetails = {}, flags = {}) {
     return joined || `A personalized chapter book for ${name}`;
   }
 
-  const fromEntries = Array.isArray(source.entries)
-    ? source.entries.filter(e => e?.type === 'spread').slice(0, 2)
-      .map(e => [e.left?.text, e.right?.text].filter(Boolean).join(' '))
-      .filter(Boolean)
-      .join(' ')
-    : '';
-  return source.synopsis || fromEntries || `A personalized bedtime story for ${name}`;
+  // Picture book / early reader: never use raw spread text as a "synopsis" (it
+  // is story narration, not a back-cover blurb). Prefer explicit synopsis + book
+  // bible + tagline, then a generic line.
+  const fromBible = (source.storyBible?.narrativeSpine
+    || source.storyBible?.logline
+    || source.storyBible?.audiencePromise
+    || '')
+    .toString()
+    .trim();
+
+  return source.synopsis
+    || fromBible
+    || source.tagline
+    || source.plotSynopsis
+    || `A personalized bedtime story for ${name}`;
 }
 
 /**

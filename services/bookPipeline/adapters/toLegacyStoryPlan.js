@@ -87,8 +87,9 @@ function toLegacyStoryPlan(doc) {
     // Text is painted into the image by the new pipeline. layoutEngine's
     // assemblePdf ignores left/right text for 'spread' entries (it only
     // reads spreadIllustrationBuffer), but downstream helpers like
-    // computeSynopsis still read left.text for the back-cover fallback —
-    // so we stash the manuscript text on `left.text` and leave right empty.
+    // computeCoverPdfMetadata / computeSynopsis use `storyBible.narrativeSpine`
+    // (and related fields) for the back-cover blurb — not raw spread text.
+    // We stash the manuscript text on `left.text` for debugging/audit only.
     left: { text: s.manuscript?.text || '' },
     right: { text: '' },
     spreadIllustrationUrl: s.illustration?.imageUrl || null,
@@ -106,9 +107,19 @@ function toLegacyStoryPlan(doc) {
     .filter(c => c?.description)
     .map(c => c.description);
 
+  const narrativeSpine = doc.storyBible?.narrativeSpine
+    ? String(doc.storyBible.narrativeSpine).trim()
+    : '';
+
   const storyPlan = {
     title: doc.cover.title,
     entries: entriesWithIllustrations,
+    /** One-line marketing / back-cover synopsis from the story bible (Writer V2 book-pipeline v1). */
+    synopsis: narrativeSpine || null,
+    /** Same string as `synopsis` for parity with legacy Writer `plotSynopsis` field in cover metadata. */
+    plotSynopsis: narrativeSpine || null,
+    tagline: doc.request?.tagline || doc.cover?.tagline || null,
+    storyBible: doc.storyBible || null,
     characterDescription: doc.visualBible?.hero?.physicalDescription || null,
     characterOutfit: doc.visualBible?.hero?.outfitDescription || null,
     characterAnchor: null,
