@@ -120,10 +120,10 @@ function softenColor(color, amount = 0.5) {
  *
  * Lulu casewrap wraps 0.875" over the boards on hardcover, and paperbacks
  * trim 0.125" with a ~0.25" critical-content safe zone. Since we now embed
- * the AI image to EXACTLY fill the trim area (with mirrored edges into the
- * bleed/wrap), the AI's own image frame maps to the trim line — so we ask
+ * the AI image to EXACTLY fill the trim area (with copy-extended edges into
+ * the bleed/wrap), the AI's own image frame maps to the trim line — so we ask
  * for a generous interior safety buffer against minor trim variance and
- * the mirrored edge extension.
+ * the extended bleed/wrap band.
  *
  * @param {boolean} isHardcover
  * @returns {string} Multi-line instruction appended to the AI prompt
@@ -613,9 +613,9 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   if (backCoverBuffer) {
     // Use Gemini-generated back cover illustration.
     //
-    // Same trim-fit + mirrored-extend strategy as the front cover, but
-    // mirrored horizontally: the spine side is the RIGHT edge of the back
-    // cover, so bleed/wrap goes on the LEFT (outer) side instead.
+    // Same trim-fit + edge-copy extend strategy as the front cover: the spine
+    // side is the RIGHT edge of the back cover, so bleed/wrap goes on the LEFT
+    // (outer) side instead.
     try {
       const trimWpx = Math.round(trimWidth / 72 * 300);
       const trimHpx = Math.round(trimHeight / 72 * 300);
@@ -627,7 +627,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
           bottom: bleedPx,
           left: bleedPx,
           right: 0,
-          extendWith: 'mirror',
+          extendWith: 'copy',
         })
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
@@ -727,11 +727,9 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // Embed front cover illustration at 300 DPI.
   //
   // Print safety: we resize the AI image to EXACTLY fill the trim area, then
-  // mirror-extend the pixels outward to fill the bleed (paperback) or wrap
-  // (hardcover casewrap) area. This guarantees the AI's composition —
-  // especially the title baked into the image — lives entirely inside the
-  // visible trimmed face of the book, and the mirrored pixels fill the
-  // wrap/bleed zone without introducing white bars or distorted content.
+  // copy-extend the edge rows/columns outward to fill the bleed (paperback) or
+  // wrap (hardcover casewrap) area. This keeps composition inside trim; copy
+  // (vs mirror) avoids the visible symmetric reflection in the wrap/bleed zone.
   //
   // Front cover bleed layout: spine-side (left) flush, outer (right), top,
   // bottom all need bleed/wrap.
@@ -747,7 +745,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
           bottom: bleedPx,
           left: 0,
           right: bleedPx,
-          extendWith: 'mirror',
+          extendWith: 'copy',
         })
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
