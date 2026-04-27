@@ -29,14 +29,14 @@
 // needs it.
 const PARENT_SHARED_ADVENTURE = {
   framing:
-    "This book is a GENUINELY THRILLING, out-of-this-world adventure the child undertakes with the parent as their guiding star — a Pixar-feature-film-scale quest (magical kingdom, cosmic voyage, pirate sea, dinosaur jungle, cloud city, steampunk airship, crystal cave, submarine deep, enchanted forest, rainbow mountain) with real stakes, surprise, wonder, and a brave mission. It is NOT a quiet day-out or a gentle errand. Think *Moana*, *Up*, *Finding Nemo*, *How to Train Your Dragon* — not a kitchen scene. The parent is felt throughout the adventure (voice in the child's head, a beloved object taken along, a memory that guides a choice, a silhouette at the far end waiting) but is NOT drawn as a full-figure co-hero unless the approved cover already shows them. The adventure itself is the gift — the child returns home changed, with a story only they and the parent will ever share.",
+    "This book is a genuinely thrilling, visually rich shared adventure the child undertakes with the parent as their guiding star — a premium animated-film quest with real stakes, surprise, wonder, and a brave mission. It is NOT a quiet day-out or a gentle errand. The world should feel fresh every time: invented public places, sensory nature, whimsical machines, tiny magical societies, festival spaces, sea/light/sky journeys, or child-scale transformations of real locations. The parent is felt throughout the adventure (voice in the child's head, a beloved object taken along, a memory that guides a choice, a silhouette at the far end waiting) but is NOT drawn as a full-figure co-hero unless the approved cover already shows them. The adventure itself is the gift — the child returns home changed, with a story only they and the parent will ever share.",
   mustInclude: [
     "a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason (a fading lullaby to recover, a lost melody to return, a star to deliver, a sea creature to save, a map to complete)",
-    "a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (e.g. cloud canyon, bioluminescent cave, moonlit reef, rainbow waterfall, sky-garden, lava bridge, crystal forest, dragon's library) — not a suburban route",
-    "at least one friendly non-human companion or magical creature that joins the adventure (a baby dragon, a talking seahorse, a navigator owl, a pocket-sized robot, a helpful cloud) — the child is NOT alone",
+    "a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (e.g. lantern pier, bioluminescent cave, moonlit reef, treetop post office, glass greenhouse, tidepool palace, floating flower market, lighthouse stairs) — not a suburban route",
+    "at least one friendly non-human companion, guide, or story object that joins the adventure (e.g. paper bird, talking seahorse, navigator owl, pocket-sized robot, helpful kite, lantern moth, music-box mouse, wind-up beetle) — the child is NOT alone",
     "real stakes and at least one genuine obstacle the child has to solve bravely — a storm to outsmart, a bridge to cross, a riddle to answer, a lost path to recover — moments that actually matter to the plot, played with tension and then relief",
     "the parent is felt on every spread through memory, voice, a signature keepsake carried along, or a trait the child mirrors — and partial presence (a waiting silhouette, a hand reaching in at the climax, an object they gave the child) is welcome, but NEVER a full face or full body figure unless the cover already depicts them",
-    "the payoff is a homecoming or reveal shared with the parent — the child returns triumphant with the thing they questing for, and the final spread is the parent and child together (partial presence or from behind if the parent is off-cover) celebrating what they alone now share — not a card, gift, breakfast tray, or tea party",
+    "the payoff is a homecoming or reveal shared with the parent — the child returns triumphant with the thing they quested for, and the final spread is the parent and child together (partial presence or from behind if the parent is off-cover) celebrating what they alone now share — not a card, gift, breakfast tray, or tea party",
   ],
 };
 
@@ -58,16 +58,16 @@ const THEME_DIRECTIVES = {
       'a quiet errand run with no real stakes',
     ],
     adventureHooks: [
-      "a moonlit balloon voyage through a sky of humming stars to catch a falling lullaby and bring it home before sunrise",
-      "a midnight dive in a seashell submarine through a coral kingdom to return a sleeping pearl to the sea queen who once sang to Mommy",
-      "a brave hike up a rainbow mountain with a tiny cloud-dragon guide to collect the last note of Mommy's favorite song",
-      "a secret door behind the garden leads to a glowing forest where a clever fox and a firefly must help the child rescue a stolen spring before Mommy wakes",
-      "a paper-boat journey down a winding river of starlight across a map only the child can read, with a lighthouse at the end where Mommy is waiting",
-      "a clockwork airship flight across a thunderstorm to retrieve the queen-of-bees' lost crown and restore the flower meadow Mommy loves",
-      "a quest through a bioluminescent cave guided by a talking seahorse to return a singing shell to a lonely whale — the song is the one Mommy sings",
-      "a high-stakes treasure map across a floating island chain where a pirate parrot helps the child recover a locket that plays Mommy's voice",
-      "a dragon-back ride over a valley of glass flowers to catch a runaway melody that belongs to Mommy's old music box",
-      "a rescue mission in a steampunk sky-city to free a captured sunrise so Mommy can see the first light of Mother's Day",
+      "Build a fresh hook by combining one mission + one companion/object + one visually spectacular world + one specific Mom connection. Do NOT copy any example verbatim; recombine ingredients so each book has its own visual identity.",
+      "mission palette: catch a falling lullaby, deliver a sunrise ribbon, follow a ribbon map, return a missing recipe, find the last laugh, relight a festival lantern, rescue a runaway melody, carry a tiny star home, collect three lost colors, unlock a secret picnic place",
+      "companion/object palette: paper bird, lantern moth, clever fox, firefly, talking seahorse, music-box mouse, helpful kite, pocket compass, tiny boat, wind-up beetle, silver spoon, shell phone, humming pebble",
+      "world palette: lantern pier, tidepool palace, treetop post office, floating flower market, moonlit bakery, lighthouse stairs, rain-glass city, meadow theater, coral library, starlight river, rooftop garden maze, clockwork greenhouse",
+      "Mom connection palette: Mommy's favorite song, the phrase she always says, a packed snack she made, the color she loves, a map she drew, her old music box, a family recipe, her garden ribbon, a bedtime tune transformed into daylight adventure, a tiny keepsake she gave the child",
+      "example recombination: a paper bird carries Mommy's ribbon map across a floating flower market to find the last laugh before the morning parade begins",
+      "example recombination: a lantern moth leads a moonlit bakery rescue where the child gathers three lost colors for Mommy's favorite song",
+      "example recombination: a tiny boat sails the starlight river with a shell phone, carrying a sunrise ribbon back to the lighthouse stairs where Mommy is waiting",
+      "example recombination: a music-box mouse opens a clockwork greenhouse so the child can return a runaway melody from Mommy's old music box",
+      "example recombination: a helpful kite tugs the child from rooftop garden maze to meadow theater to deliver the packed snack that becomes the story's brave clue",
     ],
   },
   fathers_day: {
