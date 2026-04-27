@@ -41,4 +41,23 @@ describe('evaluateConsistencyResult', () => {
     expect(r.pass).toBe(true);
     expect(r.tags).not.toContain('implied_parent_skin_mismatch');
   });
+
+  test('hero_mismatch issue mentions previous spread when continuity QA was used', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroChildMatches: false,
+      heroChildDifferences: 'different bow',
+    }), { hasPreviousSpread: true });
+    expect(r.pass).toBe(false);
+    expect(r.issues[0]).toMatch(/previous spread/);
+    expect(r.issues[0]).toMatch(/different bow/);
+  });
+
+  test('hero_mismatch issue stays cover-only when no previous spread ref', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroChildMatches: false,
+      heroChildDifferences: 'wrong hair',
+    }), { hasPreviousSpread: false });
+    expect(r.issues[0]).toMatch(/cover/);
+    expect(r.issues[0]).not.toMatch(/previous spread/);
+  });
 });

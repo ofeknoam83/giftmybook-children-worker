@@ -208,6 +208,26 @@ async function generateBookIllustrations(opts) {
 
     reportProgress(completedSpreadCount / totalForProgress, `Generating spread ${spreadNumber}/${totalForProgress}`);
 
+    let previousSpreadBase64 = null;
+    let previousSpreadMime = 'image/jpeg';
+    if (spreadIndex > 0) {
+      const prevUrl = spreadEntries[spreadIndex - 1]?.spreadIllustrationUrl;
+      if (prevUrl) {
+        try {
+          const resp = await fetch(prevUrl, {
+            signal: abortSignal || bookContext?.abortController?.signal || undefined,
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const buf = Buffer.from(await resp.arrayBuffer());
+          previousSpreadBase64 = buf.toString('base64');
+          const ct = (resp.headers.get('content-type') || '').toLowerCase();
+          if (ct.includes('png')) previousSpreadMime = 'image/png';
+        } catch (e) {
+          log('warn', `Could not load previous spread for continuity QA: ${e.message}`);
+        }
+      }
+    }
+
     const scene = entry.spread_image_prompt || entry.spreadImagePrompt || '';
     // Merge legacy left/right halves into a SINGLE caption — the new flow
     // renders one block on one side. entry.textSide wins if explicitly set.
@@ -237,6 +257,8 @@ async function generateBookIllustrations(opts) {
           childAge,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
           log,
+          previousSpreadBase64,
+          previousSpreadMime,
         },
       );
 
@@ -408,6 +430,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     childAge,
     abortSignal,
     log,
+    previousSpreadBase64 = null,
+    previousSpreadMime = 'image/jpeg',
   } = ctx;
 
   let rebuildsUsed = 0;
@@ -512,6 +536,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         characterDescription,
         childPhotoBase64: childPhotoBase64 || null,
         qaAllowedHumansNote,
+        previousSpreadBase64: previousSpreadBase64 || null,
+        previousSpreadMime: previousSpreadMime || null,
       }),
     ]);
 

@@ -54,6 +54,28 @@ const { LATE_SPREAD_COVER_REANCHOR_INDEX } = require('../../illustrator/config')
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * Load the prior spread's uploaded JPEG from GCS for continuity QA (cover + previous).
+ *
+ * @param {object} doc
+ * @param {number} spreadNumber - 1-based
+ * @param {string} logTag
+ * @returns {Promise<{ base64: string, mime: string }|null>}
+ */
+async function resolvePreviousSpreadImageRef(doc, spreadNumber, logTag) {
+  if (spreadNumber <= 1) return null;
+  const prev = doc.spreads.find((s) => s.spreadNumber === spreadNumber - 1);
+  const key = prev?.illustration?.imageStorageKey;
+  if (!key) return null;
+  try {
+    const buf = await downloadBuffer(key);
+    return { base64: buf.toString('base64'), mime: 'image/jpeg' };
+  } catch (e) {
+    console.warn(`[${logTag}] previous-spread QA ref download failed: ${e.message}`);
+    return null;
+  }
+}
+
 /** QA reject logs: keep Cloud Logging lines useful but bounded. */
 const QA_REJECT_LOG_MAX_ISSUE_CHARS = 3500;
 const QA_REJECT_LOG_MAX_ISSUES_JSON_CHARS = 24000;
@@ -384,6 +406,12 @@ async function processOneSpread(params) {
       // still allowed to appear via `additionalCoverCharacters` (QA policy note).
       const coverParentPresent = false;
 
+      const previousSpreadRef = await resolvePreviousSpreadImageRef(
+        currentDoc,
+        spread.spreadNumber,
+        logTag,
+      );
+
       const qaStart = Date.now();
       const qa = await checkSpread({
         imageBase64: printableBase64,
@@ -393,6 +421,7 @@ async function processOneSpread(params) {
         additionalCoverCharacters,
         coverParentPresent,
         spreadIndex: spec.spreadIndex,
+        previousSpreadRef: previousSpreadRef || undefined,
         abortSignal: currentDoc.operationalContext?.abortSignal,
       });
       const qaMs = Date.now() - qaStart;
