@@ -50,6 +50,7 @@ const { planSpreadRepair } = require('../qa/planRepair');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { REPAIR_BUDGETS, FAILURE_CODES } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
+const { LATE_SPREAD_COVER_REANCHOR_INDEX } = require('../../illustrator/config');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -185,6 +186,7 @@ async function processOneSpread(params) {
     let attempt = 0;
     let transientEmptyRetries = 0;
     let suppressReanchorOnce = false;
+    let suppressGenerateReanchorOnce = false;
     /** Image-safety mitigations before rebuild: 1 = lean scene, 2 = soften or generic+caption. */
     let safetyMitigationPass = 0;
     correctionNote = null;
@@ -216,7 +218,11 @@ async function processOneSpread(params) {
             theme: spec.theme,
             childAge: currentDoc.brief?.child?.age ?? null,
           });
-          image = await generateSpread(currentSession, turn, spec.spreadIndex);
+          const lateReanchorFirst =
+            spec.spreadIndex >= LATE_SPREAD_COVER_REANCHOR_INDEX && !suppressGenerateReanchorOnce;
+          image = await generateSpread(currentSession, turn, spec.spreadIndex, {
+            reanchorCover: lateReanchorFirst,
+          });
         } else {
           const correction = buildCorrectionTurn({
             spreadIndex: spec.spreadIndex,
@@ -289,6 +295,20 @@ async function processOneSpread(params) {
         if (isSafety && !isFirstAttempt && reanchorThisTurn) {
           console.warn(`[${logTag}] safety after re-anchor — retrying correction without inline cover reference`);
           suppressReanchorOnce = true;
+          attempt -= 1;
+          continue;
+        }
+
+        if (
+          isSafety
+          && isFirstAttempt
+          && spec.spreadIndex >= LATE_SPREAD_COVER_REANCHOR_INDEX
+          && !suppressGenerateReanchorOnce
+        ) {
+          console.warn(
+            `[${logTag}] safety on late-spread first attempt with cover re-anchor — retrying generate without inline cover`,
+          );
+          suppressGenerateReanchorOnce = true;
           attempt -= 1;
           continue;
         }
@@ -376,6 +396,10 @@ async function processOneSpread(params) {
         abortSignal: currentDoc.operationalContext?.abortSignal,
       });
       const qaMs = Date.now() - qaStart;
+
+      console.log(
+        `[${logTag}] spreadQaHistogram spreadIndex=${spec.spreadIndex} pass=${qa.pass} tags=[${(qa.tags || []).join(',')}]`,
+      );
 
       if (qa.pass) {
         console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);

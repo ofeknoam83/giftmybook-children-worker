@@ -63,6 +63,8 @@ const SAFETY_STRIKES_BEFORE_SCENE_DEESCAL = 2;
 
 // ── Sliding window ──
 const SLIDING_WINDOW_ACCEPTED_SPREADS = 3; // pinned ref + last N accepted spreads travel in history
+/** 0-based spread index; from this spread onward, first-attempt `generateSpread` may inline the cover again to fight late-book likeness drift (spreads 10–13 in a 13-spread book). */
+const LATE_SPREAD_COVER_REANCHOR_INDEX = 9;
 const GEMINI_IMAGE_MAX_OUTPUT_TOKENS = 8192;
 
 // ── Book structure ──
@@ -249,6 +251,7 @@ module.exports = {
   QA_HTTP_ATTEMPTS,
   SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
+  LATE_SPREAD_COVER_REANCHOR_INDEX,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   TOTAL_SPREADS,
   TEXT_RULES,

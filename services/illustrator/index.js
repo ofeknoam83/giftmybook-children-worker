@@ -27,6 +27,7 @@ const {
   PARENT_THEMES,
   defaultTextSide,
   SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
+  LATE_SPREAD_COVER_REANCHOR_INDEX,
 } = require('./config');
 const {
   createSession,
@@ -444,7 +445,9 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         ? buildSpreadTurn(spreadCtx)
         : buildCorrectionTurn({ ...spreadCtx, issues, tags });
       generated = isFirst
-        ? await generateSpread(session, promptText, spreadIndex)
+        ? await generateSpread(session, promptText, spreadIndex, {
+          reanchorCover: spreadIndex >= LATE_SPREAD_COVER_REANCHOR_INDEX,
+        })
         : await sendCorrection(session, promptText, spreadIndex);
       safetyStrikesForSpread = 0;
     } catch (err) {

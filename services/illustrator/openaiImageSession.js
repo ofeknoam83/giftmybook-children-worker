@@ -107,10 +107,12 @@ async function establishCharacterReference(session) {
  * @param {OpenAIImageSession} session
  * @param {string} spreadPromptText
  * @param {number} spreadIndex
+ * @param {object} [opts] - Parity with Gemini; `reanchorCover` is a no-op (cover is re-sent every turn).
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
-async function generateSpread(session, spreadPromptText, spreadIndex) {
+async function generateSpread(session, spreadPromptText, spreadIndex, _opts) {
   if (session.abandoned) throw new Error('Session abandoned — cannot generate');
+  void _opts;
   const result = await _postEdit(session, spreadPromptText, { spreadIndex });
   session.turnsUsed++;
   return result;

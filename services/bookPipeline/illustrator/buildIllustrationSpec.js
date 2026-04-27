@@ -110,6 +110,11 @@ function composeScene(doc, spread) {
     `Place the focal action and main subject toward the ${captionSideOpp} side / ${captionOppVertical} area of the frame, so the ${resolvedCorner} corner naturally shows a less-busy region of the SAME scene (open sky, soft-focus background, shaded path, foliage, water, ground). ` +
     `Do NOT blur, empty, or flatten that corner into a "text panel" — scenery continues softly behind the caption.`;
 
+  const isLateSpread = spreadIndex >= 9;
+  const lateVisualLock = isLateSpread
+    ? 'Visual continuity (spreads 10–13): one continuous story day — the hero is the same age, height class, and hair length/style as the cover. Do NOT depict growing up, "years later," height spurts, or longer hair; avoid scene language that suggests time jumps or maturation.'
+    : '';
+
   const lines = [
     `Focal action: ${spec.focalAction}.`,
     `Location: ${spec.location}.`,
@@ -123,6 +128,7 @@ function composeScene(doc, spread) {
     hero.outfitDescription ? `Hero outfit (locked to cover): ${hero.outfitDescription}` : '',
     environment ? `World anchors: ${environment}.` : '',
     priorAnchors,
+    lateVisualLock,
     offCoverCastBlock,
     captionPlacementLine,
     spec.forbiddenMistakes?.length ? `Avoid: ${spec.forbiddenMistakes.join('; ')}.` : '',
