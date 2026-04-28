@@ -57,9 +57,16 @@ const OPENAI_IMAGE_SIZE_FALLBACK = '1536x1024';
 const OPENAI_IMAGE_QUALITY = 'high';
 
 // ── Timeouts ──
-const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
+const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn (Gemini path)
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
+/**
+ * gpt-image-2 quality:high regularly takes 130–170s per render and occasionally
+ * stretches past 180s, which trips the Gemini-default TURN_TIMEOUT_MS. Use a
+ * dedicated 5-minute ceiling for the OpenAI path. Override on Cloud Run via
+ * env if a particular tenant needs more headroom (e.g. behind a slow proxy).
+ */
+const OPENAI_TURN_TIMEOUT_MS = Number(process.env.OPENAI_TURN_TIMEOUT_MS) || 300000;
 
 // ── Retry budgets ──
 // Higher values improve pass rates on difficult spreads but increase latency and
@@ -256,6 +263,7 @@ module.exports = {
   OPENAI_IMAGE_SIZE_FALLBACK,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
+  OPENAI_TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,
   ESTABLISHMENT_TIMEOUT_MS,
   MAX_SPREAD_CORRECTIONS,

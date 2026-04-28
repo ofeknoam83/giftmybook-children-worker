@@ -26,8 +26,23 @@ const {
   OPENAI_IMAGE_SIZE,
   OPENAI_IMAGE_SIZE_FALLBACK,
   OPENAI_IMAGE_QUALITY,
-  TURN_TIMEOUT_MS,
+  OPENAI_TURN_TIMEOUT_MS,
 } = require('../config');
+
+/**
+ * The shared `fetchWithTimeout` helper hardcodes a "Gemini image API timed
+ * out" message because it lives in `services/illustrationGenerator.js`. Catch
+ * that and rethrow with provider-correct wording so logs aren't misleading.
+ */
+function rebrandTimeout(err) {
+  if (err && typeof err.message === 'string' && /Gemini image API timed out/i.test(err.message)) {
+    const fixed = new Error(err.message.replace(/Gemini image API/i, 'OpenAI Images API'));
+    fixed.cause = err;
+    fixed.isTimeout = true;
+    return fixed;
+  }
+  return err;
+}
 
 /**
  * @typedef {Object} RenderRefs
@@ -76,17 +91,23 @@ async function renderSpread(opts) {
     `(refs=${imageFiles.length}, size=${OPENAI_IMAGE_SIZE}, quality=${OPENAI_IMAGE_QUALITY})`,
   );
 
-  let result = await postImagesEdits({
-    apiKey,
-    url: OPENAI_IMAGES_EDIT_URL,
-    model: OPENAI_IMAGE_MODEL,
-    prompt: promptText,
-    size: OPENAI_IMAGE_SIZE,
-    quality: OPENAI_IMAGE_QUALITY,
-    imageFiles,
-    timeoutMs: timeoutMs || TURN_TIMEOUT_MS,
-    signal,
-  });
+  const effectiveTimeout = timeoutMs || OPENAI_TURN_TIMEOUT_MS;
+  let result;
+  try {
+    result = await postImagesEdits({
+      apiKey,
+      url: OPENAI_IMAGES_EDIT_URL,
+      model: OPENAI_IMAGE_MODEL,
+      prompt: promptText,
+      size: OPENAI_IMAGE_SIZE,
+      quality: OPENAI_IMAGE_QUALITY,
+      imageFiles,
+      timeoutMs: effectiveTimeout,
+      signal,
+    });
+  } catch (err) {
+    throw rebrandTimeout(err);
+  }
 
   // Some accounts reject OPENAI_IMAGE_SIZE with `invalid_value` on `size`. Fall back
   // once to a known-good landscape size before surfacing the error.
@@ -94,17 +115,21 @@ async function renderSpread(opts) {
     console.warn(
       `[illustrator/openaiFlow/render] ${label} size ${OPENAI_IMAGE_SIZE} rejected — retrying at ${OPENAI_IMAGE_SIZE_FALLBACK}`,
     );
-    result = await postImagesEdits({
-      apiKey,
-      url: OPENAI_IMAGES_EDIT_URL,
-      model: OPENAI_IMAGE_MODEL,
-      prompt: promptText,
-      size: OPENAI_IMAGE_SIZE_FALLBACK,
-      quality: OPENAI_IMAGE_QUALITY,
-      imageFiles,
-      timeoutMs: timeoutMs || TURN_TIMEOUT_MS,
-      signal,
-    });
+    try {
+      result = await postImagesEdits({
+        apiKey,
+        url: OPENAI_IMAGES_EDIT_URL,
+        model: OPENAI_IMAGE_MODEL,
+        prompt: promptText,
+        size: OPENAI_IMAGE_SIZE_FALLBACK,
+        quality: OPENAI_IMAGE_QUALITY,
+        imageFiles,
+        timeoutMs: effectiveTimeout,
+        signal,
+      });
+    } catch (err) {
+      throw rebrandTimeout(err);
+    }
   }
 
   if (!result.ok) {

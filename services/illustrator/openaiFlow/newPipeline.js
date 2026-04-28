@@ -113,7 +113,7 @@ async function resolvePreviousSpreadImageRef(doc, spreadNumber, logTag) {
  * `extraSessionRounds` budget but without rebuilding a session — each round
  * is just a fresh `processSpread` call).
  */
-async function processOneSpread({ doc, cover, spread, bookId, apiKey }) {
+async function processOneSpread({ doc, cover, spread, bookId, apiKey, continuityRefOverride }) {
   const logTag = `bookPipeline:${bookId || 'n/a'}:spread${spread.spreadNumber}:openaiFlow`;
   const spec = buildIllustrationSpec(doc, spread);
   const baselineCaption = spec.text;
@@ -126,7 +126,12 @@ async function processOneSpread({ doc, cover, spread, bookId, apiKey }) {
     .map((c) => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
     .join('; ') || null;
 
-  const previousSpreadRef = await resolvePreviousSpreadImageRef(doc, spread.spreadNumber, logTag);
+  // Continuity reference for both render and QA. In serial mode this is the
+  // immediately-prior spread loaded from GCS. In parallel-wave mode the
+  // orchestrator passes `continuityRefOverride` (typically spread 1's accepted
+  // image) so wave-2 spreads don't need to wait for spread N-1.
+  const previousSpreadRef = continuityRefOverride
+    || await resolvePreviousSpreadImageRef(doc, spread.spreadNumber, logTag);
 
   const rulesOpts = {
     theme: spec.theme,
@@ -242,6 +247,8 @@ async function processOneSpread({ doc, cover, spread, bookId, apiKey }) {
         issues: [],
         tags: [],
         imageUrl,
+        imageBase64: attemptResult.imageBase64,
+        printableBase64: attemptResult.printableBase64,
       };
     }
 
@@ -292,7 +299,35 @@ async function processOneSpread({ doc, cover, spread, bookId, apiKey }) {
 }
 
 /**
+ * Concurrency for wave 2 (spreads 2..N). Defaults to 6, capped at 12, override
+ * via env. OpenAI image generation tier rate limits comfortably accommodate 6
+ * concurrent gpt-image-2 high-quality renders; raise only if your account is
+ * known to allow more, lower if you see HTTP 429s.
+ */
+function resolveConcurrency() {
+  const fromEnv = Number(process.env.OPENAI_ILLUSTRATOR_CONCURRENCY);
+  const n = Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 6;
+  return Math.min(12, Math.max(1, Math.floor(n)));
+}
+
+/**
  * Render every spread in the canonical book document.
+ *
+ * Two-wave strategy (made possible by gpt-image-2 being stateless):
+ *   - Wave 1: spread 1 alone, with cover-only as render reference. This
+ *     pins the canonical interior look for the rest of the book.
+ *   - Wave 2: spreads 2..N concurrently (worker pool, default 6 in flight).
+ *     Every wave-2 spread uses cover + spread 1 as its continuity reference,
+ *     so they don't depend on each other and can run in parallel without
+ *     the "spread N waits for spread N-1" chain. Trade-off: spreads 2..N
+ *     all anchor on spread 1, not on the immediately-prior spread — for a
+ *     13-spread book this is the right call (one strong anchor beats a chain
+ *     of weak ones), and matches the `previousSpreadRef` shape consistencyQa
+ *     already supports.
+ *
+ * Wall-clock impact: serial path is ~13 × 150s ≈ 32 min. Two-wave with
+ * concurrency=6 is ~150s (wave 1) + 2 × 150s (wave 2 in two batches of 6) ≈
+ * 7.5 min, ~4× faster.
  *
  * @param {object} doc
  * @returns {Promise<object>}
@@ -304,7 +339,11 @@ async function renderAllSpreads(doc) {
   }
 
   const cover = await resolveCoverBase64(doc.cover);
-  console.log('[bookPipeline/renderAllSpreads] Using illustrator provider: openai-gpt-image-2');
+  const concurrency = resolveConcurrency();
+  console.log(
+    `[bookPipeline/renderAllSpreads] Using illustrator provider: openai-gpt-image-2 ` +
+    `(wave-2 concurrency=${concurrency})`,
+  );
 
   const totalSpreads = doc.spreads.length;
   const bookId = doc.operationalContext?.bookId || doc.request.bookId;
@@ -320,49 +359,122 @@ async function renderAllSpreads(doc) {
     }
   };
 
-  let current = doc;
-  for (let i = 0; i < current.spreads.length; i++) {
-    const spread = current.spreads[i];
-    if (!spread.spec) {
-      const err = new Error(`spread ${spread.spreadNumber}: spec missing`);
+  // Validate every spread has a spec up-front so we fail fast before starting any renders.
+  for (const s of doc.spreads) {
+    if (!s.spec) {
+      const err = new Error(`spread ${s.spreadNumber}: spec missing`);
       err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
       throw err;
     }
-
-    emit({
-      step: 'illustrating',
-      message: `Rendering spread ${spread.spreadNumber} of ${totalSpreads}`,
-      spreadIndex: i,
-      spreadNumber: spread.spreadNumber,
-      totalSpreads,
-      subProgress: i / totalSpreads,
-    });
-
-    const result = await processOneSpread({
-      doc: current,
-      cover,
-      spread,
-      bookId,
-      apiKey,
-    });
-
-    current = result.doc;
-    if (!result.accepted) {
-      const err = new Error(`spread ${spread.spreadNumber}: ${(result.issues || []).join('; ') || 'unaccepted'}`);
-      err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
-      throw err;
-    }
-
-    emit({
-      step: 'illustrating',
-      message: `Spread ${spread.spreadNumber} of ${totalSpreads} accepted`,
-      spreadIndex: i,
-      spreadNumber: spread.spreadNumber,
-      totalSpreads,
-      subProgress: (i + 1) / totalSpreads,
-      document: current,
-    });
   }
+
+  // ── Wave 1: spread 1 alone ─────────────────────────────────────────────
+  const firstSpread = doc.spreads[0];
+  emit({
+    step: 'illustrating',
+    message: `Rendering spread ${firstSpread.spreadNumber} of ${totalSpreads}`,
+    spreadIndex: 0,
+    spreadNumber: firstSpread.spreadNumber,
+    totalSpreads,
+    subProgress: 0,
+  });
+
+  const firstResult = await processOneSpread({
+    doc,
+    cover,
+    spread: firstSpread,
+    bookId,
+    apiKey,
+  });
+  if (!firstResult.accepted) {
+    const err = new Error(`spread ${firstSpread.spreadNumber}: ${(firstResult.issues || []).join('; ') || 'unaccepted'}`);
+    err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
+    throw err;
+  }
+  let current = firstResult.doc;
+  let completed = 1;
+  emit({
+    step: 'illustrating',
+    message: `Spread ${firstSpread.spreadNumber} of ${totalSpreads} accepted`,
+    spreadIndex: 0,
+    spreadNumber: firstSpread.spreadNumber,
+    totalSpreads,
+    subProgress: completed / totalSpreads,
+    document: current,
+  });
+
+  if (totalSpreads === 1) return current;
+
+  // ── Wave 2: spreads 2..N in parallel, with spread 1 as universal continuity ref ──
+  const continuityRefOverride = {
+    base64: firstResult.imageBase64,
+    mime: 'image/png',
+  };
+
+  const pendingSpreads = doc.spreads.slice(1);
+  // Snapshot the doc at the moment wave 2 starts. Each worker uses this same
+  // snapshot for its read-only spec building (so concurrent updates don't race
+  // through buildIllustrationSpec). We merge the resulting per-spread illust /
+  // manuscript / qa fields back into `current` after each worker completes.
+  const wave2Snapshot = current;
+  const queue = pendingSpreads.slice();
+  const completedResults = [];
+
+  const worker = async () => {
+    while (queue.length > 0) {
+      const spread = queue.shift();
+      if (!spread) break;
+      if (doc.operationalContext?.abortSignal?.aborted) {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
+
+      emit({
+        step: 'illustrating',
+        message: `Rendering spread ${spread.spreadNumber} of ${totalSpreads}`,
+        spreadIndex: spread.spreadNumber - 1,
+        spreadNumber: spread.spreadNumber,
+        totalSpreads,
+        subProgress: completed / totalSpreads,
+      });
+
+      const r = await processOneSpread({
+        doc: wave2Snapshot,
+        cover,
+        spread,
+        bookId,
+        apiKey,
+        continuityRefOverride,
+      });
+      if (!r.accepted) {
+        const err = new Error(`spread ${spread.spreadNumber}: ${(r.issues || []).join('; ') || 'unaccepted'}`);
+        err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
+        throw err;
+      }
+      completedResults.push({ spreadNumber: spread.spreadNumber, result: r });
+
+      // Merge this spread's update into `current` immediately so the progress
+      // event below (and the partial-document broadcast) reflects real state.
+      const updatedSpreadFromWorker = r.doc.spreads.find((s) => s.spreadNumber === spread.spreadNumber);
+      if (updatedSpreadFromWorker) {
+        current = updateSpread(current, spread.spreadNumber, () => updatedSpreadFromWorker);
+      }
+      completed += 1;
+      emit({
+        step: 'illustrating',
+        message: `Spread ${spread.spreadNumber} of ${totalSpreads} accepted`,
+        spreadIndex: spread.spreadNumber - 1,
+        spreadNumber: spread.spreadNumber,
+        totalSpreads,
+        subProgress: completed / totalSpreads,
+        document: current,
+      });
+    }
+  };
+
+  const workerCount = Math.min(concurrency, pendingSpreads.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   return current;
 }
