@@ -1,11 +1,16 @@
 /**
  * OpenAI Images 2.0 — single stateless render call.
  *
- * Posts ONE spread to `/v1/images/generations` with:
+ * Posts ONE spread to `/v1/images/edits` (multipart) with:
  *   - the cover image as `image[0]` (canonical character + style ground truth)
  *   - the most recently accepted spread as `image[1]` (continuity anchor) when present
  *   - the slim rules block + per-spread prompt as `prompt`
  *   - `model: gpt-image-2`, `size: OPENAI_IMAGE_SIZE`, `quality: OPENAI_IMAGE_QUALITY`, `n: 1`
+ *
+ * Endpoint choice: `/v1/images/edits` is the only OpenAI image endpoint that
+ * accepts multipart reference images for gpt-image-2; `/v1/images/generations`
+ * is JSON-only and rejects `Content-Type: multipart/form-data` with a 400
+ * `unsupported_content_type` error in production.
  *
  * Why only 2 references: gpt-image-2's attention dilutes when given 4+ refs;
  * cover dominance is what keeps the hero face stable. The most recent accepted
@@ -14,10 +19,10 @@
 
 'use strict';
 
-const { postImagesGenerations } = require('../openaiImagesHttp');
+const { postImagesEdits } = require('../openaiImagesHttp');
 const {
   OPENAI_IMAGE_MODEL,
-  OPENAI_IMAGES_GENERATIONS_URL,
+  OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGE_SIZE,
   OPENAI_IMAGE_SIZE_FALLBACK,
   OPENAI_IMAGE_QUALITY,
@@ -67,13 +72,13 @@ async function renderSpread(opts) {
   const label = spreadIndex != null ? `spread ${spreadIndex + 1}` : 'spread';
 
   console.log(
-    `[illustrator/openaiFlow/render] ${label} → POST /v1/images/generations ` +
+    `[illustrator/openaiFlow/render] ${label} → POST /v1/images/edits ` +
     `(refs=${imageFiles.length}, size=${OPENAI_IMAGE_SIZE}, quality=${OPENAI_IMAGE_QUALITY})`,
   );
 
-  let result = await postImagesGenerations({
+  let result = await postImagesEdits({
     apiKey,
-    url: OPENAI_IMAGES_GENERATIONS_URL,
+    url: OPENAI_IMAGES_EDIT_URL,
     model: OPENAI_IMAGE_MODEL,
     prompt: promptText,
     size: OPENAI_IMAGE_SIZE,
@@ -89,9 +94,9 @@ async function renderSpread(opts) {
     console.warn(
       `[illustrator/openaiFlow/render] ${label} size ${OPENAI_IMAGE_SIZE} rejected — retrying at ${OPENAI_IMAGE_SIZE_FALLBACK}`,
     );
-    result = await postImagesGenerations({
+    result = await postImagesEdits({
       apiKey,
-      url: OPENAI_IMAGES_GENERATIONS_URL,
+      url: OPENAI_IMAGES_EDIT_URL,
       model: OPENAI_IMAGE_MODEL,
       prompt: promptText,
       size: OPENAI_IMAGE_SIZE_FALLBACK,
