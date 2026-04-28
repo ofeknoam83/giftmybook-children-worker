@@ -36,14 +36,14 @@ const OPENAI_IMAGE_MODEL = 'gpt-image-2';
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
 /** Reference-image + `gpt-image-2` jobs: production API returns 400 on `/v1/images/edits` for this model — use generations. */
 const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations';
-// 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
-// pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
-const OPENAI_IMAGE_SIZE = '1792x1008';
-// Spreads + cover harmonize use `images/generations` (with `image[]` refs) for
-// gpt-image-2. The `quality` form field applies to that endpoint, not to legacy
-// DALL·E `images/edits`.
-// Kept for documentation / a future switch to the generations endpoint.
-const OPENAI_IMAGE_QUALITY = 'medium';
+// 16:9 landscape supported by gpt-image-2. Both edges are multiples of 16;
+// total pixels ≈ 1.8M (inside gpt-image-2's 655k–8.3M window).
+const OPENAI_IMAGE_SIZE = '1792x1024';
+// Fallback landscape size used when the API rejects OPENAI_IMAGE_SIZE
+// (e.g. account-level size restrictions). Also a supported 16:9 landscape.
+const OPENAI_IMAGE_SIZE_FALLBACK = '1536x1024';
+// Print-grade quality for the `/v1/images/generations` endpoint.
+const OPENAI_IMAGE_QUALITY = 'high';
 
 // ── Timeouts ──
 const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
@@ -242,6 +242,7 @@ module.exports = {
   OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
+  OPENAI_IMAGE_SIZE_FALLBACK,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,

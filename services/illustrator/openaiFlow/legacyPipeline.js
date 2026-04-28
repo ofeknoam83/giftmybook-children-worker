@@ -153,6 +153,7 @@ async function generateBookIllustrations(opts) {
   const totalForProgress = spreadEntries.length;
   let previousSpreadBase64 = null;
   let previousSpreadMime = 'image/jpeg';
+  let spreadEntryCount = 0;
 
   // Checkpoint resume: hydrate the previous-spread reference from the most
   // recent existing illustration so the very next render still has continuity.
@@ -179,7 +180,8 @@ async function generateBookIllustrations(opts) {
     const entry = updatedEntries[i];
     if (entry.type !== 'spread') continue;
 
-    const spreadNumber = entry.spread || (spreadEntries.indexOf(entry) + 1);
+    spreadEntryCount += 1;
+    const spreadNumber = Number.isInteger(entry.spread) ? entry.spread : spreadEntryCount;
     const spreadIndex = spreadNumber - 1;
 
     const existingUrl = existingByIndex.get(spreadNumber);
@@ -265,8 +267,11 @@ async function generateBookIllustrations(opts) {
     const url = await getSignedUrl(gcsPath, SIGNED_URL_TTL_MS);
     entry.spreadIllustrationUrl = url;
 
-    // Roll the continuity reference forward for the next spread.
-    previousSpreadBase64 = result.imageBase64;
+    // Roll the continuity reference forward using the accepted/stored printable output.
+    previousSpreadBase64 =
+      typeof result.printableBase64 === 'string' && result.printableBase64.length > 0
+        ? result.printableBase64
+        : result.printable.toString('base64');
     previousSpreadMime = 'image/png';
 
     completedSpreadCount += 1;

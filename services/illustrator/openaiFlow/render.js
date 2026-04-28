@@ -5,7 +5,7 @@
  *   - the cover image as `image[0]` (canonical character + style ground truth)
  *   - the most recently accepted spread as `image[1]` (continuity anchor) when present
  *   - the slim rules block + per-spread prompt as `prompt`
- *   - `model: gpt-image-2`, `size: 1792x1024`, `quality: high`, `n: 1`
+ *   - `model: gpt-image-2`, `size: OPENAI_IMAGE_SIZE`, `quality: OPENAI_IMAGE_QUALITY`, `n: 1`
  *
  * Why only 2 references: gpt-image-2's attention dilutes when given 4+ refs;
  * cover dominance is what keeps the hero face stable. The most recent accepted
@@ -18,20 +18,11 @@ const { postImagesGenerations } = require('../openaiImagesHttp');
 const {
   OPENAI_IMAGE_MODEL,
   OPENAI_IMAGES_GENERATIONS_URL,
+  OPENAI_IMAGE_SIZE,
+  OPENAI_IMAGE_SIZE_FALLBACK,
+  OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
 } = require('../config');
-
-/**
- * 16:9 landscape supported by gpt-image-2. Matches the cover aspect once the
- * post-process upscaler runs, so layoutEngine's center-crop doesn't shave the
- * caption corner. The model lists 1792x1024 as a supported landscape size for
- * gpt-image-2; if the API rejects it, fall back to 1536x1024 in the catch path.
- */
-const PRIMARY_SIZE = '1792x1024';
-const FALLBACK_SIZE = '1536x1024';
-
-/** Print-grade quality. ~$0.17/image at high vs ~$0.04 at medium. */
-const RENDER_QUALITY = 'high';
 
 /**
  * @typedef {Object} RenderRefs
@@ -77,7 +68,7 @@ async function renderSpread(opts) {
 
   console.log(
     `[illustrator/openaiFlow/render] ${label} → POST /v1/images/generations ` +
-    `(refs=${imageFiles.length}, size=${PRIMARY_SIZE}, quality=${RENDER_QUALITY})`,
+    `(refs=${imageFiles.length}, size=${OPENAI_IMAGE_SIZE}, quality=${OPENAI_IMAGE_QUALITY})`,
   );
 
   let result = await postImagesGenerations({
@@ -85,26 +76,26 @@ async function renderSpread(opts) {
     url: OPENAI_IMAGES_GENERATIONS_URL,
     model: OPENAI_IMAGE_MODEL,
     prompt: promptText,
-    size: PRIMARY_SIZE,
-    quality: RENDER_QUALITY,
+    size: OPENAI_IMAGE_SIZE,
+    quality: OPENAI_IMAGE_QUALITY,
     imageFiles,
     timeoutMs: timeoutMs || TURN_TIMEOUT_MS,
     signal,
   });
 
-  // Some accounts reject 1792x1024 with `invalid_value` on `size`. Fall back
+  // Some accounts reject OPENAI_IMAGE_SIZE with `invalid_value` on `size`. Fall back
   // once to a known-good landscape size before surfacing the error.
   if (!result.ok && /size/i.test(result.text || '') && /invalid|unsupported/i.test(result.text || '')) {
     console.warn(
-      `[illustrator/openaiFlow/render] ${label} size ${PRIMARY_SIZE} rejected — retrying at ${FALLBACK_SIZE}`,
+      `[illustrator/openaiFlow/render] ${label} size ${OPENAI_IMAGE_SIZE} rejected — retrying at ${OPENAI_IMAGE_SIZE_FALLBACK}`,
     );
     result = await postImagesGenerations({
       apiKey,
       url: OPENAI_IMAGES_GENERATIONS_URL,
       model: OPENAI_IMAGE_MODEL,
       prompt: promptText,
-      size: FALLBACK_SIZE,
-      quality: RENDER_QUALITY,
+      size: OPENAI_IMAGE_SIZE_FALLBACK,
+      quality: OPENAI_IMAGE_QUALITY,
       imageFiles,
       timeoutMs: timeoutMs || TURN_TIMEOUT_MS,
       signal,
@@ -165,7 +156,4 @@ function packReferenceImages(refs) {
 
 module.exports = {
   renderSpread,
-  PRIMARY_SIZE,
-  FALLBACK_SIZE,
-  RENDER_QUALITY,
 };
