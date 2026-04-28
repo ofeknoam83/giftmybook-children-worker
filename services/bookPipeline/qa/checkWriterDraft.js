@@ -14,6 +14,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, FORMATS, WORDS_PER_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
+const { findCrossSpreadRepeatedLines } = require('./refrainLineAudit');
 
 const PREACH_MARKERS = [
   /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
@@ -205,6 +206,7 @@ For picture-book manuscripts specifically, enforce:
  - AABB rhyme scheme: the last word of line 1 must end-rhyme with the last word of line 2; the last word of line 3 must end-rhyme with the last word of line 4. Flag any spread where a couplet doesn't really rhyme (e.g. "sing/plan", "sigh/Deana", "sniff/off", "high/cuddle") by adding the "rhyme_fail" tag. Flag same-word "rhymes" the same way.
  - Consistent musical pulse within each couplet (roughly matched line length and stress count).
  - Short lines (6–12 words; never over 14).
+ - No wallpaper refrains: the same full line must not appear verbatim (or near-verbatim) on 3+ spreads; one intentional callback is fine, not every spread.
 
 Return ONLY strict JSON. Be specific and actionable — when a rhyme fails, name the offending word pair in the spread's issues list. Mark "pass": true only if the book is genuinely strong AND (for picture books) all AABB rhymes hold.`;
 
@@ -238,11 +240,31 @@ function literaryQaUserPrompt(doc) {
  * @param {object} doc
  * @returns {Promise<{ pass: boolean, perSpread: object[], bookLevel: string[], repairPlan: object[], updatedDoc: object }>}
  */
+/**
+ * @param {object} doc
+ * @returns {Map<number, { issues: string[], tags: string[] }>}
+ */
+function refrainDuplicationBySpread(doc) {
+  const aug = new Map();
+  const violations = findCrossSpreadRepeatedLines(doc.spreads);
+  for (const v of violations) {
+    const msg = `Refrain wallpaper: same line repeats across spreads ${v.spreadNumbers.join(', ')} — rewrite so at most one spread echoes it as a callback; vary other occurrences.`;
+    for (const sn of v.spreadNumbers) {
+      if (!aug.has(sn)) aug.set(sn, { issues: [], tags: [] });
+      aug.get(sn).issues.push(msg);
+      aug.get(sn).tags.push('refrain_spam');
+    }
+  }
+  return aug;
+}
+
 async function checkWriterDraft(doc) {
   const deterministic = doc.spreads.map(s => ({
     spreadNumber: s.spreadNumber,
     ...deterministicCheck(s, doc),
   }));
+
+  const refrainAug = refrainDuplicationBySpread(doc);
 
   const result = await callText({
     model: MODELS.WRITER_QA,
@@ -261,9 +283,18 @@ async function checkWriterDraft(doc) {
 
   const merged = doc.spreads.map(s => {
     const det = deterministic.find(d => d.spreadNumber === s.spreadNumber) || { pass: true, issues: [], tags: [] };
+    const ref = refrainAug.get(s.spreadNumber) || { issues: [], tags: [] };
     const lit = perSpreadLit.find(l => Number(l?.spreadNumber) === s.spreadNumber) || {};
-    const issues = [...det.issues, ...(Array.isArray(lit.issues) ? lit.issues.map(String) : [])];
-    const tags = [...det.tags, ...(Array.isArray(lit.tags) ? lit.tags.map(String) : [])];
+    const issues = [
+      ...det.issues,
+      ...ref.issues,
+      ...(Array.isArray(lit.issues) ? lit.issues.map(String) : []),
+    ];
+    const tags = [
+      ...det.tags,
+      ...ref.tags,
+      ...(Array.isArray(lit.tags) ? lit.tags.map(String) : []),
+    ];
     return {
       spreadNumber: s.spreadNumber,
       pass: issues.length === 0,

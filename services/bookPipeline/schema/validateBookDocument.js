@@ -8,6 +8,7 @@
  */
 
 const { TOTAL_SPREADS, AGE_BANDS, FORMATS } = require('../constants');
+const { auditSpreadSpecsLocationDiversity } = require('../planner/spreadLocationAudit');
 
 function validateInput(doc) {
   const issues = [];
@@ -94,6 +95,8 @@ function validateSpreadSpecs(doc) {
       issues.push('spread 1: spec.sceneBridge weak (need opening launch line)');
     }
   }
+  const locAudit = auditSpreadSpecsLocationDiversity(doc);
+  if (!locAudit.ok) issues.push(...locAudit.issues);
   return issues;
 }
 

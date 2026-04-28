@@ -21,6 +21,7 @@ Hard rules (same as original writer):
 - Honor the spread spec (side, personalization, beat).
 - Read-aloud first. Musical, simple, low repetition, no big metaphors.
 - Third-person by default. Funny/playful tone. Never preachy.
+- If issues mention refrain wallpaper or tag "refrain_spam": rewrite lines on THIS spread so the same sentence is not duplicated across the book — keep AABB rhyme and spec; one intentional callback elsewhere is enough.
 - Text must be plausible to render in a few lines on one side without crossing center.
 
 Picture-book structure (MANDATORY when format is picture_book):
