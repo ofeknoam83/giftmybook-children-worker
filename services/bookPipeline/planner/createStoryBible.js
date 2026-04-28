@@ -17,6 +17,7 @@ const {
   formatQuestionnaireBlock,
   renderVarietySteeringFromBookId,
 } = require('./plannerPromptHelpers');
+const { PARENT_DAY_THEMES } = require('./spreadLocationAudit');
 
 const SYSTEM_PROMPT = `You are a senior children's picture-book story architect.
 You design the narrative spine for a premium personalized book, not the final prose.
@@ -46,12 +47,20 @@ function userPrompt(doc) {
 
   const questionnaireBlock = formatQuestionnaireBlock(brief.child);
   const varietyBlock = renderVarietySteeringFromBookId(request.bookId);
+  const parentDay = PARENT_DAY_THEMES.has(String(request.theme || '').toLowerCase());
+  const parentDaySpine = parentDay
+    ? [
+      '',
+      'PARENT-DAY SPINE: `locationStrategy` and `visualJourneySpine` must center on a **shared outward quest** (spectacular public or magical places). At most one short home act; do not plan a book that lives in kitchen/couch/hall. If custom details mention baking, translate to festival bakery row, harbor treat boat, rooftop garden oven, etc.',
+    ].join('\n')
+    : '';
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Format: ${request.format}. Age band: ${request.ageBand}. Theme: ${request.theme}.`,
     `Approved cover title: "${cover.title}".`,
     themeBlock,
+    parentDaySpine,
     'Parent questionnaire (every non-empty line must influence personalizationTargets or the emotional payoff — not replace the adventure spine):',
     questionnaireBlock,
     '',

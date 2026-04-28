@@ -11,11 +11,13 @@ const { MODELS, TOTAL_SPREADS } = require('../constants');
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
+const { WRITER_LOCATION_VIVIDNESS_RULES } = require('./writerLocationGuidance');
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
 Hard rules (apply to every spread):
 - Honor the spread spec exactly (side, personalization, beat).
+${WRITER_LOCATION_VIVIDNESS_RULES}
 - Read-aloud quality comes first. Musical cadence, simple words, no large metaphors, low repetition.
 - Third-person by default unless the user prompt overrides.
 - Funny/playful tone, character-based humor. Mostly implicit emotional meaning — never preach.
@@ -69,6 +71,7 @@ function userPrompt(doc) {
     '',
     `Spread specs (length ${TOTAL_SPREADS}):\n${JSON.stringify(specs, null, 2)}`,
     retryBlock ? `\n${retryBlock}` : '',
+    'For each spread, the four lines must make the place feel beautiful and specific — grounded in that spread\'s `location` and `focalAction`, not generic indoor blur.',
     'Emit the JSON now.',
   ].filter(Boolean).join('\n');
 }

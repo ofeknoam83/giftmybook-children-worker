@@ -16,6 +16,7 @@ const {
   formatQuestionnaireBlock,
   renderVarietySteeringFromBookId,
 } = require('./plannerPromptHelpers');
+const { PARENT_DAY_THEMES } = require('./spreadLocationAudit');
 
 const SYSTEM_PROMPT = `You design spread-level contracts for a premium personalized children's book.
 
@@ -47,11 +48,22 @@ function userPrompt(doc) {
 
   const questionnaireBlock = formatQuestionnaireBlock(brief.child);
   const varietyBlock = renderVarietySteeringFromBookId(request.bookId);
+  const parentDay = PARENT_DAY_THEMES.has(String(request.theme || '').toLowerCase());
+  const parentDayLocationContract = parentDay
+    ? [
+      '',
+      'PARENT-DAY LOCATION CONTRACT (critical):',
+      '- At most **4** spreads may use realistic home interiors (kitchen, couch, hallway, bedroom, nursery) in the `location` field.',
+      '- **All other spreads** MUST use outward, cinematic set pieces from the theme directive (e.g. lantern pier, floating market, greenhouse, festival gate, harbor, rooftop garden, meadow stage, tidepool walk, public plaza) — even when the story bible or seed mentions flour, baking, or couch; **translate** that beat to a paintable exterior or magical public venue while keeping the same emotional beat and props (spoon, crumbs, timer can appear anywhere).',
+      '- Pipeline validation allows at most **5** home-interior spreads total (non-bedtime). Plan so the writer can depict **beautiful, varied** places; do not rely on the writer to fix a house crawl.',
+    ].join('\n')
+    : '';
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}. Age band: ${request.ageBand}. Format: ${request.format}.`,
     `Theme: ${request.theme}.`,
     themeBlock,
+    parentDayLocationContract,
     request.format === 'picture_book'
       ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets). Set textLineTarget to 4 on every spread.`
       : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,

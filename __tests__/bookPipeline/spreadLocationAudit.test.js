@@ -50,6 +50,12 @@ describe('spreadLocationAudit', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('mothers_day uses same domestic cap as adventure (strict spectacle)', () => {
+    expect(maxDomesticSpreadsAllowed('mothers_day')).toBe(5);
+    const doc = makeDoc('mothers_day', [1, 2, 3, 4, 5, 6]);
+    expect(auditSpreadSpecsLocationDiversity(doc).ok).toBe(false);
+  });
+
   it('spreadReadsDomestic detects couch and oven', () => {
     expect(spreadReadsDomestic({ location: 'Living room', plotBeat: '', focalAction: '' })).toBe(true);
     expect(spreadReadsDomestic({ location: 'Pier', plotBeat: 'sits on the couch', focalAction: '' })).toBe(true);

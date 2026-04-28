@@ -14,11 +14,13 @@ const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = requ
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
 const { checkWriterDraft } = require('../qa/checkWriterDraft');
+const { WRITER_LOCATION_VIVIDNESS_RULES } = require('./writerLocationGuidance');
 
 const SYSTEM_PROMPT = `You are rewriting specific spreads of a children's book.
 You keep the rest of the book intact. For each spread listed, produce an improved version that fixes the listed issues.
 Hard rules (same as original writer):
 - Honor the spread spec (side, personalization, beat).
+${WRITER_LOCATION_VIVIDNESS_RULES}
 - Read-aloud first. Musical, simple, low repetition, no big metaphors.
 - Third-person by default. Funny/playful tone. Never preachy.
 - If issues mention refrain wallpaper or tag "refrain_spam": rewrite lines on THIS spread so the same sentence is not duplicated across the book — keep AABB rhyme and spec; one intentional callback elsewhere is enough.
@@ -60,6 +62,7 @@ function rewriteUserPrompt(doc, targets) {
     '',
     `Rewrite ONLY these spreads. Leave all other spreads untouched:\n${JSON.stringify(items, null, 2)}`,
     '',
+    'If the issue is flat or generic place language, fix it by pulling concrete imagery from that spread\'s spec.location and spec.focalAction.',
     'Emit the JSON now.',
   ].join('\n');
 }

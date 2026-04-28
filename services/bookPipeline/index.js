@@ -46,6 +46,7 @@ const { renderAllSpreads } = require('./illustrator/renderAllSpreads');
 const { runBookWideQa } = require('./qa/checkBookWide');
 const { toLayoutPayload } = require('./adapters/toLayoutPayload');
 const { buildRetryEntry } = require('./retryMemory');
+const { PARENT_DAY_THEMES } = require('./planner/spreadLocationAudit');
 
 class PipelineError extends Error {
   constructor(message, { failureCode, stage, issues } = {}) {
@@ -189,7 +190,8 @@ async function generateBook(rawRequest, opts = {}) {
 
   reportProgress(doc, { step: 'planning', message: 'Creating spread specs' });
   doc = await runStage(doc, 'spreadSpecs', async () => {
-    const MAX_SPREAD_SPEC_ATTEMPTS = 3;
+    const parentDay = PARENT_DAY_THEMES.has(String(doc.request?.theme || '').toLowerCase());
+    const MAX_SPREAD_SPEC_ATTEMPTS = parentDay ? 6 : 4;
     let d = doc;
     for (let attempt = 1; attempt <= MAX_SPREAD_SPEC_ATTEMPTS; attempt++) {
       assertNotAborted(d);

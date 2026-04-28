@@ -198,6 +198,7 @@ You review an existing manuscript for:
  - read-aloud musicality
  - age fit for the given band
  - personalization that feels real, not tacked on
+ - **place vividness:** when \`spec.location\` names a specific outward or spectacular setting, the verse must not collapse it into only generic "inside / room / home" language — flag \`flat_location\` if the text could be any room while the spec promises a pier, market, trail, etc.
  - absence of preachy moralizing
  - rhyme quality where rhyme applies
 

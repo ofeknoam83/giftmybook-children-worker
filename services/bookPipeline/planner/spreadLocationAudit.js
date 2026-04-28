@@ -6,7 +6,10 @@
 /** Themes where most spreads may stay cozy/domestic. */
 const COZY_DOMESTIC_OK_THEMES = new Set(['bedtime', 'bedtime_wonder']);
 
-/** Max spreads that may match domestic interior heuristics (13 total). */
+/** Used for extra spread-spec retries + parent-day planner nudges (same domestic cap as all themes). */
+const PARENT_DAY_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
+
+/** Max spreads that may match domestic interior heuristics (13 total), except cozy bedtime themes. */
 const MAX_DOMESTIC_SPREADS_DEFAULT = 5;
 
 /**
@@ -65,5 +68,6 @@ module.exports = {
   spreadReadsDomestic,
   maxDomesticSpreadsAllowed,
   COZY_DOMESTIC_OK_THEMES,
+  PARENT_DAY_THEMES,
   MAX_DOMESTIC_SPREADS_DEFAULT,
 };
