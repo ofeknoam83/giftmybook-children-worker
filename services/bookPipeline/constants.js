@@ -76,9 +76,10 @@ const MODELS = {
   SPREAD_QA_VISION: 'gemini-2.5-flash',
 
   // --- Image rendering ---
-  // Switchable via services/illustrator/sessionDispatch.js:
+  // Routed via services/illustrator/index.js (legacy entries pipeline) and
+  // services/bookPipeline/illustrator/renderAllSpreads.js (new pipeline):
   //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — default
-  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless)
+  //   - 'gpt-image-2'                     → OpenAI Images 2.0 stateless flow (services/illustrator/openaiFlow)
   SPREAD_RENDER: 'gemini-3.1-flash-image-preview',
 
   // Deprecated alias — keep until callers are fully migrated.
