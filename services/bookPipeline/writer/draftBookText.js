@@ -31,7 +31,8 @@ ${WRITER_LOCATION_VIVIDNESS_RULES}
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
 - The "text" field for each spread is EXACTLY 4 lines, separated by a single "\\n" character.
 - Rhyme scheme is AABB: line 1's last word rhymes with line 2's last word, and line 3's last word rhymes with line 4's last word. Lines 2 and 4 do NOT need to rhyme with each other.
-- Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable.
+- Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Non-rhymes ("sing / plan", "sway / nap") are NOT acceptable.
+- **Different rhyme words:** Within each couplet, the **last stressed word** of line 1 vs line 2 (and line 3 vs 4) must be **two different words** — never repeat the same word to "rhyme" with itself ("heart / heart", "bright / bright", "cuddle / cuddle"). Also avoid **lazy echo** where the pair is only grammar-flip of the same stem ("glow / glows", "bake / bakes") — pick a true second rhyme mate.
 - LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
 - If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
 - No line may cross the horizontal center of the spread when painted.

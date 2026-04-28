@@ -25,12 +25,14 @@ ${WRITER_LOCATION_VIVIDNESS_RULES}
 - Third-person by default. Funny/playful tone. Never preachy.
 - If issues mention refrain wallpaper or tag "refrain_spam": rewrite lines on THIS spread so the same sentence is not duplicated across the book — keep AABB rhyme and spec; one intentional callback elsewhere is enough.
 - If issues mention tag "counting_refrain_spam": remove or replace "one, two, three" style counting on this spread; vary the beat while keeping rhyme and spec.
+- If tags include "identical_rhyme" or "lazy_rhyme_echo": rewrite the couplet so the two line endings are **different real words** that rhyme (not the same word, not glow/glows style echo).
 - Weave \`sceneBridge\` where issues mention disconnected or collage-like jumps: add one subtle line of continuation (same outing, same path, carried prop) without changing \`location\` or \`focalAction\`.
 - Text must be plausible to render in a few lines on one side without crossing center.
 
 Picture-book structure (MANDATORY when format is picture_book):
 - Every rewritten spread's "text" is EXACTLY 4 lines, separated by "\\n".
-- AABB rhyme scheme: line 1 rhymes with line 2, line 3 rhymes with line 4. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
+- AABB rhyme scheme: line 1 rhymes with line 2, line 3 rhymes with line 4. Real end-rhymes or near-rhymes only — never non-rhymes.
+- **Rhyme pairs must use two different words:** forbid identical end words in a couplet ("heart / heart", "near / here" is OK; "heart / heart" is not). Forbid lazy stem echo ("glow / glows", "snap / snaps") — rewrite one line with a different rhyme mate.
 - LINE LENGTH — match the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Consistent pulse across each couplet.
 
 Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks.`;
