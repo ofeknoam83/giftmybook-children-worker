@@ -25,16 +25,27 @@ const GEMINI_IMAGE_SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
 ];
 
-// ── OpenAI image model (gpt-image-2) ──
+// ── OpenAI image model ──
 // The OpenAI Images 2.0 API is stateless — each call re-sends the cover +
 // last N accepted spreads as reference images along with the per-spread
-// prompt. The adapter (services/illustrator/openaiImageSession.js) emulates
-// the Gemini chat-session interface so the orchestrator can swap providers
-// by flipping `MODELS.SPREAD_RENDER` in bookPipeline/constants.js.
-const OPENAI_IMAGE_MODEL = 'gpt-image-2';
-/** DALL·E 2–only in many accounts; do not use for `gpt-image-2` (see `OPENAI_IMAGES_GENERATIONS_URL`). */
+// prompt. The orchestrator selects this provider by setting
+// `MODELS.SPREAD_RENDER` to a `gpt-image-*` value in bookPipeline/constants.js;
+// the actual model id sent to the API is read from env when present so we
+// can swap `gpt-image-2` ↔ `gpt-image-1` (or future variants) on Cloud Run
+// without a code deploy. Set `OPENAI_IMAGE_MODEL=gpt-image-1` if your org
+// is verified for `gpt-image-1` but not yet for `gpt-image-2`.
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+/**
+ * Production endpoint for `gpt-image-2` with reference images: multipart
+ * `model`, `prompt`, `size`, `quality`, `image[]`. `services/illustrator/
+ * openaiFlow/render.js` posts here.
+ */
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
-/** Reference-image + `gpt-image-2` jobs: production API returns 400 on `/v1/images/edits` for this model — use generations. */
+/**
+ * `/v1/images/generations` is JSON-only in production and rejects multipart
+ * with 400 unsupported_content_type; kept as a constant for callers that
+ * issue text-only generation requests, not used by the openaiFlow renderer.
+ */
 const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations';
 // 16:9 landscape supported by gpt-image-2. Both edges are multiples of 16;
 // total pixels ≈ 1.8M (inside gpt-image-2's 655k–8.3M window).
@@ -46,9 +57,16 @@ const OPENAI_IMAGE_SIZE_FALLBACK = '1536x1024';
 const OPENAI_IMAGE_QUALITY = 'high';
 
 // ── Timeouts ──
-const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
+const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn (Gemini path)
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
+/**
+ * gpt-image-2 quality:high regularly takes 130–170s per render and occasionally
+ * stretches past 180s, which trips the Gemini-default TURN_TIMEOUT_MS. Use a
+ * dedicated 5-minute ceiling for the OpenAI path. Override on Cloud Run via
+ * env if a particular tenant needs more headroom (e.g. behind a slow proxy).
+ */
+const OPENAI_TURN_TIMEOUT_MS = Number(process.env.OPENAI_TURN_TIMEOUT_MS) || 300000;
 
 // ── Retry budgets ──
 // Higher values improve pass rates on difficult spreads but increase latency and
@@ -245,6 +263,7 @@ module.exports = {
   OPENAI_IMAGE_SIZE_FALLBACK,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
+  OPENAI_TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,
   ESTABLISHMENT_TIMEOUT_MS,
   MAX_SPREAD_CORRECTIONS,

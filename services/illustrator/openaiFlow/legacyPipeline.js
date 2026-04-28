@@ -175,26 +175,12 @@ async function generateBookIllustrations(opts) {
     }
   }
 
-  for (let i = 0; i < updatedEntries.length; i++) {
-    bookContext?.checkAbort?.();
-    const entry = updatedEntries[i];
-    if (entry.type !== 'spread') continue;
-
-    spreadEntryCount += 1;
-    const spreadNumber = Number.isInteger(entry.spread) ? entry.spread : spreadEntryCount;
+  // Build a render+QA closure for one spread entry. Used by both wave 1 (serial)
+  // and wave 2 (parallel) — the only difference is which previous-spread refs
+  // it sees.
+  const renderOneEntry = async ({ entry, prevBase64, prevMime, logSuffix = '' }) => {
+    const spreadNumber = entry._spreadNumber;
     const spreadIndex = spreadNumber - 1;
-
-    const existingUrl = existingByIndex.get(spreadNumber);
-    if (existingUrl) {
-      log('info', `Spread ${spreadNumber} already illustrated (checkpoint) — skipping`);
-      entry.spreadIllustrationUrl = existingUrl;
-      completedSpreadCount += 1;
-      reportProgress(completedSpreadCount / totalForProgress, `Spread ${spreadNumber}/${totalForProgress} (from checkpoint)`);
-      continue;
-    }
-
-    reportProgress(completedSpreadCount / totalForProgress, `Generating spread ${spreadNumber}/${totalForProgress}`);
-
     const scene = entry.spread_image_prompt || entry.spreadImagePrompt || '';
     const text = mergeSpreadText(entry);
     const textSide = (entry.textSide === 'left' || entry.textSide === 'right')
@@ -233,8 +219,8 @@ async function generateBookIllustrations(opts) {
       characterDescription: storyPlan?.characterDescription,
       childPhotoBase64: childPhotoFromOpts || null,
       qaAllowedHumansNote,
-      previousSpreadBase64,
-      previousSpreadMime,
+      previousSpreadBase64: prevBase64,
+      previousSpreadMime: prevMime,
       abortSignal: abortSignal || bookContext?.abortController?.signal || null,
     });
 
@@ -244,13 +230,13 @@ async function generateBookIllustrations(opts) {
         apiKey,
         coverBase64,
         coverMime,
-        previousSpreadBase64,
-        previousSpreadMime,
+        previousSpreadBase64: prevBase64,
+        previousSpreadMime: prevMime,
         rulesOpts,
         spreadCtx,
         runQa,
         abortSignal: abortSignal || bookContext?.abortController?.signal || null,
-        logTag: `illustrator/openaiFlow:${bookId || '?'}:spread${spreadNumber}`,
+        logTag: `illustrator/openaiFlow:${bookId || '?'}:spread${spreadNumber}${logSuffix}`,
       });
     } catch (err) {
       log('error', `Spread ${spreadNumber} failed permanently: ${err.message}`);
@@ -266,18 +252,113 @@ async function generateBookIllustrations(opts) {
     await uploadBuffer(result.printable, gcsPath, 'image/png');
     const url = await getSignedUrl(gcsPath, SIGNED_URL_TTL_MS);
     entry.spreadIllustrationUrl = url;
+    return { result, url };
+  };
 
-    // Roll the continuity reference forward using the accepted/stored printable output.
-    previousSpreadBase64 =
-      typeof result.printableBase64 === 'string' && result.printableBase64.length > 0
-        ? result.printableBase64
-        : result.printable.toString('base64');
-    previousSpreadMime = 'image/png';
-
-    completedSpreadCount += 1;
-    log('info', `Spread ${spreadNumber}/${spreadEntries.length} complete (attempts=${result.attempts})`);
-    reportProgress(completedSpreadCount / totalForProgress, `Spread ${spreadNumber}/${totalForProgress} complete`);
+  // Annotate every spread entry with its 1-based spreadNumber so we can hand
+  // them to the worker pool without recomputing the order.
+  for (const entry of updatedEntries) {
+    if (entry.type !== 'spread') continue;
+    spreadEntryCount += 1;
+    entry._spreadNumber = Number.isInteger(entry.spread) ? entry.spread : spreadEntryCount;
   }
+
+  // Skip checkpoint-resumed spreads up-front so wave 1 always runs on the first
+  // un-illustrated spread.
+  const pendingEntries = [];
+  for (const entry of updatedEntries) {
+    if (entry.type !== 'spread') continue;
+    bookContext?.checkAbort?.();
+    const existingUrl = existingByIndex.get(entry._spreadNumber);
+    if (existingUrl) {
+      log('info', `Spread ${entry._spreadNumber} already illustrated (checkpoint) — skipping`);
+      entry.spreadIllustrationUrl = existingUrl;
+      completedSpreadCount += 1;
+      reportProgress(
+        completedSpreadCount / totalForProgress,
+        `Spread ${entry._spreadNumber}/${totalForProgress} (from checkpoint)`,
+      );
+      continue;
+    }
+    pendingEntries.push(entry);
+  }
+
+  if (pendingEntries.length === 0) {
+    log('info', `All ${spreadEntries.length} spreads already present (checkpoint) — nothing to render.`);
+    return updatedEntries;
+  }
+
+  // ── Wave 1: render the first pending spread alone, with the existing
+  //    `previousSpreadBase64` (from checkpoint hydration, or null on a fresh
+  //    book). This pins the canonical interior look for wave 2.
+  const wave1Entry = pendingEntries[0];
+  reportProgress(
+    completedSpreadCount / totalForProgress,
+    `Generating spread ${wave1Entry._spreadNumber}/${totalForProgress}`,
+  );
+  const wave1 = await renderOneEntry({
+    entry: wave1Entry,
+    prevBase64: previousSpreadBase64,
+    prevMime: previousSpreadMime,
+  });
+  completedSpreadCount += 1;
+  reportProgress(
+    completedSpreadCount / totalForProgress,
+    `Spread ${wave1Entry._spreadNumber}/${totalForProgress} complete`,
+  );
+
+  if (pendingEntries.length === 1) {
+    log('info', `All ${spreadEntries.length} spreads generated via openaiFlow.`);
+    return updatedEntries;
+  }
+
+  // ── Wave 2: spreads 2..N concurrently, each with cover + wave-1 image as
+  //    universal continuity reference. Worker pool sized via env (default 6).
+  const wave2ContinuityBase64 =
+    typeof wave1.result.printableBase64 === 'string' && wave1.result.printableBase64.length > 0
+      ? wave1.result.printableBase64
+      : wave1.result.printable.toString('base64');
+  const wave2ContinuityMime = 'image/png';
+
+  const concurrency = (() => {
+    const n = Number(process.env.OPENAI_ILLUSTRATOR_CONCURRENCY);
+    return Math.min(12, Math.max(1, Number.isFinite(n) && n > 0 ? Math.floor(n) : 6));
+  })();
+  log(
+    'info',
+    `wave-2 spread parallelism: ${pendingEntries.length - 1} spreads, concurrency=${concurrency}`,
+  );
+
+  const queue = pendingEntries.slice(1);
+  const worker = async () => {
+    while (queue.length > 0) {
+      const entry = queue.shift();
+      if (!entry) break;
+      bookContext?.checkAbort?.();
+      reportProgress(
+        completedSpreadCount / totalForProgress,
+        `Generating spread ${entry._spreadNumber}/${totalForProgress}`,
+      );
+      const r = await renderOneEntry({
+        entry,
+        prevBase64: wave2ContinuityBase64,
+        prevMime: wave2ContinuityMime,
+        logSuffix: ':w2',
+      });
+      completedSpreadCount += 1;
+      log(
+        'info',
+        `Spread ${entry._spreadNumber}/${spreadEntries.length} complete (attempts=${r.result.attempts})`,
+      );
+      reportProgress(
+        completedSpreadCount / totalForProgress,
+        `Spread ${entry._spreadNumber}/${totalForProgress} complete`,
+      );
+    }
+  };
+
+  const workerCount = Math.min(concurrency, queue.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   log('info', `All ${spreadEntries.length} spreads generated via openaiFlow.`);
   return updatedEntries;
