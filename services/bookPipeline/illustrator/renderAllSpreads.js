@@ -54,6 +54,32 @@ const { LATE_SPREAD_COVER_REANCHOR_INDEX } = require('../../illustrator/config')
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** When not "0", first interior spread (index 0) inlines the cover on first generate to reduce early hair drift. */
+const REANCHOR_FIRST_INTERIOR_SPREAD = process.env.ILLUSTRATION_REANCHOR_FIRST_INTERIOR !== '0';
+
+/**
+ * Last-resort: accept a spread after repair budget exhausted — only if Pixar medium
+ * still holds and failures are "soft" (e.g. OCR). Set ILLUSTRATION_QA_ACCEPT_ON_EXHAUSTION=1.
+ *
+ * @param {object} qa - merged checkSpread result
+ * @returns {boolean}
+ */
+function canAcceptSpreadAfterExhaustionGate(qa) {
+  const v = process.env.ILLUSTRATION_QA_ACCEPT_ON_EXHAUSTION;
+  if (v !== '1' && v !== 'true') return false;
+  if (!qa || qa.pass) return false;
+  const tags = qa.tags || [];
+  const forbidden = [
+    'style_drift', 'split_panel', 'duplicated_hero', 'body_disconnected',
+    'bath_modesty', 'unexpected_person', 'disembodied_limb', 'parent_turned_away',
+    'recurring_item_drift', 'qa_unavailable', 'hero_mismatch', 'outfit_mismatch',
+    'implied_parent_skin_mismatch',
+  ];
+  if (forbidden.some((t) => tags.includes(t))) return false;
+  if (qa.consistency?.artStyleIs3DPixar !== true) return false;
+  return true;
+}
+
 /**
  * Load the prior spread's uploaded JPEG from GCS for continuity QA (cover + previous).
  *
@@ -209,6 +235,7 @@ async function processOneSpread(params) {
     let transientEmptyRetries = 0;
     let suppressReanchorOnce = false;
     let suppressGenerateReanchorOnce = false;
+    let suppressFirstInteriorReanchorOnce = false;
     /** Image-safety mitigations before rebuild: 1 = lean scene, 2 = soften or generic+caption. */
     let safetyMitigationPass = 0;
     correctionNote = null;
@@ -216,6 +243,7 @@ async function processOneSpread(params) {
     scene = spec.scene;
     renderCaption = baselineCaption;
     expected = { text: renderCaption, side: spec.textSide };
+    let lastRiskBundle = null;
 
     while (attempt < totalBudget) {
       attempt += 1;
@@ -225,7 +253,8 @@ async function processOneSpread(params) {
       const needsReanchor = !isFirstAttempt && (
         lastTags.includes('hero_mismatch')
         || lastTags.includes('outfit_mismatch')
-        || lastTags.includes('implied_parent_skin_mismatch'));
+        || lastTags.includes('implied_parent_skin_mismatch')
+        || lastTags.includes('style_drift'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
       let image;
@@ -240,10 +269,12 @@ async function processOneSpread(params) {
             theme: spec.theme,
             childAge: currentDoc.brief?.child?.age ?? null,
           });
-          const lateReanchorFirst =
+          const wantsLateReanchor =
             spec.spreadIndex >= LATE_SPREAD_COVER_REANCHOR_INDEX && !suppressGenerateReanchorOnce;
+          const wantsFirstInteriorReanchor =
+            REANCHOR_FIRST_INTERIOR_SPREAD && spec.spreadIndex === 0 && !suppressFirstInteriorReanchorOnce;
           image = await generateSpread(currentSession, turn, spec.spreadIndex, {
-            reanchorCover: lateReanchorFirst,
+            reanchorCover: wantsLateReanchor || wantsFirstInteriorReanchor,
           });
         } else {
           const correction = buildCorrectionTurn({
@@ -257,9 +288,9 @@ async function processOneSpread(params) {
             childAge: currentDoc.brief?.child?.age ?? null,
           });
           // Re-anchor the cover image on the correction turn whenever the last
-          // attempt drifted on hero identity or outfit. If Gemini safety-blocks
-          // that turn (common with a second inline child reference), we retry
-          // once without re-anchoring (see catch block).
+          // attempt drifted on hero identity, outfit, OR art style toward non-Pixar.
+          // If Gemini safety-blocks that turn (common with a second inline child
+          // reference), we retry once without re-anchoring (see catch block).
           if (reanchorThisTurn) {
             console.log(`[${logTag}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
           } else if (needsReanchor) {
@@ -331,6 +362,21 @@ async function processOneSpread(params) {
             `[${logTag}] safety on late-spread first attempt with cover re-anchor — retrying generate without inline cover`,
           );
           suppressGenerateReanchorOnce = true;
+          attempt -= 1;
+          continue;
+        }
+
+        if (
+          isSafety
+          && isFirstAttempt
+          && REANCHOR_FIRST_INTERIOR_SPREAD
+          && spec.spreadIndex === 0
+          && !suppressFirstInteriorReanchorOnce
+        ) {
+          console.warn(
+            `[${logTag}] safety on first-interior spread first attempt with cover re-anchor — retrying generate without inline cover`,
+          );
+          suppressFirstInteriorReanchorOnce = true;
           attempt -= 1;
           continue;
         }
@@ -476,6 +522,15 @@ async function processOneSpread(params) {
         `issues=${formatQaRejectIssuesForLog(qa.issues)}`,
       );
 
+      lastRiskBundle = {
+        printable,
+        imageBase64: image.imageBase64,
+        qa,
+        attempt,
+        scene,
+        renderCaption,
+      };
+
       pruneLastTurn(currentSession);
 
       lastTags = Array.isArray(qa.tags) ? qa.tags : [];
@@ -514,6 +569,57 @@ async function processOneSpread(params) {
     }
 
     if (extraRoundsRemaining <= 0) {
+      if (lastRiskBundle && canAcceptSpreadAfterExhaustionGate(lastRiskBundle.qa)) {
+        const rb = lastRiskBundle;
+        console.warn(
+          `[${logTag}] ACCEPT WITH RISK — repair budget exhausted; ` +
+          'ILLUSTRATION_QA_ACCEPT_ON_EXHAUSTION allows completion (Pixar medium OK; no identity/style hard-fails)',
+        );
+        markSpreadAccepted(currentSession, spec.spreadIndex, rb.imageBase64);
+
+        const destination = `books/${bookId || currentDoc.request.bookId || 'nobookid'}/spreads/spread-${spread.spreadNumber}.jpg`;
+        await uploadBuffer(rb.printable, destination, 'image/jpeg');
+        const imageUrl = await getSignedUrl(destination, SIGNED_URL_TTL_MS);
+
+        const riskIssues = Array.isArray(rb.qa?.issues) ? rb.qa.issues : [];
+        const nextDoc = updateSpread(currentDoc, spread.spreadNumber, (s) => ({
+          ...s,
+          manuscript: s.manuscript && rb.renderCaption !== baselineCaption
+            ? { ...s.manuscript, text: rb.renderCaption }
+            : s.manuscript,
+          illustration: {
+            prompt: rb.scene,
+            imageUrl,
+            imageStorageKey: destination,
+            accepted: true,
+            acceptedWithRisk: true,
+            attempts: rb.attempt,
+          },
+          qa: {
+            ...s.qa,
+            spreadChecks: [
+              ...s.qa.spreadChecks,
+              {
+                attempt: rb.attempt,
+                pass: true,
+                acceptedWithRisk: true,
+                issues: riskIssues,
+                tags: rb.qa.tags || [],
+                note: 'Accepted after exhaustion gate (ILLUSTRATION_QA_ACCEPT_ON_EXHAUSTION)',
+              },
+            ],
+          },
+        }));
+        return {
+          accepted: true,
+          doc: nextDoc,
+          session: currentSession,
+          issues: [],
+          tags: ['accepted_with_risk'],
+          imageBase64: rb.imageBase64,
+          imageUrl,
+        };
+      }
       console.error(
         `[${logTag}] EXHAUSTED budget (${totalBudget} attempts/session) and ` +
         `${REPAIR_BUDGETS.perSpreadExtraSessionRounds} extra session round(s) — spread unresolvable`,
@@ -668,4 +774,9 @@ async function renderAllSpreads(doc) {
   return current;
 }
 
-module.exports = { renderAllSpreads, processOneSpread };
+module.exports = {
+  renderAllSpreads,
+  processOneSpread,
+  canAcceptSpreadAfterExhaustionGate,
+  REANCHOR_FIRST_INTERIOR_SPREAD,
+};

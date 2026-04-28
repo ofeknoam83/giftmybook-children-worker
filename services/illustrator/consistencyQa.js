@@ -144,10 +144,13 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
 
   console.warn(`[illustrator/consistencyQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts: ${lastErr?.message}`);
   return {
-    pass: false,
-    issues: [`Consistency QA infra error: ${lastErr?.message || 'unknown'}`],
+    pass: true,
+    issues: [],
     tags: ['qa_api_error'],
     infra: true,
+    warning: `Consistency QA skipped after infra error: ${lastErr?.message || 'unknown'}`,
+    artStyleIs3DPixar: null,
+    artStyleSeverity: null,
   };
 }
 
@@ -186,6 +189,7 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "outfitMatches": <true per the OUTFIT rules above; prefer true when in doubt.>,
   "artStyleIs3DPixar": <true if the spread reads as a 3D CGI Pixar-film frame with REAL volumetric 3D rendering — photoreal subsurface skin scattering, rendered hair strands (not painted hair shapes), physically based materials (real fabric weave, real wood grain, real foliage volume), ray-traced volumetric lighting, and genuine optical depth-of-field. False if the **last image** reads as ANY of: a real photograph, stock photo, 2D flat illustration, soft painted children's-book illustration, watercolor, gouache, pencil sketch, ink-and-wash, anime cel-shading, paper cutout, pixel art, digital painting, or "illustrated storybook" with flat painted background + soft shaded figures. Faces with flat painted-looking skin, hair that reads as painted shapes instead of strands, or a background that reads as a flat painted image with blur (instead of a real 3D environment with lens bokeh) = false.>,
   "artStyleNotes": "<short description if artStyleIs3DPixar is false — e.g. 'skin and hair read as painted illustration, not 3D CGI', 'background is a flat painted image with blur, not a 3D environment'>",
+  "artStyleSeverity": "<exactly one of: ok | soft_grading | wrong_medium | wrong_other — If artStyleIs3DPixar is true: use ok, or soft_grading only when the frame is clearly premium 3D Pixar CGI but color grading or exposure is borderline (still same medium). If artStyleIs3DPixar is false: use wrong_medium (painted storybook, heavy illustration) or wrong_other (photo, anime, watercolor, pixel art, wrong 3D engine). Never use soft_grading for watercolor or non-CGI.>",
   "heroCount": <integer — how many copies of the hero child appear in the spread. 1 is correct; 2+ is a duplicated-hero bug>,
   "heroBodyConnected": <true if the hero's body reads as ONE single continuous anatomy: head → neck → shoulders → torso → hips → legs → feet are all attached in one clean silhouette, the upper-body garment visibly connects to the lower-body garment on the same torso, and there are no floating "ghost" torsos, no stray extra pairs of legs/shorts/shoes rendered beside the hero, no visible body-segmentation seam, no two overlapping halves of the child. False if the child reads as two misaligned halves (e.g. an upper body in one pose on one side and a disembodied pair of legs/shorts standing beside them), if the shirt/top does NOT connect to the pants/shorts/skirt on the same body, or if an extra torso/legs ghosts next to the main figure. When clearly connected, true; when clearly broken, false; when unclear, prefer true.>,
   "heroBodyConnectedNotes": "<short description if heroBodyConnected is false (e.g. 'upper body in white shirt on left, disconnected legs in blue shorts standing to the right'), else empty string>",
@@ -207,6 +211,17 @@ Be strict on art style — drift toward a "soft painted storybook illustration" 
 }
 
 /**
+ * Normalize vision model severity for logging / downstream gates.
+ * @param {unknown} raw
+ * @returns {'ok'|'soft_grading'|'wrong_medium'|'wrong_other'|null}
+ */
+function normalizeArtStyleSeverity(raw) {
+  const s = String(raw || '').toLowerCase().trim();
+  if (s === 'soft_grading' || s === 'wrong_medium' || s === 'wrong_other' || s === 'ok') return s;
+  return null;
+}
+
+/**
  * @param {object} parsed
  * @param {object} [evalOpts]
  * @param {boolean} [evalOpts.hasPreviousSpread]
@@ -215,6 +230,10 @@ function evaluateConsistencyResult(parsed, evalOpts = {}) {
   const issues = [];
   const tags = [];
   const hasPreviousSpread = !!evalOpts.hasPreviousSpread;
+
+  const artStyleSeverityRaw = normalizeArtStyleSeverity(parsed.artStyleSeverity) || (
+    parsed.artStyleIs3DPixar === false ? 'wrong_medium' : 'ok'
+  );
 
   if (parsed.heroChildMatches === false) {
     const diff = (parsed.heroChildDifferences || '').trim();
@@ -232,6 +251,11 @@ function evaluateConsistencyResult(parsed, evalOpts = {}) {
     const notes = (parsed.artStyleNotes || '').trim();
     issues.push(`Art style drifts from 3D Pixar${notes ? `: ${notes}` : ''}`);
     tags.push('style_drift');
+    if (artStyleSeverityRaw === 'wrong_other') tags.push('style_drift_wrong_other');
+    if (artStyleSeverityRaw === 'wrong_medium') tags.push('style_drift_wrong_medium');
+  }
+  if (parsed.artStyleIs3DPixar === true && artStyleSeverityRaw === 'soft_grading') {
+    tags.push('style_grading_note');
   }
   if (Number(parsed.heroCount) > 1) {
     issues.push(`Hero child appears ${parsed.heroCount}× (should be 1×)`);
@@ -284,7 +308,13 @@ function evaluateConsistencyResult(parsed, evalOpts = {}) {
     pass: issues.length === 0,
     issues,
     tags: [...new Set(tags)],
+    artStyleIs3DPixar: parsed.artStyleIs3DPixar === true,
+    artStyleSeverity: artStyleSeverityRaw,
   };
 }
 
-module.exports = { checkSpreadConsistency, evaluateConsistencyResult };
+module.exports = {
+  checkSpreadConsistency,
+  evaluateConsistencyResult,
+  normalizeArtStyleSeverity,
+};

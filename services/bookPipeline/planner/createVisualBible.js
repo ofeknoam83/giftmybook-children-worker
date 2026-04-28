@@ -37,6 +37,53 @@ function formatCoverLocks(cover) {
   return entries.join('\n') || '(none explicit — infer from cover title + brief)';
 }
 
+/**
+ * Ensures structured hair continuity across spreads: morphology + verbatim lock line.
+ *
+ * @param {object} doc
+ * @param {object|null} heroJson
+ * @returns {object|null}
+ */
+function normalizeHeroWithHairLock(doc, heroJson) {
+  if (!heroJson || typeof heroJson !== 'object') return null;
+  const hero = { ...heroJson };
+  const fromLlm = hero.hairLock && typeof hero.hairLock === 'object' ? hero.hairLock : {};
+  const locks = doc.cover?.characterLocks || {};
+  const coverHairBits = [];
+  if (typeof locks.hairMorphology === 'string' && locks.hairMorphology.trim()) coverHairBits.push(locks.hairMorphology.trim());
+  if (typeof locks.hair === 'string' && locks.hair.trim()) coverHairBits.push(locks.hair.trim());
+  if (typeof locks.hairLength === 'string' && locks.hairLength.trim()) coverHairBits.push(`length: ${locks.hairLength.trim()}`);
+  const fromCover = coverHairBits.join('; ');
+
+  const morphology = typeof fromLlm.morphology === 'string' ? fromLlm.morphology.trim() : '';
+  const lengthClass = typeof fromLlm.lengthClass === 'string' ? fromLlm.lengthClass.trim() : '';
+  const accessories = fromLlm.accessories != null ? String(fromLlm.accessories).trim() : '';
+
+  let verbatimLock = typeof fromLlm.verbatimLock === 'string' ? fromLlm.verbatimLock.trim() : '';
+  if (!verbatimLock && fromCover) {
+    verbatimLock = `Match cover exactly — ${fromCover}`;
+  }
+
+  const hairLock = {
+    morphology: morphology || null,
+    lengthClass: lengthClass || null,
+    accessories: accessories || null,
+    verbatimLock: verbatimLock || null,
+  };
+
+  const hairLockLine = hairLock.verbatimLock
+    ? (
+      `Hero hair — BOOK LOCK (same morphology, length class, and curl/wave family as BOOK COVER on every spread; wind or motion may tousle strands but MUST NOT swap hair families — e.g. do not switch between tight curls vs straight/spiky silhouettes): ${hairLock.verbatimLock}`
+    )
+    : '';
+
+  return {
+    ...hero,
+    hairLock,
+    hairLockLine,
+  };
+}
+
 function userPrompt(doc) {
   const { brief, cover, storyBible } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'visualBible');
@@ -56,6 +103,12 @@ function userPrompt(doc) {
   "hero": {
     "name": "string",
     "physicalDescription": "precise sentence describing face/hair/body/skin from the cover",
+    "hairLock": {
+      "morphology": "concrete phrases that lock hair FAMILY vs the cover — e.g. tight dark curls, straight fine with side part, tousled short spikes, shoulder-length waves (must match BOOK COVER, not approximate)",
+      "lengthClass": "short | ear-length | chin | bob | shoulder | past-shoulder | long — must match apparent length on COVER silhouette",
+      "accessories": "none | describe visible bows/clips/headbands from cover, or null",
+      "verbatimLock": "ONE non-negotiable sentence repeated on every spread prompt — same hair family as cover; must not be vague ('brown hair' alone is invalid)"
+    },
     "outfitDescription": "precise sentence describing cover outfit (locked)",
     "signatureProp": "optional concrete prop that appears across the book or null"
   },
@@ -124,6 +177,8 @@ async function createVisualBible(doc) {
   });
 
   const json = result.json || {};
+  const heroMerged = normalizeHeroWithHairLock(doc, json.hero || null);
+
   const supportingCast = (Array.isArray(json.supportingCast) ? json.supportingCast : []).map(c => {
     const lock = c?.partialPresenceLock || {};
     return {
@@ -141,7 +196,7 @@ async function createVisualBible(doc) {
     };
   });
   const visualBible = {
-    hero: json.hero || null,
+    hero: heroMerged,
     outfitLocks: json.outfitLocks || null,
     supportingCastPolicy: json.supportingCastPolicy || null,
     supportingCast,

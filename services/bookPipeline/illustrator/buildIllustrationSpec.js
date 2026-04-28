@@ -125,6 +125,7 @@ function composeScene(doc, spread) {
     motifs,
     bridge,
     hero.physicalDescription ? `Hero ground truth: ${hero.physicalDescription}` : '',
+    hero.hairLockLine ? String(hero.hairLockLine).trim() : '',
     hero.outfitDescription ? `Hero outfit (locked to cover): ${hero.outfitDescription}` : '',
     environment ? `World anchors: ${environment}.` : '',
     priorAnchors,

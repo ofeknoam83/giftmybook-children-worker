@@ -215,13 +215,14 @@ async function verifySpreadText(imageBase64, expected, opts = {}) {
     }
   }
 
-  // Fail-open on infra errors — the caller can decide whether to trust it or retry.
+  // Fail-open on infra errors so a transient Gemini outage does not brick the book.
   console.warn(`[illustrator/textQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts: ${lastErr?.message}`);
   return {
-    pass: false,
-    issues: [`Text QA infra error: ${lastErr?.message || 'unknown'}`],
+    pass: true,
+    issues: [],
     tags: ['qa_api_error'],
     infra: true,
+    warning: `Text QA skipped after infra error: ${lastErr?.message || 'unknown'}`,
   };
 }
 
