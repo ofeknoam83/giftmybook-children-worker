@@ -40,6 +40,11 @@ function renderCorrectionNote(issues, tags) {
   ) {
     lines.push('Match the approved cover for hero face, hair, and outfit. Do not restyle the hero.');
   }
+  if (tags.includes('outfit_mismatch')) {
+    lines.push(
+      'Keep the hero’s **same shirt/top and pants/skirt** as the cover. Poetic lines about scarves or ribbons belong on **parent partial presence**, **railings**, or **environment** — not a wardrobe swap on the child.',
+    );
+  }
   if (tags.includes('body_disconnected') || tags.includes('duplicated_hero')) {
     lines.push(
       'Render the hero as ONE single connected body — one silhouette from head to feet, in one pose, at one scale. Head, neck, torso, hips, legs, and feet must all be attached on the same body. The upper-body garment (shirt/dress top) must visibly connect to the lower-body garment (pants/shorts/skirt) on the SAME torso. Do NOT render a second pair of legs, a ghost torso, or disconnected lower-body shorts standing beside the child. If the child is reaching or on tiptoe, the legs and feet must stay attached to the hips that support the torso. Exactly ONE child figure, ONE outfit, ONE set of limbs.',
@@ -66,6 +71,9 @@ function renderCorrectionNote(issues, tags) {
   if (tags.includes('split_panel')) {
     lines.push(
       'ONE continuous wide 16:9 panorama — a single cinematic frame with NO diptych, NO vertical seam, NO visible split down the middle, NO two panels stitched side-by-side. Lighting, perspective, and ground plane must read as one unified 3D shot.',
+    );
+    lines.push(
+      'If the scene has letter stones or stairs, arrange them **along one receding path** with **open mid-frame sky or depth** — not mirrored letter towers on left and right that read as two halves.',
     );
   }
   if (

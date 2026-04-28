@@ -176,6 +176,7 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/BOOK COVER/);
     expect(out).toMatch(/last accepted interior image/);
     expect(out).not.toMatch(/navy overalls/);
+    expect(out).toMatch(/scarf|ribbon|partial-presence parent|railing/i);
   });
 
   test('unexpected_person (parent theme, no secondary on cover) forbids strangers and full adults', () => {

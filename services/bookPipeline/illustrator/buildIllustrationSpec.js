@@ -5,10 +5,62 @@
  * low-level prompt builder (`services/illustrator/prompt.buildSpreadTurn`)
  * already accepts. This is the ONE place where the new pipeline translates
  * planning artifacts into a renderable scene instruction.
+ *
+ * Letter-path and wardrobe-vs-caption blocks below are **pattern-driven only**
+ * (regex on spec + manuscript). No book id, child name, or order-specific text.
  */
 
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { defaultTextCorner, resolveSideAndCorner } = require('../../illustrator/config');
+
+/** Scene + caption cues for alphabet / giant-letter paths (prone to split_panel QA false positives). */
+const ALPHABET_TRAIL_RX = /\b(alphabet|letter\s*trail|stone\s+letters?|giant\s+letters?|letter\s+blocks?|letters?\s+line|spelled\s+out|spells\s+out|each\s+letter|spelling\s+path|abc\s+path|from\s+[A-Z]\s+to\s+[A-Z]|\bletter\s+[A-Z]\b)/i;
+
+/** Caption mentions wearable accessories often mis-read as hero outfit changes vs cover. */
+const CAPTION_WEARABLE_PROP_RX = /\b(scarf|shawls?|mitten|mittens|bonnet|aprons?|bow\s+tie|necktie)\b/i;
+
+/**
+ * @param {{ focalAction?: string, location?: string, plotBeat?: string }|null|undefined} spec
+ * @param {string} manuscriptText
+ * @returns {boolean}
+ */
+function readsAlphabetTrailScene(spec, manuscriptText) {
+  const blob = [spec?.focalAction, spec?.location, spec?.plotBeat, manuscriptText]
+    .map((s) => String(s || ''))
+    .join(' ');
+  return ALPHABET_TRAIL_RX.test(blob);
+}
+
+/**
+ * @param {string} manuscriptText
+ * @param {boolean} hasOffCoverParent
+ * @returns {string}
+ */
+function buildHeroWardrobeVsCaptionPropsBlock(manuscriptText, hasOffCoverParent) {
+  const txt = String(manuscriptText || '');
+  const mentionsParent = /\b(mama|mom|mommy|mummy|mother|dada|daddy|papa|papi|father)\b/i.test(txt);
+  if (!CAPTION_WEARABLE_PROP_RX.test(txt) && !mentionsParent) return '';
+  return [
+    'Hero wardrobe vs caption (HARD):',
+    '  - The hero’s **core outfit** (shirt/top, pants/skirt/dress, shoes) must match the BOOK COVER and any `Hero outfit (locked to cover)` line above — same garment types and color family.',
+    hasOffCoverParent
+      ? '  - If the caption names a scarf, ribbon, wrap, or similar poetic image, show it on **the parent’s partial presence** (sleeve, hem, scarf tail, stroller fabric) or as **environmental fabric** (railing banner, stair runner) — NOT as an excuse to change the hero’s main clothes vs the cover.'
+      : '  - If the caption names a scarf, ribbon, or wrap, treat it as **environmental or handheld story fabric** (banner, railing cloth, small prop) — NOT a different shirt/pants/dress vs the cover unless the scene explicitly calls for pajamas, swim, or snow gear.',
+    '  - Do not add a **new primary garment layer** on the hero (different colored top, overalls vs cover tee, etc.) unless it is an obvious situational swap called out in the focal action.',
+  ].join('\n');
+}
+
+/**
+ * @returns {string}
+ */
+function buildAlphabetTrailPanoramaBlock() {
+  return [
+    'Alphabet-trail / letter-path composition (HARD — reduces split-panel failures):',
+    '  - ONE continuous 16:9 panorama: single ground plane, one sun/light direction, one color grade — no vertical seam, no mirrored “two halves” layout, no abrupt lighting or perspective break at frame center.',
+    '  - Place letters **along one receding path or gentle curve** (stones in a single walkway, low markers beside one trail). Avoid identical letter columns flanking left and right margins like a diptych.',
+    '  - Prefer **open sky, depth, or soft mid-frame negative space** so the center reads as continuous air/path — not a giant prop sliced exactly down the middle.',
+  ].join('\n');
+}
 
 /**
  * Compose a compact SCENE paragraph from visualBible + spreadSpec. The scene
@@ -23,6 +75,8 @@ const { defaultTextCorner, resolveSideAndCorner } = require('../../illustrator/c
 function composeScene(doc, spread) {
   const { visualBible, storyBible } = doc;
   const spec = spread.spec;
+  const manuscript = spread.manuscript;
+  const manuscriptText = manuscript?.text || '';
   const hero = visualBible?.hero || {};
   const priorAnchors = spread.spec?.continuityAnchors?.length
     ? `Continuity anchors to preserve: ${spec.continuityAnchors.join('; ')}.`
@@ -61,6 +115,10 @@ function composeScene(doc, spread) {
       : '';
   }
 
+  const hasOffCoverParent = declaredOffCoverCast.length > 0;
+  const wardrobeCaptionBlock = buildHeroWardrobeVsCaptionPropsBlock(manuscriptText, hasOffCoverParent);
+  const alphabetTrailBlock = readsAlphabetTrailScene(spec, manuscriptText) ? buildAlphabetTrailPanoramaBlock() : '';
+
   const offCoverCastBlock = declaredOffCoverCast.length > 0
     ? [
       'Off-cover cast rule (HARD):',
@@ -95,7 +153,6 @@ function composeScene(doc, spread) {
   // Tell the scene composition where the caption will sit so the busy focal
   // action lands AWAY from that corner (without emptying the corner out).
   const spreadIndex = Math.max(0, (Number(spread.spreadNumber) || 1) - 1);
-  const manuscript = spread.manuscript;
   const { side: resolvedSide, corner: resolvedCorner } = resolveSideAndCorner(
     spreadIndex,
     manuscript?.side || spec?.textSide,
@@ -131,6 +188,8 @@ function composeScene(doc, spread) {
     priorAnchors,
     lateVisualLock,
     offCoverCastBlock,
+    wardrobeCaptionBlock,
+    alphabetTrailBlock,
     captionPlacementLine,
     spec.forbiddenMistakes?.length ? `Avoid: ${spec.forbiddenMistakes.join('; ')}.` : '',
   ].filter(Boolean);
@@ -177,4 +236,10 @@ function buildIllustrationSpec(doc, spread) {
   };
 }
 
-module.exports = { buildIllustrationSpec, composeScene };
+module.exports = {
+  buildIllustrationSpec,
+  composeScene,
+  readsAlphabetTrailScene,
+  buildAlphabetTrailPanoramaBlock,
+  buildHeroWardrobeVsCaptionPropsBlock,
+};
