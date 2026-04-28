@@ -5,14 +5,7 @@
  * picture book. This is the single entry point the rest of the codebase
  * should use for picture-book illustrations.
  *
- * Provider routing (single switch — `MODELS.SPREAD_RENDER` in
- * `services/bookPipeline/constants.js`):
- *   - `gpt-image-2` (or any `gpt-image-*` / `openai-image-*`) → delegate
- *     to `./openaiFlow` (stateless, cover + last-accepted ref, slim rules).
- *   - any other value (default `gemini-3.1-flash-image-preview`) → use the
- *     Gemini chat-session flow defined in this file.
- *
- * Gemini flow (kept intact below):
+ * Flow (per book):
  *   1. createSession + establishCharacterReference from the approved cover.
  *   2. For each spread in order:
  *      a. generateSpread with the per-spread prompt.
@@ -27,14 +20,6 @@
  * every spread entry (matching the previous engine contract).
  */
 
-const { MODELS } = require('../bookPipeline/constants');
-
-/** True when `MODELS.SPREAD_RENDER` selects an OpenAI image model. */
-function isOpenAIImageProvider() {
-  const m = String(MODELS?.SPREAD_RENDER || '').toLowerCase();
-  return m.startsWith('gpt-image') || m.startsWith('openai-image');
-}
-
 const {
   TOTAL_SPREADS,
   MAX_SPREAD_CORRECTIONS,
@@ -42,7 +27,6 @@ const {
   PARENT_THEMES,
   defaultTextSide,
   SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
-  LATE_SPREAD_COVER_REANCHOR_INDEX,
 } = require('./config');
 const {
   createSession,
@@ -223,26 +207,6 @@ async function generateBookIllustrations(opts) {
 
     reportProgress(completedSpreadCount / totalForProgress, `Generating spread ${spreadNumber}/${totalForProgress}`);
 
-    let previousSpreadBase64 = null;
-    let previousSpreadMime = 'image/jpeg';
-    if (spreadIndex > 0) {
-      const prevUrl = spreadEntries[spreadIndex - 1]?.spreadIllustrationUrl;
-      if (prevUrl) {
-        try {
-          const resp = await fetch(prevUrl, {
-            signal: abortSignal || bookContext?.abortController?.signal || undefined,
-          });
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const buf = Buffer.from(await resp.arrayBuffer());
-          previousSpreadBase64 = buf.toString('base64');
-          const ct = (resp.headers.get('content-type') || '').toLowerCase();
-          if (ct.includes('png')) previousSpreadMime = 'image/png';
-        } catch (e) {
-          log('warn', `Could not load previous spread for continuity QA: ${e.message}`);
-        }
-      }
-    }
-
     const scene = entry.spread_image_prompt || entry.spreadImagePrompt || '';
     // Merge legacy left/right halves into a SINGLE caption — the new flow
     // renders one block on one side. entry.textSide wins if explicitly set.
@@ -272,8 +236,6 @@ async function generateBookIllustrations(opts) {
           childAge,
           abortSignal: abortSignal || bookContext?.abortController?.signal || null,
           log,
-          previousSpreadBase64,
-          previousSpreadMime,
         },
       );
 
@@ -445,8 +407,6 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     childAge,
     abortSignal,
     log,
-    previousSpreadBase64 = null,
-    previousSpreadMime = 'image/jpeg',
   } = ctx;
 
   let rebuildsUsed = 0;
@@ -484,9 +444,7 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         ? buildSpreadTurn(spreadCtx)
         : buildCorrectionTurn({ ...spreadCtx, issues, tags });
       generated = isFirst
-        ? await generateSpread(session, promptText, spreadIndex, {
-          reanchorCover: spreadIndex >= LATE_SPREAD_COVER_REANCHOR_INDEX,
-        })
+        ? await generateSpread(session, promptText, spreadIndex)
         : await sendCorrection(session, promptText, spreadIndex);
       safetyStrikesForSpread = 0;
     } catch (err) {
@@ -551,8 +509,6 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         characterDescription,
         childPhotoBase64: childPhotoBase64 || null,
         qaAllowedHumansNote,
-        previousSpreadBase64: previousSpreadBase64 || null,
-        previousSpreadMime: previousSpreadMime || null,
       }),
     ]);
 
@@ -616,19 +572,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
   throw lastError || new Error(`Spread ${spreadIndex + 1} exhausted retry budget`);
 }
 
-// Dispatcher: route to the OpenAI flow when `MODELS.SPREAD_RENDER` selects
-// gpt-image-2; otherwise call the Gemini implementations defined in this file.
-// Lazy-require so the openaiFlow module isn't loaded when running on Gemini.
 module.exports = {
-  generateBookIllustrations: (opts) => (
-    isOpenAIImageProvider()
-      ? require('./openaiFlow').generateBookIllustrations(opts)
-      : generateBookIllustrations(opts)
-  ),
-  regenerateSpreadIllustration: (opts) => (
-    isOpenAIImageProvider()
-      ? require('./openaiFlow').regenerateSpreadIllustration(opts)
-      : regenerateSpreadIllustration(opts)
-  ),
+  generateBookIllustrations,
+  regenerateSpreadIllustration,
   PARENT_THEMES,
 };

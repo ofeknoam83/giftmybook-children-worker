@@ -21,7 +21,6 @@ const {
   createBookDocument,
   withStageResult,
   appendStageTrace,
-  appendRetryMemory,
   setResult,
 } = require('./schema/bookDocument');
 
@@ -45,8 +44,6 @@ const { writerQaAndRewrite } = require('./writer/rewriteBookText');
 const { renderAllSpreads } = require('./illustrator/renderAllSpreads');
 const { runBookWideQa } = require('./qa/checkBookWide');
 const { toLayoutPayload } = require('./adapters/toLayoutPayload');
-const { buildRetryEntry } = require('./retryMemory');
-const { PARENT_DAY_THEMES } = require('./planner/spreadLocationAudit');
 
 class PipelineError extends Error {
   constructor(message, { failureCode, stage, issues } = {}) {
@@ -189,39 +186,7 @@ async function generateBook(rawRequest, opts = {}) {
   doc = await runStage(doc, 'visualBible', () => createVisualBible(doc), validateVisualBible, FAILURE_CODES.PLAN_UNRESOLVABLE);
 
   reportProgress(doc, { step: 'planning', message: 'Creating spread specs' });
-  doc = await runStage(doc, 'spreadSpecs', async () => {
-    const parentDay = PARENT_DAY_THEMES.has(String(doc.request?.theme || '').toLowerCase());
-    const MAX_SPREAD_SPEC_ATTEMPTS = parentDay ? 6 : 4;
-    let d = doc;
-    for (let attempt = 1; attempt <= MAX_SPREAD_SPEC_ATTEMPTS; attempt++) {
-      assertNotAborted(d);
-      d = await createSpreadSpecs(d);
-      const issues = validateSpreadSpecs(d);
-      if (issues.length === 0) return d;
-      if (attempt >= MAX_SPREAD_SPEC_ATTEMPTS) {
-        throw new PipelineError(`spreadSpecs failed after ${MAX_SPREAD_SPEC_ATTEMPTS} attempts`, {
-          failureCode: FAILURE_CODES.PLAN_UNRESOLVABLE,
-          stage: 'spreadSpecs',
-          issues,
-        });
-      }
-      d = appendRetryMemory(d, buildRetryEntry({
-        stage: 'spreadSpecs',
-        spreadNumber: null,
-        failedAttemptNumber: attempt,
-        failureTags: ['domestic_location_monotony', 'spread_specs_validation'],
-        mustChange: issues,
-        mustPreserve: [
-          'Keep storyBible and visualBible unchanged; only revise spread specs (location, plotBeat, focalAction, bridges, anchors) to pass validation.',
-        ],
-      }));
-      reportProgress(d, {
-        step: 'planning',
-        message: `Spread specs retry ${attempt + 1}/${MAX_SPREAD_SPEC_ATTEMPTS} (location diversity)`,
-      });
-    }
-    return d;
-  }, () => [], FAILURE_CODES.PLAN_UNRESOLVABLE);
+  doc = await runStage(doc, 'spreadSpecs', () => createSpreadSpecs(doc), validateSpreadSpecs, FAILURE_CODES.PLAN_UNRESOLVABLE);
 
   reportProgress(doc, { step: 'writing', message: 'Drafting manuscript' });
   doc = await runStage(doc, 'writerDraft', () => draftBookText(doc), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);

@@ -15,10 +15,6 @@ const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
-const {
-  renderPrimarySettingSteeringFromBookId,
-  shouldInjectBrainstormHomeTranslation,
-} = require('./bookPipeline/planner/plannerPromptHelpers');
 const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
 const { sanitizeForGemini } = require('./promptSanitizer');
 
@@ -720,7 +716,7 @@ function getThemeBeatStructure(theme, age) {
 }
 
 async function brainstormStorySeed(childDetails, customDetails, approvedTitle, opts = {}) {
-  const { costTracker, apiKeys, theme, additionalCoverCharacters, bookId } = opts;
+  const { costTracker, apiKeys, theme, additionalCoverCharacters } = opts;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const name = childDetails.name || childDetails.childName || 'the child';
@@ -748,7 +744,6 @@ LOCATION CREATIVITY (applies to \`setting\` and to **every** line in \`beats\`):
 - Prefer **memorable, specific, paintable** places: invented venues, public epic or quirky spaces (festival gate, market hall, pier, treetop walk, train platform, community parade, cave mouth, science museum, lighthouse steps). Nature: name the **ridge, tidepool, riverbend**, not "the park" or "the garden" by default.
 - **Spread 1** must not default to "waking at home" or "playing in the yard" when another open would serve the theme — only use those if the brief demands it.
 - Across 13 beats, aim for **at least 4–5 clearly distinct primary locations** when the theme allows; avoid ten spreads in the same boring yard.
-- If customer details describe ordinary home routines, satisfy personalization by carrying props and feelings into **re-staged** settings — including coherent **speculative habitable frames** (vessel, station, far settlement, undersea habitat) when paintable and theme-safe — **invent** specifics; do not reuse placeholder venue phrases from this prompt.
 
 FIELD DISTINCTNESS (avoid repeating the same idea in every string):
 - favorite_object: a concrete prop or companion — not a paragraph that restates the whole plot.
@@ -918,19 +913,6 @@ BIRTHDAY STORY RULE: The story_seed must be ABOUT the birthday itself — not an
   }
 
   userPrompt += `\n\nTIME OF DAY: Choose a time that serves the story's emotional logic. Not every book must start in the morning or end at night. Only bedtime-themed stories should default to evening. Adventures, birthdays, science, and space stories can begin at any hour.`;
-
-  if (shouldInjectBrainstormHomeTranslation(theme, customDetails)) {
-    userPrompt += `
-
-HOME-MENTION TRANSLATION (parent text suggests home-style routines — honor emotion and concrete anchors, not a private-residence room crawl):
-- Parent facts are **material and emotional anchors**, not a mandate for most beats in a **realistic private earth-home interior**.
-- At most **2–3 beats** may sit in a literal earth-home interior unless the parent's text clearly asks for an all-at-home book.
-- **Re-stage** the same activities, props, and feelings across **several distinct setting classes**, including: earthbound public / civic / commercial / outdoor (invent specific names); and **speculative but paintable “wrapper homes”** — one coherent invented frame is fine (orbital or deep-space habitat, undersea or submersible habitat, expedition base, other-world settlement, impossible architecture) as long as it stays visually consistent and child-safe.
-- **Do not** paste stereotyped “default cool places” from this instruction into \`setting\` or \`beats\`; **invent** book-specific names for this child.
-- **MANDATORY CUSTOMER DETAILS — concrete appearance:** every specific person, place, object, or quirk from the parent's text must appear **concretely** in the beats. “Concrete appearance” means the *ideas* (cookies, spoon, helping cook, couch snuggles as an **idea**) show up in **some** vivid scene — that scene may be **outside the literal family residence** (including a coherent speculative habitable frame) as long as the activity and feeling stay true.`;
-  }
-
-  userPrompt += `\n\n${renderPrimarySettingSteeringFromBookId(bookId)}`;
 
   console.log(`[storyPlanner] Brainstorming story seed for ${name}...`);
   const seedStart = Date.now();
@@ -3155,7 +3137,7 @@ async function planChapterBook(childDetails, theme, customDetails, opts = {}) {
   let enrichedCustomDetails;
   try {
     const [seedResult, enrichedResult] = await Promise.all([
-      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters, bookId: bookContext?.bookId })
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters })
         .catch(err => {
           bookContext?.log('warn', 'Chapter book seed brainstorm failed, using defaults', { error: err.message });
           return { repeated_phrase: 'one step at a time', favorite_object: customDetails || 'a compass', setting: 'the neighborhood', fear: 'failing' };
@@ -3806,7 +3788,7 @@ async function planGraphicNovel(childDetails, theme, customDetails, opts = {}) {
   const gnChildAge = childDetails.childAge || childDetails.age || 10;
   try {
     const [seedResult, enrichedResult, patternsResult] = await Promise.all([
-      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters, bookId: bookContext?.bookId })
+      brainstormStorySeed(childDetails, customDetails || '', approvedTitle, { apiKeys, costTracker, theme, additionalCoverCharacters })
         .catch(e => {
           bookContext?.log('warn', 'Graphic novel seed brainstorm failed', { error: e.message });
           return { repeated_phrase: '', favorite_object: customDetails || 'a map', fear: 'failing', setting: 'the city' };

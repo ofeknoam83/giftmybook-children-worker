@@ -11,7 +11,6 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, VISUAL_STYLE, TEXT_PLACEMENT } = require('../constants');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
-const { formatQuestionnaireBlock, renderVarietySteeringFromBookId } = require('./plannerPromptHelpers');
 
 const SYSTEM_PROMPT = `You are the art director for a premium personalized children's book.
 You do NOT generate spread prompts. You produce a visual contract that every spread must obey.
@@ -19,8 +18,7 @@ You do NOT generate spread prompts. You produce a visual contract that every spr
 Hard rules:
 - Visual language is locked globally: premium 3D character-driven ("${VISUAL_STYLE}"), warm cinematic lighting, materials with weight.
 - The approved cover is the hard anchor for hero identity, face, body, hair, and outfit. Do not contradict the cover.
-- **Spectacle:** environments should feel premium and paintable — favor dramatic light, clear scale, rich materials, and age-safe wonder. Avoid generic flat lighting and "stock suburban default" unless the brief demands it.
-- **Narrative visual thread:** read \`storyBible.visualJourneySpine\`, \`storyBible.locationStrategy\`, and \`storyBible.recurringVisualMotifs\`. The \`environmentAnchors\` and \`palette\` MUST reflect **the same anchor outing** (shared materials, light family, recurring architecture or vehicle DNA across beats) — one coherent journey with **depth**, not a stack of unrelated wallpapers.
+- **Narrative visual thread:** read \`storyBible.visualJourneySpine\` and \`storyBible.recurringVisualMotifs\`. The \`environmentAnchors\` and \`palette\` you output MUST weave those motifs in (concrete, repeatable art cues) so the book feels like one journey across varied places — not unrelated wallpapers.
 - Interior continuity uses the cover plus accepted interior spreads. No uploaded photo reference.
 - Support richer, busier worlds with high camera-angle variety, but keep one clear focal action per spread.
 - Text is painted INTO the illustration. Text usually lives on one side of the spread; no single line may cross the horizontal center of the spread.
@@ -39,69 +37,15 @@ function formatCoverLocks(cover) {
   return entries.join('\n') || '(none explicit — infer from cover title + brief)';
 }
 
-/**
- * Ensures structured hair continuity across spreads: morphology + verbatim lock line.
- *
- * @param {object} doc
- * @param {object|null} heroJson
- * @returns {object|null}
- */
-function normalizeHeroWithHairLock(doc, heroJson) {
-  if (!heroJson || typeof heroJson !== 'object') return null;
-  const hero = { ...heroJson };
-  const fromLlm = hero.hairLock && typeof hero.hairLock === 'object' ? hero.hairLock : {};
-  const locks = doc.cover?.characterLocks || {};
-  const coverHairBits = [];
-  if (typeof locks.hairMorphology === 'string' && locks.hairMorphology.trim()) coverHairBits.push(locks.hairMorphology.trim());
-  if (typeof locks.hair === 'string' && locks.hair.trim()) coverHairBits.push(locks.hair.trim());
-  if (typeof locks.hairLength === 'string' && locks.hairLength.trim()) coverHairBits.push(`length: ${locks.hairLength.trim()}`);
-  const fromCover = coverHairBits.join('; ');
-
-  const morphology = typeof fromLlm.morphology === 'string' ? fromLlm.morphology.trim() : '';
-  const lengthClass = typeof fromLlm.lengthClass === 'string' ? fromLlm.lengthClass.trim() : '';
-  const accessories = fromLlm.accessories != null ? String(fromLlm.accessories).trim() : '';
-
-  let verbatimLock = typeof fromLlm.verbatimLock === 'string' ? fromLlm.verbatimLock.trim() : '';
-  if (!verbatimLock && fromCover) {
-    verbatimLock = `Match cover exactly — ${fromCover}`;
-  }
-
-  const hairLock = {
-    morphology: morphology || null,
-    lengthClass: lengthClass || null,
-    accessories: accessories || null,
-    verbatimLock: verbatimLock || null,
-  };
-
-  const hairLockLine = hairLock.verbatimLock
-    ? (
-      `Hero hair — BOOK LOCK (same morphology, length class, and curl/wave family as BOOK COVER on every spread; wind or motion may tousle strands but MUST NOT swap hair families — e.g. do not switch between tight curls vs straight/spiky silhouettes): ${hairLock.verbatimLock}`
-    )
-    : '';
-
-  return {
-    ...hero,
-    hairLock,
-    hairLockLine,
-  };
-}
-
 function userPrompt(doc) {
-  const { brief, cover, storyBible, request } = doc;
+  const { brief, cover, storyBible } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'visualBible');
   const retryBlock = renderRetryMemoryForPrompt(retries);
-  const questionnaireBlock = formatQuestionnaireBlock(brief.child);
-  const varietyBlock = renderVarietySteeringFromBookId(request?.bookId);
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Approved cover title: "${cover.title}". Cover image URL: ${cover.imageUrl || '(provided as base64 reference)'}.`,
     `Cover locks carried in from input:\n${formatCoverLocks(cover)}`,
-    '',
-    'Parent questionnaire (for emotional color and grounded props — worlds stay bold):',
-    questionnaireBlock,
-    '',
-    varietyBlock,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',
@@ -112,12 +56,6 @@ function userPrompt(doc) {
   "hero": {
     "name": "string",
     "physicalDescription": "precise sentence describing face/hair/body/skin from the cover",
-    "hairLock": {
-      "morphology": "concrete phrases that lock hair FAMILY vs the cover — e.g. tight dark curls, straight fine with side part, tousled short spikes, shoulder-length waves (must match BOOK COVER, not approximate)",
-      "lengthClass": "short | ear-length | chin | bob | shoulder | past-shoulder | long — must match apparent length on COVER silhouette",
-      "accessories": "none | describe visible bows/clips/headbands from cover, or null",
-      "verbatimLock": "ONE non-negotiable sentence repeated on every spread prompt — same hair family as cover; must not be vague ('brown hair' alone is invalid)"
-    },
     "outfitDescription": "precise sentence describing cover outfit (locked)",
     "signatureProp": "optional concrete prop that appears across the book or null"
   },
@@ -186,8 +124,6 @@ async function createVisualBible(doc) {
   });
 
   const json = result.json || {};
-  const heroMerged = normalizeHeroWithHairLock(doc, json.hero || null);
-
   const supportingCast = (Array.isArray(json.supportingCast) ? json.supportingCast : []).map(c => {
     const lock = c?.partialPresenceLock || {};
     return {
@@ -205,7 +141,7 @@ async function createVisualBible(doc) {
     };
   });
   const visualBible = {
-    hero: heroMerged,
+    hero: json.hero || null,
     outfitLocks: json.outfitLocks || null,
     supportingCastPolicy: json.supportingCastPolicy || null,
     supportingCast,

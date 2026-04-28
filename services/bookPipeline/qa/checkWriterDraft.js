@@ -14,7 +14,6 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, FORMATS, WORDS_PER_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
-const { findCrossSpreadRepeatedLines, countingHookSpamBySpread } = require('./refrainLineAudit');
 
 const PREACH_MARKERS = [
   /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
@@ -113,24 +112,6 @@ function vowelsEquivalent(va, vb) {
   return false;
 }
 
-/**
- * Same stem dressed as grammar tweak (glow/glows, heart/hearts) — weak as an AABB pair.
- * @param {string} wa
- * @param {string} wb
- * @returns {boolean}
- */
-function rhymeLazyStemEcho(wa, wb) {
-  const a = normalizeRhymeWord(wa);
-  const b = normalizeRhymeWord(wb);
-  if (!a || !b || a === b) return false;
-  const shorter = a.length <= b.length ? a : b;
-  const longer = a.length <= b.length ? b : a;
-  if (shorter.length < 3) return false;
-  if (longer === `${shorter}s`) return true;
-  if (longer.endsWith('s') && longer.slice(0, -1) === shorter) return true;
-  return false;
-}
-
 function wordsRhyme(a, b) {
   if (!a || !b) return false;
   const na = normalizeRhymeWord(a);
@@ -177,27 +158,11 @@ function deterministicCheck(spread, doc) {
       const w2 = lastRhymeWord(lines[1]);
       const w3 = lastRhymeWord(lines[2]);
       const w4 = lastRhymeWord(lines[3]);
-      const n1 = normalizeRhymeWord(w1);
-      const n2 = normalizeRhymeWord(w2);
-      const n3 = normalizeRhymeWord(w3);
-      const n4 = normalizeRhymeWord(w4);
-      if (n1 && n2 && n1 === n2) {
-        issues.push(`couplet lines 1–2: same ending word twice ("${w1}" / "${w2}") — AABB requires two different words that rhyme`);
-        tags.push('identical_rhyme');
-      } else if (rhymeLazyStemEcho(w1, w2)) {
-        issues.push(`couplet lines 1–2: lazy rhyme echo ("${w1}" / "${w2}") — use two distinct vocabulary words, not the same stem`);
-        tags.push('lazy_rhyme_echo');
-      } else if (!wordsRhyme(w1, w2)) {
+      if (!wordsRhyme(w1, w2)) {
         issues.push(`lines 1 and 2 do not rhyme (AABB required): "${w1}" / "${w2}"`);
         tags.push('rhyme_fail');
       }
-      if (n3 && n4 && n3 === n4) {
-        issues.push(`couplet lines 3–4: same ending word twice ("${w3}" / "${w4}") — AABB requires two different words that rhyme`);
-        tags.push('identical_rhyme');
-      } else if (rhymeLazyStemEcho(w3, w4)) {
-        issues.push(`couplet lines 3–4: lazy rhyme echo ("${w3}" / "${w4}") — use two distinct vocabulary words, not the same stem`);
-        tags.push('lazy_rhyme_echo');
-      } else if (!wordsRhyme(w3, w4)) {
+      if (!wordsRhyme(w3, w4)) {
         issues.push(`lines 3 and 4 do not rhyme (AABB required): "${w3}" / "${w4}"`);
         tags.push('rhyme_fail');
       }
@@ -232,18 +197,14 @@ You review an existing manuscript for:
  - read-aloud musicality
  - age fit for the given band
  - personalization that feels real, not tacked on
- - **place vividness:** when \`spec.location\` names a specific outward or spectacular setting, the verse must not collapse it into only generic "inside / room / home" language — flag \`flat_location\` if the text could be any room while the spec promises a pier, market, trail, etc.
- - **narrative glue:** if many spreads feel like unrelated spectacle cards with no through-line (random prop or venue each page, no echo of \`sceneBridge\`), flag \`disconnected_jumps\` on the worst offenders and suggest one line of continuity each without changing the spec beats.
  - absence of preachy moralizing
  - rhyme quality where rhyme applies
 
 For picture-book manuscripts specifically, enforce:
  - EXACTLY 4 lines per spread (separated by "\\n").
- - AABB rhyme scheme: the last word of line 1 must end-rhyme with the last word of line 2; the last word of line 3 must end-rhyme with the last word of line 4. Flag weak pairs with "rhyme_fail" (e.g. "sing/plan", "sway/nap", "high/cuddle").
- - **Forbidden couplet endings:** the two lines in a rhyming pair must not end in the **same word** ("heart/heart", "bright/bright") — tag "identical_rhyme". Avoid **lazy stem echoes** ("glow/glows", "bake/bakes") — tag "lazy_rhyme_echo".
+ - AABB rhyme scheme: the last word of line 1 must end-rhyme with the last word of line 2; the last word of line 3 must end-rhyme with the last word of line 4. Flag any spread where a couplet doesn't really rhyme (e.g. "sing/plan", "sigh/Deana", "sniff/off", "high/cuddle") by adding the "rhyme_fail" tag. Flag same-word "rhymes" the same way.
  - Consistent musical pulse within each couplet (roughly matched line length and stress count).
  - Short lines (6–12 words; never over 14).
- - No wallpaper refrains: the same full line must not appear verbatim (or near-verbatim) on 3+ spreads; one intentional callback is fine, not every spread.
 
 Return ONLY strict JSON. Be specific and actionable — when a rhyme fails, name the offending word pair in the spread's issues list. Mark "pass": true only if the book is genuinely strong AND (for picture books) all AABB rhymes hold.`;
 
@@ -277,32 +238,11 @@ function literaryQaUserPrompt(doc) {
  * @param {object} doc
  * @returns {Promise<{ pass: boolean, perSpread: object[], bookLevel: string[], repairPlan: object[], updatedDoc: object }>}
  */
-/**
- * @param {object} doc
- * @returns {Map<number, { issues: string[], tags: string[] }>}
- */
-function refrainDuplicationBySpread(doc) {
-  const aug = new Map();
-  const violations = findCrossSpreadRepeatedLines(doc.spreads);
-  for (const v of violations) {
-    const msg = `Refrain wallpaper: same line repeats across spreads ${v.spreadNumbers.join(', ')} — rewrite so at most one spread echoes it as a callback; vary other occurrences.`;
-    for (const sn of v.spreadNumbers) {
-      if (!aug.has(sn)) aug.set(sn, { issues: [], tags: [] });
-      aug.get(sn).issues.push(msg);
-      aug.get(sn).tags.push('refrain_spam');
-    }
-  }
-  return aug;
-}
-
 async function checkWriterDraft(doc) {
   const deterministic = doc.spreads.map(s => ({
     spreadNumber: s.spreadNumber,
     ...deterministicCheck(s, doc),
   }));
-
-  const refrainAug = refrainDuplicationBySpread(doc);
-  const countingAug = countingHookSpamBySpread(doc.spreads);
 
   const result = await callText({
     model: MODELS.WRITER_QA,
@@ -321,21 +261,9 @@ async function checkWriterDraft(doc) {
 
   const merged = doc.spreads.map(s => {
     const det = deterministic.find(d => d.spreadNumber === s.spreadNumber) || { pass: true, issues: [], tags: [] };
-    const ref = refrainAug.get(s.spreadNumber) || { issues: [], tags: [] };
-    const cnt = countingAug.get(s.spreadNumber) || { issues: [], tags: [] };
     const lit = perSpreadLit.find(l => Number(l?.spreadNumber) === s.spreadNumber) || {};
-    const issues = [
-      ...det.issues,
-      ...ref.issues,
-      ...cnt.issues,
-      ...(Array.isArray(lit.issues) ? lit.issues.map(String) : []),
-    ];
-    const tags = [
-      ...det.tags,
-      ...ref.tags,
-      ...cnt.tags,
-      ...(Array.isArray(lit.tags) ? lit.tags.map(String) : []),
-    ];
+    const issues = [...det.issues, ...(Array.isArray(lit.issues) ? lit.issues.map(String) : [])];
+    const tags = [...det.tags, ...(Array.isArray(lit.tags) ? lit.tags.map(String) : [])];
     return {
       spreadNumber: s.spreadNumber,
       pass: issues.length === 0,
@@ -364,4 +292,4 @@ async function checkWriterDraft(doc) {
   };
 }
 
-module.exports = { checkWriterDraft, deterministicCheck, rhymeLazyStemEcho };
+module.exports = { checkWriterDraft };

@@ -12,12 +12,6 @@ const { MODELS } = require('../constants');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { renderThemeDirectiveBlock } = require('./themeDirectives');
-const {
-  PLANNER_CREATIVE_BAR,
-  formatQuestionnaireBlock,
-  renderVarietySteeringFromBookId,
-} = require('./plannerPromptHelpers');
-const { PARENT_DAY_THEMES } = require('./spreadLocationAudit');
 
 const SYSTEM_PROMPT = `You are a senior children's picture-book story architect.
 You design the narrative spine for a premium personalized book, not the final prose.
@@ -26,10 +20,9 @@ Hard rules:
 - Optimize for fun read-aloud quality first, emotional payoff, personalization, and visual richness.
 - Funny, playful tone, character-based humor. Never preachy.
 - Soft but meaningful emotional range. Cinematic but clearly child-safe adventure.
-- Push toward memorable, spectacular, paintable locations. Never let the book live mostly inside a house.
-${PLANNER_CREATIVE_BAR}
-- **One connected adventure (critical):** the book must read as a single through-line — **one outing, quest, vehicle, or mystery** that pulls the hero along. New zones are welcome when they are **legs of that same journey** (next stop on the line, next courtyard of the festival, next bend of the harbor walk), not a new unrelated biome every spread. Every major location change must answer "what story reason brought us here?" Avoid **theme-park roulette** and **questionnaire collage** (each spread a fresh spectacle only to showcase another answer). Prefer fewer anchor worlds **deepened** over many one-off backdrops.
-- **Recurring visual motifs:** name 3-5 concrete things that can reappear in the art (carried object, weather thread, signature color accent, sound made visible, etc.) so interiors feel threaded — obey the grounding rule above (at least one motif from real questionnaire/custom-detail nouns).
+- Push toward memorable, photogenic locations. Never let the book live mostly inside a house.
+- **One connected adventure (critical):** the book must read as a single through-line — cause, quest, or discovery that pulls the hero from place to place. New settings are welcome and should feel spectacular, but they must not feel like random stock backdrops. Every major location change should answer "what story reason brought us here?" (following a map, chasing a light, helping a friend, the next riddle, the same storm breaking, a companion leading onward, etc.). Avoid "theme park" jumps with no bridge.
+- **Recurring visual motifs:** name 3-5 concrete things that can reappear in the art (a carried object, a weather thread, a non-human friend, a signature color accent, a trail of light, a sound made visible, etc.) so interior illustrations feel threaded, not isolated postcards.
 - The hero is the child provided in the brief. The approved cover is already chosen; the cover locks the hero's look and outfit.
 - Do not invent named family members that are not in the brief. Do not turn the child into a stand-in for any family member.
 - Return ONLY strict JSON matching the schema in the user message.`;
@@ -45,43 +38,27 @@ function userPrompt(doc) {
     .map(([k, v]) => `  - ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join('\n') || '  (none)';
 
-  const questionnaireBlock = formatQuestionnaireBlock(brief.child);
-  const varietyBlock = renderVarietySteeringFromBookId(request.bookId);
-  const parentDay = PARENT_DAY_THEMES.has(String(request.theme || '').toLowerCase());
-  const parentDaySpine = parentDay
-    ? [
-      '',
-      'PARENT-DAY SPINE: `locationStrategy` and `visualJourneySpine` must center on a **shared outward quest** (spectacular public or magical places). At most one short home act; do not plan a book that lives in kitchen/couch/hall. If custom details mention baking, translate to festival bakery row, harbor treat boat, rooftop garden oven, etc.',
-    ].join('\n')
-    : '';
-
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Format: ${request.format}. Age band: ${request.ageBand}. Theme: ${request.theme}.`,
     `Approved cover title: "${cover.title}".`,
     themeBlock,
-    parentDaySpine,
-    'Parent questionnaire (every non-empty line must influence personalizationTargets or the emotional payoff — not replace the adventure spine):',
-    questionnaireBlock,
-    '',
     `Custom details (must be used concretely unless they hurt the story):`,
     customDetailsBlock,
-    '',
-    varietyBlock,
     '',
     'Return JSON with this exact shape:',
     `{
   "narrativeSpine": "one sentence that names what the book is really about",
   "beginningHook": "one sentence: the opening beat that grabs a child",
-  "middleEscalation": "one sentence: how stakes, curiosity, or scale grow toward a peak — include at least one kid-safe surprise or reversal (not only another nice moment)",
+  "middleEscalation": "one sentence: how the story grows and surprises",
   "endingPayoff": "one sentence: the concrete, specific ending that parents remember",
   "emotionalArc": "one sentence: the emotional spine from start to finish",
   "humorStrategy": "one sentence: the comedic engine (e.g. literal-minded sidekick, hero misreads the world)",
   "themeGuidance": "one sentence: how ${request.theme} shows up without being on-the-nose",
   "personalizationTargets": ["3-6 specific custom-detail hooks the book must use"],
-  "locationStrategy": "one sentence: name the **small set of anchor venue families** (ideally 2–3) and how the book moves among them; at least 4 **spectacular** beats can be different **zones or times** within those anchors (same festival, same waterfront, same excursion route) — not 13 unrelated tourist stops",
-  "visualJourneySpine": "2-4 sentences: the **single causal thread** (mission, object, vehicle, event, or mystery) that earns every move. State the through-line by name so spread specs cannot devolve into random set pieces. Transitions must feel like **consequences or continuations**, not teleportation.",
-  "recurringVisualMotifs": ["3-5 concrete, art-friendly motifs — at least one MUST cite a real noun from questionnaire/custom details; avoid default ribbon/lullaby/generic sidekick/light-trail unless brief supports"],
+  "locationStrategy": "one sentence: a travel spine across at least 4 visually distinct, photogenic places",
+  "visualJourneySpine": "2-4 sentences: the causal thread that connects those places into ONE story — the mission, object, quest, or escalation that justifies each move. Make the chain clear enough that spread-to-spread transitions feel earned, not random.",
+  "recurringVisualMotifs": ["3-5 concrete, art-friendly motifs that echo across the book (object, weather, light trail, small companion, color accent, etc.) — not abstract themes"],
   "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"]
 }`,
     retryBlock ? `\n${retryBlock}` : '',
