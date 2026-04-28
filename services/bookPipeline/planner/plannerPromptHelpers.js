@@ -25,6 +25,84 @@ const QUESTIONNAIRE_FIELD_LABELS = [
   { key: 'birth_date', label: 'Birth date' },
 ];
 
+/**
+ * Parent free-text that smells like ordinary-home routines (triggers upstream translation nudge).
+ * Keep in sync loosely with domestic heuristics in spreadLocationAudit — this is for questionnaire/custom details only.
+ */
+const HOME_CONTEXT_RX = /\b(kitchen|bake|baking|baker|cookies?|oven|couch|sofa|apartment|\bflat\b|hallway|laundry|living\s+room|at\s+home|dining\s+room|pantry|bedroom|backyard|family\s+room)\b/i;
+
+/** Occasion themes that receive HOME-MENTION TRANSLATION when {@link customDetailsMentionHomeContext} matches. */
+const HOME_TRANSLATION_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day', 'birthday', 'birthday_magic']);
+
+/**
+ * @param {string|null|undefined} text
+ * @returns {boolean}
+ */
+function customDetailsMentionHomeContext(text) {
+  if (!text || typeof text !== 'string') return false;
+  return HOME_CONTEXT_RX.test(text);
+}
+
+/**
+ * @param {string|null|undefined} theme
+ * @param {string|null|undefined} customDetails
+ * @returns {boolean}
+ */
+function shouldInjectBrainstormHomeTranslation(theme, customDetails) {
+  const t = theme == null ? '' : String(theme);
+  if (!HOME_TRANSLATION_THEMES.has(t)) return false;
+  return customDetailsMentionHomeContext(customDetails);
+}
+
+/**
+ * Heuristic: brainstorm seed fields still read heavily domestic (for optional pipeline preface).
+ * @param {object|null|undefined} storySeed
+ * @returns {boolean}
+ */
+function storySeedMentionHomeContext(storySeed) {
+  if (!storySeed || typeof storySeed !== 'object') return false;
+  const beatText = Array.isArray(storySeed.beats)
+    ? storySeed.beats.map((b) => {
+        if (typeof b === 'string') return b;
+        if (b && typeof b === 'object') return (b.description || b.text || b.beat || '').toString();
+        return '';
+      }).join(' ')
+    : '';
+  const blob = [
+    storySeed.setting,
+    storySeed.narrative_spine,
+    storySeed.storySeed,
+    beatText,
+  ]
+    .map((s) => (s == null ? '' : String(s)))
+    .join(' ');
+  return customDetailsMentionHomeContext(blob);
+}
+
+/** One hash-chosen principle per book — orthogonal “where” biases without naming copy-paste venues. */
+const PRIMARY_SETTING_STEERING_POOL = [
+  'Primary spectacle bias (this book id): lean into sky, flight decks, weather layers, and airy vertical scale. Obey theme and questionnaire; invent specific place names — do not paste wording from this instruction.',
+  'Primary spectacle bias (this book id): lean into depth, pressure-glow hulls, and undersea architecture. Obey theme and questionnaire; invent specifics — do not default every book to the same vessel type.',
+  'Primary spectacle bias (this book id): lean into non-Earth horizons, unfamiliar ecology, and small-settlement life. Keep child-safe and paintable; invent names — avoid a generic “planet” label as the whole setting.',
+  'Primary spectacle bias (this book id): lean into layered civic scale, transit, and busy public interiors. Obey theme; invent a coherent city or hub — not a hallway–kitchen–couch crawl.',
+  'Primary spectacle bias (this book id): lean into extreme earth nature (named ridges, canyons, storm edges, tides). Obey theme; forbid vague “nice park” unless the brief names that exact place.',
+  'Primary spectacle bias (this book id): lean into a long-distance travel spine (route, convoy, deck, corridor-of-the-journey). Obey theme; invent vehicle and stops — one clear mile-by-mile arc.',
+];
+
+/**
+ * Deterministic primary-setting nudge from book id (different byte index than trope steering).
+ * @param {string|null|undefined} bookId
+ * @returns {string}
+ */
+function renderPrimarySettingSteeringFromBookId(bookId) {
+  const h = crypto.createHash('sha256').update(String(bookId || 'pipeline'), 'utf8').digest();
+  const idx = h[2] % PRIMARY_SETTING_STEERING_POOL.length;
+  return [
+    'Cross-order setting variety (deterministic nudge — still obey brief and theme):',
+    `  ${PRIMARY_SETTING_STEERING_POOL[idx]}`,
+  ].join('\n');
+}
+
 /** Soft trope nudges — hash picks two so repeat orders do not all default the same way. */
 const TROPE_STEERING_POOL = [
   'Do not let a ribbon, bow, or gift ribbon be the main recurring visual thread unless the parent text names one.',
@@ -124,6 +202,12 @@ module.exports = {
   QUESTIONNAIRE_FIELD_LABELS,
   formatQuestionnaireBlock,
   renderVarietySteeringFromBookId,
+  renderPrimarySettingSteeringFromBookId,
+  customDetailsMentionHomeContext,
+  shouldInjectBrainstormHomeTranslation,
+  storySeedMentionHomeContext,
   formatPlannerStorySeedAppendix,
   PLANNER_CREATIVE_BAR,
+  HOME_TRANSLATION_THEMES,
+  PRIMARY_SETTING_STEERING_POOL,
 };
