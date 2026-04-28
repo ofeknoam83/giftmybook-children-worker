@@ -24,6 +24,8 @@ ${WRITER_LOCATION_VIVIDNESS_RULES}
 - Read-aloud first. Musical, simple, low repetition, no big metaphors.
 - Third-person by default. Funny/playful tone. Never preachy.
 - If issues mention refrain wallpaper or tag "refrain_spam": rewrite lines on THIS spread so the same sentence is not duplicated across the book — keep AABB rhyme and spec; one intentional callback elsewhere is enough.
+- If issues mention tag "counting_refrain_spam": remove or replace "one, two, three" style counting on this spread; vary the beat while keeping rhyme and spec.
+- Weave \`sceneBridge\` where issues mention disconnected or collage-like jumps: add one subtle line of continuation (same outing, same path, carried prop) without changing \`location\` or \`focalAction\`.
 - Text must be plausible to render in a few lines on one side without crossing center.
 
 Picture-book structure (MANDATORY when format is picture_book):

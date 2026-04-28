@@ -25,6 +25,8 @@ ${WRITER_LOCATION_VIVIDNESS_RULES}
 - **Plot energy:** follow \`plotBeat\`, \`focalAction\`, and \`location\` — the adventure (discovery, problem, funny try, wonder) drives each spread. If personalization is soft (hugs, kisses, snuggles), honor it lightly on heart/close spreads — do not make every spread only cuddly or generic family warmth; the spec's action still happens.
 - **No line wallpaper:** do not paste the same full line on multiple spreads unless one intentional callback — vary wording while keeping rhyme.
 - **Scene flow:** when \`sceneBridge\` and \`continuityAnchors\` are present on a spread, let the verse acknowledge the *same* story movement — cause, discovery, or callback — so the read-aloud feels like a single adventure, not isolated vignettes. You may imply the bridge subtly (a repeated object, a "still following", "the trail led", "the friend from before") without naming camera directions.
+- **Anti-collage:** Do not treat each spread as a standalone puzzle of random props. Personalization (\`mustUseDetails\`, questionnaire) must feel **woven into the same outing** — reuse motifs and causal links across spreads; avoid "feature a new gimmick every page" when the story bible implies one journey.
+- **Mechanical hooks:** Do not use the counting phrase "one, two, three" (or "1, 2, 3") on **more than two spreads** in the same book unless \`storyBible.narrativeSpine\` or \`recurringVisualMotifs\` clearly establish that counting beat as the book's intentional refrain. Vary rhythm and actions spread to spread.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
 - The "text" field for each spread is EXACTLY 4 lines, separated by a single "\\n" character.
@@ -71,7 +73,7 @@ function userPrompt(doc) {
     '',
     `Spread specs (length ${TOTAL_SPREADS}):\n${JSON.stringify(specs, null, 2)}`,
     retryBlock ? `\n${retryBlock}` : '',
-    'For each spread, the four lines must make the place feel beautiful and specific — grounded in that spread\'s `location` and `focalAction`, not generic indoor blur.',
+    'For each spread, the four lines must make the place feel beautiful and specific — grounded in that spread\'s `location` and `focalAction`, not generic indoor blur — while keeping **narrative continuity** with `sceneBridge` so the book does not read as thirteen unrelated spectacle cards.',
     'Emit the JSON now.',
   ].filter(Boolean).join('\n');
 }

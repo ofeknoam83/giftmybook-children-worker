@@ -20,7 +20,7 @@ Hard rules:
 - Visual language is locked globally: premium 3D character-driven ("${VISUAL_STYLE}"), warm cinematic lighting, materials with weight.
 - The approved cover is the hard anchor for hero identity, face, body, hair, and outfit. Do not contradict the cover.
 - **Spectacle:** environments should feel premium and paintable — favor dramatic light, clear scale, rich materials, and age-safe wonder. Avoid generic flat lighting and "stock suburban default" unless the brief demands it.
-- **Narrative visual thread:** read \`storyBible.visualJourneySpine\` and \`storyBible.recurringVisualMotifs\`. The \`environmentAnchors\` and \`palette\` you output MUST weave those motifs in (concrete, repeatable art cues) so the book feels like one journey across varied places — not unrelated wallpapers.
+- **Narrative visual thread:** read \`storyBible.visualJourneySpine\`, \`storyBible.locationStrategy\`, and \`storyBible.recurringVisualMotifs\`. The \`environmentAnchors\` and \`palette\` MUST reflect **the same anchor outing** (shared materials, light family, recurring architecture or vehicle DNA across beats) — one coherent journey with **depth**, not a stack of unrelated wallpapers.
 - Interior continuity uses the cover plus accepted interior spreads. No uploaded photo reference.
 - Support richer, busier worlds with high camera-angle variety, but keep one clear focal action per spread.
 - Text is painted INTO the illustration. Text usually lives on one side of the spread; no single line may cross the horizontal center of the spread.

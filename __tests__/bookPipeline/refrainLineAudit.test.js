@@ -1,6 +1,7 @@
 const {
   findCrossSpreadRepeatedLines,
   normalizeRefrainLine,
+  countingHookSpamBySpread,
 } = require('../../services/bookPipeline/qa/refrainLineAudit');
 
 describe('refrainLineAudit', () => {
@@ -23,5 +24,23 @@ describe('refrainLineAudit', () => {
     ];
     const v = findCrossSpreadRepeatedLines(spreads);
     expect(v.find(x => x.normalized.includes('hi there'))).toBeUndefined();
+  });
+
+  it('countingHookSpamBySpread flags when 3+ spreads use one-two-three', () => {
+    const mk = (n) => ({
+      spreadNumber: n,
+      manuscript: { text: `A high\nB sky\nC try\none, two, three go` },
+    });
+    const aug = countingHookSpamBySpread([mk(1), mk(2), mk(3)]);
+    expect(aug.size).toBe(3);
+    expect(aug.get(1).tags).toContain('counting_refrain_spam');
+  });
+
+  it('countingHookSpamBySpread is empty when only two spreads count', () => {
+    const aug = countingHookSpamBySpread([
+      { spreadNumber: 1, manuscript: { text: 'a\nb\nc\none two three' } },
+      { spreadNumber: 2, manuscript: { text: 'a\nb\nc\none two three' } },
+    ]);
+    expect(aug.size).toBe(0);
   });
 });

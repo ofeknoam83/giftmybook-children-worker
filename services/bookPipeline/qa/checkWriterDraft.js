@@ -14,7 +14,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, FORMATS, WORDS_PER_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
-const { findCrossSpreadRepeatedLines } = require('./refrainLineAudit');
+const { findCrossSpreadRepeatedLines, countingHookSpamBySpread } = require('./refrainLineAudit');
 
 const PREACH_MARKERS = [
   /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
@@ -199,6 +199,7 @@ You review an existing manuscript for:
  - age fit for the given band
  - personalization that feels real, not tacked on
  - **place vividness:** when \`spec.location\` names a specific outward or spectacular setting, the verse must not collapse it into only generic "inside / room / home" language — flag \`flat_location\` if the text could be any room while the spec promises a pier, market, trail, etc.
+ - **narrative glue:** if many spreads feel like unrelated spectacle cards with no through-line (random prop or venue each page, no echo of \`sceneBridge\`), flag \`disconnected_jumps\` on the worst offenders and suggest one line of continuity each without changing the spec beats.
  - absence of preachy moralizing
  - rhyme quality where rhyme applies
 
@@ -266,6 +267,7 @@ async function checkWriterDraft(doc) {
   }));
 
   const refrainAug = refrainDuplicationBySpread(doc);
+  const countingAug = countingHookSpamBySpread(doc.spreads);
 
   const result = await callText({
     model: MODELS.WRITER_QA,
@@ -285,15 +287,18 @@ async function checkWriterDraft(doc) {
   const merged = doc.spreads.map(s => {
     const det = deterministic.find(d => d.spreadNumber === s.spreadNumber) || { pass: true, issues: [], tags: [] };
     const ref = refrainAug.get(s.spreadNumber) || { issues: [], tags: [] };
+    const cnt = countingAug.get(s.spreadNumber) || { issues: [], tags: [] };
     const lit = perSpreadLit.find(l => Number(l?.spreadNumber) === s.spreadNumber) || {};
     const issues = [
       ...det.issues,
       ...ref.issues,
+      ...cnt.issues,
       ...(Array.isArray(lit.issues) ? lit.issues.map(String) : []),
     ];
     const tags = [
       ...det.tags,
       ...ref.tags,
+      ...cnt.tags,
       ...(Array.isArray(lit.tags) ? lit.tags.map(String) : []),
     ];
     return {
