@@ -84,11 +84,11 @@ const TEXT_RULES = {
   // frame. Picture-book PDFs are full-bleed; Lulu trim/bleed plus
   // `layoutEngine` vertical center-crop on 16:9→square spreads can shave
   // the top and bottom of the art. Keep type well inside so descenders and
-  // the last line never clip. (Bumped from 9% → 14% → 16% → 21% for production trim.)
-  cornerVerticalPaddingPercent: 21,
+  // the last line never clip. (Bumped from 9% → … → 21% → 26% for production trim.)
+  cornerVerticalPaddingPercent: 26,
   // Legacy fields kept for backwards compatibility with older prompt paths.
-  topPaddingPercent: 21,
-  bottomPaddingPercent: 21,
+  topPaddingPercent: 26,
+  bottomPaddingPercent: 26,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
@@ -107,8 +107,8 @@ const TEXT_RULES = {
 
 /**
  * Ages 3–8 picture books use longer read-aloud lines. Tighten the on-image type
- * tier and widen vertical safe margins so PDF trim + layoutEngine center-crop
- * do not clip ascenders, descenders, or multi-line blocks.
+ * tier (compact caption size) and widen horizontal edge padding slightly so PDF
+ * trim + layoutEngine center-crop do not clip multi-line blocks.
  *
  * @param {number|string|null|undefined} childAge
  * @returns {typeof TEXT_RULES}
@@ -122,9 +122,6 @@ function resolvePictureBookTextRules(childAge) {
     ...TEXT_RULES,
     maxWordsPerLine: 7,
     edgePaddingPercent: 8,
-    cornerVerticalPaddingPercent: 26,
-    topPaddingPercent: 26,
-    bottomPaddingPercent: 26,
     fontSize:
       '**Compact read-aloud tier (ages 3–8, longer lines):** Use a **slightly smaller** on-image caption than a typical toddler picture book — still crisp, sharp, and easy to read at arm’s length, but stepped down one clear notch so a multi-line block never crowds the vertical safe zone. Modest film subtitle, not miniature; never poster or title scale. Hold this **same** compact size on every spread.',
     typographyConsistency:

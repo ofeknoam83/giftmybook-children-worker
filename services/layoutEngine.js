@@ -124,8 +124,8 @@ async function splitSpreadImage(buf, pw, ph) {
   // Balanced vertical crop. 16:9 images are taller than the 2:1 spread ratio, so
   // we must crop vertically. A 50/50 split (half the excess from top, half from bottom)
   // keeps composition centered. The illustrator insets on-image caption text
-  // from the top/bottom of the 16:9 frame (`resolvePictureBookTextRules`: 21%
-  // default, ~26% for ages 3–8) so type stays clear of Lulu trim/bleed after this crop.
+  // from the top/bottom of the 16:9 frame (`TEXT_RULES.cornerVerticalPaddingPercent`:
+  // 26%) so type stays clear of Lulu trim/bleed after this crop.
   const excessH = Math.max(0, scaledH - hp);
   const cropTop = Math.floor(excessH * 0.5);
 
