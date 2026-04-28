@@ -78,9 +78,10 @@ const MODELS = {
   // --- Image rendering ---
   // Routed via services/illustrator/index.js (legacy entries pipeline) and
   // services/bookPipeline/illustrator/renderAllSpreads.js (new pipeline):
-  //   - 'gpt-image-2'                     → OpenAI Images 2.0 stateless flow (services/illustrator/openaiFlow) — default
-  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — fallback
-  SPREAD_RENDER: 'gpt-image-2',
+  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — default
+  //   - 'gpt-image-2'                     → OpenAI Images 2.0 stateless flow (services/illustrator/openaiFlow) — alternative,
+  //                                         requires org verification for the gpt-image-2 model
+  SPREAD_RENDER: 'gemini-3.1-flash-image-preview',
 
   // Deprecated alias — keep until callers are fully migrated.
   PLANNER: 'gpt-5.4',
