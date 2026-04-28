@@ -69,8 +69,6 @@ const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAge
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
 const { sceneHasFramingHint } = require('./services/writer/sceneFramingHint');
-const { formatPlannerStorySeedAppendix, storySeedMentionHomeContext } = require('./services/bookPipeline/planner/plannerPromptHelpers');
-const { COZY_DOMESTIC_OK_THEMES } = require('./services/bookPipeline/planner/spreadLocationAudit');
 
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
@@ -871,7 +869,6 @@ app.post('/generate-book', authenticate, async (req, res) => {
     if (childAnecdotes.dad_name) anecdoteParts.push(`Dad's name: ${childAnecdotes.dad_name}`);
     if (childAnecdotes.meaningful_moment) anecdoteParts.push(`Meaningful moment: ${childAnecdotes.meaningful_moment}`);
     if (childAnecdotes.moms_favorite_moment) anecdoteParts.push(`Mom's favorite moment: ${childAnecdotes.moms_favorite_moment}`);
-    if (childAnecdotes.dads_favorite_moment) anecdoteParts.push(`Dad's favorite moment: ${childAnecdotes.dads_favorite_moment}`);
     if (childAnecdotes.favorite_cake_flavor) anecdoteParts.push(`Favorite cake flavor: ${childAnecdotes.favorite_cake_flavor}`);
     if (childAnecdotes.favorite_toys) anecdoteParts.push(`Favorite toys: ${childAnecdotes.favorite_toys}`);
     if (childAnecdotes.birth_date) anecdoteParts.push(`Birth date: ${childAnecdotes.birth_date}`);
@@ -1113,7 +1110,6 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           emotionalSituation,
           copingResourceHint,
           additionalCoverCharacters: detectedSecondaryCharacters || null,
-          bookId,
         });
         bookContext.log('info', 'Story seed ready', {
           favorite_object: storySeed.favorite_object,
@@ -1158,12 +1154,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         techniques: storySeed.techniques || ['rule_of_three', 'humor'],
       };
 
-      // Full brainstorm seed + parent text so bookPipeline v1 sees the same creative direction as legacy planning
+      // Append story seed to custom details so the planner has the full creative direction
       let plannerCustomDetails = enrichedCustomDetails || '';
-      plannerCustomDetails += formatPlannerStorySeedAppendix(storySeed);
-      const themeKey = String(theme || '').toLowerCase();
-      if (!COZY_DOMESTIC_OK_THEMES.has(themeKey) && storySeedMentionHomeContext(storySeed)) {
-        plannerCustomDetails += '\n\nPIPELINE NOTE: Honor brainstorm emotion but story bible + spread specs must keep non-bedtime books to ≤5 home-interior spreads; re-stage domestic beats across varied setting classes (public, outdoor, civic, or one coherent speculative habitable frame). Invent book-specific places; do not copy a fixed example list.';
+      if (storySeed.storySeed) {
+        plannerCustomDetails += `\n\nSTORY SEED (use as creative direction): ${storySeed.storySeed}`;
       }
 
       // Stage 2: V2 Story Planning (returns complete story with text + image prompts)

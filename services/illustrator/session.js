@@ -199,26 +199,13 @@ async function establishCharacterReference(session) {
  * @param {IllustratorSession} session
  * @param {string} spreadPromptText - From prompt.js buildSpreadTurn()
  * @param {number} spreadIndex - 0-based
- * @param {object} [opts]
- * @param {boolean} [opts.reanchorCover] - If true, prepend the pinned cover as inline
- *   reference (same block as `sendCorrection`) so the model re-grounds on the canonical
- *   hero before generating — used for late spreads to reduce likeness drift.
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
-async function generateSpread(session, spreadPromptText, spreadIndex, opts = {}) {
+async function generateSpread(session, spreadPromptText, spreadIndex) {
   if (session.abandoned) throw new Error('Session abandoned — cannot generate');
 
   _trimHistoryToSlidingWindow(session);
-  const parts = [];
-  if (opts.reanchorCover && session.coverBase64) {
-    parts.push({
-      text: 'RE-ANCHOR — the approved BOOK COVER below is the canonical rendering of the hero child. Match it exactly: face shape, skin tone, hair color, length, and texture, eye color, and outfit family. The story is one continuous book — do NOT age the child up, lengthen hair, or show "years later." Do NOT invent a different child.',
-    });
-    parts.push({
-      inline_data: { mimeType: session.coverMime, data: session.coverBase64 },
-    });
-  }
-  parts.push({ text: spreadPromptText });
+  const parts = [{ text: spreadPromptText }];
 
   const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
   session.turnsUsed++;

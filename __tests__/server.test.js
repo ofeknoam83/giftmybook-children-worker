@@ -56,7 +56,6 @@ jest.mock('../services/illustrationGenerator', () => ({
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
   fetchWithTimeout: jest.fn(),
   ART_STYLE_CONFIG: { watercolor: { prefix: 'watercolor', suffix: 'soft' } },
-  PARENT_THEMES: new Set(['mothers_day', 'fathers_day']),
 }));
 jest.mock('../services/chatSessionManager', () => ({
   ChatSessionManager: jest.fn().mockImplementation(() => ({

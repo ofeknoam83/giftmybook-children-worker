@@ -11,7 +11,6 @@ function baseParsed(overrides = {}) {
     outfitMatches: true,
     artStyleIs3DPixar: true,
     artStyleNotes: '',
-    artStyleSeverity: 'ok',
     heroCount: 1,
     splitPanel: false,
     explicitStranger: false,
@@ -41,46 +40,5 @@ describe('evaluateConsistencyResult', () => {
     }));
     expect(r.pass).toBe(true);
     expect(r.tags).not.toContain('implied_parent_skin_mismatch');
-  });
-
-  test('hero_mismatch issue mentions previous spread when continuity QA was used', () => {
-    const r = evaluateConsistencyResult(baseParsed({
-      heroChildMatches: false,
-      heroChildDifferences: 'different bow',
-    }), { hasPreviousSpread: true });
-    expect(r.pass).toBe(false);
-    expect(r.issues[0]).toMatch(/previous spread/);
-    expect(r.issues[0]).toMatch(/different bow/);
-  });
-
-  test('hero_mismatch issue stays cover-only when no previous spread ref', () => {
-    const r = evaluateConsistencyResult(baseParsed({
-      heroChildMatches: false,
-      heroChildDifferences: 'wrong hair',
-    }), { hasPreviousSpread: false });
-    expect(r.issues[0]).toMatch(/cover/);
-    expect(r.issues[0]).not.toMatch(/previous spread/);
-  });
-
-  test('style_drift adds wrong_medium tag when severity set', () => {
-    const r = evaluateConsistencyResult(baseParsed({
-      artStyleIs3DPixar: false,
-      artStyleNotes: 'watercolor',
-      artStyleSeverity: 'wrong_medium',
-    }));
-    expect(r.pass).toBe(false);
-    expect(r.tags).toContain('style_drift');
-    expect(r.tags).toContain('style_drift_wrong_medium');
-    expect(r.artStyleIs3DPixar).toBe(false);
-  });
-
-  test('soft_grading with Pixar true adds style_grading_note only', () => {
-    const r = evaluateConsistencyResult(baseParsed({
-      artStyleIs3DPixar: true,
-      artStyleSeverity: 'soft_grading',
-    }));
-    expect(r.pass).toBe(true);
-    expect(r.tags).toContain('style_grading_note');
-    expect(r.artStyleSeverity).toBe('soft_grading');
   });
 });

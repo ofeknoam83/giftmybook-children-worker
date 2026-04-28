@@ -35,7 +35,7 @@ const ILLUSTRATOR_TEXT_QA_TAGS = new Set([
   'text_duplicated_caption', 'missing_word',
 ]);
 
-const SIGNAGE_SCENE_HINT = /\b(sign|signs|banner|billboard|headquarters|headquarter|marquee|plaque|label|league|alphabet|inscription|typography|stone\s+letters?|letters?\s+line|giant\s+letters?|letter\s+path|letter\s+trail)\b/i;
+const SIGNAGE_SCENE_HINT = /\b(sign|signs|banner|billboard|headquarters|headquarter|marquee|plaque|label|league)\b/i;
 
 /**
  * Appends a hard constraint that the model must not add readable environmental text
@@ -425,9 +425,6 @@ function buildTagDirectives(tags, opts) {
   if (set.has('outfit_mismatch')) {
     out.push(
       'Hero clothing: copy **exactly** from the **BOOK COVER** (turn 1 in this chat) and from **your last accepted interior image(s)** here — same top/bottom/dress/shoes and color family. Do not invent a new outfit. Re-lighting, folds, and pose may change; the wardrobe must not. If this SCENE requires bath/pool/pajamas/snow layer per system rules, only then swap; otherwise keep street clothes identical to the cover render.',
-    );
-    out.push(
-      'If the CAPTION mentions a scarf, ribbon, or wrap, do **not** change the hero’s core shirt/pants vs the cover — show that fabric on **partial-presence parent**, **railing/banner**, or a **small environmental prop**, not as a different main outfit on the child.',
     );
   }
   if (set.has('hero_mismatch')) {

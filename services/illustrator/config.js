@@ -25,48 +25,30 @@ const GEMINI_IMAGE_SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
 ];
 
-// ── OpenAI image model ──
+// ── OpenAI image model (gpt-image-2) ──
 // The OpenAI Images 2.0 API is stateless — each call re-sends the cover +
 // last N accepted spreads as reference images along with the per-spread
-// prompt. The orchestrator selects this provider by setting
-// `MODELS.SPREAD_RENDER` to a `gpt-image-*` value in bookPipeline/constants.js;
-// the actual model id sent to the API is read from env when present so we
-// can swap `gpt-image-2` ↔ `gpt-image-1` (or future variants) on Cloud Run
-// without a code deploy. Set `OPENAI_IMAGE_MODEL=gpt-image-1` if your org
-// is verified for `gpt-image-1` but not yet for `gpt-image-2`.
-const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
-/**
- * Production endpoint for `gpt-image-2` with reference images: multipart
- * `model`, `prompt`, `size`, `quality`, `image[]`. `services/illustrator/
- * openaiFlow/render.js` posts here.
- */
+// prompt. The adapter (services/illustrator/openaiImageSession.js) emulates
+// the Gemini chat-session interface so the orchestrator can swap providers
+// by flipping `MODELS.SPREAD_RENDER` in bookPipeline/constants.js.
+const OPENAI_IMAGE_MODEL = 'gpt-image-2';
+/** DALL·E 2–only in many accounts; do not use for `gpt-image-2` (see `OPENAI_IMAGES_GENERATIONS_URL`). */
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
-/**
- * `/v1/images/generations` is JSON-only in production and rejects multipart
- * with 400 unsupported_content_type; kept as a constant for callers that
- * issue text-only generation requests, not used by the openaiFlow renderer.
- */
+/** Reference-image + `gpt-image-2` jobs: production API returns 400 on `/v1/images/edits` for this model — use generations. */
 const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations';
-// 16:9 landscape supported by gpt-image-2. Both edges are multiples of 16;
-// total pixels ≈ 1.8M (inside gpt-image-2's 655k–8.3M window).
-const OPENAI_IMAGE_SIZE = '1792x1024';
-// Fallback landscape size used when the API rejects OPENAI_IMAGE_SIZE
-// (e.g. account-level size restrictions). Also a supported 16:9 landscape.
-const OPENAI_IMAGE_SIZE_FALLBACK = '1536x1024';
-// Print-grade quality for the `/v1/images/generations` endpoint.
-const OPENAI_IMAGE_QUALITY = 'high';
+// 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
+// pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
+const OPENAI_IMAGE_SIZE = '1792x1008';
+// Spreads + cover harmonize use `images/generations` (with `image[]` refs) for
+// gpt-image-2. The `quality` form field applies to that endpoint, not to legacy
+// DALL·E `images/edits`.
+// Kept for documentation / a future switch to the generations endpoint.
+const OPENAI_IMAGE_QUALITY = 'medium';
 
 // ── Timeouts ──
-const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn (Gemini path)
+const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
-/**
- * gpt-image-2 quality:high regularly takes 130–170s per render and occasionally
- * stretches past 180s, which trips the Gemini-default TURN_TIMEOUT_MS. Use a
- * dedicated 5-minute ceiling for the OpenAI path. Override on Cloud Run via
- * env if a particular tenant needs more headroom (e.g. behind a slow proxy).
- */
-const OPENAI_TURN_TIMEOUT_MS = Number(process.env.OPENAI_TURN_TIMEOUT_MS) || 300000;
 
 // ── Retry budgets ──
 // Higher values improve pass rates on difficult spreads but increase latency and
@@ -81,8 +63,6 @@ const SAFETY_STRIKES_BEFORE_SCENE_DEESCAL = 2;
 
 // ── Sliding window ──
 const SLIDING_WINDOW_ACCEPTED_SPREADS = 3; // pinned ref + last N accepted spreads travel in history
-/** 0-based spread index; from this spread onward, first-attempt `generateSpread` may inline the cover again to fight late-book likeness drift (spreads 10–13 in a 13-spread book). */
-const LATE_SPREAD_COVER_REANCHOR_INDEX = 9;
 const GEMINI_IMAGE_MAX_OUTPUT_TOKENS = 8192;
 
 // ── Book structure ──
@@ -260,10 +240,8 @@ module.exports = {
   OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
-  OPENAI_IMAGE_SIZE_FALLBACK,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
-  OPENAI_TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,
   ESTABLISHMENT_TIMEOUT_MS,
   MAX_SPREAD_CORRECTIONS,
@@ -271,7 +249,6 @@ module.exports = {
   QA_HTTP_ATTEMPTS,
   SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
-  LATE_SPREAD_COVER_REANCHOR_INDEX,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   TOTAL_SPREADS,
   TEXT_RULES,
