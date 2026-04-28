@@ -11,6 +11,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, VISUAL_STYLE, TEXT_PLACEMENT } = require('../constants');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
+const { formatQuestionnaireBlock, renderVarietySteeringFromBookId } = require('./plannerPromptHelpers');
 
 const SYSTEM_PROMPT = `You are the art director for a premium personalized children's book.
 You do NOT generate spread prompts. You produce a visual contract that every spread must obey.
@@ -18,6 +19,7 @@ You do NOT generate spread prompts. You produce a visual contract that every spr
 Hard rules:
 - Visual language is locked globally: premium 3D character-driven ("${VISUAL_STYLE}"), warm cinematic lighting, materials with weight.
 - The approved cover is the hard anchor for hero identity, face, body, hair, and outfit. Do not contradict the cover.
+- **Spectacle:** environments should feel premium and paintable — favor dramatic light, clear scale, rich materials, and age-safe wonder. Avoid generic flat lighting and "stock suburban default" unless the brief demands it.
 - **Narrative visual thread:** read \`storyBible.visualJourneySpine\` and \`storyBible.recurringVisualMotifs\`. The \`environmentAnchors\` and \`palette\` you output MUST weave those motifs in (concrete, repeatable art cues) so the book feels like one journey across varied places — not unrelated wallpapers.
 - Interior continuity uses the cover plus accepted interior spreads. No uploaded photo reference.
 - Support richer, busier worlds with high camera-angle variety, but keep one clear focal action per spread.
@@ -85,14 +87,21 @@ function normalizeHeroWithHairLock(doc, heroJson) {
 }
 
 function userPrompt(doc) {
-  const { brief, cover, storyBible } = doc;
+  const { brief, cover, storyBible, request } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'visualBible');
   const retryBlock = renderRetryMemoryForPrompt(retries);
+  const questionnaireBlock = formatQuestionnaireBlock(brief.child);
+  const varietyBlock = renderVarietySteeringFromBookId(request?.bookId);
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Approved cover title: "${cover.title}". Cover image URL: ${cover.imageUrl || '(provided as base64 reference)'}.`,
     `Cover locks carried in from input:\n${formatCoverLocks(cover)}`,
+    '',
+    'Parent questionnaire (for emotional color and grounded props — worlds stay bold):',
+    questionnaireBlock,
+    '',
+    varietyBlock,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',

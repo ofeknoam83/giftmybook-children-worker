@@ -12,6 +12,7 @@
  */
 
 const { FORMATS, AGE_BANDS, FAILURE_CODES } = require('../constants');
+const { ANECDOTE_FIELDS } = require('../../validation');
 
 class InputError extends Error {
   constructor(message, failureCode) {
@@ -62,7 +63,14 @@ function extractChild(raw) {
   const age = src.age || src.childAge || raw.childAge || null;
   const gender = src.gender || raw.gender || 'unspecified';
   const pronouns = src.pronouns || raw.pronouns || null;
-  const anecdotes = src.anecdotes || raw.anecdotes || {};
+  const fromNested = (src.anecdotes && typeof src.anecdotes === 'object') ? src.anecdotes : {};
+  const fromTop = (raw.childAnecdotes && typeof raw.childAnecdotes === 'object') ? raw.childAnecdotes : {};
+  const anecdotes = {};
+  for (const key of ANECDOTE_FIELDS) {
+    const a = typeof fromNested[key] === 'string' ? fromNested[key].trim() : '';
+    const b = typeof fromTop[key] === 'string' ? fromTop[key].trim() : '';
+    anecdotes[key] = b || a || '';
+  }
   return { name, age, gender, pronouns, anecdotes };
 }
 

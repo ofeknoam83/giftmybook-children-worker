@@ -312,4 +312,5 @@ module.exports = {
   VALID_THEMES,
   VALID_GENDERS,
   normaliseGender,
+  ANECDOTE_FIELDS,
 };

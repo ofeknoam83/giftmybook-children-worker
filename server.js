@@ -69,6 +69,7 @@ const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAge
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { withRetry } = require('./services/retry');
 const { sceneHasFramingHint } = require('./services/writer/sceneFramingHint');
+const { formatPlannerStorySeedAppendix } = require('./services/bookPipeline/planner/plannerPromptHelpers');
 
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
@@ -869,6 +870,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     if (childAnecdotes.dad_name) anecdoteParts.push(`Dad's name: ${childAnecdotes.dad_name}`);
     if (childAnecdotes.meaningful_moment) anecdoteParts.push(`Meaningful moment: ${childAnecdotes.meaningful_moment}`);
     if (childAnecdotes.moms_favorite_moment) anecdoteParts.push(`Mom's favorite moment: ${childAnecdotes.moms_favorite_moment}`);
+    if (childAnecdotes.dads_favorite_moment) anecdoteParts.push(`Dad's favorite moment: ${childAnecdotes.dads_favorite_moment}`);
     if (childAnecdotes.favorite_cake_flavor) anecdoteParts.push(`Favorite cake flavor: ${childAnecdotes.favorite_cake_flavor}`);
     if (childAnecdotes.favorite_toys) anecdoteParts.push(`Favorite toys: ${childAnecdotes.favorite_toys}`);
     if (childAnecdotes.birth_date) anecdoteParts.push(`Birth date: ${childAnecdotes.birth_date}`);
@@ -1154,11 +1156,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         techniques: storySeed.techniques || ['rule_of_three', 'humor'],
       };
 
-      // Append story seed to custom details so the planner has the full creative direction
+      // Full brainstorm seed + parent text so bookPipeline v1 sees the same creative direction as legacy planning
       let plannerCustomDetails = enrichedCustomDetails || '';
-      if (storySeed.storySeed) {
-        plannerCustomDetails += `\n\nSTORY SEED (use as creative direction): ${storySeed.storySeed}`;
-      }
+      plannerCustomDetails += formatPlannerStorySeedAppendix(storySeed);
 
       // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
       let storyPlan;

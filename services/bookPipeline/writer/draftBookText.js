@@ -19,7 +19,8 @@ Hard rules (apply to every spread):
 - Read-aloud quality comes first. Musical cadence, simple words, no large metaphors, low repetition.
 - Third-person by default unless the user prompt overrides.
 - Funny/playful tone, character-based humor. Mostly implicit emotional meaning — never preach.
-- Use the child's name sometimes, not constantly. Use custom details concretely.
+- Use the child's name sometimes, not constantly. Use custom details and \`mustUseDetails\` concretely.
+- **Plot energy:** follow \`plotBeat\`, \`focalAction\`, and \`location\` — the adventure (discovery, problem, funny try, wonder) drives each spread. If personalization is soft (hugs, kisses, snuggles), honor it lightly on heart/close spreads — do not make every spread only cuddly or generic family warmth; the spec's action still happens.
 - **Scene flow:** when \`sceneBridge\` and \`continuityAnchors\` are present on a spread, let the verse acknowledge the *same* story movement — cause, discovery, or callback — so the read-aloud feels like a single adventure, not isolated vignettes. You may imply the bridge subtly (a repeated object, a "still following", "the trail led", "the friend from before") without naming camera directions.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
