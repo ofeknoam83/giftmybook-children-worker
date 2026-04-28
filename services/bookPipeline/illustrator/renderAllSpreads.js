@@ -48,9 +48,15 @@ const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../../gcsStorage
 const { checkSpread } = require('../qa/checkSpread');
 const { planSpreadRepair } = require('../qa/planRepair');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
-const { REPAIR_BUDGETS, FAILURE_CODES } = require('../constants');
+const { REPAIR_BUDGETS, FAILURE_CODES, MODELS } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 const { LATE_SPREAD_COVER_REANCHOR_INDEX } = require('../../illustrator/config');
+
+/** True when `MODELS.SPREAD_RENDER` selects an OpenAI image model. */
+function isOpenAIImageProvider() {
+  const m = String(MODELS?.SPREAD_RENDER || '').toLowerCase();
+  return m.startsWith('gpt-image') || m.startsWith('openai-image');
+}
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -648,6 +654,12 @@ async function processOneSpread(params) {
  * @returns {Promise<object>}
  */
 async function renderAllSpreads(doc) {
+  if (isOpenAIImageProvider()) {
+    // Stateless OpenAI flow — no chat session, no rebuilds, slim rules block,
+    // cover + last-accepted spread as the only references. Defined in
+    // services/illustrator/openaiFlow/newPipeline.js.
+    return require('../../illustrator/openaiFlow').renderAllSpreads(doc);
+  }
   const cover = await resolveCoverBase64(doc.cover);
 
   // Cover is the full visual cast. Declared characters in the brief who are

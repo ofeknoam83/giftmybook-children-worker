@@ -5,7 +5,14 @@
  * picture book. This is the single entry point the rest of the codebase
  * should use for picture-book illustrations.
  *
- * Flow (per book):
+ * Provider routing (single switch — `MODELS.SPREAD_RENDER` in
+ * `services/bookPipeline/constants.js`):
+ *   - `gpt-image-2` (or any `gpt-image-*` / `openai-image-*`) → delegate
+ *     to `./openaiFlow` (stateless, cover + last-accepted ref, slim rules).
+ *   - any other value (default `gemini-3.1-flash-image-preview`) → use the
+ *     Gemini chat-session flow defined in this file.
+ *
+ * Gemini flow (kept intact below):
  *   1. createSession + establishCharacterReference from the approved cover.
  *   2. For each spread in order:
  *      a. generateSpread with the per-spread prompt.
@@ -19,6 +26,14 @@
  * Return: the input `entries` array with `spreadIllustrationUrl` attached to
  * every spread entry (matching the previous engine contract).
  */
+
+const { MODELS } = require('../bookPipeline/constants');
+
+/** True when `MODELS.SPREAD_RENDER` selects an OpenAI image model. */
+function isOpenAIImageProvider() {
+  const m = String(MODELS?.SPREAD_RENDER || '').toLowerCase();
+  return m.startsWith('gpt-image') || m.startsWith('openai-image');
+}
 
 const {
   TOTAL_SPREADS,
@@ -601,8 +616,19 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
   throw lastError || new Error(`Spread ${spreadIndex + 1} exhausted retry budget`);
 }
 
+// Dispatcher: route to the OpenAI flow when `MODELS.SPREAD_RENDER` selects
+// gpt-image-2; otherwise call the Gemini implementations defined in this file.
+// Lazy-require so the openaiFlow module isn't loaded when running on Gemini.
 module.exports = {
-  generateBookIllustrations,
-  regenerateSpreadIllustration,
+  generateBookIllustrations: (opts) => (
+    isOpenAIImageProvider()
+      ? require('./openaiFlow').generateBookIllustrations(opts)
+      : generateBookIllustrations(opts)
+  ),
+  regenerateSpreadIllustration: (opts) => (
+    isOpenAIImageProvider()
+      ? require('./openaiFlow').regenerateSpreadIllustration(opts)
+      : regenerateSpreadIllustration(opts)
+  ),
   PARENT_THEMES,
 };
