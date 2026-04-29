@@ -288,7 +288,10 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
   const vertical = cornerU.startsWith('TOP-') ? 'top' : 'bottom';
   const edgeWord = side === 'left' ? 'left' : 'right';
   const edgePct = textRules.edgePaddingPercent;
-  const cornerPct = textRules.cornerVerticalPaddingPercent || 26;
+  const verticalPaddingPct =
+    vertical === 'top'
+      ? (textRules.topPaddingPercent ?? textRules.cornerVerticalPaddingPercent ?? 26)
+      : (textRules.bottomPaddingPercent ?? textRules.cornerVerticalPaddingPercent ?? 26);
 
   const blend = textRules.textIntegration || '';
   const typeLock = textRules.typographyConsistency || '';
@@ -297,7 +300,7 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
 TEXT: "${text}"
 CHOSEN SIDE: ${sideU}
 CHOSEN CORNER: ${cornerU}
-PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${cornerPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
+PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${verticalPaddingPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
 
 TYPOGRAPHY (same book, same spec): ${typeLock}
 Size note: ${textRules.fontSize}

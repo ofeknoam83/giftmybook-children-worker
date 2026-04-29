@@ -78,6 +78,16 @@ describe('buildSpreadTurn — shot variety reminder', () => {
     expect(out).toMatch(/at least 26%/);
     expect(out).toMatch(/7 words per line|at most 7 words/i);
   });
+
+  test('bottom-corner spread uses larger bottom vertical inset in PLACEMENT line', () => {
+    const out = buildSpreadTurn({
+      spreadIndex: 1,
+      scene: 'A sunny park.',
+      text: 'The ducks glide by.',
+      childAge: 6,
+    });
+    expect(out).toMatch(/at least 30%/);
+  });
 });
 
 describe('buildCorrectionTurn — tag directives', () => {

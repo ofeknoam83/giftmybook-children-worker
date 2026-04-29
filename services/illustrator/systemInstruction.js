@@ -280,7 +280,8 @@ Words like "family", "we", "our", "together" refer to people. A pet or a plush t
 function buildTextSection(textRules = TEXT_RULES) {
   const maxWords = textRules.maxWordsPerLine;
   const edge = textRules.edgePaddingPercent;
-  const corner = textRules.cornerVerticalPaddingPercent;
+  const topPad = textRules.topPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
+  const bottomPad = textRules.bottomPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
 
   return `### ON-IMAGE TEXT (CRITICAL)
 Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("left" or "right"), and a CHOSEN CORNER (one of "top-left", "top-right", "bottom-left", "bottom-right"). Render the passage INSIDE the illustration as a single embedded caption anchored to that corner. Follow these rules without deviation:
@@ -289,7 +290,7 @@ Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("l
 2. ONE-SIDE-ONLY RULE. The caption lives fully on the CHOSEN SIDE. The opposite half of the image carries ONLY illustration. Do NOT mirror, duplicate, or split the caption across sides.
 3. PLACEMENT (exact geometry — the book is bound through the middle so gutter lettering is unreadable in print):
    • Horizontal: the caption block is snug against the outer trim on its side — about ${edge}% in from the outer edge (never less, never flush to the bleed), and its inner edge stays far from the center spine (well inside the outer ~35% of the width).
-   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${corner}% in from that edge (never less, never closer — print PDFs have trim and bleed, and the layout step may crop a band off the top and bottom of the image). Leave comfortable extra space so ascenders, descenders, and the full caption block stay fully inside the safe area. Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
+   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${topPad}% in from the TOP when the corner is top-aligned, or about ${bottomPad}% in from the BOTTOM when it is bottom-aligned (never less — print PDFs have trim and bleed, and the layout step may crop a band off the top and bottom of the image). Leave comfortable extra space so ascenders, descenders, and the full caption block stay fully inside the safe area. Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
    • The vertical strip around the spine (middle of the spread) is a STRICT NO-TEXT ZONE. No caption line, word fragment, or punctuation may sit in or cross that gutter band.
    • Never center-justify type across the spine. One caption block must never visually bridge from one half into the other.
 4. THE CORNER IS NOT A BLANK CANVAS. Do not empty out or heavily blur the corner region just to "make room for text". The scene continues underneath — open sky, soft-focus background, shaded foliage, ground, water, or any other naturally less-busy region of the SAME environment reads through behind the caption. The caption overlays the scene; the scene is never deleted for it.

@@ -80,15 +80,14 @@ const TEXT_RULES = {
   // Minimum distance from the outer-side edge so the caption never risks
   // being clipped by the printer trim.
   edgePaddingPercent: 7,
-  // Minimum distance of the caption block from the top OR bottom edge of the
-  // frame. Picture-book PDFs are full-bleed; Lulu trim/bleed plus
-  // `layoutEngine` vertical center-crop on 16:9→square spreads can shave
-  // the top and bottom of the art. Keep type well inside so descenders and
-  // the last line never clip. (Bumped from 9% → … → 21% → 26% for production trim.)
+  // Minimum distance of the caption block from the top edge of the frame.
+  // Picture-book PDFs are full-bleed; Lulu trim/bleed plus `layoutEngine`
+  // vertical center-crop on 16:9→square spreads can shave the top and bottom
+  // of the art. Keep type well inside so ascenders never clip.
   cornerVerticalPaddingPercent: 26,
-  // Legacy fields kept for backwards compatibility with older prompt paths.
+  // Explicit top/bottom inset (bottom larger — print crop hits the lower band harder).
   topPaddingPercent: 26,
-  bottomPaddingPercent: 26,
+  bottomPaddingPercent: 30,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
