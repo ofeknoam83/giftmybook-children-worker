@@ -34,6 +34,7 @@ const { checkSpread } = require('../qa/checkSpread');
 const { planSpreadRepair } = require('../qa/planRepair');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { sliceQuadToTwoSpreadStrips } = require('./sliceQuadToTwoSpreadStrips');
+const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 const { processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog } = require('./renderAllSpreads');
@@ -45,6 +46,9 @@ const QA_REJECT_LOG_EXPECTED_CHARS = 500;
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
 const TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS = 25000;
+const MAX_TRANSIENT_INFRA_RETRIES = 5;
+const TRANSIENT_INFRA_BASE_DELAY_MS = 4000;
+const TRANSIENT_INFRA_MAX_DELAY_MS = 60000;
 const SAFETY_REBUILD_BASE_DELAY_MS = 2000;
 const SAFETY_REBUILD_MAX_DELAY_MS = 12000;
 
@@ -147,6 +151,7 @@ async function processQuadPair(params) {
   for (;;) {
     let attempt = 0;
     let transientEmptyRetries = 0;
+    let transientInfraRetries = 0;
     let suppressReanchorOnce = false;
     let safetyMitigationPass = 0;
     let correctionNote = null;
@@ -242,6 +247,28 @@ async function processQuadPair(params) {
           }
           continue;
         }
+        if (isTransientIllustrationInfraError(err) && transientInfraRetries < MAX_TRANSIENT_INFRA_RETRIES) {
+          transientInfraRetries += 1;
+          attempt -= 1;
+          const delayMs = Math.min(
+            TRANSIENT_INFRA_MAX_DELAY_MS,
+            TRANSIENT_INFRA_BASE_DELAY_MS * 2 ** (transientInfraRetries - 1),
+          );
+          console.warn(
+            `[${logTagQuad}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
+            `[transient infra ${transientInfraRetries}/${MAX_TRANSIENT_INFRA_RETRIES}] ` +
+            `— waiting ${delayMs}ms then retrying`,
+          );
+          try {
+            await delayRespectingAbort(delayMs, currentDoc.operationalContext?.abortSignal);
+          } catch (waitErr) {
+            if (waitErr.name === 'AbortError' || currentDoc.operationalContext?.abortSignal?.aborted) {
+              return { accepted: false, doc: currentDoc, session: currentSession, issues: ['aborted'], tags: ['aborted'] };
+            }
+            throw waitErr;
+          }
+          continue;
+        }
         const isSafety = Boolean(err.isSafetyBlock) || /safety|prohibited|blocked/i.test(err?.message || '');
         console.warn(
           `[${logTagQuad}] render error attempt ${attempt}/${totalBudget} (${Date.now() - attemptStart}ms): ${err.message}${isSafety ? ' [safety]' : ''}`,
@@ -308,6 +335,7 @@ async function processQuadPair(params) {
 
       suppressReanchorOnce = false;
       transientEmptyRetries = 0;
+      transientInfraRetries = 0;
 
       const stripped = await stripMetadata(image.imageBuffer);
       const printableQuad = await upscaleForPrint(stripped);

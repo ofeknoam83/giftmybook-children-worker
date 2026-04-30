@@ -23,6 +23,7 @@ const {
   GEMINI_IMAGE_MODEL,
   CHAT_API_BASE,
   TURN_TIMEOUT_MS,
+  TURN_TIMEOUT_QUAD_MS,
   ESTABLISHMENT_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
@@ -515,7 +516,10 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
       : {}),
   };
 
-  const timeout = genConfigOpts.timeout || TURN_TIMEOUT_MS;
+  let timeout = genConfigOpts.timeout;
+  if (timeout == null) {
+    timeout = genConfigOpts.aspectRatio === '4:1' ? TURN_TIMEOUT_QUAD_MS : TURN_TIMEOUT_MS;
+  }
   const startMs = Date.now();
   console.log(`[illustrator/session] Sending turn ${session.turnsUsed + 1} (history: ${history.length} msgs)...`);
 
@@ -539,6 +543,14 @@ async function _sendTurn(session, userParts, genConfigOpts = {}) {
     const isSignatureError = resp.status === 400
       && /thought_signature|thoughtSignature/i.test(errBody);
     const err = new Error(`Session API error ${resp.status}: ${errBody.slice(0, 300)}`);
+    const isTransientHttp = [503, 504, 429].includes(resp.status)
+      || /\bDeadline expired\b/i.test(errBody)
+      || /"UNAVAILABLE"|\bUNAVAILABLE\b/i.test(errBody)
+      || /RESOURCE_EXHAUSTED/i.test(errBody);
+    if (isTransientHttp) {
+      err.isTransientInfrastructure = true;
+      err.httpStatus = resp.status;
+    }
     if (isNsfw) {
       err.isSafetyBlock = true;
       err.isEmptyResponse = true;

@@ -41,6 +41,7 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - **Request override:** `useQuadSpreadIllustrator: true` or `false` on the generate-book payload (stored on `doc.request`) when you need per-book control without redeploying.
 - **API:** Gemini Flash Image uses `imageConfig.aspectRatio: "4:1"` (supported on the Generative Language API). **OpenAI** path uses size **`1792x448`** (`OPENAI_QUAD_IMAGE_SIZE`) for quad batches; if the Images API rejects that size, fall back to Gemini for illustration or disable quad for that deployment.
 - **Logs:** Filter `bookPipeline:*:quad` for batch lines (`spreadNumbers=[a, b]`, slice map); spread `13` logs `mode=single_spread` / `aspect=16:9` when present.
+- **Gemini resilience:** 4:1 turns use a longer client timeout (`TURN_TIMEOUT_QUAD_MS`, 5 min in [`services/illustrator/config.js`](services/illustrator/config.js)). HTTP **503 / 504 / 429** and bodies mentioning **Deadline expired** / **UNAVAILABLE** / **RESOURCE_EXHAUSTED** are tagged as transient and retried with exponential backoff (same logical attempt) in [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js) and [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js).
 
 ## Illustrator V2 — enforcement tiers
 

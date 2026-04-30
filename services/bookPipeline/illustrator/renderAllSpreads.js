@@ -48,6 +48,7 @@ const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../../gcsStorage
 const { checkSpread } = require('../qa/checkSpread');
 const { planSpreadRepair } = require('../qa/planRepair');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
+const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 
@@ -81,6 +82,11 @@ function formatQaRejectIssuesForLog(issues) {
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
 const TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS = 25000;
+
+/** 503 / deadline / 429 / client timeout — retry before failing the spread */
+const MAX_TRANSIENT_INFRA_RETRIES = 5;
+const TRANSIENT_INFRA_BASE_DELAY_MS = 4000;
+const TRANSIENT_INFRA_MAX_DELAY_MS = 60000;
 
 /** Backoff before rebuildSession on safety blocks (bursty OTHER). */
 const SAFETY_REBUILD_BASE_DELAY_MS = 2000;
@@ -184,6 +190,7 @@ async function processOneSpread(params) {
   for (;;) {
     let attempt = 0;
     let transientEmptyRetries = 0;
+    let transientInfraRetries = 0;
     let suppressReanchorOnce = false;
     /** Image-safety mitigations before rebuild: 1 = lean scene, 2 = soften or generic+caption. */
     let safetyMitigationPass = 0;
@@ -254,6 +261,28 @@ async function processOneSpread(params) {
           console.warn(
             `[${logTag}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
             `[transient empty image ${transientEmptyRetries}/${MAX_TRANSIENT_EMPTY_IMAGE_RETRIES}, finishReason=${err.finishReason || 'n/a'}] ` +
+            `— waiting ${delayMs}ms then retrying`,
+          );
+          try {
+            await delayRespectingAbort(delayMs, currentDoc.operationalContext?.abortSignal);
+          } catch (waitErr) {
+            if (waitErr.name === 'AbortError' || currentDoc.operationalContext?.abortSignal?.aborted) {
+              return { accepted: false, doc: currentDoc, session: currentSession, issues: ['aborted'], tags: ['aborted'] };
+            }
+            throw waitErr;
+          }
+          continue;
+        }
+        if (isTransientIllustrationInfraError(err) && transientInfraRetries < MAX_TRANSIENT_INFRA_RETRIES) {
+          transientInfraRetries += 1;
+          attempt -= 1;
+          const delayMs = Math.min(
+            TRANSIENT_INFRA_MAX_DELAY_MS,
+            TRANSIENT_INFRA_BASE_DELAY_MS * 2 ** (transientInfraRetries - 1),
+          );
+          console.warn(
+            `[${logTag}] render error (${Date.now() - attemptStart}ms): ${err.message} ` +
+            `[transient infra ${transientInfraRetries}/${MAX_TRANSIENT_INFRA_RETRIES}] ` +
             `— waiting ${delayMs}ms then retrying`,
           );
           try {
@@ -347,6 +376,7 @@ async function processOneSpread(params) {
 
       suppressReanchorOnce = false;
       transientEmptyRetries = 0;
+      transientInfraRetries = 0;
 
       const stripped = await stripMetadata(image.imageBuffer);
       const printable = await upscaleForPrint(stripped);

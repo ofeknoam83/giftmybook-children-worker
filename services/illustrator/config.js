@@ -49,6 +49,8 @@ const OPENAI_IMAGE_QUALITY = 'medium';
 
 // ── Timeouts ──
 const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
+/** 4:1 dual-spread turns are heavier; give the API longer before client abort. */
+const TURN_TIMEOUT_QUAD_MS = 300000;   // 5 minutes
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
 
@@ -283,6 +285,7 @@ module.exports = {
   OPENAI_QUAD_IMAGE_SIZE,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
+  TURN_TIMEOUT_QUAD_MS,
   QA_TIMEOUT_MS,
   ESTABLISHMENT_TIMEOUT_MS,
   MAX_SPREAD_CORRECTIONS,
