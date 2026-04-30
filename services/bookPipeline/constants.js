@@ -92,9 +92,12 @@ const REPAIR_BUDGETS = {
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
   perSpreadEscalations: 3,
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
-  perSpreadExtraSessionRounds: 2,
+  perSpreadExtraSessionRounds: 3,
   bookWideRepairWaves: 2,
 };
+
+/** Max recent accepted interior images passed into spread consistency QA (plus cover + candidate). */
+const QA_RECENT_INTERIOR_REFERENCES = 3;
 
 const FAILURE_CODES = {
   COVER_MISSING: 'cover_missing',
@@ -158,6 +161,7 @@ module.exports = {
   TEXT_PLACEMENT,
   MODELS,
   REPAIR_BUDGETS,
+  QA_RECENT_INTERIOR_REFERENCES,
   FAILURE_CODES,
   USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT,
   getIllustrationRenderer,

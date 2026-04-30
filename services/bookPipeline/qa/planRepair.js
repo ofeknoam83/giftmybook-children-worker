@@ -10,9 +10,10 @@
  *   3. escalation (caller rebuilds the session or fails fast)
  *
  * Tiered corrections (attempt 1): when both text QA and *soft* identity
- * (hero_mismatch / outfit_mismatch only) fail together, prioritize caption/text
+ * (hero face / identity drift only — not outfit) fail together, prioritize caption/text
  * instructions and ask the model to preserve the current hero look — avoids
  * piling “restyle the hero” on top of text fixes and reducing false retry churn.
+ * Outfit mismatches and interior continuity drifts are **hard**: they force full correction with attempt 1.
  */
 
 const { buildRetryEntry } = require('../retryMemory');
@@ -39,7 +40,6 @@ const SOFT_IDENTITY_TAGS = new Set([
   'hero_mismatch',
   'hero_identity_drift',
   'hero_face_mismatch',
-  'outfit_mismatch',
 ]);
 
 /**
@@ -128,6 +128,16 @@ function renderCorrectionNote(issues, tags, options = {}) {
   if (tagArr.includes('style_drift')) {
     lines.push(
       'Re-render in a 3D CGI Pixar feature-film style — a frame from a modern Pixar movie (photoreal subsurface skin scattering, individually rendered hair strands, physically based materials, volumetric ray-traced lighting, real optical depth-of-field). NOT a 2D illustration, NOT a soft painted children\'s book illustration, NOT watercolor/gouache/pencil/ink/anime/paper-cutout. Characters must read as real 3D models, backgrounds as real 3D environments — not as painted images with blur. Match the BOOK COVER\'s art style exactly.',
+    );
+  }
+  if (tagArr.includes('hair_continuity_drift')) {
+    lines.push(
+      'Align the hero\'s hair with the approved cover and the most recent approved interior spreads — same color family, length, and style; no silent restyle mid-book.',
+    );
+  }
+  if (tagArr.includes('outfit_continuity_drift')) {
+    lines.push(
+      'Align the hero\'s outfit with the approved cover and recent interior spreads — continue the same clothing story unless the scene clearly calls for a situational change (pajamas, swim, coat).',
     );
   }
   if (tagArr.includes('split_panel')) {

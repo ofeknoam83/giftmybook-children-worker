@@ -12,6 +12,7 @@ function baseParsed(overrides = {}) {
     artStyleIs3DPixar: true,
     artStyleNotes: '',
     heroCount: 1,
+    heroBodyConnected: true,
     splitPanel: false,
     explicitStranger: false,
     strangerDescription: '',
@@ -34,11 +35,30 @@ describe('evaluateConsistencyResult', () => {
     expect(r.issues.join(' ')).toMatch(/darker than child/);
   });
 
-  test('impliedParentSkinMismatch false passes when nothing else fails', () => {
+  test('hairContinuity ignored when no recent interiors in request (recentCount 0)', () => {
     const r = evaluateConsistencyResult(baseParsed({
-      impliedParentSkinMismatch: false,
-    }));
+      hairConsistentWithRecentInteriors: false,
+      hairContinuityNotes: 'wrong',
+    }), 0);
     expect(r.pass).toBe(true);
-    expect(r.tags).not.toContain('implied_parent_skin_mismatch');
+    expect(r.tags).not.toContain('hair_continuity_drift');
+  });
+
+  test('hairContinuity drift tags when recent interiors were provided (recentCount > 0)', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      hairConsistentWithRecentInteriors: false,
+      hairContinuityNotes: 'blond vs brown',
+    }), 2);
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('hair_continuity_drift');
+    expect(r.issues.some(i => /hair drifts vs recent/i.test(i))).toBe(true);
+  });
+
+  test('outfitContinuity drift tags when recent interiors were provided', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      outfitConsistentWithRecentInteriors: false,
+      outfitContinuityNotes: 'dress vs overalls',
+    }), 1);
+    expect(r.tags).toContain('outfit_continuity_drift');
   });
 });

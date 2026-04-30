@@ -47,9 +47,10 @@ const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../../gcsStorage
 
 const { checkSpread } = require('../qa/checkSpread');
 const { planSpreadRepair } = require('../qa/planRepair');
+const { pickRecentInteriorRefsForQa } = require('../qa/recentInteriorRefs');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
-const { REPAIR_BUDGETS, FAILURE_CODES } = require('../constants');
+const { REPAIR_BUDGETS, FAILURE_CODES, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -208,6 +209,8 @@ async function processOneSpread(params) {
       const needsReanchor = !isFirstAttempt && (
         lastTags.includes('hero_mismatch')
         || lastTags.includes('outfit_mismatch')
+        || lastTags.includes('hair_continuity_drift')
+        || lastTags.includes('outfit_continuity_drift')
         || lastTags.includes('implied_parent_skin_mismatch'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
@@ -394,6 +397,12 @@ async function processOneSpread(params) {
       // still allowed to appear via `additionalCoverCharacters` (QA policy note).
       const coverParentPresent = false;
 
+      const recentInteriorRefs = pickRecentInteriorRefsForQa(
+        currentSession.acceptedSpreads,
+        [spec.spreadIndex],
+        QA_RECENT_INTERIOR_REFERENCES,
+      );
+
       const qaStart = Date.now();
       const qa = await checkSpread({
         imageBase64: printableBase64,
@@ -403,6 +412,7 @@ async function processOneSpread(params) {
         additionalCoverCharacters,
         coverParentPresent,
         spreadIndex: spec.spreadIndex,
+        recentInteriorRefs,
         abortSignal: currentDoc.operationalContext?.abortSignal,
       });
       const qaMs = Date.now() - qaStart;

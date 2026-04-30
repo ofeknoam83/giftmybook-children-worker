@@ -32,10 +32,11 @@ const { uploadBuffer, getSignedUrl } = require('../../gcsStorage');
 
 const { checkSpread } = require('../qa/checkSpread');
 const { planSpreadRepair } = require('../qa/planRepair');
+const { pickRecentInteriorRefsForQa } = require('../qa/recentInteriorRefs');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { sliceQuadToTwoSpreadStrips } = require('./sliceQuadToTwoSpreadStrips');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
-const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS } = require('../constants');
+const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
 const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
 const { processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog } = require('./renderAllSpreads');
 
@@ -156,6 +157,8 @@ async function processQuadPair(params) {
     let safetyMitigationPass = 0;
     let correctionNote = null;
     let lastTags = [];
+    let lastPairRejectTags = [];
+    let lastPairRejectIssues = [];
     sceneA = specA.scene;
     sceneB = specB.scene;
     renderCaptionA = baselineCaptionA;
@@ -171,6 +174,8 @@ async function processQuadPair(params) {
       const needsReanchor = !isFirstAttempt && (
         lastTags.includes('hero_mismatch')
         || lastTags.includes('outfit_mismatch')
+        || lastTags.includes('hair_continuity_drift')
+        || lastTags.includes('outfit_continuity_drift')
         || lastTags.includes('implied_parent_skin_mismatch'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
@@ -351,6 +356,12 @@ async function processQuadPair(params) {
       const printableLeftB64 = slice.leftStrip.toString('base64');
       const printableRightB64 = slice.rightStrip.toString('base64');
 
+      const recentInteriorRefs = pickRecentInteriorRefsForQa(
+        currentSession.acceptedSpreads,
+        [specA.spreadIndex, specB.spreadIndex],
+        QA_RECENT_INTERIOR_REFERENCES,
+      );
+
       const supportingCast = Array.isArray(currentDoc.visualBible?.supportingCast)
         ? currentDoc.visualBible.supportingCast
         : [];
@@ -370,6 +381,7 @@ async function processQuadPair(params) {
           additionalCoverCharacters,
           coverParentPresent,
           spreadIndex: specA.spreadIndex,
+          recentInteriorRefs,
           abortSignal: currentDoc.operationalContext?.abortSignal,
         }),
         checkSpread({
@@ -380,6 +392,7 @@ async function processQuadPair(params) {
           additionalCoverCharacters,
           coverParentPresent,
           spreadIndex: specB.spreadIndex,
+          recentInteriorRefs,
           abortSignal: currentDoc.operationalContext?.abortSignal,
         }),
       ]);
@@ -453,6 +466,8 @@ async function processQuadPair(params) {
       const issues = [...(qaA.issues || []), ...(qaB.issues || [])];
       const tags = [...(qaA.tags || []), ...(qaB.tags || [])];
       lastTags = tags;
+      lastPairRejectTags = [...new Set(tags)];
+      lastPairRejectIssues = issues.slice(0, 12);
 
       const planA = planSpreadRepair({
         spreadNumber: spreadA.spreadNumber,
@@ -521,7 +536,8 @@ async function processQuadPair(params) {
 
     if (extraRoundsRemaining <= 0) {
       console.error(
-        `[${logTagQuad}] EXHAUSTED budget for spreads [${spreadNumbers.join(', ')}]`,
+        `[${logTagQuad}] EXHAUSTED budget for spreads [${spreadNumbers.join(', ')}] ` +
+        `lastTags=[${lastPairRejectTags.join(',')}] issues=${formatQaRejectIssuesForLog(lastPairRejectIssues)}`,
       );
       return {
         accepted: false,

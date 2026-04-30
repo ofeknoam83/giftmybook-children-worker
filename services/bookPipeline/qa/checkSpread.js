@@ -21,6 +21,8 @@ const { checkSpreadConsistency } = require('../../illustrator/consistencyQa');
  * @param {boolean} [params.coverParentPresent] - true if the approved cover
  *   itself depicts a secondary (parent/sibling) in addition to the hero
  * @param {number} params.spreadIndex - 0-based
+ * @param {Array<{ base64: string, mimeType?: string, spreadNumber?: number }>} [params.recentInteriorRefs]
+ *   Recent accepted interiors for continuity QA (hair/outfit vs story-so-far).
  * @param {AbortSignal} [params.abortSignal]
  * @returns {Promise<{ pass: boolean, issues: string[], tags: string[], ocrText?: string, text: object, consistency: object }>}
  */
@@ -33,6 +35,7 @@ async function checkSpread(params) {
     additionalCoverCharacters,
     coverParentPresent,
     spreadIndex,
+    recentInteriorRefs,
     abortSignal,
   } = params;
 
@@ -56,6 +59,7 @@ async function checkSpread(params) {
         characterDescription: hero,
         hasSecondaryOnCover: coverParentPresent === true,
         qaAllowedHumansNote: '',
+        recentInteriorRefs,
         abortSignal,
       },
     ).catch(err => ({

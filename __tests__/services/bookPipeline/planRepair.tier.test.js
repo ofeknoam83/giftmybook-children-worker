@@ -7,7 +7,15 @@ const {
 } = require('../../../services/bookPipeline/qa/planRepair');
 
 describe('planRepair tiered correction', () => {
-  test('attempt 1 + text + soft identity → text_priority (no restyle hero paragraph)', () => {
+  test('attempt 1 + text + outfit_mismatch → full (hard — match cover on attempt 1)', () => {
+    const tags = ['text_in_center_band', 'outfit_mismatch'];
+    expect(classifyCorrectionMode(tags, 1)).toBe('full');
+    const note = renderCorrectionNote(['Wrong place', 'Outfit'], tags, { mode: 'full' });
+    expect(note).toContain('Place ALL caption text');
+    expect(note).toContain('Match the approved cover for hero face');
+  });
+
+  test('attempt 1 + text + soft identity (hero only) → text_priority (no restyle hero paragraph)', () => {
     const tags = ['text_in_center_band', 'hero_mismatch'];
     expect(classifyCorrectionMode(tags, 1)).toBe('text_priority');
     const note = renderCorrectionNote(['Wrong place'], tags, { mode: 'text_priority' });
@@ -32,14 +40,19 @@ describe('planRepair tiered correction', () => {
     expect(classifyCorrectionMode(['missing_word'], 1)).toBe('text_only');
   });
 
-  test('planSpreadRepair returns correctionMode text_priority', () => {
+  test('attempt 1 + text + hair_continuity_drift → full', () => {
+    expect(classifyCorrectionMode(['missing_word', 'hair_continuity_drift'], 1)).toBe('full');
+  });
+
+  test('planSpreadRepair: text + outfit → full correctionMode + cover paragraph', () => {
     const plan = planSpreadRepair({
       spreadNumber: 11,
       attemptNumber: 1,
       issues: ['Caption wrong'],
       tags: ['text_in_center_band', 'outfit_mismatch'],
     });
-    expect(plan.correctionMode).toBe('text_priority');
-    expect(plan.retryEntry.mustPreserve[0]).toMatch(/exactly as in this frame/i);
+    expect(plan.correctionMode).toBe('full');
+    expect(plan.retryEntry.mustPreserve[0]).toMatch(/approved cover/i);
+    expect(plan.correctionNote).toMatch(/Match the approved cover for hero face/i);
   });
 });
