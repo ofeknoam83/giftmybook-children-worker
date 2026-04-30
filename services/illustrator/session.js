@@ -29,7 +29,7 @@ const {
   GEMINI_IMAGE_SAFETY_SETTINGS,
 } = require('./config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
-const { buildSystemInstruction } = require('./systemInstruction');
+const { buildSystemInstruction, buildSystemInstructionQuad } = require('./systemInstruction');
 const { sanitizeForGemini, sanitizeHistory } = require('../promptSanitizer');
 
 // Gemini finishReason values that mean the response was suppressed by a safety
@@ -112,15 +112,28 @@ function pickSessionApiKey() {
  * @param {string} [opts.theme]
  * @param {string} [opts.parentOutfit]
  * @param {string} [opts.childAppearance]
+ * @param {{palette?: Array, beatAssignments?: Array}} [opts.locationPalette]
  * @param {number|string|null} [opts.childAge]
  * @param {AbortSignal} [opts.abortSignal]
+ * @param {boolean} [opts.quadSpreadMode] - When true, use 4:1 dual-spread system instruction + cover copy (quad pipeline only).
  * @returns {IllustratorSession}
  */
 function createSession(opts) {
   const apiKey = pickSessionApiKey();
   if (!apiKey) throw new Error('No Gemini API key available for illustrator session');
 
-  const systemInstruction = buildSystemInstruction({
+  const systemInstruction = opts.quadSpreadMode
+    ? buildSystemInstructionQuad({
+      hasParentOnCover: opts.hasParentOnCover,
+      hasSecondaryOnCover: opts.hasSecondaryOnCover,
+      additionalCoverCharacters: opts.additionalCoverCharacters,
+      theme: opts.theme,
+      parentOutfit: opts.parentOutfit,
+      childAppearance: opts.childAppearance,
+      locationPalette: opts.locationPalette,
+      childAge: opts.childAge,
+    })
+    : buildSystemInstruction({
     hasParentOnCover: opts.hasParentOnCover,
     hasSecondaryOnCover: opts.hasSecondaryOnCover,
     additionalCoverCharacters: opts.additionalCoverCharacters,
@@ -159,19 +172,30 @@ async function establishCharacterReference(session) {
     throw new Error('establishCharacterReference: coverBase64 is required');
   }
 
+  const coverNarrative = session.opts?.quadSpreadMode
+    ? [
+      'BOOK COVER — CHARACTER + STYLE GROUND TRUTH.',
+      'This is the approved rendered likeness of the hero child. It is a 3D CGI Pixar-film render — NOT a 2D illustration, NOT a painted children\'s-book illustration, NOT a photograph, NOT live-action.',
+      'Use it as the canonical reference for BOTH the character (face shape, skin tone, hair, outfit) AND the art style (3D CGI Pixar-film render).',
+      'Every interior frame must read as the SAME feature-film render as this cover:',
+      '  - photoreal 3D CGI with subsurface skin scattering, individually rendered hair strands, physically based materials, ray-traced volumetric lighting, and real optical depth-of-field.',
+      '  - FORBIDDEN styles for interior spreads (hard fail): 2D flat illustration, painterly soft storybook illustration, watercolor, gouache, pencil, ink-and-wash, cel-shaded anime, paper cutout, pixel art, digital painting, or any "drawn" look.',
+      '  - If the cover reads as a Pixar film frame, every interior spread reads as a Pixar film frame.',
+      'Interior art uses **4:1** ultra-wide frames that each contain **two consecutive spreads** (left half then right half), except an optional final single spread — still one continuous CGI world, never collaged unrelated photos.',
+    ].join('\n')
+    : [
+      'BOOK COVER — CHARACTER + STYLE GROUND TRUTH.',
+      'This is the approved rendered likeness of the hero child. It is a 3D CGI Pixar-film render — NOT a 2D illustration, NOT a painted children\'s-book illustration, NOT a photograph, NOT live-action.',
+      'Use it as the canonical reference for BOTH the character (face shape, skin tone, hair, outfit) AND the art style (3D CGI Pixar-film render).',
+      'Every interior spread must read as the SAME feature-film render as this cover:',
+      '  - photoreal 3D CGI with subsurface skin scattering, individually rendered hair strands, physically based materials, ray-traced volumetric lighting, and real optical depth-of-field.',
+      '  - FORBIDDEN styles for interior spreads (hard fail): 2D flat illustration, painterly soft storybook illustration, watercolor, gouache, pencil, ink-and-wash, cel-shaded anime, paper cutout, pixel art, digital painting, or any "drawn" look.',
+      '  - If the cover reads as a Pixar film frame, every interior spread reads as a Pixar film frame.',
+      'Every interior spread is also ONE continuous wide panorama (16:9) — never two illustrations stitched side-by-side.',
+    ].join('\n');
+
   const parts = [
-    {
-      text: [
-        'BOOK COVER — CHARACTER + STYLE GROUND TRUTH.',
-        'This is the approved rendered likeness of the hero child. It is a 3D CGI Pixar-film render — NOT a 2D illustration, NOT a painted children\'s-book illustration, NOT a photograph, NOT live-action.',
-        'Use it as the canonical reference for BOTH the character (face shape, skin tone, hair, outfit) AND the art style (3D CGI Pixar-film render).',
-        'Every interior spread must read as the SAME feature-film render as this cover:',
-        '  - photoreal 3D CGI with subsurface skin scattering, individually rendered hair strands, physically based materials, ray-traced volumetric lighting, and real optical depth-of-field.',
-        '  - FORBIDDEN styles for interior spreads (hard fail): 2D flat illustration, painterly soft storybook illustration, watercolor, gouache, pencil, ink-and-wash, cel-shaded anime, paper cutout, pixel art, digital painting, or any "drawn" look.',
-        '  - If the cover reads as a Pixar film frame, every interior spread reads as a Pixar film frame.',
-        'Every interior spread is also ONE continuous wide panorama (16:9) — never two illustrations stitched side-by-side.',
-      ].join('\n'),
-    },
+    { text: coverNarrative },
     {
       inline_data: { mimeType: session.coverMime, data: session.coverBase64 },
     },
@@ -199,15 +223,17 @@ async function establishCharacterReference(session) {
  * @param {IllustratorSession} session
  * @param {string} spreadPromptText - From prompt.js buildSpreadTurn()
  * @param {number} spreadIndex - 0-based
+ * @param {{ aspectRatio?: string }} [genOpts] - defaults to 16:9; use 4:1 for dual-spread quad batches
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
-async function generateSpread(session, spreadPromptText, spreadIndex) {
+async function generateSpread(session, spreadPromptText, spreadIndex, genOpts = {}) {
   if (session.abandoned) throw new Error('Session abandoned — cannot generate');
 
   _trimHistoryToSlidingWindow(session);
   const parts = [{ text: spreadPromptText }];
 
-  const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
+  const aspectRatio = genOpts.aspectRatio || '16:9';
+  const response = await _sendTurn(session, parts, { aspectRatio });
   session.turnsUsed++;
 
   try {
@@ -227,12 +253,8 @@ async function generateSpread(session, spreadPromptText, spreadIndex) {
  * @param {string} correctionPromptText
  * @param {number} spreadIndex
  * @param {object} [opts]
- * @param {boolean} [opts.reanchorCover] - If true, re-attach the pinned cover
- *   image as a live reference in this correction turn. Use when the previous
- *   attempt drifted on hero identity or outfit — the cover image is the only
- *   reliable anchor and sending it fresh on the rejecting turn dramatically
- *   improves match rates. Safe to call every correction turn, but we keep it
- *   optional so we don't inflate token spend when the reject was unrelated.
+ * @param {boolean} [opts.reanchorCover]
+ * @param {string} [opts.aspectRatio] - defaults to 16:9
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
 async function sendCorrection(session, correctionPromptText, spreadIndex, opts = {}) {
@@ -251,7 +273,8 @@ async function sendCorrection(session, correctionPromptText, spreadIndex, opts =
   }
   parts.push({ text: correctionPromptText });
 
-  const response = await _sendTurn(session, parts, { aspectRatio: '16:9' });
+  const aspectRatio = opts.aspectRatio || '16:9';
+  const response = await _sendTurn(session, parts, { aspectRatio });
   session.turnsUsed++;
 
   try {
@@ -292,6 +315,34 @@ function markSpreadAccepted(session, spreadIndex, imageBase64) {
     if (modelParts) entry.modelParts = modelParts;
     session.acceptedSpreads.push(entry);
   }
+}
+
+/**
+ * Record two accepted spreads from one 4:1 composite after slicing to 2:1 strips.
+ * Strips are stored for OpenAI reference continuity; Gemini rebuild seeding may
+ * use text-only fallback when strip base64 does not match the last model inline image.
+ *
+ * @param {IllustratorSession} session
+ * @param {number} indexA - 0-based first spread in the pair
+ * @param {number} indexB - 0-based second spread
+ * @param {string} leftStripBase64 - first spread (left half of 4:1)
+ * @param {string} rightStripBase64 - second spread (right half)
+ */
+function markQuadPairAccepted(session, indexA, indexB, leftStripBase64, rightStripBase64) {
+  function upsert(idx, stripB64) {
+    const existing = session.acceptedSpreads.findIndex(s => s.index === idx);
+    const entry = { index: idx, imageBase64: stripB64 };
+    if (existing >= 0) {
+      const prev = session.acceptedSpreads[existing];
+      session.acceptedSpreads[existing] = { ...prev, ...entry };
+      delete session.acceptedSpreads[existing].modelParts;
+    } else {
+      session.acceptedSpreads.push(entry);
+    }
+  }
+  upsert(indexA, leftStripBase64);
+  upsert(indexB, rightStripBase64);
+  session.acceptedSpreads.sort((a, b) => a.index - b.index);
 }
 
 /**
@@ -591,6 +642,7 @@ module.exports = {
   generateSpread,
   sendCorrection,
   markSpreadAccepted,
+  markQuadPairAccepted,
   pruneLastTurn,
   rebuildSession,
   seedHistoryFromAccepted,

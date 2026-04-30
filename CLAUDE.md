@@ -34,6 +34,13 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 
+### Book pipeline — quad dual-spread illustrator (optional)
+
+- **`GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR`** — Set to `1` or `true` to run interiors via [`services/bookPipeline/illustrator/renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js): one **4:1** image per **pair** of consecutive spreads, then slice to two **2:1** buffers before layout. Default is off (legacy [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js)).
+- **Request override:** `request.useQuadSpreadIllustrator: true` (same behavior; useful for staging a single book without env churn).
+- **API:** Gemini Flash Image uses `imageConfig.aspectRatio: "4:1"` (supported on the Generative Language API). **OpenAI** path uses size **`1792x448`** (`OPENAI_QUAD_IMAGE_SIZE`) for quad batches; if the Images API rejects that size, fall back to Gemini for illustration or disable quad for that deployment.
+- **Logs:** Filter `bookPipeline:*:quad` for batch lines (`spreadNumbers=[a, b]`, slice map); spread `13` logs `mode=single_spread` / `aspect=16:9` when present.
+
 ## Illustrator V2 — enforcement tiers
 
 Rules are layered: **session system instruction** and **per-spread prompt** carry the full policy (composition, characters, text, parent themes). **Per-spread QA** (text, anatomy, extra, style) catches repeatable defects and triggers in-session corrections. **Book-wide QA** (`bookWideGate`) is intentionally lenient and overlap-based; it may regen suspect spreads but does not hard-fail the book. Prefer fixing issues at the prompt layer; use QA telemetry (`bookContext.qaTagCounts`, `qaInfraErrors`) to see which tags drive retries.

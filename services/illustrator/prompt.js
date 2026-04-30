@@ -483,6 +483,7 @@ module.exports = {
   buildSpreadTurn,
   buildCorrectionTurn,
   resolveTextAndSide,
+  buildTextBlock,
   ILLUSTRATOR_TEXT_QA_TAGS,
   deescalateSceneForSignage,
   shouldDeescalateSceneForQaFail,

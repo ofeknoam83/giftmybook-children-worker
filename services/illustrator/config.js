@@ -39,6 +39,8 @@ const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generati
 // 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
 // pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
 const OPENAI_IMAGE_SIZE = '1792x1008';
+/** 4:1 ultra-wide for dual-spread batches (OpenAI generations). Falls back documented in CLAUDE.md if the API rejects. */
+const OPENAI_QUAD_IMAGE_SIZE = '1792x448';
 // Spreads + cover harmonize use `images/generations` (with `image[]` refs) for
 // gpt-image-2. The `quality` form field applies to that endpoint, not to legacy
 // DALL·E `images/edits`.
@@ -278,6 +280,7 @@ module.exports = {
   OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
+  OPENAI_QUAD_IMAGE_SIZE,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   QA_TIMEOUT_MS,

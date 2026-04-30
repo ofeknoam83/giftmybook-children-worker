@@ -406,4 +406,132 @@ function buildNamedLocationsSection(locationPalette) {
   return lines.join('\n');
 }
 
-module.exports = { buildSystemInstruction };
+function buildPictureBookPrintAndCaptionPolicyQuad(textRules = TEXT_RULES) {
+  const edge = textRules.edgePaddingPercent;
+  const topPad = textRules.topPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
+  const bottomPad = textRules.bottomPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
+  const centerBandPct = Math.max(0, Math.round(100 - 2 * textRules.activeSideMaxPercent));
+
+  return `### PRINT & LAYOUT CONSTRAINT (4:1 → TWO 2:1 SPREADS)
+Production **splits the 4:1 image at the horizontal midpoint** into two buffers. Each buffer is **2:1** (one spread). Vertical trim/crop matches the picture book pipeline — keep faces and story action in the **middle ~two-thirds** of frame **height** in **each** half.
+
+### DUAL-SPREAD GEOMETRY
+LEFT buffer = earlier spread. RIGHT buffer = next spread. Never swap order. Never place spread A's caption in spread B's half.
+
+### CAPTIONS (PER HALF)
+Each half gets **one** caption in **one** corner, **one** manuscript side — computed **within that half's** 2:1 sub-frame. Spine band at the center **of each half** stays text-free.
+
+### MARGINS
+~${edge}% from the outer edge of each half; ~${topPad}% / ~${bottomPad}% vertical inset for corner blocks; inner **~${centerBandPct}%** width band of each half stays text-free.`;
+}
+
+/**
+ * System instruction for the 4:1 dual-spread illustrator (two consecutive
+ * spreads per generated image). Used only when `renderAllSpreadsQuad` runs.
+ *
+ * @param {Object} opts - same shape as buildSystemInstruction
+ * @returns {string}
+ */
+function buildSystemInstructionQuad(opts) {
+  const {
+    hasParentOnCover,
+    hasSecondaryOnCover,
+    additionalCoverCharacters,
+    theme,
+    parentOutfit,
+    childAppearance,
+    locationPalette,
+    childAge,
+  } = opts;
+
+  const textRules = resolvePictureBookTextRules(childAge);
+
+  const secondaryOnCover = typeof hasSecondaryOnCover === 'boolean'
+    ? hasSecondaryOnCover
+    : !!additionalCoverCharacters;
+  const isParentTheme = PARENT_THEMES.has(theme);
+  const isMother = theme === 'mothers_day';
+  const parentWord = isMother ? 'mother' : 'father';
+  const parentShort = isMother ? 'mom' : 'dad';
+
+  const sections = [];
+
+  sections.push(
+    `You are the illustrator for a premium ${TOTAL_SPREADS}-spread children's picture book. You will be given a BOOK COVER image (ground-truth character + style) and then **paired** user prompts. For each pair, generate **ONE 4:1** ultra-wide full-bleed image containing **TWO consecutive story spreads** side by side: the **LEFT** half is the **earlier** spread (two bound pages as one 2:1 wide scene); the **RIGHT** half is the **next** spread (its own 2:1 wide scene). A lone final spread uses a normal single-spread prompt. Every frame must match the cover — identical 3D Pixar CGI style, characters, outfit family, quality.`,
+  );
+
+  sections.push(
+    `### ART STYLE (FROZEN — every spread must be 3D CGI, not 2D illustration)
+POSITIVE style: ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
+
+NEGATIVE style (FORBIDDEN — hard fail if any of these read on the image): ${PIXAR_STYLE.antiStyle}.
+
+Think: a still frame from a modern Disney-Pixar feature film — NOT a traditional children's-book illustration. The cover is the style ground truth.`,
+  );
+
+  sections.push(
+    `### CHARACTER LOCK
+The hero child on the cover is the ONLY hero of every spread. Preserve their face, ethnicity, skin tone, eye color, hair color + hairstyle, and body proportions EXACTLY as rendered on the cover.
+${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
+Copy the hero's clothing **as on the BOOK COVER** and prior interiors. Same outfit family unless the SCENE explicitly calls for bath/pool/pajamas/layer per system rules.
+Show the hero **EXACTLY ONCE per spread half** — each half is one moment. Across the pair the story may advance so the hero appears in both halves with correct continuity.`,
+  );
+
+  sections.push(
+    `### BATH, SHOWER, AND SWIMMING (MODEST — MODEL-SAFE)
+When the scene places the hero in a **bathtub**, **shower**, or **swimming pool**:
+- NEVER depict the child naked, nude, or with explicit bare chest, bare bottom, or genital detail. Keep everything **PG**, preschool-picture-book modest.
+- NEVER submerge the hero in water while still wearing **usual street outfit**.
+- **Bathtub / bubble bath (preferred):** thick opaque soap foam; face, arms; foam hides torso and legs below waterline.
+- **Pool:** modest swimwear allowed.
+- **Shower:** steam, silhouette, frosted glass, towel-wrapped beats.`,
+  );
+
+  sections.push(buildFamilyPolicySection({
+    secondaryOnCover,
+    hasParentOnCover,
+    isParentTheme,
+    isMother,
+    parentWord,
+    parentShort,
+    parentOutfit,
+    additionalCoverCharacters,
+    childAppearance,
+  }));
+
+  sections.push(
+    `### RECURRING ITEMS & CHARACTERS
+If an object, animal, or secondary character appears in one spread, it MUST keep the same design, color palette, and distinguishing features in every later spread it appears in.`,
+  );
+
+  const namedLocationsSection = buildNamedLocationsSection(locationPalette);
+  if (namedLocationsSection) sections.push(namedLocationsSection);
+
+  sections.push(
+    `### COMPOSITION (4:1 DUAL — ONE IMAGE, TWO SPREAD HALVES)
+**Layout:** One ultra-wide **4:1** painting. **Left = spread A** (one seamless 2:1 environment). **Right = spread B** (one seamless 2:1 environment). Story time flows **left → right**.
+**Continuity:** Prefer one cohesive day, light, and world palette across the full width — adjacent beats, not unrelated locales. **FORBIDDEN:** a harsh seam, exposure jump, or mismatched horizon **at the 4:1 center** as if two unrelated photos were glued. **REQUIRED:** each half reads as a **complete** spread with its own focal action and caption per the prompt.
+**Within each half:** left and right **pages** of that spread are **one** continuous place — no vertical seam at the middle of that half.
+**In-world text:** ONLY the **two** manuscript captions from the user prompt — one per half, exact wording. No shop signs, labels, or extra type.`,
+  );
+
+  sections.push(buildPictureBookPrintAndCaptionPolicyQuad(textRules));
+  sections.push(buildTextSection(textRules));
+
+  sections.push(
+    `### QUALITY BAR
+Anatomically correct hands, feet, faces. No floating limbs. Readable expression.`,
+  );
+
+  sections.push(
+    `### OUTPUT
+Respond with exactly ONE 4:1 image per paired prompt. Do not narrate unless asked for a text-only acknowledgment.`,
+  );
+
+  return sections.join('\n\n');
+}
+
+module.exports = {
+  buildSystemInstruction,
+  buildSystemInstructionQuad,
+};

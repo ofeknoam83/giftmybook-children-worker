@@ -615,4 +615,4 @@ async function renderAllSpreads(doc) {
   return current;
 }
 
-module.exports = { renderAllSpreads, processOneSpread };
+module.exports = { renderAllSpreads, processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog };

@@ -106,6 +106,25 @@ const FAILURE_CODES = {
   UPSTREAM_UNAVAILABLE: 'upstream_unavailable',
 };
 
+/**
+ * Default: legacy 16:9 one-spread-per-image pipeline.
+ * Enable quad (4:1 dual-spread) via env `GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR=1|true`
+ * or `doc.request.useQuadSpreadIllustrator === true`.
+ *
+ * @param {object} [doc] - Book document (for request override)
+ * @returns {{ renderer: 'legacy' | 'quad', source: 'default' | 'env' | 'request' }}
+ */
+function getIllustrationRenderer(doc) {
+  const envVal = process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
+  if (envVal === '1' || String(envVal).toLowerCase() === 'true') {
+    return { renderer: 'quad', source: 'env' };
+  }
+  if (doc?.request?.useQuadSpreadIllustrator === true) {
+    return { renderer: 'quad', source: 'request' };
+  }
+  return { renderer: 'legacy', source: 'default' };
+}
+
 module.exports = {
   PIPELINE_VERSION,
   FORMATS,
@@ -119,4 +138,5 @@ module.exports = {
   MODELS,
   REPAIR_BUDGETS,
   FAILURE_CODES,
+  getIllustrationRenderer,
 };

@@ -33,7 +33,7 @@ const {
   validateAllIllustrations,
 } = require('./schema/validateBookDocument');
 
-const { FAILURE_CODES } = require('./constants');
+const { FAILURE_CODES, getIllustrationRenderer } = require('./constants');
 
 const { normalizeRequest } = require('./input/normalizeRequest');
 const { createStoryBible } = require('./planner/createStoryBible');
@@ -42,6 +42,7 @@ const { createSpreadSpecs } = require('./planner/createSpreadSpecs');
 const { draftBookText } = require('./writer/draftBookText');
 const { writerQaAndRewrite } = require('./writer/rewriteBookText');
 const { renderAllSpreads } = require('./illustrator/renderAllSpreads');
+const { renderAllSpreadsQuad } = require('./illustrator/renderAllSpreadsQuad');
 const { runBookWideQa } = require('./qa/checkBookWide');
 const { toLayoutPayload } = require('./adapters/toLayoutPayload');
 
@@ -200,7 +201,22 @@ async function generateBook(rawRequest, opts = {}) {
   reportProgress(doc, { step: 'writerQa', message: 'Manuscript ready', document: doc });
 
   reportProgress(doc, { step: 'illustrating', message: 'Rendering spreads' });
-  doc = await runStage(doc, 'illustration', () => renderAllSpreads(doc), validateAllIllustrations, FAILURE_CODES.SPREAD_UNRESOLVABLE);
+  doc = await runStage(
+    doc,
+    'illustration',
+    async () => {
+      const bookId = doc.operationalContext?.bookId || doc.request?.bookId || 'n/a';
+      const ir = getIllustrationRenderer(doc);
+      const totalSpreads = doc.spreads?.length ?? 0;
+      console.log(
+        `[bookPipeline:${bookId}] illustration renderer=${ir.renderer} (flagSource=${ir.source}, totalSpreads=${totalSpreads})`,
+      );
+      if (ir.renderer === 'quad') return renderAllSpreadsQuad(doc);
+      return renderAllSpreads(doc);
+    },
+    validateAllIllustrations,
+    FAILURE_CODES.SPREAD_UNRESOLVABLE,
+  );
 
   reportProgress(doc, { step: 'bookWideQa', message: 'Reviewing the whole book' });
   doc = await runStage(doc, 'bookWideQa', () => runBookWideQa(doc), null, FAILURE_CODES.BOOK_WIDE_UNRESOLVABLE);

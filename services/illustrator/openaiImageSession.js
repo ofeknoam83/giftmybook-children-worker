@@ -23,12 +23,13 @@ const {
   OPENAI_IMAGE_MODEL,
   OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
+  OPENAI_QUAD_IMAGE_SIZE,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
 } = require('./config');
 const { postImagesGenerations } = require('./openaiImagesHttp');
-const { buildSystemInstruction } = require('./systemInstruction');
+const { buildSystemInstruction, buildSystemInstructionQuad } = require('./systemInstruction');
 
 /**
  * @typedef {Object} OpenAIImageSession
@@ -57,7 +58,18 @@ function createSession(opts) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY missing for illustrator session (MODELS.SPREAD_RENDER is gpt-image-2)');
 
-  const systemInstruction = buildSystemInstruction({
+  const systemInstruction = opts.quadSpreadMode
+    ? buildSystemInstructionQuad({
+      hasParentOnCover: opts.hasParentOnCover,
+      hasSecondaryOnCover: opts.hasSecondaryOnCover,
+      additionalCoverCharacters: opts.additionalCoverCharacters,
+      theme: opts.theme,
+      parentOutfit: opts.parentOutfit,
+      childAppearance: opts.childAppearance,
+      locationPalette: opts.locationPalette,
+      childAge: opts.childAge,
+    })
+    : buildSystemInstruction({
     hasParentOnCover: opts.hasParentOnCover,
     hasSecondaryOnCover: opts.hasSecondaryOnCover,
     additionalCoverCharacters: opts.additionalCoverCharacters,
@@ -109,9 +121,13 @@ async function establishCharacterReference(session) {
  * @param {number} spreadIndex
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
-async function generateSpread(session, spreadPromptText, spreadIndex) {
+async function generateSpread(session, spreadPromptText, spreadIndex, genOpts = {}) {
   if (session.abandoned) throw new Error('Session abandoned — cannot generate');
-  const result = await _postEdit(session, spreadPromptText, { spreadIndex });
+  const result = await _postEdit(session, spreadPromptText, {
+    spreadIndex,
+    imageSize: genOpts.imageSize || OPENAI_IMAGE_SIZE,
+    outputLine: genOpts.outputLine,
+  });
   session.turnsUsed++;
   return result;
 }
@@ -130,9 +146,14 @@ async function generateSpread(session, spreadPromptText, spreadIndex) {
  *   every turn with OpenAI Images anyway, so there is no "un-anchored" state.
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
-async function sendCorrection(session, correctionPromptText, spreadIndex) {
+async function sendCorrection(session, correctionPromptText, spreadIndex, opts = {}) {
   if (session.abandoned) throw new Error('Session abandoned — cannot correct');
-  const result = await _postEdit(session, correctionPromptText, { spreadIndex, isCorrection: true });
+  const result = await _postEdit(session, correctionPromptText, {
+    spreadIndex,
+    isCorrection: true,
+    imageSize: opts.imageSize || OPENAI_IMAGE_SIZE,
+    outputLine: opts.outputLine,
+  });
   session.turnsUsed++;
   return result;
 }
@@ -152,6 +173,28 @@ function markSpreadAccepted(session, spreadIndex, imageBase64) {
   } else {
     session.acceptedSpreads.push({ index: spreadIndex, imageBase64 });
   }
+}
+
+/**
+ * @param {object} session
+ * @param {number} indexA
+ * @param {number} indexB
+ * @param {string} leftStripBase64
+ * @param {string} rightStripBase64
+ */
+function markQuadPairAccepted(session, indexA, indexB, leftStripBase64, rightStripBase64) {
+  function upsert(idx, stripB64) {
+    const existing = session.acceptedSpreads.findIndex(s => s.index === idx);
+    const entry = { index: idx, imageBase64: stripB64 };
+    if (existing >= 0) {
+      session.acceptedSpreads[existing] = entry;
+    } else {
+      session.acceptedSpreads.push(entry);
+    }
+  }
+  upsert(indexA, leftStripBase64);
+  upsert(indexB, rightStripBase64);
+  session.acceptedSpreads.sort((a, b) => a.index - b.index);
 }
 
 /**
@@ -192,7 +235,7 @@ async function rebuildSession(oldSession) {
  * reference images so the model knows which is the cover and which are
  * previously accepted spreads.
  */
-function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount }) {
+function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, aspectHint }) {
   const refGuide = continuityCount > 0
     ? `REFERENCE IMAGES — the request includes ${continuityCount + 1} reference images:\n`
       + '  • Reference 1 is the APPROVED BOOK COVER — this is the canonical rendered likeness of the hero child AND the canonical 3D CGI Pixar feature-film art style. Match both exactly.\n'
@@ -200,6 +243,10 @@ function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount })
       + 'Every new spread must read as the SAME feature-film render as the cover and the accepted spreads. NEVER switch to a 2D painterly, watercolor, or "storybook illustration" look.'
     : 'REFERENCE IMAGE — the request includes 1 reference image:\n'
       + '  • Reference 1 is the APPROVED BOOK COVER — canonical character (face, hair, skin, outfit) AND canonical 3D CGI Pixar feature-film art style. Match both exactly.';
+
+  const outputHint = aspectHint === 'quad'
+    ? 'Output exactly ONE image: **4:1** ultra-wide landscape. LEFT half = first spread (2:1 wide), RIGHT half = second spread (2:1 wide). One continuous CGI world — two captions per system/user prompt. No collage seam at center.'
+    : 'Output exactly ONE image for this spread, full-bleed 16:9 landscape, one single continuous scene (no diptych seam). Caption: exact manuscript wording, same book-wide serif + modest readable size + natural blend as system instruction — not large display type.';
 
   return [
     '=== SYSTEM INSTRUCTION (non-negotiable rules for every illustration) ===',
@@ -211,7 +258,7 @@ function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount })
     '=== THIS SPREAD ===',
     userPrompt,
     '',
-    'Output exactly ONE image for this spread, full-bleed 16:9 landscape, one single continuous scene (no diptych seam). Caption: exact manuscript wording, same book-wide serif + modest readable size + natural blend as system instruction — not large display type.',
+    outputHint,
   ].join('\n');
 }
 
@@ -242,19 +289,26 @@ function collectEditImageFiles(session) {
   return { imageFiles, continuityCount: tail.length };
 }
 
-async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = false }) {
+async function _postEdit(session, userPrompt, {
+  spreadIndex,
+  isCorrection = false,
+  imageSize = OPENAI_IMAGE_SIZE,
+  outputLine,
+}) {
   const { imageFiles, continuityCount } = collectEditImageFiles(session);
+  const aspectHint = imageSize === OPENAI_QUAD_IMAGE_SIZE ? 'quad' : 'legacy';
   const combinedPrompt = buildCombinedPrompt({
     systemInstruction: session.systemInstruction,
     userPrompt,
     continuityCount,
+    aspectHint,
   });
 
-  const turnLabel = isCorrection ? 'correction' : 'generate';
+  const turnLabel = outputLine || (isCorrection ? 'correction' : 'generate');
   const startMs = Date.now();
   console.log(
     `[illustrator/openaiImageSession] ${turnLabel} spread ${spreadIndex + 1} `
-    + `(${continuityCount + 1} reference images, size=${OPENAI_IMAGE_SIZE})...`,
+    + `(${continuityCount + 1} reference images, size=${imageSize})...`,
   );
 
   let result;
@@ -264,7 +318,7 @@ async function _postEdit(session, userPrompt, { spreadIndex, isCorrection = fals
       url: OPENAI_IMAGES_GENERATIONS_URL,
       model: session.model,
       prompt: combinedPrompt,
-      size: OPENAI_IMAGE_SIZE,
+      size: imageSize,
       quality: OPENAI_IMAGE_QUALITY,
       imageFiles,
       timeoutMs: TURN_TIMEOUT_MS,
@@ -301,6 +355,7 @@ module.exports = {
   generateSpread,
   sendCorrection,
   markSpreadAccepted,
+  markQuadPairAccepted,
   pruneLastTurn,
   rebuildSession,
 };
