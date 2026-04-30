@@ -466,6 +466,11 @@ async function processQuadPair(params) {
         issues: qaB.issues,
         tags: qaB.tags,
       });
+      if (planA.correctionMode === 'text_priority' || planB.correctionMode === 'text_priority') {
+        console.log(
+          `[${logTagQuad}] repair tier=text_priority (attempt ${attempt}) spreadA=${planA.correctionMode} spreadB=${planB.correctionMode} — caption-first, preserve hero look`,
+        );
+      }
       correctionNote = [planA.correctionNote, planB.correctionNote].filter(Boolean).join('\n---\n');
 
       currentDoc = appendRetryMemory(currentDoc, planA.retryEntry);

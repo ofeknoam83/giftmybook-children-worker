@@ -463,6 +463,11 @@ async function processOneSpread(params) {
         issues: qa.issues,
         tags: qa.tags,
       });
+      if (plan.correctionMode === 'text_priority') {
+        console.log(
+          `[${logTag}] repair tier=text_priority (attempt ${attempt}) — caption-first, preserve hero look`,
+        );
+      }
       correctionNote = plan.correctionNote;
       currentDoc = appendRetryMemory(currentDoc, plan.retryEntry);
       currentDoc = updateSpread(currentDoc, spread.spreadNumber, s => ({
