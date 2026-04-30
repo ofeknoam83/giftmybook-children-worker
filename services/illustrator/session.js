@@ -319,24 +319,50 @@ function markSpreadAccepted(session, spreadIndex, imageBase64) {
 }
 
 /**
+ * Snapshot the last model turn's parts if it includes an inline image (full 4:1 quad).
+ * Used so session rebuilds can replay thought_signature-aligned images even though
+ * {@link markQuadPairAccepted} stores per-spread strip base64 for references.
+ *
+ * @param {IllustratorSession} session
+ * @returns {object[]|undefined}
+ */
+function snapshotLastQuadModelParts(session) {
+  const lastModel = [...session.history].reverse().find(m => m.role === 'model');
+  if (!lastModel?.parts?.length) return undefined;
+  const hasImage = lastModel.parts.some(p => {
+    const inline = p.inlineData || p.inline_data;
+    return inline && inline.data;
+  });
+  return hasImage ? lastModel.parts : undefined;
+}
+
+/**
  * Record two accepted spreads from one 4:1 composite after slicing to 2:1 strips.
- * Strips are stored for OpenAI reference continuity; Gemini rebuild seeding may
- * use text-only fallback when strip base64 does not match the last model inline image.
+ * Strips are stored for OpenAI reference continuity. For Gemini, also attaches the
+ * last model turn's full `parts` (same 4:1 image + signatures) to **both** records
+ * so {@link seedHistoryFromAccepted} can replay them after rebuilds.
  *
  * @param {IllustratorSession} session
  * @param {number} indexA - 0-based first spread in the pair
  * @param {number} indexB - 0-based second spread
  * @param {string} leftStripBase64 - first spread (left half of 4:1)
  * @param {string} rightStripBase64 - second spread (right half)
+ * @param {object[]|undefined} [modelParts] - optional; defaults to {@link snapshotLastQuadModelParts}(session)
  */
-function markQuadPairAccepted(session, indexA, indexB, leftStripBase64, rightStripBase64) {
+function markQuadPairAccepted(session, indexA, indexB, leftStripBase64, rightStripBase64, modelParts) {
+  const parts = modelParts !== undefined ? modelParts : snapshotLastQuadModelParts(session);
   function upsert(idx, stripB64) {
     const existing = session.acceptedSpreads.findIndex(s => s.index === idx);
     const entry = { index: idx, imageBase64: stripB64 };
+    if (parts) {
+      entry.modelParts = parts;
+    }
     if (existing >= 0) {
       const prev = session.acceptedSpreads[existing];
-      session.acceptedSpreads[existing] = { ...prev, ...entry };
-      delete session.acceptedSpreads[existing].modelParts;
+      const next = { ...prev, ...entry };
+      if (parts) next.modelParts = parts;
+      else delete next.modelParts;
+      session.acceptedSpreads[existing] = next;
     } else {
       session.acceptedSpreads.push(entry);
     }

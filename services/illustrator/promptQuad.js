@@ -31,6 +31,7 @@ function oppositeSide(side) {
  * @param {number|string|null} [opts.childAge]
  * @param {number} [opts.quadBatchIndex] - 0-based batch index within the book
  * @param {string} [opts.correctionNote]
+ * @param {string} [opts.heroAppearance] - visual bible hero physical description; repeated every batch for hair/outfit lock
  * @returns {string}
  */
 function buildDualSpreadTurn(opts) {
@@ -43,6 +44,7 @@ function buildDualSpreadTurn(opts) {
     childAge,
     quadBatchIndex = 0,
     correctionNote,
+    heroAppearance,
   } = opts;
 
   const numA = spreadIndexA + 1;
@@ -78,6 +80,7 @@ function buildDualSpreadTurn(opts) {
     '- **Art style:** 3D Pixar CGI matching the BOOK COVER; not 2D illustration.',
     '- **Vertical center of the full 4:1:** transition should stay seamless (lighting/atmosphere) — no harsh cut like two unrelated photos.',
     '- **Exact text:** character-for-character match for each half\'s TEXT; no extra words, no duplication across halves.',
+    '- **Hero look:** hair color, hairstyle, skin tone, and face must match the BOOK COVER and the HERO LOCK block below on **both** halves and **every** quad batch — no drift across pairs.',
   ];
 
   if (textRules.maxWordsPerLine !== TEXT_RULES.maxWordsPerLine) {
@@ -91,9 +94,19 @@ function buildDualSpreadTurn(opts) {
     );
   }
 
+  const heroBlock = typeof heroAppearance === 'string' && heroAppearance.trim()
+    ? [
+      '### HERO LOCK (repeat every batch)',
+      'Match this written lock to the BOOK COVER and every prior accepted interior — same child identity.',
+      heroAppearance.trim(),
+      '',
+    ]
+    : [];
+
   const sections = [
     `### QUAD BATCH ${quadBatchIndex + 1} — DUAL SPREADS ${numA} AND ${numB} of ${TOTAL_SPREADS} (one 4:1 image)`,
     '',
+    ...heroBlock,
     `### LEFT HALF — SPREAD ${numA} of ${TOTAL_SPREADS} (this half is a complete 2:1 wide spread)`,
     '### SCENE',
     String(sceneA || '').trim(),
@@ -133,6 +146,7 @@ function buildDualSpreadTurn(opts) {
  * @param {string} [opts.theme]
  * @param {number|string|null} [opts.childAge]
  * @param {number} [opts.quadBatchIndex]
+ * @param {string} [opts.heroAppearance]
  * @returns {string}
  */
 function buildDualCorrectionTurn(opts) {
@@ -158,6 +172,7 @@ function buildDualCorrectionTurn(opts) {
     theme: opts.theme,
     childAge: opts.childAge,
     quadBatchIndex: opts.quadBatchIndex,
+    heroAppearance: opts.heroAppearance,
     correctionNote: lines.join('\n'),
   });
 }

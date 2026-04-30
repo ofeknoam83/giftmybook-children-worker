@@ -191,6 +191,7 @@ async function processQuadPair(params) {
             theme: specA.theme,
             childAge: currentDoc.brief?.child?.age ?? null,
             quadBatchIndex,
+            heroAppearance: hero,
           });
           image = await generateSpread(currentSession, turn, specA.spreadIndex, quadGenOpts());
         } else {
@@ -210,6 +211,7 @@ async function processQuadPair(params) {
             theme: specA.theme,
             childAge: currentDoc.brief?.child?.age ?? null,
             quadBatchIndex,
+            heroAppearance: hero,
           });
           if (reanchorThisTurn) {
             console.log(`[${logTagQuad}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);

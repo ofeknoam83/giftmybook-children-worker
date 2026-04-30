@@ -10,8 +10,7 @@
  *   closing page
  *   upsell spread (2 pages: 2 covers each, full portrait)
  *
- * Picture book: 8.5" × 8.5"  (612 × 612 pts)
- * Early reader: 6" × 9"       (432 × 648 pts)
+ * Picture book & early reader: 8.5" × 8.5" (612 × 612 pts)
  * All pages include 0.125" (9pt) bleed on all sides.
  *
  * Fonts (embedded TTF):
@@ -41,7 +40,7 @@ const PTS_PER_INCH= 72;
 
 const FORMATS = {
   PICTURE_BOOK: { width: 612, height: 612 },
-  EARLY_READER: { width: 432, height: 648 },
+  EARLY_READER: { width: 612, height: 612 },
 };
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -117,26 +116,28 @@ async function splitSpreadImage(buf, pw, ph) {
   const hp = Math.round(ph / PTS_PER_INCH * TARGET_DPI);  // page height in pixels
   const spreadW = wp * 2;  // full spread = 2 pages wide
 
-  // Resize to fill spread width exactly (images already upscaled by Illustrator V2)
   const meta = await sharp(buf).metadata();
-  const scaledH = Math.round(meta.height * spreadW / meta.width);
+  const srcW = meta.width || 1;
+  const srcH = meta.height || 1;
+  const scaledH = Math.round(srcH * spreadW / srcW);
 
-  // Balanced vertical crop. 16:9 images are taller than the 2:1 spread ratio, so
-  // we must crop vertically. A 50/50 split (half the excess from top, half from bottom)
-  // keeps composition centered. The illustrator insets on-image caption text
-  // from the top/bottom of the 16:9 frame (`TEXT_RULES` top/bottom caption
-  // inset — e.g. 28%/48% top/bottom (under 3), 26%/42% (ages 3–8), 26%/36% default — see illustrator/config)
-  // so type stays in-frame after print.
-  const excessH = Math.max(0, scaledH - hp);
-  const cropTop = Math.floor(excessH * 0.5);
+  // Build a full spreadW × hp canvas. Legacy 16:9 assets: scaledH > hp — center
+  // vertical crop (caption insets — see illustrator/config). Shorter sources
+  // (quad 2:1 on portrait trim, bad assets): cover-resize to avoid extract errors.
+  let spreadBuf;
+  if (scaledH >= hp) {
+    const excessH = scaledH - hp;
+    const cropTop = Math.floor(excessH * 0.5);
+    spreadBuf = await sharp(buf)
+      .resize(spreadW, scaledH, { kernel: 'lanczos3' })
+      .extract({ left: 0, top: cropTop, width: spreadW, height: hp })
+      .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
+  } else {
+    spreadBuf = await sharp(buf)
+      .resize(spreadW, hp, { fit: 'cover', kernel: 'lanczos3', position: 'centre' })
+      .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
+  }
 
-  // Scale + crop in one sharp operation
-  const spreadBuf = await sharp(buf)
-    .resize(spreadW, scaledH, { kernel: 'lanczos3' })
-    .extract({ left: 0, top: cropTop, width: spreadW, height: hp })
-    .toColorspace('srgb').jpeg({ quality: 93 }).toBuffer();
-
-  // Split exactly down the center
   const leftBuf = await sharp(spreadBuf)
     .extract({ left: 0, top: 0, width: wp, height: hp })
     .toBuffer();
@@ -502,7 +503,7 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
   buildTitlePage(pdfDoc, pw, ph, fonts, { title, childName });
 
   // ── Story spreads ─────────────────────────────────────────────────────────
-  // picture_book & early_reader: spreadIllustrationBuffer = wide 16:9 image → split into left+right pages.
+  // picture_book & early_reader: spreadIllustrationBuffer = wide spread image (legacy ~16:9, quad 2:1) → split into left+right pages.
   // Format only changes trim size (FORMATS), vocabulary, and word targets — not spread layout.
 
   for (const entry of storyEntries) {
@@ -1559,4 +1560,4 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
   }
 }
 
-module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS };
+module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS, splitSpreadImage };

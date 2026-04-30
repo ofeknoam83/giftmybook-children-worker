@@ -153,7 +153,7 @@ function buildCoverSafeZoneInstruction(isHardcover) {
  *
  * @param {Buffer} frontCoverBuffer
  * @param {object} [opts]
- * @param {string} [opts.bookFormat] - PICTURE_BOOK (square) vs portrait early reader
+ * @param {string} [opts.bookFormat] - PICTURE_BOOK / EARLY_READER (square) vs portrait chapter
  * @param {object} [opts.costTracker]
  * @param {boolean} [opts.skipCoverStyleHarmonize] - if true, no-op
  * @returns {Promise<Buffer>}
@@ -166,7 +166,6 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     return frontCoverBuffer;
   }
 
-  const isPictureBook = (opts.bookFormat || '').toLowerCase() === 'picture_book';
   const styleConfig = ART_STYLE_CONFIG.pixar_premium || ART_STYLE_CONFIG.cinematic_3d;
   const styleBlock = renderStyleBlock(styleConfig);
 
@@ -299,7 +298,8 @@ async function buildBackCoverStyleReferenceBuffer(frontCoverBuffer) {
  */
 async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   const { childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat, isHardcover } = opts;
-  const isSquare = (bookFormat || '').toLowerCase() === 'picture_book';
+  const fmt = (bookFormat || '').toLowerCase();
+  const isSquare = fmt === 'picture_book' || fmt === 'early_reader';
 
   const refFromCorner = await buildBackCoverStyleReferenceBuffer(frontCoverBuffer);
 
@@ -427,7 +427,7 @@ ${layoutBlock}`;
  * @param {string} title
  * @param {object} childDetails - { childName, childAge, childAppearance }
  * @param {string} characterRefUrl
- * @param {string} bookFormat - PICTURE_BOOK or EARLY_READER
+ * @param {string} bookFormat - picture_book | early_reader (8.5×8.5) | GRAPHIC_NOVEL | chapter portrait (6×9 else branch)
  * @param {object} opts
  * @param {Buffer} [opts.preGeneratedCoverBuffer] - Customer-chosen cover; is re-rendered through
  *   {@link harmonizeChosenCoverToInteriorStyle} so the wrap PDF matches 3D interior art unless
@@ -436,17 +436,20 @@ ${layoutBlock}`;
  * @returns {Promise<{coverPdfBuffer: Buffer, frontCoverImageUrl: string}>}
  */
 async function generateCover(title, childDetails, characterRefUrl, bookFormat, opts = {}) {
-  const isPictureBook = (bookFormat || '').toLowerCase() === 'picture_book';
+  const fmt = (bookFormat || '').toLowerCase();
+  const isPictureBook = fmt === 'picture_book';
+  const isEarlyReader = fmt === 'early_reader';
+  const isSquareTrim = isPictureBook || isEarlyReader;
   const isGraphicNovel = (bookFormat || '').toUpperCase() === 'GRAPHIC_NOVEL';
   let trimWidth, trimHeight;
-  if (isPictureBook) {
+  if (isSquareTrim) {
     trimWidth = 612;  // 8.5"
     trimHeight = 612; // 8.5"
   } else if (isGraphicNovel) {
     trimWidth = 477;  // 6.625" × 72
     trimHeight = 738; // 10.25" × 72
   } else {
-    trimWidth = 432;  // 6" (early reader, chapter book)
+    trimWidth = 432;  // 6" (chapter book and other portrait formats)
     trimHeight = 648; // 9"
   }
   const bleed = 9; // 0.125" Lulu standard
@@ -506,7 +509,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     });
   } else {
     const artStyle = opts.artStyle || 'pixar_premium';
-    const aspectHint = isPictureBook
+    const aspectHint = isSquareTrim
       ? 'Square image, 1:1 aspect ratio.'
       : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
     const childAge = childDetails.childAge || childDetails.age || 5;

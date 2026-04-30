@@ -182,7 +182,7 @@ function markSpreadAccepted(session, spreadIndex, imageBase64) {
  * @param {string} leftStripBase64
  * @param {string} rightStripBase64
  */
-function markQuadPairAccepted(session, indexA, indexB, leftStripBase64, rightStripBase64) {
+function markQuadPairAccepted(session, indexA, indexB, leftStripBase64, rightStripBase64, _modelPartsUnused) {
   function upsert(idx, stripB64) {
     const existing = session.acceptedSpreads.findIndex(s => s.index === idx);
     const entry = { index: idx, imageBase64: stripB64 };
