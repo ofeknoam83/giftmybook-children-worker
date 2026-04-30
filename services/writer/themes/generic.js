@@ -1,15 +1,13 @@
 /**
- * GenericThemeWriter — handles ALL themes except mothers_day.
+ * GenericThemeWriter — single Writer V2 implementation for all themes.
  *
- * Theme-aware beat structures for 13 spreads across five categories:
- * - Parent themes (fathers_day): parent-child bond arc
+ * Theme-aware behavior via category:
+ * - Parent themes (mothers_day, fathers_day): parent-child bond arc
  * - Celebration themes (birthday, birthday_magic): party/wish arc
  * - Adventure themes (adventure, fantasy, space, underwater, nature): exploration arc
  * - Daily life themes (bedtime, school, friendship, holiday): everyday arc
  * - Emotional themes (anxiety, anger, fear, grief, loneliness, new_beginnings,
  *   self_worth, family_change): feelings arc with coping/hope resolution
- *
- * Follows the same plan → write → revise pipeline as MothersDayWriter.
  */
 
 const { BaseThemeWriter, stripOutfitLockFromRaw } = require('./base');
@@ -18,6 +16,8 @@ const { checkAndFixPronouns } = require('../quality/pronoun');
 const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { isPlaceholderTitle } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
+const { getParentRefrainSuggestions } = require('./parentRefrainSuggestions');
+const { buildParentBeatEnrichmentSystem } = require('./parentPlanEnrichment');
 
 /**
  * @param {{ parseSpreads: (raw: string) => Array<{ spread: number, text: string, scene: string }> }} writer
@@ -30,7 +30,7 @@ function parseWriterOutput(writer, rawText) {
 
 // ── Theme category membership ──
 
-const PARENT_THEMES = ['fathers_day'];
+const PARENT_THEMES = ['mothers_day', 'fathers_day'];
 const CELEBRATION_THEMES = ['birthday', 'birthday_magic'];
 const ADVENTURE_THEMES = ['adventure', 'fantasy', 'space', 'underwater', 'nature'];
 const DAILY_LIFE_THEMES = ['bedtime', 'school', 'friendship', 'holiday'];
@@ -69,18 +69,32 @@ class GenericThemeWriter extends BaseThemeWriter {
     this._manifest = null;
     this._storySeed = opts.storySeed || null;
 
-    // Always invent beats with the creative LLM (brainstorm seed still informs the prompt via storySeed).
-    console.log(`[writerV2] plan: _generateCreativeBeats`, { theme: this.themeName });
-    const beats = await this._generateCreativeBeats(child, book, {
-      storySeed: opts.storySeed,
-      parentName,
-      ageTier,
-    });
+    const seed = opts.storySeed || null;
+    const rawSeedBeats = Array.isArray(seed?.beats) ? seed.beats : null;
+    let beats;
+    let usedStorySeedBeats = false;
 
-    const refrain = this._chooseRefrain(child, parentName, opts.storySeed);
+    if (rawSeedBeats && rawSeedBeats.length >= 10) {
+      beats = this._normalizeUpstreamSeedBeats(rawSeedBeats, ageTier, child);
+      usedStorySeedBeats = true;
+      console.log(`[writerV2] plan: using upstream storySeed.beats`, { theme: this.themeName, count: beats.length });
+    } else {
+      console.log(`[writerV2] plan: _generateCreativeBeats`, { theme: this.themeName });
+      beats = await this._generateCreativeBeats(child, book, {
+        storySeed: seed,
+        parentName,
+        ageTier,
+      });
+    }
+
+    const refrain = this._chooseRefrain(child, parentName, seed);
 
     let enrichedBeats = beats;
-    if (child.anecdotes && Object.keys(child.anecdotes).length > 0) {
+    if (
+      child.anecdotes &&
+      Object.keys(child.anecdotes).length > 0 &&
+      !usedStorySeedBeats
+    ) {
       try {
         enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier);
       } catch (err) {
@@ -89,7 +103,6 @@ class GenericThemeWriter extends BaseThemeWriter {
     }
 
     const plot = this._selectedPlot;
-    const seed = opts.storySeed || null;
 
     // Location palette: always attempted, even on the template path. Every
     // spread will get a .location and .visual_anchors that the writer must
@@ -130,10 +143,60 @@ class GenericThemeWriter extends BaseThemeWriter {
       plotSynopsis: plot?.synopsis || (seed?.narrative_spine || null),
       storySeed: seed,
       usedSeed: false,
-      usedStorySeedBeats: false,
+      usedStorySeedBeats,
       manifest: null,
       locationPalette: palette,
     };
+  }
+
+  /**
+   * Normalize upstream brainstorm beats into the Writer V2 beat shape (13 spreads).
+   * @param {Array<string|object>} raw
+   * @param {string} ageTier
+   * @param {{ name?: string }} child
+   * @returns {Array<{ spread: number, beat: string, description: string, wordTarget: number }>}
+   */
+  _normalizeUpstreamSeedBeats(raw, ageTier, child) {
+    const isYoung = ageTier === 'young-picture';
+    const wt = isYoung ? 16 : 28;
+    const name = (child && child.name) ? String(child.name) : 'the hero';
+    const slice = raw.slice(0, 13);
+    const out = [];
+    for (let i = 0; i < slice.length; i++) {
+      const spread = i + 1;
+      const b = slice[i];
+      let beat = `SPREAD_${spread}`;
+      let desc = '';
+      let wordTarget = spread >= 12 ? (isYoung ? 12 : 15) : wt;
+      if (typeof b === 'string') {
+        desc = b.trim();
+        beat = 'BEAT';
+      } else if (b && typeof b === 'object') {
+        beat = (b.beat || b.label || beat).toString().trim().replace(/\s+/g, '_').toUpperCase() || 'BEAT';
+        desc = (b.description || b.text || '').toString().trim();
+        const w = Number(b.wordTarget);
+        if (Number.isFinite(w) && w > 0) wordTarget = Math.round(w);
+      }
+      if (!desc) continue;
+      out.push({
+        spread,
+        beat,
+        description: this._sanitizeBeatDescription(desc),
+        wordTarget,
+      });
+    }
+    while (out.length < 13) {
+      const n = out.length + 1;
+      out.push({
+        spread: n,
+        beat: `LATE_${n}`,
+        description: this._sanitizeBeatDescription(
+          `A concrete beat that pays off the story — invent a specific action and place for ${name}.`,
+        ),
+        wordTarget: n >= 12 ? (isYoung ? 12 : 15) : wt,
+      });
+    }
+    return out.slice(0, 13);
   }
 
   /**
@@ -442,8 +505,13 @@ class GenericThemeWriter extends BaseThemeWriter {
     if (storySeed?.repeated_phrase && typeof storySeed.repeated_phrase === 'string') {
       const phrase = storySeed.repeated_phrase.trim();
       if (phrase && phrase.length < 60) {
+        const pw = this.category === 'parent'
+          ? (this.themeName === 'fathers_day'
+            ? (child.anecdotes?.calls_dad || parentName || 'Daddy')
+            : (child.anecdotes?.calls_mom || parentName || 'Mama'))
+          : parentName || null;
         return {
-          parentWord: parentName || null,
+          parentWord: pw,
           suggestions: [phrase],
           fromSeed: true,
         };
@@ -451,15 +519,12 @@ class GenericThemeWriter extends BaseThemeWriter {
     }
 
     if (this.category === 'parent') {
-      const word = parentName || 'Daddy';
+      const word = this.themeName === 'fathers_day'
+        ? (child.anecdotes?.calls_dad || parentName || 'Daddy')
+        : (child.anecdotes?.calls_mom || parentName || 'Mama');
       return {
         parentWord: word,
-        suggestions: [
-          `${word} is here.`,
-          `${word} always knows.`,
-          `That's what ${word} does.`,
-          `Because ${word} loves you.`,
-        ],
+        suggestions: getParentRefrainSuggestions(this.themeName, null, word),
       };
     }
 
@@ -499,6 +564,38 @@ class GenericThemeWriter extends BaseThemeWriter {
   async _enrichPlanWithLLM(beats, child, book, parentName, ageTier) {
     const anecdoteText = this._formatAnecdotes(child.anecdotes);
     if (!anecdoteText) return beats;
+
+    if (this.category === 'parent') {
+      const recipient = this.themeName === 'fathers_day' ? 'dad' : 'mom';
+      const systemPrompt = buildParentBeatEnrichmentSystem(recipient);
+      const occasion = this.themeName === 'fathers_day' ? "Father's Day" : 'Love to mom';
+      const parentKin = this.themeName === 'fathers_day' ? 'dad' : 'mom';
+      const userPrompt = `Here are the story beats for a ${ageTier} ${occasion} book about ${child.name} (age ${child.age}) and ${parentName}:
+
+${beats.map(b => `Spread ${b.spread} (${b.beat}): ${b.description}`).join('\n')}
+
+Here are real details about this child and their ${parentKin}:
+${anecdoteText}
+
+Refine each beat description to incorporate specific details from the anecdotes. Keep the same number of beats and their purposes. Return a JSON array of beats with the same structure:
+[{ "spread": 1, "beat": "OPENING", "description": "refined description", "wordTarget": 30 }, ...]`;
+
+      const result = await this.callLLM('planner', systemPrompt, userPrompt, {
+        jsonMode: true,
+        maxTokens: 2000,
+      });
+
+      try {
+        let parsed = JSON.parse(result.text);
+        if (parsed.beats) parsed = parsed.beats;
+        if (Array.isArray(parsed) && parsed.length >= beats.length * 0.7) {
+          return parsed;
+        }
+      } catch (err) {
+        console.warn(`[writerV2] Could not parse enriched beats: ${err.message}`);
+      }
+      return beats;
+    }
 
     const themeLabel = this.themeName.replace(/_/g, ' ');
     const parentNote = parentName ? ` about ${child.name} and ${parentName}` : ` about ${child.name}`;
@@ -544,11 +641,260 @@ Refine each beat description to incorporate specific details from the anecdotes.
     return beats;
   }
 
-  // ──────────────────────────────────────────
-  // Write prompt builder
-  // ──────────────────────────────────────────
+  /**
+   * Write prompt for mothers_day / fathers_day — parent on cover rules, celebration tone,
+   * bond through-line (no motif-guardrail blocks).
+   *
+   * @param {object} plan
+   * @param {object} child
+   * @param {object} book
+   * @returns {string}
+   */
+  _buildParentGiftWritePrompt(plan, child, book) {
+    const pronouns = plan.pronouns;
+    const parentName = plan.parentName;
+    const anecdoteText = this._formatAnecdotes(child.anecdotes);
+    const isFather = this.themeName === 'fathers_day';
+    const parentHeading = isFather ? 'THE FATHER' : 'THE MOTHER';
+    const themedWord = isFather ? 'father' : 'mother';
+    const parentRefPhrase = isFather ? 'THIS father' : 'THIS mother';
+    const coverParentPresent = book.coverParentPresent === true || book.cover_parent_present === true;
+    const parentCoverSnippet = (
+      book.additionalCoverCharacters ||
+      book.additional_cover_characters ||
+      ''
+    ).toString().trim();
+
+    const sections = [];
+
+    sections.push(`## THE CHILD\n`);
+    sections.push(`Name: ${child.name}`);
+    sections.push(`Age: ${child.age}`);
+    sections.push(`Gender: ${child.gender || 'not specified'} (pronouns: ${pronouns.pair})`);
+    if (child.appearance) sections.push(`Appearance: ${child.appearance}`);
+    if (child.interests?.length) sections.push(`Interests: ${child.interests.join(', ')}`);
+
+    sections.push(`\n## ${parentHeading}\n`);
+    sections.push(isFather ? `The child calls him: ${parentName}` : `The child calls her: ${parentName}`);
+
+    if (coverParentPresent) {
+      if (isFather) {
+        sections.push(`\n## DAD ON APPROVED COVER (VISUAL LOCK FOR TEXT + SCENE)\n`);
+        sections.push(
+          'The father appears on the **printed book cover** reference. Interior illustrations will match him to that cover. Your SCENE blocks must describe him with **the same recognizable look** every time he appears (hair, skin tone, face when visible, build, age range) — never a different man or a generic stock-Dad reinterpretation.',
+        );
+      } else {
+        sections.push(`\n## MOM ON APPROVED COVER (VISUAL LOCK FOR TEXT + SCENE)\n`);
+        sections.push(
+          'The mother appears on the **printed book cover** reference. Interior illustrations will match her to that cover. Your SCENE blocks must describe her with **the same recognizable look** every time she appears (hair, skin tone, face when visible, build, age range) — never a different woman or a generic "movie mom" reinterpretation.',
+        );
+      }
+      if (parentCoverSnippet) {
+        sections.push(
+          isFather
+            ? `Cover character notes (echo these concrete cues in SCENE when Dad is visible — do not contradict): ${parentCoverSnippet}`
+            : `Cover character notes (echo these concrete cues in SCENE when Mom is visible — do not contradict): ${parentCoverSnippet}`,
+        );
+      } else {
+        sections.push(
+          isFather
+            ? 'No separate cover description string was provided — still **keep Dad visually consistent** spread to spread; echo any hair/outfit/skin cues you establish on first full appearance.'
+            : 'No separate cover description string was provided — still **keep Mom visually consistent** spread to spread; echo any hair/outfit/skin cues you establish on first full appearance.',
+        );
+      }
+    }
+
+    const dadRealName = (book.dad_name || child.anecdotes?.dad_name || '').toString().trim();
+    const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
+    const realName = isFather ? dadRealName : momRealName;
+    const legalLabel = isFather ? 'father' : 'mother';
+    if (realName && realName.toLowerCase() !== parentName.toLowerCase()) {
+      sections.push(`\n## PARENT NAME RULE — SHIP-BLOCKER\n`);
+      sections.push(`The ${legalLabel}'s real first name is "${realName}" but the child calls ${isFather ? 'him' : 'her'} "${parentName}".`);
+      if (isFather) {
+        sections.push(`In this book he is "${parentName}" EVERYWHERE. You MAY use "${realName}" exactly ONCE — and only if it lands naturally in a single dedication-style beat (e.g. "When grown-ups call him ${realName}, to you he's just ${parentName}."). If you can't fit it gracefully, omit it entirely.`);
+      } else {
+        sections.push(`In this book she is "${parentName}" EVERYWHERE. You MAY use "${realName}" exactly ONCE — and only if it lands naturally in a single dedication-style beat (e.g. "When grown-ups call her ${realName}, to you she's just ${parentName}."). If you can't fit it gracefully, omit it entirely.`);
+      }
+      sections.push(`Hard rule: "${realName}" appears at most ONE TIME across all 13 spreads and the dedication combined. Using it more than once — even twice — is a ship-blocker; the book will fail QA and be rewritten. Do NOT rhyme on "${realName}". Do NOT let "${realName}" replace "${parentName}" in any refrain. Do NOT alternate between the two names.`);
+    } else if (isFather && dadRealName) {
+      sections.push(`Dad's name: ${dadRealName}`);
+    } else if (!isFather && momRealName) {
+      sections.push(`Mom's name: ${momRealName}`);
+    }
+
+    if (anecdoteText) {
+      sections.push(
+        isFather
+          ? `\n## REAL DETAILS ABOUT THIS CHILD AND THEIR DAD\n`
+          : `\n## REAL DETAILS ABOUT THIS CHILD AND THEIR MOM\n`,
+      );
+      sections.push(anecdoteText);
+      sections.push('\nWeave these real details naturally into the story. They make the book feel personal and specific.');
+    }
+
+    if (book.heartfeltNote) {
+      sections.push(`\n## HEARTFELT NOTE FROM THE PERSON ORDERING THIS BOOK\n`);
+      sections.push(`"${book.heartfeltNote}"`);
+      sections.push('Use the emotion and intent of this note to guide the story\'s tone.');
+    }
+
+    if (book.bookFrom) {
+      sections.push(`\n## BOOK FROM\n`);
+      sections.push(`This book is from: ${book.bookFrom}`);
+    }
+
+    if (book.title && !isPlaceholderTitle(book.title)) {
+      const titleKeywords = this._extractTitleKeywords(book.title, child.name);
+      sections.push(`\n## BOOK TITLE — TITLE COHERENCE IS MANDATORY\n`);
+      sections.push(`The approved cover title is: "${book.title}"`);
+      sections.push(`The title's core concept MUST be concretely present in AT LEAST three spreads across the book:`);
+      sections.push(`- Introduced early (one of the first few spreads) so a reader opening the book immediately sees why it's called "${book.title}".`);
+      sections.push(`- Paid off at whatever spread you make the climax/peak — the title's concept is the promise the cover makes.`);
+      sections.push(`- Echoed in the closing so the final image clearly belongs under "${book.title}".`);
+      if (titleKeywords.length > 0) {
+        sections.push(`Keywords from the title that must appear (or be clearly represented) somewhere in the text: ${titleKeywords.map(k => `"${k}"`).join(', ')}.`);
+      }
+      sections.push('Do NOT write a generic theme story that happens to sit under this cover. The story must feel commissioned FOR this title.');
+    }
+
+    if (plan.plotSynopsis) {
+      sections.push(`\n## PLOT CONCEPT\n`);
+      sections.push(plan.plotSynopsis);
+      sections.push('\nUse this as the creative seed of the story — lean into THIS plot. The spread-by-spread shape is yours to invent (see INVENTED ARC below).');
+    }
+
+    const personalizationItems = this._buildPersonalizationChecklist(child, book, plan);
+    if (personalizationItems.length > 0) {
+      sections.push(`\n## MANDATORY PERSONALIZATION CHECKLIST\n`);
+      sections.push(`The following real details were provided by the parent. EACH item must appear concretely in AT LEAST ONE spread — as a named object, action, place, food, or person. Do NOT generalize them away. Do NOT list them all in one spread. Spread them across the 13 beats so the book feels personally woven for this child:`);
+      personalizationItems.forEach(item => sections.push(`- ${item}`));
+      sections.push(`After writing, silently verify: every checklist item above is concretely present somewhere in the final story text. If any item is missing, rewrite the affected spread to include it naturally.`);
+    }
+
+    sections.push(`\n## STORY PLAN\n`);
+    sections.push(`Theme: ${this.themeName.replace(/_/g, ' ')}`);
+    sections.push(`Age tier: ${plan.ageTier}`);
+    sections.push(`Target spread count: ${plan.spreadCount.target}`);
+    sections.push(`Total word target: ${plan.wordTargets.total} words maximum`);
+    sections.push(`Words per spread: ${plan.wordTargets.perSpread.min}-${plan.wordTargets.perSpread.max}`);
+
+    if (plan.ageTier === 'young-picture') {
+      sections.push(`\n## SIMPLICITY (THIS CHILD IS UNDER 4)\n`);
+      sections.push(`- Maximum 2 syllables per word (except names). Use "big", "soft", "warm", "red" — not "solemn", "beneath", "shimmer".`);
+      sections.push(`- Maximum 4 lines per spread. 2 lines is great.`);
+      sections.push(`- Every line must make a picture a toddler can see. No abstractions, no similes, no metaphors.`);
+      sections.push(`- Simple sentence structure. One idea per line.`);
+      sections.push(`- Be clever and fun, not literary. Think silly, bouncy, playful — the kind of line that makes a toddler giggle.`);
+      sections.push(`- If in doubt, simpler is better. This book will be read to a child who still points at dogs and says "woof".`);
+    } else {
+      sections.push(`\n## KEEP IT SIMPLE AND FUN\n`);
+      sections.push(`- Write like Dr. Seuss or Julia Donaldson — clever, playful, easy to follow. NOT like adult poetry.`);
+      sections.push(`- A parent should read every line smoothly on the first try. No tricky words, no awkward phrasing.`);
+      sections.push(`- Prefer short, punchy sentences. Maximum 6 lines per spread. 4 is ideal.`);
+      sections.push(`- Use everyday words. "ran" not "crept", "big" not "vast", "fell" not "tumbled".`);
+      sections.push(`- Humor and wordplay are welcome. Literary flourishes are not.`);
+    }
+
+    sections.push(`\n## REFRAIN (SHIP-BLOCKER — matches automated QA)\n`);
+    sections.push(`Pick ONE refrain wording before you write spread 1 and use the **exact same words** every time it appears (minimum 3 times, not back-to-back spreads).`);
+    sections.push(`**Closure rule:** At least one occurrence MUST appear on spread 10, 11, 12, or 13. A refrain that only appears in spreads 1–8 will fail QA.`);
+    sections.push(`Space repeats across early, middle, and late — the last repeat should land when the emotional arc resolves.`);
+    if (plan.refrain.parentWord) {
+      sections.push(`It should use "${plan.refrain.parentWord}" and be under 8 words.`);
+    }
+    sections.push(`Suggested refrains (you may create your own):`);
+    plan.refrain.suggestions.forEach(s => sections.push(`- "${s}"`));
+
+    appendLocationPaletteSection(sections, plan);
+
+    sections.push(`\n## PLOT ↔ ILLUSTRATION (paintable beats)\n`);
+    sections.push(`Every spread's TEXT must describe a **concrete story moment** — a specific action, interaction, discovery, or turn that belongs in that spread's assigned palette location.`);
+    sections.push(`The emotional arc must **progress** so spreads are not interchangeable stanzas. Each SCENE must differ from the prior spread in action and camera when locations repeat.`);
+    sections.push(`The illustrator only has your words: concrete beats produce specific art.`);
+
+    sections.push(`\n## INVENTED ARC (spread-by-spread beat sketches — SOFT HINTS, not a rigid template)\n`);
+    sections.push(`Write exactly ${plan.spreadCount.target} spreads. The beat sketches below are STARTING INSPIRATION only — shape the arc for THIS child, ${parentRefPhrase}, THESE anecdotes. The only HARD constraints on shape are:`);
+    sections.push(`- Spread 1 must open OUT IN THE WORLD, in a specific non-home setting.`);
+    sections.push(`- The final spreads must land a warm, concrete image YOU invent — not a formulaic "walking home", "heading home", or "back at home" shot.`);
+    sections.push(`- There is NO prescribed Scene A / B / C / D. Decide where tension builds and how the story resolves.`);
+    sections.push(`- Each beat below is LOCKED to the palette location shown next to it.`);
+    sections.push(`- Anecdote-assignment rules (if any) below are the only per-spread mandates.\n`);
+    sections.push(`Sketches:`);
+    plan.beats.forEach(b => {
+      const locationTag = b.location ? ` {location: ${b.location}}` : '';
+      const desc = this._sanitizeBeatDescription(b.description);
+      sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${desc} [~${b.wordTarget} words]`);
+    });
+
+    appendSceneRulesSection(sections, {
+      parentGiftTheme: true,
+      parentOnCoverFullFaceAllowed: coverParentPresent,
+      themedParentWord: themedWord,
+    });
+
+    if (plan.manifest && plan.manifest.length > 0) {
+      sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
+      sections.push(`Each of these real details MUST be concretely named in the exact spread listed. Do NOT paraphrase them away.`);
+      plan.manifest.forEach(m => {
+        sections.push(`- Spread ${m.spread}: "${m.anecdote_value}" (${m.anecdote_key}) — ${m.use}`);
+      });
+    }
+
+    const favoriteObjectLock = buildFavoriteObjectLock(plan);
+    if (favoriteObjectLock) {
+      sections.push(`\n${favoriteObjectLock}`);
+    }
+
+    const climaxBeat = plan.beats.find(b =>
+      b.beat === 'CLIMAX' || b.beat === 'WISH_MOMENT' || b.beat === 'WONDER' ||
+      b.beat === 'QUIET_MOMENT' || b.beat === 'NAMING',
+    );
+
+    sections.push(`\n## NARRATIVE COHERENCE (READ THIS FIRST)\n`);
+    sections.push(`- Whatever arc you invent, each spread must connect to the one before it. No slideshow of unrelated activities.`);
+    sections.push(`- Group spreads that share a location or emotional space; narrate transitions when places change.`);
+    sections.push(`- This story has ONE through-line: ${child.name} and ${parentName} together. Every spread connects to that bond.`);
+    sections.push(`- **Setting variety:** Use **at least 4 distinct, visually different physical places** as the day unfolds. Avoid "mostly two rooms + one outing + back inside" unless the anecdotes demand it.`);
+    sections.push(`- CLARITY: Images and metaphors must be literal enough for a young listener.`);
+
+    sections.push(`\n## CRITICAL REMINDERS\n`);
+    sections.push(`- AABB couplets throughout — every line pair must rhyme`);
+    if (climaxBeat) {
+      sections.push(`- The climax/quiet spread (${climaxBeat.spread}) should have the FEWEST words`);
+    }
+    sections.push(`- This is a CELEBRATION book, not a bedtime book. EVERY spread must be WARM, JOYFUL, and POSITIVE — no anger, crying, tantrums, tiredness, sleep, tuck-in, dreams, or goodnight as the dominant beat.`);
+    sections.push(`- The ending must be warm, bright, and celebratory in DAYLIGHT (or awake evening light). Do NOT default to "walking home" / "heading home" / "back at home".`);
+    sections.push(`- Close on an IMAGE, not a declaration — no "I love you" as the last line`);
+    sections.push(`- Every spread needs at least one concrete, specific noun`);
+    sections.push(`- NO greeting card language. NO "you are special/wonderful/amazing"`);
+    sections.push(`- The refrain must appear exactly 3 times (4 only if needed for closure), evenly spaced — **at least one on spread 10–13**. The refrain should **deepen** in meaning each time (same words, shifting context).`);
+    sections.push(`- RHYME VARIETY: Avoid letting one rhyme sound dominate (including overlap with refrain end-rhymes).`);
+    sections.push(isFather
+      ? `- Use ONLY the parent name "${parentName}" — do NOT invent any other name for the father beyond the dedication rule above.`
+      : `- Use ONLY the parent name "${parentName}" — do NOT invent any other name for the mother beyond the dedication rule above.`);
+    sections.push(`- NEVER use they/them/their pronouns for ${child.name}. ${child.gender === 'female' ? 'She is a girl — use she/her.' : child.gender === 'male' ? 'He is a boy — use he/him.' : ''} "They" is only for plural subjects (${child.name} and ${parentName} together).`);
+    sections.push(`- NEVER use dashes, hyphens, or em dashes in read-aloud TEXT. Use commas, periods, or line breaks instead.`);
+    sections.push(`- At least 2 spreads use imagination — magical play where ${parentName} joins in. Include at least one beat where ${child.name} lovingly "takes care of" ${parentName}.`);
+
+    sections.push(`\n## BOOK-WIDE VISUAL SHOWRUNNER\n`);
+    sections.push(`- Storyboard mentally: no duplicate dominant tableau unless the TEXT demands it; vary viewpoint, scale, light, micro-zone.`);
+    sections.push(`- Returning locations later need new "still" moments, not stock repeats.`);
+
+    sections.push(`\n## OUTFIT_LOCK (MANDATORY — hero ${child.name}, after final spread)\n`);
+    sections.push(`After \`---SPREAD ${plan.spreadCount.target}---\`, output exactly one line: OUTFIT_LOCK: <one sentence: ${child.name}'s day clothes — colors, top, bottom, shoes, one accessory. Same wording in dry-land scenes unless bath/pool per rules.>`);
+
+    sections.push(`\n## OUTPUT FORMAT\n`);
+    sections.push(`Each spread: ---SPREAD N---, then TEXT: and SCENE: as required by SCENE RULES above.`);
+
+    return sections.join('\n');
+  }
 
   _buildWritePrompt(plan, child, book) {
+    if (this.category === 'parent') {
+      return this._buildParentGiftWritePrompt(plan, child, book);
+    }
+
     const pronouns = plan.pronouns;
     const anecdoteText = this._formatAnecdotes(child.anecdotes);
     const sections = [];
@@ -559,26 +905,6 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Gender: ${child.gender || 'not specified'} (pronouns: ${pronouns.pair})`);
     if (child.appearance) sections.push(`Appearance: ${child.appearance}`);
     if (child.interests?.length) sections.push(`Interests: ${child.interests.join(', ')}`);
-
-    // Parent context for parent themes
-    if (this.category === 'parent' && plan.parentName) {
-      const parentLabel = this.themeName === 'fathers_day' ? 'THE FATHER' : 'THE PARENT';
-      sections.push(`\n## ${parentLabel}\n`);
-      sections.push(`The child calls them: ${plan.parentName}`);
-      const dadRealName = (book.dad_name || child.anecdotes?.dad_name || '').toString().trim();
-      const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
-      const realName = this.themeName === 'fathers_day' ? dadRealName : momRealName;
-      const parentWord = this.themeName === 'fathers_day' ? 'father' : 'parent';
-      if (realName && realName.toLowerCase() !== plan.parentName.toLowerCase()) {
-        sections.push(`\n## PARENT NAME RULE — SHIP-BLOCKER\n`);
-        sections.push(`The ${parentWord}'s real first name is "${realName}" but the child calls them "${plan.parentName}".`);
-        sections.push(`In this book they are "${plan.parentName}" EVERYWHERE. You MAY use "${realName}" exactly ONCE — and only if it lands naturally in a single dedication-style beat. If you can't fit it gracefully, omit it entirely.`);
-        sections.push(`Hard rule: "${realName}" appears at most ONE TIME across all 13 spreads and the dedication combined. Using it more than once — even twice — is a ship-blocker; the book will fail QA and be rewritten. Do NOT rhyme on "${realName}". Do NOT let "${realName}" replace "${plan.parentName}" in any refrain. Do NOT alternate between the two names.`);
-      } else {
-        if (dadRealName) sections.push(`Dad's name: ${dadRealName}`);
-        if (momRealName) sections.push(`Mom's name: ${momRealName}`);
-      }
-    }
 
     // Theme-specific context
     if (this.category === 'celebration') {
@@ -830,6 +1156,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     if (a.funny_thing) items.push(`A funny thing they do: ${a.funny_thing}`);
     if (a.meaningful_moment) items.push(`Meaningful moment: ${a.meaningful_moment}`);
     if (a.moms_favorite_moment) items.push(`Mom's favorite moment: ${a.moms_favorite_moment}`);
+    if (this.themeName === 'fathers_day' && a.dads_favorite_moment) items.push(`Dad's favorite moment: ${a.dads_favorite_moment}`);
     if (a.favorite_food) items.push(`Favorite food: ${a.favorite_food}`);
     if (a.favorite_cake_flavor) items.push(`Favorite cake flavor: ${a.favorite_cake_flavor}`);
     if (a.favorite_toys) items.push(`Favorite toys: ${a.favorite_toys}`);
@@ -858,6 +1185,9 @@ Refine each beat description to incorporate specific details from the anecdotes.
     if (anecdotes.funny_thing) parts.push(`Funny thing they do: ${anecdotes.funny_thing}`);
     if (anecdotes.meaningful_moment) parts.push(`Meaningful moment: ${anecdotes.meaningful_moment}`);
     if (anecdotes.moms_favorite_moment) parts.push(`Mom's favorite moment: ${anecdotes.moms_favorite_moment}`);
+    if (this.themeName === 'fathers_day' && anecdotes.dads_favorite_moment) {
+      parts.push(`Dad's favorite moment: ${anecdotes.dads_favorite_moment}`);
+    }
     if (anecdotes.favorite_food) parts.push(`Favorite food: ${anecdotes.favorite_food}`);
     if (anecdotes.favorite_cake_flavor) parts.push(`Favorite cake flavor: ${anecdotes.favorite_cake_flavor}`);
     if (anecdotes.favorite_toys) parts.push(`Favorite toys: ${anecdotes.favorite_toys}`);
@@ -867,7 +1197,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
   }
 }
 
-// ── Shared prompt helpers (reused by mothers_day and fathers_day writers) ───
+// ── Shared prompt helpers used by GenericThemeWriter ────────────────────────
 
 /**
  * Inject the LOCATION PALETTE section into a prompt builder's `sections` list.

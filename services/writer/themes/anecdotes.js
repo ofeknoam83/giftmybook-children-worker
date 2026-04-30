@@ -1,11 +1,10 @@
 /**
  * Shared helpers for surfacing questionnaire anecdotes into writer prompts.
  *
- * Historically each theme writer (generic, mothers_day, fathers_day) had its
- * own copy of formatAnecdotes and personalizationChecklist, each with a
- * slightly different field list. That meant the same child's favorite cake
- * flavor (for example) made it into a birthday prompt but not a Father's Day
- * one — for no reason except the copies had drifted.
+ * Historically some themes had bespoke writers with separate anecdote/format
+ * helpers that drifted. Today GenericThemeWriter is the Writer V2 implementation
+ * for all themes (including Mother's/Father's Day); Favorite Object Lock pulls
+ * from `plan.storySeed` when present.
  *
  * This module is the single source of truth. Every questionnaire field the
  * writer cares about is listed here once.

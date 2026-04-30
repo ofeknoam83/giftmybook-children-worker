@@ -1,26 +1,23 @@
 /**
  * ThemeRouter — maps theme string to ThemeWriter instance.
  *
- * mothers_day has a specialized writer; every other theme uses
- * GenericThemeWriter. No theme returns null.
+ * All themes use GenericThemeWriter (parent holidays, birthdays, adventures, etc.).
  */
 
-const { MothersDayWriter } = require('./mothers_day');
-const { FathersDayWriter } = require('./fathers_day');
 const { GenericThemeWriter } = require('./generic');
 
-const THEME_WRITERS = {
-  mothers_day: new MothersDayWriter(),
-  fathers_day: new FathersDayWriter(),
-};
+/**
+ * Deprecated: kept empty for callers that destructured legacy specialized writers.
+ * @type {Record<string, import('./base').BaseThemeWriter>}
+ */
+const THEME_WRITERS = {};
 
 /**
  * Get the theme writer for a given theme.
  * @param {string} theme
- * @returns {BaseThemeWriter}
+ * @returns {import('./base').BaseThemeWriter}
  */
 function getThemeWriter(theme) {
-  if (THEME_WRITERS[theme]) return THEME_WRITERS[theme];
   return new GenericThemeWriter(theme);
 }
 
