@@ -38,7 +38,7 @@ function plannerRibbonBriefOptIn(childDetails, customDetails = '') {
 
 /** Legacy Phase-1 planner — tighten against ribbon replacing melody as default MacGuffin. */
 const STORY_PLANNER_RIBBON_BIAS_LINE =
-  '\n\nRIBBON / STREAMER GUARD (parent-gift adventures): Do **not** build the backbone on a glowing or **talking** ribbon, a ribbon that verbally beckons the child, a spread-to-spread chase after the **same** gold or magic ribbon, or ribbon crumbs / ribbon trails as the quest engine — **unless** the family\'s custom questionnaire text **explicitly** names ribbons or streamers. Prefer a different concrete MacGuffin (brass carousel tab, lighthouse lens keeper, prism shard, tide-clock hand, shell token, ferry bell chip, kite twine without personality). **At most one** ordinary real-world ribbon (e.g. gift-wrap bow, hair accessory) across the whole book if it fits naturally.';
+  '\n\nRIBBON / STREAMER GUARD (parent-gift adventures): Do **not** build the backbone on a glowing or **talking** ribbon, a ribbon that verbally beckons the child, a spread-to-spread chase after the **same** gold or magic ribbon, or ribbon crumbs / ribbon trails as the quest engine — **unless** the family\'s custom questionnaire text **explicitly** names ribbons or streamers. Prefer a **non-luminous**, concrete MacGuffin anchored in hobbies or errands (relay baton charm, arcade ticket stripe, bakery box tab, library date-slip, tram transfer chip, scout patch token, kite tail tab **without personality**, sports hall wristband clasp). **At most one** ordinary real-world ribbon (e.g. gift-wrap bow, hair accessory) across the whole book if it fits naturally.';
 
 /**
  * Writer V2 user prompt — skips when the brief already asks for ribbons.
@@ -58,7 +58,7 @@ function appendParentGiftRibbonMotifGuards(sections, book = {}, child = {}) {
 
   sections.push('\n## RIBBON / STREAMER MACGUFFIN (DO NOT DEFAULT HERE)\n');
   sections.push('- **Forbidden as plot spine:** a sentient or speaking ribbon ("To me!", "Away!"); chasing one recurring gold/magic ribbon across many spreads; ribbon crumbs marking a scavenger leash; moth/fairy plus doodle-map **plus ribbon-as-voicey-guide** cliché — unless `customDetails` explicitly requests ribbons/streamers.');
-  sections.push('- **Use instead:** tactile non-ribbon tokens (carousel cog, lantern plate screw, prism wedge, lighthouse wick cap, tide-gauge knob, scallop-shell pass, brass gate token, net float that is **not** a ribbon).');
+  sections.push('- **Use instead:** tactile non-ribbon, **non magical-light** tokens (carousel cog, arcade counter chip, train platform stamp, scout belt clip, baker\'s twine tag tied to snacks, scooter bell ring, thrift-shop ticket punch — none of these may **speak** or **blink** as cartoon characters unless the brief invites fantasy).');
   sections.push('- **At most one** mundane ribbon beat in the entire book if natural (real gift bow, hair ribbon on cover) — not the engine of the quest.');
 }
 
@@ -141,6 +141,71 @@ function appendParentGiftLightMotifGuards(sections, book = {}, child = {}) {
   sections.push('- Prefer **earthbound** quest drivers from interests/anecdotes (ball, truck, snack, pet, sport, drawing, funny family moment).');
 }
 
+function plannerOptInDetailBlob(book = {}) {
+  const parts = [];
+  if (typeof book.customDetails === 'string') {
+    parts.push(book.customDetails);
+  } else if (book.customDetails && typeof book.customDetails === 'object') {
+    try {
+      parts.push(JSON.stringify(book.customDetails));
+    } catch (_) { /* noop */ }
+  }
+  if (typeof book.heartfeltNote === 'string') parts.push(book.heartfeltNote);
+  return parts.join('\n').trim();
+}
+
+/**
+ * Writer V2 — when brainstorm/planner beats are adopted verbatim, reinforce
+ * rewriting away from mascot-light clichés buried in upstream stubs.
+ *
+ * @param {string[]} sections
+ * @param {object} [plan]
+ * @param {object} [book]
+ * @param {object} [child]
+ */
+function appendUpstreamSeedAntiLightLocks(sections, plan = {}, book = {}, child = {}) {
+  if (!plan.usedStorySeedBeats) return;
+
+  const detailBlob = plannerOptInDetailBlob(book);
+  const interestBlob = Array.isArray(child?.interests) ? child.interests.join(' ') : '';
+  const an = anecdoteStringBlob(child?.anecdotes);
+
+  if (briefMentionsLightOrMothFantasy(detailBlob, an, interestBlob)) return;
+
+  const spineHint = typeof plan.storySeed?.narrative_spine === 'string'
+    ? plan.storySeed.narrative_spine.trim()
+    : '';
+
+  sections.push('\n## STORY SEED — SPINE ANTI‑TEMPLATE LOCK\n');
+  sections.push('- Beats arrive from upstream brainstorming — treat them as **location + beat roughage**, not law. If any line rhymes with *personified Warm Light / mascot beam / collectible café tokens awakening a Glow Lord*, reinterpret into **quirky errands, tactile hobbies, joke snacks, real sports mishaps**, or parent callbacks from the questionnaire — **unless** personalization explicitly names light fantasy, lanterns-as-companions, or prism quests.');
+  sections.push('- **Forbidden mascot names or behaviors** anywhere in rhyme: Mr/Mrs Glow, Gleam Lady, spelled-like-a-name LIGHT, prism-and-three-tokens climax, gleam/sun beam that blinks awake as a cartoon character guiding every spread.');
+  if (spineHint) {
+    sections.push('- Upstream narrative_spine hint: paraphrase in earthbound causal language unless the parent\'s text contradicts.');
+  }
+}
+
+/** Mr Light / mascot-light spine without questionnaire support (deterministic QA). */
+const PERSONIFIED_LIGHT_NAME_RE =
+  /\b(?:mrs?\.?\s*light|[Mm]r\.?\s*[Ll]ight|\bmrlight\b|[Mm][Rr][Ll]ight\b)\b/;
+
+/** Singular light/beam or gleam/glow (plural "street lights blinked" stays allowed). */
+const PERSONIFIED_LIGHT_SPINE_VERB_RE =
+  /\b(?:gleam|glow)s?\s+blink(?:ed)?\s+out|\bbeam\s+blink(?:ed)?\s+out|\blight\s+blink(?:ed)?\s+out|\b(?:gleam|glow|light|beam)s?\s+(?:flicker(?:ed)?\s+back|would\s+(?:soon\s+)?be\s+woken)\b/i;
+const PERSONIFIED_LIGHT_WOKEN_ORDER_RE =
+  /\b(?:gleam|glow|light|beam)s?\s+[^\n.!?]{0,80}\bwoken\b|\bwoken\b[^\n.!?]{0,80}\bmr\.?\s*light\b|\bmrlight\b[^\n.!?]{0,80}\bwoken\b/;
+
+/**
+ * @param {string} blob - joined TEXT (and optionally SCENE) from story spreads
+ * @returns {boolean}
+ */
+function detectParentGiftPersonifiedLightMotifInStory(blob) {
+  const t = String(blob || '').replace(/\s+/g, ' ');
+  if (!t.trim()) return false;
+  if (PERSONIFIED_LIGHT_NAME_RE.test(t)) return true;
+  if (PERSONIFIED_LIGHT_SPINE_VERB_RE.test(t)) return true;
+  return PERSONIFIED_LIGHT_WOKEN_ORDER_RE.test(t);
+}
+
 module.exports = {
   briefMentionsRibbon,
   plannerRibbonBriefOptIn,
@@ -151,4 +216,7 @@ module.exports = {
   STORY_PLANNER_LIGHT_MOTH_BIAS_LINE,
   appendPersonalizationFirstGuards,
   appendParentGiftLightMotifGuards,
+  plannerOptInDetailBlob,
+  detectParentGiftPersonifiedLightMotifInStory,
+  appendUpstreamSeedAntiLightLocks,
 };

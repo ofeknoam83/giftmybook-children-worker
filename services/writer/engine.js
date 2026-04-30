@@ -113,7 +113,7 @@ class WriterEngine {
     console.log(`[writerV2] plan complete`, {
       bookId,
       beats: plan.beats?.length,
-      usedSeed: plan.usedSeed === true,
+      usedStorySeedBeats: plan.usedStorySeedBeats === true,
       ageTier: plan.ageTier,
       wordTarget: plan.wordTargets?.total,
       refrainHint: refrainHint || null,

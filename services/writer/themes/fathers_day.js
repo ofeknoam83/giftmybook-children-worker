@@ -22,6 +22,7 @@ const {
   appendParentGiftRibbonMotifGuards,
   appendPersonalizationFirstGuards,
   appendParentGiftLightMotifGuards,
+  appendUpstreamSeedAntiLightLocks,
 } = require('../questMotifGuards');
 
 class FathersDayWriter extends BaseThemeWriter {
@@ -176,6 +177,7 @@ class FathersDayWriter extends BaseThemeWriter {
       // Always surface the upstream seed so downstream prompt builders
       // (e.g. FAVORITE OBJECT LOCK) can read it. See mothers_day.js.
       storySeed: storySeed || null,
+      usedStorySeedBeats: usedSeed,
       locationPalette: palette,
     };
   }
@@ -431,6 +433,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     appendPersonalizationFirstGuards(sections, child, book);
     appendParentGiftRibbonMotifGuards(sections, book, child);
     appendParentGiftLightMotifGuards(sections, book, child);
+    appendUpstreamSeedAntiLightLocks(sections, plan, book, child);
 
     sections.push(`\n## THE FATHER\n`);
     sections.push(`The child calls him: ${parentName}`);

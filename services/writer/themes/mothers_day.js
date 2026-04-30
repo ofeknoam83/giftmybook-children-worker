@@ -22,6 +22,7 @@ const {
   appendParentGiftRibbonMotifGuards,
   appendPersonalizationFirstGuards,
   appendParentGiftLightMotifGuards,
+  appendUpstreamSeedAntiLightLocks,
 } = require('../questMotifGuards');
 
 class MothersDayWriter extends BaseThemeWriter {
@@ -157,6 +158,7 @@ class MothersDayWriter extends BaseThemeWriter {
       // whether we adopted the seed's *beats* — the seed's favorite_object
       // and setting are valuable regardless.
       storySeed: storySeed || null,
+      usedStorySeedBeats: usedSeed,
       locationPalette: palette,
     };
   }
@@ -414,6 +416,7 @@ Refine each beat description to incorporate specific details from the anecdotes.
     appendPersonalizationFirstGuards(sections, child, book);
     appendParentGiftRibbonMotifGuards(sections, book, child);
     appendParentGiftLightMotifGuards(sections, book, child);
+    appendUpstreamSeedAntiLightLocks(sections, plan, book, child);
 
     sections.push(`\n## THE MOTHER\n`);
     sections.push(`The child calls her: ${parentName}`);

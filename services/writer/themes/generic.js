@@ -130,6 +130,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       plotSynopsis: plot?.synopsis || (seed?.narrative_spine || null),
       storySeed: seed,
       usedSeed: false,
+      usedStorySeedBeats: false,
       manifest: null,
       locationPalette: palette,
     };
