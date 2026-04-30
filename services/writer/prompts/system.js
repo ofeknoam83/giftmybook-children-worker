@@ -74,6 +74,10 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
       sections.push(`Spread ${i + 1}:\n${text}\n`);
     });
     sections.push('Your story should match this quality level. Do NOT copy these lines — write original text that demonstrates the same craft.');
+    if (exemplar.refrainDiscipline) {
+      sections.push('\n## REFRAIN DISCIPLINE\n');
+      sections.push(`${exemplar.refrainDiscipline}\n`);
+    }
   }
 
   // Output format

@@ -15,6 +15,8 @@ const { sanitizeNonLatinChars } = require('../quality/sanitize');
 const { selectPlotTemplate, matchTitleToPlot, isPlaceholderTitle, generateAnecdoteDrivenPlot } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
 const { appendLocationPaletteSection, appendSceneRulesSection, parseWriterOutput } = require('./generic');
+const { getParentRefrainSuggestions } = require('./parentRefrainSuggestions');
+const { buildParentBeatEnrichmentSystem } = require('./parentPlanEnrichment');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -91,7 +93,9 @@ class MothersDayWriter extends BaseThemeWriter {
       beats = this._buildBeats(ageTier, spreadCount, child, parentName, book);
     }
 
-    const refrain = this._chooseRefrain(child, parentName, usedSeed ? storySeed : null);
+    const plotForRefrain = anecdotePlot || this._selectedPlot;
+    const plotIdForRefrain = plotForRefrain?.id || book.plotId || null;
+    const refrain = this._chooseRefrain(child, parentName, usedSeed ? storySeed : null, plotIdForRefrain);
 
     // Only run the generic enrichment pass when we're working with TEMPLATE
     // beats. Anecdote-driven and seed-driven beats were already personalized
@@ -331,7 +335,13 @@ class MothersDayWriter extends BaseThemeWriter {
     ];
   }
 
-  _chooseRefrain(child, parentName, storySeed) {
+  /**
+   * @param {object} child
+   * @param {string} parentName
+   * @param {object|null} storySeed
+   * @param {string|null} [plotId] - Selected template or anecdote plot id for curated refrain bank.
+   */
+  _chooseRefrain(child, parentName, storySeed, plotId = null) {
     const callsMom = child.anecdotes?.calls_mom || parentName || 'Mama';
     if (storySeed?.repeated_phrase && typeof storySeed.repeated_phrase === 'string') {
       const phrase = storySeed.repeated_phrase.trim();
@@ -344,12 +354,7 @@ class MothersDayWriter extends BaseThemeWriter {
     }
     return {
       parentWord: callsMom,
-      suggestions: [
-        `${callsMom} is here.`,
-        `${callsMom} always knows.`,
-        `That's what ${callsMom} does.`,
-        `Because ${callsMom} loves you.`,
-      ],
+      suggestions: getParentRefrainSuggestions('mothers_day', plotId, callsMom),
     };
   }
 
@@ -357,19 +362,7 @@ class MothersDayWriter extends BaseThemeWriter {
     const anecdoteText = this._formatAnecdotes(child.anecdotes);
     if (!anecdoteText) return beats;
 
-    const systemPrompt = `You are a children's book story planner specializing in Love to mom picture books. Your job is to weave specific, real details about this child into the story beats.
-
-NARRATIVE SHAPE:
-- The beats below are SOFT INSPIRATION, not a rigid scene template. The writer will be told to invent the arc.
-- There is NO prescribed Scene A / Scene B / Scene C / Scene D. Do NOT add scene labels or force a "home → journey → destination → heading home" shape.
-- The story must NOT open at home. The closing must NOT default to a "walking home" / "heading home" / "back at home" formula.
-- A 3-year-old listener must still be able to follow every transition between beats.
-
-RULES:
-- Keep the overall beat count. You may adjust any beat's description freely.
-- Replace generic placeholders with specific anecdotes from the child's real life
-- Use concrete nouns and actions, never abstract claims
-- The anecdotes should feel natural in the story, not forced in`;
+    const systemPrompt = buildParentBeatEnrichmentSystem('mom');
 
     const userPrompt = `Here are the story beats for a ${ageTier} Love to mom book about ${child.name} (age ${child.age}) and ${parentName}:
 

@@ -3,9 +3,15 @@
  * small LLM pass may append **advisory** notes for the reviser; it never
  * blocks shipping and does not produce scores.
  *
+ * There is **no** numeric score rubric or “location progression” reward —
+ * `_collectSceneContinuityIssues` only verifies that each spread’s SCENE
+ * prose **names** the palette `location` string locked from the plan (substring
+ * / token heuristic) so illustrator prompts stay anchored. **Reusing** the
+ * same location across many spreads does not veto a pass by itself.
+ *
  * Hard checks: possessive-pronoun regex, identical-word rhyme lint,
- * overlong words (ages 0–3), scene-continuity when the plan assigned palette
- * locations to beats.
+ * overlong words (ages 0–3), scene–palette substring continuity when beats
+ * carry `location`.
  */
 
 const { BaseThemeWriter } = require('../themes/base');
@@ -233,6 +239,14 @@ class QualityGate {
     return lines.join('\n');
   }
 
+  /**
+   * SCENE paragraphs must visibly reference each spread’s planner-assigned
+   * palette `location` label — **not** a judgment on narrative variety or
+   * how often locations repeat.
+   * @param {Array<object>} spreads
+   * @param {object|null} plan
+   * @returns {Array<{ spread: number, note: string }>}
+   */
   static _collectSceneContinuityIssues(spreads, plan) {
     const beats = plan && Array.isArray(plan.beats) ? plan.beats : [];
     if (beats.length === 0) return [];

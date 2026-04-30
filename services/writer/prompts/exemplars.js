@@ -14,6 +14,8 @@ const EXEMPLARS = {
   mothers_day: {
     'young-picture': {
       description: 'Young picture book (ages 0-3): AABB couplets, iambic tetrameter, simpler vocabulary, musical rhythm. Warm and celebratory — NO bedtime, NO tantrums. 13 spreads.',
+      refrainDiscipline:
+        'Refrain choreography: Pick ONE repeatable line ≤8 words that clearly includes `{parent_name}`. Repeat that exact line verbatim on exactly THREE spreads, not back-to-back, with at least one repeat falling in spreads 10–13. Each time it returns, surrounding context shifts so meaning deepens.',
       spreads: [
         'When morning comes and light peeks through,\n{parent_name}\'s first hello is just for you.',
         'She pours the milk, she cuts the pear,\nShe finds the socks you hid somewhere.',
@@ -33,6 +35,8 @@ const EXEMPLARS = {
 
     'picture-book': {
       description: 'Picture book (ages 4-6): Full narrative arc, AABB iambic tetrameter, richer vocabulary, emotional progression. Warm and celebratory — NO bedtime, NO tantrums. 13 spreads.',
+      refrainDiscipline:
+        'Refrain choreography: Same as young-picture — one identical refrain line (≤8 words, includes `{parent_name}`), exactly THREE appearances spaced apart with one in spreads 10–13; rhyme other spreads toward different end-sounds so the refrain end-word does not eat the whole book.',
       spreads: [
         'The sun came up on {name}\'s street,\nWhere puddles waited for bare feet.\n{parent_name} stood at the open door,\n"Today," she said, "let\'s go explore."',
         'She packed the bag with snacks and string,\nA jar for bugs, a bell to ring.\n{name} grabbed the hat with the floppy brim,\nThe one that always looked like him.',
@@ -53,6 +57,8 @@ const EXEMPLARS = {
   fathers_day: {
     'young-picture': {
       description: 'Young picture book (ages 0-3): AABB couplets, iambic tetrameter, simpler vocabulary, musical rhythm. 13 spreads.',
+      refrainDiscipline:
+        'Refrain choreography: ONE line ≤8 words including `{parent_name}`, repeated verbatim THREE times across the book — never consecutive spreads — with at least one repeat in spreads 10–13. Context changes; wording does not.',
       spreads: [
         'The sun peeks in across the floor,\n{parent_name} is at the door.\nHe scoops you up, still warm from sleep,\nAnd holds you close without a peep.',
         'He makes the eggs, he pours the juice,\nHe finds your shoe that wriggled loose.\n{parent_name} hums a morning song,\nAnd you just hum and tag along.',
@@ -72,6 +78,8 @@ const EXEMPLARS = {
 
     'picture-book': {
       description: 'Picture book (ages 4-6): Full narrative arc, AABB iambic tetrameter, richer vocabulary, emotional progression. 13 spreads.',
+      refrainDiscipline:
+        'Refrain choreography: Lock one `{parent_name}` refrain (≤8 words), hit it THREE times at spaced spreads (one touch in 10–13). Keep rhyme variety on non-refrain spreads so one end-sound cannot dominate.',
       spreads: [
         'A red toolbox beneath the shelf,\n{parent_name} said, "Let\'s build it ourself."\n{name} grabbed the wood, the nails, the glue,\nAnd said, "I know what we should do."',
         'They drew the plan on paper white,\nA shelf for books to hold at night.\n{parent_name} held the plank up straight,\n{name} tapped the nail and said, "It\'s great."',
@@ -173,7 +181,7 @@ const EXEMPLARS = {
  * Get exemplars for a given theme and age tier.
  * @param {string} theme - e.g. 'mothers_day'
  * @param {string} tierName - e.g. 'young-picture', 'picture-book'
- * @returns {object|null} - { description, spreads: string[] }
+ * @returns {object|null} - { description, spreads: string[], refrainDiscipline?: string }
  */
 function getExemplars(theme, tierName) {
   return EXEMPLARS[theme]?.[tierName] || null;
