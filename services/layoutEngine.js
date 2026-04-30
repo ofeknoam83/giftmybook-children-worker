@@ -125,7 +125,8 @@ async function splitSpreadImage(buf, pw, ph) {
   // we must crop vertically. A 50/50 split (half the excess from top, half from bottom)
   // keeps composition centered. The illustrator insets on-image caption text
   // from the top/bottom of the 16:9 frame (`TEXT_RULES` top/bottom caption
-  // inset — e.g. 26% top / 30% bottom — see illustrator/config) so type stays
+  // inset — e.g. 28%/48% top/bottom (under 3), 26%/42% (ages 3–8), 26%/36% default — see illustrator/config)
+  // so type stays in-frame after print.
   const excessH = Math.max(0, scaledH - hp);
   const cropTop = Math.floor(excessH * 0.5);
 

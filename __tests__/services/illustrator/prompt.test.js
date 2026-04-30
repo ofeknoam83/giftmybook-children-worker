@@ -86,7 +86,31 @@ describe('buildSpreadTurn — shot variety reminder', () => {
       text: 'The ducks glide by.',
       childAge: 6,
     });
-    expect(out).toMatch(/at least 30%/);
+    expect(out).toMatch(/at least 42%/);
+  });
+
+  test('child under 3 uses TOP corner when default rotation would be bottom (infant gift books)', () => {
+    const out = buildSpreadTurn({
+      spreadIndex: 1,
+      scene: 'A sunny park.',
+      text: 'Hello starlight.',
+      childAge: 2,
+    });
+    expect(out).toMatch(/CHOSEN CORNER: TOP-RIGHT/);
+    expect(out).not.toMatch(/CHOSEN CORNER: BOTTOM-RIGHT/);
+    expect(out).toMatch(/at least 28%/);
+    expect(out).toMatch(/Baby\/toddler book|very young/i);
+  });
+
+  test('child under 3 remaps bottom-left default to top-left', () => {
+    const out = buildSpreadTurn({
+      spreadIndex: 2,
+      scene: 'A nursery.',
+      text: 'Soft light.',
+      childAge: 2,
+    });
+    expect(out).toMatch(/CHOSEN CORNER: TOP-LEFT/);
+    expect(out).not.toMatch(/CHOSEN CORNER: BOTTOM-LEFT/);
   });
 });
 

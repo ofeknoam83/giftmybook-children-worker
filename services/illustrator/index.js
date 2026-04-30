@@ -79,7 +79,7 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
  * @property {function(number, string):void} [onProgress] - Optional progress callback: (fraction0to1, message).
  * @property {AbortSignal} [abortSignal]
  * @property {string} [childPhotoBase64] - Optional real child photo (JPEG base64) for consistency QA disambiguation only.
- * @property {number|string|null} [childAge] - 3–8 uses compact on-image caption tier; also inferred from storyPlan when omitted.
+ * @property {number|string|null} [childAge] - Under 3: top-only caption corners + infant margins; 3–8: compact tier; inferred from storyPlan when omitted.
  */
 
 /**

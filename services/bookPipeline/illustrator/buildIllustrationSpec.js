@@ -95,11 +95,13 @@ function composeScene(doc, spread) {
   // Tell the scene composition where the caption will sit so the busy focal
   // action lands AWAY from that corner (without emptying the corner out).
   const spreadIndex = Math.max(0, (Number(spread.spreadNumber) || 1) - 1);
+  const childAge = doc?.brief?.child?.age ?? null;
   const manuscript = spread.manuscript;
   const { side: resolvedSide, corner: resolvedCorner } = resolveSideAndCorner(
     spreadIndex,
     manuscript?.side || spec?.textSide,
     undefined,
+    childAge,
   );
   const captionSideOpp = resolvedSide === 'left' ? 'right' : 'left';
   const captionVertical = resolvedCorner.startsWith('top') ? 'top' : 'bottom';
@@ -149,10 +151,12 @@ function buildIllustrationSpec(doc, spread) {
   const retryBlock = renderRetryMemoryForPrompt(retries);
 
   const spreadIndex = spread.spreadNumber - 1;
+  const childAge = doc?.brief?.child?.age ?? null;
   const { side, corner } = resolveSideAndCorner(
     spreadIndex,
     manuscript?.side || spec?.textSide,
     undefined,
+    childAge,
   );
 
   return {

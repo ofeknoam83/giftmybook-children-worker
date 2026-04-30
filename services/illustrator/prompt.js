@@ -164,7 +164,7 @@ function minimalSafeSceneFallback(spreadIndex, theme) {
  * @property {boolean} [hasSecondaryOnCover] - True if parent or other non-child human on cover.
  * @property {boolean} [coverParentPresent] - Themed parent visible on cover.
  * @property {string} [additionalCoverCharacters] - Non-child people on cover description.
- * @property {number|string|null} [childAge] - 3–8 triggers compact caption tier in ON-IMAGE TEXT block.
+ * @property {number|string|null} [childAge] - Under 3: top-only caption corners + infant text margins; 3–8 compact caption tier.
  */
 
 /**
@@ -185,7 +185,7 @@ function resolveTextAndSide(opts) {
     resolved = parts.join(' ').replace(/\s+/g, ' ').trim();
   }
 
-  const { side, corner } = resolveSideAndCorner(spreadIndex, textSide, textCorner);
+  const { side, corner } = resolveSideAndCorner(spreadIndex, textSide, textCorner, opts.childAge);
 
   return { text: resolved, side, corner };
 }
@@ -300,7 +300,7 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
 TEXT: "${text}"
 CHOSEN SIDE: ${sideU}
 CHOSEN CORNER: ${cornerU}
-PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${verticalPaddingPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
+PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${verticalPaddingPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge${vertical === 'bottom' ? '; for bottom corners, keep the whole block clearly higher with empty space under descenders' : ''}). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
 
 TYPOGRAPHY (same book, same spec): ${typeLock}
 Size note: ${textRules.fontSize}
@@ -383,8 +383,10 @@ function buildTagDirectives(tags, opts) {
     spreadIndex: opts.spreadIndex,
     text: opts.text,
     textSide: opts.textSide,
+    textCorner: opts.textCorner,
     leftText: opts.leftText,
     rightText: opts.rightText,
+    childAge: opts.childAge,
   });
   if (set.has('text_on_both_sides')) {
     out.push(

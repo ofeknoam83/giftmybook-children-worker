@@ -154,7 +154,7 @@ describe('buildSystemInstruction — IMPLIED_PARENT skin tone lock', () => {
 });
 
 describe('buildSystemInstruction — ages 3–8 compact caption tier', () => {
-  test('childAge 5 includes top and bottom vertical insets in ON-IMAGE TEXT section', () => {
+  test('childAge 5 includes top and larger bottom vertical insets in ON-IMAGE TEXT section', () => {
     const out = buildSystemInstruction({
       hasParentOnCover: false,
       hasSecondaryOnCover: false,
@@ -162,19 +162,20 @@ describe('buildSystemInstruction — ages 3–8 compact caption tier', () => {
       childAge: 5,
     });
     expect(out).toMatch(/about 26%/);
-    expect(out).toMatch(/about 30%/);
+    expect(out).toMatch(/about 42%/);
     expect(out).toMatch(/Compact read-aloud tier/i);
   });
 
-  test('childAge 2 uses default vertical insets (not compact tier)', () => {
+  test('childAge 2 (baby/toddler book) uses infant margins and not compact tier', () => {
     const out = buildSystemInstruction({
       hasParentOnCover: false,
       hasSecondaryOnCover: false,
       theme: 'adventure',
       childAge: 2,
     });
-    expect(out).toMatch(/about 26%/);
-    expect(out).toMatch(/about 30%/);
+    expect(out).toMatch(/about 28%/);
+    expect(out).toMatch(/about 48%/);
+    expect(out).toMatch(/Baby\/toddler book|very young/i);
     expect(out).not.toMatch(/Compact read-aloud tier/i);
   });
 });

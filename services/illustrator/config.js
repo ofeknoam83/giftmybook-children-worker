@@ -85,9 +85,9 @@ const TEXT_RULES = {
   // vertical center-crop on 16:9→square spreads can shave the top and bottom
   // of the art. Keep type well inside so ascenders never clip.
   cornerVerticalPaddingPercent: 26,
-  // Explicit top/bottom inset (bottom larger — print crop hits the lower band harder).
+  // Explicit top/bottom inset (bottom larger — print crop + descenders; models hug bottom).
   topPaddingPercent: 26,
-  bottomPaddingPercent: 30,
+  bottomPaddingPercent: 36,
   // Horizontal bounds for the text block on the active side (fractions of width):
   //   LEFT  side: text block fully inside x ∈ [edge/100, activeSideMaxPercent/100]
   //   RIGHT side: text block fully inside x ∈ [1 - activeSideMaxPercent/100, 1 - edge/100]
@@ -105,27 +105,67 @@ const TEXT_RULES = {
 };
 
 /**
- * Ages 3–8 picture books use longer read-aloud lines. Tighten the on-image type
- * tier (compact caption size) and widen horizontal edge padding slightly so PDF
- * trim + layoutEngine center-crop do not clip multi-line blocks.
+ * Picture-book caption margins by age (years):
+ * - **Under 3:** baby/toddler gift books (incl. orders “for” a 6-month-old where
+ *   API age may clamp to 2). Extra bottom lift + top-only caption corners via
+ *   `resolveSideAndCorner(..., childAge)`.
+ * - **3–8:** longer read-aloud lines — compact type tier + widened horizontal pad.
  *
  * @param {number|string|null|undefined} childAge
  * @returns {typeof TEXT_RULES}
  */
 function resolvePictureBookTextRules(childAge) {
   const n = Number(childAge);
-  if (!Number.isFinite(n) || n < 3 || n > 8) {
+  if (!Number.isFinite(n)) {
     return { ...TEXT_RULES };
   }
+
+  if (n < 3) {
+    return {
+      ...TEXT_RULES,
+      edgePaddingPercent: 8,
+      topPaddingPercent: 28,
+      cornerVerticalPaddingPercent: 28,
+      // Maximum lift from PDF bottom crop — parents often hold book low; models hug bottom.
+      bottomPaddingPercent: 48,
+      fontSize:
+        `${TEXT_RULES.fontSize} **Baby/toddler book (under 3):** Treat bottom margin as **sacred** — captions must never crowd the lower edge (descenders, multi-line stacks). The layout may map your spread to a **top** corner only; if you still render a lower caption, bias it **well upward** with obvious empty space below.`,
+      typographyConsistency:
+        `${TEXT_RULES.typographyConsistency} This book is for a **very young** child — err on the side of **extra** vertical clearance on every spread.`,
+    };
+  }
+
+  if (n > 8) {
+    return { ...TEXT_RULES };
+  }
+
   return {
     ...TEXT_RULES,
     maxWordsPerLine: 7,
     edgePaddingPercent: 8,
+    // Taller multi-line stacks need more lift from the bottom crop zone.
+    bottomPaddingPercent: 42,
     fontSize:
       '**Compact read-aloud tier (ages 3–8, longer lines):** Use a **slightly smaller** on-image caption than a typical toddler picture book — still crisp, sharp, and easy to read at arm’s length, but stepped down one clear notch so a multi-line block never crowds the vertical safe zone. Modest film subtitle, not miniature; never poster or title scale. Hold this **same** compact size on every spread.',
     typographyConsistency:
       `${TEXT_RULES.typographyConsistency} This book uses the **compact read-aloud** size tier — match that slightly smaller baseline on every spread; do not drift back to a larger "little kid" caption scale.`,
   };
+}
+
+/**
+ * Bottom caption corners risk PDF crop + model drift; parents reading to infants
+ * often hold the book low. For age &lt; 3 (years), map bottom → top on same side.
+ *
+ * @param {'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'} corner
+ * @param {number|string|null|undefined} childAge
+ * @returns {'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'}
+ */
+function preferTopCornersOnlyUnderThree(corner, childAge) {
+  const n = Number(childAge);
+  if (!Number.isFinite(n) || n >= 3) return corner;
+  if (corner === 'bottom-left') return 'top-left';
+  if (corner === 'bottom-right') return 'top-right';
+  return corner;
 }
 
 // ── Frozen 3D Premium Pixar style — CANNOT be overridden from outside the module ──
@@ -212,9 +252,10 @@ function defaultTextCorner(spreadIndex) {
  * @param {number} spreadIndex
  * @param {'left' | 'right'} [side]
  * @param {string} [corner]
+ * @param {number|string|null|undefined} [childAge] - Under 3: bottom corners → top (same side).
  * @returns {{ side: 'left' | 'right', corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' }}
  */
-function resolveSideAndCorner(spreadIndex, side, corner) {
+function resolveSideAndCorner(spreadIndex, side, corner, childAge) {
   const validCorners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   const resolvedSide = (side === 'left' || side === 'right') ? side : defaultTextSide(spreadIndex);
   const defaultCorner = defaultTextCorner(spreadIndex);
@@ -224,6 +265,7 @@ function resolveSideAndCorner(spreadIndex, side, corner) {
   if (!resolvedCorner.endsWith(resolvedSide)) {
     resolvedCorner = defaultCorner.endsWith(resolvedSide) ? defaultCorner : `top-${resolvedSide}`;
   }
+  resolvedCorner = preferTopCornersOnlyUnderThree(resolvedCorner, childAge);
   return { side: resolvedSide, corner: resolvedCorner };
 }
 
@@ -249,6 +291,7 @@ module.exports = {
   TOTAL_SPREADS,
   TEXT_RULES,
   resolvePictureBookTextRules,
+  preferTopCornersOnlyUnderThree,
   PIXAR_STYLE,
   PARENT_THEMES,
   defaultTextSide,

@@ -52,7 +52,7 @@ Any visible skin on the implied mother, father, or other referenced adult (hands
  *   Writer-generated palette of named locations. When present, a NAMED LOCATIONS
  *   section is added to the system instruction so each location is rendered
  *   consistently across the spreads that share it.
- * @property {number|string|null} [childAge] - When 3–8, use compact caption tier (smaller type, extra vertical safe margin).
+ * @property {number|string|null} [childAge] - Under 3: top-only corners + infant caption margins; 3–8: compact read-aloud tier.
  */
 
 /**
@@ -302,7 +302,7 @@ The **only** readable lettering is the supplied **manuscript passage**. **No** o
 The entire passage is a **single compact block** on the **assigned side only** (left or right), anchored to the **assigned corner** (top-left, top-right, bottom-left, or bottom-right). It must **not** be vertically centered along the side, **not** span the spine, and **not** repeat on the other half.
 
 ### VERTICAL & HORIZONTAL SAFE MARGINS (NON-NEGOTIABLE)
-Because of crop and bleed, the caption must sit **well inside** the frame: at least **~${topPad}%** of the frame height inward from the **top** if using a top corner, and at least **~${bottomPad}%** inward from the **bottom** if using a bottom corner; **~${edge}%** inward from the **outer (trim) edge** horizontally; keep the inner edge of the block **far from the spine** — the center **~${centerBandPct}%** of the total width must stay **text-free** (no letters, ascenders, descenders, or punctuation there).
+Because of crop and bleed, the caption must sit **well inside** the frame: at least **~${topPad}%** of the frame height inward from the **top** if using a top corner, and at least **~${bottomPad}%** inward from the **bottom** if using a bottom corner (treat that as a **floor** — **bottom-corner** captions must bias **higher**, with clear empty space under the last descender, never hugging the bottom edge). **~${edge}%** inward from the **outer (trim) edge** horizontally; keep the inner edge of the block **far from the spine** — the center **~${centerBandPct}%** of the total width must stay **text-free** (no letters, ascenders, descenders, or punctuation there).
 
 ### READABILITY WITHOUT "DEAD HALVES"
 The caption sits over a **quiet region of the same continuous scene** (open sky, soft bokeh, shade, water, foliage) — **not** an empty second illustration or a blurred slab. The environment **continues** under the type; **do not** erase the whole background behind the words.
@@ -331,7 +331,7 @@ Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("l
 2. ONE-SIDE-ONLY RULE. The caption lives fully on the CHOSEN SIDE. The opposite half of the image carries ONLY illustration. Do NOT mirror, duplicate, or split the caption across sides.
 3. PLACEMENT (exact geometry — the book is bound through the middle so gutter lettering is unreadable in print):
    • Horizontal: the caption block is snug against the outer trim on its side — about ${edge}% in from the outer edge (never less, never flush to the bleed), and its inner edge stays far from the center spine (well inside the outer ~${activeSideMax}% of the width).
-   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${topPad}% in from the TOP when the corner is top-aligned, or about ${bottomPad}% in from the BOTTOM when it is bottom-aligned (never less — print PDFs have trim and bleed, and the layout step may crop a band off the top and bottom of the image). Leave comfortable extra space so ascenders, descenders, and the full caption block stay fully inside the safe area. Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
+   • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${topPad}% in from the TOP when the corner is top-aligned, or about ${bottomPad}% in from the BOTTOM when it is bottom-aligned (never less — print PDFs have trim and bleed, and the layout step may crop a band off the top and bottom of the image). For **bottom** corners, add **extra** empty space below the last line (descenders must sit clearly above the danger zone — do not minimize bottom margin). Leave comfortable extra space so ascenders, descenders, and the full caption block stay fully inside the safe area. Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
    • The vertical strip around the spine (middle of the spread) is a STRICT NO-TEXT ZONE. No caption line, word fragment, or punctuation may sit in or cross that gutter band.
    • Never center-justify type across the spine. One caption block must never visually bridge from one half into the other.
 4. THE CORNER IS NOT A BLANK CANVAS. Do not empty out or heavily blur the corner region just to "make room for text". The scene continues underneath — open sky, soft-focus background, shaded foliage, ground, water, or any other naturally less-busy region of the SAME environment reads through behind the caption. The caption overlays the scene; the scene is never deleted for it.
@@ -349,7 +349,7 @@ Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("l
 ### MANDATORY SELF-CHECK BEFORE FINALIZING THE IMAGE
 Before you emit the image, mentally scan the full canvas and verify:
   (a) Is text present on ONLY the CHOSEN SIDE? If text appears on the opposite side, delete it.
-  (b) Is the caption tucked into the CHOSEN CORNER — near the outer edge AND near the top/bottom edge — and NOT floating in the vertical middle of its half? If it drifted to the middle, move it into the corner.
+  (b) Is the caption tucked into the CHOSEN CORNER — near the outer edge AND near the top/bottom edge — and NOT floating in the vertical middle of its half? If it drifted to the middle, move it into the corner. For **bottom** corners, is there clear empty space **below** the last line (descenders not hugging the bottom)?
   (c) Does any text, letter, or punctuation intrude into the middle spine band? If YES, move the whole caption fully into the chosen outer corner.
   (d) Does the caption appear in more than one place? If YES, delete the duplicate.
   (e) Is there ANY word on the image that is not in the provided TEXT passage? If YES, delete it — no exceptions, including affectionate labels, titles, and signatures.
