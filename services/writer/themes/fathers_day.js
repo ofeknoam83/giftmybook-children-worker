@@ -18,7 +18,11 @@ const { appendLocationPaletteSection, appendSceneRulesSection, parseWriterOutput
 const { getParentRefrainSuggestions } = require('./parentRefrainSuggestions');
 const { buildParentBeatEnrichmentSystem } = require('./parentPlanEnrichment');
 const { appendMusicInterestNarrativeGuards } = require('../musicInterestGuards');
-const { appendParentGiftRibbonMotifGuards } = require('../questMotifGuards');
+const {
+  appendParentGiftRibbonMotifGuards,
+  appendPersonalizationFirstGuards,
+  appendParentGiftLightMotifGuards,
+} = require('../questMotifGuards');
 
 class FathersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -424,7 +428,9 @@ Refine each beat description to incorporate specific details from the anecdotes.
     if (child.appearance) sections.push(`Appearance: ${child.appearance}`);
     if (child.interests?.length) sections.push(`Interests: ${child.interests.join(', ')}`);
     appendMusicInterestNarrativeGuards(sections, child, book);
+    appendPersonalizationFirstGuards(sections, child, book);
     appendParentGiftRibbonMotifGuards(sections, book, child);
+    appendParentGiftLightMotifGuards(sections, book, child);
 
     sections.push(`\n## THE FATHER\n`);
     sections.push(`The child calls him: ${parentName}`);

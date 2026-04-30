@@ -52,6 +52,19 @@ function normalizeAgeBand(age, format) {
   return AGE_BANDS.PB_PRESCHOOL;
 }
 
+function extractInterestsArray(src, raw) {
+  const fromChild = src.interests || src.childInterests;
+  const fromTop = raw.childInterests || raw.child_interests;
+  let arr = fromChild || fromTop;
+  if (typeof arr === 'string' && arr.trim()) return [arr.trim()];
+  if (!Array.isArray(arr)) {
+    const fav = src.favorite_activities || raw.favorite_activities;
+    if (typeof fav === 'string' && fav.trim()) return fav.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+    return [];
+  }
+  return arr.map(s => String(s).trim()).filter(Boolean);
+}
+
 /**
  * @param {object} raw
  * @returns {object}
@@ -63,7 +76,13 @@ function extractChild(raw) {
   const gender = src.gender || raw.gender || 'unspecified';
   const pronouns = src.pronouns || raw.pronouns || null;
   const anecdotes = src.anecdotes || raw.anecdotes || {};
-  return { name, age, gender, pronouns, anecdotes };
+  const interests = extractInterestsArray(src, raw);
+  const appearanceRaw = src.appearance || src.childAppearance || raw.childAppearance || raw.appearance || '';
+  const appearance = typeof appearanceRaw === 'string' && appearanceRaw.trim() ? appearanceRaw.trim() : undefined;
+  const child = { name, age, gender, pronouns, anecdotes };
+  if (interests.length > 0) child.interests = interests;
+  if (appearance) child.appearance = appearance;
+  return child;
 }
 
 /**
@@ -171,4 +190,6 @@ async function normalizeRequest(raw, _opts = {}) {
 module.exports = {
   normalizeRequest,
   InputError,
+  extractChild,
+  extractCustomDetails,
 };

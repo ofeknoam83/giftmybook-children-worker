@@ -41,13 +41,16 @@ const PARENT_SHARED_ADVENTURE = {
   ],
 };
 
-/** Mother's Day: same framing as SHARED parent adventures, melody-neutral mustInclude + hooks. */
+/** Mother's Day: melody/ribbon debiased + creative diversity (questionnaire over stock moth/light). */
 const MOTHERS_DAY_DIRECTIVE = {
-  framing: PARENT_SHARED_ADVENTURE.framing,
+  framing:
+    `${PARENT_SHARED_ADVENTURE.framing}
+
+PALETTE DISCIPLINE — Mother's Day only: Treat \`mustInclude\`, \`adventureHooks\`, and example recombinations below as an **inspiration pantry**, not mandatory ingredients. **Prefer** interests, anecdotes, and customDetails when building companion, MacGuffin, and locations. **Do not** default the spine to a moth + personified glow/light + prism trio unless the questionnaire or custom text names moths, lanterns, lighthouses, or light-fantasy.`,
   mustInclude: [
-    'a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason (e.g. a festival kindness token for the gatekeeper, tidepool envoy to guide home, lighthouse lantern to restore, brass carousel tab to seat before dusk, prism shard to catch dawn on glass, scavenger doodle-map from chores **without** a ribbon trail) — do **not** default the spine to a "lost melody" chase, music-box MacGuffin, **or** a talking / chasing gold-ribbon quest, ribbon-crumbs scavenger, or spread-to-spread "follow the ribbon" spine unless questionnaire / custom details explicitly name ribbons or streamers',
-    'a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (e.g. lantern pier, bioluminescent cave, moonlit reef, treetop post office, glass greenhouse, tidepool palace, floating flower market, lighthouse stairs) — not a suburban route',
-    'at least one friendly non-human companion, guide, or story object that joins the adventure (e.g. paper bird, navigator owl, lantern moth, talking seahorse, helpful kite, wind-up beetle, pocket compass) — the child is NOT alone — music-themed props are optional, never required',
+    'a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason grounded first in **personalization data** when present (toy, sport, food joke, family ritual, pet, drawing habit) — fallback examples: festival kindness token, tidepool courier, brass carousel tab, shell-runners, ferry-boat note — do **not** default the spine to a "lost melody" chase, ribbon-MacGuffin, **or** spread-to-spread "chase the gleam / restore Mr Sun beam" **or** lantern-moth guide + prism unless brief names those',
+    'a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (e.g. lantern pier, tidepool plaza, treetop post office, glass greenhouse, meadow shell, floating market, lighthouse stairs) — not a suburban route',
+    'at least one friendly non-human companion OR strongly personified story object — examples to **vary** (not all in one book): pocket otter envoy, paper gull, beetle postman, compass crab, gardener frog, trolley mouse, helpful kite — **lantern moth ONLY** if questionnaire/interests mention dusk, moths, butterflies, or lanterns — music-themed props optional, never required',
     'real stakes and at least one genuine obstacle the child has to solve bravely — a storm to outsmart, a bridge to cross, a riddle to answer, a lost path to recover — moments that actually matter to the plot, played with tension and then relief',
     'Mom is felt on every spread through memory, voice, a signature keepsake, or mirrored traits — partial silhouette / hands-at-climax when she is strictly off-cover; when she IS on the approved cover, keep her face/body welded to that cover likeness on any full-figure beats',
     'the payoff is a homecoming or reveal shared with Mom — triumphant closure and Mom with the child (same cover look when Mom is cover-approved), not breakfast tray/tea/card clichés',
@@ -72,19 +75,22 @@ const MOTHERS_DAY_DIRECTIVE = {
     'talking or sentient ribbon as the quest engine',
     'gold / magic ribbon that calls the child spread-to-spread ("follow me" ribbon)',
     'ribbon crumbs, ribbon trail, or ribbon leash as the backbone MacGuffin unless the brief explicitly requests ribbons',
+    'default spine: moth or firefly "guide" PLUS personified lamp/light named character PLUS prism restore — unless brief names those',
+    'talking star, sun beam, or lighthouse spirit beckoning the hero spread-to-spread without questionnaire support',
+    'follow the gleam / chasing dawn light as the only motor of the plot unless custom details ask for light fantasy',
   ],
   adventureHooks: [
-    'Build a hook from one NON-music-first, NON-ribbon-spine mission + one companion + one spectacular world + one concrete Mom-connection (packed snack gag, coat-pocket map scrap, scarf-stripe color echo, greenhouse habit, lighthouse story she always tells — not automatically a bedtime tune or ribbon chase). Do NOT copy any line verbatim.',
-    'mission palette (music & ribbon optional only if brief names them): lighthouse lamp relay, tidal-clock rescue clue, kite-mail over the marina (twine cord, not a speaking ribbon), lantern-path gate token, carousel brass gear before dusk, berry-basket hand-off for Grandma\'s grove, prism-catch on conservatory glass',
-    'companion/object palette: lantern moth, paper bird, navigator owl, compass crab buddy, gardener frog scout, beetle postman, helpful kite runner, trolley mouse crew — skip music-box-only drivers unless brief asks',
-    'world palette: lantern pier, tidepool palace plaza, meadow theater shell, rooftop garden maze between chimneys, conservatory glasshouse, rainy parade artery, dunes with shell pennants or kite tails (avoid default "ribbon streamers" unless brief wants streamers), coral library foyer',
-    'Mom connection palette: snack doodle jokes, tucked coat-pocket map scraps, lighthouse anecdote Mom retells, scarf stripe the child echoes, apron **patch color** or flour-handprint cue (not apron-ribbon breadcrumbs), humming-while-dishes repurposed into daylight march choreography (Bodies and rhythm — NOT sentient quarter-notes chasing the cast.)',
-    'Music-in-brief sparingly allowed: karaoke booth backlight as one waypoint only; humming while rowing; distant marching-band rehearsal bleed-through from behind arena gates.',
-    'example recombination: a lantern moth dusts prism flecks across meadow theater planks so the carousel lamp wakes — brass tab seats home before horns warm up.',
+    'Build a hook by mining **interests + questionnaire** first, then add one mission + one companion + one world — palette lines are seasoning, not scripture. Do NOT copy any line verbatim.',
+    'mission palette (music & ribbon optional only if brief names them): tidal-clock rescue clue, kite-mail over the marina (twine, not a mascot), shell-runners carrying a cousin\'s note, carousel brass gear before dusk, berry-basket relay, ferry-booth stamp hunt, lost **physical** object tied to an anecdote — not a pure light-chase',
+    'companion/object palette: compass crab, paper gull envoy, beetle postman, gardener frog, pocket otter (wet beat), trolley mouse, helpful kite — moth/butterfly flyer **only** if brief mentions; skip music-box-only drivers unless brief asks',
+    'world palette: lantern pier, tidepool plaza, meadow theater shell, rooftop garden maze between chimneys, conservatory glasshouse, rainy parade artery, dunes with shell pennants or kite tails, coral library foyer',
+    'Mom connection palette: snack doodle jokes, tucked coat-pocket map scraps, lighthouse anecdote Mom retells **as dialogue not a glow-spirit**, scarf stripe the child echoes, apron patch color, humming-while-dishes as **body rhythm** not a floating note character',
+    'Music-in-brief sparingly allowed: karaoke booth backlight as one waypoint only; humming while rowing; distant marching-band bleed-through.',
+    'example recombination: a paper gull snaps a ferry-booth stamp onto the berry basket so the tidepool gates open before the parade drum.',
     'example recombination: a compass crab stows itself in Grandma\'s berry basket so tidepool scouts reopen the conservatory door Mom sketches on napkins.',
-    'example recombination: a paper bird tugs kite twine through rooftop ivy until lighthouse glass blinks the all-clear reunion beat.',
+    'example recombination: gardener frog reroutes irrigation so shell pennants align for the kite-string message home — no talking star.',
     'example recombination: a beetle postman trades a carousel brass cog so the stalled ride spins again moments before Mom waves from the midway railing.',
-    'example recombination: gardener frog whistles irrigation valves so dunes sprout shell pennants that mark the kite-mail path home — twine and wind, no ribbon protagonist.',
+    'example recombination: pocket otter ferries a bathtub toy "diplomat" across a tidepool channel so the child recovers a joke snack Mom packed — comic, not luminosity.',
   ],
 };
 

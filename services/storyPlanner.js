@@ -17,7 +17,12 @@ const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
 const { STORY_PLANNER_MUSIC_BIAS_LINE, childDetailsSuggestMusicInterest } = require('./writer/musicInterestGuards');
-const { STORY_PLANNER_RIBBON_BIAS_LINE, plannerRibbonBriefOptIn } = require('./writer/questMotifGuards');
+const {
+  STORY_PLANNER_RIBBON_BIAS_LINE,
+  plannerRibbonBriefOptIn,
+  STORY_PLANNER_LIGHT_MOTH_BIAS_LINE,
+  plannerLightMothBriefOptIn,
+} = require('./writer/questMotifGuards');
 const { sanitizeForGemini } = require('./promptSanitizer');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
@@ -1276,6 +1281,13 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     && !plannerRibbonBriefOptIn(childDetails, customDetails || '')
   ) {
     systemPrompt += STORY_PLANNER_RIBBON_BIAS_LINE;
+  }
+
+  if (
+    (theme === 'mothers_day' || theme === 'fathers_day')
+    && !plannerLightMothBriefOptIn(childDetails, customDetails || '')
+  ) {
+    systemPrompt += STORY_PLANNER_LIGHT_MOTH_BIAS_LINE;
   }
 
   // Override the "no family in illustrations" rule when secondary characters are detected

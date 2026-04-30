@@ -12,6 +12,10 @@ const { MODELS } = require('../constants');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { renderThemeDirectiveBlock } = require('./themeDirectives');
+const {
+  renderPersonalizationSnapshotForPlanner,
+  briefHasRichPersonalization,
+} = require('./personalizationSnapshot');
 
 const SYSTEM_PROMPT = `You are a senior children's picture-book story architect.
 You design the narrative spine for a premium personalized book, not the final prose.
@@ -21,10 +25,12 @@ Hard rules:
 - Funny, playful tone, character-based humor. Never preachy.
 - Soft but meaningful emotional range. Cinematic but clearly child-safe adventure.
 - Push toward memorable, photogenic locations. Never let the book live mostly inside a house.
-- **One connected adventure (critical):** the book must read as a single through-line — cause, quest, or discovery that pulls the hero from place to place. New settings are welcome and should feel spectacular, but they must not feel like random stock backdrops. Every major location change should answer "what story reason brought us here?" (following a map, chasing a light, helping a friend, the next riddle, the same storm breaking, a companion leading onward, etc.). Avoid "theme park" jumps with no bridge.
-- **Recurring visual motifs:** name 3-5 concrete things that can reappear in the art (a carried object, a weather thread, a non-human friend, a signature color accent, a trail of light, a sound made visible, etc.) so interior illustrations feel threaded, not isolated postcards.
+- **One connected adventure (critical):** the book must read as a single through-line — cause, quest, or discovery that pulls the hero from place to place. New settings are welcome and should feel spectacular, but they must not feel like random stock backdrops. Every major location change should answer "what story reason brought us here?" Prefer **causal bridges tied to the PERSONALIZATION SNAPSHOT** when present (a prop from interests, a real anecdote object, a ticking errand, mistaken delivery, tidal clock, steward creature with no light motif, friend's note, weather closing a path, map clue from custom details). Avoid defaulting the whole spine to "chasing a light" or a luminous trail unless the brief explicitly names that fantasy. Avoid "theme park" jumps with no bridge.
+- **Recurring visual motifs:** name 3-5 concrete things that can reappear in the art — **prefer** a carried object or color from the questionnaire, a small non-mascot companion echo, weather continuity, texture/sound motif, or recurring food/prop from interests. Luminous trails or "glow leading the child" may appear **at most** as one motif if the personalization section truly supports it — do not stack them with a talking star, personified lamp, and prism quest by default.
+- **Anti-template stack:** avoid making the spine = talking animal guide + map scavenger + personified light/star + prism/lighthouse restore **unless** hooks in the brief/interests explicitly invite that cluster.
 - The hero is the child provided in the brief. The approved cover is already chosen; the cover locks the hero's look and outfit.
 - Do not invent named family members that are not in the brief. Do not turn the child into a stand-in for any family member.
+- **Personalization tie-in (when PERSONALIZATION SNAPSHOT has interests, questionnaire lines, or substantive custom details):** \`narrativeSpine\`, \`middleEscalation\`, at least half of \`personalizationTargets\`, the primary companion or quest object, and \`visualJourneySpine\` must clearly echo at least one concrete item from that snapshot. If the snapshot is nearly empty, inventive generic adventure is OK.
 - Return ONLY strict JSON matching the schema in the user message.`;
 
 function userPrompt(doc) {
@@ -38,11 +44,18 @@ function userPrompt(doc) {
     .map(([k, v]) => `  - ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join('\n') || '  (none)';
 
+  const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {});
+  const rich = briefHasRichPersonalization(brief.child, brief.customDetails || {});
+
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Format: ${request.format}. Age band: ${request.ageBand}. Theme: ${request.theme}.`,
     `Approved cover title: "${cover.title}".`,
     themeBlock,
+    personalizationBlock,
+    rich
+      ? ''
+      : 'NOTE: Personalization snapshot is thin — still avoid boilerplate "moth + chasing light + prism" unless you invent a fresh angle.',
     `Custom details (must be used concretely unless they hurt the story):`,
     customDetailsBlock,
     '',
@@ -58,7 +71,7 @@ function userPrompt(doc) {
   "personalizationTargets": ["3-6 specific custom-detail hooks the book must use"],
   "locationStrategy": "one sentence: a travel spine across at least 4 visually distinct, photogenic places",
   "visualJourneySpine": "2-4 sentences: the causal thread that connects those places into ONE story — the mission, object, quest, or escalation that justifies each move. Make the chain clear enough that spread-to-spread transitions feel earned, not random.",
-  "recurringVisualMotifs": ["3-5 concrete, art-friendly motifs that echo across the book (object, weather, light trail, small companion, color accent, etc.) — not abstract themes"],
+  "recurringVisualMotifs": ["3-5 concrete motifs — prefer cues from personalization snapshot before generic luminous trails"],
   "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"]
 }`,
     retryBlock ? `\n${retryBlock}` : '',

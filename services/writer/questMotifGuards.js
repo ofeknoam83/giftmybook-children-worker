@@ -62,9 +62,93 @@ function appendParentGiftRibbonMotifGuards(sections, book = {}, child = {}) {
   sections.push('- **At most one** mundane ribbon beat in the entire book if natural (real gift bow, hair ribbon on cover) — not the engine of the quest.');
 }
 
+const LIGHT_MOTH_OPT_IN =
+  /\b(moth|moths|butterfly|butterflies|fireflies?|firefly|lantern|lighthouse|prism|gleam|glow\s*quest|starlight\s*guide)\b/i;
+
+/**
+ * @param {...string|null|undefined} chunks
+ * @returns {boolean}
+ */
+function briefMentionsLightOrMothFantasy(...chunks) {
+  for (const c of chunks) {
+    if (typeof c !== 'string' || !c.trim()) continue;
+    if (LIGHT_MOTH_OPT_IN.test(c)) return true;
+  }
+  return false;
+}
+
+/**
+ * @param {object} childDetails
+ * @param {string} [customDetails]
+ */
+function plannerLightMothBriefOptIn(childDetails, customDetails = '') {
+  const an = anecdoteStringBlob(childDetails?.childAnecdotes || childDetails?.anecdotes);
+  const interestBlob = Array.isArray(childDetails?.interests)
+    ? childDetails.interests.join(' ')
+    : typeof childDetails?.interests === 'string'
+      ? childDetails.interests
+      : '';
+  return briefMentionsLightOrMothFantasy(
+    typeof customDetails === 'string' ? customDetails : '',
+    an,
+    interestBlob,
+  );
+}
+
+/** Legacy Phase-1 planner — reduce default moth + chased-light + prism stack. */
+const STORY_PLANNER_LIGHT_MOTH_BIAS_LINE =
+  '\n\nLIGHT / MOTH / PRISM GUARD (parent-gift adventures): Do **not** hang the spine on **lantern moth + talking glow / "Mr Light" + prism restore** unless questionnaire or custom text names moths, lanterns, lighthouses, prism play, or explicit light-fantasy. Prefer MacGuffins and guides grounded in **favorite activities, food, pets, sports, or anecdotes** from the questionnaire.';
+
+/**
+ * @param {string[]} sections
+ * @param {object} child
+ * @param {object} [book]
+ */
+function appendPersonalizationFirstGuards(sections, child, book = {}) {
+  const interestBlob = Array.isArray(child?.interests) ? child.interests.join(' ') : '';
+  const an = anecdoteStringBlob(child?.anecdotes);
+  const extras = [book.customDetails, book.heartfeltNote]
+    .map(x => (typeof x === 'string' ? x : ''))
+    .filter(Boolean)
+    .join('\n');
+  const has = interestBlob.trim() || an.trim() || extras.trim();
+  if (!has) return;
+
+  sections.push('\n## PERSONALIZATION-FIRST (QUEST OBJECT + PICTURES)\n');
+  sections.push('- Real **interests**, **anecdotes**, and **heartfelt / custom** notes are the first place to shop for the spine, recurring prop, and mascot energy — not a canned adventure pantry.');
+  sections.push('- Name concrete objects, foods, games, or places **from the questionnaire** in multiple spreads so art and rhyme feel like **this** family.');
+}
+
+/**
+ * Writer V2 — skip when brief already names light/moth/prism fantasy.
+ * @param {string[]} sections
+ * @param {object} [book]
+ * @param {object} [child]
+ */
+function appendParentGiftLightMotifGuards(sections, book = {}, child = {}) {
+  const an = anecdoteStringBlob(child?.anecdotes);
+  if (briefMentionsLightOrMothFantasy(
+    typeof book.customDetails === 'string' ? book.customDetails : '',
+    typeof book.heartfeltNote === 'string' ? book.heartfeltNote : '',
+    an,
+    Array.isArray(child?.interests) ? child.interests.join(' ') : '',
+  )) {
+    return;
+  }
+
+  sections.push('\n## LIGHT / MOTH / PRISM TEMPLATE (DO NOT DEFAULT)\n');
+  sections.push('- **Skip** the boilerplate: tiny glowing guide (moth/firefly) + child chases a beam + prism "wakes" a named light — unless `customDetails` explicitly invite that fantasy.');
+  sections.push('- Prefer **earthbound** quest drivers from interests/anecdotes (ball, truck, snack, pet, sport, drawing, funny family moment).');
+}
+
 module.exports = {
   briefMentionsRibbon,
   plannerRibbonBriefOptIn,
   STORY_PLANNER_RIBBON_BIAS_LINE,
   appendParentGiftRibbonMotifGuards,
+  briefMentionsLightOrMothFantasy,
+  plannerLightMothBriefOptIn,
+  STORY_PLANNER_LIGHT_MOTH_BIAS_LINE,
+  appendPersonalizationFirstGuards,
+  appendParentGiftLightMotifGuards,
 };

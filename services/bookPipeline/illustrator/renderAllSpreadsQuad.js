@@ -1,7 +1,6 @@
 /**
- * Interior illustrator — 4:1 dual-spread path (two consecutive spreads per model image).
- * Default pipeline remains `renderAllSpreads.js`; this module runs only when
- * `getIllustrationRenderer(doc).renderer === 'quad'`.
+ * Two consecutive spreads share one 4:1 composite: strip → slice natives → QA halves →
+ * on pass upscale full quad, re-slice for print JPEGs + session refs.
  */
 
 const sharp = require('sharp');
@@ -345,22 +344,15 @@ async function processQuadPair(params) {
       transientInfraRetries = 0;
 
       const stripped = await stripMetadata(image.imageBuffer);
-      const printableQuad = await upscaleForPrint(stripped);
-      const slice = await sliceQuadToTwoSpreadStrips(printableQuad);
+      const sliceNative = await sliceQuadToTwoSpreadStrips(stripped);
       console.log(
-        `[${logTagQuad}] slice map: leftStrip → spread ${spreadA.spreadNumber} (${slice.halfWidth}x${slice.height}px); ` +
+        `[${logTagQuad}] pre-upscale QA slice map: leftStrip → spread ${spreadA.spreadNumber} (${sliceNative.halfWidth}x${sliceNative.height}px); ` +
         `rightStrip → spread ${spreadB.spreadNumber} ` +
-        `(${slice.width - slice.halfWidth}x${slice.height}px); full=${slice.width}x${slice.height}`,
+        `(${sliceNative.width - sliceNative.halfWidth}x${sliceNative.height}px); full=${sliceNative.width}x${sliceNative.height}`,
       );
 
-      const printableLeftB64 = slice.leftStrip.toString('base64');
-      const printableRightB64 = slice.rightStrip.toString('base64');
-
-      const recentInteriorRefs = pickRecentInteriorRefsForQa(
-        currentSession.acceptedSpreads,
-        [specA.spreadIndex, specB.spreadIndex],
-        QA_RECENT_INTERIOR_REFERENCES,
-      );
+      const nativeLeftB64 = sliceNative.leftStrip.toString('base64');
+      const nativeRightB64 = sliceNative.rightStrip.toString('base64');
 
       const supportingCast = Array.isArray(currentDoc.visualBible?.supportingCast)
         ? currentDoc.visualBible.supportingCast
@@ -371,10 +363,16 @@ async function processQuadPair(params) {
         .join('; ') || null;
       const coverParentPresent = false;
 
+      const recentInteriorRefs = pickRecentInteriorRefsForQa(
+        currentSession.acceptedSpreads,
+        [specA.spreadIndex, specB.spreadIndex],
+        QA_RECENT_INTERIOR_REFERENCES,
+      );
+
       const qaStart = Date.now();
       const [qaA, qaB] = await Promise.all([
         checkSpread({
-          imageBase64: printableLeftB64,
+          imageBase64: nativeLeftB64,
           expected: expectedA,
           coverRef: { base64: cover.base64, mime: cover.mime },
           hero,
@@ -385,7 +383,7 @@ async function processQuadPair(params) {
           abortSignal: currentDoc.operationalContext?.abortSignal,
         }),
         checkSpread({
-          imageBase64: printableRightB64,
+          imageBase64: nativeRightB64,
           expected: expectedB,
           coverRef: { base64: cover.base64, mime: cover.mime },
           hero,
@@ -416,6 +414,17 @@ async function processQuadPair(params) {
       }
 
       if (qaA.pass && qaB.pass) {
+        const printableQuad = await upscaleForPrint(stripped);
+        const slice = await sliceQuadToTwoSpreadStrips(printableQuad);
+        console.log(
+          `[${logTagQuad}] post-upscale slice map: leftStrip → spread ${spreadA.spreadNumber} (${slice.halfWidth}x${slice.height}px); ` +
+          `rightStrip → spread ${spreadB.spreadNumber} ` +
+          `(${slice.width - slice.halfWidth}x${slice.height}px); full=${slice.width}x${slice.height}`,
+        );
+
+        const printableLeftB64 = slice.leftStrip.toString('base64');
+        const printableRightB64 = slice.rightStrip.toString('base64');
+
         console.log(
           `[${logTagQuad}] ACCEPTED pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)`,
         );

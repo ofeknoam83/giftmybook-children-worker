@@ -6,9 +6,8 @@
  *   - per-spread loop:
  *       1. build illustration spec from new schema
  *       2. buildSpreadTurn + generateSpread
- *       3. stripMetadata + upscaleForPrint
- *       4. per-spread QA (text + consistency) in parallel
- *       5. if pass:   markSpreadAccepted, upload to GCS, record on doc
+ *       3. stripMetadata, then per-spread QA on the stripped buffer
+ *       4. if pass: upscaleForPrint → markSpreadAccepted, upload to GCS, record on doc
  *          if fail:   planSpreadRepair -> sendCorrection (in-session)
  *                     -> after N corrections, rebuildSession (once per spread phase)
  *                     -> if budget exhausted: up to REPAIR_BUDGETS.perSpreadExtraSessionRounds
@@ -382,8 +381,7 @@ async function processOneSpread(params) {
       transientInfraRetries = 0;
 
       const stripped = await stripMetadata(image.imageBuffer);
-      const printable = await upscaleForPrint(stripped);
-      const printableBase64 = printable.toString('base64');
+      const strippedBase64 = stripped.toString('base64');
 
       const supportingCast = Array.isArray(currentDoc.visualBible?.supportingCast)
         ? currentDoc.visualBible.supportingCast
@@ -405,7 +403,7 @@ async function processOneSpread(params) {
 
       const qaStart = Date.now();
       const qa = await checkSpread({
-        imageBase64: printableBase64,
+        imageBase64: strippedBase64,
         expected,
         coverRef: { base64: cover.base64, mime: cover.mime },
         hero,
@@ -421,6 +419,7 @@ async function processOneSpread(params) {
         console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
         markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
 
+        const printable = await upscaleForPrint(stripped);
         const destination = `books/${bookId || currentDoc.request.bookId || 'nobookid'}/spreads/spread-${spread.spreadNumber}.jpg`;
         await uploadBuffer(printable, destination, 'image/jpeg');
         const imageUrl = await getSignedUrl(destination, SIGNED_URL_TTL_MS);
