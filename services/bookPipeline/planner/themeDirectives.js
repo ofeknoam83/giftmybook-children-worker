@@ -24,9 +24,10 @@
 // shows them full-figure — then that render is the continuity lock for any
 // interior that needs Mom/Dad visible.
 //
-// Mother's Day used to overweight "melody/note" quests when SHARED mustInclude
-// bullets listed lullabies — `MOTHERS_DAY_DIRECTIVE` below debiases without
-// changing Father's Day / grandparents directives.
+// Mother's Day: debias shared parent-adventure bullets that used to force
+// melody quests, then ribbon-map / "follow the gold ribbon" spines after melody
+// was softened — `MOTHERS_DAY_DIRECTIVE` below; Father's Day / grandparents
+// still spread `PARENT_SHARED_ADVENTURE` unchanged.
 const PARENT_SHARED_ADVENTURE = {
   framing:
     "This book is a genuinely thrilling, visually rich shared adventure the child undertakes with the parent as their guiding star — a premium animated-film quest with real stakes, surprise, wonder, and a brave mission. It is NOT a quiet day-out or a gentle errand. The world should feel fresh every time: invented public places, sensory nature, whimsical machines, tiny magical societies, festival spaces, sea/light/sky journeys, or child-scale transformations of real locations. The parent is felt throughout the adventure (voice in the child's head, a beloved object taken along, a memory that guides a choice, a silhouette at the far end waiting) but is NOT drawn as a full-figure co-hero unless the approved cover already shows them. The adventure itself is the gift — the child returns home changed, with a story only they and the parent will ever share.",
@@ -44,7 +45,7 @@ const PARENT_SHARED_ADVENTURE = {
 const MOTHERS_DAY_DIRECTIVE = {
   framing: PARENT_SHARED_ADVENTURE.framing,
   mustInclude: [
-    'a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason (e.g. a sunrise ribbon riding the tide, a festival kindness token for the gatekeeper, tidepool envoy to guide home, lighthouse lantern to restore, scavenger doodle-map from chores) — do **not** default the spine to a "lost melody" chase, a fading-lullaby collectible, glowing musical-note trails, or a mandatory music-box MacGuffin unless questionnaire / custom details explicitly request music-as-fantasy',
+    'a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason (e.g. a festival kindness token for the gatekeeper, tidepool envoy to guide home, lighthouse lantern to restore, brass carousel tab to seat before dusk, prism shard to catch dawn on glass, scavenger doodle-map from chores **without** a ribbon trail) — do **not** default the spine to a "lost melody" chase, music-box MacGuffin, **or** a talking / chasing gold-ribbon quest, ribbon-crumbs scavenger, or spread-to-spread "follow the ribbon" spine unless questionnaire / custom details explicitly name ribbons or streamers',
     'a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (e.g. lantern pier, bioluminescent cave, moonlit reef, treetop post office, glass greenhouse, tidepool palace, floating flower market, lighthouse stairs) — not a suburban route',
     'at least one friendly non-human companion, guide, or story object that joins the adventure (e.g. paper bird, navigator owl, lantern moth, talking seahorse, helpful kite, wind-up beetle, pocket compass) — the child is NOT alone — music-themed props are optional, never required',
     'real stakes and at least one genuine obstacle the child has to solve bravely — a storm to outsmart, a bridge to cross, a riddle to answer, a lost path to recover — moments that actually matter to the plot, played with tension and then relief',
@@ -68,19 +69,22 @@ const MOTHERS_DAY_DIRECTIVE = {
     'runaway melody or chasing the melody as the backbone quest',
     'recovering Mom\'s "lost song" or fading-lullaby MacGuffin without questionnaire support',
     'recovering literal song fragments as collectible objects unless the brief explicitly asks',
+    'talking or sentient ribbon as the quest engine',
+    'gold / magic ribbon that calls the child spread-to-spread ("follow me" ribbon)',
+    'ribbon crumbs, ribbon trail, or ribbon leash as the backbone MacGuffin unless the brief explicitly requests ribbons',
   ],
   adventureHooks: [
-    'Build a hook from one NON-music-first mission + one companion + one spectacular world + one concrete Mom-connection (packed snack gag, doodle-map, apron-ribbon cue, scarf color, greenhouse habit — not automatically a bedtime tune quest). Do NOT copy any line verbatim.',
-    'mission palette (music optional): sunrise ribbon courier, lighthouse lamp relay, tidal-clock rescue clue, kite-mail over the marina, lantern-path gate token, carousel gear before dusk, berry-basket hand-off for Grandma\'s grove',
+    'Build a hook from one NON-music-first, NON-ribbon-spine mission + one companion + one spectacular world + one concrete Mom-connection (packed snack gag, coat-pocket map scrap, scarf-stripe color echo, greenhouse habit, lighthouse story she always tells — not automatically a bedtime tune or ribbon chase). Do NOT copy any line verbatim.',
+    'mission palette (music & ribbon optional only if brief names them): lighthouse lamp relay, tidal-clock rescue clue, kite-mail over the marina (twine cord, not a speaking ribbon), lantern-path gate token, carousel brass gear before dusk, berry-basket hand-off for Grandma\'s grove, prism-catch on conservatory glass',
     'companion/object palette: lantern moth, paper bird, navigator owl, compass crab buddy, gardener frog scout, beetle postman, helpful kite runner, trolley mouse crew — skip music-box-only drivers unless brief asks',
-    'world palette: lantern pier, tidepool palace plaza, meadow theater shell, rooftop garden maze between chimneys, conservatory glasshouse, rainy parade artery, dunes with ribbon streamers, coral library foyer',
-    'Mom connection palette: snack doodle jokes, tucked coat-pocket map scraps, apron ribbon braided into trail breadcrumbs, lighthouse anecdote Mom retells, scarf stripe the child echoes, humming-while-dishes repurposed into daylight march choreography (Bodies and rhythm — NOT sentient quarter-notes chasing the cast.)',
+    'world palette: lantern pier, tidepool palace plaza, meadow theater shell, rooftop garden maze between chimneys, conservatory glasshouse, rainy parade artery, dunes with shell pennants or kite tails (avoid default "ribbon streamers" unless brief wants streamers), coral library foyer',
+    'Mom connection palette: snack doodle jokes, tucked coat-pocket map scraps, lighthouse anecdote Mom retells, scarf stripe the child echoes, apron **patch color** or flour-handprint cue (not apron-ribbon breadcrumbs), humming-while-dishes repurposed into daylight march choreography (Bodies and rhythm — NOT sentient quarter-notes chasing the cast.)',
     'Music-in-brief sparingly allowed: karaoke booth backlight as one waypoint only; humming while rowing; distant marching-band rehearsal bleed-through from behind arena gates.',
-    'example recombination: a lantern moth lays ribbon crumbs across meadow theater planks before horns warm up — child follows to relight Mom\'s carousel token.',
+    'example recombination: a lantern moth dusts prism flecks across meadow theater planks so the carousel lamp wakes — brass tab seats home before horns warm up.',
     'example recombination: a compass crab stows itself in Grandma\'s berry basket so tidepool scouts reopen the conservatory door Mom sketches on napkins.',
     'example recombination: a paper bird tugs kite twine through rooftop ivy until lighthouse glass blinks the all-clear reunion beat.',
     'example recombination: a beetle postman trades a carousel brass cog so the stalled ride spins again moments before Mom waves from the midway railing.',
-    'example recombination: gardener frog whistles irrigation valves so dunes bloom ribbon streamers guiding the kite-mail mission home.',
+    'example recombination: gardener frog whistles irrigation valves so dunes sprout shell pennants that mark the kite-mail path home — twine and wind, no ribbon protagonist.',
   ],
 };
 
