@@ -115,6 +115,7 @@ describe('validateGenerateBookRequest', () => {
     expect(result.errors).toHaveLength(0);
     expect(result.sanitized.bookId).toBe('book-123');
     expect(result.sanitized.childName).toBe('Emma');
+    expect(result.sanitized.artStyle).toBe('pixar_premium');
   });
 
   test('rejects missing bookId', () => {

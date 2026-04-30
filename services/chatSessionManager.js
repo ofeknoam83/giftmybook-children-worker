@@ -10,7 +10,7 @@
  * standalone generateIllustration() calls.
  */
 
-const { getNextApiKey, fetchWithTimeout, ART_STYLE_CONFIG } = require('./illustrationGenerator');
+const { getNextApiKey, fetchWithTimeout, ART_STYLE_CONFIG, canonicalBookArtStyle } = require('./illustrationGenerator');
 
 const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -49,7 +49,7 @@ class ChatSessionManager {
     this.bookContext = bookContext;
     this.characterRefParts = characterRefImages || [];
 
-    const artStyleConfig = ART_STYLE_CONFIG[styleConfig.artStyle] || ART_STYLE_CONFIG.pixar_premium;
+    const artStyleConfig = ART_STYLE_CONFIG[canonicalBookArtStyle(styleConfig.artStyle)];
 
     // Build system instruction
     this.systemInstruction = this._buildSystemInstruction(artStyleConfig, styleConfig, bookContext);

@@ -55,7 +55,7 @@ const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
 const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
-const { generateIllustration, downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
+const { generateIllustration, downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
 // generateIllustration is only used for chapter books and graphic novels.
 // Picture book illustration is handled exclusively by services/illustrator (new minimal module).
 // V3: compositeTextOnIllustration removed (V1 illustration pipeline)
@@ -879,7 +879,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     : customDetails;
 
   let format = bookFormat;
-  const style = artStyle || 'pixar_premium';
+  const style = canonicalBookArtStyle(artStyle);
   const costTracker = new CostTracker();
   const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
   const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';

@@ -15,7 +15,7 @@
  * - Falls back to stateless generateIllustration() on failure
  */
 
-const { fetchWithTimeout, ART_STYLE_CONFIG, PARENT_THEMES } = require('./illustrationGenerator');
+const { fetchWithTimeout, ART_STYLE_CONFIG, PARENT_THEMES, canonicalBookArtStyle } = require('./illustrationGenerator');
 const { resolvePictureBookTextRules } = require('./illustrator/config');
 
 const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
@@ -54,7 +54,7 @@ function pickSessionApiKey() {
  * @param {string} [opts.characterAnchor] - Structured ethnicity/features
  * @param {string} [opts.characterDescription] - Hair, appearance details
  * @param {string} [opts.characterOutfit] - Exact outfit description
- * @param {string} [opts.style] - Art style key (e.g. 'watercolor')
+ * @param {string} [opts.style] - Ignored; sessions use canonical 3D Pixar premium
  * @param {string} [opts.childName] - Child's name
  * @param {string} [opts.childAge] - Child's age
  * @param {number} [opts.totalSpreads] - Total spreads in the book
@@ -70,7 +70,7 @@ function createIllustrationSession(opts = {}) {
   if (!apiKey) throw new Error('No API key available for illustration chat session');
 
   const model = opts.model || GEMINI_MODEL;
-  const styleConfig = ART_STYLE_CONFIG[opts.style] || ART_STYLE_CONFIG.pixar_premium;
+  const styleConfig = ART_STYLE_CONFIG[canonicalBookArtStyle(opts.style)];
 
   const session = {
     apiKey,

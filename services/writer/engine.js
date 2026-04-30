@@ -13,6 +13,7 @@ const { QualityGate } = require('./quality/gate');
 const { stampBook } = require('./version');
 const { WRITER_CONFIG } = require('./config');
 const { fixPossessivePronounErrors } = require('../pronouns');
+const { canonicalBookArtStyle } = require('../illustrationGenerator');
 
 /** Short hash of reviser/critic feedback for logs (not reversible). */
 function v2FeedbackDigest(s) {
@@ -358,7 +359,7 @@ function buildBookFromLegacy(payload) {
   return {
     format: payload.bookFormat || 'PICTURE_BOOK',
     theme: payload.theme || payload.occasionTheme || (payload.brief?.child?.theme) || 'adventure',
-    artStyle: payload.artStyle || 'watercolor',
+    artStyle: canonicalBookArtStyle(payload.artStyle),
     bindingType: payload.bindingType || '',
     title: payload.approvedTitle || null,
     customDetails: payload.customDetails || '',

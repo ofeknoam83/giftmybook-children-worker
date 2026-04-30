@@ -16,13 +16,6 @@ const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
-const { STORY_PLANNER_MUSIC_BIAS_LINE, childDetailsSuggestMusicInterest } = require('./writer/musicInterestGuards');
-const {
-  STORY_PLANNER_RIBBON_BIAS_LINE,
-  plannerRibbonBriefOptIn,
-  STORY_PLANNER_LIGHT_MOTH_BIAS_LINE,
-  plannerLightMothBriefOptIn,
-} = require('./writer/questMotifGuards');
 const { sanitizeForGemini } = require('./promptSanitizer');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
@@ -738,17 +731,6 @@ async function brainstormStorySeed(childDetails, customDetails, approvedTitle, o
     ? getEmotionalBeatStructure(theme, age, opts.emotionalSituation || '')
     : getThemeBeatStructure(theme, age);
 
-  const customBlobForMotifs = typeof customDetails === 'string' ? customDetails : '';
-  let brainstormParentMotifGuards = '';
-  if (theme === 'mothers_day' || theme === 'fathers_day') {
-    if (!plannerRibbonBriefOptIn(childDetails, customBlobForMotifs)) {
-      brainstormParentMotifGuards += STORY_PLANNER_RIBBON_BIAS_LINE;
-    }
-    if (!plannerLightMothBriefOptIn(childDetails, customBlobForMotifs)) {
-      brainstormParentMotifGuards += STORY_PLANNER_LIGHT_MOTH_BIAS_LINE;
-    }
-  }
-
   const systemPrompt = `You are a world-class children's book story developer. Your job is to brainstorm a UNIQUE, ORIGINAL story concept for a personalized picture book (${spreadCount} spreads).
 
 CREATIVITY FIRST (this step is generative — not a template):
@@ -759,7 +741,7 @@ CREATIVITY FIRST (this step is generative — not a template):
 
 LOCATION CREATIVITY (applies to \`setting\` and to **every** line in \`beats\`):
 - Reject lazy location spines: generic **park**, **playground**, **backyard**, **private garden**, or a loop of **home rooms** (kitchen, living room, bed) — unless the parent's answers explicitly require staying home.
-- Prefer **memorable, specific, paintable** places: invented venues, public epic or quirky spaces (festival gate, market hall, pier, treetop walk, train platform, community parade, cave mouth, science museum, conservatory court). Avoid **making lighthouse / lantern-pier / "chase the glow"** your default backbone unless questionnaire or customer text names those specifically. Nature: name the **ridge, tidepool, riverbend**, not "the park" or "the garden" by default.
+- Prefer **memorable, specific, paintable** places: invented venues, public epic or quirky spaces (festival gate, market hall, pier, treetop walk, train platform, community parade, cave mouth, science museum, conservatory court, lighthouse, lantern-lit fair). Nature: name the **ridge, tidepool, riverbend**, not "the park" or "the garden" by default when a sharper place fits.
 - **Spread 1** must not default to "waking at home" or "playing in the yard" when another open would serve the theme — only use those if the brief demands it.
 - Across 13 beats, aim for **at least 4–5 clearly distinct primary locations** when the theme allows; avoid ten spreads in the same boring yard.
 
@@ -784,7 +766,7 @@ Return a JSON object with these fields:
 
 4. storySeed: One sentence — the unique emotional journey (inner arc). Must reflect the theme. Do not paste the same wording as narrative_spine.
 
-5. narrative_spine: One sentence — the external plot thread (what happens). Answer "what is this book about?" with concrete actions. Examples (avoid generic-park / house-only as the **whole** spine unless the parent asked; **do not** default to waking or restoring an anthropomorphic light/glow mascot unless the parent's text invites that): "Morgan and Mom chase a runaway birthday banner across a pier fair and back", "Gianna bakes Mama a surprise cake in Nona's sunlit kitchen before the family parade", "Jamie hunts down a misplaced relay baton swap so the school's mud-day race stays on schedule." Every beat must connect to this spine.
+5. narrative_spine: One sentence — the external plot thread (what happens). Answer "what is this book about?" with concrete actions. Examples (avoid generic-park / house-only as the **whole** spine unless the parent asked): "Morgan and Mom chase a runaway birthday banner across a pier fair and back", "Gianna bakes Mama a surprise cake in Nona's sunlit kitchen before the family parade", "Jamie hunts down a misplaced relay baton swap so the school's mud-day race stays on schedule." Every beat must connect to this spine.
 
 6. emotional_core: One sentence for what the PARENT feels after reading. The emotional truth beyond the plot.
 
@@ -868,8 +850,6 @@ We only have the CHILD's reference photo. Family members (parents, grandparents,
 Do NOT write beats where a family member is physically present in the scene (e.g. "Grandpa stood there", "Mom waved"). The illustrator will draw them, and without a reference photo they will look different on every page — this is a major quality defect.
 Instead, show family love through TRACES and EFFECTS: a packed lunch, a hand-written note, a garden someone planted, a warm jacket left on a chair. The child is the ONLY human character visible in every spread.
 If "book_from" or "favorite_food" mentions a family member, honor that relationship through the story's emotional warmth — NOT by putting them in scenes.`)}
-
-${brainstormParentMotifGuards}
 
 INTERESTS vs. VISUAL THEMES (CRITICAL):
 When the child's interests include character names (Bluey, Pinkalicious, Peppa Pig, Spider-Man, Elsa, etc.), these are CHARACTERS the child likes — NOT literal color or visual themes. "Pinkalicious" means the child enjoys those books, not "make everything pink." "Bluey" means the child watches that show, not "make everything blue." Use these interests as INSPIRATION for tone, energy, or a subtle nod — but NEVER flood the story with a single color or visual motif. The story should have a natural, varied color palette. A subtle reference is charming; saturation is overwhelming.
@@ -1280,27 +1260,6 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     } else {
       systemPrompt += `\n\n⚠️ FATHER'S DAY OVERRIDE — IMPLIED PRESENCE (FACE COMPLETELY HIDDEN): Dad is a co-protagonist and MUST appear in illustration prompts for at least 6 of 13 spreads. However, we have NO reference image for Dad. He is MALE (a man). His face must NEVER be shown in ANY illustration — no eyes, no mouth, no facial features.\n\nIn EVERY spread_image_prompt where Dad appears, you MUST explicitly describe a hidden-face pose. Examples:\n- "Dad's strong hands lift the child onto his shoulders, seen from behind"\n- "Dad kneels beside the child, his face just above the frame edge"\n- "We see Dad from behind, his arm around the child's shoulder"\n- "Dad's arm reaches in from the left side of the frame"\nNEVER write prompts like "Dad smiles at the child" or "Dad looks at the child proudly" — these will cause the illustrator to draw his face. His warmth comes through body language ONLY. Other family members — text only, never illustrated.`;
     }
-  }
-
-  if (
-    (theme === 'mothers_day' || theme === 'fathers_day')
-    && childDetailsSuggestMusicInterest(childDetails, customDetails || '')
-  ) {
-    systemPrompt += STORY_PLANNER_MUSIC_BIAS_LINE;
-  }
-
-  if (
-    (theme === 'mothers_day' || theme === 'fathers_day')
-    && !plannerRibbonBriefOptIn(childDetails, customDetails || '')
-  ) {
-    systemPrompt += STORY_PLANNER_RIBBON_BIAS_LINE;
-  }
-
-  if (
-    (theme === 'mothers_day' || theme === 'fathers_day')
-    && !plannerLightMothBriefOptIn(childDetails, customDetails || '')
-  ) {
-    systemPrompt += STORY_PLANNER_LIGHT_MOTH_BIAS_LINE;
   }
 
   // Override the "no family in illustrations" rule when secondary characters are detected

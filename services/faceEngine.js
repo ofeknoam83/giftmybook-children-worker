@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { runModel } = require('./replicateClient');
 const { uploadBuffer, uploadFromUrl, downloadBuffer, getSignedUrl, saveJson, loadJson } = require('./gcsStorage');
 const { withRetry } = require('./retry');
+const { canonicalBookArtStyle } = require('./illustrationGenerator');
 
 /** Current prompt version — bump to invalidate cached descriptions */
 const APPEARANCE_PROMPT_VERSION = 'v3';
@@ -193,20 +194,22 @@ async function extractFaceEmbedding(photoUrls) {
  *
  * @param {object} faceEmbedding - { embedding, faceCount, primaryPhotoUrl }
  * @param {string} childAppearance - Text description of the child's appearance
- * @param {string} artStyle - 'watercolor', 'digital_painting', or 'storybook'
+ * @param {string} artStyle - Ignored — reference uses premium 3D Pixar CGI look
  * @returns {Promise<string>} URL of the character reference sheet
  */
 async function generateCharacterReference(faceEmbedding, childAppearance, artStyle) {
   const totalStart = Date.now();
-  console.log(`[faceEngine] Generating character reference sheet in ${artStyle} style (text-only, no kid photo)`);
+  const styleKey = canonicalBookArtStyle(artStyle);
+  console.log(`[faceEngine] Generating character reference sheet in ${styleKey} style (text-only, no kid photo)`);
 
   const styleDescriptions = {
+    pixar_premium: 'Cinematic 3D Pixar-style CGI character turnaround, Disney-Pixar production quality modeling, wholesome family feature-film look, volumetric shading (not watercolor or flat illustration)',
     watercolor: 'soft watercolor children\'s book illustration style, gentle pastel colors',
     digital_painting: 'vibrant digital children\'s book illustration, clean lines, bright colors',
     storybook: 'classic storybook illustration, whimsical and warm, detailed',
   };
 
-  const styleDesc = styleDescriptions[artStyle] || styleDescriptions.watercolor;
+  const styleDesc = styleDescriptions[styleKey];
 
   const prompt = `Child-safe children's book illustration for a personalized children's storybook, commissioned by the child's parent. Character reference sheet. ${styleDesc}.
 Show the character in four poses: front view, three-quarter view, side profile, and a happy expression close-up.

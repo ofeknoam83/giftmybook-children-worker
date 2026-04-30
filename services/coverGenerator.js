@@ -14,6 +14,7 @@ const {
   fetchWithTimeout,
   renderStyleBlock,
   ART_STYLE_CONFIG,
+  canonicalBookArtStyle,
 } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
 const { TEXT_RULES } = require('./illustrator/config');
@@ -508,7 +509,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       skipCoverStyleHarmonize,
     });
   } else {
-    const artStyle = opts.artStyle || 'pixar_premium';
+    const artStyle = canonicalBookArtStyle(opts.artStyle);
     const aspectHint = isSquareTrim
       ? 'Square image, 1:1 aspect ratio.'
       : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
@@ -858,8 +859,8 @@ Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
  * @returns {string}
  */
 function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyle, identity = {}) {
-  const { ART_STYLE_CONFIG, renderStyleBlock } = require('./illustrationGenerator');
-  const styleConfig = ART_STYLE_CONFIG?.[artStyle] || {};
+  const resolvedStyle = canonicalBookArtStyle(artStyle);
+  const styleConfig = ART_STYLE_CONFIG?.[resolvedStyle] || {};
   const styleBlock = renderStyleBlock(styleConfig);
 
   const genderWord = childGender === 'male' ? 'boy' : childGender === 'female' ? 'girl' : 'young child';

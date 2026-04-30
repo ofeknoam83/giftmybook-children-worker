@@ -213,6 +213,17 @@ const ART_STYLE_CONFIG = {
   },
 };
 
+/** All book illustration prompts use this style key regardless of client `artStyle`. */
+const CANONICAL_BOOK_ART_STYLE = 'pixar_premium';
+
+/**
+ * @param {string} [requested] - Incoming style from API or legacy callers (ignored for rendering)
+ * @returns {typeof CANONICAL_BOOK_ART_STYLE}
+ */
+function canonicalBookArtStyle(/* requested ignored */) {
+  return CANONICAL_BOOK_ART_STYLE;
+}
+
 /**
  * Render the full style block for a prompt: positive prefix+suffix and, when
  * the style carries an `antiStyle`, an explicit hard-no list so the model
@@ -248,12 +259,13 @@ function sanitizePrompt(prompt) {
  * Build a very generic safe fallback prompt for when sanitization isn't enough.
  */
 function buildGenericSafePrompt(artStyle) {
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
+  const styleConfig = ART_STYLE_CONFIG[canonicalBookArtStyle(artStyle)];
   const avoid = styleConfig.antiStyle ? `. AVOID (hard no): ${styleConfig.antiStyle}.` : '';
   return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}${avoid}`;
 }
 
 function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  artStyle = canonicalBookArtStyle(artStyle);
   const requestedStyle = artStyle === 'cinematic_3d' || artStyle === 'pixar_premium'
     ? 'graphic_novel_cinematic'
     : artStyle;
@@ -357,8 +369,9 @@ function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, 
  * @returns {string} Complete prompt for full-page generation
  */
 function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
-  // Use the same Pixar/cinematic style as regular children's books — the user wants premium 3D, not a flat comic style
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.cinematic_3d || ART_STYLE_CONFIG.pixar_premium;
+  artStyle = canonicalBookArtStyle(artStyle);
+  // Use the same Pixar/cinematic style as regular children's books — premium 3D, not a flat comic look
+  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
   const parts = [];
 
   // ── PRIORITY 1: What this image IS (comic page, not a single illustration) ──
@@ -684,6 +697,7 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
  * @returns {string} Complete prompt
  */
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
+  artStyle = canonicalBookArtStyle(artStyle);
   if (opts.comicPageMode) {
     return buildComicPagePrompt(
       sceneDescription,  // In comicPageMode, sceneDescription IS the fullPagePrompt
@@ -1312,6 +1326,10 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   const totalStart = Date.now();
   const { costTracker, bookId, childName, childPhotoUrl, spreadIndex } = opts;
 
+  if (artStyle && artStyle !== CANONICAL_BOOK_ART_STYLE) {
+    console.log(`[illustrationGenerator] artStyle "${artStyle}" coerced to ${CANONICAL_BOOK_ART_STYLE}`);
+  }
+
   const isSpread = opts.isSpread || false;
   const fullPrompt = buildCharacterPrompt(sceneDescription, artStyle, childName, opts.pageText, opts.characterOutfit, opts.characterDescription, opts.recurringElement, opts.keyObjects, {
     skipTextEmbed: opts.skipTextEmbed,
@@ -1355,7 +1373,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
   console.log(`[illustrationGenerator] Scene: ${sceneDescription.slice(0, 200)}${sceneDescription.length > 200 ? '...' : ''}`);
   console.log(`[illustrationGenerator] Page text: ${opts.pageText || '(none)'}`);
   console.log(`[illustrationGenerator] Outfit: ${opts.characterOutfit || '(none)'}`);
-  console.log(`[illustrationGenerator] Has cover ref: ${!!opts._cachedPhotoBase64}, Style: ${artStyle}`);
+  console.log(`[illustrationGenerator] Has cover ref: ${!!opts._cachedPhotoBase64}, Style: ${CANONICAL_BOOK_ART_STYLE}`);
 
   // Resolve photo base64 (use cached if available)
   let photoBase64 = opts._cachedPhotoBase64 || null;
@@ -1753,4 +1771,17 @@ ${anchors.map((a, i) => `Anchor ${i + 1}: ${a.label}`).join('\n')}
   );
 }
 
-module.exports = { generateIllustration, generateIllustrationWithAnchors, buildCharacterPrompt, getNextApiKey, ART_STYLE_CONFIG, PARENT_THEMES, fetchWithTimeout, downloadPhotoAsBase64, checkCharacterConsistency, renderStyleBlock };
+module.exports = {
+  generateIllustration,
+  generateIllustrationWithAnchors,
+  buildCharacterPrompt,
+  getNextApiKey,
+  ART_STYLE_CONFIG,
+  CANONICAL_BOOK_ART_STYLE,
+  canonicalBookArtStyle,
+  PARENT_THEMES,
+  fetchWithTimeout,
+  downloadPhotoAsBase64,
+  checkCharacterConsistency,
+  renderStyleBlock,
+};

@@ -32,6 +32,7 @@ jest.mock('../../services/illustrationGenerator', () => ({
     const positive = `${cfg.prefix || ''} ${cfg.suffix || ''}`.trim();
     return cfg.antiStyle ? `${positive}. AVOID (hard no): ${cfg.antiStyle}.` : positive;
   },
+  canonicalBookArtStyle: jest.fn(() => 'pixar_premium'),
   getNextApiKey: jest.fn(() => 'fake-key'),
   fetchWithTimeout: jest.fn(),
 }));
@@ -78,10 +79,11 @@ describe('buildUpsellCoverPrompt', () => {
     expect(prompt).toContain('Do NOT include siblings');
   });
 
-  test('includes art style prefix and suffix', () => {
+  test('locks upsell prompts to canonical 3D Pixar style block', () => {
     const prompt = buildUpsellCoverPrompt(base.title, base.childName, base.childAge, 'female', 'watercolor');
-    expect(prompt).toContain('Watercolor style.');
-    expect(prompt).toContain('Soft wet-on-wet washes.');
+    expect(prompt).toContain('Cinematic 3D Pixar.');
+    expect(prompt).toContain('PBR materials.');
+    expect(prompt).not.toContain('Watercolor style.');
   });
 
   test('includes title and branding', () => {

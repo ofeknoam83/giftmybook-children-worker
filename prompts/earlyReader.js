@@ -174,14 +174,10 @@ This page's plan:
 Write 60-150 words of early reader text. Use ONLY ${pronouns.pair} pronouns for ${name}. Include dialogue where natural. Return ONLY the text, nothing else.`;
 }
 
-function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {
-  const stylePrompts = {
-    watercolor: 'Beautiful watercolor children\'s book illustration with expressive brushwork, warm color palette, detailed characters.',
-    digital_painting: 'Vibrant digital painting children\'s book illustration, rich colors, dynamic composition, modern and engaging.',
-    storybook: 'Classic children\'s storybook illustration with warm tones, detailed scenes, inviting and immersive.',
-  };
+function ILLUSTRATION_PROMPT_BUILDER(scene, _artStyleIgnored, childAppearance) {
+  const style =
+    'Cinematic 3D Pixar-style CGI illustration for ages 6–9 — premium feature-film 3D look, expressive characters, volumetric lighting — NOT watercolor or soft painted storybook.';
 
-  const style = stylePrompts[artStyle] || stylePrompts.watercolor;
   let appearance = '';
   if (typeof childAppearance === 'string' && childAppearance) {
     appearance = `The main character is a young child: ${childAppearance}`;

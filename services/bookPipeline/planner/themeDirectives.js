@@ -18,80 +18,57 @@
  * itself, not a handmade card or breakfast tray.
  */
 
-// Parent-centric themes where the parent is frequently NOT on the approved
-// cover. The visual cast is strictly limited to the cover, so the parent may be
-// treated as narrated/implied partial presence unless the approved cover already
-// shows them full-figure — then that render is the continuity lock for any
-// interior that needs Mom/Dad visible.
-//
-// Mother's Day: debias shared parent-adventure bullets that used to force
-// melody quests, then ribbon-map / "follow the gold ribbon" spines after melody
-// was softened — `MOTHERS_DAY_DIRECTIVE` below; Father's Day / grandparents
-// still spread `PARENT_SHARED_ADVENTURE` unchanged.
+// Shared parent-as-co-hero adventure for themes where Mom/Dad may be off-cover
+// (partial presence) or full-figure when the approved cover shows them.
 const PARENT_SHARED_ADVENTURE = {
   framing:
-    "This book is a genuinely thrilling, visually rich shared adventure the child undertakes with the parent as their guiding star — a premium animated-film quest with real stakes, surprise, wonder, and a brave mission. It is NOT a quiet day-out or a gentle errand. The world should feel fresh every time: invented public places, sensory nature, whimsical machines, tiny magical societies, festival spaces, or child-scale transformations of real locations. **Treat sea / sky spectacle and glowing environments as seasoning** — pull them only when questionnaire or personalization text specifically invites nautical, astronomical, or light-fantasy play; otherwise prioritize sports, errands, tactile builds, food comedy, pets, hobbies, nature without defaulting every quest to lanterns and \"restore the beacon.\" The parent is felt throughout the adventure (voice in the child's head, a beloved object taken along, a memory that guides a choice, a silhouette at the far end waiting) but is NOT drawn as a full-figure co-hero unless the approved cover already shows them. The adventure itself is the gift — the child returns home changed, with a story only they and the parent will ever share.",
+    'This book is a genuinely thrilling, visually rich shared adventure the child undertakes with the parent as their guiding star — quest with real stakes, surprise, wonder, and a brave mission. It is NOT only a quiet day-out or gentle errand. Invent fresh worlds: public places, nature, whimsical machines, festivals, bright night scenes, lanterns, luminous moments — use what fits personalization. The parent is felt throughout (voice, object, memory, silhouette, dialogue) but is NOT drawn full-figure unless the approved cover shows them. The adventure itself is the gift — the child returns changed, with a story only they and the parent share.',
   mustInclude: [
-    "a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason **grounded in concrete props or stakes** (e.g. misplaced relay clue, stalled ride gear, misplaced kit for a hobby the parent keyed, courier note for a sibling, tidal clock errand ONLY if nautical detail exists in questionnaire) — not a fading-lullaby or \"star to deliver\" default unless personalization supports tone",
-    "a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (mix **non-glow** staples first: meadow velodrome, riverside flea rows, conservatory court, tidal mud-run stands, kite-dye lane, mural stairwell; **moonlit reef / lantern pier only** if parent's text cues night-sea ambience) — not a suburban loop",
-    "at least one friendly non-human companion, guide, or story object that joins the adventure (e.g. paper bird, beetle postman, pocket otter, helpful kite **without chatter**, gardener frog — **tiny glowing insect / lantern-moth mascot only** when questionnaire mentions dusk insects, lanterns, butterflies) — the child is NOT alone",
-    "real stakes and at least one genuine obstacle the child has to solve bravely — a storm to outsmart, a bridge to cross, a riddle to answer, a lost path to recover — moments that actually matter to the plot, played with tension and then relief",
-    "the parent is felt on every spread through memory, voice, a signature keepsake carried along, or a trait the child mirrors — and partial presence (a waiting silhouette, a hand reaching in at the climax, an object they gave the child) is welcome, but NEVER a full face or full body figure unless the cover already depicts them",
-    "the payoff is a homecoming or reveal shared with the parent — the child returns triumphant with the thing they quested for, and the final spread is the parent and child together (partial presence or from behind if the parent is off-cover) celebrating what they alone now share — not a card, gift, breakfast tray, or tea party",
+    'a bold imaginative core conceit — quest, rescue, voyage, or secret mission with a concrete goal and ticking reason anchored in personalization when possible',
+    'at least 4 DISTINCT, visually spectacular environments',
+    'at least one friendly non-human companion, guide, or story object (paper bird, beetle postman, pocket otter, moth or butterfly guide, gardener frog, helpful kite — any that fit the questionnaire); the child is NOT alone',
+    'real stakes and at least one obstacle the child solves bravely — tension then relief',
+    'the parent is felt on every spread through memory, voice, a keepsake, or mirrored traits — partial silhouette or hands at climax when off-cover; cover-consistent likeness when the parent is cover-approved',
+    'payoff homecoming or reveal shared with the parent — not ONLY a breakfast tray, card, or tea party without a fuller adventure spine',
   ],
 };
 
-/** Mother's Day: melody/ribbon debiased + creative diversity (questionnaire over stock moth/light). */
 const MOTHERS_DAY_DIRECTIVE = {
   framing:
-    `${PARENT_SHARED_ADVENTURE.framing}
-
-PALETTE DISCIPLINE — Mother's Day only: Treat \`mustInclude\`, \`adventureHooks\`, and example recombinations below as an **inspiration pantry**, not mandatory ingredients. **Prefer** interests, anecdotes, and customDetails when building companion, MacGuffin, and locations. **Do not** default the spine to a moth + personified glow/light + prism trio unless the questionnaire or custom text names moths, lanterns, lighthouses, or light-fantasy.`,
+    `${PARENT_SHARED_ADVENTURE.framing}\n\nLove to Mom — lean on interests, anecdotes, and customDetails for missions, companions, props, and settings.`,
   mustInclude: [
-    'a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason grounded first in **personalization data** when present (toy, sport, food joke, family ritual, pet, drawing habit) — fallback examples: festival kindness token, tidepool courier, brass carousel tab, shell-runners, ferry-boat note — do **not** default the spine to a "lost melody" chase, ribbon-MacGuffin, **or** spread-to-spread "chase the gleam / restore Mr Sun beam" **or** lantern-moth guide + prism unless brief names those',
-    'a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments — **vary away from lanterns/lighthouses** unless brief cues them (e.g. rope-bridge plaza, mud-run berm, conservatory court, flea-market canopy, kite-dye lane, marina rigging maze without a \"restore the glow\" cliché — save pier lantern strings for when questionnaire mentions fair lights or lanterns)',
-    'at least one friendly non-human companion OR strongly personified story object — examples to **vary** (not all in one book): pocket otter envoy, paper gull, beetle postman, compass crab, gardener frog, trolley mouse, helpful kite — **lantern moth ONLY** if questionnaire/interests mention dusk, moths, butterflies, or lanterns — music-themed props optional, never required',
-    'real stakes and at least one genuine obstacle the child has to solve bravely — a storm to outsmart, a bridge to cross, a riddle to answer, a lost path to recover — moments that actually matter to the plot, played with tension and then relief',
-    'Mom is felt on every spread through memory, voice, a signature keepsake, or mirrored traits — partial silhouette / hands-at-climax when she is strictly off-cover; when she IS on the approved cover, keep her face/body welded to that cover likeness on any full-figure beats',
-    'the payoff is a homecoming or reveal shared with Mom — triumphant closure and Mom with the child (same cover look when Mom is cover-approved), not breakfast tray/tea/card clichés',
+    'a bold imaginative through-line grounded first in personalization (toy, sport, joke, ritual, pet, hobby) — sea, lanterns, prism play, lighthouse tales, ribbons, melodies, glowing guides, ALL allowed when organic to the questionnaire',
+    'at least 4 DISTINCT vivid worlds or stops',
+    'a companion or charismatic story object tuned to THIS child',
+    'obstacles with real payoff; Mom present emotionally beat-to-beat',
+    'hidden-face/implied visuals when Mom is strictly off-cover; exact cover match when Mom is on the approved cover',
+    'celebratory close with Mom — breakfast/tea/card beats are fine AS moments if the larger arc still feels like adventure, not cliché stationery',
   ],
   bannedCliches: [
-    'tea party / pouring tea',
-    'breakfast in bed as the main event',
-    'handmade card as the climax',
-    'picking flowers from the garden and handing them over',
-    "mom asleep while child tiptoes around the house",
-    "entirely indoor cozy-house setting",
-    "silent or speechless mom who only smiles",
-    'spa day / foot-bath / mom in a face mask',
-    'tying an apron / baking cupcakes indoors as the whole plot',
-    'farmer\'s-market day-out / strolling through a market as the whole plot',
-    'gentle suburban walk or park visit as the whole plot',
-    'a quiet errand run with no real stakes',
-    'floating musical notes / glowing cartoon notes driving the plot',
-    'runaway melody or chasing the melody as the backbone quest',
-    'recovering Mom\'s "lost song" or fading-lullaby MacGuffin without questionnaire support',
-    'recovering literal song fragments as collectible objects unless the brief explicitly asks',
-    'talking or sentient ribbon as the quest engine',
-    'gold / magic ribbon that calls the child spread-to-spread ("follow me" ribbon)',
-    'ribbon crumbs, ribbon trail, or ribbon leash as the backbone MacGuffin unless the brief explicitly requests ribbons',
-    'default spine: moth or firefly "guide" PLUS personified lamp/light named character PLUS prism restore — unless brief names those',
-    'talking star, sun beam, or lighthouse spirit beckoning the hero spread-to-spread without questionnaire support',
-    'follow the gleam / chasing dawn light as the only motor of the plot unless custom details ask for light fantasy',
-    'named mascot embodying light (e.g. Mr Glow, Lady Gleam, MrLight spelled as character names) beckoning spread-to-spread without questionnaire naming light fantasy',
+    'tea party / pouring tea as THE entire plot spine',
+    'breakfast in bed as the ONLY climax',
+    'handmade card as the ONLY payoff',
+    'picking flowers from the garden and handing them over with no broader adventure',
+    'mom asleep while child tiptoes around the house as the main gag',
+    'entirely indoor cozy-house rut with zero outward motion',
+    'silent or speechless mom who only smiles through the whole arc',
+    'spa day / foot-bath / mom in a face mask as the centerpiece',
+    'tying an apron / baking cupcakes indoors as the whole book',
+    'farmer\'s-market stroll or generic suburban walk as the sole structure with no stakes',
+    'gentle pointless errand montage masquerading as the whole quest',
+    'a quiet errand run with no real stakes or change',
   ],
   adventureHooks: [
-    'Build a hook by mining **interests + questionnaire** first, then add one mission + one companion + one world — palette lines are seasoning, not scripture. Do NOT copy any line verbatim.',
-    'mission palette (music & ribbon optional only if brief names them): tidal-clock rescue clue, kite-mail over the marina (twine, not a mascot), shell-runners carrying a cousin\'s note, carousel brass gear before dusk, berry-basket relay, ferry-booth stamp hunt, lost **physical** object tied to an anecdote — not a pure light-chase',
-    'companion/object palette: compass crab, paper gull envoy, beetle postman, gardener frog, pocket otter (wet beat), trolley mouse, helpful kite — moth/butterfly flyer **only** if brief mentions; skip music-box-only drivers unless brief asks',
-    'world palette: pier boardwalk (**without inventing lighthouse-beacon spine** unless brief asks), tidepool plaza, mural stairwell kite tails, conservatory glasshouse rainy parade artery, dunes with pennants — **lantern-heavy rows only when brief cues lights/festivals**',
-    'Mom connection palette: snack doodle jokes, tucked coat-pocket map scraps, lighthouse anecdote Mom retells **as dialogue not a glow-spirit**, scarf stripe the child echoes, apron patch color, humming-while-dishes as **body rhythm** not a floating note character',
-    'Music-in-brief sparingly allowed: karaoke booth backlight as one waypoint only; humming while rowing; distant marching-band bleed-through.',
-    'example recombination: a paper gull snaps a ferry-booth stamp onto the berry basket so the tidepool gates open before the parade drum.',
-    'example recombination: a compass crab stows itself in Grandma\'s berry basket so tidepool scouts reopen the conservatory door Mom sketches on napkins.',
-    'example recombination: gardener frog reroutes irrigation so shell pennants align for the kite-string message home — no talking star.',
-    'example recombination: a beetle postman trades a carousel brass cog so the stalled ride spins again moments before Mom waves from the midway railing.',
-    'example recombination: pocket otter ferries a bathtub toy "diplomat" across a tidepool channel so the child recovers a joke snack Mom packed — comic, not luminosity.',
+    'Compose from questionnaire first; palette lines below are sparks only — copy nothing verbatim.',
+    'missions: tidal clue, carousel repair, kite-mail across water, scout relay, market stamp hunt, kindness token chain, misplaced hobby rescue, prism/lantern quests if brief invites them',
+    'companions: paper gull, beetle postman, compass crab, gardener frog, pocket otter, moth or firefly envoy, trolley mouse, helpful kite — pick textures the parent named',
+    'worlds: pier and festivals, lantern rows, conservatory glass, dunes, murals, reefs, meadows, flea rows, ferry booths',
+    'Mom ties: humming while rowing, lighthouse story retold aloud, scarf stripe echoed, apron patch gag, tucked map scraps, snack riddles Mom always tells',
+    'recombination: paper gull + ferry stamp clears tidepool parade gate.',
+    'recombination: compass crab hides in Grandma\'s berry basket; conservatory scouts reopen.',
+    'recombination: gardener frog + irrigation pennants kite line message home.',
+    'recombination: beetle swaps brass midway cog; stalled ride spins; Mom waves railing.',
+    'recombination: pocket otter + tub-toy diplomat + joke snack Mom packed.',
   ],
 };
 

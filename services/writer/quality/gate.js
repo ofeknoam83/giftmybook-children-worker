@@ -10,22 +10,13 @@
  * same location across many spreads does not veto a pass by itself.
  *
  * Hard checks: possessive-pronoun regex, identical-word rhyme lint,
- * overlong words (ages 0–3), scene–palette substring continuity when beats
- * carry `location`, and thin-brief bans on mascot personified‑light quest
- * spines (`mothers_day` / `fathers_day`) matched by heuristic when the
- * questionnaire did not invite light‑fantasy language.
+ * overlong words (ages 0–3), and scene–palette substring continuity when beats
+ * carry `location`.
  */
 
 const { BaseThemeWriter } = require('../themes/base');
 const { findPossessivePronounErrors } = require('../../pronouns');
 const { findIdenticalAdjacentEndWordRhymes, findOverlongWordsForYoungReader } = require('./rhymeLint');
-const {
-  plannerLightMothBriefOptIn,
-  detectParentGiftPersonifiedLightMotifInStory,
-  plannerOptInDetailBlob,
-} = require('../questMotifGuards');
-
-const PARENT_GIFT_LIGHT_MOTIF_THEMES = new Set(['mothers_day', 'fathers_day']);
 
 const _llm = new BaseThemeWriter('_quality_gate');
 
@@ -77,7 +68,6 @@ class QualityGate {
           rhymeLint: false,
           longWords: false,
           sceneContinuity: false,
-          questMotifPersonifiedLight: false,
         },
       };
     }
@@ -96,25 +86,6 @@ class QualityGate {
       : [];
 
     const sceneContinuityIssues = QualityGate._collectSceneContinuityIssues(spreads, opts?.plan);
-
-    const themeKey = String(book?.theme || '').toLowerCase();
-    const customBlob = plannerOptInDetailBlob(book || {});
-    const lightMotifOptIn = plannerLightMothBriefOptIn(child || {}, customBlob);
-    let personifiedLightMotifIssues = [];
-    if (PARENT_GIFT_LIGHT_MOTIF_THEMES.has(themeKey) && !lightMotifOptIn) {
-      const storyBlob = spreads.map(s => [s?.text || '', s?.scene || ''].join('\n')).join('\n');
-      if (detectParentGiftPersonifiedLightMotifInStory(storyBlob)) {
-        personifiedLightMotifIssues.push({
-          spread: spreads[0]?.spread ?? 1,
-          note:
-            'Default personified-light / mascot gleam spine detected (e.g. Mr/Mrs Light, gleam that blinks awake, token wake-the-beam climax) — questionnaire/custom text did NOT invite light fantasy. Rewrite TEXT (and aligned SCENE) so the spine is earthbound — hobbies, errands, tactile objects, quirky sports or food stakes — or drop anthropomorphic Glow/Light names entirely.',
-        });
-      }
-    }
-
-    for (const p of personifiedLightMotifIssues) {
-      issues.push({ dimension: 'questMotif', spread: p.spread, note: p.note });
-    }
 
     for (const sc of sceneContinuityIssues) {
       issues.push({ dimension: 'sceneContinuity', spread: sc.spread, note: sc.note });
@@ -156,17 +127,10 @@ class QualityGate {
         ? `${feedback}\n\n${QualityGate._sceneContinuityFeedbackBlock(sceneContinuityIssues)}`
         : QualityGate._sceneContinuityFeedbackBlock(sceneContinuityIssues);
     }
-    if (personifiedLightMotifIssues.length > 0) {
-      const motifBlock =
-        `Personified-light / mascot gleam cliché detected on a parent‑gift theme — rewrite spreads to strip Mr/Mrs Light–style mascots or beam‑that‑wakens spines unless the questionnaire invited light fantasy:\n${personifiedLightMotifIssues.map(p => `  - Spread ${p.spread}: ${p.note}`).join('\n')}`;
-      feedback = feedback ? `${feedback}\n\n${motifBlock}` : motifBlock;
-    }
-
     const pass = possessiveErrors.length === 0
       && rhymeLintIssues.length === 0
       && readAloudLongWords.length === 0
-      && sceneContinuityIssues.length === 0
-      && personifiedLightMotifIssues.length === 0;
+      && sceneContinuityIssues.length === 0;
 
     let advisoryNotes = '';
     if (!pass) {
@@ -183,7 +147,6 @@ class QualityGate {
       rhymeLint: rhymeLintIssues.length > 0,
       longWords: readAloudLongWords.length > 0,
       sceneContinuity: sceneContinuityIssues.length > 0,
-      questMotifPersonifiedLight: personifiedLightMotifIssues.length > 0,
     };
 
     console.log(`[writerV2] qualityGate:`, {

@@ -732,14 +732,10 @@ This spread's plan:
 Write the text. Use ONLY ${pronouns.pair} pronouns for ${name}. Return ONLY the text, nothing else.`;
 }
 
-function ILLUSTRATION_PROMPT_BUILDER(scene, artStyle, childAppearance) {
-  const stylePrompts = {
-    watercolor: 'Beautiful watercolor children\'s book illustration with soft washes of color, gentle brushstrokes, warm palette, dreamy atmosphere.',
-    digital_painting: 'Vibrant digital painting children\'s book illustration, rich colors, clean lines, professional digital art, warm lighting, friendly atmosphere.',
-    storybook: 'Classic children\'s storybook illustration, warm and cozy, hand-painted feel, reminiscent of golden age picture books.',
-  };
+function ILLUSTRATION_PROMPT_BUILDER(scene, _artStyleIgnored, childAppearance) {
+  const style =
+    'Cinematic 3D Pixar-style CGI children\'s book illustration — physically based rendering, wholesome feature-film quality, warm saturated palette — NOT watercolor, gouache, or flat storybook painting.';
 
-  const style = stylePrompts[artStyle] || stylePrompts.watercolor;
   let appearance = '';
   if (typeof childAppearance === 'string' && childAppearance) {
     appearance = `The main character is a young child: ${childAppearance}`;

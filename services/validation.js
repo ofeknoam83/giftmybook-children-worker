@@ -2,8 +2,11 @@
  * Input validation and prompt sanitization for API requests.
  */
 
+const { CANONICAL_BOOK_ART_STYLE } = require('./illustrationGenerator');
+
 const VALID_FORMATS = ['picture_book', 'early_reader', 'PICTURE_BOOK', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
 const FORMAT_NORMALIZE = { PICTURE_BOOK: 'picture_book', EARLY_READER: 'early_reader' };
+// Legacy/alternate keys clients may still send; sanitized `artStyle` is always canonical 3D Pixar.
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
 const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'birthday_magic', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
   // Occasion themes
@@ -224,7 +227,7 @@ function validateGenerateBookRequest(body) {
     childAppearance: sanitizeForPrompt(body.childAppearance || '', 300),
     childInterests: sanitizeInterests(body.childInterests),
     bookFormat: VALID_FORMATS.includes(body.bookFormat) ? (FORMAT_NORMALIZE[body.bookFormat] || body.bookFormat) : 'picture_book',
-    artStyle: VALID_ART_STYLES.includes(body.artStyle) ? body.artStyle : 'pixar_premium',
+    artStyle: CANONICAL_BOOK_ART_STYLE,
     theme: VALID_THEMES.includes(body.theme) ? body.theme : 'adventure',
     customDetails: sanitizeForPrompt(body.customDetails || '', MAX_CUSTOM_DETAILS_LENGTH),
     callbackUrl: isValidCallbackUrl(body.callbackUrl) ? body.callbackUrl : null,
