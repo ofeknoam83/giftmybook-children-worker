@@ -16,6 +16,7 @@ const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
+const { STORY_PLANNER_MUSIC_BIAS_LINE, childDetailsSuggestMusicInterest } = require('./writer/musicInterestGuards');
 const { sanitizeForGemini } = require('./promptSanitizer');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
@@ -1260,6 +1261,13 @@ async function generateStoryText(childDetails, theme, customDetails, opts = {}) 
     } else {
       systemPrompt += `\n\n⚠️ FATHER'S DAY OVERRIDE — IMPLIED PRESENCE (FACE COMPLETELY HIDDEN): Dad is a co-protagonist and MUST appear in illustration prompts for at least 6 of 13 spreads. However, we have NO reference image for Dad. He is MALE (a man). His face must NEVER be shown in ANY illustration — no eyes, no mouth, no facial features.\n\nIn EVERY spread_image_prompt where Dad appears, you MUST explicitly describe a hidden-face pose. Examples:\n- "Dad's strong hands lift the child onto his shoulders, seen from behind"\n- "Dad kneels beside the child, his face just above the frame edge"\n- "We see Dad from behind, his arm around the child's shoulder"\n- "Dad's arm reaches in from the left side of the frame"\nNEVER write prompts like "Dad smiles at the child" or "Dad looks at the child proudly" — these will cause the illustrator to draw his face. His warmth comes through body language ONLY. Other family members — text only, never illustrated.`;
     }
+  }
+
+  if (
+    (theme === 'mothers_day' || theme === 'fathers_day')
+    && childDetailsSuggestMusicInterest(childDetails, customDetails || '')
+  ) {
+    systemPrompt += STORY_PLANNER_MUSIC_BIAS_LINE;
   }
 
   // Override the "no family in illustrations" rule when secondary characters are detected

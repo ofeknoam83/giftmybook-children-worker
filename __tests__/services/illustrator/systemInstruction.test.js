@@ -51,6 +51,8 @@ describe('buildSystemInstruction — IMPLIED_PRESENCE_ANCHORING_RULE', () => {
     expect(out).not.toMatch(/additional person on the cover is NOT the mother/i);
     expect(out).toMatch(/themed mother IS on the cover/);
     expect(out).toMatch(/exact-match lock/);
+    expect(out).toMatch(/VISUAL MODEL LOCK/);
+    expect(out).toMatch(/same facial identity/i);
   });
 
   test('fathers_day + child-only cover: two anchoring blocks', () => {

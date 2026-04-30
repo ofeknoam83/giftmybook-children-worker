@@ -59,6 +59,8 @@ function pickSessionApiKey() {
  * @param {string} [opts.childAge] - Child's age
  * @param {number} [opts.totalSpreads] - Total spreads in the book
  * @param {string} [opts.additionalCoverCharacters] - Secondary character descriptions
+ * @param {boolean} [opts.coverParentPresent] - Themed parent on cover / full-face reference OK
+ * @param {boolean} [opts.hasParentOnCover] - Alias for themed parent visible on approved cover art
  * @param {string} [opts.recurringElement] - Recurring companion/object
  * @param {string} [opts.keyObjects] - Key objects that must stay consistent
  * @returns {object} session object
@@ -171,8 +173,17 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
     : '\nDo NOT render any text, words, letters, or numbers in the illustration.';
 
   let secondaryCharReminder = '';
+  const parentCoverForTurn = opts.coverParentPresent === true || opts.hasParentOnCover === true;
   if (opts.additionalCoverCharacters) {
     secondaryCharReminder = `\nSECONDARY CHARACTER OUTFIT REMINDER: If a parent/adult character appears in this scene, they must wear the EXACT SAME outfit as in all previous illustrations. Do NOT change their clothes — same garment type, same colors, same style as established earlier.`;
+    if (
+      parentCoverForTurn &&
+      opts.theme &&
+      PARENT_THEMES.has(opts.theme)
+    ) {
+      const pw = opts.theme === 'mothers_day' ? 'Mother' : 'Father';
+      secondaryCharReminder += ` ${pw.toUpperCase()} COVER FACE LOCK — same facial identity/hair/skin as the cover reference every appearance; reinterpretation as a different adult is forbidden.`;
+    }
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
     const _isMom = opts.theme === 'mothers_day';
     const _parentWord = _isMom ? 'mother' : 'father';
@@ -197,6 +208,11 @@ async function generateSpreadInSession(session, prompt, opts = {}) {
     // Include secondary characters (parent/adult from cover photo)
     if (session.opts.additionalCoverCharacters) {
       characterReminder += `\nSECONDARY CHARACTER REMINDER: ${session.opts.additionalCoverCharacters}. Must also look IDENTICAL across all pages — same face, hair, skin tone, build, and outfit as established.`;
+      const poc = session.opts.coverParentPresent === true || session.opts.hasParentOnCover === true;
+      if (poc && session.opts.theme && PARENT_THEMES.has(session.opts.theme)) {
+        const lbl = session.opts.theme === 'mothers_day' ? "Mom's" : "Dad's";
+        characterReminder += ` ${lbl} facial identity stays the COVER likeness — expressions may change, bone structure and ethnicity do not.`;
+      }
     } else if (session.opts.theme && PARENT_THEMES.has(session.opts.theme)) {
       const _m = session.opts.theme === 'mothers_day';
       const _pw = _m ? 'mother' : 'father';
@@ -339,6 +355,11 @@ function _buildCharacterEstablishmentPrompt(session) {
     parts.push('- In ALL subsequent illustrations, reproduce that EXACT outfit — same garment type, same color, same style. NO changes.');
     parts.push('- This is just as important as the child\'s outfit consistency — readers will notice if the parent\'s clothes change between pages.');
     parts.push('- Same hair color, style, length, skin tone, facial features, and approximate age on every spread.');
+    const parentOnCoverLegacy = opts.coverParentPresent === true || opts.hasParentOnCover === true;
+    if (parentOnCoverLegacy && opts.theme && PARENT_THEMES.has(opts.theme)) {
+      const _lab = opts.theme === 'mothers_day' ? 'Mother' : 'Father';
+      parts.push(`${_lab} COVER FACE LOCK — INTERIORS ARE THE SAME RENDER PERSON AS THIS COVER, not a re-cast ${_lab.toLowerCase()}. Facial identity, hair, skin, build locked to pixels + description above across every interior.`);
+    }
   } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
     const _isMom = opts.theme === 'mothers_day';
     const _pw = _isMom ? 'mother' : 'father';

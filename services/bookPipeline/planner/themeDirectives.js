@@ -19,14 +19,14 @@
  */
 
 // Parent-centric themes where the parent is frequently NOT on the approved
-// cover. The visual cast is strictly limited to the cover, so the parent is
-// treated as a story presence — narrated, voiced, and implied through partial
-// presence (a hand, a silhouette, a waiting figure, a shared object) but not
-// drawn as a full face or full body figure in interior spreads.
+// cover. The visual cast is strictly limited to the cover, so the parent may be
+// treated as narrated/implied partial presence unless the approved cover already
+// shows them full-figure — then that render is the continuity lock for any
+// interior that needs Mom/Dad visible.
 //
-// If a future book has the parent on the cover, this framing still works —
-// the cover itself becomes their full-figure reference for any spread that
-// needs it.
+// Mother's Day used to overweight "melody/note" quests when SHARED mustInclude
+// bullets listed lullabies — `MOTHERS_DAY_DIRECTIVE` below debiases without
+// changing Father's Day / grandparents directives.
 const PARENT_SHARED_ADVENTURE = {
   framing:
     "This book is a genuinely thrilling, visually rich shared adventure the child undertakes with the parent as their guiding star — a premium animated-film quest with real stakes, surprise, wonder, and a brave mission. It is NOT a quiet day-out or a gentle errand. The world should feel fresh every time: invented public places, sensory nature, whimsical machines, tiny magical societies, festival spaces, sea/light/sky journeys, or child-scale transformations of real locations. The parent is felt throughout the adventure (voice in the child's head, a beloved object taken along, a memory that guides a choice, a silhouette at the far end waiting) but is NOT drawn as a full-figure co-hero unless the approved cover already shows them. The adventure itself is the gift — the child returns home changed, with a story only they and the parent will ever share.",
@@ -40,36 +40,52 @@ const PARENT_SHARED_ADVENTURE = {
   ],
 };
 
+/** Mother's Day: same framing as SHARED parent adventures, melody-neutral mustInclude + hooks. */
+const MOTHERS_DAY_DIRECTIVE = {
+  framing: PARENT_SHARED_ADVENTURE.framing,
+  mustInclude: [
+    'a bold, imaginative core conceit — a real quest, rescue, voyage, expedition, or secret mission with a concrete goal and a ticking reason (e.g. a sunrise ribbon riding the tide, a festival kindness token for the gatekeeper, tidepool envoy to guide home, lighthouse lantern to restore, scavenger doodle-map from chores) — do **not** default the spine to a "lost melody" chase, a fading-lullaby collectible, glowing musical-note trails, or a mandatory music-box MacGuffin unless questionnaire / custom details explicitly request music-as-fantasy',
+    'a sense of scale and wonder — the child travels through at least 4 DISTINCT, visually spectacular environments (e.g. lantern pier, bioluminescent cave, moonlit reef, treetop post office, glass greenhouse, tidepool palace, floating flower market, lighthouse stairs) — not a suburban route',
+    'at least one friendly non-human companion, guide, or story object that joins the adventure (e.g. paper bird, navigator owl, lantern moth, talking seahorse, helpful kite, wind-up beetle, pocket compass) — the child is NOT alone — music-themed props are optional, never required',
+    'real stakes and at least one genuine obstacle the child has to solve bravely — a storm to outsmart, a bridge to cross, a riddle to answer, a lost path to recover — moments that actually matter to the plot, played with tension and then relief',
+    'Mom is felt on every spread through memory, voice, a signature keepsake, or mirrored traits — partial silhouette / hands-at-climax when she is strictly off-cover; when she IS on the approved cover, keep her face/body welded to that cover likeness on any full-figure beats',
+    'the payoff is a homecoming or reveal shared with Mom — triumphant closure and Mom with the child (same cover look when Mom is cover-approved), not breakfast tray/tea/card clichés',
+  ],
+  bannedCliches: [
+    'tea party / pouring tea',
+    'breakfast in bed as the main event',
+    'handmade card as the climax',
+    'picking flowers from the garden and handing them over',
+    "mom asleep while child tiptoes around the house",
+    "entirely indoor cozy-house setting",
+    "silent or speechless mom who only smiles",
+    'spa day / foot-bath / mom in a face mask',
+    'tying an apron / baking cupcakes indoors as the whole plot',
+    'farmer\'s-market day-out / strolling through a market as the whole plot',
+    'gentle suburban walk or park visit as the whole plot',
+    'a quiet errand run with no real stakes',
+    'floating musical notes / glowing cartoon notes driving the plot',
+    'runaway melody or chasing the melody as the backbone quest',
+    'recovering Mom\'s "lost song" or fading-lullaby MacGuffin without questionnaire support',
+    'recovering literal song fragments as collectible objects unless the brief explicitly asks',
+  ],
+  adventureHooks: [
+    'Build a hook from one NON-music-first mission + one companion + one spectacular world + one concrete Mom-connection (packed snack gag, doodle-map, apron-ribbon cue, scarf color, greenhouse habit — not automatically a bedtime tune quest). Do NOT copy any line verbatim.',
+    'mission palette (music optional): sunrise ribbon courier, lighthouse lamp relay, tidal-clock rescue clue, kite-mail over the marina, lantern-path gate token, carousel gear before dusk, berry-basket hand-off for Grandma\'s grove',
+    'companion/object palette: lantern moth, paper bird, navigator owl, compass crab buddy, gardener frog scout, beetle postman, helpful kite runner, trolley mouse crew — skip music-box-only drivers unless brief asks',
+    'world palette: lantern pier, tidepool palace plaza, meadow theater shell, rooftop garden maze between chimneys, conservatory glasshouse, rainy parade artery, dunes with ribbon streamers, coral library foyer',
+    'Mom connection palette: snack doodle jokes, tucked coat-pocket map scraps, apron ribbon braided into trail breadcrumbs, lighthouse anecdote Mom retells, scarf stripe the child echoes, humming-while-dishes repurposed into daylight march choreography (Bodies and rhythm — NOT sentient quarter-notes chasing the cast.)',
+    'Music-in-brief sparingly allowed: karaoke booth backlight as one waypoint only; humming while rowing; distant marching-band rehearsal bleed-through from behind arena gates.',
+    'example recombination: a lantern moth lays ribbon crumbs across meadow theater planks before horns warm up — child follows to relight Mom\'s carousel token.',
+    'example recombination: a compass crab stows itself in Grandma\'s berry basket so tidepool scouts reopen the conservatory door Mom sketches on napkins.',
+    'example recombination: a paper bird tugs kite twine through rooftop ivy until lighthouse glass blinks the all-clear reunion beat.',
+    'example recombination: a beetle postman trades a carousel brass cog so the stalled ride spins again moments before Mom waves from the midway railing.',
+    'example recombination: gardener frog whistles irrigation valves so dunes bloom ribbon streamers guiding the kite-mail mission home.',
+  ],
+};
+
 const THEME_DIRECTIVES = {
-  mothers_day: {
-    ...PARENT_SHARED_ADVENTURE,
-    bannedCliches: [
-      'tea party / pouring tea',
-      'breakfast in bed as the main event',
-      'handmade card as the climax',
-      'picking flowers from the garden and handing them over',
-      "mom asleep while child tiptoes around the house",
-      "entirely indoor cozy-house setting",
-      "silent or speechless mom who only smiles",
-      'spa day / foot-bath / mom in a face mask',
-      'tying an apron / baking cupcakes indoors as the whole plot',
-      'farmer\'s-market day-out / strolling through a market as the whole plot',
-      'gentle suburban walk or park visit as the whole plot',
-      'a quiet errand run with no real stakes',
-    ],
-    adventureHooks: [
-      "Build a fresh hook by combining one mission + one companion/object + one visually spectacular world + one specific Mom connection. Do NOT copy any example verbatim; recombine ingredients so each book has its own visual identity.",
-      "mission palette: catch a falling lullaby, deliver a sunrise ribbon, follow a ribbon map, return a missing recipe, find the last laugh, relight a festival lantern, rescue a runaway melody, carry a tiny star home, collect three lost colors, unlock a secret picnic place",
-      "companion/object palette: paper bird, lantern moth, clever fox, firefly, talking seahorse, music-box mouse, helpful kite, pocket compass, tiny boat, wind-up beetle, silver spoon, shell phone, humming pebble",
-      "world palette: lantern pier, tidepool palace, treetop post office, floating flower market, moonlit bakery, lighthouse stairs, rain-glass city, meadow theater, coral library, starlight river, rooftop garden maze, clockwork greenhouse",
-      "Mom connection palette: Mommy's favorite song, the phrase she always says, a packed snack she made, the color she loves, a map she drew, her old music box, a family recipe, her garden ribbon, a bedtime tune transformed into daylight adventure, a tiny keepsake she gave the child",
-      "example recombination: a paper bird carries Mommy's ribbon map across a floating flower market to find the last laugh before the morning parade begins",
-      "example recombination: a lantern moth leads a moonlit bakery rescue where the child gathers three lost colors for Mommy's favorite song",
-      "example recombination: a tiny boat sails the starlight river with a shell phone, carrying a sunrise ribbon back to the lighthouse stairs where Mommy is waiting",
-      "example recombination: a music-box mouse opens a clockwork greenhouse so the child can return a runaway melody from Mommy's old music box",
-      "example recombination: a helpful kite tugs the child from rooftop garden maze to meadow theater to deliver the packed snack that becomes the story's brave clue",
-    ],
-  },
+  mothers_day: MOTHERS_DAY_DIRECTIVE,
   fathers_day: {
     ...PARENT_SHARED_ADVENTURE,
     bannedCliches: [

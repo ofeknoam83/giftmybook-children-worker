@@ -900,10 +900,15 @@ function appendLocationPaletteSection(sections, plan) {
  * draw, not what the parent reads aloud.
  *
  * @param {string[]} sections
- * @param {{ parentGiftTheme?: boolean }} [options]
+ * @param {{ parentGiftTheme?: boolean, parentOnCoverFullFaceAllowed?: boolean, themedParentWord?: string }} [options]
+ *   themedParentWord: "mother" | "father" — used only when parentOnCoverFullFaceAllowed.
  */
 function appendSceneRulesSection(sections, options = {}) {
   const parentGiftTheme = options.parentGiftTheme === true;
+  const parentOnCover = options.parentOnCoverFullFaceAllowed === true;
+  const themedParentWord = typeof options.themedParentWord === 'string' && options.themedParentWord.trim()
+    ? options.themedParentWord.trim().toLowerCase()
+    : 'parent';
   sections.push(`\n## SCENE RULES (these govern the SCENE: block you write under every spread)\n`);
   sections.push(`For every spread you write a TEXT block (the read-aloud poem) AND a SCENE block (art direction for the illustrator). The illustrator reads the SCENE word-for-word, so it must match the TEXT and describe the image we want.`);
   sections.push(``);
@@ -919,7 +924,12 @@ function appendSceneRulesSection(sections, options = {}) {
   sections.push(``);
   sections.push(`SCENE rules (strict):`);
   sections.push(`- The SCENE must describe THE SAME moment the TEXT describes — not a paraphrase, not "a later moment". If the TEXT says the child is peeking at a fish, the SCENE shows the child peeking at a fish.`);
-  sections.push(`- Do NOT describe parent or other family faces — they appear only via hands/shoulders/silhouettes (the illustrator enforces this). You may say "mother's hand adjusting a scarf" or "dad's silhouette at the gate"; never "mother smiles warmly".`);
+  if (parentGiftTheme && parentOnCover) {
+    sections.push(`- **BOOK COVER — THEMED ${themedParentWord.toUpperCase()} VISIBLE:** The ${themedParentWord} is on the printed cover reference. Whenever the ${themedParentWord} appears with a visible face or full figure (when the TEXT calls for it), the SCENE must **match that cover depiction** — reuse the same distinctive hair length, texture, color, skin tone / undertones, eyes if visible, face shape cues, approximate age, and outfit family as rendered on the cover. Do NOT invent a different ethnicity, hairstyle, skin color, or "new actor" interpretation; treat the cover as the ${themedParentWord}'s locked character model across spreads (same facial identity — expressions and poses may vary).`);
+    sections.push(`- **Other humans:** Do not introduce extra anonymous full-face adults unrelated to named characters unless the TEXT demands a named crowd slice; generic background extras should stay blurred, distant, or backs turned.`);
+  } else {
+    sections.push(`- Do NOT describe parent or other family faces — they appear only via hands/shoulders/silhouettes (the illustrator enforces this). You may say "mother's hand adjusting a scarf" or "dad's silhouette at the gate"; never "mother smiles warmly".`);
+  }
   sections.push(`- **No readable business or storefront copy in the SCENE.** Do not invent shop names, bakery or bookstore lettering, or phrases like "a sign reading …". The illustrator must not paint words in the environment. Describe retail streets generically: warm window glow, striped awnings, blurred distant shapes, baskets of goods without legible labels.`);
   sections.push(`- Never describe on-image manuscript captions (the illustrator places the read-aloud TEXT separately). Do not instruct painted signage, posters, chalkboards, or labels with words — those invite OCR failures.`);
   sections.push(`- **One continuous panorama:** The SCENE must read as a **single** wide outdoor/indoor space flowing across the spread — not "on the left page X, on the right page Y" as two separate compositions. Describe one unified moment (path, gate, garden) so the illustrator paints **one** image later split for printing, not two pictures side-by-side.`);
@@ -927,7 +937,9 @@ function appendSceneRulesSection(sections, options = {}) {
   sections.push(`- Never describe art style ("Pixar-style", "3D render") or aspect ratio. Viewpoint words (wide, closer, low angle, over-the-shoulder) are required; they describe the moment, not technical metadata.`);
   sections.push(`- No contradictions with the TEXT. If the TEXT says the child is laughing, don't say they're crying. If the TEXT is outdoors, the SCENE is outdoors.`);
   sections.push(`- **Bathtub / bath time:** If the child is in the tub, do NOT describe them wearing their usual day outfit (overalls, jeans, dress) in the water. Describe **thick bubble-bath foam** piled high so it is clearly bath time while shoulders, arms, and face stay visible — modest, age-appropriate, no nudity, no bare-chest detail. You may instead describe stepping in/out with a **towel wrapped** around the torso. Never use words like naked or nude.`);
-  if (parentGiftTheme) {
+  if (parentGiftTheme && parentOnCover) {
+    sections.push(`- **Parent-gift theme — parent ON approved cover:** The ${themedParentWord} may appear with face and/or full figure when the moment needs it — still avoid dense anonymous crowds beside the protagonists (keep street noise as blurry depth if needed). Every time the ${themedParentWord}'s appearance is rendered, reconnect to the BOOK COVER look (hair, skin, proportions, recognizable outfit lineage).`);
+  } else if (parentGiftTheme) {
     sections.push(`- **Parent-gift theme (Mother's/Father's Day):** Avoid busy sidewalks crowded with implied pedestrians. If the beat needs shops or a main street, keep **no extra full humans** in frame besides the hero (and any on-cover companion the palette allows). The parent is **implied presence only** when not on the cover — hands, stroller push bar, shoulder edge, silhouette — never a named crowd or "people walking by".`);
   } else {
     sections.push(`- **Non-parent / adventure-etc. themes (child-only cover path):** The SCENE must **not** stage two full adults, a man-and-woman couple, "parents beside the pram", or any beat that would force the illustrator to paint two full caregivers. The hero is the only full human. Use implied hands, one cropped adult edge, off-panel voice, or empty stroller path — or non-human companions. If the TEXT mentions love/family, show it with objects, weather, and gesture — not extra full-size adults in frame.`);

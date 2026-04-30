@@ -249,6 +249,16 @@ When in doubt, show the hero alone with the environment and any companions (pets
     );
   }
 
+  if (isParentTheme && hasParentOnCover) {
+    lines.push(
+`### THEMED PARENT — VISUAL MODEL LOCK (COVER = SAME PERSON EVERY SPREAD)
+The ${parentWord} is on the BOOK COVER. Interior frames must reuse the **exact same facial identity** as that cover render — NOT a remix, NOT a softer "cousin who looks similar," NOT a generic stock ${parentWord}.
+- Match **face shape, apparent age band, ethnicity / skin tone and undertones, eye color/shape where visible**, **hair length, texture, style, color**, **build**, and **outfit lineage** to the cover on every appearance.
+- Expressions, pose, lighting, and camera angle may vary; the underlying **character model stays one continuous person**.
+- If the descriptive text (${additionalCoverCharacters ? 'and the SECONDARY CHARACTER line above' : 'above'}) lists concrete traits, stay consistent with BOTH the wording and the cover pixels — the image wins on conflict.`
+    );
+  }
+
   if (isParentTheme && !hasParentOnCover) {
     lines.push(
 `### THEMED PARENT POLICY (${parentWord.toUpperCase()} NOT ON COVER)

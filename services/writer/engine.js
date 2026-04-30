@@ -68,7 +68,26 @@ class WriterEngine {
 
     // Normalize payload: support both new { child, book } and legacy flat format
     const child = bookJson.child || buildChildFromLegacy(bookJson);
-    const book = bookJson.book || buildBookFromLegacy(bookJson);
+    let book = bookJson.book || buildBookFromLegacy(bookJson);
+    if (bookJson.book && typeof bookJson.book === 'object') {
+      const lb = buildBookFromLegacy(bookJson);
+      book = {
+        ...lb,
+        ...bookJson.book,
+        coverParentPresent: bookJson.book.coverParentPresent === true
+          || bookJson.book.cover_parent_present === true
+          || lb.coverParentPresent === true,
+        additionalCoverCharacters: (() => {
+          const merged = (
+            bookJson.book.additionalCoverCharacters ||
+            bookJson.book.additional_cover_characters ||
+            lb.additionalCoverCharacters ||
+            ''
+          ).toString().trim();
+          return merged || null;
+        })(),
+      };
+    }
 
     // Record what was extracted
     pipeline.childContext = { ...child };
@@ -357,6 +376,14 @@ function buildBookFromLegacy(payload) {
     emotionalSituation: payload.emotionalSituation || null,
     emotionalParentGoal: payload.emotionalParentGoal || null,
     copingResourceHint: payload.copingResourceHint || null,
+    coverParentPresent: payload.coverParentPresent === true || payload.cover_parent_present === true,
+    additionalCoverCharacters: (
+      payload.additionalCoverCharacters ||
+      payload.additional_cover_characters ||
+      brief.additionalCoverCharacters ||
+      brief.additional_cover_characters ||
+      ''
+    ).toString().trim() || null,
   };
 }
 

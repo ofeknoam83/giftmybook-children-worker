@@ -17,6 +17,7 @@ const { buildFavoriteObjectLock } = require('./anecdotes');
 const { appendLocationPaletteSection, appendSceneRulesSection, parseWriterOutput } = require('./generic');
 const { getParentRefrainSuggestions } = require('./parentRefrainSuggestions');
 const { buildParentBeatEnrichmentSystem } = require('./parentPlanEnrichment');
+const { appendMusicInterestNarrativeGuards } = require('../musicInterestGuards');
 
 class MothersDayWriter extends BaseThemeWriter {
   constructor() {
@@ -404,9 +405,27 @@ Refine each beat description to incorporate specific details from the anecdotes.
     sections.push(`Gender: ${child.gender || 'not specified'} (pronouns: ${pronouns.pair})`);
     if (child.appearance) sections.push(`Appearance: ${child.appearance}`);
     if (child.interests?.length) sections.push(`Interests: ${child.interests.join(', ')}`);
+    appendMusicInterestNarrativeGuards(sections, child, book);
 
     sections.push(`\n## THE MOTHER\n`);
     sections.push(`The child calls her: ${parentName}`);
+    const coverParentPresent = book.coverParentPresent === true || book.cover_parent_present === true;
+    const parentCoverSnippet = (
+      book.additionalCoverCharacters ||
+      book.additional_cover_characters ||
+      ''
+    ).toString().trim();
+    if (coverParentPresent) {
+      sections.push(`\n## MOM ON APPROVED COVER (VISUAL LOCK FOR TEXT + SCENE)\n`);
+      sections.push(
+        'The mother appears on the **printed book cover** reference. Interior illustrations will match her to that cover. Your SCENE blocks must describe her with **the same recognizable look** every time she appears (hair, skin tone, face when visible, build, age range) — never a different woman or a generic "movie mom" reinterpretation.',
+      );
+      if (parentCoverSnippet) {
+        sections.push(`Cover character notes (echo these concrete cues in SCENE when Mom is visible — do not contradict): ${parentCoverSnippet}`);
+      } else {
+        sections.push('No separate cover description string was provided — still **keep Mom visually consistent** spread to spread; echo any hair/outfit/skin cues you establish on first full appearance.');
+      }
+    }
     const momRealName = (book.mom_name || child.anecdotes?.mom_name || '').toString().trim();
     if (momRealName && momRealName.toLowerCase() !== parentName.toLowerCase()) {
       sections.push(`\n## PARENT NAME RULE — SHIP-BLOCKER\n`);
@@ -486,7 +505,11 @@ Refine each beat description to incorporate specific details from the anecdotes.
       sections.push(`Spread ${b.spread} (${b.beat})${locationTag}: ${desc} [~${b.wordTarget} words]`);
     });
 
-    appendSceneRulesSection(sections, { parentGiftTheme: true });
+    appendSceneRulesSection(sections, {
+      parentGiftTheme: true,
+      parentOnCoverFullFaceAllowed: coverParentPresent,
+      themedParentWord: 'mother',
+    });
 
     if (plan.manifest && plan.manifest.length > 0) {
       sections.push(`\n## HARD ANECDOTE ASSIGNMENTS (NON-NEGOTIABLE)\n`);
