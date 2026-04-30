@@ -150,6 +150,9 @@ If an object, animal, or secondary character appears in one spread, it MUST keep
 `### COMPOSITION
 One hero. One moment. One seamless painting — no split panels, no visible seams, no diptychs, no before/after layouts, no comic grids. Full bleed 16:9. The scene should fill the frame with a clear focal point and cinematic depth.
 
+PRINT REALITY (8.5×8.5″ SQUARE BOOK — READ BEFORE COMPOSING):
+The final book trim is **8.5×8.5″**. The wide **16:9** illustration is scaled to **full spread width**, then a **centered vertical strip** is cropped from the **top and bottom** of the frame before the image is **split into two bound pages**. Treat roughly the **middle ~two-thirds of the frame height** as the **safe composition band** for faces, hands, props, and story-critical action — keep heroes and eyelines **away** from the extreme top and bottom edges of the 16:9 canvas.
+
 PANORAMA LOCK (CRITICAL — PRINT IS ONE IMAGE CUT IN HALF FOR BINDING):
 - This spread is **one** continuous wide photograph / film frame of a **single environment**. The left and right halves show different parts of the **same** place, not two different pictures.
 - **FORBIDDEN:** a sharp vertical seam, gutter line, color shift, lighting jump, perspective change, or style change exactly down the middle; backgrounds that "restart" at center; a bench, stall, or person **cut off** at mid-frame as if the other half were a different picture; two different skies or horizons meeting at center.
@@ -167,6 +170,8 @@ IN-WORLD READABLE TEXT (STRICT):
 - The ONLY allowed text on the image is the manuscript caption on the CHOSEN SIDE given in the per-spread prompt — character-for-character identical to that passage.
 - **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). Describe places without inviting the model to render type.`
   );
+
+  sections.push(buildPictureBookPrintAndCaptionPolicy(textRules));
 
   sections.push(buildTextSection(textRules));
 
@@ -272,6 +277,41 @@ Words like "family", "we", "our", "together" refer to people. A pet or a plush t
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Print trim / PDF crop + caption policy (product-level — matches layoutEngine).
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Consolidated print and on-image caption policy for square picture books.
+ * Percents stay in sync with `TEXT_RULES` / `resolvePictureBookTextRules`.
+ *
+ * @param {typeof TEXT_RULES} textRules
+ * @returns {string}
+ */
+function buildPictureBookPrintAndCaptionPolicy(textRules = TEXT_RULES) {
+  const edge = textRules.edgePaddingPercent;
+  const topPad = textRules.topPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
+  const bottomPad = textRules.bottomPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
+  const centerBandPct = Math.max(0, Math.round(100 - 2 * textRules.activeSideMaxPercent));
+
+  return `### PRINT & LAYOUT CONSTRAINT (16:9 → SQUARE SPREAD)
+The final book is an **8.5×8.5″** picture book. The wide **16:9** illustration is scaled to full spread width, then a **centered vertical strip** is cropped from the **top and bottom** of the frame before the image is split into two pages. Treat roughly the **middle ~two-thirds of the image height** as the safe composition band for faces, hands, props, and story-critical action — keep heroes and eyelines away from the extreme top and bottom edges of the 16:9 frame.
+
+### ON-IMAGE CAPTION (ONLY ALLOWED TEXT)
+The **only** readable lettering is the supplied **manuscript passage**. **No** other legible signs, labels, or UI-like type unless the manuscript **explicitly** requires it (otherwise blur or blank props).
+
+### ONE SIDE + ONE CORNER
+The entire passage is a **single compact block** on the **assigned side only** (left or right), anchored to the **assigned corner** (top-left, top-right, bottom-left, or bottom-right). It must **not** be vertically centered along the side, **not** span the spine, and **not** repeat on the other half.
+
+### VERTICAL & HORIZONTAL SAFE MARGINS (NON-NEGOTIABLE)
+Because of crop and bleed, the caption must sit **well inside** the frame: at least **~${topPad}%** of the frame height inward from the **top** if using a top corner, and at least **~${bottomPad}%** inward from the **bottom** if using a bottom corner; **~${edge}%** inward from the **outer (trim) edge** horizontally; keep the inner edge of the block **far from the spine** — the center **~${centerBandPct}%** of the total width must stay **text-free** (no letters, ascenders, descenders, or punctuation there).
+
+### READABILITY WITHOUT "DEAD HALVES"
+The caption sits over a **quiet region of the same continuous scene** (open sky, soft bokeh, shade, water, foliage) — **not** an empty second illustration or a blurred slab. The environment **continues** under the type; **do not** erase the whole background behind the words.
+
+### MULTI-LINE / LONG READ-ALOUD
+Use a **modest, book-like serif** (consistent with prior spreads in the session), **compact** line breaks (short lines), and **slightly smaller** type if needed so the full stack **never** approaches the top/bottom crop zone. **One book-wide subtitle scale** — no random jumps to poster or title size.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Text rules — font lock, size, placement, content-fidelity.
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -282,6 +322,7 @@ function buildTextSection(textRules = TEXT_RULES) {
   const edge = textRules.edgePaddingPercent;
   const topPad = textRules.topPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
   const bottomPad = textRules.bottomPaddingPercent ?? textRules.cornerVerticalPaddingPercent;
+  const activeSideMax = textRules.activeSideMaxPercent;
 
   return `### ON-IMAGE TEXT (CRITICAL)
 Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("left" or "right"), and a CHOSEN CORNER (one of "top-left", "top-right", "bottom-left", "bottom-right"). Render the passage INSIDE the illustration as a single embedded caption anchored to that corner. Follow these rules without deviation:
@@ -289,7 +330,7 @@ Each per-spread prompt will give you ONE short passage (TEXT), a CHOSEN SIDE ("l
 1. CORNER-ANCHOR RULE (NON-NEGOTIABLE). The caption is one compact stacked block in the CHOSEN CORNER of the frame — NOT centered vertically in its half, NOT floating in the middle of a blurred region, NOT spread across the whole side. It sits near the corner with generous safe padding (see PLACEMENT) so the rest of the frame is free to show the illustration.
 2. ONE-SIDE-ONLY RULE. The caption lives fully on the CHOSEN SIDE. The opposite half of the image carries ONLY illustration. Do NOT mirror, duplicate, or split the caption across sides.
 3. PLACEMENT (exact geometry — the book is bound through the middle so gutter lettering is unreadable in print):
-   • Horizontal: the caption block is snug against the outer trim on its side — about ${edge}% in from the outer edge (never less, never flush to the bleed), and its inner edge stays far from the center spine (well inside the outer ~35% of the width).
+   • Horizontal: the caption block is snug against the outer trim on its side — about ${edge}% in from the outer edge (never less, never flush to the bleed), and its inner edge stays far from the center spine (well inside the outer ~${activeSideMax}% of the width).
    • Vertical: the caption block is snug against the top or bottom edge of its corner — about ${topPad}% in from the TOP when the corner is top-aligned, or about ${bottomPad}% in from the BOTTOM when it is bottom-aligned (never less — print PDFs have trim and bleed, and the layout step may crop a band off the top and bottom of the image). Leave comfortable extra space so ascenders, descenders, and the full caption block stay fully inside the safe area. Do NOT drift to the vertical middle of the chosen side. The caption is explicitly a CORNER block, not a side block.
    • The vertical strip around the spine (middle of the spread) is a STRICT NO-TEXT ZONE. No caption line, word fragment, or punctuation may sit in or cross that gutter band.
    • Never center-justify type across the spine. One caption block must never visually bridge from one half into the other.
