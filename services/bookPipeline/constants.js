@@ -107,20 +107,41 @@ const FAILURE_CODES = {
 };
 
 /**
- * Default: legacy 16:9 one-spread-per-image pipeline.
- * Enable quad (4:1 dual-spread) via env `GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR=1|true`
- * or `doc.request.useQuadSpreadIllustrator === true`.
+ * When no env or request override applies, use quad (4:1 dual-spread) interiors.
+ * Set to `false` to default back to legacy 16:9 one-spread-per-image.
+ */
+const USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT = true;
+
+/**
+ * @returns {boolean|null} true = force quad, false = force legacy, null = unset / ignore
+ */
+function _parseEnvQuadSpreadFlag() {
+  const v = process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
+  if (v === undefined || v === '') return null;
+  const s = String(v).toLowerCase().trim();
+  if (['1', 'true', 'yes', 'on', 'quad'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off', 'legacy'].includes(s)) return false;
+  return null;
+}
+
+/**
+ * Illustration pipeline variant. Precedence: env (if recognized) → request boolean → code default.
  *
- * @param {object} [doc] - Book document (for request override)
+ * @param {object} [doc] - Book document (`doc.request.useQuadSpreadIllustrator`)
  * @returns {{ renderer: 'legacy' | 'quad', source: 'default' | 'env' | 'request' }}
  */
 function getIllustrationRenderer(doc) {
-  const envVal = process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
-  if (envVal === '1' || String(envVal).toLowerCase() === 'true') {
-    return { renderer: 'quad', source: 'env' };
+  const env = _parseEnvQuadSpreadFlag();
+  if (env === true) return { renderer: 'quad', source: 'env' };
+  if (env === false) return { renderer: 'legacy', source: 'env' };
+  if (doc?.request?.useQuadSpreadIllustrator === false) {
+    return { renderer: 'legacy', source: 'request' };
   }
   if (doc?.request?.useQuadSpreadIllustrator === true) {
     return { renderer: 'quad', source: 'request' };
+  }
+  if (USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT) {
+    return { renderer: 'quad', source: 'default' };
   }
   return { renderer: 'legacy', source: 'default' };
 }
@@ -138,5 +159,6 @@ module.exports = {
   MODELS,
   REPAIR_BUDGETS,
   FAILURE_CODES,
+  USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT,
   getIllustrationRenderer,
 };

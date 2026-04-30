@@ -34,10 +34,11 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 
-### Book pipeline — quad dual-spread illustrator (optional)
+### Book pipeline — quad dual-spread illustrator (default on)
 
-- **`GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR`** — Set to `1` or `true` to run interiors via [`services/bookPipeline/illustrator/renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js): one **4:1** image per **pair** of consecutive spreads, then slice to two **2:1** buffers before layout. Default is off (legacy [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js)).
-- **Request override:** `request.useQuadSpreadIllustrator: true` (same behavior; useful for staging a single book without env churn).
+- **Default:** Quad path is **on** in code (`USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT` in [`services/bookPipeline/constants.js`](services/bookPipeline/constants.js)). Interiors use [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js) unless overridden.
+- **`GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR`** — Optional override: `1` / `true` / `yes` / `quad` forces quad; `0` / `false` / `no` / `legacy` forces legacy [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js).
+- **Request override:** `useQuadSpreadIllustrator: true` or `false` on the generate-book payload (stored on `doc.request`) when you need per-book control without redeploying.
 - **API:** Gemini Flash Image uses `imageConfig.aspectRatio: "4:1"` (supported on the Generative Language API). **OpenAI** path uses size **`1792x448`** (`OPENAI_QUAD_IMAGE_SIZE`) for quad batches; if the Images API rejects that size, fall back to Gemini for illustration or disable quad for that deployment.
 - **Logs:** Filter `bookPipeline:*:quad` for batch lines (`spreadNumbers=[a, b]`, slice map); spread `13` logs `mode=single_spread` / `aspect=16:9` when present.
 

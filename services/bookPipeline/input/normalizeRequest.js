@@ -150,7 +150,9 @@ async function normalizeRequest(raw, _opts = {}) {
     theme,
     ageBand,
     callbackUrl: raw.callbackUrl || null,
-    ...(raw.useQuadSpreadIllustrator === true ? { useQuadSpreadIllustrator: true } : {}),
+    ...(typeof raw.useQuadSpreadIllustrator === 'boolean'
+      ? { useQuadSpreadIllustrator: raw.useQuadSpreadIllustrator }
+      : {}),
   };
 
   const brief = {

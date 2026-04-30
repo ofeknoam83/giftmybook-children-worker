@@ -35,9 +35,14 @@ describe('getIllustrationRenderer', () => {
     else process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR = prev;
   });
 
-  it('defaults to legacy', () => {
+  it('defaults to quad', () => {
     delete process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
-    expect(getIllustrationRenderer({ request: {} })).toEqual({ renderer: 'legacy', source: 'default' });
+    expect(getIllustrationRenderer({ request: {} })).toEqual({ renderer: 'quad', source: 'default' });
+  });
+
+  it('forces legacy from env=0', () => {
+    process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR = '0';
+    expect(getIllustrationRenderer({ request: {} })).toEqual({ renderer: 'legacy', source: 'env' });
   });
 
   it('enables quad from env=1', () => {
@@ -49,6 +54,14 @@ describe('getIllustrationRenderer', () => {
     delete process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
     expect(getIllustrationRenderer({ request: { useQuadSpreadIllustrator: true } })).toEqual({
       renderer: 'quad',
+      source: 'request',
+    });
+  });
+
+  it('forces legacy from request false', () => {
+    delete process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
+    expect(getIllustrationRenderer({ request: { useQuadSpreadIllustrator: false } })).toEqual({
+      renderer: 'legacy',
       source: 'request',
     });
   });
