@@ -31,6 +31,7 @@ Hard rules:
 - Text usually lives on one side; no text line may cross the horizontal center. Alternate sides where possible.
 - Each spread has ONE clear focal action, even when the world behind it is rich.
 - Use the PERSONALIZATION SNAPSHOT, storyBible personalizationTargets, and customDetails concretely across the book — invent **different** focal images per spread; repeat ideas only when continuityAnchors call for a callback.
+- **Sensory \`focalAction\` for parent themes:** for mother's day / father's day / grandparents day, prefer a SENSORY focalAction whenever the spread has space — a touch (hands meeting on a cold latch), a sound (a kettle whistling, a gate's squeak), a smell (warm bread, cut grass), a temperature (sun on a bench, water at the ankles), a weight (a heavy book passed across a lap). Abstract emotional beats ("a warm hug", "a happy smile", "love filling the room") are the weakest possible focalAction when the writer reads them aloud — they translate into thin SVO sentences. Honor the storyBible's chosen sensory motif on at least 3 of the 13 spreads.
 - No preachy moments. No generic "day at the park" fallback unless the brief demands it.
 - Return ONLY strict JSON matching the user-message schema.`;
 
