@@ -391,7 +391,13 @@ function findVerbCrutches(spreads) {
   for (const [lemma, { count, spreadSet }] of perVerb.entries()) {
     const ratio = spreadSet.size / spreadCount;
     if (ratio > VERB_CRUTCH_THRESHOLD && spreadSet.size >= 3) {
-      offenders.push({ verb: lemma, count, spreadCount: spreadSet.size, ratio });
+      offenders.push({
+        verb: lemma,
+        count,
+        spreadCount: spreadSet.size,
+        spreadNumbers: Array.from(spreadSet).sort((a, b) => a - b),
+        ratio,
+      });
     }
   }
   // Sort by spread coverage descending so the worst offender shows first.
@@ -775,6 +781,10 @@ function findParentThemePeerFraming(text, theme) {
  * @returns {Array<{ word: string, count: number, spreadCount: number, ratio: number }>}
  */
 const REFRAIN_CRUTCH_THRESHOLD = 0.25;
+// Infant board books are shorter (~12 spreads) and rely on more repetition by
+// design; the same 25% threshold lets too many crutches squeak through. Use a
+// tighter bar so 3 of 12 = 25% (which currently does NOT fail) starts to fail.
+const REFRAIN_CRUTCH_THRESHOLD_INFANT = 0.20;
 const REFRAIN_STOPWORDS = new Set([
   // High-frequency function/closed-class words that can legitimately repeat
   // without being a refrain crutch. The verb crutch list is for verbs; this
@@ -792,9 +802,28 @@ const REFRAIN_STOPWORDS = new Set([
   'nana', 'gigi', 'mimi', 'grandma', 'grandpa',
 ]);
 
-function findRefrainCrutches(spreads) {
+function findRefrainCrutches(spreads, options = {}) {
   const perWord = new Map(); // word -> { count, spreadSet:Set }
   let spreadCount = 0;
+  // Build extra exclusions: child name + parent address forms from the brief.
+  // The personalization saturation check explicitly WANTS these to repeat;
+  // flagging them as refrain crutches is a false positive (e.g. "everleigh"
+  // appearing in 7 of 13 spreads is correct, not a bug).
+  const extraExclusions = new Set();
+  const brief = options.brief;
+  if (brief) {
+    const childName = brief?.child?.name;
+    if (childName) extraExclusions.add(String(childName).toLowerCase());
+    const cd = brief?.customDetails || {};
+    for (const key of ['mom_name', 'dad_name', 'parent_name', 'grandparent_name', 'mother_name', 'father_name']) {
+      const v = cd[key];
+      if (v) extraExclusions.add(String(v).toLowerCase());
+    }
+  }
+  const ageBand = options.ageBand;
+  const threshold = ageBand === AGE_BANDS.PB_INFANT
+    ? REFRAIN_CRUTCH_THRESHOLD_INFANT
+    : REFRAIN_CRUTCH_THRESHOLD;
   for (const s of spreads) {
     const text = s?.manuscript?.text;
     if (!text) continue;
@@ -807,6 +836,7 @@ function findRefrainCrutches(spreads) {
       if (/(s|ed|ing)$/.test(tok)) continue;
       if (REFRAIN_STOPWORDS.has(tok)) continue;
       if (VERB_CRUTCH_ALLOWLIST.has(tok)) continue;
+      if (extraExclusions.has(tok)) continue;
       seenInSpread.add(tok);
     }
     for (const word of seenInSpread) {
@@ -820,8 +850,14 @@ function findRefrainCrutches(spreads) {
   const offenders = [];
   for (const [word, { count, spreadSet }] of perWord.entries()) {
     const ratio = spreadSet.size / spreadCount;
-    if (ratio > REFRAIN_CRUTCH_THRESHOLD && spreadSet.size >= 3) {
-      offenders.push({ word, count, spreadCount: spreadSet.size, ratio });
+    if (ratio > threshold && spreadSet.size >= 3) {
+      offenders.push({
+        word,
+        count,
+        spreadCount: spreadSet.size,
+        spreadNumbers: Array.from(spreadSet).sort((a, b) => a - b),
+        ratio,
+      });
     }
   }
   offenders.sort((a, b) => b.spreadCount - a.spreadCount);
@@ -1034,6 +1070,19 @@ async function checkWriterDraft(doc) {
   const bookLevelTags = [];
 
   // B.4 — verb-crutch (book-level).
+  // Track per-spread injections so we can inject book-level failures into the
+  // repair plan as targeted spread-level instructions — otherwise the rewrite
+  // loop sees pass=false but no targets and silently exits without fixing.
+  const bookLevelSpreadInjections = new Map(); // spreadNumber -> { issues:[], tags:[] }
+  const addBookLevelInjection = (spreadNumber, issue, tag) => {
+    if (!bookLevelSpreadInjections.has(spreadNumber)) {
+      bookLevelSpreadInjections.set(spreadNumber, { issues: [], tags: [] });
+    }
+    const entry = bookLevelSpreadInjections.get(spreadNumber);
+    entry.issues.push(issue);
+    if (!entry.tags.includes(tag)) entry.tags.push(tag);
+  };
+
   const crutches = findVerbCrutches(doc.spreads);
   let bookLevelDeterministicFail = false;
   if (crutches.length) {
@@ -1043,11 +1092,23 @@ async function checkWriterDraft(doc) {
     );
     bookLevelTags.push('verb_crutch');
     bookLevelDeterministicFail = true;
+    // Inject a per-spread directive so the rewrite loop has actionable targets.
+    for (const sn of top.spreadNumbers || []) {
+      addBookLevelInjection(
+        sn,
+        `verb_crutch: avoid the overused verb "${top.verb}" — it appears in ${top.spreadCount} of ${doc.spreads.length} spreads. Replace it on this spread with a different action verb (or recast the line so it isn't needed).`,
+        'verb_crutch',
+      );
+    }
   }
 
   // D.6 — refrain crutch (book-level). Catches non-verb content words
-  // repeated >25% of spreads (e.g. "peekaboo" in 5 of 13 spreads).
-  const refrains = findRefrainCrutches(doc.spreads);
+  // repeated >25% of spreads (>20% for infant). Excludes child name and
+  // declared parent address-form names from the brief.
+  const refrains = findRefrainCrutches(doc.spreads, {
+    brief: doc?.brief,
+    ageBand: doc?.request?.ageBand,
+  });
   if (refrains.length) {
     const top = refrains[0];
     bookLevel.push(
@@ -1055,6 +1116,13 @@ async function checkWriterDraft(doc) {
     );
     bookLevelTags.push('refrain_crutch');
     bookLevelDeterministicFail = true;
+    for (const sn of top.spreadNumbers || []) {
+      addBookLevelInjection(
+        sn,
+        `refrain_crutch: avoid the overused word "${top.word}" — it appears in ${top.spreadCount} of ${doc.spreads.length} spreads. Replace it on this spread with different imagery.`,
+        'refrain_crutch',
+      );
+    }
   }
 
   // B.5 — personalization saturation (book-level).
@@ -1070,8 +1138,17 @@ async function checkWriterDraft(doc) {
   const merged = doc.spreads.map(s => {
     const det = deterministic.find(d => d.spreadNumber === s.spreadNumber) || { pass: true, issues: [], tags: [] };
     const lit = perSpreadLit.find(l => Number(l?.spreadNumber) === s.spreadNumber) || {};
-    const issues = [...det.issues, ...(Array.isArray(lit.issues) ? lit.issues.map(String) : [])];
-    const tags = [...det.tags, ...(Array.isArray(lit.tags) ? lit.tags.map(String) : [])];
+    const injection = bookLevelSpreadInjections.get(s.spreadNumber) || { issues: [], tags: [] };
+    const issues = [
+      ...det.issues,
+      ...(Array.isArray(lit.issues) ? lit.issues.map(String) : []),
+      ...injection.issues,
+    ];
+    const tags = [
+      ...det.tags,
+      ...(Array.isArray(lit.tags) ? lit.tags.map(String) : []),
+      ...injection.tags,
+    ];
     return {
       spreadNumber: s.spreadNumber,
       pass: issues.length === 0,

@@ -11,6 +11,7 @@ const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../const
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
+const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
@@ -57,6 +58,44 @@ function renderLineCountReminder(ageBand) {
   return '';
 }
 
+/**
+ * Hard infant contract block. Prepended to the user prompt for PB_INFANT books.
+ * Stronger than a one-line reminder — a structured contract with banned verbs,
+ * one good example and one bad example so the model has a concrete pattern to
+ * imitate. Empty string for non-infant bands.
+ */
+function renderInfantContract(ageBand) {
+  if (ageBand !== AGE_BANDS.PB_INFANT) return '';
+  return [
+    '============================================================',
+    'INFANT BOOK CONTRACT (PB_INFANT, age 0-1) — READ FIRST',
+    '============================================================',
+    'This is a board book for a lap baby. Every spread MUST follow:',
+    '',
+    '1. EXACTLY 2 lines per spread. No 3-line spreads. No 4-line spreads. Two lines, separated by \\n.',
+    '2. The two lines form one AA rhyming couplet (last word of line 1 rhymes with last word of line 2).',
+    '3. 2-4 words per line, hardMax 5. Tight, board-book cadence.',
+    '4. NO LOCOMOTION VERBS. The baby cannot do these and the parent reading aloud will sound silly:',
+    '   BANNED: jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab, skip, gallop, stomp, march, crawl, cartwheel, tumble.',
+    '   Also banned: "feet flash", "feet pound", "feet race" — no body-part displacements.',
+    '   USE INSTEAD: sit, lie, look, see, reach, hold, snuggle, giggle, coo, pat, clap, hear, smell, touch, point.',
+    '5. Across the WHOLE book, do NOT lean on a single noun or sound-word as a refrain (e.g. "peekaboo" 5 times). Vary the imagery.',
+    '6. Real English only. No invented rhyme-fill words. No similes with abstract comparands.',
+    '',
+    'GOOD EXAMPLE (one spread):',
+    '   Mama lifts the moon.',
+    '   Bright as a spoon.',
+    '',
+    'BAD EXAMPLE (do NOT do this):',
+    '   Peekaboo! Everleigh says, "Dance!"',
+    '   "Mama, outside!" She starts to prance.',
+    '   They giggle in warm sun.',
+    '   A bright chase has begun.',
+    '   — 4 lines (should be 2), uses "dance", "prance", "chase" (banned locomotion), "peekaboo" as refrain.',
+    '============================================================',
+  ].join('\n');
+}
+
 function userPrompt(doc) {
   const { storyBible, visualBible, spreads } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'writerDraft');
@@ -78,8 +117,10 @@ function userPrompt(doc) {
   }));
 
   const lineCountReminder = renderLineCountReminder(doc.request?.ageBand);
+  const infantContract = renderInfantContract(doc.request?.ageBand);
 
   return [
+    infantContract,
     renderTextPolicyBlock(doc),
     lineCountReminder ? `\n${lineCountReminder}` : '',
     '',
@@ -109,13 +150,17 @@ function applyManuscript(doc, json) {
   for (const entry of arr) {
     const n = Number(entry?.spreadNumber);
     if (!Number.isFinite(n) || n < 1 || n > TOTAL_SPREADS) continue;
-    const manuscript = {
+    const manuscriptRaw = {
       text: String(entry.text || '').trim(),
       side: entry.side === 'left' ? 'left' : 'right',
       lineBreakHints: Array.isArray(entry.lineBreakHints) ? entry.lineBreakHints.map(String) : [],
       personalizationUsed: Array.isArray(entry.personalizationUsed) ? entry.personalizationUsed.map(String) : [],
       writerNotes: entry.writerNotes ? String(entry.writerNotes) : null,
     };
+    // Defense-in-depth: if the writer overshoots line count for an infant
+    // book, truncate to a 2-line AA couplet here so downstream stages see a
+    // band-shaped manuscript even before the rewrite loop catches up.
+    const manuscript = maybeTruncateInfantManuscript(manuscriptRaw, doc);
     next = updateSpread(next, n, s => ({
       ...s,
       manuscript,
@@ -149,4 +194,4 @@ async function draftBookText(doc) {
   });
 }
 
-module.exports = { draftBookText, applyManuscript };
+module.exports = { draftBookText, applyManuscript, renderInfantContract };
