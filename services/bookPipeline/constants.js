@@ -15,6 +15,12 @@ const FORMATS = {
 };
 
 const AGE_BANDS = {
+  // Lap-baby band. Under ~18 months. The book is read TO the baby by the
+  // parent, so we write FOR the parent reading aloud — short sensory
+  // observation pairs, no plot, no dialogue, no locomotion verbs. The hero
+  // can sit (supported), be held, reach, smile, look — but cannot stand
+  // unsupported, walk, run, climb, or grab moving objects.
+  PB_INFANT: '0-1',
   PB_TODDLER: '0-3',
   PB_PRESCHOOL: '3-6',
   ER_EARLY: '6-8',
@@ -25,7 +31,9 @@ const TOTAL_SPREADS = 13;
 const TEXT_LINE_TARGET = {
   // Picture books (ages 0-6) are locked at exactly 4 lines per spread,
   // in AABB rhyming couplets — musical, read-aloud cadence, consistent
-  // page shape. Early readers stay at 3-4 prose lines.
+  // page shape. Infants (0-1) get 2 lines per spread (one rhyming couplet)
+  // for board-book brevity. Early readers stay at 3-4 prose lines.
+  [AGE_BANDS.PB_INFANT]: { min: 2, max: 2 },
   [AGE_BANDS.PB_TODDLER]: { min: 4, max: 4 },
   [AGE_BANDS.PB_PRESCHOOL]: { min: 4, max: 4 },
   [AGE_BANDS.ER_EARLY]: { min: 3, max: 4 },
@@ -37,6 +45,10 @@ const TEXT_LINE_TARGET = {
 // the slightly longer ~6-12 word phrasing that works for parent-read-aloud.
 // Early readers can run longer but remain sentence-length.
 const WORDS_PER_LINE_TARGET = {
+  // Infants (0-1) get the tightest budget — 2-4 words per line, hardMax 5.
+  // Designed for the parent reading aloud to a baby who is listening for
+  // sound and rhythm rather than meaning.
+  [AGE_BANDS.PB_INFANT]: { min: 2, max: 4, hardMax: 5 },
   [AGE_BANDS.PB_TODDLER]: { min: 3, max: 7, hardMax: 8 },
   [AGE_BANDS.PB_PRESCHOOL]: { min: 6, max: 12, hardMax: 14 },
   [AGE_BANDS.ER_EARLY]: { min: 6, max: 14, hardMax: 18 },

@@ -48,7 +48,18 @@ function validateStoryBible(doc) {
   if (!Array.isArray(sb.personalizationTargets) || sb.personalizationTargets.length === 0) {
     issues.push('storyBible.personalizationTargets empty');
   }
-  if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 3) {
+  // Lap-baby books (PB_INFANT) intentionally cap scope at 1-2 micro-settings
+  // — a 7-month-old cannot travel a multi-location quest. Waive the
+  // ≥3-cinematic-locations gate for the infant band; planner already enforces
+  // a tighter 1-2 location ceiling instead.
+  const isInfant = doc.request?.ageBand === AGE_BANDS.PB_INFANT;
+  if (isInfant) {
+    if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 1) {
+      issues.push('storyBible.cinematicLocations must have at least 1 specific micro-setting (lap, cot, kitchen window, porch, etc.) for infant board books');
+    } else if (sb.cinematicLocations.length > 2) {
+      issues.push('storyBible.cinematicLocations must have at most 2 connected micro-settings for infant board books (lap-baby scope)');
+    }
+  } else if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 3) {
     issues.push('storyBible.cinematicLocations must have at least 3 specific photogenic settings (with time-of-day and weather)');
   }
   return issues;

@@ -12,10 +12,29 @@ const { buildPronounInstruction } = require('../services/pronouns');
 // ── Age Tier Configuration ──
 
 const AGE_TIERS = {
+  0: {
+    tier: 0,
+    label: 'Lap-Baby Board Book',
+    range: [0, 1.5],
+    vocabulary: 'words a baby hears every day. Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup. Max ~40 unique words across the entire book. The book is read TO the baby by the parent — write FOR the parent reading aloud, in a tiny musical voice. Simple does NOT mean broken: every line is a complete, graceful sentence with a clear, gentle rhythm.',
+    maxWordsPerSpread: 8,
+    sentencesPerSpread: '2',
+    sentenceStyle: 'EXACTLY 2 short, complete sentences per spread (one rhyming AA couplet). 2-4 words per line, never more than 5. Every line is a complete sensory observation. ("Mama holds the cup. / Little hand reaches up.")',
+    conflict: 'NONE. Sensory observation only. No problem, no chase, no resolution arc — just little warm moments.',
+    dialogue: 'NONE. Narrator only. No quoted speech, no question marks directed at characters.',
+    imagePromptStyle: 'extreme close-up. Single subject. Hero is always physically supported — held, in lap, in stroller, in high chair, lying down, or sitting against a soft prop. Never standing unsupported.',
+    fearHandling: 'ignore entirely. No fear, no startle, no "too loud / too dark" — replace with a small comfort moment.',
+    pacing: 'every spread is already calm. No phasing required. Distribute sensory observations evenly.',
+    arc: 'NO arc. 13 little moments of warmth and noticing — they may share a thread (a day with Mama, an evening at home) but there is no problem to solve.',
+    phaseTwo: null,
+    rhymeLevel: 'mandatory AA couplets — write EVERY spread as exactly 2 rhyming lines (AA scheme). Real end-rhymes only — never the same word twice. The two lines together form one tiny sing-song moment. Example shape: "Little hand sees the light. / Mama holds her tight." If a couplet does not actually rhyme, rewrite it.',
+    soundWordsRule: 'AT MOST 1 onomatopoeia in the entire book. Almost always zero. Babies hear sound words live from their parents — the book does not need them. NEVER include screams, squeals, bangs, or repeated sound words.',
+    actionWhitelist: 'Permitted hero actions: sees, looks, hears, smiles, snuggles, reaches, holds (small light object), touches, pats, claps, points, lies, sits (supported), is held, is carried. FORBIDDEN: walks, runs, climbs, jumps, rides, leads, grabs (a moving object), chases, says (any quoted speech).',
+  },
   1: {
     tier: 1,
     label: 'Board Book',
-    range: [0, 2],
+    range: [1.5, 2],
     vocabulary: 'simple words a baby or toddler hears every day. One- and two-syllable words freely ("sleeping", "quiet", "little", "tumble", "morning", "blanket"). Max 60 unique words total. The language should be simple but BEAUTIFUL — lyrical, warm, with a gentle rhythm that sings when read aloud. Think "Goodnight Moon" or "Guess How Much I Love You" — not a vocabulary flashcard. Simple does NOT mean broken. Complete, musical sentences always.',
     sentencesPerSpread: '1-2',
     sentenceStyle: 'Short, complete, graceful sentences. ("The little bear curls into sleep." not just "Bear. Sleep.")',
@@ -99,13 +118,12 @@ function getAgeTier(age) {
     a = 5;
     console.warn(`[writerBrief] getAgeTier called with non-finite age=${JSON.stringify(age)} — defaulting to 5 (tier 2). Caller should pass a numeric age or a DOB-derived age.`);
   }
-  // Infants (<2) currently share tier 1 with toddlers. Flag so we can spot
-  // books generated for babies that are probably being read *to* them; the
-  // writer can then soften vocabulary and drop child-dialogue lines. We do
-  // NOT block generation here per product decision.
-  if (a < 2) {
-    console.warn(`[writerBrief] age=${a} below picture-book floor — treating as tier 1 (ages 0-2). Content may read as toddler-directed.`);
-  }
+  // Tier 0 = lap-baby board book (under ~18 months). The hero cannot stand,
+  // walk, run, climb, or grab moving objects, and the book has no plot or
+  // dialogue — just sensory observation in 2-line AA couplets. Babies in
+  // tier 0 share the same musical voice as toddlers, but with a tighter
+  // word budget and a stricter no-locomotion action whitelist.
+  if (a < 1.5) return { tier: 0, config: AGE_TIERS[0] };
   if (a <= 2) return { tier: 1, config: AGE_TIERS[1] };
   if (a <= 5) return { tier: 2, config: AGE_TIERS[2] };
   if (a <= 8) return { tier: 3, config: AGE_TIERS[3] };

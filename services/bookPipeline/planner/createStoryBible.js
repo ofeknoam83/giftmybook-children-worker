@@ -8,7 +8,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS } = require('../constants');
+const { MODELS, AGE_BANDS } = require('../constants');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { renderThemeDirectiveBlock } = require('./themeDirectives');
@@ -48,6 +48,24 @@ function userPrompt(doc) {
 
   const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {});
   const rich = briefHasRichPersonalization(brief.child, brief.customDetails || {});
+  const isInfant = request.ageBand === AGE_BANDS.PB_INFANT;
+
+  // Lap-baby books are NOT adventure books — the hero cannot travel a
+  // multi-location quest, and there is no narrative escalation. Cap the
+  // scope to at most 2 connected micro-settings (cot+kitchen, porch+garden,
+  // bedroom+window) and frame the spine as sensory discovery, not physical
+  // locomotion. This clause overrides the general adventure-book guidance
+  // above, which assumes a hero who can walk.
+  const infantStoryBibleClause = isInfant
+    ? `INFANT BAND (PB_INFANT, ages 0-1.5) — SCOPE OVERRIDE for the story bible:
+  - This is a lap-baby board book. The hero CANNOT travel, lead a quest, or move between many locations under their own power.
+  - cinematicLocations: at most 2 connected micro-settings only — e.g. cot + kitchen, porch + garden, bedroom + window, lap + park-bench. NEVER 3+ locations. NEVER "coastal lighthouse at dusk" / "market square at twilight" / "hilltop with racing clouds" — those are toddler+ scopes.
+  - narrativeSpine / middleEscalation / endingPayoff are NOT a quest. They describe a sensory discovery thread ("Mama and Scarlett notice the warmth, the light, and the song through one quiet day"), not a problem to solve.
+  - visualJourneySpine is the sensory thread connecting those 2 micro-settings (a beam of warm light moving across the room, a sound carried from one space to the next), NOT a causal chain of athletic actions.
+  - recurringVisualMotifs are tactile/auditory anchors a baby actually senses: a soft blanket, Mama's hands, a window of light, a wooden cup, a familiar song.
+  - humorStrategy is gentle warmth (the family dog bumping the high chair, the cat curling up nearby) — NEVER a comedic engine that requires the hero to act on the world.
+  - The book is read TO the baby by the parent. Write the spine FOR the parent reading aloud.`
+    : '';
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
@@ -55,6 +73,7 @@ function userPrompt(doc) {
     `Approved cover title: "${cover.title}".`,
     themeBlock,
     personalizationBlock,
+    infantStoryBibleClause,
     rich
       ? ''
       : 'NOTE: Personalization snapshot is thin — still avoid boilerplate "moth + chasing light + prism" unless you invent a fresh angle.',
