@@ -106,10 +106,10 @@ function userPrompt(doc) {
   - 'cropped-torso' = chest-down view, face out of frame, body anchored in scene.
   - 'shadow' = parent shown only as a shadow on a wall or a reflection in a window/water. No body in direct view.
   - 'object' = an empty chair, a coat on a hook, a still-warm mug, a folded blanket — parent is not in frame; their presence is implied by what they left behind.
-  - 'absent' = the child is alone in the frame (the one permitted solo-prep beat — preparing a surprise, picking a flower secretly). The spread is still ABOUT the parent, but the parent is not in this image.
+  - 'absent' = the child is alone in the frame. Use this for up to 3 spreads across the book — for solo-prep beats (preparing a surprise, picking a flower secretly), for hero-in-spectacle shots (the child mid-leap on a hilltop, racing through a market square, climbing a lighthouse stair), and for active-discovery moments (the child finding the next clue, cresting a ridge). The spread is still ABOUT the parent — their presence is felt in the prior/next spread, in a recurring object, or in the location they shaped — but the camera is on the child experiencing the world. Treat 'absent' as a feature, not a fallback: it is how the parent-theme book earns its adventure-book scope.
   Distribution rule: vary parentVisibility across the book so the composition doesn't repeat. ${coverParentPresent
     ? 'Since the parent IS on the cover, use \\\'full\\\' on roughly 30-40% of spreads (especially spreads 1, 7, and the climax spreads), and vary the rest across the implied palette. The QUIETEST peak beat (the BOND-PEAK image-led wonder moment per qualityBar item #3) is often best as \\\'shadow\\\' so silhouettes overlap.'
-    : 'Since the parent is NOT on the cover, NEVER use \\\'full\\\'. Vary the implied values across the book: lots of \\\'hand\\\' and \\\'shoulder-back\\\' for active beats, \\\'shadow\\\' for the QUIETEST peak beat, \\\'object\\\' for tender afterglow, optional \\\'absent\\\' for one solo-prep beat.'}`
+    : 'Since the parent is NOT on the cover, NEVER use \\\'full\\\'. Vary the implied values across the book and lean into adventure-book composition: use \\\'absent\\\' for 2-3 hero-in-spectacle / active-discovery / solo-prep spreads (the child mid-leap, racing through the location, finding the clue), \\\'object\\\' for 1-2 spreads where a left-behind prop carries the parent forward, \\\'hand\\\' and \\\'shoulder-back\\\' for active interaction beats, \\\'cropped-torso\\\' for arrival/giving beats, and \\\'shadow\\\' for the QUIETEST peak beat. Aim for at least 4 distinct visibility values across the 13 spreads so the camera/composition keeps changing.'}`
       : '',
     `Rules for textSide: alternate left/right across the book, avoiding more than 2 consecutive same-side spreads.`,
     'Emit the JSON now.',
@@ -215,19 +215,19 @@ function defaultParentVisibilityForSpread(spreadNumber, coverParentPresent) {
     13: 'full',         // echo transformed
   };
   const offCoverPattern = {
-    1: 'shoulder-back',
-    2: 'hand',
-    3: 'shoulder-back',
-    4: 'cropped-torso',
-    5: 'hand',
-    6: 'shoulder-back',
-    7: 'cropped-torso',
-    8: 'shadow',        // BOND PEAK — silhouettes overlapping
-    9: 'hand',
-    10: 'cropped-torso',
-    11: 'cropped-torso',
-    12: 'object',
-    13: 'shoulder-back',
+    1: 'shoulder-back',  // setting out — parent presence anchors the start
+    2: 'hand',           // first interaction beat
+    3: 'absent',         // hero-in-spectacle — child experiencing the first big location
+    4: 'object',         // a left-behind prop carries the parent forward; child solves something
+    5: 'hand',           // pivot together — hands at work
+    6: 'absent',         // active-discovery — child cresting/leaping/finding the next clue
+    7: 'cropped-torso',  // arrival — body anchored in scene
+    8: 'shadow',         // BOND PEAK — silhouettes overlapping (image-led wonder)
+    9: 'absent',         // child leads back — hero-in-spectacle on the return leg
+    10: 'cropped-torso', // the giving / reveal
+    11: 'shoulder-back', // parent's reaction beat
+    12: 'object',        // afterglow — implied presence
+    13: 'shoulder-back', // echo transformed
   };
   const pattern = coverParentPresent ? onCoverPattern : offCoverPattern;
   return pattern[spreadNumber] || (coverParentPresent ? 'full' : 'shoulder-back');
