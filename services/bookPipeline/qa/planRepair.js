@@ -94,7 +94,7 @@ function renderCorrectionNote(issues, tags, options = {}) {
     lines.push('Do not paint any extra words, signage, or environmental text. Only the provided caption.');
   }
   if (tagArr.includes('text_on_both_sides') || tagArr.includes('text_crosses_midline') || tagArr.includes('text_in_center_band')) {
-    lines.push('Place ALL caption text on the chosen side only. No letters in the center band.');
+    lines.push('The caption crossed or approached the spread\'s internal vertical midline. Restating the policy is not enough — physically narrow the caption panel on this attempt: use shorter per-line word counts (split rhyming couplets at natural phrase units, e.g. 2-3 words per line if needed), reduce the apparent type size by one notch if needed, and push the entire block further into the chosen corner. The caption panel as a whole must occupy NO MORE THAN ~25% of this spread\'s width and stay strictly within the chosen half — the central ~30% of this spread\'s width must be completely text-free. Change line breaks and panel width on this regen, do not just re-place the same caption.');
   }
 
   const showHeroOutfitParagraph = mode !== 'text_priority'
@@ -130,7 +130,7 @@ function renderCorrectionNote(issues, tags, options = {}) {
   }
   if (tagArr.includes('style_drift')) {
     lines.push(
-      'Re-render in a 3D CGI Pixar feature-film style — a frame from a modern Pixar movie (photoreal subsurface skin scattering, individually rendered hair strands, physically based materials, volumetric ray-traced lighting, real optical depth-of-field). NOT a 2D illustration, NOT a soft painted children\'s book illustration, NOT watercolor/gouache/pencil/ink/anime/paper-cutout. Characters must read as real 3D models, backgrounds as real 3D environments — not as painted images with blur. Match the BOOK COVER\'s art style exactly.',
+      'This spread\'s rendering style does not match the BOOK COVER. Re-render the spread so it visually reads as the SAME RENDERING TRADITION as the cover image — same surface treatment, same shading approach, same hair-rendering approach, same materials, same lighting language, same level of detail. Style consistency between cover and interiors is the contract; do not introduce a different rendering tradition than the cover shows. The cover is the single visual style ground truth — match it exactly, whatever rendering tradition it happens to use.',
     );
   }
   if (tagArr.includes('hair_continuity_drift')) {

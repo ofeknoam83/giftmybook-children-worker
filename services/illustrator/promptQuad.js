@@ -105,7 +105,7 @@ function buildDualSpreadTurn(opts) {
     `- **One 4:1 frame:** LEFT half = spread ${numA} only; RIGHT half = spread ${numB} only. Story order left → right.`,
     '- **Each half is one 2:1 spread:** within each half, the two bound pages are ONE continuous environment — same rules as single-spread panorama (no seam down the middle of that half).',
     `- **Captions:** spread ${numA}: ${cornerAU} on ${sideA.toUpperCase()} **within the left half only**. Spread ${numB}: ${cornerBU} on ${sideB.toUpperCase()} **within the right half only**. Never place a caption in the partner half.`,
-    '- **Art style:** 3D Pixar CGI matching the BOOK COVER; not 2D illustration.',
+    '- **Art style:** match the BOOK COVER\'s rendering tradition exactly on both halves; do not introduce a different rendering tradition than the cover shows.',
     '- **Vertical center of the full 4:1:** transition should stay seamless (lighting/atmosphere) — no harsh cut like two unrelated photos.',
     '- **Exact text:** character-for-character match for each half\'s TEXT; no extra words, no duplication across halves.',
     '- **Hero look:** hair color, hairstyle, skin tone, and face must match the BOOK COVER and the HERO LOCK block below on **both** halves and **every** quad batch — no drift across pairs.',

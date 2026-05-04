@@ -91,12 +91,12 @@ function buildSystemInstruction(opts) {
   );
 
   sections.push(
-`### ART STYLE (FROZEN — every spread must be 3D CGI, not 2D illustration)
-POSITIVE style: ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
-
-NEGATIVE style (FORBIDDEN — hard fail if any of these read on the image): ${PIXAR_STYLE.antiStyle}.
-
-Think: a still frame from a modern Disney-Pixar feature film (e.g. the visual language of Toy Story 4, Inside Out 2, Soul, Luca, Turning Red, Elemental) — NOT a traditional children's-book illustration with soft shading. Characters are real 3D models with surface depth, volumetric fur/hair, physically based cloth, ray-traced lighting, and a real shallow-focus camera — not flat painted figures on a painted background. The cover is the style ground truth: if you are ever torn between "CGI render" and "painterly illustration", go CGI.`
+`### ART STYLE — MATCH THE BOOK COVER EXACTLY (the cover is the only style ground truth)
+Art style is the BOOK COVER's art style — exactly. Every interior spread must visually read as the SAME RENDERING TRADITION as the approved cover image: same surface treatment, same shading, same material logic, same hair-rendering approach, same lighting language, same level of detail.
+- If the cover renders as 3D CGI, every interior is 3D CGI.
+- If the cover renders as 2D illustration, every interior is 2D illustration.
+- If the cover renders as a painted / watercolor / gouache style, every interior reads as that same style.
+The cover is the single visual style ground truth for this book. Do not introduce any rendering tradition the cover doesn't show, and do not reject the cover's style in favor of a different one. Style consistency between cover and interiors is the contract — if you're ever torn between "match the cover" and any independent style target, always match the cover.`
   );
 
   sections.push(

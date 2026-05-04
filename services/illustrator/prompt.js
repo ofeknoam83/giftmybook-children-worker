@@ -410,6 +410,18 @@ None. Generate a full-bleed illustration with NO text overlay anywhere on this s
     vertical === 'top'
       ? (textRules.topPaddingPercent ?? textRules.cornerVerticalPaddingPercent ?? 26)
       : (textRules.bottomPaddingPercent ?? textRules.cornerVerticalPaddingPercent ?? 26);
+  // Hard max-width cap on the caption panel. Derived from the existing
+  // active-side and edge-padding constants so config changes flow through:
+  //   activeSideMaxPercent (e.g. 35) - edgePaddingPercent (e.g. 7) - 3pp safety = 25%
+  // Clamped to a sane [20, 35] range. Forces the model to physically narrow
+  // the panel (shorter line breaks / one notch smaller type) instead of
+  // letting the caption grow toward the spine. Wording uses "this spread" so
+  // it scopes correctly to the half when this same buildTextBlock is reused
+  // per-half in the quad path (promptQuad.js) — Gemini reads "this spread"
+  // as the half it is currently rendering inside the 4:1 quad image.
+  const maxWidthPct = Math.max(20, Math.min(35,
+    (textRules.activeSideMaxPercent ?? 40) - (textRules.edgePaddingPercent ?? 7) - 3,
+  ));
 
   const blend = textRules.textIntegration || '';
   const typeLock = textRules.typographyConsistency || '';
@@ -419,6 +431,8 @@ TEXT: "${text}"
 CHOSEN SIDE: ${sideU}
 CHOSEN CORNER: ${cornerU}
 PLACEMENT: Render the TEXT line above exactly once as a single compact stacked caption tucked into the ${cornerU} corner of the frame — near the outer ${edgeWord} edge (about ${edgePct}% in from that edge) AND near the ${vertical} edge of the frame (at least ${verticalPaddingPct}% in from the ${vertical} — extra margin is required so nothing clips after print trim/bleed and PDF layout; never hug the top or bottom edge${vertical === 'bottom' ? '; for bottom corners, keep the whole block clearly higher with empty space under descenders' : ''}). Do NOT center the caption vertically in the ${sideU} half — it is a CORNER block, not a side block. The ${oppU} half and the middle spine band must stay completely free of any letters or punctuation. The caption is one continuous passage: print it one time only; if you start to repeat the same words elsewhere on the canvas, delete the extra copy. Never split this passage across both halves. Never paint instructions, measurements, or placeholder symbols as part of the caption — only the TEXT line may appear as type. The scene (background, foliage, sky, path, etc.) continues softly underneath the caption — do NOT erase or heavily blur the corner region to "make room" for it.
+
+WIDTH CAP (HARD): The caption panel as a whole must occupy NO MORE THAN ${maxWidthPct}% of THIS SPREAD's width. If the text would otherwise be wider than that, use shorter line breaks (split at natural phrase units, e.g. 2-3 words per line if needed), reduce the apparent type size by one notch, or both. The entire block must stay strictly within the ${sideU} half of THIS SPREAD; no part of any letter may extend past this spread's internal vertical midline into the spine/gutter zone. (When this prompt is rendering one of two halves of a 4:1 quad image, "this spread" means the half you are currently rendering — the ${maxWidthPct}% cap applies to that half's local width, not the full 4:1 canvas.)
 
 TYPOGRAPHY (same book, same spec): ${typeLock}
 Size note: ${textRules.fontSize}
