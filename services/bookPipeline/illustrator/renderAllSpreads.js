@@ -57,6 +57,16 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** QA reject logs: keep Cloud Logging lines useful but bounded. */
 const QA_REJECT_LOG_MAX_ISSUE_CHARS = 3500;
 const QA_REJECT_LOG_MAX_ISSUES_JSON_CHARS = 24000;
+
+/**
+ * Spread indexes (0-based) at which the first attempt re-attaches the cover image.
+ * Used to combat compounding identity drift in long chat sessions. Intentionally
+ * sparse — every-turn re-attach raises Gemini's safety-block rate.
+ *   - 4  → spread 5 (mid-book check-in, before the peak beats)
+ *   - 8  → spread 9 (the wonder/peak beat — a high-leverage anchor moment)
+ *   - 11 → spread 12 (late-book, where chat-memory drift is largest)
+ */
+const SCHEDULED_REANCHOR_INDEXES = new Set([4, 8, 11]);
 const QA_REJECT_LOG_OCR_CHARS = 600;
 const QA_REJECT_LOG_EXPECTED_CHARS = 500;
 
@@ -224,8 +234,26 @@ async function processOneSpread(params) {
             textCorner: spec.textCorner,
             theme: spec.theme,
             childAge: currentDoc.brief?.child?.age ?? null,
+            characterDescription: spec.characterDescription,
+            coverParentPresent: spec.coverParentPresent,
+            hasSecondaryOnCover: spec.hasSecondaryOnCover,
+            additionalCoverCharacters: spec.additionalCoverCharacters,
+            parentVisibility: spec.parentVisibility,
+            impliedParentDescriptor: spec.impliedParentDescriptor,
           });
-          image = await generateSpread(currentSession, turn, spec.spreadIndex);
+          // Schedule cover re-anchors at strategic spread indexes (mid-book and late)
+          // to combat compounding identity drift. By spread 8+ Gemini increasingly
+          // anchors on its own prior interior outputs rather than the cover that
+          // was attached once at session establishment. SCHEDULED_REANCHOR_INDEXES
+          // is intentionally sparse — every-turn re-attach raises Gemini's
+          // safety-block rate (a second inline child reference is sometimes flagged).
+          const scheduledReanchor = SCHEDULED_REANCHOR_INDEXES.has(spec.spreadIndex);
+          image = await generateSpread(currentSession, turn, spec.spreadIndex, {
+            reanchorCover: scheduledReanchor,
+          });
+          if (scheduledReanchor) {
+            console.log(`[${logTag}] scheduled cover re-anchor on spread ${spec.spreadIndex + 1}`);
+          }
         } else {
           const correction = buildCorrectionTurn({
             spreadIndex: spec.spreadIndex,
@@ -236,6 +264,13 @@ async function processOneSpread(params) {
             issues: [correctionNote || 'Fix the previous attempt.'],
             tags: [],
             childAge: currentDoc.brief?.child?.age ?? null,
+            theme: spec.theme,
+            characterDescription: spec.characterDescription,
+            coverParentPresent: spec.coverParentPresent,
+            hasSecondaryOnCover: spec.hasSecondaryOnCover,
+            additionalCoverCharacters: spec.additionalCoverCharacters,
+            parentVisibility: spec.parentVisibility,
+            impliedParentDescriptor: spec.impliedParentDescriptor,
           });
           // Re-anchor the cover image on the correction turn whenever the last
           // attempt drifted on hero identity or outfit. If Gemini safety-blocks

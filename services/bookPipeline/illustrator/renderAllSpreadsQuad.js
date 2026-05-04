@@ -43,6 +43,14 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const QA_REJECT_LOG_EXPECTED_CHARS = 500;
 
+/**
+ * Spread indexes (0-based) at which the first attempt re-attaches the cover image.
+ * Mirrors `SCHEDULED_REANCHOR_INDEXES` in renderAllSpreads.js. In the quad path
+ * a batch covers TWO spreads (e.g. spreads 5 + 6 = indexes 4, 5); we re-anchor
+ * a batch when EITHER of its two spread indexes is in this set.
+ */
+const SCHEDULED_REANCHOR_INDEXES = new Set([4, 8, 11]);
+
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
 const TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS = 25000;
@@ -197,7 +205,19 @@ async function processQuadPair(params) {
             quadBatchIndex,
             heroAppearance: hero,
           });
-          image = await generateSpread(currentSession, turn, specA.spreadIndex, quadGenOpts());
+          // Schedule a cover re-anchor on the first attempt if this batch covers a
+          // strategic spread (mid/late book) — same drift-protection trigger as the
+          // legacy single-spread path, adjusted to fire when either of the two
+          // spreads in this batch hits the threshold.
+          const scheduledReanchor = SCHEDULED_REANCHOR_INDEXES.has(specA.spreadIndex)
+            || SCHEDULED_REANCHOR_INDEXES.has(specB.spreadIndex);
+          image = await generateSpread(currentSession, turn, specA.spreadIndex, {
+            ...quadGenOpts(),
+            reanchorCover: scheduledReanchor,
+          });
+          if (scheduledReanchor) {
+            console.log(`[${logTagQuad}] scheduled cover re-anchor on quad batch (spreads ${specA.spreadIndex + 1}, ${specB.spreadIndex + 1})`);
+          }
         } else {
           const correction = buildDualCorrectionTurn({
             spreadIndexA: specA.spreadIndex,

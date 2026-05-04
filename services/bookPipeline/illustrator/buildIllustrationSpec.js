@@ -159,6 +159,48 @@ function buildIllustrationSpec(doc, spread) {
     childAge,
   );
 
+  // Identity-anchor passthrough — these are RE-PASTED on every per-spread turn
+  // (see prompt.js buildCharacterAnchorBlock) so identity stays pinned even
+  // when Gemini drifts onto its own prior outputs late in the chat.
+  const visualBible = doc.visualBible || {};
+  const hero = visualBible.hero || {};
+  const characterDescription = [
+    hero.physicalDescription,
+    hero.outfitDescription ? `Outfit (locked to cover): ${hero.outfitDescription}` : '',
+  ].filter(Boolean).join(' — ') || undefined;
+
+  const additionalCoverCharacters = (visualBible.supportingCast || [])
+    .filter(c => c?.onCover === true)
+    .map(c => [c.role, c.name ? `(${c.name})` : '', c.description ? `: ${c.description}` : ''].filter(Boolean).join(' '))
+    .join('; ') || undefined;
+  const hasSecondaryOnCover = !!additionalCoverCharacters;
+
+  // The themed parent (mom/dad) is on the cover when a supportingCast entry
+  // marked as the recipient parent has onCover: true. Falls back to the
+  // brief-level flag if the visual bible doesn't carry it.
+  const coverParentPresent = !!(
+    doc.brief?.coverParentPresent
+    || (visualBible.supportingCast || []).some(c => c?.onCover === true && c?.isThemedParent === true)
+  );
+
+  // Implied-parent descriptor: built once per book at planning time (4.3) and
+  // persisted on the doc. Until that lands, fall back to the partial-presence
+  // lock fields on the supportingCast entry for the themed parent.
+  let impliedParentDescriptor = doc.impliedParent?.descriptor || undefined;
+  if (!impliedParentDescriptor) {
+    const themedParent = (visualBible.supportingCast || []).find(c => c?.isThemedParent === true && c?.onCover !== true);
+    if (themedParent) {
+      const lock = themedParent.partialPresenceLock || {};
+      const parts = [
+        lock.skinTone ? `skin: ${lock.skinTone}` : '',
+        lock.hand ? `hand: ${lock.hand}` : '',
+        lock.sleeve ? `sleeve/outfit: ${lock.sleeve}` : '',
+        lock.signatureProp ? `signature: ${lock.signatureProp}` : '',
+      ].filter(Boolean);
+      if (parts.length > 0) impliedParentDescriptor = parts.join('; ');
+    }
+  }
+
   return {
     spreadNumber: spread.spreadNumber,
     spreadIndex,
@@ -171,6 +213,17 @@ function buildIllustrationSpec(doc, spread) {
     lineBreakHints: manuscript?.lineBreakHints || [],
     qaTargets: spec?.qaTargets || [],
     forbiddenMistakes: spec?.forbiddenMistakes || [],
+    // Identity anchors (passed through to buildSpreadTurn for the per-spread
+    // ### CHARACTER ANCHOR re-paste).
+    characterDescription,
+    coverParentPresent,
+    hasSecondaryOnCover,
+    additionalCoverCharacters,
+    impliedParentDescriptor,
+    // Per-beat composition stage direction. Comes from the plot-template beat
+    // (mothers_day.js / fathers_day.js) when present; undefined for non-parent
+    // themes. Drives buildParentVisibilityReminder in prompt.js.
+    parentVisibility: spec?.parentVisibility || spread.beat?.parentVisibility,
   };
 }
 

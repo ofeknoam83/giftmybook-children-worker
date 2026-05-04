@@ -165,6 +165,12 @@ function minimalSafeSceneFallback(spreadIndex, theme) {
  * @property {boolean} [coverParentPresent] - Themed parent visible on cover.
  * @property {string} [additionalCoverCharacters] - Non-child people on cover description.
  * @property {number|string|null} [childAge] - Under 3: top-only caption corners + infant text margins; 3–8 compact caption tier.
+ * @property {'full'|'hand'|'shoulder-back'|'cropped-torso'|'shadow'|'object'|'absent'} [parentVisibility]
+ *   How the themed parent appears on THIS spread (parent themes only). 'full' is only valid when the parent is on the cover.
+ *   'absent' means the parent is not in this frame at all (the one permitted solo-prep beat).
+ * @property {string} [impliedParentDescriptor] - Short locked descriptor of the implied parent
+ *   (skin tone matched to child, sleeve color, hair glimpse, accessories). Used to pin
+ *   the implied parent identical across every spread. Built once at planning time.
  */
 
 /**
@@ -222,10 +228,21 @@ function buildSpreadTurn(opts) {
 ${scene.trim()}`
   );
 
-  sections.push(buildTextBlock(text, side, corner, textRules));
-
   const theme = typeof opts.theme === 'string' ? opts.theme.trim() : '';
   const isParentTheme = theme && PARENT_THEMES.has(theme);
+
+  const anchorBlock = buildCharacterAnchorBlock({
+    characterDescription: opts.characterDescription,
+    isParentTheme,
+    coverParentPresent: opts.coverParentPresent === true,
+    hasSecondaryOnCover: opts.hasSecondaryOnCover === true,
+    impliedParentDescriptor: opts.impliedParentDescriptor,
+    parentVisibility: opts.parentVisibility,
+    theme,
+  });
+  if (anchorBlock) sections.push(anchorBlock);
+
+  sections.push(buildTextBlock(text, side, corner, textRules));
 
   const cornerU = corner.toUpperCase();
   const reminderLines = [
@@ -255,6 +272,13 @@ ${scene.trim()}`
     );
   }
 
+  const visibilityLine = buildParentVisibilityReminder({
+    isParentTheme,
+    coverParentPresent: opts.coverParentPresent === true,
+    parentVisibility: opts.parentVisibility,
+  });
+  if (visibilityLine) reminderLines.push(visibilityLine);
+
   sections.push(reminderLines.join('\n'));
 
   if (correctionNote && correctionNote.trim()) {
@@ -267,6 +291,92 @@ ${correctionNote.trim()}`);
 
 function oppositeSide(side) {
   return side === 'left' ? 'right' : 'left';
+}
+
+/**
+ * Short, repeated-every-spread anchor block. Restates the child's locked
+ * appearance (and the implied parent's, if relevant) so identity stays pinned
+ * even when Gemini is anchoring on its own prior interior frames late in the
+ * chat. Cheap text — drift cost is much higher.
+ *
+ * @param {{
+ *   characterDescription?: string,
+ *   isParentTheme: boolean,
+ *   coverParentPresent: boolean,
+ *   hasSecondaryOnCover: boolean,
+ *   impliedParentDescriptor?: string,
+ *   parentVisibility?: string,
+ *   theme?: string,
+ * }} opts
+ * @returns {string}
+ */
+function buildCharacterAnchorBlock(opts) {
+  const desc = typeof opts.characterDescription === 'string' ? opts.characterDescription.trim() : '';
+  const lines = ['### CHARACTER ANCHOR (RE-LOCK EVERY SPREAD — IDENTITY MUST NOT DRIFT)'];
+
+  lines.push(
+    desc
+      ? `- Hero: ${desc}. Match face, hair, eyes, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads.`
+      : '- Hero: match face, hair, eyes, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads.',
+  );
+
+  if (opts.isParentTheme) {
+    if (opts.coverParentPresent) {
+      lines.push(
+        '- Themed parent: ON THE COVER. When in frame, render the SAME face, hair, build, and outfit as the cover render — not a remix, not a softer cousin. Identical person on every spread they appear in.',
+      );
+    } else {
+      const impliedDesc = typeof opts.impliedParentDescriptor === 'string' ? opts.impliedParentDescriptor.trim() : '';
+      lines.push(
+        impliedDesc
+          ? `- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Locked descriptor (use IDENTICALLY on every spread the parent appears): ${impliedDesc}`
+          : '- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Skin tone matches the hero child\'s. Whatever sleeve color, hand details, and accessories you render in the FIRST spread the parent appears, keep IDENTICAL on every later spread.',
+      );
+    }
+  } else if (opts.hasSecondaryOnCover) {
+    lines.push(
+      '- Cover secondaries (siblings / grandparents / friends shown on the cover): keep their face, hair, build, and outfit identical to the cover render whenever they appear.',
+    );
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Stage-direction line telling the model exactly how the themed parent should
+ * appear on THIS spread. Lets the planner control composition rhythm instead
+ * of letting the model invent it.
+ *
+ * @param {{ isParentTheme: boolean, coverParentPresent: boolean, parentVisibility?: string }} opts
+ * @returns {string}
+ */
+function buildParentVisibilityReminder(opts) {
+  if (!opts.isParentTheme) return '';
+  const v = typeof opts.parentVisibility === 'string' ? opts.parentVisibility.trim() : '';
+  if (!v) return '';
+
+  switch (v) {
+    case 'full':
+      if (!opts.coverParentPresent) {
+        // Full-body parent only valid when parent is on cover; otherwise downgrade safely.
+        return '- Themed parent visibility this spread: implied only (hand / shoulder / cropped torso) per parent-not-on-cover policy. Do NOT render a full-face parent.';
+      }
+      return '- Themed parent visibility this spread: FULL — render the parent fully visible (face + body), identical to the cover identity. Composition should make them clearly present alongside the hero.';
+    case 'hand':
+      return '- Themed parent visibility this spread: HAND ONLY — a hand or forearm entering frame, sleeve continuing to a believable off-frame body anchor. No face, no full body.';
+    case 'shoulder-back':
+      return '- Themed parent visibility this spread: SHOULDER / BACK-OF-HEAD — show the parent from behind or from a cropped shoulder, face turned away or out of frame.';
+    case 'cropped-torso':
+      return '- Themed parent visibility this spread: CROPPED TORSO — chest-down view, face out of frame, body anchored in scene.';
+    case 'shadow':
+      return '- Themed parent visibility this spread: SHADOW / REFLECTION — parent shown only as a shadow on a wall or a reflection in a window/water. No body in direct view.';
+    case 'object':
+      return '- Themed parent visibility this spread: OBJECT IMPLIES THEM — an empty chair, a coat on a hook, a still-warm mug, a folded blanket. Parent is not in frame; their presence is implied by what they left behind.';
+    case 'absent':
+      return '- Themed parent visibility this spread: ABSENT — the child is alone in the frame. This is the permitted solo-prep beat (preparing a surprise, picking a flower secretly, placing a photo). The spread is still ABOUT the parent, but the parent is not in this image.';
+    default:
+      return '';
+  }
 }
 
 /**
@@ -361,6 +471,8 @@ function buildCorrectionTurn(opts) {
     coverParentPresent: opts.coverParentPresent,
     additionalCoverCharacters: opts.additionalCoverCharacters,
     childAge: opts.childAge,
+    parentVisibility: opts.parentVisibility,
+    impliedParentDescriptor: opts.impliedParentDescriptor,
   });
 }
 

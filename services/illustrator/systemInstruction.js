@@ -99,6 +99,16 @@ Think: a still frame from a modern Disney-Pixar feature film (e.g. the visual la
   );
 
   sections.push(
+`### CONSISTENCY CONTRACT (HARD FAIL — READ FIRST, RE-READ EVERY TURN)
+Identity is the contract of this book. Lighting, camera angle, mood, and weather may change between spreads. **Identity may not.**
+- The hero child's face shape, eye color, eye shape, hair color, hair length, hairstyle, skin tone, and skin undertone are IDENTICAL on every spread to the BOOK COVER. No drift, no aging up/down, no hairstyle change between spreads, no skin-tone shift between rooms or lighting.
+- The hero's outfit is the same garment system as the cover on every spread. Do NOT swap to a new outfit between spreads. Situational coverage (pajamas, swimwear, towel, snow coat) is allowed ONLY when the per-spread SCENE explicitly names it (e.g. "in the bathtub", "in pajamas", "in a swimsuit"). Otherwise: hold the cover outfit.
+- If a parent or recurring secondary character appears on the cover, their face, hair, build, and outfit are IDENTICAL on every spread. Not a remix, not a softer cousin, not a generic stock parent.
+- If a parent or recurring secondary character is implied (hand, shoulder, back-of-head, cropped torso), they are the SAME person across every spread they appear in: same skin tone, same sleeve color and fabric, same accessories (rings/watch/necklace), same hair glimpse when shown. Lock these on first appearance and keep them identical thereafter.
+- A reader flipping from spread 1 to spread 13 should be unable to tell anyone has changed except for the action of the moment.`
+  );
+
+  sections.push(
 `### CHARACTER LOCK
 The hero child on the cover is the ONLY hero of every spread. Preserve their face, ethnicity, skin tone, eye color, hair color + hairstyle, and body proportions EXACTLY as rendered on the cover.
 ${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
@@ -273,9 +283,11 @@ ${IMPLIED_PRESENCE_ANCHORING_RULE}
 
 ${skinLock}`
     );
-    if (parentOutfit) {
-      lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head), they wear: ${parentOutfit}. This outfit is locked across every spread.`);
-    }
+    const lockedParentOutfit = parentOutfit
+      || (isMother
+        ? 'soft cardigan over a simple tee, jeans or a casual skirt, plain band on left ring finger, no other jewelry'
+        : 'henley or simple long-sleeve shirt, jeans, casual wristwatch on left wrist, no other jewelry');
+    lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head, cropped torso), they wear: ${lockedParentOutfit}. This outfit and these accessories are LOCKED across every spread — same colors, same fabric, same jewelry. First-appearance details define the canonical look; later spreads must match.`);
   }
 
   lines.push(
