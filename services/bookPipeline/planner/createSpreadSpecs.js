@@ -20,6 +20,48 @@ const PARENT_VISIBILITY_VALUES = new Set([
   'full', 'hand', 'shoulder-back', 'cropped-torso', 'shadow', 'object', 'absent',
 ]);
 
+// Locomotion verbs lap babies cannot perform. Mirrors the writer-side QA list
+// (INFANT_FORBIDDEN_VERB_PATTERNS) so the planner cannot smuggle a forbidden
+// verb into focalAction/plotBeat and have the writer dutifully reproduce it.
+// When detected on an infant spread we strip the offender and flag it on
+// forbiddenMistakes so the writer sees the explicit ban.
+const INFANT_FORBIDDEN_PLANNER_VERBS = [
+  'jump', 'jumps', 'jumped', 'jumping',
+  'run', 'runs', 'running', 'ran',
+  'race', 'races', 'racing', 'raced',
+  'spin', 'spins', 'spinning',
+  'twirl', 'twirls', 'twirling', 'twirled',
+  'hop', 'hops', 'hopping', 'hopped',
+  'walk', 'walks', 'walking', 'walked',
+  'climb', 'climbs', 'climbing', 'climbed',
+  'leap', 'leaps', 'leaping', 'leapt',
+  'dance', 'dances', 'dancing', 'danced',
+  'chase', 'chases', 'chasing', 'chased',
+  'grab', 'grabs', 'grabbing', 'grabbed',
+  'skip', 'skips', 'skipping', 'skipped',
+  'gallop', 'gallops', 'galloping', 'galloped',
+  'stomp', 'stomps', 'stomping', 'stomped',
+  'march', 'marches', 'marching', 'marched',
+  'crawl', 'crawls', 'crawling', 'crawled',
+  'cartwheel', 'cartwheels', 'cartwheeling',
+  'tumble', 'tumbles', 'tumbling', 'tumbled',
+];
+
+/**
+ * Scan a planner-produced text field (focalAction, plotBeat) for forbidden
+ * infant locomotion verbs. Returns the unique surface forms found.
+ */
+function findInfantPlannerVerbs(text) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return [];
+  const hits = new Set();
+  for (const v of INFANT_FORBIDDEN_PLANNER_VERBS) {
+    const rx = new RegExp(`\\b${v}\\b`, 'i');
+    if (rx.test(t)) hits.add(v);
+  }
+  return Array.from(hits);
+}
+
 const SYSTEM_PROMPT = `You design spread-level contracts for a premium personalized children's book.
 
 Hard rules:
@@ -194,6 +236,32 @@ async function createSpreadSpecs(doc) {
       forbiddenMistakes: Array.isArray(rawSpec.forbiddenMistakes) ? rawSpec.forbiddenMistakes.map(String) : [],
       parentVisibility,
     };
+
+    // Infant safety net: even with the planner prompt, the LLM occasionally
+    // emits forbidden locomotion verbs in focalAction / plotBeat. The writer
+    // reads these as instructions and reproduces them in the manuscript. We
+    // surface the violations as explicit forbiddenMistakes so the writer sees
+    // a hard ban for this spread, and we record any spec-level offenders.
+    if (doc?.request?.ageBand === AGE_BANDS.PB_INFANT) {
+      const offenders = new Set([
+        ...findInfantPlannerVerbs(spec.focalAction),
+        ...findInfantPlannerVerbs(spec.plotBeat),
+      ]);
+      if (offenders.size) {
+        const list = Array.from(offenders).join(', ');
+        spec.forbiddenMistakes = [
+          ...spec.forbiddenMistakes,
+          `INFANT BAND: do NOT use locomotion verb(s) ${list} in the manuscript text. Lap baby cannot do these. Use sit / lie / look / reach / giggle / coo / hold / snuggle instead.`,
+        ];
+      }
+      // Always carry an explicit infant-locomotion ban on every spread, even
+      // when the planner spec is clean, so the writer can't drift on its own.
+      spec.forbiddenMistakes = [
+        ...spec.forbiddenMistakes,
+        'INFANT BAND: manuscript text must not contain locomotion verbs (jump/run/race/spin/twirl/hop/walk/climb/leap/dance/chase/skip/gallop/stomp/march/crawl).',
+      ];
+    }
+
     next = updateSpread(next, spreadNumber, s => ({ ...s, spec }));
   }
 
@@ -253,4 +321,4 @@ function defaultParentVisibilityForSpread(spreadNumber, coverParentPresent) {
   return pattern[spreadNumber] || (coverParentPresent ? 'full' : 'shoulder-back');
 }
 
-module.exports = { createSpreadSpecs };
+module.exports = { createSpreadSpecs, findInfantPlannerVerbs };

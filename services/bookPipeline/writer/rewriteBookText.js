@@ -14,6 +14,8 @@ const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = requ
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
 const { checkWriterDraft } = require('../qa/checkWriterDraft');
+const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
+const { renderInfantContract } = require('./draftBookText');
 
 const SYSTEM_PROMPT = `You are rewriting specific spreads of a children's book.
 You keep the rest of the book intact. For each spread listed, produce an improved version that fixes the listed issues.
@@ -69,8 +71,10 @@ function rewriteUserPrompt(doc, targets) {
     })
     .filter(Boolean);
   const lineCountReminder = renderLineCountReminderForRewrite(doc.request?.ageBand);
+  const infantContract = renderInfantContract(doc.request?.ageBand);
 
   return [
+    infantContract,
     renderTextPolicyBlock(doc),
     lineCountReminder ? `\n${lineCountReminder}` : '',
     '',
@@ -95,13 +99,14 @@ function mergeRewrites(doc, json) {
   for (const entry of arr) {
     const n = Number(entry?.spreadNumber);
     if (!Number.isFinite(n) || n < 1 || n > TOTAL_SPREADS) continue;
-    const manuscript = {
+    const manuscriptRaw = {
       text: String(entry.text || '').trim(),
       side: entry.side === 'left' ? 'left' : 'right',
       lineBreakHints: Array.isArray(entry.lineBreakHints) ? entry.lineBreakHints.map(String) : [],
       personalizationUsed: Array.isArray(entry.personalizationUsed) ? entry.personalizationUsed.map(String) : [],
       writerNotes: entry.writerNotes ? String(entry.writerNotes) : null,
     };
+    const manuscript = maybeTruncateInfantManuscript(manuscriptRaw, doc);
     next = updateSpread(next, n, s => ({ ...s, manuscript }));
   }
   return next;
