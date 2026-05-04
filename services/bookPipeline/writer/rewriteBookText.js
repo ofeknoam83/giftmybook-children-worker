@@ -9,7 +9,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS } = require('../constants');
+const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
@@ -24,11 +24,27 @@ Hard rules (same as original writer):
 - Text must be plausible to render in a few lines on one side without crossing center.
 
 Picture-book structure (MANDATORY when format is picture_book):
-- Every rewritten spread's "text" is EXACTLY 4 lines, separated by "\\n".
-- AABB rhyme scheme: line 1 rhymes with line 2, line 3 rhymes with line 4. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
-- LINE LENGTH — match the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Consistent pulse across each couplet.
+- LINE COUNT depends on age band:
+   * Infant (PB_INFANT, 0-1): EXACTLY 2 lines per spread — one AA couplet. Never 4.
+   * Toddler/Preschool (PB_TODDLER, PB_PRESCHOOL): EXACTLY 4 lines per spread — two AABB couplets.
+   * Lines separated by "\\n".
+- Rhyme scheme: AA for 2-line; AABB for 4-line. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
+- LINE LENGTH — match the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-4 words/line, hardMax 5). Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Consistent pulse across each couplet.
+- NEVER invent fake words just to make a rhyme work. Real English only.
+- NEVER use a simile ("X as Y", "like Y") where Y is implausible for a child to recognize ("light as code", "soft as math"). Use concrete sensory comparisons.
 
-Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks.`;
+Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLINE2[\\nLINE3\\nLINE4]", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks. For infant books emit 2 lines; for toddler/preschool books emit 4 lines.`;
+
+function renderLineCountReminderForRewrite(ageBand) {
+  if (ageBand === AGE_BANDS.PB_INFANT) {
+    return 'LINE COUNT FOR REWRITES: EXACTLY 2 lines per spread (AA) — infant band. Do NOT emit 4 lines.';
+  }
+  const target = TEXT_LINE_TARGET[ageBand];
+  if (target && target.min === target.max) {
+    return `LINE COUNT FOR REWRITES: EXACTLY ${target.min} lines per spread (age band ${ageBand}).`;
+  }
+  return '';
+}
 
 /**
  * @param {object} doc
@@ -52,8 +68,11 @@ function rewriteUserPrompt(doc, targets) {
       };
     })
     .filter(Boolean);
+  const lineCountReminder = renderLineCountReminderForRewrite(doc.request?.ageBand);
+
   return [
     renderTextPolicyBlock(doc),
+    lineCountReminder ? `\n${lineCountReminder}` : '',
     '',
     `Story bible:\n${JSON.stringify(doc.storyBible, null, 2)}`,
     '',
