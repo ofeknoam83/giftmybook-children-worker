@@ -426,10 +426,10 @@ async function processOneSpread(params) {
         .filter(c => c?.description)
         .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
         .join('; ') || null;
-      // Being declared in the brief does NOT put someone on the cover.
-      // Without cover vision, default to false; declared off-cover family is
-      // still allowed to appear via `additionalCoverCharacters` (QA policy note).
-      const coverParentPresent = false;
+      const coverParentPresent = !!(
+        currentDoc.brief?.coverParentPresent
+        || supportingCast.some(c => c?.onCover === true && c?.isThemedParent === true)
+      );
 
       const recentInteriorRefs = pickRecentInteriorRefsForQa(
         currentSession.acceptedSpreads,
@@ -613,14 +613,19 @@ async function renderAllSpreads(doc) {
       '  - If a clean partial presence cannot be staged naturally, prefer the signature object from the lock instead of a limb.',
     ].join('\n')
     : null;
+  const coverParentPresentDoc = !!(
+    doc.brief?.coverParentPresent
+    || sessionCast.some(c => c?.onCover === true && c?.isThemedParent === true)
+  );
+  const hasSecondaryOnCoverDoc = sessionCast.some(c => c?.onCover === true);
   let session = createSession({
     coverBase64: cover.base64,
     coverMime: cover.mime,
     theme: doc.request.theme,
     childAppearance: doc.visualBible?.hero?.physicalDescription || '',
     childAge: doc.brief?.child?.age ?? null,
-    hasParentOnCover: false,
-    hasSecondaryOnCover: false,
+    hasParentOnCover: coverParentPresentDoc,
+    hasSecondaryOnCover: hasSecondaryOnCoverDoc,
     additionalCoverCharacters: offCoverCastNote,
     abortSignal: doc.operationalContext?.abortSignal,
   });

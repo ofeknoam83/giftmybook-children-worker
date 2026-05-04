@@ -80,8 +80,9 @@ function buildSystemInstruction(opts) {
     : !!additionalCoverCharacters;
   const isParentTheme = PARENT_THEMES.has(theme);
   const isMother = theme === 'mothers_day';
-  const parentWord = isMother ? 'mother' : 'father';
-  const parentShort = isMother ? 'mom' : 'dad';
+  const isGrandparents = theme === 'grandparents_day';
+  const parentWord = isMother ? 'mother' : (isGrandparents ? 'grandparent' : 'father');
+  const parentShort = isMother ? 'mom' : (isGrandparents ? 'grandparent' : 'dad');
 
   const sections = [];
 
@@ -141,6 +142,7 @@ Face, hair, skin tone, and proportions still match the cover reference on every 
     hasParentOnCover,
     isParentTheme,
     isMother,
+    isGrandparents,
     parentWord,
     parentShort,
     parentOutfit,
@@ -215,6 +217,7 @@ function buildFamilyPolicySection(ctx) {
     hasParentOnCover,
     isParentTheme,
     isMother,
+    isGrandparents,
     parentWord,
     parentShort,
     parentOutfit,
@@ -222,6 +225,7 @@ function buildFamilyPolicySection(ctx) {
     childAppearance,
   } = ctx;
   const skinLock = impliedParentSkinToneLock(childAppearance);
+  const dayLabel = isMother ? "Mother's Day" : (isGrandparents ? "Grandparents' Day" : "Father's Day");
 
   const lines = ['### WHO MAY APPEAR ON SPREADS'];
 
@@ -272,7 +276,7 @@ The ${parentWord} is on the BOOK COVER. Interior frames must reuse the **exact s
   if (isParentTheme && !hasParentOnCover) {
     lines.push(
 `### THEMED PARENT POLICY (${parentWord.toUpperCase()} NOT ON COVER)
-This is a ${isMother ? "Mother's Day" : "Father's Day"} book and the ${parentWord} is NOT on the cover. When the story refers to "${parentShort}" / "${parentWord}", show them via IMPLIED PRESENCE only:
+This is a ${dayLabel} book and the ${parentWord} is NOT on the cover. When the story refers to "${parentShort}" / "${parentWord}", show them via IMPLIED PRESENCE only:
   • A hand entering frame (reading to the hero, holding a mug, adjusting a blanket).
   • The back of their head or a shoulder silhouette.
   • A cropped torso from chest-down, face out of frame.
@@ -286,7 +290,9 @@ ${skinLock}`
     const lockedParentOutfit = parentOutfit
       || (isMother
         ? 'soft cardigan over a simple tee, jeans or a casual skirt, plain band on left ring finger, no other jewelry'
-        : 'henley or simple long-sleeve shirt, jeans, casual wristwatch on left wrist, no other jewelry');
+        : (isGrandparents
+          ? 'comfortable everyday cardigan or zip fleece, slacks or casual trousers, reading glasses tucked in pocket or on a neck chain'
+          : 'henley or simple long-sleeve shirt, jeans, casual wristwatch on left wrist, no other jewelry'));
     lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head, cropped torso), they wear: ${lockedParentOutfit}. This outfit and these accessories are LOCKED across every spread — same colors, same fabric, same jewelry. First-appearance details define the canonical look; later spreads must match.`);
   }
 
@@ -473,8 +479,9 @@ function buildSystemInstructionQuad(opts) {
     : !!additionalCoverCharacters;
   const isParentTheme = PARENT_THEMES.has(theme);
   const isMother = theme === 'mothers_day';
-  const parentWord = isMother ? 'mother' : 'father';
-  const parentShort = isMother ? 'mom' : 'dad';
+  const isGrandparents = theme === 'grandparents_day';
+  const parentWord = isMother ? 'mother' : (isGrandparents ? 'grandparent' : 'father');
+  const parentShort = isMother ? 'mom' : (isGrandparents ? 'grandparent' : 'dad');
 
   const sections = [];
 
@@ -514,6 +521,7 @@ When the scene places the hero in a **bathtub**, **shower**, or **swimming pool*
     hasParentOnCover,
     isParentTheme,
     isMother,
+    isGrandparents,
     parentWord,
     parentShort,
     parentOutfit,

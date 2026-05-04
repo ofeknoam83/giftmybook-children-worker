@@ -601,6 +601,8 @@ module.exports = {
   buildCorrectionTurn,
   resolveTextAndSide,
   buildTextBlock,
+  buildCharacterAnchorBlock,
+  buildParentVisibilityReminder,
   ILLUSTRATOR_TEXT_QA_TAGS,
   deescalateSceneForSignage,
   shouldDeescalateSceneForQaFail,

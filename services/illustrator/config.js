@@ -207,7 +207,7 @@ const PIXAR_STYLE = {
 };
 
 // Themes where the parent is implied (hands/back-of-head) when they are not on the cover.
-const PARENT_THEMES = new Set(['mothers_day', 'fathers_day']);
+const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
 
 /**
  * Deterministic side selector — even spread index → LEFT, odd → RIGHT.

@@ -202,7 +202,7 @@ async function createVisualBible(doc) {
  * }} ctx
  */
 function ensureThemedParentBible(ctx) {
-  const PARENT_THEMES = new Set(['mothers_day', 'fathers_day']);
+  const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
   if (!PARENT_THEMES.has(ctx.theme)) return;
 
   // If the themed parent is on the cover, identity flows from the cover render
@@ -210,7 +210,8 @@ function ensureThemedParentBible(ctx) {
   if (ctx.coverParentPresent) return;
 
   const isMother = ctx.theme === 'mothers_day';
-  const role = isMother ? 'mom' : 'dad';
+  const isGrandparents = ctx.theme === 'grandparents_day';
+  const role = isMother ? 'mom' : (isGrandparents ? 'grandparent' : 'dad');
 
   let entry = ctx.supportingCast.find(c => c?.isThemedParent === true && c?.onCover !== true);
   if (!entry) {
@@ -220,7 +221,9 @@ function ensureThemedParentBible(ctx) {
       return c?.onCover !== true && (
         isMother
           ? (r === 'mom' || r === 'mother' || r === 'mommy')
-          : (r === 'dad' || r === 'father' || r === 'daddy')
+          : (isGrandparents
+            ? (r === 'grandparent' || r === 'grandma' || r === 'grandpa' || r === 'nana' || r === 'papa' || r === 'grandmother' || r === 'grandfather')
+            : (r === 'dad' || r === 'father' || r === 'daddy'))
       );
     });
     if (entry) entry.isThemedParent = true;
@@ -233,10 +236,14 @@ function ensureThemedParentBible(ctx) {
       isThemedParent: true,
       description: isMother
         ? 'The hero\'s mother — present in the story but not on the cover; appears as implied presence only.'
-        : 'The hero\'s father — present in the story but not on the cover; appears as implied presence only.',
+        : (isGrandparents
+          ? 'The hero\'s grandparent — present in the story but not on the cover; appears as implied presence only.'
+          : 'The hero\'s father — present in the story but not on the cover; appears as implied presence only.'),
       partialPresenceIdeas: isMother
         ? ['a warm hand entering frame', 'a soft cardigan sleeve at the edge of the page', 'a familiar mug on the table']
-        : ['a steady hand entering frame', 'a rolled shirt sleeve at the edge of the page', 'work boots beside the doorway'],
+        : (isGrandparents
+          ? ['a gentle hand entering frame', 'a cozy cardigan sleeve at the edge of the page', 'reading glasses on the table']
+          : ['a steady hand entering frame', 'a rolled shirt sleeve at the edge of the page', 'work boots beside the doorway']),
       partialPresenceLock: { skinTone: '', hand: '', sleeve: '', signatureProp: '' },
     };
     ctx.supportingCast.push(entry);
@@ -252,17 +259,23 @@ function ensureThemedParentBible(ctx) {
   if (!lock.hand) {
     lock.hand = isMother
       ? 'an adult woman\'s hand — relaxed fingers, neat short clean nails, no nail polish, no visible scars; same skin tone as the hero'
-      : 'an adult man\'s hand — relaxed fingers, neat short clean nails, no visible scars; same skin tone as the hero';
+      : (isGrandparents
+        ? 'an older adult\'s hand — relaxed fingers, neat short clean nails, natural age-consistent skin; same tone as the hero'
+        : 'an adult man\'s hand — relaxed fingers, neat short clean nails, no visible scars; same skin tone as the hero');
   }
   if (!lock.sleeve) {
     lock.sleeve = isMother
       ? 'a soft mauve cardigan sleeve over a plain white tee, casual everyday weight, no logos or patterns'
-      : 'a long-sleeve henley shirt sleeve in muted blue, simple cuff, no logos or patterns';
+      : (isGrandparents
+        ? 'a warm neutral cardigan or zip-fleece sleeve, casual everyday weight, no logos or patterns'
+        : 'a long-sleeve henley shirt sleeve in muted blue, simple cuff, no logos or patterns');
   }
   if (!lock.signatureProp) {
     lock.signatureProp = isMother
       ? 'a plain gold band on the left ring finger (and no other jewelry)'
-      : 'a simple casual wristwatch on the left wrist (and no other jewelry)';
+      : (isGrandparents
+        ? 'reading glasses tucked in a front pocket or hanging from a neck chain'
+        : 'a simple casual wristwatch on the left wrist (and no other jewelry)');
   }
 }
 
