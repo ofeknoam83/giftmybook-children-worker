@@ -7,7 +7,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, TOTAL_SPREADS } = require('../constants');
+const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
@@ -23,17 +23,39 @@ Hard rules (apply to every spread):
 - **Scene flow:** when \`sceneBridge\` and \`continuityAnchors\` are present on a spread, let the verse acknowledge the *same* story movement — cause, discovery, or callback — so the read-aloud feels like a single adventure, not isolated vignettes. You may imply the bridge subtly (a repeated object, a "still following", "the trail led", "the friend from before") without naming camera directions.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
-- The "text" field for each spread is EXACTLY 4 lines, separated by a single "\\n" character.
-- Rhyme scheme is AABB: line 1's last word rhymes with line 2's last word, and line 3's last word rhymes with line 4's last word. Lines 2 and 4 do NOT need to rhyme with each other.
+- LINE COUNT depends on age band:
+   * Infant band (PB_INFANT, 0-1): EXACTLY 2 lines per spread — one AA rhyming couplet. Board-book brevity. The parent reads one short couplet aloud while the baby looks at the picture. Do NOT pad to 4 lines.
+   * Toddler/Preschool bands (PB_TODDLER 0-3, PB_PRESCHOOL 3-6): EXACTLY 4 lines per spread — two AABB rhyming couplets.
+   * Lines are separated by a single "\\n" character.
+- Rhyme scheme:
+   * 2-line (infant): AA — line 1's last word rhymes with line 2's last word.
+   * 4-line (toddler/preschool): AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.
 - Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable.
-- LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
+- LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-4 words/line, hardMax 5). Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
+- NEVER invent fake words just to make a rhyme work. "Farf" is not a word. If the rhyme word doesn't exist in English, pick a different rhyme — don't fabricate.
+- NEVER use a simile ("X as Y", "like Y") where Y is something the target child wouldn't recognize. "Light as code", "soft as math" are nonsense in a baby book — use concrete sensory comparisons ("soft as fluff", "warm as toast").
 - If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
 - No line may cross the horizontal center of the spread when painted.
 
 Early reader structure (when format is early_reader):
 - 3–4 short prose lines per spread. Rhyme optional — do not force it.
 
-Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks — do NOT emit it as an array.`;
+Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "LINE1\\nLINE2[\\nLINE3\\nLINE4]", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks — do NOT emit it as an array. For infant books emit 2 lines; for toddler/preschool books emit 4 lines.`;
+
+/**
+ * Render a one-line reminder of the line-count gate for the current age band.
+ * Surfaced near the top of the user prompt so the writer can't miss it.
+ */
+function renderLineCountReminder(ageBand) {
+  if (ageBand === AGE_BANDS.PB_INFANT) {
+    return 'LINE COUNT FOR THIS BOOK: EXACTLY 2 lines per spread (AA couplet) — infant band. Do NOT emit 4 lines.';
+  }
+  const target = TEXT_LINE_TARGET[ageBand];
+  if (target && target.min === target.max) {
+    return `LINE COUNT FOR THIS BOOK: EXACTLY ${target.min} lines per spread (age band ${ageBand}).`;
+  }
+  return '';
+}
 
 function userPrompt(doc) {
   const { storyBible, visualBible, spreads } = doc;
@@ -55,8 +77,11 @@ function userPrompt(doc) {
     forbiddenMistakes: s.spec?.forbiddenMistakes,
   }));
 
+  const lineCountReminder = renderLineCountReminder(doc.request?.ageBand);
+
   return [
     renderTextPolicyBlock(doc),
+    lineCountReminder ? `\n${lineCountReminder}` : '',
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',
