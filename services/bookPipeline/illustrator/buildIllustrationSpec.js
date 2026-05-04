@@ -59,6 +59,19 @@ function composeScene(doc, spread) {
     ? `Continuity anchors to preserve: ${spec.continuityAnchors.join('; ')}.`
     : '';
   const environment = (visualBible?.environmentAnchors || []).slice(0, 3).join('; ');
+  // Recurring props: locked physical descriptions for any prop the bible says
+  // appears in >1 spread. Filter to props relevant to THIS spread when
+  // appearsInSpreads is specified; otherwise pass them all so the renderer
+  // keeps every recurring prop visually consistent.
+  const allRecurringProps = Array.isArray(visualBible?.recurringProps) ? visualBible.recurringProps : [];
+  const spreadNumber = Number(spread.spreadNumber) || 0;
+  const relevantRecurringProps = allRecurringProps.filter(p => {
+    if (!Array.isArray(p?.appearsInSpreads) || p.appearsInSpreads.length === 0) return true;
+    return p.appearsInSpreads.includes(spreadNumber);
+  });
+  const recurringPropsBlock = relevantRecurringProps.length > 0
+    ? `Recurring props in this book (LOCKED — render IDENTICALLY every spread, do not redesign color/pattern/shape): ${relevantRecurringProps.map(p => `"${p.name}" — ${p.description}`).join(' | ')}.`
+    : '';
   const journey = storyBible?.visualJourneySpine
     ? `Story journey thread (keep this setting consistent with the arc — do not treat as a random one-off): ${String(storyBible.visualJourneySpine).trim()}`
     : '';
@@ -158,6 +171,7 @@ function composeScene(doc, spread) {
     hero.outfitDescription ? `Hero outfit (locked to cover): ${hero.outfitDescription}` : '',
     ageActionConstraint,
     environment ? `World anchors: ${environment}.` : '',
+    recurringPropsBlock,
     priorAnchors,
     offCoverCastBlock,
     captionPlacementLine,

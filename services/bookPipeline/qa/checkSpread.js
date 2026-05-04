@@ -9,6 +9,7 @@
 
 const { verifySpreadText } = require('../../illustrator/textQa');
 const { checkSpreadConsistency } = require('../../illustrator/consistencyQa');
+const { checkSpreadActionConsistency } = require('../../illustrator/actionConsistencyQa');
 
 /**
  * @param {object} params
@@ -23,6 +24,16 @@ const { checkSpreadConsistency } = require('../../illustrator/consistencyQa');
  * @param {string} [params.theme] - book theme; parent themes (mothers_day /
  *   fathers_day / grandparents_day) trigger stricter hair/outfit continuity
  *   thresholds in consistencyQa.
+ * @param {string} [params.focalAction] - The spreadSpec.focalAction sentence,
+ *   used by actionConsistencyQa to compare what the text says is happening to
+ *   what the image actually depicts.
+ * @param {string} [params.ageBand] - constants.AGE_BANDS.* value, used by
+ *   actionConsistencyQa as the developmental yardstick for what the hero can
+ *   physically do.
+ * @param {number|string|null} [params.childAge] - Child age in years; refines
+ *   the lap-baby age-action floor.
+ * @param {string} [params.heroName] - Hero name; used in the action vision
+ *   prompt for clearer phrasing.
  * @param {number} params.spreadIndex - 0-based
  * @param {Array<{ base64: string, mimeType?: string, spreadNumber?: number }>} [params.recentInteriorRefs]
  *   Recent accepted interiors for continuity QA (hair/outfit vs story-so-far).
@@ -38,6 +49,10 @@ async function checkSpread(params) {
     additionalCoverCharacters,
     coverParentPresent,
     theme,
+    focalAction,
+    ageBand,
+    childAge,
+    heroName,
     spreadIndex,
     recentInteriorRefs,
     abortSignal,
@@ -54,7 +69,7 @@ async function checkSpread(params) {
   // here.
   void additionalCoverCharacters;
 
-  const [textQa, consistencyQa] = await Promise.all([
+  const [textQa, consistencyQa, actionQa] = await Promise.all([
     verifySpreadText(imageBase64, expected, { spreadIndex, abortSignal }),
     checkSpreadConsistency(
       imageBase64,
@@ -72,15 +87,33 @@ async function checkSpread(params) {
       issues: [`consistency QA error: ${err?.message || 'unknown'}`],
       tags: ['qa_consistency_error'],
     })),
+    // C.1 + C.2 — does the IMAGE depict what the TEXT says, and is the
+    // depicted action possible for the hero's age band? Stateless single
+    // vision call; fails open on infra error so we never block on a flaky
+    // QA pipe.
+    checkSpreadActionConsistency(imageBase64, {
+      text: expected?.text,
+      focalAction,
+      ageBand,
+      childAge,
+      heroName,
+      abortSignal,
+    }).catch(err => ({
+      pass: false,
+      issues: [`action QA error: ${err?.message || 'unknown'}`],
+      tags: ['qa_action_error'],
+    })),
   ]);
 
   let issues = [
     ...(textQa.issues || []),
     ...(consistencyQa.issues || []),
+    ...(actionQa.issues || []),
   ];
   let tags = [
     ...(textQa.tags || []),
     ...(consistencyQa.tags || []),
+    ...(actionQa.tags || []),
   ];
 
   // Cascade suppression: if the hero itself is wrong on the spread, the
@@ -101,6 +134,7 @@ async function checkSpread(params) {
     ocrText: textQa.ocrText,
     text: textQa,
     consistency: consistencyQa,
+    action: actionQa,
   };
 }
 

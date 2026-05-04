@@ -148,6 +148,16 @@ function renderCorrectionNote(issues, tags, options = {}) {
       'ONE continuous wide 16:9 panorama — a single cinematic frame with NO diptych, NO vertical seam, NO visible split down the middle, NO two panels stitched side-by-side. Lighting, perspective, and ground plane must read as one unified 3D shot.',
     );
   }
+  if (tagArr.includes('action_mismatch')) {
+    lines.push(
+      'The depicted action does NOT match what the spread text says is happening. Re-render so the hero is VISIBLY performing the action the text describes — not the opposite, not passive, not waiting, not strapped in when the text says "helps push", not being carried when the text says "leads", not seated when the text says "climbs". The picture must agree with the words on this same spread; the focal action is the subject of the frame, not background staging. If the original focal action is impossible for this hero (see age constraints), substitute the closest supported equivalent that still agrees with the text (e.g. "reaches toward the puppy from Mama\'s lap" instead of "chases the puppy").',
+    );
+  }
+  if (tagArr.includes('age_action_impossible')) {
+    lines.push(
+      'The depicted action is NOT physically possible for the hero\'s declared age. Re-render with an age-appropriate pose: a lap-baby (under ~18 months) cannot stand unsupported, walk, run, climb, jump, ride, twirl, tiptoe, dance, or lead an adult anywhere. Replace the impossible action with the closest supported equivalent that the manuscript text still agrees with: held in a parent\'s arms, sitting in a stroller / high chair / parent\'s lap, lying on a blanket, reaching from a supported position, smiling, looking, snuggling, pointing, clapping, peekaboo. In every pose where the hero is even partially upright, a parent\'s body, a stroller, a high chair, a lap, a soft prop, or the parent\'s hands MUST be physically supporting the baby in the frame. The hero\'s body proportions must read as an infant, not a toddler.',
+    );
+  }
   if (
     tagArr.includes('duplicated_word')
     || tagArr.includes('text_duplicated_caption')
