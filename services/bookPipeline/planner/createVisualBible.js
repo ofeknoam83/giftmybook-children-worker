@@ -74,6 +74,7 @@ function userPrompt(doc) {
       "role": "e.g. mom|dad|sibling|friend|creature",
       "name": "string or null",
       "onCover": false,
+      "isThemedParent": "true ONLY for the mom on a Mother's Day / Love-to-mom book or the dad on a Father's Day book — false otherwise",
       "description": "short description for text/voice color; full-figure appearance is forbidden when onCover=false",
       "partialPresenceIdeas": ["a warm hand", "a silhouette in a doorway", "gardening gloves on a bench", "a familiar knitted scarf"],
       "partialPresenceLock": {
@@ -130,6 +131,7 @@ async function createVisualBible(doc) {
       role: c?.role ? String(c.role) : null,
       name: c?.name ? String(c.name) : null,
       onCover: c?.onCover === true,
+      isThemedParent: c?.isThemedParent === true,
       description: c?.description ? String(c.description) : '',
       partialPresenceIdeas: Array.isArray(c?.partialPresenceIdeas) ? c.partialPresenceIdeas.map(String) : [],
       partialPresenceLock: {
@@ -139,6 +141,14 @@ async function createVisualBible(doc) {
         signatureProp: lock.signatureProp ? String(lock.signatureProp) : '',
       },
     };
+  });
+
+  ensureThemedParentBible({
+    supportingCast,
+    theme: doc?.brief?.theme || doc?.request?.theme,
+    coverParentPresent: doc?.brief?.coverParentPresent === true,
+    childGender: doc?.brief?.child?.gender,
+    childPhysicalDescription: json?.hero?.physicalDescription,
   });
   const visualBible = {
     hero: json.hero || null,
@@ -161,6 +171,92 @@ async function createVisualBible(doc) {
     usage: result.usage,
   });
   return withStageResult(traced, { visualBible });
+}
+
+/**
+ * For parent-theme books, guarantee that the implied-parent supportingCast
+ * entry exists with a populated partialPresenceLock — even when the visualBible
+ * LLM call returned a thin or missing entry. This is the deterministic fallback
+ * so identity is locked regardless of LLM verbosity.
+ *
+ * Matches the contract consumed by buildIllustrationSpec.js (which reads
+ * `c.isThemedParent === true && c.onCover !== true` to derive the implied
+ * parent descriptor) and the systemInstruction.js implied-parent outfit
+ * defaults.
+ *
+ * Mutates `supportingCast` in place.
+ *
+ * @param {{
+ *   supportingCast: Array<object>,
+ *   theme: string,
+ *   coverParentPresent: boolean,
+ *   childGender?: string,
+ *   childPhysicalDescription?: string,
+ * }} ctx
+ */
+function ensureThemedParentBible(ctx) {
+  const PARENT_THEMES = new Set(['mothers_day', 'fathers_day']);
+  if (!PARENT_THEMES.has(ctx.theme)) return;
+
+  // If the themed parent is on the cover, identity flows from the cover render
+  // — no implied-parent bible needed.
+  if (ctx.coverParentPresent) return;
+
+  const isMother = ctx.theme === 'mothers_day';
+  const role = isMother ? 'mom' : 'dad';
+
+  let entry = ctx.supportingCast.find(c => c?.isThemedParent === true && c?.onCover !== true);
+  if (!entry) {
+    // Fallback: a supportingCast entry whose role names the themed parent.
+    entry = ctx.supportingCast.find(c => {
+      const r = String(c?.role || '').toLowerCase();
+      return c?.onCover !== true && (
+        isMother
+          ? (r === 'mom' || r === 'mother' || r === 'mommy')
+          : (r === 'dad' || r === 'father' || r === 'daddy')
+      );
+    });
+    if (entry) entry.isThemedParent = true;
+  }
+  if (!entry) {
+    entry = {
+      role,
+      name: null,
+      onCover: false,
+      isThemedParent: true,
+      description: isMother
+        ? 'The hero\'s mother — present in the story but not on the cover; appears as implied presence only.'
+        : 'The hero\'s father — present in the story but not on the cover; appears as implied presence only.',
+      partialPresenceIdeas: isMother
+        ? ['a warm hand entering frame', 'a soft cardigan sleeve at the edge of the page', 'a familiar mug on the table']
+        : ['a steady hand entering frame', 'a rolled shirt sleeve at the edge of the page', 'work boots beside the doorway'],
+      partialPresenceLock: { skinTone: '', hand: '', sleeve: '', signatureProp: '' },
+    };
+    ctx.supportingCast.push(entry);
+  }
+
+  const lock = entry.partialPresenceLock || (entry.partialPresenceLock = {});
+  if (!lock.skinTone) {
+    const heroDesc = (ctx.childPhysicalDescription || '').trim();
+    lock.skinTone = heroDesc
+      ? `same family as the hero — match skin tone and undertone described as: ${heroDesc.replace(/\s+/g, ' ').slice(0, 220)}`
+      : 'same family as the hero — match the cover child\'s skin tone and undertone exactly';
+  }
+  if (!lock.hand) {
+    lock.hand = isMother
+      ? 'an adult woman\'s hand — relaxed fingers, neat short clean nails, no nail polish, no visible scars; same skin tone as the hero'
+      : 'an adult man\'s hand — relaxed fingers, neat short clean nails, no visible scars; same skin tone as the hero';
+  }
+  if (!lock.sleeve) {
+    lock.sleeve = isMother
+      ? 'a soft mauve cardigan sleeve over a plain white tee, casual everyday weight, no logos or patterns'
+      : 'a long-sleeve henley shirt sleeve in muted blue, simple cuff, no logos or patterns';
+  }
+  if (!lock.signatureProp) {
+    lock.signatureProp = isMother
+      ? 'a plain gold band on the left ring finger (and no other jewelry)'
+      : 'a simple casual wristwatch on the left wrist (and no other jewelry)';
+  }
 }
 
 module.exports = { createVisualBible };

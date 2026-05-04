@@ -529,6 +529,11 @@ function buildTagDirectives(tags, opts) {
       'Any visible skin on the implied parent (hands, forearms, legs, arms) MUST match the hero child\'s skin tone and undertone from the BOOK COVER — same family, same household. Re-render those partial-body areas to align with the cover child; keep the parent\'s face hidden per policy.',
     );
   }
+  if (set.has('implied_parent_outfit_drift')) {
+    out.push(
+      'Implied parent outfit drifted between spreads. The parent\'s visible sleeve color/fabric and signature accessory (ring/watch/necklace) MUST be IDENTICAL on every spread they appear in. Re-render this spread\'s implied-parent fragment to match the locked descriptor in the system instruction and the version that appeared in earlier accepted interior spreads.',
+    );
+  }
   if (set.has('split_panel')) {
     out.push(
       'The image looked like TWO illustrations stitched together (diptych) with a visible vertical seam or mismatched halves. Re-render as ONE seamless wide panorama: identical lighting and atmosphere across the full width, one ground plane, one continuous background — no seam at the vertical center, no abrupt crop of props or people at mid-frame. Think one cinematic still, not two pages.',

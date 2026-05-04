@@ -220,7 +220,8 @@ async function processOneSpread(params) {
         || lastTags.includes('outfit_mismatch')
         || lastTags.includes('hair_continuity_drift')
         || lastTags.includes('outfit_continuity_drift')
-        || lastTags.includes('implied_parent_skin_mismatch'));
+        || lastTags.includes('implied_parent_skin_mismatch')
+        || lastTags.includes('implied_parent_outfit_drift'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
       let image;
