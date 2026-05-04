@@ -120,6 +120,9 @@ function renderCorrectionNote(issues, tags, options = {}) {
   if (tagArr.includes('implied_parent_skin_mismatch')) {
     lines.push('Any visible adult skin on partial-presence limbs must plausibly match the hero\'s family skin tone from the cover.');
   }
+  if (tagArr.includes('full_body_parent_skin_mismatch')) {
+    lines.push('Any visible adult sharing the frame with the hero must read as the same family — match the hero\'s skin tone and undertone from the BOOK COVER exactly. If the spread shows a fully-rendered adult face/body whose skin clearly differs from the cover child, either re-render that adult with the correct skin tone OR (if the parent is not on the cover per the off-cover policy) replace the full adult figure with implied presence (hand / shoulder / cropped torso / shadow / object).');
+  }
   if (tagArr.includes('parent_turned_away')) {
     lines.push(
       'Re-stage the parent so their body language is visibly engaged with the hero child: oriented toward the child, eyes on the child, leaning in, holding the child, walking alongside, or sharing the child\'s focus on a shared object. Never the parent\'s back to the child with no narrative reason. For partial presence, the implied hand/arm must reach TOWARD the child, not away.',
