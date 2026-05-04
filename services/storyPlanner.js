@@ -546,6 +546,17 @@ function getEmotionalBeatStructure(emotion, age, situation) {
    - Spread 20: FOR THE ADULT READING THIS — A note about the emotional approach used in this book and how to continue the conversation.`;
 }
 
+/**
+ * SCOPE: This file feeds `brainstormStorySeed`, `planChapterBook`, and
+ * `planGraphicNovel`. The CUSTOMER PICTURE-BOOK pipeline goes through
+ * `services/bookPipeline/*` and DOES NOT consume the output of
+ * brainstormStorySeed (server.js:1108 computes storySeed but does not pass it
+ * to generateBook at server.js:1270). The parent-theme directives the
+ * production picture-book planner actually reads live in
+ * `services/bookPipeline/planner/themeDirectives.js`. The mothers_day /
+ * fathers_day quality-bar blocks below therefore affect chapter books and
+ * graphic novels (and the legacy QA streaming endpoint), not picture books.
+ */
 function getThemeBeatStructure(theme, age) {
   const candleText = age ? `exactly ${age} candles` : 'the correct number of candles matching the child\'s age';
   switch (theme) {

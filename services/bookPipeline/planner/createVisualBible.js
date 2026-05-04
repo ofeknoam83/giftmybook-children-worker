@@ -150,11 +150,18 @@ async function createVisualBible(doc) {
     childGender: doc?.brief?.child?.gender,
     childPhysicalDescription: json?.hero?.physicalDescription,
   });
+
+  // Cache the composed implied-parent descriptor on the visualBible so the
+  // illustrator stage doesn't have to reconstruct it from supportingCast lock
+  // fields per spread. Built once here at planning time; consumed by
+  // buildIllustrationSpec.js → buildSpreadTurn (CHARACTER ANCHOR block).
+  const impliedParent = composeImpliedParentDescriptor(supportingCast);
   const visualBible = {
     hero: json.hero || null,
     outfitLocks: json.outfitLocks || null,
     supportingCastPolicy: json.supportingCastPolicy || null,
     supportingCast,
+    impliedParent,
     environmentAnchors: Array.isArray(json.environmentAnchors) ? json.environmentAnchors.map(String) : [],
     palette: String(json.palette || '').trim(),
     styleRules: Array.isArray(json.styleRules) ? json.styleRules.map(String) : [],
@@ -257,6 +264,34 @@ function ensureThemedParentBible(ctx) {
       ? 'a plain gold band on the left ring finger (and no other jewelry)'
       : 'a simple casual wristwatch on the left wrist (and no other jewelry)';
   }
+}
+
+/**
+ * Compose a single locked descriptor for the implied parent (when not on
+ * cover) by reading the partialPresenceLock fields off the themed-parent
+ * supportingCast entry. Built once at planning time and cached on
+ * `visualBible.impliedParent.descriptor` so the illustrator stage doesn't
+ * have to reconstruct it for every spread render.
+ *
+ * Returns null if no themed off-cover parent entry exists (non-parent themes,
+ * or parent is on cover — both correct).
+ *
+ * @param {Array<object>} supportingCast
+ * @returns {{ descriptor: string, lock: object } | null}
+ */
+function composeImpliedParentDescriptor(supportingCast) {
+  if (!Array.isArray(supportingCast)) return null;
+  const themed = supportingCast.find(c => c?.isThemedParent === true && c?.onCover !== true);
+  if (!themed) return null;
+  const lock = themed.partialPresenceLock || {};
+  const parts = [
+    lock.skinTone ? `skin: ${lock.skinTone}` : '',
+    lock.hand ? `hand: ${lock.hand}` : '',
+    lock.sleeve ? `sleeve/outfit: ${lock.sleeve}` : '',
+    lock.signatureProp ? `signature: ${lock.signatureProp}` : '',
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return { descriptor: parts.join('; '), lock };
 }
 
 module.exports = { createVisualBible };

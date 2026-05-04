@@ -183,10 +183,12 @@ function buildIllustrationSpec(doc, spread) {
     || (visualBible.supportingCast || []).some(c => c?.onCover === true && c?.isThemedParent === true)
   );
 
-  // Implied-parent descriptor: built once per book at planning time (4.3) and
-  // persisted on the doc. Until that lands, fall back to the partial-presence
-  // lock fields on the supportingCast entry for the themed parent.
-  let impliedParentDescriptor = doc.impliedParent?.descriptor || undefined;
+  // Implied-parent descriptor: built once per book at planning time
+  // (createVisualBible.js → composeImpliedParentDescriptor) and cached on
+  // visualBible.impliedParent. Falls back to a per-call reconstruction from
+  // supportingCast lock fields for backwards compatibility with older book
+  // documents (e.g. resumed checkpoints written before E.3 landed).
+  let impliedParentDescriptor = visualBible.impliedParent?.descriptor || undefined;
   if (!impliedParentDescriptor) {
     const themedParent = (visualBible.supportingCast || []).find(c => c?.isThemedParent === true && c?.onCover !== true);
     if (themedParent) {
@@ -220,10 +222,11 @@ function buildIllustrationSpec(doc, spread) {
     hasSecondaryOnCover,
     additionalCoverCharacters,
     impliedParentDescriptor,
-    // Per-beat composition stage direction. Comes from the plot-template beat
-    // (mothers_day.js / fathers_day.js) when present; undefined for non-parent
-    // themes. Drives buildParentVisibilityReminder in prompt.js.
-    parentVisibility: spec?.parentVisibility || spread.beat?.parentVisibility,
+    // Per-beat composition stage direction. Comes from the spread spec
+    // (createSpreadSpecs.js — emitted by the LLM for parent themes, with a
+    // deterministic fallback per spread number when omitted). Drives
+    // buildParentVisibilityReminder in prompt.js. Null for non-parent themes.
+    parentVisibility: spec?.parentVisibility || null,
   };
 }
 

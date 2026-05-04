@@ -7,16 +7,52 @@
  * those themes and ban the clichés by name.
  *
  * Every directive returns:
- *   - framing:         one strong sentence that reorients the theme
- *   - mustInclude:     specific creative moves that reshape the story
- *   - bannedCliches:   tropes the book must not use
- *   - adventureHooks:  concrete setting/activity ideas the planner can pick from
+ *   - framing:             one strong sentence that reorients the theme
+ *   - mustInclude:         specific creative moves that reshape the story
+ *   - bannedCliches:       tropes the book must not use
+ *   - adventureHooks:      concrete setting/activity ideas the planner can pick from
+ *   - qualityBar:          (parent themes) numbered writing-craft items every
+ *                          parent-theme book must satisfy. The writer is free
+ *                          to invent the arc; the bar applies regardless. The
+ *                          parent-theme analogue of birthday's saturation rule
+ *                          plus adventure's default quest spine — gives parent
+ *                          books the same craft-level lift those themes get
+ *                          for free from the default planner system prompt.
+ *   - peakMomentPatterns:  (parent themes) menu of valid emotional-peak shapes
+ *                          the writer can pick from when satisfying qualityBar
+ *                          item #3. Inspiration, not requirement.
  *
  * Parent-centric themes (mother's day, father's day, grandparents day, etc.)
  * always resolve to a *shared adventure* — the parent is a co-hero, not the
  * passive recipient of a gift. The "gift" in these books is the shared memory
  * itself, not a handmade card or breakfast tray.
  */
+
+// Shared 9-item quality bar applied to every parent-theme book at planner
+// time. Mirrors birthday's "saturation rule" and adventure's "quest with
+// stakes" defaults. Brought into the bookPipeline planner via
+// renderThemeDirectiveBlock so it actually shapes storyBible output.
+const PARENT_THEME_QUALITY_BAR = [
+  'SPINE — by spread 3 the reader can identify the day\'s through-line: a specific shared mission, project, journey, surprise being prepared, skill being learned, place being reached, thing being made/fixed/found/given, ritual being passed. NOT a list of pleasant tableaux.',
+  'RISING STAKES — something is at risk (small and warm is fine; absent is not): a surprise being spoiled, a project failing, the right thing not being found in time. Around spread 4–5 the day hits a small hitch and the pair pivots together.',
+  'EARNED PEAK MOMENT — somewhere in spreads 7–10 there is ONE beat that is the emotional climax, image-led, fewest words. Pick a pattern from peakMomentPatterns or invent past it. Do NOT default to "child leans against parent".',
+  'PARENT\'S FACE CHANGES ONCE — at least one beat where the parent visibly receives the bond: eyes shine, hand to heart, breath catches, laugh breaks. The child sees they landed. Without this, the love letter has no addressee.',
+  'ECHO TRANSFORMED — spread 13 is a vivid awake echo of spread 1, transformed by the day\'s bond (the morning ritual returning but now the CHILD initiates it; the same window, now holding the gift on the sill; the same handshake, now child-led). Concrete tableau. Daylight or warm lamp glow. NOT bedtime.',
+  'BOND SATURATION — every spread carries at least one parent-specific detail (an in-joke, a ritual, a gesture only THIS pair shares — drawn from the personalization snapshot). Vary the detail spread to spread.',
+  'LOCATION VARIETY — at least 4 distinct named places across the 13 spreads, unless the personalization snapshot centers home routines.',
+  'ONE BOND-MIRROR BEAT — somewhere mid-book the world recognizes the pair: the regular bus driver waves like always, the corner cat finds her usual spot between them, the bakery owner already has the small treat ready, the breeze tugs both their scarves the same way. ONE beat, not pervasive — the parent-theme analogue of how an adventure book has the world respond to the hero.',
+  'ANECDOTES DRIVE THE SPINE — the mission, the peak moment, the in-jokes, the echo are all pulled from the personalization snapshot. The structure provides the slots; the answers fill them. Generic = wasted gift book.',
+];
+
+const PARENT_THEME_PEAK_MOMENT_PATTERNS = [
+  'A GIVING — child presents something prepared (gift, song, drawing, meal, letter).',
+  'A REACHING — pair finally arrives at the place / completes the project they started.',
+  'A REVEAL — surprise unveiled, secret shared, photo presented, name on the plaque.',
+  'A SHARED FIRST — first ride, first try, first time crossing the street alone with parent watching.',
+  'A QUIET RECOGNITION — wordless moment where both realize what the day has been (silhouettes overlapping, hands on the same object, two pairs of feet under one quilt, child catching parent\'s eye in the mirror).',
+  'A RETURNED GESTURE — the parent\'s signature ritual now initiated by the child (the handshake, the song, the wink, the way of asking).',
+  'A CULMINATION OF ACCUMULATED EFFORT — the recipe finishes, the building stands, the seed sprouts, the puzzle\'s last piece clicks.',
+];
 
 // Shared parent-as-co-hero adventure for themes where Mom/Dad may be off-cover
 // (partial presence) or full-figure when the approved cover shows them.
@@ -36,6 +72,8 @@ const PARENT_SHARED_ADVENTURE = {
 const MOTHERS_DAY_DIRECTIVE = {
   framing:
     `${PARENT_SHARED_ADVENTURE.framing}\n\nLove to Mom — lean on interests, anecdotes, and customDetails for missions, companions, props, and settings.`,
+  qualityBar: PARENT_THEME_QUALITY_BAR,
+  peakMomentPatterns: PARENT_THEME_PEAK_MOMENT_PATTERNS,
   mustInclude: [
     'a bold imaginative through-line grounded first in personalization (toy, sport, joke, ritual, pet, hobby) — sea, lanterns, prism play, lighthouse tales, ribbons, melodies, glowing guides, ALL allowed when organic to the questionnaire',
     'at least 4 DISTINCT vivid worlds or stops',
@@ -76,6 +114,8 @@ const THEME_DIRECTIVES = {
   mothers_day: MOTHERS_DAY_DIRECTIVE,
   fathers_day: {
     ...PARENT_SHARED_ADVENTURE,
+    qualityBar: PARENT_THEME_QUALITY_BAR,
+    peakMomentPatterns: PARENT_THEME_PEAK_MOMENT_PATTERNS,
     bannedCliches: [
       'necktie gift / handing Dad a tie',
       'BBQ / grilling burgers as the whole plot',
@@ -103,6 +143,8 @@ const THEME_DIRECTIVES = {
   },
   grandparents_day: {
     ...PARENT_SHARED_ADVENTURE,
+    qualityBar: PARENT_THEME_QUALITY_BAR,
+    peakMomentPatterns: PARENT_THEME_PEAK_MOMENT_PATTERNS,
     framing:
       "A shared adventure between the child and grandparent(s). The grandparent is a co-hero with their own beats, not a nostalgic observer. The payoff is a shared experience, not a card or framed photo.",
     bannedCliches: [
@@ -160,7 +202,7 @@ function getThemeDirective(theme) {
 function renderThemeDirectiveBlock(theme) {
   const d = getThemeDirective(theme);
   if (!d) return '';
-  return [
+  const lines = [
     `THEME DIRECTIVE — ${theme}:`,
     `  FRAMING: ${d.framing}`,
     '  MUST INCLUDE:',
@@ -169,7 +211,20 @@ function renderThemeDirectiveBlock(theme) {
     ...d.bannedCliches.map(s => `    - ${s}`),
     '  ADVENTURE HOOKS (pick or improvise on — do not copy verbatim):',
     ...d.adventureHooks.map(s => `    - ${s}`),
-  ].join('\n');
+  ];
+  if (Array.isArray(d.qualityBar) && d.qualityBar.length > 0) {
+    lines.push(
+      '  PARENT-THEME QUALITY BAR (the writer is free to invent the arc; every item below must be satisfied — these are non-negotiable craft requirements that bring this theme up to the level of birthday and adventure books):',
+      ...d.qualityBar.map((s, i) => `    ${i + 1}. ${s}`),
+    );
+  }
+  if (Array.isArray(d.peakMomentPatterns) && d.peakMomentPatterns.length > 0) {
+    lines.push(
+      '  PEAK-MOMENT PATTERNS (menu for qualityBar item #3 — pick one, blend two, or invent past it; not a mandate):',
+      ...d.peakMomentPatterns.map(s => `    - ${s}`),
+    );
+  }
+  return lines.join('\n');
 }
 
 module.exports = {

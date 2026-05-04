@@ -1,6 +1,17 @@
 /**
  * Father's Day plot templates — 12 structurally distinct story arcs.
  *
+ * SCOPE (important): These plot templates are consumed ONLY by `WriterEngine`
+ * (services/writer/engine.js), which today is invoked exclusively from the
+ * `POST /qa/generate-story` SSE endpoint in server.js (admin / QA tool).
+ * The customer-facing book generation pipeline goes through
+ * `services/bookPipeline/*` and does NOT consume these templates — see
+ * `services/bookPipeline/planner/themeDirectives.js` for the parent-theme
+ * guidance the production planner actually reads.
+ *
+ * If you want a change to affect customer books, edit themeDirectives.js, not
+ * this file.
+ *
  * Each template returns 13 spreads in 4-scene (A/B/C/D) grouping.
  * opts: { child, isYoung, wt, parentName, book, theme }
  *
