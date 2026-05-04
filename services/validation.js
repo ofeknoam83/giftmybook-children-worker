@@ -241,6 +241,7 @@ function validateGenerateBookRequest(body) {
     emotionalParentGoal: body.emotionalParentGoal || null,
     copingResourceHint: sanitizeForPrompt(body.copingResourceHint || '', 500),
     confirmedCharacters: Array.isArray(body.confirmedCharacters) ? body.confirmedCharacters : null,
+    coverParentPresent: typeof body.coverParentPresent === 'boolean' ? body.coverParentPresent : undefined,
   };
 
   return { valid: true, errors: [], sanitized };

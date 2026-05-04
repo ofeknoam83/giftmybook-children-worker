@@ -43,6 +43,14 @@ const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const QA_REJECT_LOG_EXPECTED_CHARS = 500;
 
+/**
+ * Spread indexes (0-based) at which the first attempt re-attaches the cover image.
+ * Mirrors `SCHEDULED_REANCHOR_INDEXES` in renderAllSpreads.js. In the quad path
+ * a batch covers TWO spreads (e.g. spreads 5 + 6 = indexes 4, 5); we re-anchor
+ * a batch when EITHER of its two spread indexes is in this set.
+ */
+const SCHEDULED_REANCHOR_INDEXES = new Set([4, 8, 11]);
+
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
 const TRANSIENT_EMPTY_IMAGE_MAX_DELAY_MS = 25000;
@@ -175,7 +183,8 @@ async function processQuadPair(params) {
         || lastTags.includes('outfit_mismatch')
         || lastTags.includes('hair_continuity_drift')
         || lastTags.includes('outfit_continuity_drift')
-        || lastTags.includes('implied_parent_skin_mismatch'));
+        || lastTags.includes('implied_parent_skin_mismatch')
+        || lastTags.includes('implied_parent_outfit_drift'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
       let image;
@@ -196,8 +205,25 @@ async function processQuadPair(params) {
             childAge: currentDoc.brief?.child?.age ?? null,
             quadBatchIndex,
             heroAppearance: hero,
+            coverParentPresent: specA.coverParentPresent,
+            hasSecondaryOnCover: specA.hasSecondaryOnCover,
+            impliedParentDescriptor: specA.impliedParentDescriptor,
+            parentVisibilityA: specA.parentVisibility,
+            parentVisibilityB: specB.parentVisibility,
           });
-          image = await generateSpread(currentSession, turn, specA.spreadIndex, quadGenOpts());
+          // Schedule a cover re-anchor on the first attempt if this batch covers a
+          // strategic spread (mid/late book) — same drift-protection trigger as the
+          // legacy single-spread path, adjusted to fire when either of the two
+          // spreads in this batch hits the threshold.
+          const scheduledReanchor = SCHEDULED_REANCHOR_INDEXES.has(specA.spreadIndex)
+            || SCHEDULED_REANCHOR_INDEXES.has(specB.spreadIndex);
+          image = await generateSpread(currentSession, turn, specA.spreadIndex, {
+            ...quadGenOpts(),
+            reanchorCover: scheduledReanchor,
+          });
+          if (scheduledReanchor) {
+            console.log(`[${logTagQuad}] scheduled cover re-anchor on quad batch (spreads ${specA.spreadIndex + 1}, ${specB.spreadIndex + 1})`);
+          }
         } else {
           const correction = buildDualCorrectionTurn({
             spreadIndexA: specA.spreadIndex,
@@ -216,6 +242,11 @@ async function processQuadPair(params) {
             childAge: currentDoc.brief?.child?.age ?? null,
             quadBatchIndex,
             heroAppearance: hero,
+            coverParentPresent: specA.coverParentPresent,
+            hasSecondaryOnCover: specA.hasSecondaryOnCover,
+            impliedParentDescriptor: specA.impliedParentDescriptor,
+            parentVisibilityA: specA.parentVisibility,
+            parentVisibilityB: specB.parentVisibility,
           });
           if (reanchorThisTurn) {
             console.log(`[${logTagQuad}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
@@ -361,7 +392,10 @@ async function processQuadPair(params) {
         .filter(c => c?.description)
         .map(c => `${c.role || 'person'}${c.name ? ` (${c.name})` : ''}: ${c.description}`)
         .join('; ') || null;
-      const coverParentPresent = false;
+      const coverParentPresent = !!(
+        currentDoc.brief?.coverParentPresent
+        || supportingCast.some(c => c?.onCover === true && c?.isThemedParent === true)
+      );
 
       const recentInteriorRefs = pickRecentInteriorRefsForQa(
         currentSession.acceptedSpreads,
@@ -609,14 +643,20 @@ async function renderAllSpreadsQuad(doc) {
     ].join('\n')
     : null;
 
+  const coverParentPresentDoc = !!(
+    doc.brief?.coverParentPresent
+    || sessionCast.some(c => c?.onCover === true && c?.isThemedParent === true)
+  );
+  const hasSecondaryOnCoverDoc = sessionCast.some(c => c?.onCover === true);
+
   let session = createSession({
     coverBase64: cover.base64,
     coverMime: cover.mime,
     theme: doc.request.theme,
     childAppearance: doc.visualBible?.hero?.physicalDescription || '',
     childAge: doc.brief?.child?.age ?? null,
-    hasParentOnCover: false,
-    hasSecondaryOnCover: false,
+    hasParentOnCover: coverParentPresentDoc,
+    hasSecondaryOnCover: hasSecondaryOnCoverDoc,
     additionalCoverCharacters: offCoverCastNote,
     abortSignal: doc.operationalContext?.abortSignal,
     quadSpreadMode: true,

@@ -1,6 +1,19 @@
 /**
  * Love to mom plot templates — 12 structurally distinct story arcs.
  *
+ * SCOPE (important): These plot templates are consumed ONLY by `WriterEngine`
+ * (services/writer/engine.js), which today is invoked exclusively from the
+ * `POST /qa/generate-story` SSE endpoint in server.js (admin / QA tool).
+ * The customer-facing book generation pipeline goes through
+ * `services/bookPipeline/*` and does NOT consume these templates — see
+ * `services/bookPipeline/planner/themeDirectives.js` for the parent-theme
+ * guidance the production planner actually reads (qualityBar +
+ * peakMomentPatterns landed there in Workstream E).
+ *
+ * If you want a change to affect customer books, edit themeDirectives.js, not
+ * this file. If you want a change to affect the QA streaming preview only,
+ * edit here.
+ *
  * Each template returns 13 spreads in 4-scene (A/B/C/D) grouping.
  * opts: { child, isYoung, wt, parentName, book, theme }
  *
@@ -11,25 +24,38 @@ module.exports = [
   {
     id: 'classic_journey',
     name: 'Classic Journey',
-    synopsis: 'Mom and child share a morning at home, journey together to a special place, find joy at their destination, and return home glowing with connection.',
+    synopsis: 'Mom and child set out on a small but specific shared mission — to deliver, fetch, plant, or place one particular thing at one particular spot — and the day turns the errand into a love letter, with the child leading them home and giving Mom a small surprise that lives on the windowsill afterward.',
     beats: (opts) => {
       const { child, wt } = opts;
       const n = child.name;
       const p = opts.parentName || 'Mama';
       return [
-        { spread: 1,  beat: 'HOME_OPENING',      description: `Place ${n} and ${p} in a moment at home — a shared glance, a morning ritual, something vivid and particular. At home.`, wordTarget: wt },
-        { spread: 2,  beat: 'SETTING_OUT',        description: `${n} and ${p} leave the house together. The world opens up. ${p} holds ${n}'s hand or walks side by side. Leaving home.`, wordTarget: wt + 2 },
-        { spread: 3,  beat: 'JOURNEY',            description: `On the way — through streets, past shops, under trees. ${p} points out things. ${n} notices things ${p} misses. Walking together.`, wordTarget: wt + 2 },
-        { spread: 4,  beat: 'ARRIVAL',            description: `They arrive at the destination — a park, a café, a hillside, a waterfront. ${p}'s face lights up. "This is the place." Destination.`, wordTarget: wt + 2 },
-        { spread: 5,  beat: 'EXPLORING',          description: `${n} and ${p} explore together — tasting, touching, discovering. Use child's interests. Shared wonder at the destination.`, wordTarget: wt + 2 },
-        { spread: 6,  beat: 'PLAY_TOGETHER',      description: `Active play — ${p} chases ${n}, they splash in water, they race to a tree. ${p} is laughing just as hard. Maximum joy. Destination.`, wordTarget: wt + 2 },
-        { spread: 7,  beat: 'SHARED_TREAT',       description: `Sharing something — an ice cream, a sandwich packed that morning, fruit picked from a bush. Side by side, mouths full, happy. Destination.`, wordTarget: wt },
-        { spread: 8,  beat: 'QUIET_TOGETHER',     description: `The quietest moment — ${n} leans against ${p}. No words needed. The warmth between them is the whole picture. Fewest words. Destination.`, wordTarget: opts.isYoung ? 12 : 15 },
-        { spread: 9,  beat: 'DISCOVERY',          description: `They find something unexpected — a hidden garden, a funny sign, a bird doing something silly. Shared delight. Destination.`, wordTarget: wt + 2 },
-        { spread: 10, beat: 'HEADING_HOME',       description: `Time to go. ${n} and ${p} walk back slowly, neither wanting the day to end. The shadows are longer now. Heading home.`, wordTarget: wt + 2 },
-        { spread: 11, beat: 'HOME_GLOW',          description: `Back home, everything feels warmer. ${p} and ${n} settle in. The day lives in their smiles. At home.`, wordTarget: wt },
-        { spread: 12, beat: 'CONNECTION',         description: `${n} does something small for ${p} — a drawing, a hug, a whispered "today was the best." ${p}'s eyes shine. NOT bedtime. At home.`, wordTarget: wt },
-        { spread: 13, beat: 'CLOSING',            description: `The last line. Echo the opening. The best days are the ones spent side by side. Warm, bright, together.`, wordTarget: opts.isYoung ? 12 : 15 },
+        // 1. HOME_OPENING — name the SHARED MISSION + a parent-specific morning ritual (anecdote slot).
+        { spread: 1,  beat: 'HOME_OPENING_RITUAL', description: `Morning at home. ${p} is doing the small ritual only this pair shares (humming a specific tune, setting down a particular mug, tying shoes a particular way — pull from the questionnaire). ${p} looks up: "Today's the day we go." The day has a clear shared mission — name a SPECIFIC small errand they're heading out to do together (carry the loaf to the bench by the river, plant the seed in the windowsill pot at home, deliver the drawing to a neighbor, pick the right flower for the kitchen jar). Vivid, sensory, the opener echoes again at spread 13. At home.`, wordTarget: wt, parentVisibility: 'full' },
+        // 2. SETTING_OUT — mission tools in hand; the world greets them.
+        { spread: 2,  beat: 'SETTING_OUT_TOGETHER', description: `${n} and ${p} step out the front door, mission tools in hand (the basket, the thermos, the folded note, the small map, the seed packet). Same shared mission as spread 1 — they're not just "going somewhere", they're going to do that ONE thing. The street greets them. Leaving home.`, wordTarget: wt + 2, parentVisibility: 'full' },
+        // 3. JOURNEY_DETAIL — the in-joke / shared eye (anecdote slot).
+        { spread: 3,  beat: 'JOURNEY_INJOKE',     description: `Walking together — sidewalk, shops, trees. ${n} points at the thing only this pair notices (the cracked tile they always step over, the curtain in the upstairs window, the dog they always wave at). ${p} laughs the laugh they share. The bond is being SHOWN, not stated.`, wordTarget: wt + 2, parentVisibility: 'shoulder-back' },
+        // 4. SMALL HITCH — rising stakes that matter to the bond.
+        { spread: 4,  beat: 'SMALL_HITCH',        description: `A small thing goes wrong with the mission — the bakery line is long, the bench they were heading for is taken, the seed packet got crinkled, the flower they wanted is wilted. ${p} catches ${n}'s eye and raises an eyebrow. Real (small) stakes — will they still pull this off?`, wordTarget: wt + 2, parentVisibility: 'full' },
+        // 5. PIVOT TOGETHER — they solve it together with a parent-specific twist.
+        { spread: 5,  beat: 'PIVOT_TOGETHER',     description: `They pivot together. ${n} suggests something only ${n} would suggest (the silly route, the second flower, the workaround ${p} would never think of). ${p}'s grin says "yes, that". They take the new way. Hands at work — tucking the note, picking the better flower, choosing the next street.`, wordTarget: wt + 2, parentVisibility: 'hand' },
+        // 6. BOND-MIRROR BEAT — the world recognizes the pair.
+        { spread: 6,  beat: 'WORLD_KNOWS_THEM',   description: `On the way, the world recognizes them. Pick ONE: the regular bus driver waves like always, the corner cat finds her usual spot between their feet, the bakery owner already has the small treat ready in a paper bag, the breeze tugs both their scarves the same way. The pair is part of this neighborhood and the neighborhood knows them. One beat, not pervasive.`, wordTarget: wt + 2, parentVisibility: 'shoulder-back' },
+        // 7. DESTINATION REACHED — quiet, smaller than the build-up.
+        { spread: 7,  beat: 'DESTINATION_REACHED', description: `They arrive at the specific spot named in spread 1. It is smaller and simpler than the build-up suggested — one bench, one gate, one baker's counter, one sunny patch of windowsill. ${p} kneels or sits; ${n} mirrors. The mission is right here.`, wordTarget: wt, parentVisibility: 'full' },
+        // 8. BOND_PEAK — the WONDER beat, image-led, fewest words. Quiet recognition pattern.
+        { spread: 8,  beat: 'BOND_PEAK',          description: `The quietest beat in the book — and the most beautiful image. Choose ONE single visual that crystallizes the bond: ${n}'s and ${p}'s silhouettes overlap on a sunlit wall as they lean toward each other; both hands rest on the same flower / loaf / drawing at the same moment; their two reflections hold one shape in a window; one shoelace and one apron tie meet in the same knot in the lap. Image-led. Fewest words. The whole day fits inside this picture. Same place as spread 7.`, wordTarget: opts.isYoung ? 12 : 15, parentVisibility: 'shadow' },
+        // 9. CHILD_LEADS_BACK — the agency turn. Child uses what they know about the parent.
+        { spread: 9,  beat: 'CHILD_LEADS_BACK',   description: `${n} takes ${p}'s hand and announces the way home — and chooses the route ${p} loves (the long way past the bookshop window, the back path under the maple, the shortcut through the school yard). ${n} is leading because ${n} knows ${p}. The day's emotional weight pivots: ${n} becomes the one carrying ${p}.`, wordTarget: wt + 2, parentVisibility: 'hand' },
+        // 10. THE GIVING / REVEAL — payoff of the secret tucked in the child's pocket since spread 2.
+        { spread: 10, beat: 'THE_GIVING',         description: `At the doorstep — or the kitchen window, the bench, the bedroom shelf — ${n} reveals the small secret they have been carrying since this morning: a folded drawing, a flower picked back at the corner, the receipt slipped into ${p}'s pocket, the photo ${n} took with the phone earlier. Held out with both hands. The mission's real payoff lands here.`, wordTarget: wt + 2, parentVisibility: 'full' },
+        // 11. PARENT'S FACE CHANGES — visible reception. Works whether parent is on cover or implied.
+        { spread: 11, beat: 'PARENT_RESPONSE',    description: `${p}'s response. If ${p} is on the cover, render the face: eyes shining, hand to heart, the breath that catches before words. If ${p} is implied, render the same beat through what we CAN see — ${p}'s hand pressed to chest, the cardigan rising and falling, ${n} watching their face glow. Either way, ${n} sees that they landed. This is the emotional climax.`, wordTarget: wt, parentVisibility: 'full' },
+        // 12. TOGETHER IN THE AFTERGLOW — the gift placed where it will live.
+        { spread: 12, beat: 'TOGETHER_AFTERGLOW',  description: `They're together in the afterglow of the giving. The flower is in the jar on the windowsill, the drawing is on the fridge, the seed is in the pot, the photo is in the frame on the shelf. ${n} and ${p} look at it side by side, shoulders touching. The mission's tangible payoff is now part of the home. NOT bedtime. At home.`, wordTarget: wt, parentVisibility: 'full' },
+        // 13. ECHO TRANSFORMED — same morning ritual as spread 1, but now child initiates it.
+        { spread: 13, beat: 'ECHO_TRANSFORMED',   description: `The closing image. Echo the spread-1 morning ritual — but transformed: ${n} now does the thing ${p} did this morning (hums the tune, sets the mug down, ties the shoe the way ${p} does), and ${p} watches with the expression ${n} woke up to. The ritual passed between them today and now belongs to both. The most beautiful sentence. Daylight or warm lamp glow. NOT bedtime.`, wordTarget: opts.isYoung ? 12 : 15, parentVisibility: 'full' },
       ];
     },
   },

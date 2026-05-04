@@ -407,6 +407,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
     childAge,
     abortSignal,
     log,
+    parentVisibility,
+    impliedParentDescriptor,
   } = ctx;
 
   let rebuildsUsed = 0;
@@ -439,6 +441,8 @@ async function _generateSpreadWithQa(sessionRef, ctx) {
         coverParentPresent,
         additionalCoverCharacters,
         childAge,
+        parentVisibility,
+        impliedParentDescriptor,
       };
       const promptText = isFirst
         ? buildSpreadTurn(spreadCtx)

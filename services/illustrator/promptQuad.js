@@ -9,7 +9,7 @@ const {
   PARENT_THEMES,
   resolveSideAndCorner,
 } = require('./config');
-const { buildTextBlock } = require('./prompt');
+const { buildTextBlock, buildCharacterAnchorBlock, buildParentVisibilityReminder } = require('./prompt');
 
 function oppositeSide(side) {
   return side === 'left' ? 'right' : 'left';
@@ -32,6 +32,11 @@ function oppositeSide(side) {
  * @param {number} [opts.quadBatchIndex] - 0-based batch index within the book
  * @param {string} [opts.correctionNote]
  * @param {string} [opts.heroAppearance] - visual bible hero physical description; repeated every batch for hair/outfit lock
+ * @param {boolean} [opts.coverParentPresent] - Themed parent (mom/dad/grandparent) visible on the approved cover.
+ * @param {boolean} [opts.hasSecondaryOnCover] - Any non-child person is on the cover.
+ * @param {string} [opts.impliedParentDescriptor] - Locked implied-parent descriptor (skin, sleeve, accessories).
+ * @param {string} [opts.parentVisibilityA] - How the themed parent should appear on spread A.
+ * @param {string} [opts.parentVisibilityB] - How the themed parent should appear on spread B.
  * @returns {string}
  */
 function buildDualSpreadTurn(opts) {
@@ -72,6 +77,29 @@ function buildDualSpreadTurn(opts) {
   const themeStr = typeof theme === 'string' ? theme.trim() : '';
   const isParentTheme = themeStr && PARENT_THEMES.has(themeStr);
 
+  // Build character anchor block for parent-theme identity locking (re-pasted
+  // every batch — same drift-protection strategy as single-spread path).
+  const anchorBlock = buildCharacterAnchorBlock({
+    characterDescription: heroAppearance,
+    isParentTheme,
+    coverParentPresent: opts.coverParentPresent === true,
+    hasSecondaryOnCover: opts.hasSecondaryOnCover === true,
+    impliedParentDescriptor: opts.impliedParentDescriptor,
+    theme: themeStr,
+  });
+
+  // Per-half visibility stage directions (parent themes only).
+  const visibilityLineA = buildParentVisibilityReminder({
+    isParentTheme,
+    coverParentPresent: opts.coverParentPresent === true,
+    parentVisibility: opts.parentVisibilityA,
+  });
+  const visibilityLineB = buildParentVisibilityReminder({
+    isParentTheme,
+    coverParentPresent: opts.coverParentPresent === true,
+    parentVisibility: opts.parentVisibilityB,
+  });
+
   const reminderLines = [
     '### REMINDERS (4:1 DUAL — BOTH HALVES)',
     `- **One 4:1 frame:** LEFT half = spread ${numA} only; RIGHT half = spread ${numB} only. Story order left → right.`,
@@ -88,11 +116,6 @@ function buildDualSpreadTurn(opts) {
       `- **Longer read-aloud lines:** at most ${textRules.maxWordsPerLine} words per line per caption.`,
     );
   }
-  if (isParentTheme) {
-    reminderLines.push(
-      '- Parent theme: off-cover adults only as implied presence per system instruction — never invent a full parent face.',
-    );
-  }
 
   const heroBlock = typeof heroAppearance === 'string' && heroAppearance.trim()
     ? [
@@ -107,16 +130,19 @@ function buildDualSpreadTurn(opts) {
     `### QUAD BATCH ${quadBatchIndex + 1} — DUAL SPREADS ${numA} AND ${numB} of ${TOTAL_SPREADS} (one 4:1 image)`,
     '',
     ...heroBlock,
+    ...(anchorBlock ? [anchorBlock, ''] : []),
     `### LEFT HALF — SPREAD ${numA} of ${TOTAL_SPREADS} (this half is a complete 2:1 wide spread)`,
     '### SCENE',
     String(sceneA || '').trim(),
     '',
+    ...(visibilityLineA ? [visibilityLineA, ''] : []),
     buildTextBlock(textA, sideA, cornerA, textRules),
     '',
     `### RIGHT HALF — SPREAD ${numB} of ${TOTAL_SPREADS} (this half is a complete 2:1 wide spread)`,
     '### SCENE',
     String(sceneB || '').trim(),
     '',
+    ...(visibilityLineB ? [visibilityLineB, ''] : []),
     buildTextBlock(textB, sideB, cornerB, textRules),
     '',
     reminderLines.join('\n'),
@@ -147,6 +173,11 @@ function buildDualSpreadTurn(opts) {
  * @param {number|string|null} [opts.childAge]
  * @param {number} [opts.quadBatchIndex]
  * @param {string} [opts.heroAppearance]
+ * @param {boolean} [opts.coverParentPresent]
+ * @param {boolean} [opts.hasSecondaryOnCover]
+ * @param {string} [opts.impliedParentDescriptor]
+ * @param {string} [opts.parentVisibilityA]
+ * @param {string} [opts.parentVisibilityB]
  * @returns {string}
  */
 function buildDualCorrectionTurn(opts) {
@@ -173,6 +204,11 @@ function buildDualCorrectionTurn(opts) {
     childAge: opts.childAge,
     quadBatchIndex: opts.quadBatchIndex,
     heroAppearance: opts.heroAppearance,
+    coverParentPresent: opts.coverParentPresent,
+    hasSecondaryOnCover: opts.hasSecondaryOnCover,
+    impliedParentDescriptor: opts.impliedParentDescriptor,
+    parentVisibilityA: opts.parentVisibilityA,
+    parentVisibilityB: opts.parentVisibilityB,
     correctionNote: lines.join('\n'),
   });
 }

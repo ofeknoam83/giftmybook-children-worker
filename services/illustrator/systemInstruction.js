@@ -80,8 +80,9 @@ function buildSystemInstruction(opts) {
     : !!additionalCoverCharacters;
   const isParentTheme = PARENT_THEMES.has(theme);
   const isMother = theme === 'mothers_day';
-  const parentWord = isMother ? 'mother' : 'father';
-  const parentShort = isMother ? 'mom' : 'dad';
+  const isGrandparents = theme === 'grandparents_day';
+  const parentWord = isMother ? 'mother' : (isGrandparents ? 'grandparent' : 'father');
+  const parentShort = isMother ? 'mom' : (isGrandparents ? 'grandparent' : 'dad');
 
   const sections = [];
 
@@ -96,6 +97,16 @@ POSITIVE style: ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
 NEGATIVE style (FORBIDDEN — hard fail if any of these read on the image): ${PIXAR_STYLE.antiStyle}.
 
 Think: a still frame from a modern Disney-Pixar feature film (e.g. the visual language of Toy Story 4, Inside Out 2, Soul, Luca, Turning Red, Elemental) — NOT a traditional children's-book illustration with soft shading. Characters are real 3D models with surface depth, volumetric fur/hair, physically based cloth, ray-traced lighting, and a real shallow-focus camera — not flat painted figures on a painted background. The cover is the style ground truth: if you are ever torn between "CGI render" and "painterly illustration", go CGI.`
+  );
+
+  sections.push(
+`### CONSISTENCY CONTRACT (HARD FAIL — READ FIRST, RE-READ EVERY TURN)
+Identity is the contract of this book. Lighting, camera angle, mood, and weather may change between spreads. **Identity may not.**
+- The hero child's face shape, eye color, eye shape, hair color, hair length, hairstyle, skin tone, and skin undertone are IDENTICAL on every spread to the BOOK COVER. No drift, no aging up/down, no hairstyle change between spreads, no skin-tone shift between rooms or lighting.
+- The hero's outfit is the same garment system as the cover on every spread. Do NOT swap to a new outfit between spreads. Situational coverage (pajamas, swimwear, towel, snow coat) is allowed ONLY when the per-spread SCENE explicitly names it (e.g. "in the bathtub", "in pajamas", "in a swimsuit"). Otherwise: hold the cover outfit.
+- If a parent or recurring secondary character appears on the cover, their face, hair, build, and outfit are IDENTICAL on every spread. Not a remix, not a softer cousin, not a generic stock parent.
+- If a parent or recurring secondary character is implied (hand, shoulder, back-of-head, cropped torso), they are the SAME person across every spread they appear in: same skin tone, same sleeve color and fabric, same accessories (rings/watch/necklace), same hair glimpse when shown. Lock these on first appearance and keep them identical thereafter.
+- A reader flipping from spread 1 to spread 13 should be unable to tell anyone has changed except for the action of the moment.`
   );
 
   sections.push(
@@ -131,6 +142,7 @@ Face, hair, skin tone, and proportions still match the cover reference on every 
     hasParentOnCover,
     isParentTheme,
     isMother,
+    isGrandparents,
     parentWord,
     parentShort,
     parentOutfit,
@@ -205,6 +217,7 @@ function buildFamilyPolicySection(ctx) {
     hasParentOnCover,
     isParentTheme,
     isMother,
+    isGrandparents,
     parentWord,
     parentShort,
     parentOutfit,
@@ -212,6 +225,7 @@ function buildFamilyPolicySection(ctx) {
     childAppearance,
   } = ctx;
   const skinLock = impliedParentSkinToneLock(childAppearance);
+  const dayLabel = isMother ? "Mother's Day" : (isGrandparents ? "Grandparents' Day" : "Father's Day");
 
   const lines = ['### WHO MAY APPEAR ON SPREADS'];
 
@@ -262,7 +276,7 @@ The ${parentWord} is on the BOOK COVER. Interior frames must reuse the **exact s
   if (isParentTheme && !hasParentOnCover) {
     lines.push(
 `### THEMED PARENT POLICY (${parentWord.toUpperCase()} NOT ON COVER)
-This is a ${isMother ? "Mother's Day" : "Father's Day"} book and the ${parentWord} is NOT on the cover. When the story refers to "${parentShort}" / "${parentWord}", show them via IMPLIED PRESENCE only:
+This is a ${dayLabel} book and the ${parentWord} is NOT on the cover. When the story refers to "${parentShort}" / "${parentWord}", show them via IMPLIED PRESENCE only:
   • A hand entering frame (reading to the hero, holding a mug, adjusting a blanket).
   • The back of their head or a shoulder silhouette.
   • A cropped torso from chest-down, face out of frame.
@@ -273,9 +287,13 @@ ${IMPLIED_PRESENCE_ANCHORING_RULE}
 
 ${skinLock}`
     );
-    if (parentOutfit) {
-      lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head), they wear: ${parentOutfit}. This outfit is locked across every spread.`);
-    }
+    const lockedParentOutfit = parentOutfit
+      || (isMother
+        ? 'soft cardigan over a simple tee, jeans or a casual skirt, plain band on left ring finger, no other jewelry'
+        : (isGrandparents
+          ? 'comfortable everyday cardigan or zip fleece, slacks or casual trousers, reading glasses tucked in pocket or on a neck chain'
+          : 'henley or simple long-sleeve shirt, jeans, casual wristwatch on left wrist, no other jewelry'));
+    lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head, cropped torso), they wear: ${lockedParentOutfit}. This outfit and these accessories are LOCKED across every spread — same colors, same fabric, same jewelry. First-appearance details define the canonical look; later spreads must match.`);
   }
 
   lines.push(
@@ -461,8 +479,9 @@ function buildSystemInstructionQuad(opts) {
     : !!additionalCoverCharacters;
   const isParentTheme = PARENT_THEMES.has(theme);
   const isMother = theme === 'mothers_day';
-  const parentWord = isMother ? 'mother' : 'father';
-  const parentShort = isMother ? 'mom' : 'dad';
+  const isGrandparents = theme === 'grandparents_day';
+  const parentWord = isMother ? 'mother' : (isGrandparents ? 'grandparent' : 'father');
+  const parentShort = isMother ? 'mom' : (isGrandparents ? 'grandparent' : 'dad');
 
   const sections = [];
 
@@ -502,6 +521,7 @@ When the scene places the hero in a **bathtub**, **shower**, or **swimming pool*
     hasParentOnCover,
     isParentTheme,
     isMother,
+    isGrandparents,
     parentWord,
     parentShort,
     parentOutfit,

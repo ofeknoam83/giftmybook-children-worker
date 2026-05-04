@@ -182,9 +182,44 @@ async function normalizeRequest(raw, _opts = {}) {
       language: raw.language || 'en',
       locale: raw.locale || 'en-US',
     },
+    // Whether the themed parent (mom on Mother's Day, dad on Father's Day) is
+    // present on the approved cover. Authoritative source: the request payload
+    // (the standalone server sets this when it composes the cover prompt — see
+    // buildUpsellCoverPrompt LOVE TO MOM block which always shows Mom on the
+    // Love-to-mom cover; for Father's Day or other parent themes the cover
+    // generator chooses based on customer settings).
+    //
+    // Default for parent themes when caller didn't supply it:
+    //   - mothers_day → true  (Mom is mandated on Love-to-mom covers per
+    //                          coverGenerator.js:872 "LOVE TO MOM COVER ...
+    //                          MUST show BOTH child AND Mom together").
+    //   - fathers_day → false (no mandate; treat as off-cover unless caller says yes).
+    //   - other       → false.
+    //
+    // Reading order:
+    //   1. Explicit raw.coverParentPresent (boolean) wins.
+    //   2. Explicit snake_case raw.cover_parent_present (legacy callers) wins next.
+    //   3. Theme default applies otherwise.
+    coverParentPresent: resolveCoverParentPresent(raw, theme),
   };
 
   return { request, brief, cover };
+}
+
+/**
+ * Authoritatively decide whether the themed parent appears on the approved cover.
+ * Centralised so every downstream stage (createVisualBible, ensureThemedParentBible,
+ * createSpreadSpecs, buildIllustrationSpec) reads a single source of truth.
+ *
+ * @param {object} raw - the inbound /generate-book payload
+ * @param {string} theme
+ * @returns {boolean}
+ */
+function resolveCoverParentPresent(raw, theme) {
+  if (typeof raw?.coverParentPresent === 'boolean') return raw.coverParentPresent;
+  if (typeof raw?.cover_parent_present === 'boolean') return raw.cover_parent_present;
+  if (theme === 'mothers_day') return true;
+  return false;
 }
 
 module.exports = {

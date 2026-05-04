@@ -546,6 +546,17 @@ function getEmotionalBeatStructure(emotion, age, situation) {
    - Spread 20: FOR THE ADULT READING THIS — A note about the emotional approach used in this book and how to continue the conversation.`;
 }
 
+/**
+ * SCOPE: This file feeds `brainstormStorySeed`, `planChapterBook`, and
+ * `planGraphicNovel`. The CUSTOMER PICTURE-BOOK pipeline goes through
+ * `services/bookPipeline/*` and DOES NOT consume the output of
+ * brainstormStorySeed (server.js:1108 computes storySeed but does not pass it
+ * to generateBook at server.js:1270). The parent-theme directives the
+ * production picture-book planner actually reads live in
+ * `services/bookPipeline/planner/themeDirectives.js`. The mothers_day /
+ * fathers_day quality-bar blocks below therefore affect chapter books and
+ * graphic novels (and the legacy QA streaming endpoint), not picture books.
+ */
 function getThemeBeatStructure(theme, age) {
   const candleText = age ? `exactly ${age} candles` : 'the correct number of candles matching the child\'s age';
   switch (theme) {
@@ -670,6 +681,18 @@ function getThemeBeatStructure(theme, age) {
    TRANSITIONS: When locations change, the movement must be followable (not teleporting).
    ENDING: Spread 13 in daylight or bright warmth — concrete image, celebratory — NOT bedtime, NOT "heading home" as the only closing note unless the spine truly needs it.
 
+   PARENT-THEME QUALITY BAR (the writer is free to invent the arc; the bar applies regardless — every parent-theme book must satisfy these):
+   1. SPINE — by spread 3 the reader can identify the day's through-line: a specific shared mission, project, journey, surprise being prepared, skill being learned, place being reached, thing being made/fixed/found/given, ritual being passed. NOT a list of pleasant tableaux.
+   2. RISING STAKES — something is at risk (small and warm is fine, absent is not): a surprise being spoiled, a project failing, the right thing not being found in time, the bench taken, the bakery sold out. Around spread 4–5 the day hits a small hitch and the pair pivots together.
+   3. EARNED PEAK MOMENT — somewhere in spreads 7–10 there is ONE beat that is the emotional climax, image-led, fewest words. Pick a pattern: a giving (child presents something prepared), a reaching (pair finally arrives at the place / completes the project), a reveal (surprise unveiled, secret shared), a shared first, a quiet recognition (silhouettes overlapping, two hands on the same object, two reflections holding one shape, two pairs of feet under one quilt), a returned gesture (the parent's signature ritual now initiated by the child), or a culmination of accumulated effort. Do NOT default to "${'\${n}'} leans against ${'\${p}'}".
+   4. PARENT'S FACE CHANGES ONCE — at least one beat where the parent visibly receives the bond: eyes shine, hand to heart, breath catches, laugh breaks. The child sees they landed. Without this, the love letter has no addressee.
+   5. ECHO TRANSFORMED — spread 13 is a vivid awake echo of spread 1, transformed by the day's bond (the morning ritual returning but now the CHILD initiates it; the same window, now holding the gift on the sill; the same handshake, now child-led). Concrete tableau. Daylight or warm lamp glow. NOT bedtime.
+   6. BOND SATURATION — every spread carries at least one parent-specific detail (an in-joke, a shared ritual, a gesture only THIS pair shares — drawn from the questionnaire). Vary the detail spread to spread.
+   7. LOCATION VARIETY — at least 4 distinct named places across the 13 spreads, unless the questionnaire centers home routines.
+   8. ONE BOND-MIRROR BEAT — somewhere mid-book the world recognizes the pair: the regular bus driver waves like always, the corner cat finds her usual spot between them, the bakery owner already has the small treat ready, the breeze tugs both their scarves the same way. ONE beat, not pervasive — the parent-theme analogue of how an adventure book has the world respond to the hero.
+   9. ANECDOTES DRIVE THE SPINE — the mission, the peak moment, the in-jokes, the echo are all pulled from the questionnaire. The structure provides the slots; the answers fill them. Generic = wasted gift book.
+   ONE PERMITTED SOLO-PREP BEAT (optional): a single mid-book beat may briefly take the child out of frame from the parent (preparing a surprise, picking a flower secretly, placing a photo). The parent is not in this spread; the spread is entirely ABOUT the parent. Negative space makes the bond stronger.
+
    Each beat = one line naming WHERE (specific) and WHAT (action), tied to the narrative_spine you wrote above.`;
 
     case 'fathers_day':
@@ -683,6 +706,18 @@ function getThemeBeatStructure(theme, age) {
    ANTI-SLIDESHOW: Each beat causes the next — coherent through-line, not random vignettes.
    TRANSITIONS: When locations change, followable cause-and-effect.
    ENDING: Spread 13 — triumphant or deeply warm concrete image. NOT bedtime. NOT "heading home" as default filler unless the spine requires it.
+
+   PARENT-THEME QUALITY BAR (the writer is free to invent the arc; the bar applies regardless — every parent-theme book must satisfy these):
+   1. SPINE — by spread 3 the reader can identify the day's through-line: a specific shared mission, project, journey, surprise being prepared, skill being learned, place being reached, thing being made/fixed/found/given, ritual being passed. NOT a list of pleasant tableaux.
+   2. RISING STAKES — something is at risk (small and warm is fine, absent is not): a part missing from the project, the trail steeper than expected, the timer ticking, the surprise nearly spoiled. Around spread 4–5 the day hits a small hitch and the pair pivots together.
+   3. EARNED PEAK MOMENT — somewhere in spreads 7–10 there is ONE beat that is the emotional climax, image-led, fewest words. Pick a pattern: a giving (child presents something prepared), a reaching (pair reaches the summit / finishes the build), a reveal (the fix works, the engine starts), a shared first, a quiet recognition (silhouettes overlapping, two hands on the same tool, both pairs of work boots under the bench), a returned gesture (the dad's signature ritual now initiated by the child), or a culmination of accumulated effort. Do NOT default to "${'\${n}'} leans against ${'\${p}'}".
+   4. PARENT'S FACE CHANGES ONCE — at least one beat where the parent visibly receives the bond: eyes shine, hand to heart, breath catches, laugh breaks. The child sees they landed. Without this, the love letter has no addressee.
+   5. ECHO TRANSFORMED — spread 13 is a vivid awake echo of spread 1, transformed by the day's bond (the morning handshake returning but now the CHILD initiates it; the same workshop, now with the finished thing on the bench; the same trailhead, now with the boots side by side and dirty). Concrete tableau. Daylight or warm lamp glow. NOT bedtime.
+   6. BOND SATURATION — every spread carries at least one parent-specific detail (an in-joke, a shared ritual, a gesture only THIS pair shares — drawn from the questionnaire). Vary the detail spread to spread.
+   7. LOCATION VARIETY — at least 4 distinct named places across the 13 spreads, unless the questionnaire centers home routines.
+   8. ONE BOND-MIRROR BEAT — somewhere mid-book the world recognizes the pair: the neighbor at the workshop nods like always, the dog that always greets them at the park trots up, the regular cashier already has the receipt ready, the wind catches both their jackets the same way. ONE beat, not pervasive — the parent-theme analogue of how an adventure book has the world respond to the hero.
+   9. ANECDOTES DRIVE THE SPINE — the mission, the peak moment, the in-jokes, the echo are all pulled from the questionnaire. The structure provides the slots; the answers fill them. Generic = wasted gift book.
+   ONE PERMITTED SOLO-PREP BEAT (optional): a single mid-book beat may briefly take the child out of frame from the parent (preparing a surprise, hiding the gift, sneaking the photo). The parent is not in this spread; the spread is entirely ABOUT the parent. Negative space makes the bond stronger.
 
    Each beat = one line naming WHERE (specific) and WHAT (action), tied to the narrative_spine you wrote above.`;
 

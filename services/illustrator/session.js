@@ -224,14 +224,32 @@ async function establishCharacterReference(session) {
  * @param {IllustratorSession} session
  * @param {string} spreadPromptText - From prompt.js buildSpreadTurn()
  * @param {number} spreadIndex - 0-based
- * @param {{ aspectRatio?: string }} [genOpts] - defaults to 16:9; use 4:1 for dual-spread quad batches
+ * @param {{ aspectRatio?: string, reanchorCover?: boolean }} [genOpts]
+ *   - aspectRatio: defaults to 16:9; use 4:1 for dual-spread quad batches.
+ *   - reanchorCover: prepend the cover image (and a short re-anchor preamble)
+ *     to this turn. Used at strategic spreads (mid-book / late) to combat
+ *     compounding identity drift.
  * @returns {Promise<{imageBuffer: Buffer, imageBase64: string}>}
  */
 async function generateSpread(session, spreadPromptText, spreadIndex, genOpts = {}) {
   if (session.abandoned) throw new Error('Session abandoned — cannot generate');
 
   _trimHistoryToSlidingWindow(session);
-  const parts = [{ text: spreadPromptText }];
+
+  const parts = [];
+  // Optional: re-attach the cover image to this turn. Used at strategic spreads
+  // (mid-book and late) where Gemini increasingly anchors on its own prior
+  // interior outputs rather than the cover that was attached once at session
+  // establishment. Caller decides when to fire it (renderAllSpreads.js).
+  if (genOpts.reanchorCover && session.coverBase64) {
+    parts.push({
+      text: 'CHARACTER RE-ANCHOR — the approved BOOK COVER below is the canonical rendering of the hero child (and any cover characters). Match face shape, skin tone, hair color and texture, eye color, build, and outfit EXACTLY on the spread that follows. This is a reminder; the actual spread brief comes after the image.',
+    });
+    parts.push({
+      inline_data: { mimeType: session.coverMime, data: session.coverBase64 },
+    });
+  }
+  parts.push({ text: spreadPromptText });
 
   const aspectRatio = genOpts.aspectRatio || '16:9';
   const response = await _sendTurn(session, parts, { aspectRatio });
