@@ -81,6 +81,7 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
     hasChildPhoto: !!childPhoto,
     qaAllowedHumansNote: typeof opts.qaAllowedHumansNote === 'string' ? opts.qaAllowedHumansNote.trim() : '',
     recentInteriorCount: recentCount,
+    theme: typeof opts.theme === 'string' ? opts.theme : '',
   });
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
@@ -154,14 +155,18 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
   };
 }
 
+const PARENT_THEMES_QA = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
+
 function buildConsistencyPrompt({
   hasSecondaryOnCover,
   characterDescription,
   hasChildPhoto,
   qaAllowedHumansNote,
   recentInteriorCount,
+  theme,
 }) {
   const recent = typeof recentInteriorCount === 'number' && recentInteriorCount > 0 ? recentInteriorCount : 0;
+  const isParentTheme = PARENT_THEMES_QA.has(String(theme || '').toLowerCase());
   const desc = typeof characterDescription === 'string' && characterDescription.trim()
     ? ` Story-author reference (may clarify intent; COVER is still the render truth): ${characterDescription.trim()}`
     : '';
@@ -171,12 +176,19 @@ function buildConsistencyPrompt({
   const castNote = qaAllowedHumansNote
     ? `\n\nCAST / POLICY NOTE (from production — honor when judging explicitStranger): ${qaAllowedHumansNote}\nWhen this note lists customer-confirmed adults who are NOT drawn on the cover, those specific people may still appear as full figures if they match the descriptions. Do NOT flag them as explicitStranger. Still forbid random invented adults or crowds not covered by the note.`
     : '';
+  // Parent-theme picture books are gift products — hair drift on a printed
+  // gift book is a hard fail. Flip the "when uncertain prefer true" default
+  // for parent themes so even subtle hair-color or hair-length shifts trigger
+  // a regen. Non-parent themes keep the lenient default.
+  const continuityStrictness = isParentTheme
+    ? '**Strictness for this book (parent-theme gift product):** be STRICT on hair and outfit continuity — even small drifts are a failure on a printed gift book. When uncertain, prefer **false** (fail).'
+    : 'If uncertain, prefer **true**.';
   const continuityBlock = recent > 0
-    ? `\n\n**Continuity (${recent} recent approved interior image(s)):** Between COVER and CANDIDATE you see recent interiors in **story order** (oldest → newest). The CANDIDATE hero's **hair** and **outfit** should stay consistent with those references as well as the COVER (same child, same story-so-far look). Set **hairConsistentWithRecentInteriors** / **outfitConsistentWithRecentInteriors** to **false** only on **clear** drift vs the recent refs **or** the cover; lighting, angle, and partial occlusion are not failures. If uncertain, prefer **true**.`
+    ? `\n\n**Continuity (${recent} recent approved interior image(s)):** Between COVER and CANDIDATE you see recent interiors in **story order** (oldest → newest). The CANDIDATE hero's **hair** and **outfit** should stay consistent with those references as well as the COVER (same child, same story-so-far look). Set **hairConsistentWithRecentInteriors** / **outfitConsistentWithRecentInteriors** to **false** on **clear** drift vs the recent refs **or** the cover; lighting, angle, and partial occlusion are not failures. ${continuityStrictness}`
     : '';
   const continuitySchema = recent > 0 ? `,
-  "hairConsistentWithRecentInteriors": <true if the CANDIDATE hero's hair (color family, length, style) is clearly consistent with the RECENT interior reference images and the COVER; false only on clear mid-book drift; if uncertain, prefer true>,
-  "outfitConsistentWithRecentInteriors": <true if the CANDIDATE hero's visible outfit is clearly consistent with the RECENT interiors' clothing story and the COVER (situational swaps like pajamas/swim still OK if the scene supports it); if uncertain, prefer true>,
+  "hairConsistentWithRecentInteriors": <true if the CANDIDATE hero's hair (color family, length, style) is clearly consistent with the RECENT interior reference images and the COVER; false on clear mid-book drift${isParentTheme ? '; for this parent-theme gift book, also false on subtle drift — when uncertain prefer false' : '; if uncertain, prefer true'}>,
+  "outfitConsistentWithRecentInteriors": <true if the CANDIDATE hero's visible outfit is clearly consistent with the RECENT interiors' clothing story and the COVER (situational swaps like pajamas/swim still OK if the scene supports it)${isParentTheme ? '; for this parent-theme gift book, prefer false when uncertain' : '; if uncertain, prefer true'}>,
   "hairContinuityNotes": "<short or empty>",
   "outfitContinuityNotes": "<short or empty>"` : '';
 
@@ -198,13 +210,15 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "heroBodyConnected": <true if the hero's body reads as ONE single continuous anatomy: head → neck → shoulders → torso → hips → legs → feet are all attached in one clean silhouette, the upper-body garment visibly connects to the lower-body garment on the same torso, and there are no floating "ghost" torsos, no stray extra pairs of legs/shorts/shoes rendered beside the hero, no visible body-segmentation seam, no two overlapping halves of the child. False if the child reads as two misaligned halves (e.g. an upper body in one pose on one side and a disembodied pair of legs/shorts standing beside them), if the shirt/top does NOT connect to the pants/shorts/skirt on the same body, or if an extra torso/legs ghosts next to the main figure. When clearly connected, true; when clearly broken, false; when unclear, prefer true.>,
   "heroBodyConnectedNotes": "<short description if heroBodyConnected is false (e.g. 'upper body in white shirt on left, disconnected legs in blue shorts standing to the right'), else empty string>",
   "splitPanel": <true if the spread looks like two separate illustrations joined together: visible vertical seam or "hard line" down the middle; abrupt change in lighting, color grade, perspective, or art style at center; background elements that do not align across the midline; a person or large object cut off unnaturally at center as if the right half were a different render; two different skies/horizons meeting at center. FALSE for a single coherent wide scene where the middle is just open garden/path/sky with natural continuity.>,
-  "explicitStranger": <true ONLY if the CANDIDATE shows a non-child human's FULL FACE or a FULL-BODY adult figure that is forbidden by the policy above AND not covered by the CAST / POLICY NOTE. ${hasSecondaryOnCover ? 'Adults visible on the cover are allowed to appear fully — they are NOT strangers.' : 'When no adult is on the cover AND no policy note allows extra named adults, a fully-rendered adult (face visible, or full body figure) is a failure.'} Two full adults (e.g. a man and a woman) pushing a stroller ONLY fails if they are not allowed by the cast note. Hands, arms, back-of-head, a shoulder, or a cropped torso with the face out of frame are NOT explicit — do not flag those as strangers. A full-body adult seen from the back (face not visible) still counts as a full-body adult figure — treat as explicitStranger true unless the cast note explicitly allows that person. Distant, soft silhouettes without facial detail are usually NOT strangers unless they read as two full parents beside the child.>,
+  "explicitStranger": <true ONLY if the CANDIDATE shows a non-child human's FULL FACE or a FULL-BODY adult figure that is forbidden by the policy above AND not covered by the CAST / POLICY NOTE. ${hasSecondaryOnCover ? 'Adults visible on the cover are allowed to appear fully — they are NOT strangers.' : 'When no adult is on the cover AND no policy note allows extra named adults, a fully-rendered adult (face visible, or full body figure) is a HARD FAILURE for this book — when uncertain, prefer **true**. The whole point of this book\'s policy is that the parent is implied only; any visible parent face on an interior spread is a violation, not an artistic choice.'} Two full adults (e.g. a man and a woman) pushing a stroller ONLY fails if they are not allowed by the cast note. Hands, arms, back-of-head, a shoulder, or a cropped torso with the face out of frame are NOT explicit — do not flag those as strangers. A full-body adult seen from the back (face not visible) still counts as a full-body adult figure — treat as explicitStranger true unless the cast note explicitly allows that person. Distant, soft silhouettes without facial detail are usually NOT strangers unless they read as two full parents beside the child.>,
   "strangerDescription": "<short description of the explicit stranger (full face or full body), or empty>",
   "recurringItemConcerns": "<empty string, or a short note if a previously-introduced item (pet, toy, accessory) appears with a clearly different design from how it would be established in the book's reference cover>",
   "impliedParentSkinMismatch": <true ONLY if the CANDIDATE shows visible skin on an implied adult's partial body (hands, forearms, legs, arms) AND that skin is clearly inconsistent with the hero child's skin tone on the COVER (e.g. clearly different ethnicity or a large tone gap — such as dark brown adult hands with a fair-skinned child on the cover). false if no partial adult skin is visible, or skin matches plausibly for a parent and child, or comparison is unclear — when unclear, prefer false.>,
   "impliedParentSkinNotes": "<short note if impliedParentSkinMismatch is true, else empty string>",
   "impliedParentOutfitDrift": <true ONLY if RECENT APPROVED INTERIORS are present AND the CANDIDATE shows an implied parent (visible sleeve/cuff fragment, visible jewelry on a hand, or visible cropped-torso garment) whose sleeve color, fabric, or signature accessory (ring/watch/necklace) clearly does NOT match what the implied parent wore on the recent interior references. false if no recent interiors, or the implied parent does not appear in this spread, or the implied parent appearance is consistent, or comparison is unclear — when unclear, prefer false.>,
   "impliedParentOutfitNotes": "<short note if impliedParentOutfitDrift is true (e.g. 'previous spreads showed a mauve cardigan, this spread shows a navy jacket'), else empty string>",
+  "fullBodyParentSkinMismatch": <true ONLY if the CANDIDATE shows a fully-rendered adult (full face or full body in frame, not a partial implied limb) AND that adult's visible skin tone clearly differs from the hero child's skin tone on the COVER. The hero and any visible adult should read as the same family unless the brief explicitly declares different ethnicity. Triggers regardless of whether the adult is "allowed" to appear fully — this catches both off-cover-parent policy violations AND on-cover parents whose interior render drifted to a different skin tone. false when no full adult is visible, or skin tones plausibly match for parent/child of the same family, or comparison is unclear — when unclear, prefer false.>,
+  "fullBodyParentSkinNotes": "<short note if fullBodyParentSkinMismatch is true (e.g. 'visible adult in scene has medium skin tone but the hero child on cover is fair-skinned'), else empty string>",
   "disembodiedLimb": <true ONLY if the CANDIDATE shows a partial-presence limb (hand, arm, shoulder) that looks UNCANNY: a hand or arm floating in mid-frame with no visible path to a body, a limb that does not enter from a frame edge or from behind a foreground object, a limb whose off-frame body would be physically impossible for the staging, an extra/duplicated limb, a ghostly second arm, or a silhouette pasted at an obviously wrong depth/scale. false if any visible limb clearly continues off the edge of the frame in a believable way (wrist + forearm + sleeve continuing off-screen) and an off-frame body is plausible for the composition (e.g. parent seated beside the child, kneeling above, leaning over a railing). When unclear, prefer false.>,
   "disembodiedLimbNotes": "<short note if disembodiedLimb is true (which limb, why it reads as floating), else empty string>",
   "parentTurnedAway": <true ONLY if a mother or father appears in the CANDIDATE (full figure OR partial presence — visible limb or silhouette) AND their body language is clearly disconnected from the hero child in a way that reads as unnatural for a children's book: the parent's back is turned to the child with no narrative reason, the parent is walking away from the child, the parent is looking off into empty space while the child is behind them, or (for partial presence) the implied hand/arm extends AWAY from the child instead of toward them. false if the parent is oriented toward the child, leaning in, holding the child, sharing the child's focus on a shared object, walking ALONGSIDE the child, leading the child by the hand in profile, or both facing a shared focus together (fireworks, sunset, cake). false if no parent is in the frame. When unclear, prefer false.>,
@@ -269,6 +283,11 @@ function evaluateConsistencyResult(parsed, recentInteriorCount = 0) {
     const notes = (parsed.impliedParentOutfitNotes || '').trim();
     issues.push(`Implied parent's outfit/accessory drifted vs recent approved interiors${notes ? `: ${notes}` : ''}`);
     tags.push('implied_parent_outfit_drift');
+  }
+  if (parsed.fullBodyParentSkinMismatch === true) {
+    const notes = (parsed.fullBodyParentSkinNotes || '').trim();
+    issues.push(`Visible full-body adult skin tone does not match the hero child on the cover${notes ? `: ${notes}` : ''}`);
+    tags.push('full_body_parent_skin_mismatch');
   }
   if (parsed.disembodiedLimb === true) {
     const notes = (parsed.disembodiedLimbNotes || '').trim();

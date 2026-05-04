@@ -49,7 +49,7 @@ const QA_REJECT_LOG_EXPECTED_CHARS = 500;
  * a batch covers TWO spreads (e.g. spreads 5 + 6 = indexes 4, 5); we re-anchor
  * a batch when EITHER of its two spread indexes is in this set.
  */
-const SCHEDULED_REANCHOR_INDEXES = new Set([4, 8, 11]);
+const SCHEDULED_REANCHOR_INDEXES = new Set([2, 5, 8, 11]);
 
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
@@ -184,7 +184,9 @@ async function processQuadPair(params) {
         || lastTags.includes('hair_continuity_drift')
         || lastTags.includes('outfit_continuity_drift')
         || lastTags.includes('implied_parent_skin_mismatch')
-        || lastTags.includes('implied_parent_outfit_drift'));
+        || lastTags.includes('implied_parent_outfit_drift')
+        || lastTags.includes('full_body_parent_skin_mismatch')
+        || lastTags.includes('unexpected_person'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
       let image;
@@ -412,6 +414,7 @@ async function processQuadPair(params) {
           hero,
           additionalCoverCharacters,
           coverParentPresent,
+          theme: specA.theme,
           spreadIndex: specA.spreadIndex,
           recentInteriorRefs,
           abortSignal: currentDoc.operationalContext?.abortSignal,
@@ -423,6 +426,7 @@ async function processQuadPair(params) {
           hero,
           additionalCoverCharacters,
           coverParentPresent,
+          theme: specB.theme,
           spreadIndex: specB.spreadIndex,
           recentInteriorRefs,
           abortSignal: currentDoc.operationalContext?.abortSignal,

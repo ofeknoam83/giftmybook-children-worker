@@ -61,12 +61,15 @@ const QA_REJECT_LOG_MAX_ISSUES_JSON_CHARS = 24000;
 /**
  * Spread indexes (0-based) at which the first attempt re-attaches the cover image.
  * Used to combat compounding identity drift in long chat sessions. Intentionally
- * sparse — every-turn re-attach raises Gemini's safety-block rate.
- *   - 4  → spread 5 (mid-book check-in, before the peak beats)
+ * sparse — every-turn re-attach raises Gemini's safety-block rate. Tightened
+ * from {4, 8, 11} to start earlier (spread 3) because in test books hair drift
+ * was already detectable by spread 3-4, before the original first re-anchor fired.
+ *   - 2  → spread 3 (early hair/face anchor before drift compounds)
+ *   - 5  → spread 6 (mid-book check-in)
  *   - 8  → spread 9 (the wonder/peak beat — a high-leverage anchor moment)
  *   - 11 → spread 12 (late-book, where chat-memory drift is largest)
  */
-const SCHEDULED_REANCHOR_INDEXES = new Set([4, 8, 11]);
+const SCHEDULED_REANCHOR_INDEXES = new Set([2, 5, 8, 11]);
 const QA_REJECT_LOG_OCR_CHARS = 600;
 const QA_REJECT_LOG_EXPECTED_CHARS = 500;
 
@@ -221,7 +224,9 @@ async function processOneSpread(params) {
         || lastTags.includes('hair_continuity_drift')
         || lastTags.includes('outfit_continuity_drift')
         || lastTags.includes('implied_parent_skin_mismatch')
-        || lastTags.includes('implied_parent_outfit_drift'));
+        || lastTags.includes('implied_parent_outfit_drift')
+        || lastTags.includes('full_body_parent_skin_mismatch')
+        || lastTags.includes('unexpected_person'));
       const reanchorThisTurn = needsReanchor && !suppressReanchorOnce;
 
       let image;
@@ -445,6 +450,7 @@ async function processOneSpread(params) {
         hero,
         additionalCoverCharacters,
         coverParentPresent,
+        theme: spec.theme,
         spreadIndex: spec.spreadIndex,
         recentInteriorRefs,
         abortSignal: currentDoc.operationalContext?.abortSignal,
