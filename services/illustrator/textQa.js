@@ -236,6 +236,7 @@ function buildOcrPrompt({ expectedText, expectedSide, anyExpected }) {
   "rightText": "<only the text whose horizontal bounding-box MIDPOINT is strictly in the RIGHT half (x > 0.5)>",
   "centerText": "<text whose bounding box overlaps the center band (x ∈ [${activeMax.toFixed(3)}, ${(1 - activeMax).toFixed(3)}])>",
   "crossesMidline": <true if ANY single text block has a bounding box that spans from x < ${activeMax.toFixed(3)} to x > ${(1 - activeMax).toFixed(3)}, otherwise false>,
+  "textBlockOverflow": <true if ANY text block's bounding box extends past the active-side boundary into the central no-text zone — even if it doesn't fully cross to the opposite side. Active side is "${expectedSide.toUpperCase()}". On LEFT-side captions: any portion of any text past x=${activeMax.toFixed(3)} fails (the caption must stay entirely in x ∈ [0, ${activeMax.toFixed(3)}]). On RIGHT-side captions: any portion below x=${(1 - activeMax).toFixed(3)} fails (the caption must stay entirely in x ∈ [${(1 - activeMax).toFixed(3)}, 1]). False otherwise. When uncertain, prefer false.>,
   "textOnBothSides": <true if there is text whose bbox is entirely in x < 0.5 AND text whose bbox is entirely in x > 0.5, otherwise false>,
   "fontLooksPlainBookSerif": <true ONLY if the text is rendered in an upright, plain book serif (Georgia / Book Antiqua style). Return false if the text is handwritten, script, cursive, calligraphic, italic, bold display, rounded bubble, decorative, Comic Sans, Papyrus, or any marker/chalk/crayon style.>
 }
@@ -268,6 +269,7 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
   const rightOcr = String(parsed.rightText || '').trim();
   const centerOcr = String(parsed.centerText || '').trim();
   const crossesMidline = !!parsed.crossesMidline;
+  const textBlockOverflow = !!parsed.textBlockOverflow;
   const textOnBothSides = !!parsed.textOnBothSides;
   const fontOk = parsed.fontLooksPlainBookSerif !== false; // missing -> treat as OK (fail-safe on infra)
 
@@ -292,6 +294,10 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
   if (crossesMidline) {
     issues.push('A text block crosses the midline (spans left↔right)');
     tags.push('text_crosses_midline');
+  }
+  if (textBlockOverflow) {
+    issues.push(`Text block extends past the active-side boundary into the center zone (caption must stay entirely on the ${expectedSide.toUpperCase()} side)`);
+    if (!tags.includes('text_crosses_midline')) tags.push('text_crosses_midline');
   }
   if (textOnBothSides || oppositeOcr) {
     issues.push(

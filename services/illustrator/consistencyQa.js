@@ -192,7 +192,7 @@ function buildConsistencyPrompt({
   "hairContinuityNotes": "<short or empty>",
   "outfitContinuityNotes": "<short or empty>"` : '';
 
-  return `You are a quality reviewer comparing the BOOK COVER to a generated interior SPREAD (CANDIDATE — **last image** in this message). Images may include optional real photo (IMAGE 0), then COVER, then optional RECENT APPROVED INTERIORS, then CANDIDATE. Both COVER and CANDIDATE should read as frames from the same 3D CGI Pixar **feature-film** children's book — photoreal subsurface skin scattering, rendered hair strands, physically based materials, volumetric ray-traced lighting, real optical depth-of-field. NOT a 2D illustration, NOT a painted children's book illustration, NOT a photograph.${photoNote}${desc}${castNote}${continuityBlock}
+  return `You are a quality reviewer comparing the BOOK COVER to a generated interior SPREAD (CANDIDATE — **last image** in this message). Images may include optional real photo (IMAGE 0), then COVER, then optional RECENT APPROVED INTERIORS, then CANDIDATE. Both COVER and CANDIDATE should read as frames from the SAME RENDERING TRADITION — whatever rendering tradition the cover uses (3D CGI / 2D illustration / painted / watercolor / gouache / digital painting). Style consistency between cover and interiors is the contract; the cover is the single visual style ground truth.${photoNote}${desc}${castNote}${continuityBlock}
 
 Judgment style: fail heroChildMatches or outfitMatches only on a **clear** mismatch. If uncertain, prefer **true** (pass). Differences in **lighting, shadow, wrinkle/fold, viewing angle, foreshortening, or partial occlusion** are NOT outfit failures. Baby vs older toddler: not an automatic fail for identity — only fail on clearly different hair color family, face shape, skin tone, or a clearly different child.
 
@@ -204,8 +204,8 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "heroChildMatches": <true if the CANDIDATE spread hero is clearly the same identity as the child on the COVER — same face, ethnicity, skin tone, hair color/style, eye color, within normal illustration variance>,
   "heroChildDifferences": "<short description of any visible differences, or empty string>",
   "outfitMatches": <true per the OUTFIT rules above; prefer true when in doubt.>,
-  "artStyleIs3DPixar": <true if the CANDIDATE reads as a 3D CGI Pixar-film frame with REAL volumetric 3D rendering — photoreal subsurface skin scattering, rendered hair strands (not painted hair shapes), physically based materials (real fabric weave, real wood grain, real foliage volume), ray-traced volumetric lighting, and genuine optical depth-of-field. False if the CANDIDATE reads as ANY of: a real photograph, stock photo, 2D flat illustration, soft painted children's-book illustration, watercolor, gouache, pencil sketch, ink-and-wash, anime cel-shading, paper cutout, pixel art, digital painting, or "illustrated storybook" with flat painted background + soft shaded figures. Faces with flat painted-looking skin, hair that reads as painted shapes instead of strands, or a background that reads as a flat painted image with blur (instead of a real 3D environment with lens bokeh) = false.>,
-  "artStyleNotes": "<short description if artStyleIs3DPixar is false — e.g. 'skin and hair read as painted illustration, not 3D CGI', 'background is a flat painted image with blur, not a 3D environment'>",
+  "artStyleMatchesCover": <true if the CANDIDATE spread visually reads as the SAME RENDERING TRADITION as the COVER — same surface treatment (whatever the cover shows: 3D CGI / 2D illustration / painted / watercolor / gouache / digital painting), same shading approach, same hair-rendering approach (rendered strands vs painted shapes — match the cover), same materials, same lighting language, same level of detail. Lighting / camera angle / mood may differ between spread and cover; rendering tradition must not. False ONLY when the spread's rendering tradition CLEARLY differs from the cover's (e.g., cover is 3D CGI but spread reads as 2D painted illustration; cover is painted but spread reads as photoreal CGI). When uncertain, prefer true. Real photographs are always false (a book illustration is never a real photograph).>,
+  "artStyleNotes": "<short description if artStyleMatchesCover is false — e.g. 'cover reads as 3D CGI but spread reads as flat painted illustration', 'cover is painted but spread reads as photoreal CGI'>",
   "heroCount": <integer — how many copies of the hero child appear in the spread. 1 is correct; 2+ is a duplicated-hero bug>,
   "heroBodyConnected": <true if the hero's body reads as ONE single continuous anatomy: head → neck → shoulders → torso → hips → legs → feet are all attached in one clean silhouette, the upper-body garment visibly connects to the lower-body garment on the same torso, and there are no floating "ghost" torsos, no stray extra pairs of legs/shorts/shoes rendered beside the hero, no visible body-segmentation seam, no two overlapping halves of the child. False if the child reads as two misaligned halves (e.g. an upper body in one pose on one side and a disembodied pair of legs/shorts standing beside them), if the shirt/top does NOT connect to the pants/shorts/skirt on the same body, or if an extra torso/legs ghosts next to the main figure. When clearly connected, true; when clearly broken, false; when unclear, prefer true.>,
   "heroBodyConnectedNotes": "<short description if heroBodyConnected is false (e.g. 'upper body in white shirt on left, disconnected legs in blue shorts standing to the right'), else empty string>",
@@ -227,7 +227,7 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "bathModestyNotes": "<empty or short note if bathModestyOk is false>"${continuitySchema}
 }
 
-Be strict on art style — drift toward a "soft painted storybook illustration" look is a fail even if it is CGI-ish. The bar is "frame from a modern Pixar feature film", not "premium children's-book illustration". Photo-realistic drift and duplicated-hero / diptych seams are also fails. Be conservative on face matching — do not mark heroChildMatches false over minor or ambiguous differences. Return ONLY the JSON.`;
+Style judgment: compare spread to cover, not to an external bar. If the spread's rendering tradition clearly differs from the cover's (e.g. cover is 3D CGI but spread reads as soft painted storybook; or cover is painted but spread reads as photoreal CGI), set artStyleMatchesCover=false. If the spread's rendering tradition matches the cover's — even if the cover itself happens to be a softer painted style — set artStyleMatchesCover=true. Photo-realistic drift (a real photograph) is always a fail; a book illustration is never a photograph regardless of cover style. Duplicated-hero / diptych seams are also fails. Be conservative on face matching — do not mark heroChildMatches false over minor or ambiguous differences. Return ONLY the JSON.`;
 }
 
 /**
@@ -247,9 +247,9 @@ function evaluateConsistencyResult(parsed, recentInteriorCount = 0) {
     issues.push('Hero outfit differs from the cover (and not an explicit situational swap)');
     tags.push('outfit_mismatch');
   }
-  if (parsed.artStyleIs3DPixar === false) {
+  if (parsed.artStyleMatchesCover === false) {
     const notes = (parsed.artStyleNotes || '').trim();
-    issues.push(`Art style drifts from 3D Pixar${notes ? `: ${notes}` : ''}`);
+    issues.push(`Spread's rendering tradition does not match the BOOK COVER${notes ? `: ${notes}` : ''}`);
     tags.push('style_drift');
   }
   if (Number(parsed.heroCount) > 1) {
