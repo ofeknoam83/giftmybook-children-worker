@@ -48,6 +48,9 @@ function validateStoryBible(doc) {
   if (!Array.isArray(sb.personalizationTargets) || sb.personalizationTargets.length === 0) {
     issues.push('storyBible.personalizationTargets empty');
   }
+  if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 3) {
+    issues.push('storyBible.cinematicLocations must have at least 3 specific photogenic settings (with time-of-day and weather)');
+  }
   return issues;
 }
 

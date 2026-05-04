@@ -31,6 +31,7 @@ Hard rules:
 - The hero is the child provided in the brief. The approved cover is already chosen; the cover locks the hero's look and outfit.
 - Do not invent named family members that are not in the brief. Do not turn the child into a stand-in for any family member.
 - **Personalization tie-in (when PERSONALIZATION SNAPSHOT has interests, questionnaire lines, or substantive custom details):** \`narrativeSpine\`, \`middleEscalation\`, at least half of \`personalizationTargets\`, the primary companion or quest object, and \`visualJourneySpine\` must clearly echo at least one concrete item from that snapshot. If the snapshot is nearly empty, inventive generic adventure is OK for adventure / fantasy / space / sea themes. **For parent themes (mother's day / father's day / grandparents day) and birthday, even with a thin snapshot, you must NOT default to the theme's cultural prop set** — the through-line must be a CONCRETE SHARED ACTIVITY in a CONCRETE PLACE (a specific errand, a specific build, a specific reach, a specific outing to a specific named place). It may not be a generic gift-giving sequence, a ribbon trail, a heart-and-bouquet collage, a breakfast tray, or any culturally pre-formed token of the holiday. The personalization may be sparse but the spine must still be a real journey with cause and effect.
+- **Parent themes are adventure books with an emotional spine (additive, not subtractive):** treat parent themes the same way you treat adventure themes for plot construction — same standards for cinematic locations, causal bridges, recurring visual motifs, surprise, and anti-template variety. The parent rail adds emotional anchoring **on top**; it does not lower the adventure bar. The hero/parent bond is the EMOTIONAL spine of the book, not the STRUCTURAL one — the structural spine is still a concrete journey with cause and effect, multiple distinct photogenic locations, and earned escalation. A parent theme that ends up smaller in scope or quieter in stakes than an adventure book has failed.
 - **Sensory spine for parent themes:** for mother's day / father's day / grandparents day, the spine must carry at least ONE sensory anchor that recurs across multiple spreads — a specific scent, a specific sound, a specific texture, a specific temperature, or a specific weight. Examples: the smell of a certain bread, the squeak of a particular gate, the cold of a specific bench, the weight of a satchel, the hush of an empty hall. Generic emotional gestures (a warm hug, a smile, a happy heart) are NOT sensory anchors. Add the chosen sensory motif to \`recurringVisualMotifs\` so the writer has something specific to ground every spread in (taste / touch / sound / smell / temperature) instead of abstract emotional verbs.
 - Return ONLY strict JSON matching the schema in the user message.`;
 
@@ -71,6 +72,7 @@ function userPrompt(doc) {
   "themeGuidance": "one sentence: how ${request.theme} shows up without being on-the-nose",
   "personalizationTargets": ["3-6 specific custom-detail hooks the book must use"],
   "locationStrategy": "one sentence: a travel spine across at least 4 visually distinct, photogenic places",
+  "cinematicLocations": ["3-5 specific photogenic settings the book MUST visit. Use real location types with time-of-day and weather (e.g. a coastal lighthouse at dusk, a market square strung with lanterns at twilight, a hilltop with a single tree under racing clouds, a tide pool at low tide in morning fog). No generic 'park' or 'garden' — name the time of day AND the weather/light."],
   "visualJourneySpine": "2-4 sentences: the causal thread that connects those places into ONE story — the mission, object, quest, or escalation that justifies each move. Make the chain clear enough that spread-to-spread transitions feel earned, not random.",
   "recurringVisualMotifs": ["3-5 concrete motifs — prefer cues from personalization snapshot before generic luminous trails"],
   "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"]
@@ -107,6 +109,7 @@ async function createStoryBible(doc) {
     themeGuidance: String(json.themeGuidance || '').trim(),
     personalizationTargets: Array.isArray(json.personalizationTargets) ? json.personalizationTargets.map(String) : [],
     locationStrategy: String(json.locationStrategy || '').trim(),
+    cinematicLocations: Array.isArray(json.cinematicLocations) ? json.cinematicLocations.map(String) : [],
     visualJourneySpine: String(json.visualJourneySpine || '').trim(),
     recurringVisualMotifs: Array.isArray(json.recurringVisualMotifs) ? json.recurringVisualMotifs.map(String) : [],
     forbiddenMoves: Array.isArray(json.forbiddenMoves) ? json.forbiddenMoves.map(String) : [],
