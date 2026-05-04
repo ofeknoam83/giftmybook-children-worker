@@ -314,11 +314,19 @@ function buildCharacterAnchorBlock(opts) {
   const desc = typeof opts.characterDescription === 'string' ? opts.characterDescription.trim() : '';
   const lines = ['### CHARACTER ANCHOR (RE-LOCK EVERY SPREAD — IDENTITY MUST NOT DRIFT)'];
 
-  lines.push(
-    desc
-      ? `- Hero: ${desc}. Match face, hair, eyes, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads.`
-      : '- Hero: match face, hair, eyes, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads.',
-  );
+  if (desc) {
+    // Restate the literal visualBible hero appearance + outfit (already
+    // assembled in buildIllustrationSpec.js from hero.physicalDescription
+    // and hero.outfitDescription) on every spread. The model anchors more
+    // reliably on these literal values than on "match the cover" alone,
+    // especially after several interior spreads when chat memory is dominated
+    // by its own prior outputs rather than the cover.
+    lines.push(`- Hero ground truth (LITERAL — match every value exactly): ${desc}`);
+    lines.push('- HAIR / EYES / SKIN LOCK: hair color, hair length, hair style, eye color, and skin tone are IDENTICAL on every spread to the BOOK COVER and to every earlier accepted interior spread. No subtle shift between spreads. No "slightly different brown". No length change. No styled vs. messy variation between spreads unless the SCENE explicitly justifies it.');
+    lines.push('- OUTFIT LOCK: same garment family, same colors, same silhouette as the cover. Situational swaps (pajamas, swimwear, towel, snow coat) are allowed ONLY when this spread\'s SCENE block explicitly names that situation.');
+  } else {
+    lines.push('- Hero: match face, hair, hair length, hair style, eye color, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads. Hair color and length must be identical on every spread.');
+  }
 
   if (opts.isParentTheme) {
     if (opts.coverParentPresent) {
@@ -532,6 +540,11 @@ function buildTagDirectives(tags, opts) {
   if (set.has('implied_parent_outfit_drift')) {
     out.push(
       'Implied parent outfit drifted between spreads. The parent\'s visible sleeve color/fabric and signature accessory (ring/watch/necklace) MUST be IDENTICAL on every spread they appear in. Re-render this spread\'s implied-parent fragment to match the locked descriptor in the system instruction and the version that appeared in earlier accepted interior spreads.',
+    );
+  }
+  if (set.has('full_body_parent_skin_mismatch')) {
+    out.push(
+      'A visible adult in this spread has a skin tone that clearly differs from the hero child\'s skin tone on the BOOK COVER. Adults sharing a frame with the hero must read as the same family — match the hero\'s skin tone and undertone exactly. Re-render the adult with the correct skin tone, or (per the parent-not-on-cover policy) replace the full adult figure with implied presence (hand / shoulder / cropped torso / shadow / object) so the wrong-looking adult is no longer in frame.',
     );
   }
   if (set.has('split_panel')) {

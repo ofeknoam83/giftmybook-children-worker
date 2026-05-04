@@ -20,6 +20,9 @@ const { checkSpreadConsistency } = require('../../illustrator/consistencyQa');
  *   that QA should allow to appear even though they are not on the cover
  * @param {boolean} [params.coverParentPresent] - true if the approved cover
  *   itself depicts a secondary (parent/sibling) in addition to the hero
+ * @param {string} [params.theme] - book theme; parent themes (mothers_day /
+ *   fathers_day / grandparents_day) trigger stricter hair/outfit continuity
+ *   thresholds in consistencyQa.
  * @param {number} params.spreadIndex - 0-based
  * @param {Array<{ base64: string, mimeType?: string, spreadNumber?: number }>} [params.recentInteriorRefs]
  *   Recent accepted interiors for continuity QA (hair/outfit vs story-so-far).
@@ -34,6 +37,7 @@ async function checkSpread(params) {
     hero,
     additionalCoverCharacters,
     coverParentPresent,
+    theme,
     spreadIndex,
     recentInteriorRefs,
     abortSignal,
@@ -61,6 +65,7 @@ async function checkSpread(params) {
         qaAllowedHumansNote: '',
         recentInteriorRefs,
         abortSignal,
+        theme,
       },
     ).catch(err => ({
       pass: false,

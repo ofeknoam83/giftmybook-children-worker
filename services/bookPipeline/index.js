@@ -3,15 +3,16 @@
  *
  * Single public entry point: `generateBook`. Owns the full lifecycle:
  *   0. normalize request              (input/normalizeRequest)
- *   1. create storyBible              (planner/createStoryBible)
- *   2. create visualBible             (planner/createVisualBible)
- *   3. create spreadSpecs             (planner/createSpreadSpecs)
- *   4. draft manuscript               (writer/draftBookText)
- *   5. writer QA + targeted rewrites  (writer/rewriteBookText + qa/checkWriterDraft)
- *   6. render spreads in order        (illustrator/renderSpread + continuityMemory)
- *   7. per-spread QA + repair         (qa/checkSpread + qa/planRepair)
- *   8. book-wide QA + late repair     (qa/checkBookWide + qa/planRepair)
- *   9. layout adapter + callbacks     (adapters/toLayoutPayload)
+ *   1. detect cover composition       (planner/detectCoverComposition)
+ *   2. create storyBible              (planner/createStoryBible)
+ *   3. create visualBible             (planner/createVisualBible)
+ *   4. create spreadSpecs             (planner/createSpreadSpecs)
+ *   5. draft manuscript               (writer/draftBookText)
+ *   6. writer QA + targeted rewrites  (writer/rewriteBookText + qa/checkWriterDraft)
+ *   7. render spreads in order        (illustrator/renderSpread + continuityMemory)
+ *   8. per-spread QA + repair         (qa/checkSpread + qa/planRepair)
+ *   9. book-wide QA + late repair     (qa/checkBookWide + qa/planRepair)
+ *  10. layout adapter + callbacks     (adapters/toLayoutPayload)
  *
  * The external API contract (`/generate-book` in server.js) stays stable.
  * This module replaces the internals end-to-end.
@@ -36,6 +37,7 @@ const {
 const { FAILURE_CODES, getIllustrationRenderer } = require('./constants');
 
 const { normalizeRequest } = require('./input/normalizeRequest');
+const { detectCoverComposition } = require('./planner/detectCoverComposition');
 const { createStoryBible } = require('./planner/createStoryBible');
 const { createVisualBible } = require('./planner/createVisualBible');
 const { createSpreadSpecs } = require('./planner/createSpreadSpecs');
@@ -179,6 +181,13 @@ async function generateBook(rawRequest, opts = {}) {
     });
   }
   doc = appendStageTrace(doc, { name: 'input', durationMs: 0 });
+
+  // Authoritative cover composition detection. Runs BEFORE storyBible/
+  // visualBible so every downstream stage reads a verified
+  // brief.coverParentPresent. Failure mode is safe (false fallback) — see
+  // detectCoverComposition for precedence rules.
+  reportProgress(doc, { step: 'planning', message: 'Detecting cover composition' });
+  doc = await runStage(doc, 'coverComposition', () => detectCoverComposition(doc), null, FAILURE_CODES.PLAN_UNRESOLVABLE);
 
   reportProgress(doc, { step: 'planning', message: 'Creating story bible' });
   doc = await runStage(doc, 'storyBible', () => createStoryBible(doc), validateStoryBible, FAILURE_CODES.PLAN_UNRESOLVABLE);
