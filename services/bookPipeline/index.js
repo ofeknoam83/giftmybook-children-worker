@@ -46,6 +46,7 @@ const { writerQaAndRewrite } = require('./writer/rewriteBookText');
 const { renderAllSpreads } = require('./illustrator/renderAllSpreads');
 const { renderAllSpreadsQuad } = require('./illustrator/renderAllSpreadsQuad');
 const { runBookWideQa } = require('./qa/checkBookWide');
+const { validateRecurringProps } = require('./qa/validateRecurringProps');
 const { toLayoutPayload } = require('./adapters/toLayoutPayload');
 
 class PipelineError extends Error {
@@ -197,6 +198,29 @@ async function generateBook(rawRequest, opts = {}) {
 
   reportProgress(doc, { step: 'planning', message: 'Creating spread specs' });
   doc = await runStage(doc, 'spreadSpecs', () => createSpreadSpecs(doc), validateSpreadSpecs, FAILURE_CODES.PLAN_UNRESOLVABLE);
+
+  // Recurring-props + ephemeral-budget validation (PR C, sections C.4b/C.5).
+  // Soft gate: tags surface on `doc.recurringPropsQa` for telemetry and feed
+  // into the book-wide review later. We do not block the pipeline here
+  // because the visualBible has already been produced; we surface issues so
+  // QA can flag them in admin and so future iterations can route into a
+  // bible-repair step.
+  try {
+    const spreadSpecsForQa = (doc.spreads || []).map(s => s?.spec).filter(Boolean);
+    const propsQa = validateRecurringProps({
+      spreadSpecs: spreadSpecsForQa,
+      visualBible: doc.visualBible,
+    });
+    doc = withStageResult(doc, { recurringPropsQa: propsQa });
+    if (!propsQa.pass) {
+      const bookId = doc.operationalContext?.bookId || doc.request?.bookId || 'n/a';
+      console.warn(
+        `[bookPipeline:${bookId}] recurringPropsQa flagged ${propsQa.issues.length} issue(s): ${propsQa.tags.join(', ')}`,
+      );
+    }
+  } catch (err) {
+    console.warn('[bookPipeline] recurringPropsQa threw, ignoring:', err?.message || err);
+  }
 
   reportProgress(doc, { step: 'writing', message: 'Drafting manuscript' });
   doc = await runStage(doc, 'writerDraft', () => draftBookText(doc), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);

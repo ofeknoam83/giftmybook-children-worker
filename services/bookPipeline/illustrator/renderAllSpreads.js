@@ -451,6 +451,13 @@ async function processOneSpread(params) {
         additionalCoverCharacters,
         coverParentPresent,
         theme: spec.theme,
+        // C.1 + C.2 — give the action QA the spec's focalAction sentence,
+        // the age band, and the child age so it can compare what the text
+        // says is happening to what the image actually depicts.
+        focalAction: spread?.spec?.focalAction || '',
+        ageBand: currentDoc.request?.ageBand || '',
+        childAge: currentDoc.brief?.child?.age ?? null,
+        heroName: currentDoc.brief?.child?.name || '',
         spreadIndex: spec.spreadIndex,
         recentInteriorRefs,
         abortSignal: currentDoc.operationalContext?.abortSignal,

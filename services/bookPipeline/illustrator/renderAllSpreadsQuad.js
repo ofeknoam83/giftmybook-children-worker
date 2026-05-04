@@ -406,6 +406,9 @@ async function processQuadPair(params) {
       );
 
       const qaStart = Date.now();
+      const ageBand = currentDoc.request?.ageBand || '';
+      const childAge = currentDoc.brief?.child?.age ?? null;
+      const heroName = currentDoc.brief?.child?.name || '';
       const [qaA, qaB] = await Promise.all([
         checkSpread({
           imageBase64: nativeLeftB64,
@@ -415,6 +418,11 @@ async function processQuadPair(params) {
           additionalCoverCharacters,
           coverParentPresent,
           theme: specA.theme,
+          // C.1 + C.2 — wire focal action / age info into the action QA.
+          focalAction: spreadA?.spec?.focalAction || '',
+          ageBand,
+          childAge,
+          heroName,
           spreadIndex: specA.spreadIndex,
           recentInteriorRefs,
           abortSignal: currentDoc.operationalContext?.abortSignal,
@@ -427,6 +435,10 @@ async function processQuadPair(params) {
           additionalCoverCharacters,
           coverParentPresent,
           theme: specB.theme,
+          focalAction: spreadB?.spec?.focalAction || '',
+          ageBand,
+          childAge,
+          heroName,
           spreadIndex: specB.spreadIndex,
           recentInteriorRefs,
           abortSignal: currentDoc.operationalContext?.abortSignal,

@@ -26,6 +26,7 @@ Hard rules:
 - PARTIAL PRESENCE MUST STAY CONSISTENT: for every off-cover character, produce a "partialPresenceLock" describing exactly how their visible parts look every time they appear (skin tone, hand/arm, sleeve or outfit fragment, and an optional signature item like a ring, bracelet, scarf, or watch). The spread-level prompts will echo this lock, so it must be concrete and reusable.
 - SKIN-TONE DEFAULT FOR FAMILY: supporting cast skin tone defaults to plausibly matching the hero on the cover (same family ethnicity). Deviate ONLY if the brief explicitly declares a different ethnicity for that character.
 - Undeclared characters never appear, visually or otherwise.
+- **Recurring props (HARD):** any prop that you intend the illustrator to render in MORE THAN ONE spread (a blanket, hat, stuffed bear, stroller, scarf, mug, ribbon, kite, lantern, bicycle, basket, balloon, etc.) MUST be declared in \`recurringProps\` with a locked, concrete description (color, material, pattern, size relative to hero) and the list of \`appearsInSpreads\`. Anything that recurs but is NOT declared will drift in color/shape across spreads. If a prop appears in only one spread, do NOT declare it (those are ephemeral, kept on a tight book-level budget).
 - Return ONLY strict JSON matching the schema in the user message.`;
 
 function formatCoverLocks(cover) {
@@ -60,8 +61,8 @@ function userPrompt(doc) {
     "signatureProp": "optional concrete prop that appears across the book or null"
   },
   "outfitLocks": {
-    "ruleSummary": "one sentence: how outfits behave across spreads",
-    "allowedVariations": ["rare, story-justified additions like a coat or scarf"]
+    "ruleSummary": "ONE SENTENCE THAT IS SPECIFIC ENOUGH TO RE-RENDER FROM. Required granularity for EVERY garment + accessory the hero wears on the cover (top, bottom, dress, headband, hair tie, shoes, socks, jacket, etc.): (a) base color in plain words (e.g. 'soft mauve', 'cream'), (b) pattern type (solid | stripe | polka-dot | floral | gingham | print | embroidered), (c) pattern density when applicable (sparse | medium | dense), (d) pattern motif called out with 3-5 specifics (e.g. 'tiny brown trotting ponies and small pink hearts, evenly spaced'), and (e) accent color (trim, stitching, ribbon edge). Loose phrases like 'a cute headband' or 'a printed top' are FORBIDDEN — they cause the renderer to invent a new pattern every spread. Read the cover image and lock what is actually there.",
+    "allowedVariations": ["rare, story-justified additions like a coat, scarf, or seasonal layer — NEVER a re-design of the locked garments themselves"]
   },
   "supportingCastPolicy": {
     "declaredCast": ["named family members/friends that the brief explicitly provided"],
@@ -86,6 +87,14 @@ function userPrompt(doc) {
     }
   ],
   "environmentAnchors": ["3-6 reusable visual anchors: palette cues, lighting cues, recurring props"],
+  "recurringProps": [
+    {
+      "name": "short noun (e.g. 'soft pink blanket', 'striped knit hat', 'wooden rocking pony')",
+      "description": "locked physical description: color(s), pattern, material, approximate size relative to the hero, signature detail. Reads identically every spread.",
+      "appearsInSpreads": [1, 3, 7],
+      "role": "narrative role in one phrase (e.g. 'comfort object', 'gift from mom', 'transport')"
+    }
+  ],
   "palette": "one sentence about color palette and light logic",
   "styleRules": ["bullets that define the premium 3D Pixar-like look"],
   "compositionRules": ["bullets on focal clarity, camera variety, scale, negative space for text"],
@@ -163,6 +172,14 @@ async function createVisualBible(doc) {
     supportingCast,
     impliedParent,
     environmentAnchors: Array.isArray(json.environmentAnchors) ? json.environmentAnchors.map(String) : [],
+    recurringProps: (Array.isArray(json.recurringProps) ? json.recurringProps : []).map(p => ({
+      name: p?.name ? String(p.name).trim() : '',
+      description: p?.description ? String(p.description).trim() : '',
+      appearsInSpreads: Array.isArray(p?.appearsInSpreads)
+        ? p.appearsInSpreads.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0)
+        : [],
+      role: p?.role ? String(p.role).trim() : '',
+    })).filter(p => p.name && p.description),
     palette: String(json.palette || '').trim(),
     styleRules: Array.isArray(json.styleRules) ? json.styleRules.map(String) : [],
     compositionRules: Array.isArray(json.compositionRules) ? json.compositionRules.map(String) : [],
