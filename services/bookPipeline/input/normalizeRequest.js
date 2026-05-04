@@ -36,18 +36,27 @@ function normalizeFormat(raw) {
 }
 
 /**
- * Map a numeric age to one of the three supported age bands.
+ * Map a numeric age to one of the supported age bands.
+ *
+ * Accepts fractional ages (e.g. 0.58 for a 7-month-old). Uses Number, not
+ * parseInt, so a 7-month-old does not silently truncate to 0 and route as a
+ * 2-year-old. Infant band (PB_INFANT) covers under ~18 months — the lap-baby
+ * tier where the book is read TO the baby and the hero cannot stand,
+ * walk, run, climb, or grab moving objects.
  *
  * @param {number|string} age
  * @param {string} format
  * @returns {string}
  */
 function normalizeAgeBand(age, format) {
-  const n = Number.parseInt(age, 10);
-  if (!Number.isFinite(n)) {
+  const n = Number(age);
+  if (!Number.isFinite(n) || n < 0) {
     return format === FORMATS.EARLY_READER ? AGE_BANDS.ER_EARLY : AGE_BANDS.PB_PRESCHOOL;
   }
+  // Early-reader format always routes to the early-reader band, even if the
+  // numeric age would otherwise pick a younger picture-book band.
   if (format === FORMATS.EARLY_READER) return AGE_BANDS.ER_EARLY;
+  if (n < 1.5) return AGE_BANDS.PB_INFANT;
   if (n <= 3) return AGE_BANDS.PB_TODDLER;
   return AGE_BANDS.PB_PRESCHOOL;
 }
@@ -227,4 +236,7 @@ module.exports = {
   InputError,
   extractChild,
   extractCustomDetails,
+  // Exported for unit tests — the public entry point is normalizeRequest.
+  normalizeAgeBand,
+  normalizeFormat,
 };

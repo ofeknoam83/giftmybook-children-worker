@@ -15,6 +15,12 @@ const { FORMATS, AGE_BANDS, RHYME_POLICY, TEXT_LINE_TARGET, WORDS_PER_LINE_TARGE
  */
 function ageRules(ageBand) {
   switch (ageBand) {
+    case AGE_BANDS.PB_INFANT:
+      return {
+        maxSyllableTarget: 2,
+        voice: 'Tiny musical observations — the book is read TO a baby by the parent, so write FOR the parent reading aloud. 2 short, complete sentences per spread, ~2-4 words each. NO conflict, NO plot stakes, NO dialogue — sensory observation only. Cadence: "[Name] sees [thing]. [Mama/Dada] is near." Soft, warm, sing-song.',
+        vocabulary: 'Words a baby hears daily: Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup. Avoid abstractions, irony, metaphor, dialogue, complex prepositions.',
+      };
     case AGE_BANDS.PB_TODDLER:
       return {
         maxSyllableTarget: 2,
@@ -90,36 +96,58 @@ function renderTextPolicyBlock(doc) {
 
   if (isPictureBook) {
     const wordBudget = WORDS_PER_LINE_TARGET[doc.request.ageBand] || WORDS_PER_LINE_TARGET[AGE_BANDS.PB_PRESCHOOL];
+    const isInfant = doc.request.ageBand === AGE_BANDS.PB_INFANT;
     const isToddler = doc.request.ageBand === AGE_BANDS.PB_TODDLER;
-    const lineLengthRule = isToddler
-      ? `- LINE LENGTH (ages 0-3 are the shortest): each of the 4 lines is VERY short — about ${wordBudget.min} to ${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, board-book cadence. No run-ons, no sub-clauses, no "and... and... and..." chaining.`
-      : `- LINE LENGTH: each of the 4 lines is short — about ${wordBudget.min} to ${wordBudget.max} words, never more than ${wordBudget.hardMax}. No run-ons.`;
-    const voiceRule = isToddler
-      ? '- TONE (ages 0-3 specific): simple, musical, concrete. Tiny actions and feelings, named things a toddler knows (hand, moon, song, sky, hug). Big, punchy end-rhymes. Never abstract, never preachy.'
-      : null;
-    const toddlerStructureExample = isToddler
-      ? [
-          '- EXAMPLE CADENCE for ages 0-3 (do not copy these words — copy the shape):',
-          '    "Little hand reached high.',
-          '     Stars danced in the sky.',
-          '     Mommy hummed a tune.',
-          '     Up floated the moon."',
-        ]
-      : [];
-    lines.push(
-      '',
-      '### STRUCTURE (NON-NEGOTIABLE for picture books — every single spread):',
-      '- EXACTLY 4 lines of text per spread. Not 3. Not 5. Always 4. Each line separated by a single "\\n".',
-      '- RHYME SCHEME: AABB (two rhyming couplets per spread). Line 1 rhymes with line 2. Line 3 rhymes with line 4. Lines 2 and 4 do NOT have to rhyme with each other.',
-      '- Rhymes must be real end-rhymes — the FINAL word of line 1 rhymes with the FINAL word of line 2 (and 3 with 4). Near-rhymes (e.g. "high/sky", "wide/side", "tune/moon") are fine. Slant rhymes and identity rhymes (same word twice) are NOT acceptable. Forced or dictionary-stretching rhymes are NOT acceptable.',
-      '- METER: a consistent musical pulse across each couplet — not strict iambic, but roughly the same number of stressed beats in line 1 as line 2, and line 3 as line 4. Read every couplet aloud in your head and confirm both lines sing at the same pace.',
-      lineLengthRule,
-      ...(voiceRule ? [voiceRule] : []),
-      '- LINE BREAKS: the 4 lines are natural phrase units. Never break mid-phrase just to force a rhyme.',
-      '- SOUND: musical and read-aloud first. If a couplet does not actually rhyme, rewrite the couplet — do not ship it.',
-      ...toddlerStructureExample,
-      '',
-    );
+
+    if (isInfant) {
+      // Infant band has its own structure: 2 lines per spread (one rhyming
+      // couplet), tiny vocabulary, sensory observation only. Skip the 4-line
+      // structure block entirely.
+      lines.push(
+        '',
+        '### STRUCTURE (NON-NEGOTIABLE for infant board books — every single spread):',
+        '- EXACTLY 2 lines of text per spread (one rhyming couplet). Not 1. Not 3. Always 2. Lines separated by a single "\\n".',
+        '- RHYME SCHEME: AA (the two lines rhyme). Real end-rhymes only — no same-word "rhymes", no forced rhymes.',
+        `- LINE LENGTH (ages 0-1 — the shortest): each line is ~${wordBudget.min}-${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, lap-baby cadence.`,
+        '- TONE: tiny, warm, musical. Sensory observation only — NO conflict, NO plot stakes, NO dialogue, NO chase, NO grabbing of moving objects, NO independent locomotion.',
+        '- VOCABULARY: words a baby hears daily — Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup.',
+        '- ACTIONS: only verbs the hero can physically perform at this age — sees, hears, smiles, reaches, claps, holds, snuggles, points, looks, touches. NEVER walks, runs, climbs, grabs runaway objects, or leads anyone anywhere.',
+        '- EXAMPLE CADENCE for ages 0-1 (do not copy these words — copy the shape):',
+        '    "Little hand sees the light.',
+        '     Mama holds her tight."',
+        '',
+      );
+    } else {
+      const lineLengthRule = isToddler
+        ? `- LINE LENGTH (ages 0-3 are the shortest): each of the 4 lines is VERY short — about ${wordBudget.min} to ${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, board-book cadence. No run-ons, no sub-clauses, no "and... and... and..." chaining.`
+        : `- LINE LENGTH: each of the 4 lines is short — about ${wordBudget.min} to ${wordBudget.max} words, never more than ${wordBudget.hardMax}. No run-ons.`;
+      const voiceRule = isToddler
+        ? '- TONE (ages 0-3 specific): simple, musical, concrete. Tiny actions and feelings, named things a toddler knows (hand, moon, song, sky, hug). Big, punchy end-rhymes. Never abstract, never preachy.'
+        : null;
+      const toddlerStructureExample = isToddler
+        ? [
+            '- EXAMPLE CADENCE for ages 0-3 (do not copy these words — copy the shape):',
+            '    "Little hand reached high.',
+            '     Stars danced in the sky.',
+            '     Mommy hummed a tune.',
+            '     Up floated the moon."',
+          ]
+        : [];
+      lines.push(
+        '',
+        '### STRUCTURE (NON-NEGOTIABLE for picture books — every single spread):',
+        '- EXACTLY 4 lines of text per spread. Not 3. Not 5. Always 4. Each line separated by a single "\\n".',
+        '- RHYME SCHEME: AABB (two rhyming couplets per spread). Line 1 rhymes with line 2. Line 3 rhymes with line 4. Lines 2 and 4 do NOT have to rhyme with each other.',
+        '- Rhymes must be real end-rhymes — the FINAL word of line 1 rhymes with the FINAL word of line 2 (and 3 with 4). Near-rhymes (e.g. "high/sky", "wide/side", "tune/moon") are fine. Slant rhymes and identity rhymes (same word twice) are NOT acceptable. Forced or dictionary-stretching rhymes are NOT acceptable.',
+        '- METER: a consistent musical pulse across each couplet — not strict iambic, but roughly the same number of stressed beats in line 1 as line 2, and line 3 as line 4. Read every couplet aloud in your head and confirm both lines sing at the same pace.',
+        lineLengthRule,
+        ...(voiceRule ? [voiceRule] : []),
+        '- LINE BREAKS: the 4 lines are natural phrase units. Never break mid-phrase just to force a rhyme.',
+        '- SOUND: musical and read-aloud first. If a couplet does not actually rhyme, rewrite the couplet — do not ship it.',
+        ...toddlerStructureExample,
+        '',
+      );
+    }
   } else {
     lines.push(
       `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,

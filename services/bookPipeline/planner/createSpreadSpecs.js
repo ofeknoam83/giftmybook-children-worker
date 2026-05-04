@@ -7,7 +7,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET } = require('../constants');
+const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { renderThemeDirectiveBlock } = require('./themeDirectives');
@@ -50,15 +50,34 @@ function userPrompt(doc) {
     .join('\n') || '  (none)';
 
   const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {});
+  const isInfant = request.ageBand === AGE_BANDS.PB_INFANT;
+
+  // Lap-baby spreads cannot describe athletic action or independent
+  // locomotion. The focalAction must use a verb the hero can physically
+  // perform from a supported position, and the hero must be visibly held
+  // or supported in every frame. Without this clause the planner happily
+  // writes "Scarlett chases the puppy across the dock" for a 7-month-old.
+  const infantPlannerClause = isInfant
+    ? `INFANT BAND (PB_INFANT, ages 0-1.5) — HARD CONSTRAINTS for every spread:
+  - focalAction MUST use ONLY verbs the hero can physically perform: sees, looks, hears, smiles, snuggles, reaches, holds (a small light object), touches, pats, claps, points, lies, sits (supported), is held, is carried.
+  - FORBIDDEN focalAction verbs: walks, runs, climbs, jumps, rides, leads, chases, grabs (a moving object), says (any quoted speech).
+  - In every spread the hero MUST be in a parent's arms, on a parent's lap, in a stroller, in a high chair, lying on a blanket, or seated against a soft prop. Never standing alone, never walking the world unaccompanied.
+  - There is NO conflict, NO problem, NO chase. plotBeat is a tiny sensory moment ("Mama lifts Scarlett to see the moon"), not a narrative escalation. emotionalBeat is warm/curious/calm — never "determined", "brave", "scared".
+  - parentVisibility (when the theme requires it) should lean on 'full' / 'hand' / 'cropped-torso' — the parent is physically supporting the baby in nearly every spread. 'absent' is forbidden for infant books.
+  - sceneBridge is a sensory thread ("the same warm light from the kitchen window"), not a plot handoff.`
+    : '';
 
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}. Age band: ${request.ageBand}. Format: ${request.format}.`,
     `Theme: ${request.theme}.`,
     themeBlock,
     personalizationBlock,
-    request.format === 'picture_book'
-      ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets). Set textLineTarget to 4 on every spread.`
-      : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
+    infantPlannerClause,
+    isInfant
+      ? `Target rendered lines per spread: EXACTLY 2 (lap-baby board books are locked to 2 lines per spread, one AA rhyming couplet). Set textLineTarget to 2 on every spread.`
+      : request.format === 'picture_book'
+        ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets). Set textLineTarget to 4 on every spread.`
+        : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',

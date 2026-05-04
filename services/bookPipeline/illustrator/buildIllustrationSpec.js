@@ -9,6 +9,37 @@
 
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { defaultTextCorner, resolveSideAndCorner } = require('../../illustrator/config');
+const { AGE_BANDS } = require('../constants');
+
+/**
+ * Render an age-aware action constraint paragraph for the image model. For
+ * the lap-baby (PB_INFANT) band we hard-cap what the hero can physically do:
+ * a 7-month-old standing alone on a dock, walking, climbing, or grabbing a
+ * runaway blanket is a render failure regardless of what the manuscript text
+ * says. We name the supported poses explicitly so the model has a concrete
+ * fallback (parent's lap, stroller, high chair, etc.) instead of inventing
+ * impossible athletic actions.
+ *
+ * Returns an empty string for older bands — normal action vocabulary applies.
+ *
+ * @param {string} ageBand
+ * @param {number|string|null} childAge
+ * @returns {string}
+ */
+function renderAgeActionConstraint(ageBand, childAge) {
+  if (ageBand !== AGE_BANDS.PB_INFANT) return '';
+  const ageDisplay = (childAge !== null && childAge !== undefined && childAge !== '')
+    ? `${childAge} years old (lap-baby)`
+    : 'a lap-baby (under ~18 months)';
+  return [
+    `Hero age constraint (CRITICAL — overrides any text that suggests otherwise): the hero is ${ageDisplay}.`,
+    '  - The hero CANNOT stand unsupported, walk, run, climb, jump, ride, or chase. The hero CANNOT grab a moving or runaway object. The hero CANNOT lead any adult anywhere.',
+    '  - Permitted poses only: lying down, sitting (visibly supported by a parent\'s lap, high-chair tray, stroller, soft cushion, or blanket against a wall), being held in a parent\'s arms, being carried, reaching from a supported position, looking, smiling, touching/patting/holding a small light object, pointing, snuggling.',
+    '  - In ANY pose where the hero is even partially upright, a parent\'s body, a stroller, a high chair, a lap, a soft prop, or the parent\'s hands MUST be physically supporting the baby in the frame. No "baby balancing alone on a dock". No "baby running across a meadow".',
+    '  - If the focal action implies independent locomotion or athletic action, REINTERPRET it as the closest supported equivalent ("chases the puppy" → "watches the puppy from Mama\'s lap"; "walks to the door" → "reaches toward the door from Mama\'s arms").',
+    '  - The hero\'s body proportions must read as an infant: large head relative to body, short limbs, soft features, no toddler-level musculature.',
+  ].join('\n');
+}
 
 /**
  * Compose a compact SCENE paragraph from visualBible + spreadSpec. The scene
@@ -112,6 +143,8 @@ function composeScene(doc, spread) {
     `Place the focal action and main subject toward the ${captionSideOpp} side / ${captionOppVertical} area of the frame, so the ${resolvedCorner} corner naturally shows a less-busy region of the SAME scene (open sky, soft-focus background, shaded path, foliage, water, ground). ` +
     `Do NOT blur, empty, or flatten that corner into a "text panel" — scenery continues softly behind the caption.`;
 
+  const ageActionConstraint = renderAgeActionConstraint(doc?.request?.ageBand, childAge);
+
   const lines = [
     `Focal action: ${spec.focalAction}.`,
     `Location: ${spec.location}.`,
@@ -123,6 +156,7 @@ function composeScene(doc, spread) {
     bridge,
     hero.physicalDescription ? `Hero ground truth: ${hero.physicalDescription}` : '',
     hero.outfitDescription ? `Hero outfit (locked to cover): ${hero.outfitDescription}` : '',
+    ageActionConstraint,
     environment ? `World anchors: ${environment}.` : '',
     priorAnchors,
     offCoverCastBlock,
