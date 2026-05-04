@@ -338,7 +338,8 @@ function buildCharacterAnchorBlock(opts) {
       lines.push(
         impliedDesc
           ? `- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Locked descriptor (use IDENTICALLY on every spread the parent appears): ${impliedDesc}`
-          : '- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Skin tone matches the hero child\'s. Whatever sleeve color, hand details, and accessories you render in the FIRST spread the parent appears, keep IDENTICAL on every later spread.',
+          : '- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Whatever sleeve color, hand details, and accessories you render in the FIRST spread the parent appears, keep IDENTICAL on every later spread.',
+        '- **Parent skin tone (HARD LOCK — read this every spread):** the themed parent is NOT on the cover, so there is no cover-rendered parent identity to match. The parent\'s visible skin (hands, fingers, wrist, forearm, sleeve cuffs, neck/jaw if cropped torso, partial-face glimpse) MUST match the HERO CHILD\'s skin tone on the cover EXACTLY — same lightness, same warmth, same undertone. They are immediate family, same household, same ethnicity. If the cover child reads as fair/very pale, the parent\'s hand/arm reads as fair/very pale (NOT medium-tan, NOT olive, NOT a darker family). If the cover child reads as medium, the parent reads as medium (NOT much darker, NOT much lighter). If the cover child reads as deep brown, the parent reads as deep brown (NOT lighter). Treat the cover child\'s skin patch as your literal color reference for any visible parent skin on this spread. Do not introduce a tan, olive, or any meaningfully different skin family for the parent.',
       );
     }
   } else if (opts.hasSecondaryOnCover) {

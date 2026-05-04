@@ -34,10 +34,10 @@ const IMPLIED_PRESENCE_ANCHORING_RULE = `ANCHORING RULE (when showing a hand, ar
  */
 function impliedParentSkinToneLock(childAppearance) {
   const tail = childAppearance
-    ? ` The child's reference also states: ${childAppearance} — apply the same skin tone and undertone to any visible implied-parent skin.`
+    ? ` The child's reference also states: ${childAppearance} — apply the SAME skin tone, lightness, and undertone described there to any visible parent / relative skin in every interior spread.`
     : '';
-  return `SKIN TONE LOCK (implied parent):
-Any visible skin on the implied mother, father, or other referenced adult (hands, forearms, legs, arms, visible neck) MUST match the hero child's skin tone and undertone as rendered on the BOOK COVER — family-plausible, same household. Do not render a different ethnicity or a clearly mismatched skin color for partial parent bodies versus the child.${tail}`;
+  return `SKIN TONE LOCK (any parent / relative not on the cover — HARD LOCK):
+The themed parent (mother / father / grandparent / etc.) is NOT on the BOOK COVER, so there is no cover-rendered parent identity to inherit a skin tone from. ANY visible parent / relative skin on every interior spread — hands, fingers, wrist, forearm, arm, sleeve cuff, leg, neck, jawline, ear, partial-face glimpse, OR a substantial torso/face fragment — MUST match the HERO CHILD's skin tone on the BOOK COVER EXACTLY. Same lightness, same warmth, same undertone. They are immediate family, same household, same ethnicity. If the cover child reads as fair / very pale → the parent's hand/arm/jaw also reads as fair / very pale (NOT medium-tan, NOT olive, NOT any darker family). If the cover child reads as medium → the parent reads as medium (NOT much darker, NOT much lighter). If the cover child reads as deep brown → the parent reads as deep brown. Use the cover child's skin patch as the LITERAL color reference for any visible parent skin. A two-shade gap or any undertone shift between child and parent is a hard fail — the customer will see it instantly.${tail}`;
 }
 
 /**
