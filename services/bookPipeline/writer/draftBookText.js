@@ -13,6 +13,10 @@ const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
 const { compressInfantManuscript } = require('./compressInfantSpread');
+const {
+  findInfantPlannerVerbs,
+  sanitizeInfantSpec,
+} = require('../planner/createSpreadSpecs');
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
@@ -76,46 +80,117 @@ function renderInfantContract(ageBand) {
     '1. EXACTLY 2 lines per spread. No 3-line spreads. No 4-line spreads. Two lines, separated by \\n.',
     '2. The two lines form one AA rhyming couplet (last word of line 1 rhymes with last word of line 2).',
     '3. 2-4 words per line, hardMax 5. Tight, board-book cadence.',
-    '4. NO LOCOMOTION VERBS. The baby cannot do these and the parent reading aloud will sound silly:',
-    '   BANNED: jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab, skip, gallop, stomp, march, crawl, cartwheel, tumble, step, stand, stood, bounce.',
-    '   Also banned: "feet flash", "feet pound", "feet race" — no body-part displacements.',
-    '   USE INSTEAD: sit, lie, look, see, reach, hold, snuggle, giggle, coo, pat, clap, hear, smell, touch, point.',
-    '5. Across the WHOLE book, do NOT lean on a single noun or sound-word as a refrain (e.g. "peekaboo" 5 times). Vary the imagery.',
-    '6. Real English only. No invented rhyme-fill words. No similes with abstract comparands.',
+    '4. THE BABY IS THE STILL POINT. The baby is held, carried, or seated. The baby never moves themselves through space. Energy and motion come from THE WORLD around the baby — light shifts, cloth flutters, Mama leans in, a leaf drifts past, music sways through the air. The baby watches, reaches, smiles, snuggles, points, claps, gasps, giggles — always from a held or seated position.',
+    '5. NO DIALOGUE. The baby cannot speak in full sentences. Mama and other characters also do not speak in full sentences inside the verse. Sensory observation only — no quotation marks at all.',
+    '6. Use only the safe-action whitelist on the baby: sit, lie, look, see, reach, hold, snuggle, giggle, coo, pat, clap, hear, smell, touch, point, watch, wave, blink, gasp. Anything outside this list, do NOT attach to the baby.',
+    '7. Across the WHOLE book, do not lean on a single noun, descriptor, or sound-word as a refrain across many spreads. Vary the imagery.',
+    '8. Real English only. No invented rhyme-fill words. No similes with abstract comparands.',
     '',
-    'GOOD EXAMPLE (one spread):',
+    'GOOD EXAMPLE A (one spread):',
     '   Mama lifts the moon.',
     '   Bright as a spoon.',
     '',
-    'BAD EXAMPLE (do NOT do this):',
-    '   Peekaboo! Everleigh says, "Dance!"',
-    '   "Mama, outside!" She starts to prance.',
-    '   They giggle in warm sun.',
-    '   A bright chase has begun.',
-    '   — 4 lines (should be 2), uses "dance", "prance", "chase" (banned locomotion), "peekaboo" as refrain.',
+    'GOOD EXAMPLE B (one spread):',
+    '   A red leaf drifts by.',
+    '   Little hand waves goodbye.',
+    '',
+    'GOOD EXAMPLE C (one spread):',
+    '   Soft sun warms her cheek.',
+    '   Mama hums, hide-and-seek.',
+    '',
+    'COMMON FAILURE MODES (avoid — described abstractly so the words below are not seeded into your output):',
+    '   - Putting the baby in motion through space (any verb of self-locomotion).',
+    '   - Putting words in the baby\'s mouth (any quoted speech from the hero).',
+    '   - Quoted commands from Mama ("Come on!", "Look at this!") — keep the verse as observation, not stage directions.',
+    '   - Re-using the same descriptor or sound-word as a refrain across many spreads.',
+    '   - Padding to 4 lines on an infant spread.',
     '============================================================',
   ].join('\n');
+}
+
+/**
+ * PR J.1 — strip literal banned-verb tokens from forbiddenMistakes before
+ * the writer reads them.
+ *
+ * Background: the planner appends `forbiddenMistakes` entries that NAME
+ * every banned locomotion verb ("manuscript text must not contain
+ * locomotion verbs (jump/run/race/spin/twirl/...)" and "planner sanitized
+ * banned verb(s) twirl, dance from spec..."). These strings are then
+ * shown to the writer LLM verbatim. Echoing the forbidden tokens 13 times
+ * across the prompt PRIMES the model to produce them — a well-known
+ * negative-priming failure mode in instruction-tuned LLMs.
+ *
+ * The infant ban is already named ONCE in the INFANT BOOK CONTRACT at the
+ * top of the user prompt; that's enough. Per-spread forbiddenMistakes
+ * entries that simply re-echo the ban are replaced with a neutral
+ * reminder that does NOT contain any banned-verb literal.
+ */
+function sanitizeForbiddenMistakesForInfant(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map(raw => {
+      const s = String(raw || '');
+      if (!s) return null;
+      // If this entry contains any banned verb literal, replace it with a
+      // neutral, verb-free reminder. Otherwise keep it (it's spread-specific
+      // guidance like "unmotivated location change" we want the writer to see).
+      const hits = findInfantPlannerVerbs(s);
+      if (hits.length === 0) return s;
+      return 'INFANT BAND: keep the manuscript inside the still-point safe-action set named in the INFANT BOOK CONTRACT (no locomotion verbs, no dialogue commands).';
+    })
+    .filter(Boolean)
+    // Dedupe identical entries so the writer doesn't see the same neutral
+    // reminder 13 times either.
+    .filter((entry, idx, arr) => arr.indexOf(entry) === idx);
+}
+
+/**
+ * PR J.1 — defensive re-sanitization at the writer-input boundary.
+ *
+ * PR H sanitizes focalAction/plotBeat in the planner. This is a
+ * belt-and-suspenders pass: even if a future planner change drops banned
+ * verbs back into a spec, the writer prompt itself never contains them.
+ * If sanitizeInfantSpec produces changes that the planner missed, we use
+ * the cleaned strings for the writer view of the spec only — we don't
+ * mutate the persisted spec from here.
+ */
+function sanitizeSpecViewForInfant(spec, heroName) {
+  if (!spec) return spec;
+  const { spec: cleaned } = sanitizeInfantSpec(spec, { heroName });
+  return {
+    ...spec,
+    focalAction: cleaned.focalAction,
+    plotBeat: cleaned.plotBeat,
+  };
 }
 
 function userPrompt(doc) {
   const { storyBible, visualBible, spreads } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'writerDraft');
   const retryBlock = renderRetryMemoryForPrompt(retries);
-  const specs = spreads.map(s => ({
-    spreadNumber: s.spreadNumber,
-    purpose: s.spec?.purpose,
-    plotBeat: s.spec?.plotBeat,
-    sceneBridge: s.spec?.sceneBridge,
-    emotionalBeat: s.spec?.emotionalBeat,
-    humorBeat: s.spec?.humorBeat,
-    location: s.spec?.location,
-    focalAction: s.spec?.focalAction,
-    textSide: s.spec?.textSide,
-    textLineTarget: s.spec?.textLineTarget,
-    mustUseDetails: s.spec?.mustUseDetails,
-    continuityAnchors: s.spec?.continuityAnchors,
-    forbiddenMistakes: s.spec?.forbiddenMistakes,
-  }));
+  const isInfant = doc?.request?.ageBand === AGE_BANDS.PB_INFANT;
+  const heroName = doc?.brief?.child?.name || '';
+  const specs = spreads.map(s => {
+    const baseSpec = isInfant ? sanitizeSpecViewForInfant(s.spec, heroName) : s.spec;
+    const forbiddenMistakes = isInfant
+      ? sanitizeForbiddenMistakesForInfant(baseSpec?.forbiddenMistakes)
+      : baseSpec?.forbiddenMistakes;
+    return {
+      spreadNumber: s.spreadNumber,
+      purpose: baseSpec?.purpose,
+      plotBeat: baseSpec?.plotBeat,
+      sceneBridge: baseSpec?.sceneBridge,
+      emotionalBeat: baseSpec?.emotionalBeat,
+      humorBeat: baseSpec?.humorBeat,
+      location: baseSpec?.location,
+      focalAction: baseSpec?.focalAction,
+      textSide: baseSpec?.textSide,
+      textLineTarget: baseSpec?.textLineTarget,
+      mustUseDetails: baseSpec?.mustUseDetails,
+      continuityAnchors: baseSpec?.continuityAnchors,
+      forbiddenMistakes,
+    };
+  });
 
   const lineCountReminder = renderLineCountReminder(doc.request?.ageBand);
   const infantContract = renderInfantContract(doc.request?.ageBand);
@@ -206,3 +281,9 @@ async function draftBookText(doc) {
 }
 
 module.exports = { draftBookText, applyManuscript, renderInfantContract };
+// PR J.1 — internal helpers exposed for unit testing only. Not part of the
+// public surface and not consumed elsewhere in the pipeline.
+module.exports.__testInternals = {
+  sanitizeForbiddenMistakesForInfant,
+  sanitizeSpecViewForInfant,
+};
