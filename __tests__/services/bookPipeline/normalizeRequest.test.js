@@ -157,3 +157,83 @@ describe('PR L: extractChild preserves a real age=0 (lap baby)', () => {
     expect(normalizeAgeBand(c.age, FORMATS.PICTURE_BOOK)).toBe(AGE_BANDS.PB_INFANT);
   });
 });
+
+describe('PR Y: extractChild reads questionnaire from raw.childAnecdotes (camelCase)', () => {
+  // Production path: server.js sends the questionnaire as a top-level
+  // `childAnecdotes` (camelCase) field, NOT inside `child` and NOT under
+  // `anecdotes`. The previous lookup only checked `src.anecdotes` and
+  // `raw.anecdotes`, silently dropping every emotional anchor on every
+  // production /generate-book call. This is the load-bearing fix in PR Y.
+
+  test('reads structured anecdotes from top-level childAnecdotes', () => {
+    const c = extractChild({
+      child: { name: 'Scarlett', age: 0 },
+      childAnecdotes: {
+        funny_thing: 'bites mama on the chin',
+        meaningful_moment: 'first time she squealed in the bath',
+        moms_favorite_moment: 'morning snuggle in pajamas',
+        calls_mom: 'Mama',
+        anything_else: 'we call her smushy',
+      },
+    });
+    expect(c.anecdotes).toEqual({
+      funny_thing: 'bites mama on the chin',
+      meaningful_moment: 'first time she squealed in the bath',
+      moms_favorite_moment: 'morning snuggle in pajamas',
+      calls_mom: 'Mama',
+      anything_else: 'we call her smushy',
+    });
+  });
+
+  test('child.anecdotes still wins over childAnecdotes when both are present', () => {
+    // Defensive: if a future caller starts sending child.anecdotes (the
+    // canonical pipeline shape), we honor it and ignore the legacy
+    // top-level alias — same precedence rule the old line had.
+    const c = extractChild({
+      child: { name: 'A', age: 4, anecdotes: { funny_thing: 'inside' } },
+      childAnecdotes: { funny_thing: 'top-level' },
+    });
+    expect(c.anecdotes).toEqual({ funny_thing: 'inside' });
+  });
+
+  test('raw.anecdotes (snake-cased legacy) wins over raw.childAnecdotes', () => {
+    const c = extractChild({
+      child: { name: 'A', age: 4 },
+      anecdotes: { funny_thing: 'snake' },
+      childAnecdotes: { funny_thing: 'camel' },
+    });
+    expect(c.anecdotes).toEqual({ funny_thing: 'snake' });
+  });
+
+  test('falls back to {} when no anecdote source exists (no regression)', () => {
+    const c = extractChild({ child: { name: 'A', age: 4 } });
+    expect(c.anecdotes).toEqual({});
+  });
+
+  test('Scarlett-shaped payload: full questionnaire survives normalization', () => {
+    // Reproduces the exact payload shape server.js builds for the worker:
+    // childDetails (no anecdotes) + top-level childAnecdotes. Before PR Y,
+    // every field below was lost; the planner snapshot emitted no
+    // QUESTIONNAIRE lines and the writer padded with stock imagery.
+    const c = extractChild({
+      child: {
+        name: 'Scarlett',
+        age: 0,
+        gender: 'girl',
+        appearance: 'curly red hair',
+        interests: ['playing outside', 'going on walks'],
+      },
+      childAnecdotes: {
+        funny_thing: 'bites mama on the chin',
+        meaningful_moment: 'first time she squealed at the bath',
+        moms_favorite_moment: 'morning snuggle in pajamas',
+        calls_mom: 'Mama',
+        anything_else: 'we call her smushy and she squeals with excitement',
+      },
+    });
+    expect(c.name).toBe('Scarlett');
+    expect(c.anecdotes.funny_thing).toMatch(/bites mama/i);
+    expect(c.anecdotes.calls_mom).toBe('Mama');
+    expect(c.anecdotes.anything_else).toMatch(/smushy/i);
+  });
+});

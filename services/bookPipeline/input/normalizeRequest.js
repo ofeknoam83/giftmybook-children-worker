@@ -92,7 +92,18 @@ function extractChild(raw) {
   const age = src.age ?? src.childAge ?? raw.childAge ?? null;
   const gender = src.gender || raw.gender || 'unspecified';
   const pronouns = src.pronouns || raw.pronouns || null;
-  const anecdotes = src.anecdotes || raw.anecdotes || {};
+  // PR Y — server.js sends questionnaire anecdotes as a top-level
+  // `childAnecdotes` (camelCase) field, NOT inside `child` and NOT under
+  // `anecdotes`. The previous lookup only checked `src.anecdotes` and
+  // `raw.anecdotes`, so the structured questionnaire (funny_thing,
+  // meaningful_moment, calls_mom, etc.) was silently dropped on every
+  // production request. The data only survived as a stringified blob inside
+  // customDetails, which the planner snapshot, story bible, spread specs,
+  // and personalization-saturation QA all bypass. Restoring `raw.childAnecdotes`
+  // here is the single load-bearing fix that re-arms three downstream layers
+  // (planner snapshot → story bible / spread specs prompts → QA saturation
+  // gate). See repro_check.js and PR Y description.
+  const anecdotes = src.anecdotes || raw.anecdotes || raw.childAnecdotes || {};
   const interests = extractInterestsArray(src, raw);
   const appearanceRaw = src.appearance || src.childAppearance || raw.childAppearance || raw.appearance || '';
   const appearance = typeof appearanceRaw === 'string' && appearanceRaw.trim() ? appearanceRaw.trim() : undefined;
