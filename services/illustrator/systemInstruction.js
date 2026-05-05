@@ -283,6 +283,8 @@ This is a ${dayLabel} book and the ${parentWord} is NOT on the cover. When the s
   • An empty chair / coat on a hook / mug on a table that implies them.
 NEVER show the ${parentWord}'s face. NEVER invent a full-body ${parentWord}. NEVER substitute a pet, plush toy, or inanimate object as a stand-in for the human ${parentWord} — non-human companions stay at their true scale and are NOT a replacement for the human ${parentWord}.
 
+**HARD RULE — NO ANTHROPOMORPHIZED ${parentWord.toUpperCase()} SILHOUETTE / SHADOW.** The ${parentWord} is NEVER visible in interiors as a character of any kind — not as a face, not as a full torso, and not as their own anthropomorphic silhouette / shadow / dark figure with facial features. A shadow or silhouette of the ${parentWord} must NOT have eyes, glowing eyes, a mouth, a smile, a gesturing hand silhouette, or any expressive feature inside the head shape. If the scene calls for a parent shadow, render it as a plain, featureless dark profile that reads as ambient presence — never as a co-actor with a face. The ${parentWord} can be a hand, a shoulder, a cropped torso, an empty chair, a coat on a hook — NOT a face-having shadow.
+
 ${IMPLIED_PRESENCE_ANCHORING_RULE}
 
 ${skinLock}`
