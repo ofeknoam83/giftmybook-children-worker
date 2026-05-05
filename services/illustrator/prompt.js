@@ -556,7 +556,8 @@ function buildTagDirectives(tags, opts) {
   }
   if (set.has('implied_parent_skin_mismatch')) {
     out.push(
-      'Any visible skin on the implied parent (hands, forearms, legs, arms) MUST match the hero child\'s skin tone and undertone from the BOOK COVER — same family, same household. Re-render those partial-body areas to align with the cover child; keep the parent\'s face hidden per policy.',
+      'Any visible skin on the implied parent (hands, forearms, legs, arms) MUST match the hero child\'s skin tone and undertone from the BOOK COVER — same family, same household. Re-render those partial-body areas to align with the cover child; keep the parent\'s face hidden per policy. ' +
+      'If this same tag has already failed multiple times on this spread, STOP rendering the parent\'s skin entirely — replace the implied-parent hand/arm fragment with a SIGNATURE OBJECT that stands in for the parent (an empty rocking chair, a mug placed beside the child, a folded blanket, a coat over a chair-back). The story spread should read with the child as the only visible figure; presence of the parent is implied by the object alone. This is preferred over another failed re-render of skin tone.',
     );
   }
   if (set.has('implied_parent_outfit_drift')) {
@@ -566,7 +567,8 @@ function buildTagDirectives(tags, opts) {
   }
   if (set.has('full_body_parent_skin_mismatch')) {
     out.push(
-      'A visible adult in this spread has a skin tone that clearly differs from the hero child\'s skin tone on the BOOK COVER. Adults sharing a frame with the hero must read as the same family — match the hero\'s skin tone and undertone exactly. Re-render the adult with the correct skin tone, or (per the parent-not-on-cover policy) replace the full adult figure with implied presence (hand / shoulder / cropped torso / shadow / object) so the wrong-looking adult is no longer in frame.',
+      'A visible adult in this spread has a skin tone that clearly differs from the hero child\'s skin tone on the BOOK COVER. Adults sharing a frame with the hero must read as the same family — match the hero\'s skin tone and undertone exactly. Re-render the adult with the correct skin tone, or (per the parent-not-on-cover policy) replace the full adult figure with implied presence (hand / shoulder / cropped torso / shadow / object) so the wrong-looking adult is no longer in frame. ' +
+      'If this same tag has already failed multiple times on this spread, STOP rendering the adult entirely — replace them with a SIGNATURE OBJECT (rocking chair, mug, folded blanket, coat on a hook) so the parent is implied by the object alone, with no visible adult skin to color-match. This is preferred over another failed re-render of skin tone.',
     );
   }
   if (set.has('split_panel')) {
