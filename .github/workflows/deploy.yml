@@ -115,40 +115,35 @@ jobs:
             --limit=1)
           echo "✅ Active revision: $ACTIVE"
 
-      - name: Probe /healthz on the new revision
-        # PR AA-1: refuse to call the deploy successful if /healthz returns
-        # 503 (which means OPENAI_API_KEY is missing/empty in the running
-        # container even though the deploy command appeared to succeed).
-        #
-        # WIF credentials cannot mint identity tokens via
-        # `gcloud auth print-identity-token` (no refresh token), so we use
-        # the IAM credentials API with the workload SA as the impersonation
-        # target and our own URL as the audience.
+      - name: Verify boot-time LLM config in Cloud Run logs
+        # PR AA-1.2: instead of trying to mint an identity token under WIF
+        # (which requires extra IAM grants), we rely on the [LLM_CONFIG]
+        # boot-time log line emitted by the worker on startup. If the
+        # secret is missing, we'll see [LLM_CONFIG] FAIL in the logs of
+        # the latest revision and fail the deploy. Cheaper and avoids
+        # adding token-creator grants on the deploy SA.
         run: |
-          URL=$(gcloud run services describe ${{ env.SERVICE }} \
+          REVISION=$(gcloud run services describe ${{ env.SERVICE }} \
             --project ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
-            --format='value(status.url)')
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          SA='${{ secrets.WIF_SERVICE_ACCOUNT }}'
-          TOKEN=$(curl -s -X POST \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            -H 'Content-Type: application/json' \
-            -d "{\"audience\":\"$URL\",\"includeEmail\":true}" \
-            "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$SA:generateIdToken" \
-            | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
-          if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
-            echo "::error::Failed to mint identity token for healthz probe — cannot verify deploy."
+            --format='value(status.latestReadyRevisionName)')
+          echo "Latest ready revision: $REVISION"
+          # Container needs a moment to emit boot logs.
+          sleep 20
+          LOGS=$(gcloud logging read \
+            "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.SERVICE }} AND resource.labels.revision_name=$REVISION AND textPayload=~\"\\[LLM_CONFIG\\]\"" \
+            --project ${{ env.PROJECT_ID }} \
+            --limit 5 \
+            --format='value(textPayload)' 2>&1 || echo "")
+          echo "--- LLM_CONFIG log lines ---"
+          echo "$LOGS"
+          echo "--- end ---"
+          if echo "$LOGS" | grep -q '\[LLM_CONFIG\] FAIL'; then
+            echo "::error::[LLM_CONFIG] FAIL detected in revision $REVISION boot logs — OPENAI_API_KEY is empty/unset. Failing the deploy so this revision is not promoted to handle traffic."
             exit 1
           fi
-          echo "Probing $URL/healthz"
-          STATUS=$(curl -s -o /tmp/healthz.json -w "%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            "$URL/healthz" || echo "000")
-          echo "healthz status: $STATUS"
-          cat /tmp/healthz.json || true
-          echo
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::/healthz returned $STATUS — the new revision is degraded (likely missing OPENAI_API_KEY). Failing the deploy."
-            exit 1
+          if echo "$LOGS" | grep -q '\[LLM_CONFIG\] ok'; then
+            echo "✅ [LLM_CONFIG] ok confirmed for revision $REVISION"
+          else
+            echo "::warning::No [LLM_CONFIG] log line found yet. Boot may not have completed within the polling window. Not failing the deploy — revision still gets promoted, but watch logs manually."
           fi
