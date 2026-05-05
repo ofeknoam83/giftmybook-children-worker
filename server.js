@@ -895,14 +895,38 @@ app.post('/generate-book', authenticate, async (req, res) => {
   }
 
   const { computeCelebrationAge } = require('./services/celebrationAge');
+  const { resolveEffectiveAge } = require('./services/effectiveAge');
   const birthDateRaw = childAnecdotes?.birth_date || req.body.childBirthDate || null;
   const celebrationAge = computeCelebrationAge(
     { birthDate: birthDateRaw, age: childAge, childAge },
     new Date(),
   );
-  const effectiveAge = (theme === 'birthday' || theme === 'birthday_magic') && birthDateRaw
-    ? celebrationAge
-    : childAge;
+
+  // PR K — parent-theme picture books (Mother's Day / Father's Day) now also
+  // read age from the birth date when the client provided one. Lap-baby
+  // (under-1.5) books were silently routing to PB_TODDLER because the
+  // client had been sending a stale `childAge` (e.g. 2) for an 8-month-old
+  // whose birth_date was correct. PB_TODDLER bypasses every infant-band PR
+  // (H/I/J.1/J.4) and produces dance/run/twirl/dialogue text the lap-baby
+  // cannot perform. Birth date is the ground-truth signal — when present,
+  // it wins on birthday + parent themes.
+  const { age: effectiveAge, source: _effectiveAgeSource } = resolveEffectiveAge({
+    theme,
+    birthDateRaw,
+    childAge,
+    celebrationAge,
+  });
+  if (
+    _effectiveAgeSource === 'celebrationAge' &&
+    (theme === 'mothers_day' || theme === 'fathers_day') &&
+    celebrationAge !== childAge
+  ) {
+    console.log(
+      `[server] [parent-theme age fix] childAge=${childAge} overridden by ` +
+      `birth-date-derived age=${celebrationAge} (birthDate=${birthDateRaw}, theme=${theme}) ` +
+      '(PR K)'
+    );
+  }
 
   const childDetails = {
     name: childName,
