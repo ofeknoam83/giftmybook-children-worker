@@ -46,6 +46,7 @@ process.on('SIGTERM', async () => {
 });
 
 const express = require('express');
+const crypto = require('crypto');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
@@ -363,12 +364,17 @@ setInterval(() => {
 }, 30000);
 
 // ── Auth Middleware ──
+// Timing-safe API key comparison; fail-closed if misconfigured.
 function authenticate(req, res, next) {
   if (!API_KEY) {
     console.error('[auth] API_KEY not configured — rejecting request');
     return res.status(500).json({ success: false, error: 'Server misconfigured' });
   }
-  if (req.headers['x-api-key'] !== API_KEY) {
+  const provided = req.headers['x-api-key'];
+  if (typeof provided !== 'string' || provided.length !== API_KEY.length) {
+    return res.status(403).json({ success: false, error: 'Forbidden: invalid API key' });
+  }
+  if (!crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(API_KEY))) {
     return res.status(403).json({ success: false, error: 'Forbidden: invalid API key' });
   }
   next();
@@ -3590,9 +3596,30 @@ app.post('/upload-cover-pdf', authenticate, async (req, res) => {
 });
 
 // ─── POST /upload-image ─── Accept base64 image, upload to GCS, return signed URL
+// gcsPath, when provided, must be scoped to the same bookId and to one of the
+// known per-book prefixes. Otherwise an authorized caller could overwrite any
+// object in the bucket — including other books' covers and cached face data.
+const SAFE_BOOK_ID_RE = /^[a-zA-Z0-9_-]+$/;
+const SAFE_FILE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+function validateUploadImagePath(customPath, bookId) {
+  if (!customPath) return null;
+  if (typeof customPath !== 'string') return 'gcsPath must be a string';
+  if (customPath.includes('..') || customPath.startsWith('/')) return 'gcsPath must be relative and contain no traversal';
+  const m = customPath.match(/^children-(covers|jobs|spreads)\/([^/]+)\/([^/]+)$/);
+  if (!m) return 'gcsPath must match children-(covers|jobs|spreads)/<bookId>/<file>';
+  if (m[2] !== bookId) return 'gcsPath bookId segment must match request bookId';
+  if (!SAFE_FILE_NAME_RE.test(m[3])) return 'gcsPath filename has unsafe characters';
+  return null;
+}
+
 app.post('/upload-image', authenticate, async (req, res) => {
   const { bookId, imageBase64, mimeType, gcsPath: customPath } = req.body;
   if (!bookId || !imageBase64) return res.status(400).json({ error: 'bookId and imageBase64 required' });
+  if (typeof bookId !== 'string' || !SAFE_BOOK_ID_RE.test(bookId)) {
+    return res.status(400).json({ error: 'bookId has unsafe characters' });
+  }
+  const pathErr = validateUploadImagePath(customPath, bookId);
+  if (pathErr) return res.status(400).json({ error: pathErr });
   try {
     const buf = Buffer.from(imageBase64, 'base64');
     const { uploadBuffer, getSignedUrl } = require('./services/gcsStorage');
