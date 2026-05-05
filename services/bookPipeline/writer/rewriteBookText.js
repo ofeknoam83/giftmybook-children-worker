@@ -9,13 +9,49 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
+const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, FAILURE_CODES } = require('../constants');
 const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
-const { checkWriterDraft } = require('../qa/checkWriterDraft');
+const { checkWriterDraft, findInfantForbiddenActionVerbs } = require('../qa/checkWriterDraft');
 const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
 const { renderInfantContract } = require('./draftBookText');
+
+/**
+ * After the rewrite loop exhausts, if the book is an infant book and any
+ * spread still contains physically-impossible action verbs (twirl, skip,
+ * spin, run, ...), the illustrator can never satisfy the text — drawing
+ * the verb violates age_action_impossible, and drawing something else
+ * violates action_mismatch. Either way ~5 minutes of GPU time is wasted
+ * before the pipeline gives up at the illustrator stage. Fail fast at
+ * the writer stage instead, with a tag that points the operator at the
+ * real culprit.
+ *
+ * @param {object} doc
+ * @returns {{ spreadNumber: number, hits: string[] }[]}
+ */
+function collectInfantActionResiduals(doc) {
+  const ageBand = doc?.request?.ageBand;
+  if (ageBand !== AGE_BANDS.PB_INFANT) return [];
+  const offenders = [];
+  for (const s of doc.spreads || []) {
+    const text = s?.manuscript?.text;
+    if (!text) continue;
+    const hits = findInfantForbiddenActionVerbs(text, ageBand);
+    if (hits.length > 0) offenders.push({ spreadNumber: s.spreadNumber, hits });
+  }
+  return offenders;
+}
+
+class WriterUnresolvableError extends Error {
+  constructor(message, { issues, tags } = {}) {
+    super(message);
+    this.name = 'WriterUnresolvableError';
+    this.failureCode = FAILURE_CODES.WRITER_UNRESOLVABLE;
+    this.issues = issues || [];
+    this.tags = tags || [];
+  }
+}
 
 const SYSTEM_PROMPT = `You are rewriting specific spreads of a children's book.
 You keep the rest of the book intact. For each spread listed, produce an improved version that fixes the listed issues.
@@ -171,7 +207,7 @@ async function writerQaAndRewrite(doc) {
     wave += 1;
   }
 
-  return withStageResult(current, {
+  const finalDoc = withStageResult(current, {
     writerQa: {
       pass: false,
       perSpread: lastQa?.perSpread || [],
@@ -179,6 +215,25 @@ async function writerQaAndRewrite(doc) {
       waves: wave,
     },
   });
+
+  // PR F hard gate: if the writer never managed to remove the infant-
+  // forbidden action verbs, do not let the bad text reach the illustrator.
+  // The illustrator cannot resolve text-induced age violations and would
+  // burn its full per-pair budget for nothing.
+  const residuals = collectInfantActionResiduals(finalDoc);
+  if (residuals.length > 0) {
+    const issues = residuals.map(r => `spread ${r.spreadNumber}: infant-forbidden action verb(s) remain after ${wave} rewrite wave(s): ${r.hits.join(', ')}`);
+    const bookId = finalDoc.operationalContext?.bookId || finalDoc.request?.bookId || 'n/a';
+    console.error(
+      `[bookPipeline:${bookId}] writer hard gate: ${residuals.length} spread(s) still contain forbidden infant action verbs after ${wave} wave(s) — failing before illustrator`,
+    );
+    throw new WriterUnresolvableError(
+      `writer could not produce infant-safe text after ${wave} rewrite wave(s)`,
+      { issues, tags: ['infant_action_text_residual'] },
+    );
+  }
+
+  return finalDoc;
 }
 
-module.exports = { writerQaAndRewrite };
+module.exports = { writerQaAndRewrite, collectInfantActionResiduals, WriterUnresolvableError };

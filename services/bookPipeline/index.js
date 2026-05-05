@@ -50,12 +50,13 @@ const { validateRecurringProps } = require('./qa/validateRecurringProps');
 const { toLayoutPayload } = require('./adapters/toLayoutPayload');
 
 class PipelineError extends Error {
-  constructor(message, { failureCode, stage, issues } = {}) {
+  constructor(message, { failureCode, stage, issues, tags } = {}) {
     super(message);
     this.name = 'PipelineError';
     this.failureCode = failureCode || null;
     this.stage = stage || null;
     this.issues = issues || [];
+    this.tags = tags || [];
   }
 }
 
@@ -123,6 +124,7 @@ async function runStage(doc, stageName, run, gate, failureCode) {
       stage: stageName,
       failureCode: err.failureCode || failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
       issues: err.issues || [],
+      tags: err.tags || [],
     });
   }
   if (gate) {
