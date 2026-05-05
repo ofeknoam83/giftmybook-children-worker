@@ -45,6 +45,11 @@ const INFANT_FORBIDDEN_PLANNER_VERBS = [
   'crawl', 'crawls', 'crawling', 'crawled',
   'cartwheel', 'cartwheels', 'cartwheeling',
   'tumble', 'tumbles', 'tumbling', 'tumbled',
+  // PR G additions: subtler verbs that still paint a walking/standing
+  // illustration even though they aren't textbook locomotion.
+  'step', 'steps', 'stepped', 'stepping',
+  'stand', 'stands', 'standing', 'stood',
+  'bounce', 'bounces', 'bounced', 'bouncing',
 ];
 
 /**
@@ -258,7 +263,7 @@ async function createSpreadSpecs(doc) {
       // when the planner spec is clean, so the writer can't drift on its own.
       spec.forbiddenMistakes = [
         ...spec.forbiddenMistakes,
-        'INFANT BAND: manuscript text must not contain locomotion verbs (jump/run/race/spin/twirl/hop/walk/climb/leap/dance/chase/skip/gallop/stomp/march/crawl).',
+        'INFANT BAND: manuscript text must not contain locomotion verbs (jump/run/race/spin/twirl/hop/walk/climb/leap/dance/chase/skip/gallop/stomp/march/crawl/step/stand/stood/bounce).',
       ];
     }
 
