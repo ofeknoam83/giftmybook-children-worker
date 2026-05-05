@@ -9,7 +9,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, FAILURE_CODES } = require('../constants');
+const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, FAILURE_CODES, getWriterTemperature } = require('../constants');
 const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
@@ -185,12 +185,16 @@ async function writerQaAndRewrite(doc) {
       }));
     }
 
+    // PR J.4 — per-band rewrite temperature. Infant rewrite is the
+    // narrowest constraint surface in the pipeline (we already know which
+    // exact lines to fix), so we sample at 0.4 — same as the existing
+    // compressInfantSpread stage — to maximise constraint-following.
     const result = await callText({
       model: MODELS.WRITER,
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: rewriteUserPrompt(current, targets),
       jsonMode: true,
-      temperature: 0.85,
+      temperature: getWriterTemperature('rewrite', current?.request?.ageBand),
       maxTokens: 7000,
       label: `writerRewrite.wave${wave + 1}`,
       abortSignal: current.operationalContext?.abortSignal,

@@ -171,6 +171,55 @@ function getIllustrationRenderer(doc) {
   return { renderer: 'legacy', source: 'default' };
 }
 
+// PR J.4 — per-band sampling temperatures for the writer.
+//
+// The PB_INFANT band is a hard-constraint creative task: the manuscript
+// must obey the still-point rule, the safe-action whitelist, the no-
+// dialogue rule, and a tight 2-line / 2-4-words-per-line cadence. At
+// temperature 0.95 the writer samples close to the most diverse part of
+// the conditional distribution, which is exactly where playful
+// locomotion verbs (twirl, dance, bounce) live for a children's book
+// theme. Lowering the temperature for the infant band biases sampling
+// toward the high-probability, on-instruction tokens — the writer can
+// still rhyme and vary imagery, but won't reach for exotic verb choices
+// that violate the band constraints.
+//
+// Toddler and preschool bands keep their original temperatures because
+// their constraint set is much wider (a toddler can absolutely run, hop,
+// climb) and we want the writer's full creative range there.
+const WRITER_TEMPERATURE = {
+  draft: {
+    [AGE_BANDS.PB_INFANT]: 0.6,
+    [AGE_BANDS.PB_TODDLER]: 0.95,
+    [AGE_BANDS.PB_PRESCHOOL]: 0.95,
+    [AGE_BANDS.ER_EARLY]: 0.95,
+  },
+  rewrite: {
+    [AGE_BANDS.PB_INFANT]: 0.4,
+    [AGE_BANDS.PB_TODDLER]: 0.85,
+    [AGE_BANDS.PB_PRESCHOOL]: 0.85,
+    [AGE_BANDS.ER_EARLY]: 0.85,
+  },
+};
+
+/**
+ * Resolve the writer sampling temperature for a given stage and age band.
+ * Falls back to the toddler default for unknown bands so we never crash
+ * on a stage call — the toddler default matches the historical literal.
+ *
+ * @param {'draft'|'rewrite'} stage
+ * @param {string} ageBand
+ * @returns {number}
+ */
+function getWriterTemperature(stage, ageBand) {
+  const table = WRITER_TEMPERATURE[stage];
+  if (!table) return 0.95;
+  if (ageBand && Object.prototype.hasOwnProperty.call(table, ageBand)) {
+    return table[ageBand];
+  }
+  return table[AGE_BANDS.PB_TODDLER];
+}
+
 module.exports = {
   PIPELINE_VERSION,
   FORMATS,
@@ -187,4 +236,6 @@ module.exports = {
   FAILURE_CODES,
   USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT,
   getIllustrationRenderer,
+  WRITER_TEMPERATURE,
+  getWriterTemperature,
 };
