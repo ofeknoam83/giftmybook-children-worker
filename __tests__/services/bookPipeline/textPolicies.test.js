@@ -212,4 +212,89 @@ describe('textPolicies renderTextPolicyBlock — infant structure', () => {
     expect(toddlerBlock).not.toMatch(/VOCABULARY\s+DIVERSITY/i);
     expect(preschoolBlock).not.toMatch(/VOCABULARY\s+DIVERSITY/i);
   });
+
+  describe('PR Q: extended high-risk vocab families (anti-gaming)', () => {
+    // Draft 9 evidence (post-PR-M): writer dodged the diversity rule by
+    // swapping inflections — "glow" (S6) -> "glow" (S8) -> "aglow" (S10) ->
+    // "glow" (S11). The fix is to name the WHOLE FAMILY, not just one form.
+    test('block tells the writer to treat each whole family as one word', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      expect(block.toLowerCase()).toMatch(/whole\s+family|treat\s+each\s+whole\s+family/i);
+      expect(block).toMatch(/aglow/);
+      expect(block).toMatch(/glowing/);
+    });
+
+    test('block lists sun-family inflections', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      const lower = block.toLowerCase();
+      expect(lower).toContain('sunshine');
+      expect(lower).toContain('sunlight');
+      expect(lower).toContain('sunny');
+    });
+
+    test('block lists light-family inflections (covers draft 9 glow/aglow chain)', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      const lower = block.toLowerCase();
+      for (const w of ['glow', 'glows', 'glowing', 'aglow', 'gleam', 'beam', 'shine']) {
+        expect(lower).toContain(w);
+      }
+    });
+
+    test('block lists play-family (play, peek, smile, laugh, giggle, clap)', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      const lower = block.toLowerCase();
+      // Draft 9 used play x3, laugh x2, peekaboo x2 — same family, all crutches.
+      for (const w of ['play', 'peek', 'smile', 'laugh', 'giggle', 'clap']) {
+        expect(lower).toContain(w);
+      }
+    });
+
+    test('block lists texture-family (soft, warm, gentle)', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      const lower = block.toLowerCase();
+      // Draft 9 used "soft" x4 across S2/S6/S8 (twice).
+      for (const w of ['soft', 'softly', 'warm', 'gentle']) {
+        expect(lower).toContain(w);
+      }
+    });
+  });
+
+  describe('PR R: complete-sentence rule + Yoda-inversion ban', () => {
+    test('infant block contains a COMPLETE-SENTENCE RULE section', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      expect(block).toMatch(/COMPLETE[\s-]?SENTENCE\s+RULE/i);
+    });
+
+    test('block requires subject AND verb on every line', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      // The directive itself must be unambiguous.
+      expect(block).toMatch(/subject\s+(and|\+)\s+verb/i);
+    });
+
+    test('block shows the actual draft-9 fragment lines as BAD examples', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      // Concrete patterns from draft 9 the writer actually produced.
+      expect(block).toMatch(/Mama,\s+soft\s+glow/);
+      expect(block).toMatch(/Sunlit\s+joy\s+below/);
+      expect(block).toMatch(/Mama\s+eyes\s+aglow/);
+    });
+
+    test('block contains a NO YODA-INVERSIONS section with concrete bad/good pairs', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      expect(block).toMatch(/YODA[\s-]?INVERSION/i);
+      // Draft 9: "Mama laughs, sees she" was the forced she/glee rhyme.
+      expect(block).toMatch(/sees\s+she|Mama\s+laughs,\s+sees/i);
+    });
+
+    test('regression: complete-sentence rule does NOT bleed into toddler/preschool', () => {
+      // Toddler/preschool DO sometimes use intentional fragments for cadence
+      // ("And then... silence."). The rule is infant-band only.
+      const toddlerBlock = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_TODDLER));
+      const preschoolBlock = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_PRESCHOOL));
+      expect(toddlerBlock).not.toMatch(/COMPLETE[\s-]?SENTENCE\s+RULE/i);
+      expect(preschoolBlock).not.toMatch(/COMPLETE[\s-]?SENTENCE\s+RULE/i);
+      expect(toddlerBlock).not.toMatch(/YODA[\s-]?INVERSION/i);
+      expect(preschoolBlock).not.toMatch(/YODA[\s-]?INVERSION/i);
+    });
+  });
 });

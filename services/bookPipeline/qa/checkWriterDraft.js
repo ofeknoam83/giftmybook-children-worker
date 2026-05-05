@@ -786,6 +786,143 @@ function findParentThemePeerFraming(text, theme) {
 }
 
 /**
+ * PR R — Infant complete-sentence detector.
+ *
+ * Background: draft 9 (post PR M) showed the writer dodging the verb
+ * constraints by emitting fragment lines without any finite verb — e.g.
+ *   "Mama, soft glow"           (S8 line 1)
+ *   "Leaves, soft show"         (S8 line 2)
+ *   "Mama eyes aglow"           (S10 line 1)
+ *   "Sunlit joy below"          (S10 line 2)
+ * These read as labels, not lines. They also collapse the still-point rule
+ * by hiding the absent verb.
+ *
+ * This detector flags any infant-band line that contains zero finite verbs.
+ * It is intentionally conservative: a line with even one plausible verb
+ * (including copulas "is/are/was/were", small verbs "sees/holds/sits", or
+ * verb-with-inflection "laughs/lifts/spills") passes. We accept some
+ * false negatives (e.g. very ambiguous verb/noun pairs like "play" used
+ * as a noun) to avoid false positives that would block legitimate poetry.
+ *
+ * Toddler / preschool / early-reader books tolerate fragments stylistically;
+ * this detector only fires for PB_INFANT where every line is one of two
+ * lines in the entire spread and a fragment is half the read-aloud.
+ *
+ * @param {string} text  full manuscript text for the spread
+ * @param {string} ageBand
+ * @returns {string[]}  the fragment lines (or [] if none)
+ */
+const FRAGMENT_DETECT_VERB_RE = (() => {
+  // Common finite-verb endings: -s (3rd-person sing), -ed (past), -ing
+  // (only as a finite verb when paired with be/aux — so we accept it as
+  // a heuristic positive signal here), plus an explicit list of irregular
+  // and copular finite verbs that would never inflect with -s/-ed.
+  // The set is biased toward false negatives; it is OK to miss a verb
+  // and pass a fragment, but not OK to flag a line that has a verb.
+  // NOTE: do NOT include forms like 'leaves' here — it would mis-fire on the
+  // plural noun "leaves" which is by far the more common usage in baby
+  // books ("Leaves, soft show"). The non-final -s heuristic + the noun-
+  // plural exclusion below handles real verb usages of leave conservatively.
+  const explicit = [
+    'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being',
+    'do', 'does', 'did', 'has', 'have', 'had',
+    'see', 'sees', 'saw', 'seen',
+    'go', 'goes', 'went', 'gone',
+    'come', 'comes', 'came',
+    'sit', 'sits', 'sat',
+    'lie', 'lies', 'lay', 'lain',
+    'hold', 'holds', 'held',
+    'find', 'finds', 'found',
+    'feel', 'feels', 'felt',
+    'hear', 'hears', 'heard',
+    'make', 'makes', 'made',
+    'take', 'takes', 'took', 'taken',
+    'give', 'gives', 'gave', 'given',
+    'say', 'says', 'said',
+    'tell', 'tells', 'told',
+    'know', 'knows', 'knew',
+    'think', 'thinks', 'thought',
+    'put', 'puts',
+    'let', 'lets',
+    'meet', 'meets', 'met',
+    'keep', 'keeps', 'kept',
+    'leave', 'left',
+    'bring', 'brings', 'brought',
+    'run', 'runs', 'ran',
+    'open', 'opens', 'opened',
+    'close', 'closes', 'closed',
+    'shut', 'shuts',
+    'rise', 'rises', 'rose', 'risen',
+    'fall', 'falls', 'fell', 'fallen',
+  ];
+  return new RegExp(`\\b(${explicit.join('|')})\\b`, 'i');
+})();
+
+// Plural nouns that look like 3rd-person verbs because they end in -s.
+// Listed so the fragment detector doesn't mistake "Porch shadows" or
+// "Soft beams" for a line with a verb. Conservative — only common
+// concrete plural nouns a baby book would use as the line subject.
+const INFANT_NOUN_PLURALS = new Set([
+  'hands', 'eyes', 'toes', 'feet', 'leaves', 'kids', 'arms', 'ears',
+  'cheeks', 'fingers', 'beams', 'streams', 'dreams', 'shadows',
+  'bees', 'birds', 'trees', 'flowers', 'days', 'nights', 'beads',
+  'curls', 'lashes', 'lips', 'shoes', 'socks', 'breezes',
+  'gleams', 'glows', 'shines', 'sparks',
+]);
+
+function lineHasFiniteVerb(line) {
+  if (!line) return false;
+  const trimmed = String(line).trim();
+  if (!trimmed) return false;
+  // Strip trailing punctuation and split into word tokens.
+  const tokens = trimmed.toLowerCase().match(/[a-z']+/g) || [];
+  if (tokens.length === 0) return false;
+  // Quick path: any explicit copular/irregular finite verb?
+  if (FRAGMENT_DETECT_VERB_RE.test(trimmed)) return true;
+  // Heuristic: any non-final token ending in -s, -es, -ed (regular past /
+  // 3rd-person-singular) and length >= 4 is likely a finite verb. The
+  // "non-final" guard catches plurals at the end of a line ("Mama lifts
+  // her hands" — "hands" is a noun but "lifts" is the verb; the verb is
+  // not the last token). When -s appears ONLY as the last token ("Porch
+  // shadows"), the line probably has no verb.
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const tok = tokens[i];
+    if (tok.length < 3) continue;
+    // Plural nouns — must check FIRST so "eyes", "leaves", "hands" do not
+    // trip the -es/-ed/-s verb heuristic.
+    if (INFANT_NOUN_PLURALS.has(tok)) continue;
+    if (/(es|ed)$/.test(tok)) return true;
+    // Bare -s: real 3rd-person verb if not a known plural noun.
+    if (/s$/.test(tok)) return true;
+  }
+  // Also accept a final-position -s/-ed/-ing word IF the line has at most
+  // 3 tokens AND it isn't one of the obvious noun plurals — e.g. a
+  // one-clause line like "Mama laughs" should pass.
+  if (tokens.length <= 3) {
+    const last = tokens[tokens.length - 1];
+    if (last && last.length >= 3 && /(s|ed|ing)$/.test(last) && !INFANT_NOUN_PLURALS.has(last)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findInfantFragmentLines(text, ageBand) {
+  if (ageBand !== AGE_BANDS.PB_INFANT) return [];
+  const lines = String(text || '')
+    .split(/\n+/)
+    .map(l => l.trim())
+    .filter(Boolean);
+  const fragments = [];
+  for (const line of lines) {
+    if (!lineHasFiniteVerb(line)) {
+      fragments.push(line);
+    }
+  }
+  return fragments;
+}
+
+/**
  * D.6 — refrain_crutch. The verb-crutch detector at line ~347 looks for
  * inflected verb forms only (-s/-ed/-ing). It misses non-verb refrains:
  * "peekaboo" appears in 5/13 Everleigh spreads (38%) and never trips because
@@ -971,6 +1108,15 @@ function deterministicCheck(spread, doc) {
   if (forbiddenInfantVerbs.length) {
     issues.push(`infant book uses forbidden action verb(s): ${forbiddenInfantVerbs.join(', ')} — lap babies don't jump, run, race, twirl, walk, climb, dance, step, stand, or bounce. Use sit/lie/look/reach/giggle/coo/hold/snuggle.`);
     tags.push('infant_action_verb_in_text');
+  }
+
+  // PR Q+R / R — infant_fragment_line. Every infant couplet line must have a
+  // subject + finite verb. Catches "Mama, soft glow" / "Leaves, soft show" /
+  // "Mama eyes aglow" — fragments that scan but say nothing.
+  const fragmentLines = findInfantFragmentLines(m.text, ageBand);
+  if (fragmentLines.length) {
+    issues.push(`infant line(s) without finite verb (fragment): ${fragmentLines.map(l => `"${l}"`).join(', ')} — every line in a 2-line couplet needs subject + verb (e.g. "Mama lifts her hands"). Don't pad with noun-only fragments to force a rhyme.`);
+    tags.push('infant_fragment_line');
   }
 
   // D.3 — nonsense / invented words. Ban writer fabrications used as rhyme
@@ -1205,6 +1351,8 @@ module.exports = {
   extractPersonalizationItems,
   // PR D detectors
   findInfantForbiddenActionVerbs,
+  findInfantFragmentLines,
+  lineHasFiniteVerb,
   findNonsenseWords,
   findNonsenseSimiles,
   findParentThemePeerFraming,
