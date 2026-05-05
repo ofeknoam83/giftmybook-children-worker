@@ -18,7 +18,7 @@ function ageRules(ageBand) {
     case AGE_BANDS.PB_INFANT:
       return {
         maxSyllableTarget: 2,
-        voice: 'Tiny musical observations — the book is read TO a baby by the parent, so write FOR the parent reading aloud. 2 short, complete sentences per spread, ~2-4 words each. NO conflict, NO plot stakes, NO dialogue — sensory observation only. Cadence: "[Name] sees [thing]. [Mama/Dada] is near." Soft, warm, sing-song.',
+        voice: 'Tiny musical observations — the book is read TO a baby by the parent, so write FOR the parent reading aloud. THE BABY IS THE STILL POINT: the baby is held, carried, or seated; the WORLD moves around them — light shifts, cloth flutters, Mama leans in, a leaf drifts past, music sways through the air. The baby watches, reaches, smiles, snuggles, points; the baby never walks, runs, climbs, dances, jumps, hops, twirls, marches, skips, bounces, or leads anyone anywhere. 2 short, complete sentences per spread, ~2-4 words each. NO conflict, NO plot stakes, NO dialogue — sensory observation only. Cadence: "[Name] sees [thing]. [Mama/Dada] is near." Soft, warm, sing-song.',
         vocabulary: 'Words a baby hears daily: Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup. Avoid abstractions, irony, metaphor, dialogue, complex prepositions.',
       };
     case AGE_BANDS.PB_TODDLER:
@@ -103,7 +103,32 @@ function renderTextPolicyBlock(doc) {
       // Infant band has its own structure: 2 lines per spread (one rhyming
       // couplet), tiny vocabulary, sensory observation only. Skip the 4-line
       // structure block entirely.
+      //
+      // The block is organized around ONE central principle — "the baby is
+      // the still point" — to prevent the writer from reaching for action
+      // verbs (dance, twirl, march, climb, run, hop, jump, skip, bounce) that
+      // a 0-1 year old cannot physically perform. Every other rule below is a
+      // consequence of that principle.
       lines.push(
+        '',
+        '### CORE PRINCIPLE (READ FIRST — every infant spread must obey this):',
+        'THE BABY IS THE STILL POINT. The baby (the hero) is HELD, CARRIED, or SEATED throughout the entire book. The baby never moves themselves through space — not walking, not running, not climbing, not dancing, not jumping, not hopping, not twirling, not marching, not skipping, not bouncing, not leading.',
+        'Energy and motion come from THE WORLD AROUND THE BABY: light shifts, cloth flutters, music sways through the air, leaves drift past, Mama leans in, a cat slips by, the breeze plays peekaboo. The baby watches, reaches, smiles, snuggles, points, claps, gasps, giggles — always from a held or seated position.',
+        'If you find yourself writing the baby DOING an action verb, stop and rewrite the sentence so the WORLD does the moving and the baby OBSERVES or REACTS. This is the single most important rule in the entire book.',
+        '',
+        '### REFRAME PATTERNS (when an action verb tries to attach to the baby, use the world-moves-instead version):',
+        '- Instead of "baby dances/twirls/spins" → "music sways through her", "the room spins past her", "Mama sways with her in her arms".',
+        '- Instead of "baby runs/marches/walks/leads" → "Mama carries her toward", "the path slides past", "she rides on Mama\'s hip".',
+        '- Instead of "baby climbs/jumps/hops/bounces" → "she looks up at", "Mama lifts her high", "she is bounced gently on Mama\'s knee".',
+        '- Instead of "baby skips/darts/races" → "a sunbeam darts past", "a butterfly races by", "she watches it go".',
+        '',
+        '### BAD vs GOOD (a real example from a previous draft, rewritten the right way):',
+        '- BAD : "Everleigh skipped with glee."  (baby cannot skip)',
+        '- GOOD: "A sunbeam skipped with glee."  (the world moves; baby watches)',
+        '- BAD : "She danced up the hill."       (baby cannot dance, cannot climb)',
+        '- GOOD: "Mama walked up the hill."      (Mama moves; baby is carried)',
+        '- BAD : "Everleigh gave one spin."      (baby cannot spin)',
+        '- GOOD: "The whole world gave a spin."  (the world moves; baby observes)',
         '',
         '### STRUCTURE (NON-NEGOTIABLE for infant board books — every single spread):',
         '- EXACTLY 2 lines of text per spread (one rhyming couplet). Not 1. Not 3. Always 2. Lines separated by a single "\\n".',
@@ -111,7 +136,8 @@ function renderTextPolicyBlock(doc) {
         `- LINE LENGTH (ages 0-1 — the shortest): each line is ~${wordBudget.min}-${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, lap-baby cadence.`,
         '- TONE: tiny, warm, musical. Sensory observation only — NO conflict, NO plot stakes, NO dialogue, NO chase, NO grabbing of moving objects, NO independent locomotion.',
         '- VOCABULARY: words a baby hears daily — Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup.',
-        '- ACTIONS: only verbs the hero can physically perform at this age — sees, hears, smiles, reaches, claps, holds, snuggles, points, looks, touches. NEVER walks, runs, climbs, grabs runaway objects, or leads anyone anywhere.',
+        '- ACTIONS (whitelist — these are the ONLY verbs that may attach to the baby): sees, hears, smiles, reaches, claps, holds, snuggles, points, looks, touches, gasps, giggles, watches, waves, blinks. Forbidden because the baby cannot physically do them: walks, runs, climbs, dances, twirls, spins, jumps, hops, marches, skips, bounces, darts, races, leads, grabs runaway objects.',
+        '- DESCRIPTIVE WORDS: avoid using the same descriptor (e.g. "bright") on more than 2-3 spreads across the whole book. If you find yourself reaching for the same adjective again, swap it for a different sensory detail.',
         '- EXAMPLE CADENCE for ages 0-1 (do not copy these words — copy the shape):',
         '    "Little hand sees the light.',
         '     Mama holds her tight."',
