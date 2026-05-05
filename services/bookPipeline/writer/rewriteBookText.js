@@ -14,7 +14,6 @@ const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = requ
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
 const { checkWriterDraft, findInfantForbiddenActionVerbs } = require('../qa/checkWriterDraft');
-const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
 const { renderInfantContract } = require('./draftBookText');
 
 /**
@@ -142,8 +141,9 @@ function mergeRewrites(doc, json) {
       personalizationUsed: Array.isArray(entry.personalizationUsed) ? entry.personalizationUsed.map(String) : [],
       writerNotes: entry.writerNotes ? String(entry.writerNotes) : null,
     };
-    const manuscript = maybeTruncateInfantManuscript(manuscriptRaw, doc);
-    next = updateSpread(next, n, s => ({ ...s, manuscript }));
+    // AA-CW-3: no regex truncation. The rewrite output is taken as-is and
+    // any line-count miss is caught by the next writerQA wave.
+    next = updateSpread(next, n, s => ({ ...s, manuscript: manuscriptRaw }));
   }
   return next;
 }
@@ -187,8 +187,9 @@ async function writerQaAndRewrite(doc) {
 
     // PR J.4 — per-band rewrite temperature. Infant rewrite is the
     // narrowest constraint surface in the pipeline (we already know which
-    // exact lines to fix), so we sample at 0.4 — same as the existing
-    // compressInfantSpread stage — to maximise constraint-following.
+    // exact lines to fix), so we sample at a lower temperature
+    // (see getWriterTemperature('rewrite', ...)) to maximise
+    // constraint-following.
     // PR J.1.5 diagnostic: log resolved temperature + ageBand per wave so we
     // can confirm the J.4 rewrite temperature (0.4 for infant) is in effect.
     const _rewriteAgeBand = current?.request?.ageBand || '(none)';
