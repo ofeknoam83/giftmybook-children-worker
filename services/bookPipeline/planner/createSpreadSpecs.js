@@ -14,6 +14,10 @@ const { renderThemeDirectiveBlock } = require('./themeDirectives');
 const {
   renderPersonalizationSnapshotForPlanner,
 } = require('./personalizationSnapshot');
+const {
+  buildAnchorAllocation,
+  renderAllocationBlockForPlanner,
+} = require('./anchorAllocation');
 
 const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
 const PARENT_VISIBILITY_VALUES = new Set([
@@ -201,6 +205,13 @@ function sanitizeInfantSpec(spec, ctx = {}) {
 
 const SYSTEM_PROMPT = `You design spread-level contracts for a premium personalized children's book.
 
+**ANCHORS ARE THE SPINE (read first).** When the user prompt contains an ANCHOR ALLOCATION block, those questionnaire moments ARE this book — not optional decoration. The block pins each beat to a specific spread role (opening / establishing / peak1 / heart / peak2 / closing). The mustUseDetails for those spreads will already include an ANCHOR line that names the exact moment AND lists load-bearing words to use VERBATIM. You MUST honor those allocations:
+  - The named moment is the FOCAL ACTION of that spread — not a footnote.
+  - The plotBeat for that spread is built around that moment, not around stock board-book imagery.
+  - The continuityAnchors for surrounding spreads should reference that moment so the book reads as one arc with peaks, not 13 interchangeable vignettes.
+  - You may NEVER paraphrase the load-bearing words. "bites" stays "bites" (never "nibbles", "chomps", "munches"). "smushy" stays "smushy" (never "squishy", "squashy", "smooshie"). "squealed" stays "squealed" (never "giggled", "shrieked"). The illustrator and writer both read these words — if you swap them, the anchor doesn't land.
+  - Spreads with no allocated anchor are CONNECTIVE TISSUE between anchored beats: quiet sensory bridges, not new plot. When the anchor count is low, fewer spreads should carry plot — do NOT invent stock content to fill all 13.
+
 Hard rules:
 - Produce exactly ${TOTAL_SPREADS} spread specs. Do not merge or skip.
 - **Variety + connection:** the book must travel across at least 4 visually distinct, photogenic places — but those places must feel like **one connected journey**, not a slideshow. Honor \`storyBible.visualJourneySpine\` and \`storyBible.recurringVisualMotifs\` when you pick \`location\` and \`focalAction\`. Each spread after the first should have a clear story reason to exist where it is (discovery, following, escalation, return, echo of an earlier beat). Avoid unmotivated "teleport" jumps.
@@ -232,6 +243,14 @@ function userPrompt(doc) {
   const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {});
   const isInfant = request.ageBand === AGE_BANDS.PB_INFANT;
 
+  // PR Z — anchor allocation block. Render the per-beat → per-spread
+  // assignment table at the top of the userPrompt so the LLM reads the
+  // anchor plan FIRST and treats it as the spine of the book. We compute
+  // the same allocation again at apply-time below to deterministically
+  // fold mustUseDetails onto the persisted spec.
+  const anchorAllocation = buildAnchorAllocation(brief);
+  const anchorBlock = renderAllocationBlockForPlanner(anchorAllocation);
+
   // Lap-baby spreads cannot describe athletic action or independent
   // locomotion. The focalAction must use a verb the hero can physically
   // perform from a supported position, and the hero must be visibly held
@@ -250,6 +269,8 @@ function userPrompt(doc) {
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}. Age band: ${request.ageBand}. Format: ${request.format}.`,
     `Theme: ${request.theme}.`,
+    // PR Z — anchor allocation block at the top, before theme directives.
+    anchorBlock,
     themeBlock,
     personalizationBlock,
     infantPlannerClause,
@@ -333,6 +354,15 @@ async function createSpreadSpecs(doc) {
 
   const isParentTheme = PARENT_THEMES.has(String(doc?.request?.theme || ''));
   const coverParentPresent = doc?.brief?.coverParentPresent === true;
+
+  // PR Z — recompute the deterministic anchor allocation so we can fold its
+  // perSpread.mustUseDetails onto the persisted spec regardless of what the
+  // LLM emitted. Belt-and-suspenders: the LLM gets the same allocation in
+  // its prompt; this pass guarantees the writer / illustrator see the
+  // ANCHOR lines on the right spreads even if the LLM dropped or reshuffled
+  // them.
+  const anchorAllocation = buildAnchorAllocation(doc.brief || {});
+  const anchorPerSpread = anchorAllocation.perSpread;
 
   const arr = Array.isArray(result.json?.spreads) ? result.json.spreads : [];
   let next = doc;
@@ -428,8 +458,36 @@ async function createSpreadSpecs(doc) {
       ];
     }
 
+    // PR Z — fold the deterministic anchor allocation into mustUseDetails.
+    // We DEDUPE so we don't double up if the LLM happened to echo the same
+    // anchor string back from the prompt.
+    const anchorSlot = anchorPerSpread.get(spreadNumber);
+    if (anchorSlot && anchorSlot.mustUseDetails && anchorSlot.mustUseDetails.length) {
+      const existing = new Set((spec.mustUseDetails || []).map(s => String(s)));
+      const additions = anchorSlot.mustUseDetails.filter(s => !existing.has(s));
+      if (additions.length) {
+        spec.mustUseDetails = [...additions, ...(spec.mustUseDetails || [])];
+      }
+      if (anchorSlot.anchorRole) {
+        spec.anchorRole = anchorSlot.anchorRole;
+      }
+      if (anchorSlot.verbatimTokens && anchorSlot.verbatimTokens.length) {
+        spec.anchorVerbatimTokens = anchorSlot.verbatimTokens;
+      }
+    }
+
     next = updateSpread(next, spreadNumber, s => ({ ...s, spec }));
   }
+
+  // PR Z — stash the allocation summary on the document trace so it can be
+  // surfaced in QA diagnostics and operator dashboards.
+  next = appendLlmCall(next, {
+    stage: 'spreadSpecs.anchorAllocation',
+    model: 'deterministic',
+    attempts: 0,
+    usage: {},
+    note: `mode=${anchorAllocation.compression.mode} textBeats=${anchorAllocation.compression.textBeatCount} allocations=${anchorAllocation.allocations.filter(a => !a.isAddress && a.spreadNumber != null).map(a => `${a.key}@${a.spreadNumber}`).join(',')}`,
+  });
 
   return appendLlmCall(next, {
     stage: 'spreadSpecs',
