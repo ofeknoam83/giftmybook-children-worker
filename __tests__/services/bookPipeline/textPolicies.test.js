@@ -142,4 +142,74 @@ describe('textPolicies renderTextPolicyBlock — infant structure', () => {
     expect(preschoolBlock).not.toMatch(/STILL POINT/);
     expect(preschoolBlock).not.toMatch(/CORE PRINCIPLE/);
   });
+
+  describe('PR M: identity-rhyme ban in the infant block', () => {
+    test('block contains an explicit IDENTITY-RHYME BAN section', () => {
+      // Draft 8 shipped with sky/sky, beams/beams, gleams/gleams, gold/gold —
+      // 6 of 13 spreads used the same word at both end-positions. Naming the
+      // failure mode in the prompt is the cheapest fix; the writer needs to
+      // see the literal phrase "identity rhyme" so it knows what to avoid.
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      expect(block).toMatch(/IDENTITY-?RHYME/i);
+    });
+
+    test('block explains that same-word endings are NOT a rhyme', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      // The principle has to be stated in plain language, not just by example.
+      expect(block.toLowerCase()).toMatch(/(same word|different end-words|repeating the same word)/);
+    });
+
+    test('block flags partial-match identity rhymes (sky/skies, beam/beams)', () => {
+      // The model often games the rule by inflecting the second word: beam/beams
+      // is still an identity rhyme to a child's ear. The prompt must call this out.
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      expect(block.toLowerCase()).toMatch(/sky\/skies|gold\/golden|beam\/beams|sky\s*\/\s*skies/);
+    });
+
+    test('block includes BAD/GOOD pairs drawn from the actual draft 8 failures', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      // At least the worst offenders from draft 8 must appear as BAD examples
+      // so the writer recognizes the exact pattern it produced.
+      const lower = block.toLowerCase();
+      expect(lower).toMatch(/beams\/beams|sky\/sky|gleams\/gleams|gold\/gold/);
+    });
+  });
+
+  describe('PR M: vocabulary diversity guidance in the infant block', () => {
+    test('block contains a VOCABULARY DIVERSITY section', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      expect(block).toMatch(/VOCABULARY\s+DIVERSITY/i);
+    });
+
+    test('block names the actual repeated words from draft 8 (sun, peekaboo, toes)', () => {
+      // The prompt has to be specific. Generic "don't repeat words" guidance
+      // is what the writer already ignored. Concrete words from real failures
+      // give the model something to pattern-match against.
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      const lower = block.toLowerCase();
+      expect(lower).toContain('sun');
+      expect(lower).toContain('peekaboo');
+      expect(lower).toContain('toes');
+    });
+
+    test('block sets a clear ceiling on per-word repetition (no more than 2 spreads)', () => {
+      const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
+      // The previous prompt had no ceiling at all; the model defaulted to its
+      // training prior of repeating cozy words. Set an explicit ceiling.
+      expect(block).toMatch(/(more than 2 spreads|in 2 spreads|2\s*spreads)/i);
+    });
+  });
+
+  test('PR M regression: identity-rhyme ban does NOT bleed into toddler/preschool', () => {
+    // Toddler picture books often DO use intentional identity callbacks
+    // ("more, more, more") — the strict identity-rhyme ban is an infant-only
+    // rule because infant books are 2-line couplets where any same-word
+    // ending is a missed rhyme, not a stylistic choice.
+    const toddlerBlock = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_TODDLER));
+    const preschoolBlock = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_PRESCHOOL));
+    expect(toddlerBlock).not.toMatch(/IDENTITY-?RHYME/i);
+    expect(preschoolBlock).not.toMatch(/IDENTITY-?RHYME/i);
+    expect(toddlerBlock).not.toMatch(/VOCABULARY\s+DIVERSITY/i);
+    expect(preschoolBlock).not.toMatch(/VOCABULARY\s+DIVERSITY/i);
+  });
 });
