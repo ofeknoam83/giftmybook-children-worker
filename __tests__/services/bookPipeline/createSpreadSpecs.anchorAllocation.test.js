@@ -67,9 +67,20 @@ function buildDoc(overrides = {}) {
   };
 }
 
-function captureCall(callTextMock) {
+// AA-CW-2: createSpreadSpecs now triggers a second LLM call (the Planner
+// Guard) for PB_INFANT books. The original captureCall returned the LATEST
+// callText invocation, which is now the guard call — wrong target for
+// these tests, which inspect the spreadSpecs prompt. Filter by label so we
+// always capture the spreadSpecs call regardless of how many follow it.
+function captureCall(callTextMock, label = 'spreadSpecs') {
   expect(callTextMock).toHaveBeenCalled();
-  return callTextMock.mock.calls[callTextMock.mock.calls.length - 1][0];
+  const calls = callTextMock.mock.calls;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    if (calls[i][0]?.label === label) return calls[i][0];
+  }
+  // Fallback: return the latest call so the test reports a useful diff
+  // instead of an opaque undefined.
+  return calls[calls.length - 1][0];
 }
 
 function buildLLMSpread(spreadNumber, overrides = {}) {
