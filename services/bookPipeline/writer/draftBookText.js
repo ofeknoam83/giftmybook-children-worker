@@ -12,6 +12,7 @@ const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
+const { compressInfantManuscript } = require('./compressInfantSpread');
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
@@ -76,7 +77,7 @@ function renderInfantContract(ageBand) {
     '2. The two lines form one AA rhyming couplet (last word of line 1 rhymes with last word of line 2).',
     '3. 2-4 words per line, hardMax 5. Tight, board-book cadence.',
     '4. NO LOCOMOTION VERBS. The baby cannot do these and the parent reading aloud will sound silly:',
-    '   BANNED: jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab, skip, gallop, stomp, march, crawl, cartwheel, tumble.',
+    '   BANNED: jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab, skip, gallop, stomp, march, crawl, cartwheel, tumble, step, stand, stood, bounce.',
     '   Also banned: "feet flash", "feet pound", "feet race" — no body-part displacements.',
     '   USE INSTEAD: sit, lie, look, see, reach, hold, snuggle, giggle, coo, pat, clap, hear, smell, touch, point.',
     '5. Across the WHOLE book, do NOT lean on a single noun or sound-word as a refrain (e.g. "peekaboo" 5 times). Vary the imagery.',
@@ -185,13 +186,23 @@ async function draftBookText(doc) {
     abortSignal: doc.operationalContext?.abortSignal,
   });
 
-  const next = applyManuscript(doc, result.json);
-  return appendLlmCall(next, {
+  let next = applyManuscript(doc, result.json);
+  next = appendLlmCall(next, {
     stage: 'writerDraft',
     model: result.model,
     attempts: result.attempts,
     usage: result.usage,
   });
+
+  // PR G: post-draft compression pass for infant books. The primary writer
+  // is encouraged to draft freely; we then compress each spread to a
+  // 2-line AA couplet that satisfies the infant contract. Compression
+  // with hard constraints is a narrower task than constrained free
+  // generation and reliably scrubs subtle locomotion verbs that slipped
+  // past the writer's own self-check. No-op for non-infant bands.
+  next = await compressInfantManuscript(next);
+
+  return next;
 }
 
 module.exports = { draftBookText, applyManuscript, renderInfantContract };

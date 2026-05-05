@@ -551,9 +551,25 @@ const INFANT_FORBIDDEN_VERB_PATTERNS = [
   /\bcrawl(?:s|ed|ing)?\b/i,
   /\bcartwheel(?:s|ed|ing)?\b/i,
   /\btumble(?:s|d|ing)?\b/i,
+  // PR G additions — these escaped earlier rounds because they're not
+  // textbook "locomotion" verbs, but they paint a walking/standing picture
+  // the illustrator faithfully renders, then age QA correctly rejects.
+  // Real failing example from prod: "Her brave steps bounce with thrill"
+  // — Gemini drew a walking toddler, then `age_action_impossible` fired
+  // on every retry. Catching these at the writer stage prevents the loop.
+  //   - step(s/ped/ping): unambiguous locomotion when subject is the child
+  //   - stand(s/ing/stood): independent standing is not an infant capability
+  //   - bounce(s/d/ing): "baby bounces" implies independent posture; if a
+  //     parent is bouncing the baby, the rewriter will pick a different verb
+  //     (jiggle/rock/sway) that doesn't carry the standing implication
+  /\bstep(?:s|ped|ping)?\b/i,
+  /\bstand(?:s|ing)?\b/i,
+  /\bstood\b/i,
+  /\bbounc(?:e|es|ed|ing)\b/i,
   // "feet flash" / "feet pound" — displaced action attributing locomotion to
   // body parts. We catch by the body part + motion verb construction.
-  /\bfeet\s+(?:flash|pound|fly|race|run|skip|hop|march|stomp|tap)\w*\b/i,
+  // PR G: extend the body-part pattern with the same new verbs.
+  /\bfeet\s+(?:flash|pound|fly|race|run|skip|hop|march|stomp|tap|step|bounce|stand)\w*\b/i,
 ];
 
 function findInfantForbiddenActionVerbs(text, ageBand) {
@@ -953,7 +969,7 @@ function deterministicCheck(spread, doc) {
   // PB_INFANT). Lap babies cannot do these things — break age-fit.
   const forbiddenInfantVerbs = findInfantForbiddenActionVerbs(m.text, ageBand);
   if (forbiddenInfantVerbs.length) {
-    issues.push(`infant book uses forbidden action verb(s): ${forbiddenInfantVerbs.join(', ')} — lap babies don't jump, run, race, twirl, walk, climb, or dance. Use sit/lie/look/reach/giggle/coo/hold/snuggle.`);
+    issues.push(`infant book uses forbidden action verb(s): ${forbiddenInfantVerbs.join(', ')} — lap babies don't jump, run, race, twirl, walk, climb, dance, step, stand, or bounce. Use sit/lie/look/reach/giggle/coo/hold/snuggle.`);
     tags.push('infant_action_verb_in_text');
   }
 
@@ -1009,7 +1025,7 @@ Explicit failure modes — each must be tagged exactly as listed:
  - "verb_crutch": one content verb dominates the manuscript — it appears as the action in more than ~25% of spreads (e.g. "squeal" in 8 of 13 spreads). Flag at the BOOK level in bookLevelIssues, naming the overused verb.
  - "low_personalization_saturation": the brief contains substantive personalization items (interests, anecdotes, address forms, custom details) but fewer than ~60% of them appear anywhere in the manuscript. Flag at the BOOK level in bookLevelIssues, naming the missing items.
  - "age_mismatch_action": the action attributed to the child is implausible for the declared age band (e.g. an infant "running down the street"). Flag the offending spread.
- - "infant_action_verb_in_text": for INFANT books (PB_INFANT, age 0-1) the manuscript text must NEVER use locomotion verbs the baby physically cannot do: jump/jumps/jumped, run/runs/running, race/races, spin/spins, twirl/twirls, hop/hops, walk/walks, climb/climbs, leap/leaps, dance/dances, chase/chases, grab/grabs, skip/skips, gallop, stomp, march, crawl. Also reject body-part displacements ("feet flash", "feet pound"). Use sit/lie/look/reach/giggle/coo/hold/snuggle instead. Flag the offending spread.
+ - "infant_action_verb_in_text": for INFANT books (PB_INFANT, age 0-1) the manuscript text must NEVER use locomotion verbs the baby physically cannot do: jump/jumps/jumped, run/runs/running, race/races, spin/spins, twirl/twirls, hop/hops, walk/walks, climb/climbs, leap/leaps, dance/dances, chase/chases, grab/grabs, skip/skips, gallop, stomp, march, crawl, step/steps/stepped, stand/stands/standing/stood, bounce/bounces/bounced. Also reject body-part displacements ("feet flash", "feet pound", "feet step", "feet bounce"). Use sit/lie/look/reach/giggle/coo/hold/snuggle instead. Flag the offending spread.
  - "nonsense_word": the manuscript invents a fake word to force a rhyme ("farf" rhymed with "scarf", "blurp" rhymed with "burp"). Real English only. If the rhyme requires fabrication, pick a different rhyme — don't ship the made-up word. Flag the offending spread; name the invented word.
  - "nonsense_simile": a simile ("X as Y", "like Y") whose comparand makes no sense in a baby/preschool context — "light as code", "soft as math", "like an algorithm". Use concrete sensory comparisons ("soft as fluff", "warm as toast"). Flag the offending spread.
  - "parent_theme_relationship_framing": for Mother's Day / Father's Day / Grandparents' Day themes, the manuscript MUST NOT cast the child and parent as peers — ban "best friends", "best buds", "best mates", "buddies", "besties", "BFF". Frame the parent as the loving caregiver / hero / the one who tucks me in. Flag the offending spread.
