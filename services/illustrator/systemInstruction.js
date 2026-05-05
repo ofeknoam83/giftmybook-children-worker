@@ -141,7 +141,15 @@ ONE SINGLE CONNECTED BODY (CRITICAL — anatomy fail if violated):
 - The hero is ONE real 3D character, rendered as a single continuous body. Head → neck → shoulders → torso → hips → legs → feet must all be anatomically connected, on ONE vertical line, in ONE pose, at ONE scale, in the same outfit from top to bottom.
 - FORBIDDEN: a torso in one position with a second pair of legs / hips / shorts floating next to it; a shirt on the upper body that does NOT connect to the pants/shorts/skirt below; two overlapping versions of the child (e.g. one reaching up on the left, and a disembodied pair of legs standing to the right); a "ghost" of the body offset sideways or vertically; any visible seam where the child's upper body ends and a second lower body begins.
 - The outfit is ONE outfit on ONE body: if the upper half shows a white shirt, the lower half must be the matching pants/shorts/dress of the SAME outfit attached to the SAME torso. Do NOT render an upper body in one garment and a disconnected lower body in a different garment nearby.
-- Mental check before output: trace the hero's silhouette with your finger. You must be able to go head → neck → chest → waist → hips → thighs → knees → shins → feet in ONE continuous path, without ever crossing empty background or jumping to a second body.`
+- Mental check before output: trace the hero's silhouette with your finger. You must be able to go head → neck → chest → waist → hips → thighs → knees → shins → feet in ONE continuous path, without ever crossing empty background or jumping to a second body.
+
+LIMB COUNT (HARD RULE — every spread, every character):
+- Each human in the frame has EXACTLY two arms, two hands, two legs, two feet. No third arm reaching from a parent's torso. No third hand on the stroller bar. No extra fingers fused into a sleeve. Before you output, count visible hands per character: it must be ≤ 2 per body. If a parent is holding the child with both arms, those are the parent's two hands — do NOT add a third "helping" hand from the same parent.
+- Hands belong to one body each. A hand entering frame must trace back to an arm, a shoulder, and a torso (or a believable off-frame body). Never duplicate the same hand into two positions.
+
+OBJECT INTEGRITY (HARD RULE — prominent man-made objects):
+- Strollers, prams, shopping carts, bikes, scooters, wagons, chairs, tables, ladders, swings, cribs, high chairs must read as STRUCTURALLY COHERENT objects. Handles connect to the frame with a real bar. Wheels come in matching pairs. Seats sit on a believable base. No floating handle ending in mid-air, no two seats fused to one wheel, no duplicated frame bars overlapping at wrong angles, no chair with three legs at the front and none at the back.
+- Mental check: trace the object's frame edge-to-edge. Every load-bearing part should connect into one continuous structure.`
   );
 
   sections.push(`### ${heroChildSkinToneLock(childAppearance)}`);

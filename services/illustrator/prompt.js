@@ -324,10 +324,14 @@ function buildCharacterAnchorBlock(opts) {
     lines.push(`- Hero ground truth (LITERAL — match every value exactly): ${desc}`);
     lines.push('- HAIR / EYES / SKIN LOCK: hair color, hair length, hair style, eye color, and skin tone are IDENTICAL on every spread to the BOOK COVER and to every earlier accepted interior spread. No subtle shift between spreads. No "slightly different brown". No length change. No styled vs. messy variation between spreads unless the SCENE explicitly justifies it.');
     lines.push('- **HERO SKIN TONE (cover-anchored HARD LOCK):** the hero child\'s skin tone is the cover\'s skin tone, every spread. If the cover child reads as fair / very pale → the spread child reads as fair / very pale (NOT medium-tan, NOT olive, NOT sun-kissed because the scene is outdoors). If the cover reads as medium → the spread reads as medium (NOT much darker brown, NOT washed-out fair). If the cover reads as deep brown → the spread reads as deep brown (NOT lighter). Lighting may change brightness, NOT skin family. No undertone drift (warm-to-cool or cool-to-warm). Treat the cover\'s cheek / hand skin as your literal color swatch.');
+    lines.push('- **LIMB COUNT (HARD):** every human in the frame has EXACTLY two arms, two hands, two legs, two feet. Count visible hands per character before output — ≤ 2 per body. No third arm from a parent\'s torso, no third hand on a stroller bar, no extra fingers fused into a sleeve. If a parent is holding the child with both arms, those are the parent\'s two hands — do NOT add a "helping" third hand.');
+    lines.push('- **OBJECT INTEGRITY (HARD):** any prominent stroller / cart / bike / scooter / wagon / chair / table / crib / high chair must read as a structurally coherent object. Handle connects to the frame with a real bar. Wheels paired. No floating handle ending in mid-air. No duplicated frame bars overlapping at wrong angles. Trace the frame edge-to-edge before output.');
     lines.push('- OUTFIT LOCK: same garment family, same colors, same silhouette as the cover. Situational swaps (pajamas, swimwear, towel, snow coat) are allowed ONLY when this spread\'s SCENE block explicitly names that situation.');
   } else {
     lines.push('- Hero: match face, hair, hair length, hair style, eye color, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads. Hair color and length must be identical on every spread.');
     lines.push('- **HERO SKIN TONE (cover-anchored HARD LOCK):** the hero child\'s skin tone is the cover\'s skin tone, every spread. Lighting may change brightness, NOT skin family. No undertone drift. Treat the cover\'s cheek / hand skin as your literal color swatch.');
+    lines.push('- **LIMB COUNT (HARD):** every human in the frame has EXACTLY two arms, two hands, two legs, two feet. Count visible hands per character before output — ≤ 2 per body.');
+    lines.push('- **OBJECT INTEGRITY (HARD):** prominent stroller / cart / bike / scooter / wagon / chair / table / crib must read as one structurally coherent object — handle connects to the frame, wheels paired, no floating handle ending in mid-air.');
   }
 
   if (opts.isParentTheme) {
@@ -611,6 +615,16 @@ function buildTagDirectives(tags, opts) {
   if (set.has('hero_skin_drift')) {
     out.push(
       'The previous image drifted the HERO CHILD\'s skin tone away from the BOOK COVER (e.g. cover reads fair / very pale but the spread rendered medium-tan / olive / sun-kissed; or cover reads medium and spread rendered much darker / much lighter; or undertone shifted warm-to-cool). Re-render the child with the EXACT cover skin family — same lightness, same warmth, same undertone. Treat the cover\'s cheek / hand skin as a literal color swatch and reuse it. Lighting may change brightness, NOT skin family. No "sun-tan because it\'s outdoors," no "warmer because the room is cozy."',
+    );
+  }
+  if (set.has('extra_limbs')) {
+    out.push(
+      'The previous image gave a character MORE than two hands (e.g. a parent with three hands on the stroller and child, or an extra arm reaching from the same body). Re-render so every human in the frame has EXACTLY two arms, two hands, two legs, two feet. Count visible hands per character before output — ≤ 2 per body. If a parent is holding the child with both arms, those are the parent\'s two hands; do NOT add a third "helping" hand. Remove any duplicate or third hand cleanly.',
+    );
+  }
+  if (set.has('object_integrity')) {
+    out.push(
+      'The previous image rendered a prominent man-made object (stroller / cart / bike / scooter / chair / table / crib) with broken structure (e.g. handle floating with no bar to the frame, two seats fused to one wheel, duplicated frame bars at wrong angles). Re-render the object as one structurally coherent piece: handle connects to the frame with a visible bar, wheels are paired, seat sits on a believable base. Trace the object\'s frame edge-to-edge — every load-bearing part must connect into one continuous structure.',
     );
   }
   if (set.has('duplicated_hero')) {

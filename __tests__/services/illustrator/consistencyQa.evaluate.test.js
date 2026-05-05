@@ -128,4 +128,55 @@ describe('evaluateConsistencyResult', () => {
     expect(r.tags).toContain('hero_skin_drift');
     expect(r.tags).not.toContain('hero_mismatch');
   });
+
+  test('tooManyHands true adds extra_limbs tag and issue', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      tooManyHands: true,
+      tooManyHandsNotes: 'mother has three hands: one on the stroller bar, one on the child\'s shoulder, and a third reaching from behind',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('extra_limbs');
+    expect(r.issues.some(i => /more than two hands/i.test(i))).toBe(true);
+    expect(r.issues.join(' ')).toMatch(/three hands/);
+  });
+
+  test('tooManyHands false (default) does not tag', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      tooManyHands: false,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.tags).not.toContain('extra_limbs');
+  });
+
+  test('objectIntegrityOk false adds object_integrity tag and issue', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      objectIntegrityOk: false,
+      objectIntegrityNotes: 'stroller handle floats above the stroller body with no visible bar connecting the two',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('object_integrity');
+    expect(r.issues.some(i => /structurally broken/i.test(i))).toBe(true);
+    expect(r.issues.join(' ')).toMatch(/stroller handle/);
+  });
+
+  test('objectIntegrityOk true (default) does not tag', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      objectIntegrityOk: true,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.tags).not.toContain('object_integrity');
+  });
+
+  test('extra_limbs and disembodied_limb are independent (third hand on a body vs floating limb)', () => {
+    // The two detectors target different anatomy failures and must surface
+    // independent tags so regen prompts can address each.
+    const r = evaluateConsistencyResult(baseParsed({
+      tooManyHands: true,
+      tooManyHandsNotes: 'parent has 3 hands',
+      disembodiedLimb: true,
+      disembodiedLimbNotes: 'a fourth hand floating with no body anchor',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toEqual(expect.arrayContaining(['extra_limbs', 'disembodied_limb']));
+  });
 });
