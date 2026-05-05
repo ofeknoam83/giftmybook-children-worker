@@ -107,13 +107,17 @@ describe('PR Z: createSpreadSpecs system prompt + userPrompt', () => {
     });
   });
 
-  test('system prompt names ANCHORS ARE THE SPINE directive with verbatim-words ban', async () => {
+  test('system prompt names ANCHORS ARE THE SPINE directive with editor-style transformation guidance', async () => {
     await createSpreadSpecs(buildDoc());
     const { systemPrompt } = captureCall(callText);
     expect(systemPrompt).toMatch(/ANCHORS ARE THE SPINE/);
-    // Verbatim-words ban: "bites" never "nibbles", "smushy" never "squishy".
-    expect(systemPrompt).toMatch(/bites.*nibbles/);
-    expect(systemPrompt).toMatch(/smushy.*squishy/);
+    // Editor-style: transform the moment, do not copy or erase.
+    expect(systemPrompt).toMatch(/Transform the moment/i);
+    expect(systemPrompt).toMatch(/not as a literal copy/i);
+    expect(systemPrompt).toMatch(/generic stand-in/i);
+    // Hard regression: the old verbatim-copy directive must be gone.
+    expect(systemPrompt).not.toMatch(/never paraphrase the load-bearing words/i);
+    expect(systemPrompt).not.toMatch(/use VERBATIM/);
   });
 
   test('userPrompt renders ANCHOR ALLOCATION table at the top with per-beat assignments', async () => {
@@ -125,9 +129,11 @@ describe('PR Z: createSpreadSpecs system prompt + userPrompt', () => {
     expect(userPrompt).toMatch(/spread 10 \(peak2\) · funny_thing/);
     expect(userPrompt).toMatch(/spread 12 \(closing\) · anything_else/);
     expect(userPrompt).toMatch(/ADDRESS · calls_mom/);
-    // Verbatim words must be visible in the table.
-    expect(userPrompt).toContain("'bites'");
-    expect(userPrompt).toContain("'smushy'");
+    // Original moment text quoted so the LLM sees what to transform.
+    expect(userPrompt).toContain('bites mama on the chin');
+    expect(userPrompt).toContain('we call her smushy');
+    // Hard regression: no "verbatim words" directive on the planner table.
+    expect(userPrompt).not.toMatch(/verbatim words:/i);
   });
 
   test('ANCHOR ALLOCATION block is emitted BEFORE the theme block', async () => {
@@ -163,27 +169,33 @@ describe('PR Z: createSpreadSpecs deterministic mustUseDetails injection', () =>
     const sp1Details = sp(1).spec.mustUseDetails;
     expect(sp1Details[0]).toMatch(/ADDRESS \(calls_mom\)/);
     expect(sp1Details[0]).toContain('Mama');
-    expect(sp1Details.some(d => /ANCHOR \(meaningful_moment\)/.test(d))).toBe(true);
-    expect(sp1Details.some(d => d.includes("'squealed'"))).toBe(true);
-    expect(sp1Details.some(d => d.includes("'bath'"))).toBe(true);
+    const sp1Anchor = sp1Details.find(d => /ANCHOR \(meaningful_moment\)/.test(d));
+    expect(sp1Anchor).toBeDefined();
+    // The original moment text is quoted in the anchor line so the LLM sees what to transform.
+    expect(sp1Anchor).toContain('first time she squealed in the bath');
+    expect(sp1Anchor).toMatch(/transform this moment/i);
     expect(sp(1).spec.anchorRole).toBe('opening');
 
-    // Spread 7: moms_favorite_moment with verbatim words.
+    // Spread 7: moms_favorite_moment.
     const sp7Details = sp(7).spec.mustUseDetails;
-    expect(sp7Details.some(d => /ANCHOR \(moms_favorite_moment\)/.test(d))).toBe(true);
-    expect(sp7Details.some(d => d.includes("'snuggle'"))).toBe(true);
-    expect(sp7Details.some(d => d.includes("'courtney'"))).toBe(true);
+    const sp7Anchor = sp7Details.find(d => /ANCHOR \(moms_favorite_moment\)/.test(d));
+    expect(sp7Anchor).toBeDefined();
+    expect(sp7Anchor).toMatch(/transform this moment/i);
     expect(sp(7).spec.anchorRole).toBe('heart');
 
-    // Spread 10: funny_thing with bites + chin.
+    // Spread 10: funny_thing.
     const sp10Details = sp(10).spec.mustUseDetails;
-    expect(sp10Details.some(d => d.includes("'bites'"))).toBe(true);
-    expect(sp10Details.some(d => d.includes("'chin'"))).toBe(true);
+    const sp10Anchor = sp10Details.find(d => /ANCHOR \(funny_thing\)/.test(d));
+    expect(sp10Anchor).toBeDefined();
+    expect(sp10Anchor).toContain('bites mama on the chin');
+    expect(sp10Anchor).toMatch(/Do NOT copy the answer literally/);
     expect(sp(10).spec.anchorRole).toBe('peak2');
 
-    // Spread 12: anything_else with smushy.
+    // Spread 12: anything_else.
     const sp12Details = sp(12).spec.mustUseDetails;
-    expect(sp12Details.some(d => d.includes("'smushy'"))).toBe(true);
+    const sp12Anchor = sp12Details.find(d => /ANCHOR \(anything_else\)/.test(d));
+    expect(sp12Anchor).toBeDefined();
+    expect(sp12Anchor).toContain('we call her smushy');
     expect(sp(12).spec.anchorRole).toBe('closing');
 
     // Spread 5 (no anchor): no anchor role, mustUseDetails stays as the LLM left it.
@@ -194,8 +206,9 @@ describe('PR Z: createSpreadSpecs deterministic mustUseDetails injection', () =>
   test('LLM echoes the anchor line back: dedupe prevents duplication', async () => {
     // The exact strings the prompt would inject — easiest way to simulate the
     // LLM faithfully copying the prompt's ANCHOR text into mustUseDetails.
+    // Build the exact anchor string the new transformation-style prompt injects.
     const exactAnchor1 =
-      `ANCHOR (meaningful_moment) — this spread must surface the moment "first time she squealed in the bath". Use these load-bearing words VERBATIM (do not paraphrase): 'first', 'time', 'squealed', 'bath'.`;
+      `ANCHOR (meaningful_moment) — Spread 1 must transform this moment into the page's couplet(s):\n  "first time she squealed in the bath"\nPreserve the emotional truth of this moment — the specific people, the specific action, the specific feeling. Do NOT copy the answer literally onto the page. Do NOT erase the specificity into something generic. The reader should read this couplet and feel that this exact moment, between these exact people, is on the page.`;
     const spreads = [];
     for (let i = 1; i <= TOTAL_SPREADS; i++) {
       const md = i === 1 ? [exactAnchor1] : [];

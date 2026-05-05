@@ -194,19 +194,30 @@ describe('buildAnchorAllocation (top-level)', () => {
     expect(sp1.mustUseDetails[1]).toMatch(/ANCHOR \(meaningful_moment\)/);
   });
 
-  test('verbatim load-bearing words are surfaced in the ANCHOR line', () => {
+  test('ANCHOR line carries the original answer + transformation guidance, not a verbatim copy directive', () => {
     const allocation = buildAnchorAllocation(scarlettBrief());
-    // Spread 10 (funny_thing) should explicitly require "bites" and "chin".
+
+    // Spread 10 (funny_thing): the answer text is included so the writer sees
+    // the moment, but the line directs TRANSFORMATION, not literal copy.
     const sp10 = allocation.perSpread.get(10);
     const anchor = sp10.mustUseDetails.find(s => s.includes('funny_thing'));
-    expect(anchor).toContain("'bites'");
-    expect(anchor).toContain("'chin'");
+    expect(anchor).toContain('bites mama on the chin'); // original answer text quoted
+    expect(anchor).toMatch(/transform this moment/i);
+    expect(anchor).toMatch(/Do NOT copy the answer literally/);
+    expect(anchor).toMatch(/Do NOT erase the specificity/);
+    // Hard regression check: the prompt must NOT instruct the LLM to use
+    // load-bearing words verbatim — that produced the literal-copy bug.
+    expect(anchor).not.toMatch(/VERBATIM/);
+    expect(anchor).not.toMatch(/use these load-bearing words/i);
+    // verbatimTokens still computed for back-compat (signatureBeats coverage).
     expect(sp10.verbatimTokens).toEqual(expect.arrayContaining(['bites', 'chin']));
 
-    // Spread 12 (anything_else) should require "smushy".
+    // Spread 12 (anything_else): same shape.
     const sp12 = allocation.perSpread.get(12);
     const anchor12 = sp12.mustUseDetails.find(s => s.includes('anything_else'));
-    expect(anchor12).toContain("'smushy'");
+    expect(anchor12).toContain('we call her smushy');
+    expect(anchor12).toMatch(/transform this moment/i);
+    expect(anchor12).not.toMatch(/VERBATIM/);
     expect(sp12.verbatimTokens).toContain('smushy');
   });
 
@@ -223,7 +234,7 @@ describe('buildAnchorAllocation (top-level)', () => {
 });
 
 describe('renderAllocationBlockForPlanner', () => {
-  test('returns a multi-line block listing every beat with role and verbatim words', () => {
+  test('returns a multi-line block listing every beat with role and the original moment text', () => {
     const allocation = buildAnchorAllocation(scarlettBrief());
     const text = renderAllocationBlockForPlanner(allocation);
     expect(text).toMatch(/ANCHOR ALLOCATION/);
@@ -232,8 +243,14 @@ describe('renderAllocationBlockForPlanner', () => {
     expect(text).toMatch(/spread 10 \(peak2\) · funny_thing/);
     expect(text).toMatch(/spread 12 \(closing\) · anything_else/);
     expect(text).toMatch(/ADDRESS · calls_mom/);
-    expect(text).toMatch(/'bites'/);
-    expect(text).toMatch(/'smushy'/);
+    // Original moment text is quoted so the LLM sees what to transform.
+    expect(text).toContain('bites mama on the chin');
+    expect(text).toContain('we call her smushy');
+    // Hard regression: no "verbatim words" / VERBATIM directive on the planner block.
+    expect(text).not.toMatch(/verbatim words:/i);
+    expect(text).not.toMatch(/VERBATIM \(no paraphrase/i);
+    // Block tells the LLM to transform, not to copy or erase.
+    expect(text).toMatch(/transformed into the story/i);
     // The compression message must be on the same block.
     expect(text).toMatch(/ANCHOR DENSITY/);
   });

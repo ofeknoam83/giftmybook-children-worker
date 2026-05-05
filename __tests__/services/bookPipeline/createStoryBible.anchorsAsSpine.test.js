@@ -75,13 +75,22 @@ describe('PR Z: createStoryBible system prompt promotes anchors to subject', () 
     });
   });
 
-  test('system prompt leads with ANCHORS ARE THE SUBJECT directive', async () => {
+  test('system prompt leads with ANCHORS ARE THE SUBJECT directive (transformation-style, not verbatim-copy)', async () => {
     await createStoryBible(buildDoc());
     const { systemPrompt } = captureCall(callText);
     expect(systemPrompt).toMatch(/ANCHORS ARE THE SUBJECT/);
-    // The directive must explicitly forbid paraphrasing the load-bearing words.
-    expect(systemPrompt).toMatch(/never\s+"nibbles"|NOT\s+"nibbles"/i);
-    expect(systemPrompt).toMatch(/smushy/);
+    // The directive must instruct the planner to TRANSFORM the moment,
+    // not paste the questionnaire answer literally onto the page and not
+    // erase the specifics into stock imagery.
+    expect(systemPrompt).toMatch(/Transform, do not erase, do not copy/i);
+    expect(systemPrompt).toMatch(/Do NOT generalize/i);
+    expect(systemPrompt).toMatch(/Do NOT copy the questionnaire answer literally/i);
+    // Regression: the prompt must NOT instruct the planner to use the
+    // load-bearing words verbatim — that wording is what produced literal
+    // questionnaire copies on the page (e.g. "scarlett bites mamas chin.").
+    expect(systemPrompt).not.toMatch(/verbatim/i);
+    expect(systemPrompt).not.toMatch(/nibbles/i);
+    expect(systemPrompt).not.toMatch(/squishy/i);
   });
 
   test('system prompt names anti-padding compression policy', async () => {
@@ -91,11 +100,14 @@ describe('PR Z: createStoryBible system prompt promotes anchors to subject', () 
     expect(systemPrompt).toMatch(/sensory bridges/i);
   });
 
-  test('userPrompt renders BOOK SUBJECT block listing every signature beat verbatim', async () => {
+  test('userPrompt renders BOOK SUBJECT block quoting every signature beat as the original answer text', async () => {
     await createStoryBible(buildDoc());
     const { userPrompt } = captureCall(callText);
     expect(userPrompt).toMatch(/BOOK SUBJECT/);
-    // Every signature beat appears verbatim.
+    // The original questionnaire answer text is quoted in the BOOK SUBJECT
+    // block so the planner sees the moment exactly as the parent wrote it.
+    // The system prompt is what tells the planner to transform (not copy)
+    // these moments — the user prompt's job is to surface them faithfully.
     expect(userPrompt).toContain('first time she squealed in the bath');
     expect(userPrompt).toContain('morning snuggle in pajamas with Courtney');
     expect(userPrompt).toContain('bites mama on the chin');
