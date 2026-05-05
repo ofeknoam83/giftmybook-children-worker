@@ -30,28 +30,17 @@ const {
   CHAT_API_BASE,
   QA_TIMEOUT_MS,
   QA_HTTP_ATTEMPTS,
+  QA_MAX_OUTPUT_TOKENS,
 } = require('./config');
+const {
+  extractGeminiResponseText,
+  extractFinishReason,
+  parseJsonBlock,
+} = require('./qaResponseParser');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
 const { AGE_BANDS } = require('../bookPipeline/constants');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function extractGeminiResponseText(data) {
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts
-    .filter(p => p && typeof p.text === 'string' && p.text.length && p.thought !== true)
-    .map(p => p.text)
-    .join('\n')
-    .trim();
-}
-
-function parseJsonBlock(text) {
-  if (!text) return null;
-  const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try { return JSON.parse(match[0]); } catch { return null; }
-}
 
 /**
  * Render a short, concrete description of what a child of this age band
@@ -131,10 +120,12 @@ async function checkSpreadActionConsistency(spreadBase64, opts = {}) {
       responseMimeType: 'application/json',
       temperature: 0.1,
       thinkingConfig: { thinkingBudget: 0 },
+      maxOutputTokens: QA_MAX_OUTPUT_TOKENS,
     },
   };
 
   let lastErr = null;
+  let lastFinishReason = null;
   for (let attempt = 1; attempt <= QA_HTTP_ATTEMPTS; attempt++) {
     try {
       const resp = await fetchWithTimeout(url, {
@@ -144,9 +135,22 @@ async function checkSpreadActionConsistency(spreadBase64, opts = {}) {
       }, QA_TIMEOUT_MS, opts.abortSignal);
       if (!resp.ok) { lastErr = new Error(`Action QA HTTP ${resp.status}`); await sleep(500 * attempt); continue; }
       const data = await resp.json();
+      lastFinishReason = extractFinishReason(data) || lastFinishReason;
       const txt = extractGeminiResponseText(data);
-      const parsed = parseJsonBlock(txt);
-      if (!parsed) { lastErr = new Error('Action QA unparseable response'); await sleep(500 * attempt); continue; }
+      const { parsed, repaired } = parseJsonBlock(txt);
+      if (!parsed) {
+        lastErr = new Error(
+          `Action QA unparseable response (finishReason=${lastFinishReason || 'n/a'}, len=${txt.length})`,
+        );
+        await sleep(500 * attempt);
+        continue;
+      }
+      if (repaired) {
+        console.warn(
+          `[illustrator/actionConsistencyQa] Recovered from truncated JSON ` +
+          `(finishReason=${lastFinishReason || 'n/a'}, attempt=${attempt})`,
+        );
+      }
       return evaluateActionResult(parsed);
     } catch (err) {
       lastErr = err;
@@ -154,7 +158,10 @@ async function checkSpreadActionConsistency(spreadBase64, opts = {}) {
     }
   }
 
-  console.warn(`[illustrator/actionConsistencyQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts: ${lastErr?.message}`);
+  console.warn(
+    `[illustrator/actionConsistencyQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts ` +
+    `(finishReason=${lastFinishReason || 'n/a'}): ${lastErr?.message}`,
+  );
   return {
     pass: false,
     issues: [`Action QA infra error: ${lastErr?.message || 'unknown'}`],

@@ -20,28 +20,17 @@ const {
   CHAT_API_BASE,
   QA_TIMEOUT_MS,
   QA_HTTP_ATTEMPTS,
+  QA_MAX_OUTPUT_TOKENS,
 } = require('./config');
+const {
+  extractGeminiResponseText,
+  extractFinishReason,
+  parseJsonBlock,
+} = require('./qaResponseParser');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
 const { QA_RECENT_INTERIOR_REFERENCES } = require('../bookPipeline/constants');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function extractGeminiResponseText(data) {
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts
-    .filter(p => p && typeof p.text === 'string' && p.text.length && p.thought !== true)
-    .map(p => p.text)
-    .join('\n')
-    .trim();
-}
-
-function parseJsonBlock(text) {
-  if (!text) return null;
-  const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try { return JSON.parse(match[0]); } catch { return null; }
-}
 
 /**
  * @param {string} spreadBase64 - Generated spread image.
@@ -123,10 +112,14 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
       responseMimeType: 'application/json',
       temperature: 0.1,
       thinkingConfig: { thinkingBudget: 0 },
+      // Explicit cap — see config.js for rationale. The implicit budget at
+      // thinkingBudget=0 was clipping responses mid-JSON in production.
+      maxOutputTokens: QA_MAX_OUTPUT_TOKENS,
     },
   };
 
   let lastErr = null;
+  let lastFinishReason = null;
   for (let attempt = 1; attempt <= QA_HTTP_ATTEMPTS; attempt++) {
     try {
       const resp = await fetchWithTimeout(url, {
@@ -136,9 +129,22 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
       }, QA_TIMEOUT_MS, opts.abortSignal);
       if (!resp.ok) { lastErr = new Error(`Consistency QA HTTP ${resp.status}`); await sleep(500 * attempt); continue; }
       const data = await resp.json();
+      lastFinishReason = extractFinishReason(data) || lastFinishReason;
       const txt = extractGeminiResponseText(data);
-      const parsed = parseJsonBlock(txt);
-      if (!parsed) { lastErr = new Error('Consistency QA unparseable response'); await sleep(500 * attempt); continue; }
+      const { parsed, repaired } = parseJsonBlock(txt);
+      if (!parsed) {
+        lastErr = new Error(
+          `Consistency QA unparseable response (finishReason=${lastFinishReason || 'n/a'}, len=${txt.length})`,
+        );
+        await sleep(500 * attempt);
+        continue;
+      }
+      if (repaired) {
+        console.warn(
+          `[illustrator/consistencyQa] Recovered from truncated JSON ` +
+          `(finishReason=${lastFinishReason || 'n/a'}, attempt=${attempt})`,
+        );
+      }
       return evaluateConsistencyResult(parsed, recentCount);
     } catch (err) {
       lastErr = err;
@@ -146,7 +152,14 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
     }
   }
 
-  console.warn(`[illustrator/consistencyQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts: ${lastErr?.message}`);
+  // Preserve original semantics: fail-open returns pass:false with infra:true.
+  // The caller in services/illustrator/index.js promotes this to an accept on
+  // the final attempt + final rebuild, so a sustained Gemini outage still
+  // unblocks the book — just not silently on the first attempt.
+  console.warn(
+    `[illustrator/consistencyQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts ` +
+    `(finishReason=${lastFinishReason || 'n/a'}): ${lastErr?.message}`,
+  );
   return {
     pass: false,
     issues: [`Consistency QA infra error: ${lastErr?.message || 'unknown'}`],
