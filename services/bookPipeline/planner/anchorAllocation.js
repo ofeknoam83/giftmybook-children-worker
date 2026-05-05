@@ -321,21 +321,26 @@ function buildAnchorAllocation(brief, opts = {}) {
     const slot = perSpread.get(a.spreadNumber);
     if (!slot) continue;
     // mustUseDetails entries are READABLE strings the writer / illustrator
-    // see verbatim. We bake the questionnaire key, the original answer, and
-    // the load-bearing tokens into one string so it's immediately actionable.
-    const tokensClause = a.loadBearingTokens.length
-      ? ` Use these load-bearing words VERBATIM (do not paraphrase): ${a.loadBearingTokens.map(t => `'${t}'`).join(', ')}.`
-      : '';
+    // see directly. We bake the questionnaire key, the original answer, and
+    // editor-style transformation guidance into one string so it's immediately
+    // actionable. We do NOT instruct the LLM to copy load-bearing tokens
+    // verbatim — that produced literal-copy regressions (e.g. shipping
+    // the questionnaire answer as the line itself). Instead the LLM is
+    // asked to TRANSFORM the moment into the story's voice while preserving
+    // its emotional truth and concrete specifics.
     slot.mustUseDetails.push(
-      `ANCHOR (${a.key}) — this spread must surface the moment "${a.text}".${tokensClause}`
+      `ANCHOR (${a.key}) — Spread ${a.spreadNumber} must transform this moment into the page's couplet(s):\n  "${a.text}"\nPreserve the emotional truth of this moment — the specific people, the specific action, the specific feeling. Do NOT copy the answer literally onto the page. Do NOT erase the specificity into something generic. The reader should read this couplet and feel that this exact moment, between these exact people, is on the page.`
     );
     slot.anchorRole = a.role;
+    // verbatimTokens kept for back-compat on consumers (signatureBeats coverage
+    // pre-flight still uses them as a presence-check hint, NOT as a copy directive).
     slot.verbatimTokens = [...slot.verbatimTokens, ...a.loadBearingTokens];
   }
 
   // Address beats: append a single line to spread 1's mustUseDetails so the
   // writer is told once, prominently, what to call each parent across the
-  // book. (We don't repeat it 13 times — that's noise.)
+  // book. Address words are different from anchors — they're naming choices,
+  // not moments — so the verbatim-use directive is correct here.
   const addressLines = allocations
     .filter(a => a.isAddress)
     .map(a => `ADDRESS (${a.key}): when this parent appears anywhere in the book, the verse must use the word "${a.text.trim()}" verbatim — never a synonym.`);
@@ -360,18 +365,15 @@ function renderAllocationBlockForPlanner(allocation) {
   const lines = [];
   lines.push('## ANCHOR ALLOCATION (load-bearing — read first)');
   lines.push('These questionnaire moments are THE SUBJECT of this book — the spine, not the decoration.');
-  lines.push('Each beat is pinned to a specific spread role. The writer MUST land the named moment on the named spread, using the load-bearing words VERBATIM (no paraphrase, no synonyms).');
+  lines.push('Each beat is pinned to a specific spread role. The named moment MUST land on the named spread, transformed into the story\'s voice. Do NOT copy the answer literally; do NOT erase its specificity into a generic stand-in. The writer\'s job is to render the emotional truth and concrete details (people, action, place, feeling) of each moment as a couplet that reads naturally aloud.');
   lines.push('');
   for (const a of allocation.allocations) {
     if (a.isAddress) {
       lines.push(`- ADDRESS · ${a.key} → use "${a.text.trim()}" verbatim every time this parent appears.`);
       continue;
     }
-    const tokens = a.loadBearingTokens.length
-      ? ` · verbatim words: ${a.loadBearingTokens.map(t => `'${t}'`).join(', ')}`
-      : '';
     lines.push(
-      `- spread ${a.spreadNumber} (${a.role}) · ${a.key}: "${a.text}"${tokens}`
+      `- spread ${a.spreadNumber} (${a.role}) · ${a.key}: "${a.text}"`
     );
   }
   lines.push('');

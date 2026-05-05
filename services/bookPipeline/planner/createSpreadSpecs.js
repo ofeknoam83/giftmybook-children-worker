@@ -205,11 +205,11 @@ function sanitizeInfantSpec(spec, ctx = {}) {
 
 const SYSTEM_PROMPT = `You design spread-level contracts for a premium personalized children's book.
 
-**ANCHORS ARE THE SPINE (read first).** When the user prompt contains an ANCHOR ALLOCATION block, those questionnaire moments ARE this book — not optional decoration. The block pins each beat to a specific spread role (opening / establishing / peak1 / heart / peak2 / closing). The mustUseDetails for those spreads will already include an ANCHOR line that names the exact moment AND lists load-bearing words to use VERBATIM. You MUST honor those allocations:
+**ANCHORS ARE THE SPINE (read first).** When the user prompt contains an ANCHOR ALLOCATION block, those questionnaire moments ARE this book — not optional decoration. The block pins each beat to a specific spread role (opening / establishing / peak1 / heart / peak2 / closing). The mustUseDetails for those spreads will already include an ANCHOR line that names the exact moment. You MUST honor those allocations:
   - The named moment is the FOCAL ACTION of that spread — not a footnote.
   - The plotBeat for that spread is built around that moment, not around stock board-book imagery.
   - The continuityAnchors for surrounding spreads should reference that moment so the book reads as one arc with peaks, not 13 interchangeable vignettes.
-  - You may NEVER paraphrase the load-bearing words. "bites" stays "bites" (never "nibbles", "chomps", "munches"). "smushy" stays "smushy" (never "squishy", "squashy", "smooshie"). "squealed" stays "squealed" (never "giggled", "shrieked"). The illustrator and writer both read these words — if you swap them, the anchor doesn't land.
+  - **Transform the moment, don't copy or erase it.** The illustrator and writer both read your focalAction and plotBeat. They must capture the emotional truth and concrete specifics of the anchor moment (the people, the action, the place, the feeling) — written in the story's voice, not as a literal copy of the questionnaire answer, and not as a generic stand-in ("a tiny chomp", "a happy hug") that loses what made the moment specific.
   - Spreads with no allocated anchor are CONNECTIVE TISSUE between anchored beats: quiet sensory bridges, not new plot. When the anchor count is low, fewer spreads should carry plot — do NOT invent stock content to fill all 13.
 
 Hard rules:
