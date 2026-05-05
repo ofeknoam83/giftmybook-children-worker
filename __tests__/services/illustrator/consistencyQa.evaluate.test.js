@@ -94,4 +94,38 @@ describe('evaluateConsistencyResult', () => {
     expect(r.pass).toBe(false);
     expect(r.tags).toEqual(expect.arrayContaining(['unexpected_person', 'parent_as_character_silhouette']));
   });
+
+  test('heroSkinToneMatchesCover false adds hero_skin_drift tag and issue', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroSkinToneMatchesCover: false,
+      heroSkinToneNotes: 'cover child reads as fair, candidate child reads as medium-tan with warm undertone — clear two-shade gap',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('hero_skin_drift');
+    expect(r.issues.some(i => /Hero child's skin tone drifts/i.test(i))).toBe(true);
+    expect(r.issues.join(' ')).toMatch(/medium-tan/);
+  });
+
+  test('heroSkinToneMatchesCover true (default) does not tag', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroSkinToneMatchesCover: true,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.tags).not.toContain('hero_skin_drift');
+  });
+
+  test('hero_skin_drift independent of hero_mismatch (skin can drift while face is the same person)', () => {
+    // The two detectors target different failure modes — face shape vs skin tone.
+    // A medium-tan rendering of a clearly-fair cover child can fail skin tone
+    // even when heroChildMatches still reads true (model decided the face was
+    // close enough). Both tags must be able to fire independently.
+    const r = evaluateConsistencyResult(baseParsed({
+      heroChildMatches: true,
+      heroSkinToneMatchesCover: false,
+      heroSkinToneNotes: 'cover fair, spread medium-tan',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('hero_skin_drift');
+    expect(r.tags).not.toContain('hero_mismatch');
+  });
 });

@@ -28,6 +28,26 @@ const IMPLIED_PRESENCE_ANCHORING_RULE = `ANCHORING RULE (when showing a hand, ar
 - If in doubt, prefer option (b) — a partial shoulder or cropped torso — over a long reaching arm, because it's easier to read.`;
 
 /**
+ * Hero child's skin tone is locked to the cover render across every interior.
+ * The cover skin patch is the literal color reference — no warm-tan drift, no
+ * lighting-driven undertone shift, no two-shade gap.
+ * @param {string} [childAppearance]
+ * @returns {string}
+ */
+function heroChildSkinToneLock(childAppearance) {
+  const tail = childAppearance
+    ? ` The cached child reference for this book reads: ${childAppearance} — if the cover and this reference disagree, the COVER pixels win, but use this short text as a belt-and-suspenders cross-check.`
+    : '';
+  return `HERO CHILD SKIN TONE LOCK (cover-anchored — HARD LOCK on every interior):
+The HERO CHILD's skin tone on the BOOK COVER is the SINGLE ground-truth color reference for the child on every interior spread. Same lightness, same warmth, same undertone, every spread. Do not let lighting, environment, mood, or shadow drift the child's skin into a different family.
+- If the cover child reads as fair / very pale (cool or warm), every interior child reads as fair / very pale — NOT medium-tan, NOT olive, NOT sun-kissed, NOT a darker family because the scene happens to be outdoors.
+- If the cover child reads as medium, every interior child reads as medium — NOT much darker brown, NOT washed-out fair.
+- If the cover child reads as deep brown, every interior child reads as deep brown — NOT lighter, NOT a milky pale.
+- Undertones don't drift either: a cool-fair cover child does NOT become warm-tan on a sunny spread; a warm-medium cover child does NOT become cool-pale in indoor light. Lighting may change brightness, NOT skin family.
+- Treat the cover child's cheek / hand skin as a literal swatch and re-use that swatch on every interior. A two-shade gap or any undertone shift between cover and interior is a HARD FAIL — the customer reads the cover and the spread side by side and notices instantly.${tail}`;
+}
+
+/**
  * Implied parent's visible skin must match the hero child (family-plausible).
  * @param {string} [childAppearance]
  * @returns {string}
@@ -123,6 +143,8 @@ ONE SINGLE CONNECTED BODY (CRITICAL — anatomy fail if violated):
 - The outfit is ONE outfit on ONE body: if the upper half shows a white shirt, the lower half must be the matching pants/shorts/dress of the SAME outfit attached to the SAME torso. Do NOT render an upper body in one garment and a disconnected lower body in a different garment nearby.
 - Mental check before output: trace the hero's silhouette with your finger. You must be able to go head → neck → chest → waist → hips → thighs → knees → shins → feet in ONE continuous path, without ever crossing empty background or jumping to a second body.`
   );
+
+  sections.push(`### ${heroChildSkinToneLock(childAppearance)}`);
 
   sections.push(
 `### BATH, SHOWER, AND SWIMMING (MODEST — MODEL-SAFE)

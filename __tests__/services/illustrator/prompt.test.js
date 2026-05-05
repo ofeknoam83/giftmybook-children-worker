@@ -238,6 +238,17 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/never a co-actor|ambient only|hand entering frame/i);
   });
 
+  test('hero_skin_drift directive demands cover skin family with no lighting excuse', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Hero child\'s skin tone drifts from the cover: cover fair, spread medium-tan'],
+      tags: ['hero_skin_drift'],
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/HERO CHILD|skin family|cover skin/i);
+    expect(out).toMatch(/literal color swatch|lighting may change brightness/i);
+  });
+
   test('wrong_font reinforces TEXT_RULES font lock', () => {
     const out = buildCorrectionTurn({
       ...base,
