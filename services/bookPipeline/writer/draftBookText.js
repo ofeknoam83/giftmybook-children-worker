@@ -7,7 +7,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
+const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, getWriterTemperature } = require('../constants');
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
@@ -250,12 +250,16 @@ function applyManuscript(doc, json) {
  * @returns {Promise<object>}
  */
 async function draftBookText(doc) {
+  // PR J.4 — infant band uses a lower sampling temperature so hard
+  // constraints (still-point, no dialogue, safe-action whitelist) win
+  // over the model's bias toward exotic locomotion verbs in a children's
+  // book theme. Other bands keep their historical temperature.
   const result = await callText({
     model: MODELS.WRITER,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt: userPrompt(doc),
     jsonMode: true,
-    temperature: 0.95,
+    temperature: getWriterTemperature('draft', doc?.request?.ageBand),
     maxTokens: 12000,
     label: 'writerDraft',
     abortSignal: doc.operationalContext?.abortSignal,
