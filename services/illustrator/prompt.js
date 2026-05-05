@@ -323,9 +323,11 @@ function buildCharacterAnchorBlock(opts) {
     // by its own prior outputs rather than the cover.
     lines.push(`- Hero ground truth (LITERAL — match every value exactly): ${desc}`);
     lines.push('- HAIR / EYES / SKIN LOCK: hair color, hair length, hair style, eye color, and skin tone are IDENTICAL on every spread to the BOOK COVER and to every earlier accepted interior spread. No subtle shift between spreads. No "slightly different brown". No length change. No styled vs. messy variation between spreads unless the SCENE explicitly justifies it.');
+    lines.push('- **HERO SKIN TONE (cover-anchored HARD LOCK):** the hero child\'s skin tone is the cover\'s skin tone, every spread. If the cover child reads as fair / very pale → the spread child reads as fair / very pale (NOT medium-tan, NOT olive, NOT sun-kissed because the scene is outdoors). If the cover reads as medium → the spread reads as medium (NOT much darker brown, NOT washed-out fair). If the cover reads as deep brown → the spread reads as deep brown (NOT lighter). Lighting may change brightness, NOT skin family. No undertone drift (warm-to-cool or cool-to-warm). Treat the cover\'s cheek / hand skin as your literal color swatch.');
     lines.push('- OUTFIT LOCK: same garment family, same colors, same silhouette as the cover. Situational swaps (pajamas, swimwear, towel, snow coat) are allowed ONLY when this spread\'s SCENE block explicitly names that situation.');
   } else {
     lines.push('- Hero: match face, hair, hair length, hair style, eye color, skin tone, and outfit to the BOOK COVER exactly. No drift from earlier spreads. Hair color and length must be identical on every spread.');
+    lines.push('- **HERO SKIN TONE (cover-anchored HARD LOCK):** the hero child\'s skin tone is the cover\'s skin tone, every spread. Lighting may change brightness, NOT skin family. No undertone drift. Treat the cover\'s cheek / hand skin as your literal color swatch.');
   }
 
   if (opts.isParentTheme) {
@@ -604,6 +606,11 @@ function buildTagDirectives(tags, opts) {
   if (set.has('parent_as_character_silhouette')) {
     out.push(
       'The previous image rendered the parent as an anthropomorphized shadow / silhouette with FACE FEATURES (eyes, glow, mouth, gesturing hand silhouette). Remove all face features from any parent shadow or silhouette — keep it a plain, featureless dark profile, ambient only. Better: replace the face-having shadow with a soft hand entering frame, a shoulder-back, or no parent presence at all this spread. The parent is NEVER a co-actor with a visible face on interior spreads of this book.',
+    );
+  }
+  if (set.has('hero_skin_drift')) {
+    out.push(
+      'The previous image drifted the HERO CHILD\'s skin tone away from the BOOK COVER (e.g. cover reads fair / very pale but the spread rendered medium-tan / olive / sun-kissed; or cover reads medium and spread rendered much darker / much lighter; or undertone shifted warm-to-cool). Re-render the child with the EXACT cover skin family — same lightness, same warmth, same undertone. Treat the cover\'s cheek / hand skin as a literal color swatch and reuse it. Lighting may change brightness, NOT skin family. No "sun-tan because it\'s outdoors," no "warmer because the room is cozy."',
     );
   }
   if (set.has('duplicated_hero')) {
