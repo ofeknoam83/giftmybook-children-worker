@@ -11,8 +11,6 @@ const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, getWriterTemperature
 const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
-const { maybeTruncateInfantManuscript } = require('./truncateInfantText');
-const { compressInfantManuscript } = require('./compressInfantSpread');
 
 // AA-CW-2: writer-side defenders (sanitizeForbiddenMistakesForInfant,
 // sanitizeSpecViewForInfant) and their imports from createSpreadSpecs were
@@ -20,6 +18,14 @@ const { compressInfantManuscript } = require('./compressInfantSpread');
 // by Planner Guard, a single Flash call); the writer now consumes the
 // planner's spec as-is, including the explicit infant ban string the
 // planner attaches to forbiddenMistakes.
+//
+// AA-CW-3: the post-draft per-spread compressor (compressInfantManuscript)
+// and the regex line-truncator (maybeTruncateInfantManuscript) were removed.
+// The writer is responsible for emitting a band-shaped manuscript directly,
+// driven by SYSTEM_PROMPT line-count rules and the writerQA → rewrite loop
+// (REPAIR_BUDGETS.writerRewriteWaves). No regex-fallback truncation, no
+// per-spread compression LLM pass — the rewrite loop is the single repair
+// surface.
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
@@ -179,13 +185,12 @@ function applyManuscript(doc, json) {
       personalizationUsed: Array.isArray(entry.personalizationUsed) ? entry.personalizationUsed.map(String) : [],
       writerNotes: entry.writerNotes ? String(entry.writerNotes) : null,
     };
-    // Defense-in-depth: if the writer overshoots line count for an infant
-    // book, truncate to a 2-line AA couplet here so downstream stages see a
-    // band-shaped manuscript even before the rewrite loop catches up.
-    const manuscript = maybeTruncateInfantManuscript(manuscriptRaw, doc);
+    // AA-CW-3: no regex truncation. The writer must emit the correct line
+    // count for the band; if it overshoots, the writerQA + rewrite loop
+    // handles the repair.
     next = updateSpread(next, n, s => ({
       ...s,
-      manuscript,
+      manuscript: manuscriptRaw,
     }));
   }
   return next;
@@ -219,22 +224,17 @@ async function draftBookText(doc) {
     abortSignal: doc.operationalContext?.abortSignal,
   });
 
-  let next = applyManuscript(doc, result.json);
-  next = appendLlmCall(next, {
+  const next = appendLlmCall(applyManuscript(doc, result.json), {
     stage: 'writerDraft',
     model: result.model,
     attempts: result.attempts,
     usage: result.usage,
   });
 
-  // PR G: post-draft compression pass for infant books. The primary writer
-  // is encouraged to draft freely; we then compress each spread to a
-  // 2-line AA couplet that satisfies the infant contract. Compression
-  // with hard constraints is a narrower task than constrained free
-  // generation and reliably scrubs subtle locomotion verbs that slipped
-  // past the writer's own self-check. No-op for non-infant bands.
-  next = await compressInfantManuscript(next);
-
+  // AA-CW-3: removed the post-draft compressInfantManuscript pass.
+  // The writer is now the single source for infant manuscript shape;
+  // any miss is caught by writerQA and fixed by the rewrite loop
+  // (REPAIR_BUDGETS.writerRewriteWaves), with no regex/lexicon fallback.
   return next;
 }
 
