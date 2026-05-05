@@ -15,6 +15,7 @@ const { MODELS, FORMATS, WORDS_PER_LINE_TARGET, TEXT_LINE_TARGET, AGE_BANDS } = 
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
 const { isCommonEnglishWord } = require('./wordDictionary');
+const { checkSignatureBeatCoverage, describeBeat } = require('./signatureBeats');
 
 const PREACH_MARKERS = [
   /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
@@ -1297,6 +1298,39 @@ async function checkWriterDraft(doc) {
     bookLevelDeterministicFail = true;
   }
 
+  // PR Y — signature-beat coverage (book-level).
+  // Per-anchor gate: every emotional anchor from the questionnaire
+  // (funny_thing, meaningful_moment, moms/dads_favorite_moment, calls_mom,
+  // calls_dad, anything_else) must surface in at least one spread.
+  // The 60% generic saturation gate is too lenient — Scarlett's failed
+  // book passed it at 50% landed because the half it missed was every
+  // emotional anchor, and the writer got credit for landing generic
+  // interests instead. This gate cannot be averaged away.
+  const signature = checkSignatureBeatCoverage(doc.brief, doc.spreads);
+  if (signature.missing.length > 0) {
+    bookLevel.push(
+      `signature beats missing: ${signature.missing.length} of ${signature.beats.length} questionnaire anchors did not appear in any spread — ${signature.missing.map(describeBeat).join('; ')}`,
+    );
+    bookLevelTags.push('signature_beat_missing');
+    bookLevelDeterministicFail = true;
+    // Inject one targeted directive per missing beat into the assigned
+    // spread (opening / peak / closing rotation) so the rewrite loop has
+    // a concrete place to land it.
+    for (let i = 0; i < signature.missing.length; i++) {
+      const beat = signature.missing[i];
+      const sn = signature.assignments[i];
+      if (!Number.isFinite(sn)) continue;
+      const phrasing = (beat.key === 'calls_mom' || beat.key === 'calls_dad')
+        ? `${beat.key} parent address word "${beat.text}"`
+        : `questionnaire anchor ${describeBeat(beat)}`;
+      addBookLevelInjection(
+        sn,
+        `signature_beat_missing: surface the ${phrasing} in this spread — it is a load-bearing personalization detail from the questionnaire and the manuscript must not ship without it.`,
+        'signature_beat_missing',
+      );
+    }
+  }
+
   const merged = doc.spreads.map(s => {
     const det = deterministic.find(d => d.spreadNumber === s.spreadNumber) || { pass: true, issues: [], tags: [] };
     const lit = perSpreadLit.find(l => Number(l?.spreadNumber) === s.spreadNumber) || {};
@@ -1349,6 +1383,7 @@ module.exports = {
   findVerbCrutches,
   checkPersonalizationSaturation,
   extractPersonalizationItems,
+  checkSignatureBeatCoverage,
   // PR D detectors
   findInfantForbiddenActionVerbs,
   findInfantFragmentLines,
