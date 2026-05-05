@@ -21,30 +21,19 @@ const {
   CHAT_API_BASE,
   QA_TIMEOUT_MS,
   QA_HTTP_ATTEMPTS,
+  QA_MAX_OUTPUT_TOKENS,
   TEXT_RULES,
   defaultTextSide,
 } = require('./config');
+const {
+  extractGeminiResponseText,
+  extractFinishReason,
+  parseJsonBlock,
+} = require('./qaResponseParser');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
 const { sanitizeMixedScriptString } = require('../writer/quality/sanitize');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function extractGeminiResponseText(data) {
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts
-    .filter(p => p && typeof p.text === 'string' && p.text.length && p.thought !== true)
-    .map(p => p.text)
-    .join('\n')
-    .trim();
-}
-
-function parseJsonBlock(text) {
-  if (!text) return null;
-  const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try { return JSON.parse(match[0]); } catch { return null; }
-}
 
 /**
  * Tokens for per-word frequency (manuscript vs illustration must match).
@@ -183,10 +172,12 @@ async function verifySpreadText(imageBase64, expected, opts = {}) {
       responseMimeType: 'application/json',
       temperature: 0.1,
       thinkingConfig: { thinkingBudget: 0 },
+      maxOutputTokens: QA_MAX_OUTPUT_TOKENS,
     },
   };
 
   let lastErr = null;
+  let lastFinishReason = null;
   for (let attempt = 1; attempt <= QA_HTTP_ATTEMPTS; attempt++) {
     try {
       const resp = await fetchWithTimeout(url, {
@@ -201,12 +192,21 @@ async function verifySpreadText(imageBase64, expected, opts = {}) {
         continue;
       }
       const data = await resp.json();
+      lastFinishReason = extractFinishReason(data) || lastFinishReason;
       const txt = extractGeminiResponseText(data);
-      const parsed = parseJsonBlock(txt);
+      const { parsed, repaired } = parseJsonBlock(txt);
       if (!parsed) {
-        lastErr = new Error('Text QA returned unparseable response');
+        lastErr = new Error(
+          `Text QA returned unparseable response (finishReason=${lastFinishReason || 'n/a'}, len=${txt.length})`,
+        );
         await sleep(500 * attempt);
         continue;
+      }
+      if (repaired) {
+        console.warn(
+          `[illustrator/textQa] Recovered from truncated JSON ` +
+          `(finishReason=${lastFinishReason || 'n/a'}, attempt=${attempt})`,
+        );
       }
       return evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected });
     } catch (err) {
@@ -216,7 +216,10 @@ async function verifySpreadText(imageBase64, expected, opts = {}) {
   }
 
   // Fail-open on infra errors — the caller can decide whether to trust it or retry.
-  console.warn(`[illustrator/textQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts: ${lastErr?.message}`);
+  console.warn(
+    `[illustrator/textQa] Fail-open after ${QA_HTTP_ATTEMPTS} attempts ` +
+    `(finishReason=${lastFinishReason || 'n/a'}): ${lastErr?.message}`,
+  );
   return {
     pass: false,
     issues: [`Text QA infra error: ${lastErr?.message || 'unknown'}`],

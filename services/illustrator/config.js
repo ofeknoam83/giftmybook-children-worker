@@ -61,6 +61,13 @@ const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference s
 const MAX_SPREAD_CORRECTIONS = 6;   // per-spread in-session corrections → 1 initial + 6 = 7 attempts per session before rebuild
 const MAX_SESSION_REBUILDS = 2;     // full session rebuilds per spread (safety + QA exhaustion); worst case ≈ 7 × 3 = 21 attempts
 const QA_HTTP_ATTEMPTS = 3;         // retries per vision QA HTTP call before fail-open (infra)
+// Explicit ceiling for QA model output. The consistencyQa schema has ~25 fields
+// with prose `Notes` companions; without an explicit cap the gemini-2.5-flash
+// implicit budget at thinkingBudget=0 was clipping responses mid-JSON, which
+// the parser couldn't recover (greedy {…} regex needs a closing brace). 4096
+// is comfortably above the largest observed legitimate response (~1.9k) while
+// staying within the per-request token budget.
+const QA_MAX_OUTPUT_TOKENS = 4096;
 
 /** Consecutive model safety blocks on the same spread before appending a stricter "no in-world text" scene clause. */
 const SAFETY_STRIKES_BEFORE_SCENE_DEESCAL = 2;
@@ -287,6 +294,7 @@ module.exports = {
   TURN_TIMEOUT_MS,
   TURN_TIMEOUT_QUAD_MS,
   QA_TIMEOUT_MS,
+  QA_MAX_OUTPUT_TOKENS,
   ESTABLISHMENT_TIMEOUT_MS,
   MAX_SPREAD_CORRECTIONS,
   MAX_SESSION_REBUILDS,
