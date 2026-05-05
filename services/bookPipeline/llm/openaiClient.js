@@ -6,10 +6,20 @@
  *   - chat-completions request to gpt-5.x models (uses max_completion_tokens)
  *   - streaming for large token budgets to avoid edge-proxy cutoffs
  *   - strict JSON mode when requested (response_format + robust parse)
- *   - Gemini fallback when the primary model fails
+ *   - Gemini fallback when the primary model fails (transient infra only)
  *   - truncation detection (finish_reason === 'length') with auto-extend retry
  *   - timeouts and bounded retries on transient errors
  *   - uniform call metadata for the pipeline trace
+ *
+ * Failure-class taxonomy (PR AA-1, post-incident):
+ *   - LlmAuthError      — missing/invalid OpenAI key (401/403/empty). NEVER
+ *                         falls back to Gemini. Logs [LLM_AUTH_FAIL] at error.
+ *                         These are config bugs; silent fallback to a different
+ *                         model masks the bug and ships degraded books to users.
+ *   - LlmTransientError — 5xx, 408, 429, network timeout. Eligible for retries
+ *                         and Gemini fallback. Logs [LLM_FALLBACK] when fallback fires.
+ *   - LlmTruncationError — finish_reason === 'length'. Auto-extends maxTokens.
+ *   - LlmParseError      — JSON-mode parse failure. Retried.
  *
  * Image generation and vision QA stay on their own clients (image/vision
  * quality targets warrant different providers).
@@ -27,6 +37,21 @@ class LlmTransientError extends Error {
     super(message);
     this.name = 'LlmTransientError';
     this.isTransient = true;
+  }
+}
+
+/**
+ * Auth/config errors — missing key, 401, 403. Never eligible for Gemini
+ * fallback because these indicate a deploy bug, not a service degradation,
+ * and silently swapping models hides the bug while serving degraded output.
+ */
+class LlmAuthError extends Error {
+  constructor(message, { httpStatus = null, missingKey = false } = {}) {
+    super(message);
+    this.name = 'LlmAuthError';
+    this.isAuthError = true;
+    this.httpStatus = httpStatus;
+    this.missingKey = missingKey;
   }
 }
 
@@ -53,8 +78,26 @@ function sleep(ms) {
 
 function resolveOpenaiKey(override) {
   const key = override || process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OpenAI API key missing (OPENAI_API_KEY)');
+  if (!key) {
+    throw new LlmAuthError(
+      'OpenAI API key missing (OPENAI_API_KEY is empty or unset). This is a deploy/config bug — refusing to silently fall back to Gemini because the prompts are tuned for the GPT model family.',
+      { missingKey: true },
+    );
+  }
   return key;
+}
+
+/**
+ * Inspect an OpenAI-shaped error string for explicit auth signals so we
+ * can promote a generic Error into an LlmAuthError when the body says so.
+ */
+function looksLikeOpenaiAuthError(errText) {
+  if (!errText) return false;
+  const s = String(errText).toLowerCase();
+  return s.includes('invalid_api_key')
+    || s.includes('incorrect api key')
+    || s.includes('missing api key')
+    || s.includes('no api key provided');
 }
 
 function resolveGeminiKey(override) {
@@ -246,6 +289,13 @@ async function callOpenaiOnce(params) {
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
     const transient = resp.status >= 500 || resp.status === 429 || resp.status === 408;
+    const authError = resp.status === 401 || resp.status === 403 || looksLikeOpenaiAuthError(errText);
+    if (authError) {
+      throw new LlmAuthError(
+        `${label} HTTP ${resp.status}: ${errText.slice(0, 400)}`,
+        { httpStatus: resp.status },
+      );
+    }
     throw new (transient ? LlmTransientError : Error)(
       `${label} HTTP ${resp.status}: ${errText.slice(0, 400)}`,
     );
@@ -443,10 +493,24 @@ async function callText(params) {
       lastErr = err;
       const transient = err?.isTransient === true;
       const truncation = err?.isTruncation === true;
+      const authError = err?.isAuthError === true;
+
+      // Auth/config errors: NEVER fall back. Throw loudly so the deploy
+      // is fixed instead of silently serving Gemini-quality output on a
+      // GPT-tuned prompt set. (Post-incident PR AA-1, 2026-05-06.)
+      if (authError) {
+        console.error(
+          `[LLM_AUTH_FAIL] label=${label} model=${model} httpStatus=${err.httpStatus || 'none'} missingKey=${err.missingKey ? 'true' : 'false'} msg='${err.message.slice(0, 300)}' — refusing Gemini fallback; fix OPENAI_API_KEY and redeploy`,
+        );
+        throw err;
+      }
+
       if (!transient && !truncation && !(err instanceof LlmParseError)) {
         if (!isGeminiPrimary && allowGeminiFallback && resolveGeminiKey(geminiApiKey)) {
           try {
-            console.warn(`[llm:${label}] OpenAI error after ${Date.now() - attemptStart}ms: '${err.message}', falling back to Gemini (${GEMINI_TEXT_MODEL})`);
+            console.warn(
+              `[LLM_FALLBACK] label=${label} primary_model=${model} fallback_model=${GEMINI_TEXT_MODEL} primary_error_class=${err?.name || 'Error'} primary_error='${(err?.message || '').slice(0, 300)}' attempt=${attempt} elapsed_ms=${Date.now() - attemptStart}`,
+            );
             const fbStart = Date.now();
             const fb = await callGeminiOnce({
               systemPrompt,
@@ -490,11 +554,37 @@ async function callText(params) {
   throw lastErr || new Error(`${label} exhausted attempts`);
 }
 
+/**
+ * Lightweight startup config check. Call this once from the server bootstrap
+ * (and from any standalone script) so a missing OPENAI_API_KEY in the
+ * deployed env produces a single grep-friendly log line at boot — not after
+ * the first book request fails.
+ *
+ * Returns { ok, missing: [...] } so callers can also fail their healthz.
+ */
+function assertLlmConfig({ require: requireKeys = ['OPENAI_API_KEY'] } = {}) {
+  const missing = [];
+  for (const k of requireKeys) {
+    const v = process.env[k];
+    if (!v || String(v).trim() === '') missing.push(k);
+  }
+  if (missing.length === 0) {
+    console.log(`[LLM_CONFIG] ok required=[${requireKeys.join(',')}] gemini_fallback_available=${resolveGeminiKey() ? 'true' : 'false'}`);
+    return { ok: true, missing: [] };
+  }
+  console.error(
+    `[LLM_CONFIG] FAIL missing=[${missing.join(',')}] gemini_fallback_available=${resolveGeminiKey() ? 'true' : 'false'} — pipeline calls will throw LlmAuthError; fix the secret and redeploy`,
+  );
+  return { ok: false, missing };
+}
+
 module.exports = {
   callText,
   LlmTransientError,
+  LlmAuthError,
   LlmParseError,
   LlmTruncationError,
   parseJsonLoose,
   fetchWithTimeout,
+  assertLlmConfig,
 };
