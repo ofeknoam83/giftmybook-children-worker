@@ -189,12 +189,19 @@ async function writerQaAndRewrite(doc) {
     // narrowest constraint surface in the pipeline (we already know which
     // exact lines to fix), so we sample at 0.4 — same as the existing
     // compressInfantSpread stage — to maximise constraint-following.
+    // PR J.1.5 diagnostic: log resolved temperature + ageBand per wave so we
+    // can confirm the J.4 rewrite temperature (0.4 for infant) is in effect.
+    const _rewriteAgeBand = current?.request?.ageBand || '(none)';
+    const _rewriteTemp = getWriterTemperature('rewrite', current?.request?.ageBand);
+    console.log(
+      `[writer:rewrite.wave${wave + 1}] ageBand=${_rewriteAgeBand} temperature=${_rewriteTemp} (PR J.1.5 diagnostic)`
+    );
     const result = await callText({
       model: MODELS.WRITER,
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: rewriteUserPrompt(current, targets),
       jsonMode: true,
-      temperature: getWriterTemperature('rewrite', current?.request?.ageBand),
+      temperature: _rewriteTemp,
       maxTokens: 7000,
       label: `writerRewrite.wave${wave + 1}`,
       abortSignal: current.operationalContext?.abortSignal,

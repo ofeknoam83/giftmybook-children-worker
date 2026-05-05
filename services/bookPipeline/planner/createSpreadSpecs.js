@@ -386,8 +386,26 @@ async function createSpreadSpecs(doc) {
     // the explicit ban as a breadcrumb for the writer.
     if (doc?.request?.ageBand === AGE_BANDS.PB_INFANT) {
       const heroName = doc?.brief?.child?.name || '';
+      // PR J.1.5 diagnostic: log sanitizer input so we can see what the
+      // planner LLM emitted (banned verbs and all) before strip-mode rewrite.
+      const _preHits = findInfantPlannerVerbs(
+        `${spec.focalAction || ''} || ${spec.plotBeat || ''}`
+      );
+      console.log(
+        `[planner:sanitizeInfantSpec] spread=${spreadNumber} preHits=${JSON.stringify(_preHits)} ` +
+        `focalAction=${JSON.stringify(spec.focalAction)} plotBeat=${JSON.stringify(spec.plotBeat)}`
+      );
       const { spec: sanitized, changes } = sanitizeInfantSpec(spec, { heroName });
       if (changes.length) {
+        // PR J.1.5 diagnostic: per-field rewrite log so we can verify the
+        // strip-mode substitution map covered each banned verb in the input.
+        for (const ch of changes) {
+          console.log(
+            `[planner:sanitizeInfantSpec] spread=${spreadNumber} field=${ch.field} ` +
+            `hits=${JSON.stringify(ch.hits)} before=${JSON.stringify(ch.before)} ` +
+            `after=${JSON.stringify(ch.after)} fallback=${ch.fallback ? 'true' : 'false'}`
+          );
+        }
         // Replace focalAction/plotBeat in the working spec, and stash the
         // diff so the trace makes the change visible.
         spec.focalAction = sanitized.focalAction;
