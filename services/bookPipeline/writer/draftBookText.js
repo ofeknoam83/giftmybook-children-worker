@@ -254,12 +254,20 @@ async function draftBookText(doc) {
   // constraints (still-point, no dialogue, safe-action whitelist) win
   // over the model's bias toward exotic locomotion verbs in a children's
   // book theme. Other bands keep their historical temperature.
+  // PR J.1.5 diagnostic: log resolved sampling temperature + ageBand so we
+  // can confirm Cloud Run is serving the J.4 revision and that ageBand is
+  // populated at the writer call site.
+  const _draftAgeBand = doc?.request?.ageBand || '(none)';
+  const _draftTemp = getWriterTemperature('draft', doc?.request?.ageBand);
+  console.log(
+    `[writer:draft] ageBand=${_draftAgeBand} temperature=${_draftTemp} (PR J.1.5 diagnostic)`
+  );
   const result = await callText({
     model: MODELS.WRITER,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt: userPrompt(doc),
     jsonMode: true,
-    temperature: getWriterTemperature('draft', doc?.request?.ageBand),
+    temperature: _draftTemp,
     maxTokens: 12000,
     label: 'writerDraft',
     abortSignal: doc.operationalContext?.abortSignal,
