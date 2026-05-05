@@ -16,9 +16,17 @@ const {
   renderPersonalizationSnapshotForPlanner,
   briefHasRichPersonalization,
 } = require('./personalizationSnapshot');
+const {
+  buildAnchorAllocation,
+  renderAllocationBlockForStoryBible,
+} = require('./anchorAllocation');
 
 const SYSTEM_PROMPT = `You are a senior children's picture-book story architect.
 You design the narrative spine for a premium personalized book, not the final prose.
+
+**ANCHORS ARE THE SUBJECT (read first).** When the user prompt includes a BOOK SUBJECT block listing specific questionnaire moments (\`funny_thing\`, \`meaningful_moment\`, \`moms_favorite_moment\`, \`dads_favorite_moment\`, \`anything_else\`, \`calls_mom\`, \`calls_dad\`), THIS BOOK IS ABOUT THOSE MOMENTS. They are not a checklist — they are the spine. \`narrativeSpine\`, \`beginningHook\`, \`middleEscalation\`, \`endingPayoff\`, \`emotionalArc\`, \`humorStrategy\`, and at least half of \`personalizationTargets\` must explicitly grow out of those exact moments and use their load-bearing nouns/verbs verbatim (e.g. if the answer says \`bites mama on the chin\`, the bible references "the chin-bite" or "biting Mama's chin" — NOT "nibbles", NOT "a tiny chomp"; if the answer is \`smushy\`, the bible names "smushy" — NOT "squishy", NOT "squashy"). Generic adventure / sensory imagery is allowed only as the connective tissue BETWEEN anchor moments, never in place of them.
+
+**Anti-padding compression.** When the questionnaire is sparse (≤3 strong text moments), do NOT manufacture extra plot to fill the page count. Compress: let some spreads be quiet sensory bridges that grow out of the anchor moments, rather than 13 padded couplets sprinkled with anchor tokens. The goal is anchor density, not anchor decoration.
 
 Hard rules:
 - Optimize for fun read-aloud quality first, emotional payoff, personalization, and visual richness.
@@ -49,6 +57,13 @@ function userPrompt(doc) {
   const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {});
   const rich = briefHasRichPersonalization(brief.child, brief.customDetails || {});
   const isInfant = request.ageBand === AGE_BANDS.PB_INFANT;
+
+  // PR Z — anchor allocation. Build the deterministic per-beat plan and
+  // render the BOOK SUBJECT block at the top of the userPrompt so the LLM
+  // reads the questionnaire moments as the narrative spine, not as a
+  // checklist below the fold.
+  const anchorAllocation = buildAnchorAllocation(brief);
+  const anchorBlock = renderAllocationBlockForStoryBible(anchorAllocation);
 
   // Lap-baby books are NOT adventure books — the hero cannot travel a
   // multi-location quest, and there is no narrative escalation. Cap the
@@ -110,6 +125,9 @@ function userPrompt(doc) {
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Format: ${request.format}. Age band: ${request.ageBand}. Theme: ${request.theme}.`,
     `Approved cover title: "${cover.title}".`,
+    // PR Z — anchor allocation block FIRST, so the LLM reads the book's
+    // subject before any abstract narrative theory.
+    anchorBlock,
     themeBlock,
     personalizationBlock,
     infantStoryBibleClause,
