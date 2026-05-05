@@ -80,6 +80,37 @@ function delayRespectingAbort(ms, signal) {
   });
 }
 
+/**
+ * PR F early-abort helpers.
+ *
+ * `nextConsecutiveAgeActionImpossible` returns the new running counter for
+ * consecutive `age_action_impossible` rejections. The counter resets to 0
+ * any time the most recent rejection did NOT include the tag — we want a
+ * true streak, not a cumulative tally, because intermittent age failures
+ * mixed with other failures could legitimately resolve.
+ *
+ * `shouldEarlyAbortForUnrenderableInfantAction` is the threshold check.
+ * Pulled out so callers (and tests) read symmetrically and so the
+ * threshold lives in one place.
+ *
+ * @param {number} prev
+ * @param {string[]} latestRejectTags
+ * @returns {number}
+ */
+function nextConsecutiveAgeActionImpossible(prev, latestRejectTags) {
+  const tags = Array.isArray(latestRejectTags) ? latestRejectTags : [];
+  if (tags.includes('age_action_impossible')) return (prev || 0) + 1;
+  return 0;
+}
+
+/**
+ * @param {number} consecutive
+ * @returns {boolean}
+ */
+function shouldEarlyAbortForUnrenderableInfantAction(consecutive) {
+  return (consecutive || 0) >= REPAIR_BUDGETS.ageActionImpossibleConsecutiveAbort;
+}
+
 function quadGenOpts() {
   const openai = String(providerName || '').toLowerCase().includes('openai');
   if (openai) {
@@ -136,6 +167,13 @@ async function processQuadPair(params) {
   let currentSession = session;
   const hero = currentDoc.visualBible?.hero?.physicalDescription || '';
   let extraRoundsRemaining = REPAIR_BUDGETS.perSpreadExtraSessionRounds;
+  // PR F: track consecutive `age_action_impossible` rejections across the
+  // entire pair lifecycle (including session rebuilds). When the manuscript
+  // text describes an action the infant hero cannot physically perform,
+  // the illustrator is in an unwinnable loop — drawing the verb fails
+  // age_action_impossible, drawing anything else fails action_mismatch.
+  // Burning the full ~20-attempt budget on this is pure waste.
+  let consecutiveAgeActionImpossible = 0;
 
   function applyTier2CaptionSoftening() {
     const softA = softenCaptionForImageSafetyRetry(baselineCaptionA);
@@ -528,6 +566,33 @@ async function processQuadPair(params) {
       lastPairRejectTags = [...new Set(tags)];
       lastPairRejectIssues = issues.slice(0, 12);
 
+      // PR F early-abort: count consecutive age_action_impossible rejections
+      // and bail out before exhausting the full budget. This typically saves
+      // ~5 minutes of GPU time per failing pair when the writer text demands
+      // a physically-impossible action from an infant hero.
+      consecutiveAgeActionImpossible = nextConsecutiveAgeActionImpossible(
+        consecutiveAgeActionImpossible,
+        lastPairRejectTags,
+      );
+      if (shouldEarlyAbortForUnrenderableInfantAction(consecutiveAgeActionImpossible)) {
+        console.error(
+          `[${logTagQuad}] EARLY-ABORT spreads [${spreadNumbers.join(', ')}] — ` +
+          `${consecutiveAgeActionImpossible} consecutive age_action_impossible rejections; ` +
+          `manuscript text describes an action the hero cannot physically perform. ` +
+          `lastTags=[${lastPairRejectTags.join(',')}] issues=${formatQaRejectIssuesForLog(lastPairRejectIssues)}`,
+        );
+        return {
+          accepted: false,
+          doc: currentDoc,
+          session: currentSession,
+          issues: [
+            `spread pair text describes an action the hero cannot physically perform (${consecutiveAgeActionImpossible} consecutive age_action_impossible rejections)`,
+            ...lastPairRejectIssues,
+          ],
+          tags: ['infant_action_text_unrenderable', 'spread_unresolvable'],
+        };
+      }
+
       const planA = planSpreadRepair({
         spreadNumber: spreadA.spreadNumber,
         attemptNumber: attempt,
@@ -802,4 +867,10 @@ async function renderAllSpreadsQuad(doc) {
   return current;
 }
 
-module.exports = { renderAllSpreadsQuad, processQuadPair };
+module.exports = {
+  renderAllSpreadsQuad,
+  processQuadPair,
+  // PR F — exported for unit tests
+  nextConsecutiveAgeActionImpossible,
+  shouldEarlyAbortForUnrenderableInfantAction,
+};

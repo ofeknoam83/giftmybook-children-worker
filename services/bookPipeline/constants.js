@@ -106,6 +106,16 @@ const REPAIR_BUDGETS = {
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
   perSpreadExtraSessionRounds: 3,
   bookWideRepairWaves: 2,
+  /**
+   * Early-abort threshold for the quad illustrator: if a spread pair is
+   * rejected this many times in a row with `age_action_impossible` in the
+   * tags, give up immediately. The illustrator cannot fix age violations
+   * caused by the manuscript text (the writer asked for an action the
+   * hero cannot physically perform), so further attempts only burn GPU
+   * time. The pair fails with `infant_action_text_unrenderable` so the
+   * operator knows the writer is the culprit.
+   */
+  ageActionImpossibleConsecutiveAbort: 3,
 };
 
 /** Max recent accepted interior images passed into spread consistency QA (plus cover + candidate). */
