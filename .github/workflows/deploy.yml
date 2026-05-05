@@ -119,14 +119,28 @@ jobs:
         # PR AA-1: refuse to call the deploy successful if /healthz returns
         # 503 (which means OPENAI_API_KEY is missing/empty in the running
         # container even though the deploy command appeared to succeed).
-        # Cloud Run is deployed with --no-allow-unauthenticated, so we mint
-        # an ID token via gcloud (the WIF auth from earlier still applies).
+        #
+        # WIF credentials cannot mint identity tokens via
+        # `gcloud auth print-identity-token` (no refresh token), so we use
+        # the IAM credentials API with the workload SA as the impersonation
+        # target and our own URL as the audience.
         run: |
           URL=$(gcloud run services describe ${{ env.SERVICE }} \
             --project ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
             --format='value(status.url)')
-          TOKEN=$(gcloud auth print-identity-token)
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          SA='${{ secrets.WIF_SERVICE_ACCOUNT }}'
+          TOKEN=$(curl -s -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"audience\":\"$URL\",\"includeEmail\":true}" \
+            "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$SA:generateIdToken" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
+            echo "::error::Failed to mint identity token for healthz probe — cannot verify deploy."
+            exit 1
+          fi
           echo "Probing $URL/healthz"
           STATUS=$(curl -s -o /tmp/healthz.json -w "%{http_code}" \
             -H "Authorization: Bearer $TOKEN" \
