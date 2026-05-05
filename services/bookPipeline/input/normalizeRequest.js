@@ -81,7 +81,15 @@ function extractInterestsArray(src, raw) {
 function extractChild(raw) {
   const src = raw.child || raw;
   const name = src.name || src.childName || raw.childName || '';
-  const age = src.age || src.childAge || raw.childAge || null;
+  // PR L — age must NOT use `||` here. Lap babies legitimately resolve to
+  // `age = 0` (full integer years for an under-1.5 child), and `0 || x`
+  // silently falls through to the next operand. That trap was discarding
+  // PR K's birth-date-derived age=0 for an 8-month-old and falling back to
+  // the stale `raw.childAge` (e.g. 2) the client had sent, routing the book
+  // to PB_TODDLER instead of PB_INFANT and bypassing every infant-band PR
+  // (H/I/J.1/J.4). Use `??` so only null/undefined fall through; a real 0
+  // is preserved end-to-end.
+  const age = src.age ?? src.childAge ?? raw.childAge ?? null;
   const gender = src.gender || raw.gender || 'unspecified';
   const pronouns = src.pronouns || raw.pronouns || null;
   const anecdotes = src.anecdotes || raw.anecdotes || {};
