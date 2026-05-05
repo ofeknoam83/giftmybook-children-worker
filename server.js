@@ -807,6 +807,28 @@ app.post('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// /healthz — deep readiness check (PR AA-1, post silent-fallback incident).
+// Returns 503 when LLM config is broken so Cloud Run/load balancers can
+// refuse to promote a revision that would silently degrade to Gemini for
+// every book request. Cheap to call — no LLM round-trip.
+app.get('/healthz', (req, res) => {
+  const { assertLlmConfig } = require('./services/bookPipeline/llm/openaiClient');
+  const llm = assertLlmConfig({ require: ['OPENAI_API_KEY'] });
+  const status = llm.ok ? 200 : 503;
+  res.status(status).json({
+    status: llm.ok ? 'ready' : 'degraded',
+    service: 'giftmybook-children-worker',
+    version: versionInfo.version,
+    writerVersion: versionInfo.writerVersion,
+    activeBooks: activeBooks.size,
+    llm: {
+      ok: llm.ok,
+      missing: llm.missing,
+      gemini_fallback_available: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_KEY),
+    },
+  });
+});
+
 // ── POST /generate-style-variant — DEPRECATED ──
 // Picture-book illustrations are now locked to the 3D Premium Pixar style, so
 // there is no meaningful "variant" to produce. The endpoint returns 410 Gone
@@ -3525,8 +3547,11 @@ app.get('/test-gemini-image', authenticate, async (req, res) => {
 });
 
 // ── Startup Validation ──
-const REQUIRED_ENV = ['API_KEY', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME'];
-const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+// OPENAI_API_KEY is required for the planner + writer stages. The legacy
+// list omitted it, which is how the silent-Gemini-fallback incident shipped
+// for weeks (PR AA-1, 2026-05-06).
+const REQUIRED_ENV = ['API_KEY', 'GEMINI_API_KEY', 'GCS_BUCKET_NAME', 'OPENAI_API_KEY'];
+const missingEnv = REQUIRED_ENV.filter(k => !process.env[k] || String(process.env[k]).trim() === '');
 // ─── POST /qa/generate-story ─── Writer V2 QA endpoint with SSE streaming
 app.post('/qa/generate-story', authenticate, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -3572,6 +3597,14 @@ if (missingEnv.length > 0 && process.env.NODE_ENV !== 'test') {
 }
 
 if (require.main === module) {
+  // Single grep-friendly LLM-config line at boot — makes silent fallback
+  // visible in Cloud Run logs without waiting for the first book to fail.
+  try {
+    const { assertLlmConfig } = require('./services/bookPipeline/llm/openaiClient');
+    assertLlmConfig({ require: ['OPENAI_API_KEY'] });
+  } catch (e) {
+    console.error(`[LLM_CONFIG] startup check threw: ${e.message}`);
+  }
   app.listen(PORT, () => {
     console.log(`giftmybook-children-worker listening on port ${PORT}`);
   });

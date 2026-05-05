@@ -37,6 +37,25 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Verify required secrets are present
+        # PR AA-1 (post silent-fallback incident): refuse to deploy if any
+        # of the keys the runtime depends on are empty/unset, instead of
+        # shipping a revision that silently degrades to Gemini.
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+        run: |
+          missing=()
+          [ -z "$OPENAI_API_KEY" ] && missing+=(OPENAI_API_KEY)
+          [ -z "$GOOGLE_AI_STUDIO_KEY" ] && missing+=(GOOGLE_AI_STUDIO_KEY)
+          [ -z "$GEMINI_API_KEY_1" ] && missing+=(GEMINI_API_KEY_1)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Required secrets are empty/unset: ${missing[*]}. Set them in repo Settings → Secrets → Actions and re-run."
+            exit 1
+          fi
+          echo "✅ All required secrets present (OPENAI_API_KEY length: ${#OPENAI_API_KEY})"
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
@@ -48,7 +67,7 @@ jobs:
             --cpu=4 \
             --timeout=3600 \
             --concurrency=1 \
-            --min-instances=1 \
+            --min-instances=0 \
             --max-instances=10 \
             --execution-environment=gen2 \
             --cpu-boost \
@@ -95,3 +114,27 @@ jobs:
             --format="value(name)" \
             --limit=1)
           echo "✅ Active revision: $ACTIVE"
+
+      - name: Probe /healthz on the new revision
+        # PR AA-1: refuse to call the deploy successful if /healthz returns
+        # 503 (which means OPENAI_API_KEY is missing/empty in the running
+        # container even though the deploy command appeared to succeed).
+        # Cloud Run is deployed with --no-allow-unauthenticated, so we mint
+        # an ID token via gcloud (the WIF auth from earlier still applies).
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE }} \
+            --project ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --format='value(status.url)')
+          TOKEN=$(gcloud auth print-identity-token)
+          echo "Probing $URL/healthz"
+          STATUS=$(curl -s -o /tmp/healthz.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$URL/healthz" || echo "000")
+          echo "healthz status: $STATUS"
+          cat /tmp/healthz.json || true
+          echo
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::/healthz returned $STATUS — the new revision is degraded (likely missing OPENAI_API_KEY). Failing the deploy."
+            exit 1
+          fi
