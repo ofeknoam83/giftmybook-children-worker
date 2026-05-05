@@ -249,6 +249,28 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/literal color swatch|lighting may change brightness/i);
   });
 
+  test('extra_limbs directive demands two hands per body', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['A character has more than two hands: parent has 3 hands'],
+      tags: ['extra_limbs'],
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/EXACTLY two arms|two hands|≤ 2 per body/i);
+    expect(out).toMatch(/Count visible hands|third "helping" hand|Remove any duplicate/i);
+  });
+
+  test('object_integrity directive demands a coherent frame', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['A prominent object is structurally broken: stroller handle floats above the stroller body with no visible bar'],
+      tags: ['object_integrity'],
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/structurally coherent|handle connects to the frame|edge-to-edge/i);
+    expect(out).toMatch(/wheels are paired|load-bearing/i);
+  });
+
   test('wrong_font reinforces TEXT_RULES font lock', () => {
     const out = buildCorrectionTurn({
       ...base,
