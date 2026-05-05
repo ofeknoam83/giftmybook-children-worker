@@ -107,6 +107,23 @@ function validateSpreadSpecs(doc) {
     if (s.spreadNumber === 1 && bridge.length < 6) {
       issues.push('spread 1: spec.sceneBridge weak (need opening launch line)');
     }
+    // AA-CW-2 — Planner Guard hits. The guard (planner/plannerGuard.js) runs
+    // at the end of createSpreadSpecs for PB_INFANT books and stashes hits
+    // onto spec.plannerGuardHits. We surface each hit as a validator issue
+    // so the existing runStage gate-retry loop kicks in: retryMemory captures
+    // the hits and the next planner attempt sees them in its user prompt via
+    // renderRetryMemoryForPrompt. The hit message names the specific phrase
+    // and a suggested rewrite so the next attempt can self-correct.
+    const guardHits = Array.isArray(s.spec.plannerGuardHits) ? s.spec.plannerGuardHits : [];
+    for (const h of guardHits) {
+      const phrase = String(h?.problemPhrase || '').slice(0, 120);
+      const reason = String(h?.reason || 'baby cannot self-locomote').slice(0, 200);
+      const suggestion = String(h?.suggestedAlternative || '').slice(0, 200);
+      issues.push(
+        `spread ${s.spreadNumber}: planner guard hit — phrase="${phrase}" reason="${reason}"` +
+          (suggestion ? ` suggestedAlternative="${suggestion}"` : ''),
+      );
+    }
   }
   return issues;
 }

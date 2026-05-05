@@ -18,190 +18,22 @@ const {
   buildAnchorAllocation,
   renderAllocationBlockForPlanner,
 } = require('./anchorAllocation');
+const { runPlannerGuard } = require('./plannerGuard');
 
 const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
 const PARENT_VISIBILITY_VALUES = new Set([
   'full', 'hand', 'shoulder-back', 'cropped-torso', 'shadow', 'object', 'absent',
 ]);
 
-// Locomotion verbs lap babies cannot perform. Mirrors the writer-side QA list
-// (INFANT_FORBIDDEN_VERB_PATTERNS) so the planner cannot smuggle a forbidden
-// verb into focalAction/plotBeat and have the writer dutifully reproduce it.
-// When detected on an infant spread we strip the offender (PR H) and flag it
-// on forbiddenMistakes so the writer sees the explicit ban.
-const INFANT_FORBIDDEN_PLANNER_VERBS = [
-  'jump', 'jumps', 'jumped', 'jumping',
-  'run', 'runs', 'running', 'ran',
-  'race', 'races', 'racing', 'raced',
-  'spin', 'spins', 'spinning',
-  'twirl', 'twirls', 'twirling', 'twirled',
-  'hop', 'hops', 'hopping', 'hopped',
-  'walk', 'walks', 'walking', 'walked',
-  'climb', 'climbs', 'climbing', 'climbed',
-  'leap', 'leaps', 'leaping', 'leapt',
-  'dance', 'dances', 'dancing', 'danced',
-  'chase', 'chases', 'chasing', 'chased',
-  'grab', 'grabs', 'grabbing', 'grabbed',
-  'skip', 'skips', 'skipping', 'skipped',
-  'gallop', 'gallops', 'galloping', 'galloped',
-  'stomp', 'stomps', 'stomping', 'stomped',
-  'march', 'marches', 'marching', 'marched',
-  'crawl', 'crawls', 'crawling', 'crawled',
-  'cartwheel', 'cartwheels', 'cartwheeling',
-  'tumble', 'tumbles', 'tumbling', 'tumbled',
-  // PR G additions: subtler verbs that still paint a walking/standing
-  // illustration even though they aren't textbook locomotion.
-  'step', 'steps', 'stepped', 'stepping',
-  'stand', 'stands', 'standing', 'stood',
-  'bounce', 'bounces', 'bounced', 'bouncing',
-];
-
-/**
- * Scan a planner-produced text field (focalAction, plotBeat) for forbidden
- * infant locomotion verbs. Returns the unique surface forms found.
- */
-function findInfantPlannerVerbs(text) {
-  const t = String(text || '').toLowerCase();
-  if (!t) return [];
-  const hits = new Set();
-  for (const v of INFANT_FORBIDDEN_PLANNER_VERBS) {
-    const rx = new RegExp(`\\b${v}\\b`, 'i');
-    if (rx.test(t)) hits.add(v);
-  }
-  return Array.from(hits);
-}
-
-// PR H — verb-level substitution map for planner sanitization.
-//
-// When the LLM puts a banned locomotion verb into focalAction/plotBeat we
-// REWRITE it in place using a safe phrase the lap baby actually can do, OR
-// reframe so the parent is the one moving and the baby is held/supported.
-// The writer then reads a clean spec; the illustrator receives a clean
-// focalAction; the illustrator's age-action QA compares the image against a
-// renderable target. Surface form -> replacement phrase. Replacements are
-// short and grammatically inert so they slot in without breaking the spec
-// sentence (the replacement IS a verb form so subject-verb agreement holds).
-//
-// Rules of thumb when extending:
-//   - prefer a sense/posture verb that keeps the IMAGE intent ("twirl" -> "sway"
-//     because both say "motion in place"; "run" -> "reach toward" because both
-//     say "oriented toward something ahead")
-//   - when the verb is intrinsically locomotion ("climb", "march"), reframe
-//     to a held / supported posture
-//   - keep singular/plural inflections close to the original ("twirls" ->
-//     "sways" not "sway") so we don't break agreement
-const INFANT_VERB_SUBSTITUTIONS = {
-  // jump / hop / leap — "in Mama's arms" preserves bounce-energy without locomotion
-  jump: 'is bounced',          jumps: 'is bounced',          jumped: 'was bounced',          jumping: 'being bounced',
-  hop: 'is bounced',           hops: 'is bounced',           hopped: 'was bounced',          hopping: 'being bounced',
-  leap: 'reaches up',          leaps: 'reaches up',          leapt: 'reached up',            leaping: 'reaching up',
-
-  // run / race / chase / gallop / march / stomp / skip — "reach toward" or "is carried"
-  run: 'reaches toward',       runs: 'reaches toward',       ran: 'reached toward',          running: 'reaching toward',
-  race: 'reaches toward',      races: 'reaches toward',      raced: 'reached toward',        racing: 'reaching toward',
-  chase: 'follows with eyes',  chases: 'follows with eyes',  chased: 'followed with eyes',   chasing: 'following with eyes',
-  gallop: 'is carried',        gallops: 'is carried',        galloped: 'was carried',        galloping: 'being carried',
-  march: 'is carried',         marches: 'is carried',        marched: 'was carried',         marching: 'being carried',
-  stomp: 'pats',               stomps: 'pats',               stomped: 'patted',              stomping: 'patting',
-  skip: 'is bounced',          skips: 'is bounced',          skipped: 'was bounced',         skipping: 'being bounced',
-
-  // spin / twirl / dance — sway in place, in Mama's arms
-  spin: 'sways',               spins: 'sways',               spinning: 'swaying',
-  twirl: 'sways',              twirls: 'sways',              twirled: 'swayed',              twirling: 'swaying',
-  dance: 'sways',              dances: 'sways',              danced: 'swayed',               dancing: 'swaying',
-
-  // walk / climb / crawl / cartwheel / tumble — reframe to looking-up / being-carried
-  walk: 'looks up at',         walks: 'looks up at',         walked: 'looked up at',         walking: 'looking up at',
-  climb: 'looks up at',        climbs: 'looks up at',        climbed: 'looked up at',        climbing: 'looking up at',
-  crawl: 'reaches forward',    crawls: 'reaches forward',    crawled: 'reached forward',     crawling: 'reaching forward',
-  cartwheel: 'is jiggled',     cartwheels: 'is jiggled',                                     cartwheeling: 'being jiggled',
-  tumble: 'is rolled gently',  tumbles: 'is rolled gently',  tumbled: 'was rolled gently',   tumbling: 'being rolled gently',
-
-  // grab — soft "reach for" (touching, not seizing a moving object)
-  grab: 'reaches for',         grabs: 'reaches for',         grabbed: 'reached for',         grabbing: 'reaching for',
-};
-
-// Last-resort generic focal action when the original spec is so saturated
-// with banned verbs that simple substitution can't produce a clean sentence.
-// Used only when sanitizeInfantText still detects a banned verb after one
-// substitution pass (defense in depth).
-const INFANT_GENERIC_FOCAL_ACTION =
-  'Mama holds Everleigh close while she looks at the scene';
-// We intentionally hard-code "Everleigh" only as a placeholder — the caller
-// passes a doc-aware fallback when one is available.
-
-/**
- * Substitute every banned locomotion verb in a text field with its safe
- * equivalent from INFANT_VERB_SUBSTITUTIONS. Case-insensitive match,
- * preserves the rest of the sentence. Returns the rewritten string.
- *
- * If after one substitution pass any banned verb still survives (e.g. a
- * compound verb form not in the map), we return null so the caller can
- * apply the generic-fallback strategy.
- *
- * @param {string} text
- * @returns {string|null} sanitized text, or null if it cannot be cleaned
- */
-function sanitizeInfantText(text) {
-  let out = String(text || '');
-  if (!out) return out;
-  // Apply every substitution. Iterate the map in length-descending order so
-  // longer surface forms ("twirling") match before their shorter siblings
-  // ("twirl") — \b anchors prevent overlap but order keeps the diff clean.
-  const keys = Object.keys(INFANT_VERB_SUBSTITUTIONS).sort((a, b) => b.length - a.length);
-  for (const surface of keys) {
-    const rx = new RegExp(`\\b${surface}\\b`, 'gi');
-    out = out.replace(rx, INFANT_VERB_SUBSTITUTIONS[surface]);
-  }
-  // Defense in depth: if anything banned survives, signal failure so the
-  // caller can fall back to a generic focal action.
-  if (findInfantPlannerVerbs(out).length) return null;
-  return out;
-}
-
-/**
- * Sanitize a single planner spec for an infant book. Mutates a clone of the
- * spec: focalAction and plotBeat are rewritten in place; the original
- * offending text is preserved on the spec metadata so the trace shows what
- * was changed. Returns { spec, changes } where `changes` lists every
- * substitution applied so the caller can log / surface them.
- *
- * If sanitizeInfantText cannot produce a clean string for a field, that
- * field is replaced with a generic infant-safe phrasing built from the
- * spec's location and the hero's name.
- *
- * @param {object} spec planner-produced spec
- * @param {object} ctx  { heroName, fallbackHeroName }
- * @returns {{ spec: object, changes: Array<{field:string, before:string, after:string, hits:string[]}> }}
- */
-function sanitizeInfantSpec(spec, ctx = {}) {
-  const heroName = ctx.heroName || ctx.fallbackHeroName || 'the baby';
-  const changes = [];
-  const out = { ...spec };
-
-  for (const field of ['focalAction', 'plotBeat']) {
-    const before = String(out[field] || '');
-    const hits = findInfantPlannerVerbs(before);
-    if (!hits.length) continue;
-    const sanitized = sanitizeInfantText(before);
-    if (sanitized != null) {
-      out[field] = sanitized;
-      changes.push({ field, before, after: sanitized, hits });
-      continue;
-    }
-    // Generic fallback: keep the location / mood scaffolding, drop the
-    // action. We use a hero-aware sentence so downstream prompts still see
-    // a personalized target.
-    const loc = String(out.location || '').trim();
-    const fallback = loc
-      ? `Mama holds ${heroName} close while she looks at the ${loc}`
-      : `Mama holds ${heroName} close while she looks at the scene`;
-    out[field] = fallback;
-    changes.push({ field, before, after: fallback, hits, fallback: true });
-  }
-
-  return { spec: out, changes };
-}
+// AA-CW-2: the deterministic infant-verb sanitizer (INFANT_FORBIDDEN_PLANNER_VERBS,
+// findInfantPlannerVerbs, INFANT_VERB_SUBSTITUTIONS, INFANT_GENERIC_FOCAL_ACTION,
+// sanitizeInfantText, sanitizeInfantSpec) was deleted. It silently rewrote noun
+// usage (e.g. "a quiet walk" → "a quiet looks up at") and never caught novel
+// locomotion phrasings the LLM invented. It is replaced by `runPlannerGuard`,
+// a single Gemini Flash call that semantically audits focalAction/plotBeat for
+// every infant spread and stashes hits onto `spec.plannerGuardHits`. The hits
+// flow into `validateSpreadSpecs`, which surfaces them as gate issues, which
+// triggers the existing planner-stage retry budget via runStage's retryMemory.
 
 const SYSTEM_PROMPT = `You design spread-level contracts for a premium personalized children's book.
 
@@ -404,57 +236,16 @@ async function createSpreadSpecs(doc) {
       parentVisibility,
     };
 
-    // Infant safety net: even with the planner prompt, the LLM occasionally
-    // emits forbidden locomotion verbs in focalAction / plotBeat. The writer
-    // reads these as instructions and reproduces them in the manuscript;
-    // the illustrator reads focalAction directly and tries to render it.
-    //
-    // PR H — STRIP MODE. We rewrite focalAction/plotBeat in place via
-    // sanitizeInfantSpec so banned verbs never reach the writer or the
-    // illustrator. The original offending text + replacement is recorded on
-    // spec.sanitization for the trace, and forbiddenMistakes still carries
-    // the explicit ban as a breadcrumb for the writer.
+    // AA-CW-2: the deterministic strip-and-substitute sanitizer was deleted.
+    // The Planner Guard (single Flash call below) audits focalAction/plotBeat
+    // semantically and pushes hits into the gate-retry loop instead of
+    // silently rewriting noun usage. We still attach a plain-English ban on
+    // every infant spread so the writer LLM has an explicit reminder in its
+    // prompt — this is just a string, not a regex check.
     if (doc?.request?.ageBand === AGE_BANDS.PB_INFANT) {
-      const heroName = doc?.brief?.child?.name || '';
-      // PR J.1.5 diagnostic: log sanitizer input so we can see what the
-      // planner LLM emitted (banned verbs and all) before strip-mode rewrite.
-      const _preHits = findInfantPlannerVerbs(
-        `${spec.focalAction || ''} || ${spec.plotBeat || ''}`
-      );
-      console.log(
-        `[planner:sanitizeInfantSpec] spread=${spreadNumber} preHits=${JSON.stringify(_preHits)} ` +
-        `focalAction=${JSON.stringify(spec.focalAction)} plotBeat=${JSON.stringify(spec.plotBeat)}`
-      );
-      const { spec: sanitized, changes } = sanitizeInfantSpec(spec, { heroName });
-      if (changes.length) {
-        // PR J.1.5 diagnostic: per-field rewrite log so we can verify the
-        // strip-mode substitution map covered each banned verb in the input.
-        for (const ch of changes) {
-          console.log(
-            `[planner:sanitizeInfantSpec] spread=${spreadNumber} field=${ch.field} ` +
-            `hits=${JSON.stringify(ch.hits)} before=${JSON.stringify(ch.before)} ` +
-            `after=${JSON.stringify(ch.after)} fallback=${ch.fallback ? 'true' : 'false'}`
-          );
-        }
-        // Replace focalAction/plotBeat in the working spec, and stash the
-        // diff so the trace makes the change visible.
-        spec.focalAction = sanitized.focalAction;
-        spec.plotBeat = sanitized.plotBeat;
-        spec.sanitization = {
-          stage: 'planner.infantStrip',
-          changes,
-        };
-        const allHits = Array.from(new Set(changes.flatMap(c => c.hits)));
-        spec.forbiddenMistakes = [
-          ...spec.forbiddenMistakes,
-          `INFANT BAND: planner sanitized banned verb(s) ${allHits.join(', ')} from spec; do NOT reintroduce them in the manuscript text. Lap baby cannot do these. Use sit / lie / look / reach / giggle / coo / hold / snuggle instead.`,
-        ];
-      }
-      // Always carry an explicit infant-locomotion ban on every spread, even
-      // when the planner spec is clean, so the writer can't drift on its own.
       spec.forbiddenMistakes = [
         ...spec.forbiddenMistakes,
-        'INFANT BAND: manuscript text must not contain locomotion verbs (jump/run/race/spin/twirl/hop/walk/climb/leap/dance/chase/skip/gallop/stomp/march/crawl/step/stand/stood/bounce).',
+        'INFANT BAND: manuscript text must not put the baby in self-locomotion. The baby is held or seated; energy and motion come from the world around the baby (light, cloth, music, Mama leaning in). Use sit / lie / look / reach / giggle / coo / hold / snuggle / pat / clap / point / watch / wave / blink / gasp on the baby; let the world (or the parent) provide the motion.',
       ];
     }
 
@@ -489,12 +280,22 @@ async function createSpreadSpecs(doc) {
     note: `mode=${anchorAllocation.compression.mode} textBeats=${anchorAllocation.compression.textBeatCount} allocations=${anchorAllocation.allocations.filter(a => !a.isAddress && a.spreadNumber != null).map(a => `${a.key}@${a.spreadNumber}`).join(',')}`,
   });
 
-  return appendLlmCall(next, {
+  next = appendLlmCall(next, {
     stage: 'spreadSpecs',
     model: result.model,
     attempts: result.attempts,
     usage: result.usage,
   });
+
+  // AA-CW-2 — Planner Guard. PB_INFANT only. One Flash call audits all 13
+  // specs' focalAction/plotBeat for self-locomotion phrasing the planner LLM
+  // may have slipped past its own contract. Hits are stashed onto
+  // spec.plannerGuardHits and surfaced by validateSpreadSpecs, which triggers
+  // the existing planner-stage gate-retry budget via runStage's retryMemory
+  // path. Non-infant books skip the call entirely (no-op).
+  next = await runPlannerGuard(next);
+
+  return next;
 }
 
 /**
@@ -547,9 +348,4 @@ function defaultParentVisibilityForSpread(spreadNumber, coverParentPresent) {
 
 module.exports = {
   createSpreadSpecs,
-  findInfantPlannerVerbs,
-  // PR H exports — sanitizer surface for writer/illustrator/test code.
-  sanitizeInfantText,
-  sanitizeInfantSpec,
-  INFANT_VERB_SUBSTITUTIONS,
 };
