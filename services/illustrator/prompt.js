@@ -337,8 +337,9 @@ function buildCharacterAnchorBlock(opts) {
       const impliedDesc = typeof opts.impliedParentDescriptor === 'string' ? opts.impliedParentDescriptor.trim() : '';
       lines.push(
         impliedDesc
-          ? `- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Locked descriptor (use IDENTICALLY on every spread the parent appears): ${impliedDesc}`
-          : '- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / shadow / off-frame object). Whatever sleeve color, hand details, and accessories you render in the FIRST spread the parent appears, keep IDENTICAL on every later spread.',
+          ? `- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / featureless shadow / off-frame object). Locked descriptor (use IDENTICALLY on every spread the parent appears): ${impliedDesc}`
+          : '- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / featureless shadow / off-frame object). Whatever sleeve color, hand details, and accessories you render in the FIRST spread the parent appears, keep IDENTICAL on every later spread.',
+        '- **Parent silhouette / shadow rule (HARD):** if a parent shadow or silhouette is in frame, it must be a plain, featureless dark profile — NO eyes, NO glowing eyes, NO mouth, NO smile, NO gesturing hand silhouette, NO face inside the head shape. The parent is never an anthropomorphized character; a face-having shadow is a render failure for this book.',
         '- **Parent skin tone (HARD LOCK — read this every spread):** the themed parent is NOT on the cover, so there is no cover-rendered parent identity to match. The parent\'s visible skin (hands, fingers, wrist, forearm, sleeve cuffs, neck/jaw if cropped torso, partial-face glimpse) MUST match the HERO CHILD\'s skin tone on the cover EXACTLY — same lightness, same warmth, same undertone. They are immediate family, same household, same ethnicity. If the cover child reads as fair/very pale, the parent\'s hand/arm reads as fair/very pale (NOT medium-tan, NOT olive, NOT a darker family). If the cover child reads as medium, the parent reads as medium (NOT much darker, NOT much lighter). If the cover child reads as deep brown, the parent reads as deep brown (NOT lighter). Treat the cover child\'s skin patch as your literal color reference for any visible parent skin on this spread. Do not introduce a tan, olive, or any meaningfully different skin family for the parent.',
       );
     }
@@ -378,7 +379,7 @@ function buildParentVisibilityReminder(opts) {
     case 'cropped-torso':
       return '- Themed parent visibility this spread: CROPPED TORSO — chest-down view, face out of frame, body anchored in scene.';
     case 'shadow':
-      return '- Themed parent visibility this spread: SHADOW / REFLECTION — parent shown only as a shadow on a wall or a reflection in a window/water. No body in direct view.';
+      return '- Themed parent visibility this spread: SHADOW / REFLECTION — parent shown only as a plain, featureless shadow on a wall or a soft reflection in a window/water. No face features inside the silhouette (NO eyes, NO glowing eyes, NO mouth, NO smile, NO gesturing hand silhouette). No body in direct view. Ambient presence only — never an anthropomorphized character with a face.';
     case 'object':
       return '- Themed parent visibility this spread: OBJECT IMPLIES THEM — an empty chair, a coat on a hook, a still-warm mug, a folded blanket. Parent is not in frame; their presence is implied by what they left behind.';
     case 'absent':
@@ -599,6 +600,11 @@ function buildTagDirectives(tags, opts) {
         'Child-only / no secondaries on cover: only the hero may appear as a full, faced person. Remove pairs of full adults, "mom and dad" stroller shots, and any other full-body grown-ups — use implied care (one hand, cropped sleeve, off-panel) or show the hero alone. No background crowds of recognizable adults.',
       );
     }
+  }
+  if (set.has('parent_as_character_silhouette')) {
+    out.push(
+      'The previous image rendered the parent as an anthropomorphized shadow / silhouette with FACE FEATURES (eyes, glow, mouth, gesturing hand silhouette). Remove all face features from any parent shadow or silhouette — keep it a plain, featureless dark profile, ambient only. Better: replace the face-having shadow with a soft hand entering frame, a shoulder-back, or no parent presence at all this spread. The parent is NEVER a co-actor with a visible face on interior spreads of this book.',
+    );
   }
   if (set.has('duplicated_hero')) {
     out.push(

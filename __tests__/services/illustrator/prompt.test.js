@@ -225,6 +225,19 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/IMPLIED presence/i);
   });
 
+  test('parent_as_character_silhouette removes face features from parent shadow', () => {
+    const out = buildCorrectionTurn({
+      ...base,
+      issues: ['Themed parent rendered as an anthropomorphized character silhouette / shadow with face features: mother shadow with glowing eyes and open mouth'],
+      tags: ['parent_as_character_silhouette'],
+      theme: 'mothers_day',
+      hasSecondaryOnCover: false,
+    });
+    expect(out).toMatch(/SPECIFIC ACTIONS/);
+    expect(out).toMatch(/anthropomorphized shadow|FACE FEATURES|featureless/i);
+    expect(out).toMatch(/never a co-actor|ambient only|hand entering frame/i);
+  });
+
   test('wrong_font reinforces TEXT_RULES font lock', () => {
     const out = buildCorrectionTurn({
       ...base,
