@@ -111,6 +111,76 @@ function shouldEarlyAbortForUnrenderableInfantAction(consecutive) {
   return (consecutive || 0) >= REPAIR_BUDGETS.ageActionImpossibleConsecutiveAbort;
 }
 
+/**
+ * Parent-skin escape hatch.
+ *
+ * The QA tags `implied_parent_skin_mismatch` and `full_body_parent_skin_mismatch`
+ * are model-evaluated color-match calls on small skin patches (a hand, a sleeve
+ * cuff, a forearm). The image model physically cannot perfectly color-match
+ * these fragments to the cover child every time, and a strict QA bar will
+ * sometimes burn the entire repair budget rejecting borderline gaps that the
+ * model cannot close.
+ *
+ * Rather than fail the whole book, we downgrade the spread's parentVisibility
+ * after consecutive parent-skin-only rejections so the parent fragment is
+ * removed from frame entirely. The story is about the hero child; an empty
+ * chair / cup / blanket implies the parent without exposing skin to compare.
+ *
+ * Tier ladder (consecutive parent-skin-only rejections for THIS spread):
+ *   < 2  rejections : keep the planner's chosen parentVisibility (no override)
+ *   = 2  rejections : downgrade to 'object'  (object stands in for parent)
+ *   >= 3 rejections : downgrade to 'absent'  (child alone in the frame)
+ *
+ * "parent-skin-only" means the spread's last rejection had AT LEAST ONE of the
+ * parent-skin tags AND no OTHER unrelated failure tags. We do not downgrade
+ * when the spread also has unrelated tags (e.g. duplicated_hero, outfit_mismatch)
+ * because those need the regular repair path.
+ *
+ * @param {string[]} tags - QA tags from the most recent rejection of THIS spread
+ * @returns {boolean}
+ */
+const PARENT_SKIN_TAGS = new Set([
+  'implied_parent_skin_mismatch',
+  'full_body_parent_skin_mismatch',
+]);
+
+function isParentSkinOnlyRejection(tags) {
+  const arr = Array.isArray(tags) ? tags : [];
+  if (arr.length === 0) return false;
+  let hasParentSkin = false;
+  for (const t of arr) {
+    if (PARENT_SKIN_TAGS.has(t)) { hasParentSkin = true; continue; }
+    // Any tag outside the parent-skin family disqualifies the escape hatch.
+    return false;
+  }
+  return hasParentSkin;
+}
+
+/**
+ * @param {number} prev - prior consecutive parent-skin-only rejection count for this spread
+ * @param {string[]} latestTags - tags from this spread's latest rejection
+ * @returns {number}
+ */
+function nextConsecutiveParentSkinOnly(prev, latestTags) {
+  if (isParentSkinOnlyRejection(latestTags)) return (prev || 0) + 1;
+  return 0;
+}
+
+/**
+ * Resolve the parentVisibility used for the NEXT attempt, applying the escape
+ * hatch ladder. Returns the original value when no override applies.
+ *
+ * @param {string|null|undefined} planned - planner's parentVisibility
+ * @param {number} consecutive - per-spread consecutive parent-skin-only rejections
+ * @returns {string|null|undefined}
+ */
+function resolveParentVisibilityWithEscapeHatch(planned, consecutive) {
+  const c = consecutive || 0;
+  if (c >= 3) return 'absent';
+  if (c >= 2) return 'object';
+  return planned;
+}
+
 function quadGenOpts() {
   const openai = String(providerName || '').toLowerCase().includes('openai');
   if (openai) {
@@ -175,6 +245,13 @@ async function processQuadPair(params) {
   // Burning the full ~20-attempt budget on this is pure waste.
   let consecutiveAgeActionImpossible = 0;
 
+  // PR X: per-spread consecutive parent-skin-only rejection counters drive the
+  // parent-visibility escape hatch. When ONE spread keeps failing on parent-skin
+  // tags alone (and no other unrelated tags), we downgrade THAT spread's
+  // parentVisibility on the next attempt so the parent fragment is removed.
+  let consecParentSkinOnlyA = 0;
+  let consecParentSkinOnlyB = 0;
+
   function applyTier2CaptionSoftening() {
     const softA = softenCaptionForImageSafetyRetry(baselineCaptionA);
     const softB = softenCaptionForImageSafetyRetry(baselineCaptionB);
@@ -210,6 +287,11 @@ async function processQuadPair(params) {
     renderCaptionB = baselineCaptionB;
     expectedA = { text: renderCaptionA, side: specA.textSide };
     expectedB = { text: renderCaptionB, side: specB.textSide };
+    // PR X: reset per-spread parent-skin counters on each fresh-session round
+    // so a session rebuild is treated as a clean slate — the new session may
+    // produce a clean render where the previous one drifted.
+    consecParentSkinOnlyA = 0;
+    consecParentSkinOnlyB = 0;
 
     while (attempt < totalBudget) {
       attempt += 1;
@@ -248,8 +330,8 @@ async function processQuadPair(params) {
             coverParentPresent: specA.coverParentPresent,
             hasSecondaryOnCover: specA.hasSecondaryOnCover,
             impliedParentDescriptor: specA.impliedParentDescriptor,
-            parentVisibilityA: specA.parentVisibility,
-            parentVisibilityB: specB.parentVisibility,
+            parentVisibilityA: resolveParentVisibilityWithEscapeHatch(specA.parentVisibility, consecParentSkinOnlyA),
+            parentVisibilityB: resolveParentVisibilityWithEscapeHatch(specB.parentVisibility, consecParentSkinOnlyB),
           });
           // Schedule a cover re-anchor on the first attempt if this batch covers a
           // strategic spread (mid/late book) — same drift-protection trigger as the
@@ -285,8 +367,8 @@ async function processQuadPair(params) {
             coverParentPresent: specA.coverParentPresent,
             hasSecondaryOnCover: specA.hasSecondaryOnCover,
             impliedParentDescriptor: specA.impliedParentDescriptor,
-            parentVisibilityA: specA.parentVisibility,
-            parentVisibilityB: specB.parentVisibility,
+            parentVisibilityA: resolveParentVisibilityWithEscapeHatch(specA.parentVisibility, consecParentSkinOnlyA),
+            parentVisibilityB: resolveParentVisibilityWithEscapeHatch(specB.parentVisibility, consecParentSkinOnlyB),
           });
           if (reanchorThisTurn) {
             console.log(`[${logTagQuad}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
@@ -574,6 +656,31 @@ async function processQuadPair(params) {
         consecutiveAgeActionImpossible,
         lastPairRejectTags,
       );
+
+      // PR X: track per-spread parent-skin-only rejection streaks. The escape
+      // hatch downgrades that spread's parentVisibility to 'object' (>=2) or
+      // 'absent' (>=3) on the next attempt, removing the parent fragment that
+      // the model cannot color-match reliably.
+      const prevParentSkinA = consecParentSkinOnlyA;
+      const prevParentSkinB = consecParentSkinOnlyB;
+      consecParentSkinOnlyA = nextConsecutiveParentSkinOnly(consecParentSkinOnlyA, qaA.tags);
+      consecParentSkinOnlyB = nextConsecutiveParentSkinOnly(consecParentSkinOnlyB, qaB.tags);
+      if (consecParentSkinOnlyA !== prevParentSkinA && consecParentSkinOnlyA >= 2) {
+        const downgrade = consecParentSkinOnlyA >= 3 ? 'absent' : 'object';
+        console.warn(
+          `[${logA}] parent-skin escape hatch engaged: ` +
+          `${consecParentSkinOnlyA} consecutive parent-skin-only rejections — ` +
+          `next attempt will downgrade parentVisibility to '${downgrade}' (was '${specA.parentVisibility || 'unset'}')`,
+        );
+      }
+      if (consecParentSkinOnlyB !== prevParentSkinB && consecParentSkinOnlyB >= 2) {
+        const downgrade = consecParentSkinOnlyB >= 3 ? 'absent' : 'object';
+        console.warn(
+          `[${logB}] parent-skin escape hatch engaged: ` +
+          `${consecParentSkinOnlyB} consecutive parent-skin-only rejections — ` +
+          `next attempt will downgrade parentVisibility to '${downgrade}' (was '${specB.parentVisibility || 'unset'}')`,
+        );
+      }
       if (shouldEarlyAbortForUnrenderableInfantAction(consecutiveAgeActionImpossible)) {
         console.error(
           `[${logTagQuad}] EARLY-ABORT spreads [${spreadNumbers.join(', ')}] — ` +
@@ -873,4 +980,8 @@ module.exports = {
   // PR F — exported for unit tests
   nextConsecutiveAgeActionImpossible,
   shouldEarlyAbortForUnrenderableInfantAction,
+  // PR X — exported for unit tests (parent-skin escape hatch)
+  isParentSkinOnlyRejection,
+  nextConsecutiveParentSkinOnly,
+  resolveParentVisibilityWithEscapeHatch,
 };
