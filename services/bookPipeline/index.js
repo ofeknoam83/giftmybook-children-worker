@@ -22,8 +22,10 @@ const {
   createBookDocument,
   withStageResult,
   appendStageTrace,
+  appendRetryMemory,
   setResult,
 } = require('./schema/bookDocument');
+const { buildRetryEntry } = require('./retryMemory');
 
 const {
   validateInput,
@@ -99,49 +101,111 @@ function assertNotAborted(doc) {
 }
 
 /**
+ * How many times a planner stage will retry on a gate (validator) failure
+ * before throwing PLAN_UNRESOLVABLE. Total attempts = 1 + PLAN_GATE_RETRIES.
+ *
+ * Why 2: the planner stages (storyBible, visualBible, spreadSpecs) are LLM
+ * calls with non-trivial validators. Empirically a single bad sample is
+ * common; a second sample that has been told what to fix succeeds the vast
+ * majority of the time. Capping at 2 retries (3 total attempts) keeps the
+ * tail latency bounded while eliminating one-shot fragility.
+ */
+const PLAN_GATE_RETRIES = 2;
+
+/**
  * Run one stage, append a trace record, and fail fast with a structured
  * PipelineError if the stage output does not satisfy its acceptance gate.
+ *
+ * On gate failure (validator returns issues), the stage may retry up to
+ * `opts.gateRetries` times. Each retry pushes a structured retryMemory
+ * entry with the validator issues so the next LLM attempt can self-correct
+ * (every planner prompt already renders selectRetryMemory(...) into the
+ * user message via renderRetryMemoryForPrompt).
  *
  * @template T
  * @param {object} doc
  * @param {string} stageName
- * @param {() => Promise<object>} run - returns the updated book document
+ * @param {(doc: object) => Promise<object>} run - takes current doc, returns updated book document
  * @param {(doc: object) => string[]} [gate]
  * @param {string} [failureCode]
+ * @param {{ gateRetries?: number }} [opts]
  * @returns {Promise<object>}
  */
-async function runStage(doc, stageName, run, gate, failureCode) {
-  assertNotAborted(doc);
+async function runStage(doc, stageName, run, gate, failureCode, opts = {}) {
+  const gateRetries = Number.isFinite(opts.gateRetries) ? Math.max(0, opts.gateRetries) : 0;
   const bookId = doc?.operationalContext?.bookId || 'n/a';
   const started = Date.now();
-  console.log(`[bookPipeline:${bookId}] stage '${stageName}' starting`);
-  let next;
-  try {
-    next = await run();
-  } catch (err) {
-    console.error(`[bookPipeline:${bookId}] stage '${stageName}' threw after ${Date.now() - started}ms: ${err.message}`);
-    throw new PipelineError(err.message || `${stageName} failed`, {
-      stage: stageName,
-      failureCode: err.failureCode || failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
-      issues: err.issues || [],
-      tags: err.tags || [],
-    });
-  }
-  if (gate) {
-    const issues = gate(next) || [];
-    if (issues.length > 0) {
-      console.error(`[bookPipeline:${bookId}] stage '${stageName}' gate failed after ${Date.now() - started}ms: ${issues.join('; ')}`);
+  console.log(`[bookPipeline:${bookId}] stage '${stageName}' starting (gateRetries=${gateRetries})`);
+
+  let workingDoc = doc;
+  let lastIssues = [];
+  for (let attempt = 1; attempt <= gateRetries + 1; attempt++) {
+    assertNotAborted(workingDoc);
+    const attemptStarted = Date.now();
+    let next;
+    try {
+      next = await run(workingDoc);
+    } catch (err) {
+      console.error(`[bookPipeline:${bookId}] stage '${stageName}' attempt ${attempt} threw after ${Date.now() - attemptStarted}ms: ${err.message}`);
+      // LLM/network errors are not gate-recoverable; surface immediately so
+      // we don't burn the retry budget on infrastructure failures.
+      throw new PipelineError(err.message || `${stageName} failed`, {
+        stage: stageName,
+        failureCode: err.failureCode || failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
+        issues: err.issues || [],
+        tags: err.tags || [],
+      });
+    }
+    if (gate) {
+      const issues = gate(next) || [];
+      if (issues.length === 0) {
+        const durationMs = Date.now() - started;
+        if (attempt > 1) {
+          console.log(`[bookPipeline:${bookId}] stage '${stageName}' recovered on attempt ${attempt} in ${durationMs}ms`);
+        } else {
+          console.log(`[bookPipeline:${bookId}] stage '${stageName}' done in ${durationMs}ms`);
+        }
+        return appendStageTrace(next, { name: stageName, durationMs });
+      }
+      lastIssues = issues;
+      console.warn(`[bookPipeline:${bookId}] stage '${stageName}' attempt ${attempt} gate failed: ${issues.join('; ')}`);
+      if (attempt <= gateRetries) {
+        // Push a structured retry-memory entry so the NEXT attempt's prompt
+        // sees "prior attempt failed; must change <validator issues>".
+        const entry = buildRetryEntry({
+          stage: stageName,
+          spreadNumber: null,
+          failedAttemptNumber: attempt,
+          failureTags: ['gate_failed'],
+          mustChange: issues,
+          mustPreserve: [],
+          bannedRepeats: [],
+        });
+        // Carry forward the prior attempt's structural artifacts (e.g.
+        // storyBible, traces) so retryMemory accumulates against the same
+        // working doc — only the validator's complaint is added.
+        workingDoc = appendRetryMemory(next, entry);
+        continue;
+      }
+      // Exhausted retries.
+      console.error(`[bookPipeline:${bookId}] stage '${stageName}' exhausted ${gateRetries + 1} attempts after ${Date.now() - started}ms`);
       throw new PipelineError(`${stageName} produced invalid output`, {
         stage: stageName,
         failureCode: failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
         issues,
       });
     }
+    // No gate — first attempt is authoritative.
+    const durationMs = Date.now() - started;
+    console.log(`[bookPipeline:${bookId}] stage '${stageName}' done in ${durationMs}ms`);
+    return appendStageTrace(next, { name: stageName, durationMs });
   }
-  const durationMs = Date.now() - started;
-  console.log(`[bookPipeline:${bookId}] stage '${stageName}' done in ${durationMs}ms`);
-  const traced = appendStageTrace(next, { name: stageName, durationMs });
-  return traced;
+  // Unreachable, but keeps the analyzer happy.
+  throw new PipelineError(`${stageName} produced invalid output`, {
+    stage: stageName,
+    failureCode: failureCode || FAILURE_CODES.UPSTREAM_UNAVAILABLE,
+    issues: lastIssues,
+  });
 }
 
 /**
@@ -190,16 +254,43 @@ async function generateBook(rawRequest, opts = {}) {
   // brief.coverParentPresent. Failure mode is safe (false fallback) — see
   // detectCoverComposition for precedence rules.
   reportProgress(doc, { step: 'planning', message: 'Detecting cover composition' });
-  doc = await runStage(doc, 'coverComposition', () => detectCoverComposition(doc), null, FAILURE_CODES.PLAN_UNRESOLVABLE);
+  doc = await runStage(doc, 'coverComposition', d => detectCoverComposition(d), null, FAILURE_CODES.PLAN_UNRESOLVABLE);
 
+  // Planner stages get a bounded retry budget on gate (validator) failures.
+  // Each retry pushes a structured retryMemory entry naming the validator's
+  // complaint, which every planner prompt already injects via
+  // renderRetryMemoryForPrompt. This eliminates the one-shot fragility
+  // where a single bad LLM sample (e.g. a PB_INFANT bible with 3+
+  // cinematicLocations) killed the whole generation.
   reportProgress(doc, { step: 'planning', message: 'Creating story bible' });
-  doc = await runStage(doc, 'storyBible', () => createStoryBible(doc), validateStoryBible, FAILURE_CODES.PLAN_UNRESOLVABLE);
+  doc = await runStage(
+    doc,
+    'storyBible',
+    d => createStoryBible(d),
+    validateStoryBible,
+    FAILURE_CODES.PLAN_UNRESOLVABLE,
+    { gateRetries: PLAN_GATE_RETRIES },
+  );
 
   reportProgress(doc, { step: 'planning', message: 'Creating visual bible' });
-  doc = await runStage(doc, 'visualBible', () => createVisualBible(doc), validateVisualBible, FAILURE_CODES.PLAN_UNRESOLVABLE);
+  doc = await runStage(
+    doc,
+    'visualBible',
+    d => createVisualBible(d),
+    validateVisualBible,
+    FAILURE_CODES.PLAN_UNRESOLVABLE,
+    { gateRetries: PLAN_GATE_RETRIES },
+  );
 
   reportProgress(doc, { step: 'planning', message: 'Creating spread specs' });
-  doc = await runStage(doc, 'spreadSpecs', () => createSpreadSpecs(doc), validateSpreadSpecs, FAILURE_CODES.PLAN_UNRESOLVABLE);
+  doc = await runStage(
+    doc,
+    'spreadSpecs',
+    d => createSpreadSpecs(d),
+    validateSpreadSpecs,
+    FAILURE_CODES.PLAN_UNRESOLVABLE,
+    { gateRetries: PLAN_GATE_RETRIES },
+  );
 
   // Recurring-props + ephemeral-budget validation (PR C, sections C.4b/C.5).
   // Soft gate: tags surface on `doc.recurringPropsQa` for telemetry and feed
@@ -225,10 +316,10 @@ async function generateBook(rawRequest, opts = {}) {
   }
 
   reportProgress(doc, { step: 'writing', message: 'Drafting manuscript' });
-  doc = await runStage(doc, 'writerDraft', () => draftBookText(doc), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
+  doc = await runStage(doc, 'writerDraft', d => draftBookText(d), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
 
   reportProgress(doc, { step: 'writerQa', message: 'Reviewing and revising text' });
-  doc = await runStage(doc, 'writerQa', () => writerQaAndRewrite(doc), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
+  doc = await runStage(doc, 'writerQa', d => writerQaAndRewrite(d), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
 
   // Emit the final text snapshot so the admin content tab can show the
   // full manuscript while illustrations render. Previously this only
@@ -239,22 +330,22 @@ async function generateBook(rawRequest, opts = {}) {
   doc = await runStage(
     doc,
     'illustration',
-    async () => {
-      const bookId = doc.operationalContext?.bookId || doc.request?.bookId || 'n/a';
-      const ir = getIllustrationRenderer(doc);
-      const totalSpreads = doc.spreads?.length ?? 0;
+    async (d) => {
+      const bookId = d.operationalContext?.bookId || d.request?.bookId || 'n/a';
+      const ir = getIllustrationRenderer(d);
+      const totalSpreads = d.spreads?.length ?? 0;
       console.log(
         `[bookPipeline:${bookId}] illustration renderer=${ir.renderer} (flagSource=${ir.source}, totalSpreads=${totalSpreads})`,
       );
-      if (ir.renderer === 'quad') return renderAllSpreadsQuad(doc);
-      return renderAllSpreads(doc);
+      if (ir.renderer === 'quad') return renderAllSpreadsQuad(d);
+      return renderAllSpreads(d);
     },
     validateAllIllustrations,
     FAILURE_CODES.SPREAD_UNRESOLVABLE,
   );
 
   reportProgress(doc, { step: 'bookWideQa', message: 'Reviewing the whole book' });
-  doc = await runStage(doc, 'bookWideQa', () => runBookWideQa(doc), null, FAILURE_CODES.BOOK_WIDE_UNRESOLVABLE);
+  doc = await runStage(doc, 'bookWideQa', d => runBookWideQa(d), null, FAILURE_CODES.BOOK_WIDE_UNRESOLVABLE);
 
   reportProgress(doc, { step: 'layout', message: 'Preparing layout payload' });
   const layout = toLayoutPayload(doc);
@@ -266,4 +357,7 @@ async function generateBook(rawRequest, opts = {}) {
 module.exports = {
   generateBook,
   PipelineError,
+  // Exported for unit testing the retry-with-memory plumbing in isolation
+  // (PR N.2). Not part of the public pipeline contract.
+  __testables: { runStage, PLAN_GATE_RETRIES },
 };

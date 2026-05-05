@@ -67,6 +67,45 @@ function userPrompt(doc) {
   - The book is read TO the baby by the parent. Write the spine FOR the parent reading aloud.`
     : '';
 
+  // The JSON schema example in this prompt is the LLM's strongest anchor for
+  // shape AND content. Shipping the toddler+ schema example to an infant book
+  // (e.g. "3-5 photogenic settings ... coastal lighthouse at dusk") directly
+  // contradicts the prose infant clause above and was the root cause of the
+  // PR M→regen failure: the validator rejects 3+ cinematicLocations for
+  // PB_INFANT, but the schema example was telling the model to emit them.
+  // Use a band-shaped schema example instead so prose and schema agree.
+  const schemaExample = isInfant
+    ? `{
+  "narrativeSpine": "one sentence that names what this lap-baby book is really about (a sensory discovery thread, NOT a quest)",
+  "beginningHook": "one sentence: the opening beat the parent reads first (a tiny sensory invitation, not a problem to solve)",
+  "middleEscalation": "one sentence: how the sensory thread deepens — this is NOT escalation in the action sense; it is a quieter sensory bloom (the light moves, the sound carries, a familiar warmth grows)",
+  "endingPayoff": "one sentence: the concrete, specific final beat the parent and baby share (a held cheek, a name spoken, a felt rhythm) — NOT a quest resolution",
+  "emotionalArc": "one sentence: the emotional spine from start to finish (warmth, recognition, calm)",
+  "humorStrategy": "one sentence: gentle warmth only — the family pet bumping the high chair, a sock that won't stay on. NEVER a comedic engine that requires the hero to act on the world.",
+  "themeGuidance": "one sentence: how ${request.theme} shows up without being on-the-nose",
+  "personalizationTargets": ["3-6 specific custom-detail hooks the book must use — prefer tactile/auditory/named-person hooks the parent can point to during the read-aloud"],
+  "locationStrategy": "one sentence: a contained sensory spine across 1-2 connected micro-settings the baby can be carried between (cot+kitchen, lap+window, porch+garden). Do NOT propose a multi-location travel spine — the hero is a lap baby who cannot move under their own power.",
+  "cinematicLocations": ["1-2 connected micro-settings only. Use intimate, baby-scale spaces (a sun-warmed bedroom window, a high-chair beside the kitchen sink, a porch swing under a maple, the cot at nap-light). NEVER 3 or more locations. NEVER a 'coastal lighthouse', 'market square', 'hilltop', or 'tide pool' — those are toddler+ scopes and will fail validation. Time-of-day + weather labels are fine but optional."],
+  "visualJourneySpine": "2-3 sentences: the SENSORY thread that connects those 1-2 micro-settings (a beam of warm light moving across the room, a familiar song carried from one space to the next, the smell of something baking reaching the cot). NOT a causal action chain. NOT a mission or quest.",
+  "recurringVisualMotifs": ["3-5 tactile/auditory anchors a baby actually senses (a soft blanket, Mama's hands, a window of light, a wooden cup, a familiar song, the family cat's tail). Prefer cues from the PERSONALIZATION SNAPSHOT."],
+  "forbiddenMoves": ["things this specific book must avoid (locomotion the baby cannot do, multi-location quests, preachy lessons, bedtime endings unless the brief asks for one)."]
+}`
+    : `{
+  "narrativeSpine": "one sentence that names what the book is really about",
+  "beginningHook": "one sentence: the opening beat that grabs a child",
+  "middleEscalation": "one sentence: how the story grows and surprises",
+  "endingPayoff": "one sentence: the concrete, specific ending that parents remember",
+  "emotionalArc": "one sentence: the emotional spine from start to finish",
+  "humorStrategy": "one sentence: the comedic engine (e.g. literal-minded sidekick, hero misreads the world)",
+  "themeGuidance": "one sentence: how ${request.theme} shows up without being on-the-nose",
+  "personalizationTargets": ["3-6 specific custom-detail hooks the book must use"],
+  "locationStrategy": "one sentence: a travel spine across at least 4 visually distinct, photogenic places",
+  "cinematicLocations": ["3-5 specific photogenic settings the book MUST visit. Use real location types with time-of-day and weather (e.g. a coastal lighthouse at dusk, a market square strung with lanterns at twilight, a hilltop with a single tree under racing clouds, a tide pool at low tide in morning fog). No generic 'park' or 'garden' — name the time of day AND the weather/light."],
+  "visualJourneySpine": "2-4 sentences: the causal thread that connects those places into ONE story — the mission, object, quest, or escalation that justifies each move. Make the chain clear enough that spread-to-spread transitions feel earned, not random.",
+  "recurringVisualMotifs": ["3-5 concrete motifs — prefer cues from personalization snapshot before generic luminous trails"],
+  "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"]
+}`;
+
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}, gender ${brief.child.gender}.`,
     `Format: ${request.format}. Age band: ${request.ageBand}. Theme: ${request.theme}.`,
@@ -81,21 +120,7 @@ function userPrompt(doc) {
     customDetailsBlock,
     '',
     'Return JSON with this exact shape:',
-    `{
-  "narrativeSpine": "one sentence that names what the book is really about",
-  "beginningHook": "one sentence: the opening beat that grabs a child",
-  "middleEscalation": "one sentence: how the story grows and surprises",
-  "endingPayoff": "one sentence: the concrete, specific ending that parents remember",
-  "emotionalArc": "one sentence: the emotional spine from start to finish",
-  "humorStrategy": "one sentence: the comedic engine (e.g. literal-minded sidekick, hero misreads the world)",
-  "themeGuidance": "one sentence: how ${request.theme} shows up without being on-the-nose",
-  "personalizationTargets": ["3-6 specific custom-detail hooks the book must use"],
-  "locationStrategy": "one sentence: a travel spine across at least 4 visually distinct, photogenic places",
-  "cinematicLocations": ["3-5 specific photogenic settings the book MUST visit. Use real location types with time-of-day and weather (e.g. a coastal lighthouse at dusk, a market square strung with lanterns at twilight, a hilltop with a single tree under racing clouds, a tide pool at low tide in morning fog). No generic 'park' or 'garden' — name the time of day AND the weather/light."],
-  "visualJourneySpine": "2-4 sentences: the causal thread that connects those places into ONE story — the mission, object, quest, or escalation that justifies each move. Make the chain clear enough that spread-to-spread transitions feel earned, not random.",
-  "recurringVisualMotifs": ["3-5 concrete motifs — prefer cues from personalization snapshot before generic luminous trails"],
-  "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"]
-}`,
+    schemaExample,
     retryBlock ? `\n${retryBlock}` : '',
     'Emit the JSON now.',
   ].filter(Boolean).join('\n');
