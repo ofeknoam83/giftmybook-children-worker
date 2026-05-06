@@ -53,6 +53,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { checkSignatureBeatCoverage, describeBeat } = require('./signatureBeats');
+const { applyRealRhymeRescue } = require('./realRhymeAudit');
 
 // =============================================================================
 // Judge prompt (authoritative)
@@ -409,6 +410,22 @@ async function checkWriterDraft(doc) {
   if (identityRhymeOffenders.length > 0) {
     console.warn(
       `[writerQa.identityRhymeAudit:${bookId}] forced rhyme_fail on ${identityRhymeOffenders.length} spread(s): ${JSON.stringify(identityRhymeOffenders)}`,
+    );
+  }
+
+  // AA-CW-23: deterministic real-rhyme RESCUE audit. Inverse of the
+  // identity-rhyme audit above. Production failure (book e3f4e0c0,
+  // post-AA-CW-22 deploy) showed the LLM judge hallucinating rhyme_fail
+  // on real rhymes (face/place, cheek/peek, chin/grin, see/glee). The
+  // rhyme bank delivered the correct rewrite, then the same-model self-
+  // critique killed the rewrite anyway. This rescue strips rhyme_fail
+  // from spreads whose lines 1+2 form a real rhyme by either (a) bank
+  // partnership or (b) shared tail-rime. Identity rhymes are NEVER
+  // rescued — they are filtered out before the rescue runs.
+  const rescuedRhymes = applyRealRhymeRescue(merged, doc);
+  if (rescuedRhymes.length > 0) {
+    console.log(
+      `[writerQa.realRhymeRescue:${bookId}] dropped rhyme_fail on ${rescuedRhymes.length} spread(s) with real rhyme: ${JSON.stringify(rescuedRhymes)}`,
     );
   }
 
