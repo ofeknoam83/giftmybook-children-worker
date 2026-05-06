@@ -41,10 +41,12 @@ Hard rules (apply to every spread):
 - **PROSE-PROP WHITELIST (AA-CW-16, hard rule).** Each spread spec carries \`proseProps\` — the EXHAUSTIVE list of concrete physical objects you may name in that spread's text. The illustrator renders the spec, not your text, so any noun outside the whitelist guarantees an action_mismatch loop and will fail QA as \`writer_invented_prop\`. Constraint: every concrete physical noun the hero or parent INTERACTS WITH (object of a transitive verb, possessive target, prepositional anchor of a touch/lift/hold/pat/etc.) must be either (a) the child or parent themselves, (b) a body part, (c) the spread's location, or (d) an entry in \`proseProps\` (case-insensitive substring match). Background scenery you only mention (sky, trees, clouds) is exempt unless the hero touches it. If you cannot complete a couplet using the whitelist, choose a different rhyme word — NEVER invent a prop to land a rhyme.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
-- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Even the infant board-book band uses 4 lines; the band is differentiated by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
+- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6). Even the infant board-book band uses 4 lines; the band is differentiated by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
    * Lines are separated by a single "\\n" character.
-- Rhyme scheme: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.
-- Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable.
+- RHYME SCHEME (band-conditional — see the per-age-band block above for the authoritative rule):
+   * PB_TODDLER (0-3) and PB_PRESCHOOL (3-6): full AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.
+   * PB_INFANT (0-1) (AA-CW-17): RELAXED. Lines 1+2 MUST rhyme (real end-rhyme, no identity rhyme). Lines 3+4 MAY rhyme OR MAY be free-verse with a strong rhythmic parallel — whichever yields more natural language. Never force a rhyme on lines 3+4 if it would drift meaning, require an identity rhyme, an invented prop, or an unrenderable action. When you skip the second rhyme, note it in \`writerNotes\` (e.g. "lines 3+4 unrhymed for natural cadence").
+- Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable on ANY couplet that you choose to rhyme.
 - LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-5 words/line, hardMax 6) — board-book brevity inside a 4-line shape. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
 - NEVER invent fake words just to make a rhyme work. "Farf" is not a word. If the rhyme word doesn't exist in English, pick a different rhyme — don't fabricate.
 - NEVER use a simile ("X as Y", "like Y") where Y is something the target child wouldn't recognize. "Light as code", "soft as math" are nonsense in a baby book — use concrete sensory comparisons ("soft as fluff", "warm as toast").
@@ -63,6 +65,11 @@ Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "LINE1\\nLI
 function renderLineCountReminder(ageBand) {
   const target = TEXT_LINE_TARGET[ageBand];
   if (target && target.min === target.max) {
+    // AA-CW-17 Part B: PB_INFANT now uses relaxed scheme (lines 1+2 must
+    // rhyme; lines 3+4 may be free-verse). Other picture-book bands stay AABB.
+    if (ageBand === AGE_BANDS.PB_INFANT) {
+      return `LINE COUNT FOR THIS BOOK: EXACTLY ${target.min} lines per spread (age band ${ageBand}). Lines 1+2 MUST rhyme; lines 3+4 may rhyme OR may be free-verse — prefer naturalness over forced rhymes.`;
+    }
     return `LINE COUNT FOR THIS BOOK: EXACTLY ${target.min} lines per spread (age band ${ageBand}). Picture books always emit 4 lines per spread — two AABB rhyming couplets.`;
   }
   return '';
@@ -288,4 +295,6 @@ module.exports = {
   renderStoryArcContext,
   // AA-CW-16 — exported so tests can prompt-lock the proseProps rule.
   SYSTEM_PROMPT,
+  // AA-CW-17 Part B — exported so tests can prompt-lock the band-conditional rhyme reminder.
+  renderLineCountReminder,
 };

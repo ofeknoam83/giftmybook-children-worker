@@ -100,10 +100,29 @@ function renderTextPolicyBlock(doc) {
     const isToddler = doc.request.ageBand === AGE_BANDS.PB_TODDLER;
 
     if (isInfant) {
-      // Infant band shares the 4-line picture-book shape (two AABB couplets)
-      // with the toddler/preschool bands, but with tiny vocabulary, the
+      // Infant band shares the 4-line picture-book shape with the
+      // toddler/preschool bands, but with tiny vocabulary, the
       // "baby-is-the-still-point" action whitelist, sensory observation only,
       // and a tighter per-line word budget. Same page shape, gentler voice.
+      //
+      // AA-CW-17 Part B — RHYME SCHEME RELAXATION FOR PB_INFANT.
+      // At infant line budget (2-5 words/line, hardMax 6) with two AABB
+      // couplets per spread, the writer's search space for the SECOND
+      // rhyme word of each couplet collapses against the proseProps
+      // whitelist + banned locomotion verbs + no identity rhymes + fresh
+      // verb / fresh refrain rules. The writer was forced into identity
+      // rhymes (Mama/Mama, snug/snug), forced meaning drift ("in the
+      // yard past" to rhyme "grass"), or invented impossible actions
+      // ("blanket folds in peek") to land lines 3+4. Production runs on
+      // book e3f4e0c0 hit the writer-fatal hard gate after 5 rewrite
+      // waves with this exact pattern.
+      //
+      // The fix: lines 1+2 MUST rhyme (it's the heart of board-book
+      // sing-song). Lines 3+4 MAY rhyme OR MAY be free-verse with
+      // strong rhythmic parallel — whichever yields more natural
+      // language. Toddler/preschool keep strict AABB; their longer line
+      // budgets give the writer enough room to land both couplets
+      // without collapsing.
       //
       // The block is organized around ONE central principle — "the baby is
       // the still point" — to prevent the writer from reaching for action
@@ -174,18 +193,23 @@ function renderTextPolicyBlock(doc) {
         '- GOOD: "Breezes lift the leaves on high."  (natural prepositional phrase)',
         '',
         '### STRUCTURE (NON-NEGOTIABLE for infant board books — every single spread):',
-        '- EXACTLY 4 lines of text per spread (two rhyming couplets). Not 2. Not 3. Always 4. Lines separated by single "\\n" characters.',
-        '- RHYME SCHEME: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other. Real end-rhymes only — no same-word "rhymes", no forced rhymes.',
+        '- EXACTLY 4 lines of text per spread. Not 2. Not 3. Always 4. Lines separated by single "\\n" characters.',
+        '- RHYME SCHEME (AA-CW-17 — RELAXED FOR INFANT BOARD BOOKS): Lines 1+2 MUST rhyme — a real end-rhyme, no identity rhyme, no slant. Lines 3+4 MAY rhyme OR MAY be free-verse with a strong rhythmic parallel — whichever yields more NATURAL LANGUAGE. Lines 2 and 4 do NOT need to rhyme with each other. PRINCIPLE: never force a rhyme on lines 3+4 if it would (a) drag the meaning out of frame, (b) require an identity rhyme, (c) require an invented prop, or (d) require an unrenderable action. When a real rhyme cannot be found, use unrhymed lines 3+4 with parallel rhythm and SAY SO in `writerNotes` (e.g. "lines 3+4 unrhymed for natural cadence"). Real end-rhymes are still preferred when they land naturally.',
         `- LINE LENGTH (ages 0-1 — the shortest): each of the 4 lines is ~${wordBudget.min}-${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, lap-baby cadence — board-book brevity inside a 4-line shape.`,
         '- TONE: tiny, warm, musical. Sensory observation only — NO conflict, NO plot stakes, NO dialogue, NO chase, NO grabbing of moving objects, NO independent locomotion.',
         '- VOCABULARY: words a baby hears daily — Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup.',
         '- ACTIONS (whitelist — these are the ONLY verbs that may attach to the baby): sees, hears, smiles, reaches, claps, holds, snuggles, points, looks, touches, gasps, giggles, watches, waves, blinks. Forbidden because the baby cannot physically do them: walks, runs, climbs, dances, twirls, spins, jumps, hops, marches, skips, bounces, darts, races, leads, grabs runaway objects.',
         '- DESCRIPTIVE WORDS: avoid using the same descriptor (e.g. "bright") on more than 2-3 spreads across the whole book. If you find yourself reaching for the same adjective again, swap it for a different sensory detail.',
-        '- EXAMPLE CADENCE for ages 0-1 (do not copy these words — copy the shape):',
+        '- EXAMPLE CADENCE A for ages 0-1 — fully rhymed AABB (do not copy these words — copy the shape):',
         '    "Little hand sees the light.',
         '     Mama holds her tight.',
         '     Soft moon hums above.',
         '     Baby blinks at love."',
+        '- EXAMPLE CADENCE B for ages 0-1 — lines 1+2 rhymed, lines 3+4 unrhymed but rhythmic (also acceptable for infant when forcing the second rhyme would drift meaning):',
+        '    "Little hand sees the light.',
+        '     Mama holds her tight.',
+        '     Soft moon hums above.',
+        '     Baby watches the slow stars."',
         '',
       );
     } else {

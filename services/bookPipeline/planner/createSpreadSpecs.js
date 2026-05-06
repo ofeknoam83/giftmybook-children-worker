@@ -226,7 +226,7 @@ function userPrompt(doc) {
     personalizationBlock,
     infantPlannerClause,
     request.format === 'picture_book'
-      ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets — ALL age bands including infant 0-1). Set textLineTarget to 4 on every spread.`
+      ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, ALL age bands including infant 0-1). Rhyme scheme is band-conditional (AA-CW-17): PB_TODDLER and PB_PRESCHOOL use full AABB couplets; PB_INFANT requires lines 1+2 to rhyme but allows lines 3+4 to be free-verse with parallel rhythm. Set textLineTarget to 4 on every spread.`
       : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,

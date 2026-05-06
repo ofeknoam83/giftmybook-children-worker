@@ -17,6 +17,84 @@ const { checkWriterDraft } = require('../qa/checkWriterDraft');
 const { renderStoryArcContext } = require('./draftBookText');
 
 /**
+ * AA-CW-17 Part A — failure forensics persistence.
+ *
+ * When the writer hard gate fires (infant residual or AA-CW-12 fatal),
+ * the in-memory `doc.trace.llmCalls` and `doc.writerRewriteMemory` die
+ * with the function. Cloud Run logs only retain the truncated failure
+ * summary line — they do NOT contain wave-N manuscript text. That makes
+ * post-mortem text analysis impossible without re-running the book.
+ *
+ * This helper writes a structured forensics dump to GCS so the next
+ * failure is fully debuggable: rewrite memory per spread, the final
+ * spread text, the final per-spread/book-level QA result, and the
+ * failure metadata. Errors are swallowed — forensics must never crash
+ * the real error path.
+ *
+ * Path: children-jobs/<bookId>/writer-failure.json
+ *
+ * Test-friendly: the writer test suite stubs out GCS; we lazy-require
+ * the GCS module here and only call it when bookId is set.
+ *
+ * @param {object} finalDoc
+ * @param {{ reason: string, waves: number, residualTags: string[] }} meta
+ * @returns {Promise<void>}
+ */
+async function persistWriterFailureForensics(finalDoc, meta) {
+  try {
+    const bookId = finalDoc?.operationalContext?.bookId || finalDoc?.request?.bookId;
+    if (!bookId) return;
+    if (finalDoc?.operationalContext?.persistFailureForensics === false) return;
+
+    // Lazy require so unit tests that don't touch GCS aren't forced to
+    // mock @google-cloud/storage.
+    let saveJson;
+    try {
+      ({ saveJson } = require('../../gcsStorage'));
+    } catch (err) {
+      console.warn(`[writer-failure] gcsStorage not available, skipping forensics dump: ${err.message}`);
+      return;
+    }
+
+    const finalSpreads = Array.isArray(finalDoc?.spreads)
+      ? finalDoc.spreads.map(s => ({
+          spreadNumber: s.spreadNumber,
+          side: s.manuscript?.side || null,
+          text: s.manuscript?.text || null,
+          lineBreakHints: s.manuscript?.lineBreakHints || null,
+          personalizationUsed: s.manuscript?.personalizationUsed || null,
+          writerNotes: s.manuscript?.writerNotes || null,
+        }))
+      : [];
+
+    const dump = {
+      schemaVersion: 'aa-cw-17.v1',
+      bookId,
+      pipelineVersion: finalDoc?.request?.pipelineVersion || finalDoc?._pipelineVersion || null,
+      ageBand: finalDoc?.request?.ageBand || null,
+      format: finalDoc?.request?.format || null,
+      capturedAt: new Date().toISOString(),
+      failure: {
+        reason: meta.reason,
+        waves: meta.waves,
+        residualTags: meta.residualTags || [],
+      },
+      writerQa: finalDoc?.writerQa || null,
+      writerRewriteMemory: finalDoc?.writerRewriteMemory || {},
+      writerRewriteRejectionCount: finalDoc?.writerRewriteRejectionCount || {},
+      finalSpreads,
+    };
+
+    const path = `children-jobs/${bookId}/writer-failure.json`;
+    await saveJson(dump, path);
+    console.log(`[writer-failure] forensics dump saved: gs://.../${path}`);
+  } catch (err) {
+    // Forensics must never crash the actual error path. Log and move on.
+    console.warn(`[writer-failure] failed to persist forensics dump: ${err.message}`);
+  }
+}
+
+/**
  * After the rewrite loop exhausts, if the book is an infant book and any
  * spread still contains physically-impossible action verbs (twirl, skip,
  * spin, run, ...), the illustrator can never satisfy the text — drawing
@@ -197,9 +275,11 @@ Hard rules (same as original writer):
 - **PROSE-PROP WHITELIST (AA-CW-16, hard rule).** Each spread spec carries \`proseProps\` — the EXHAUSTIVE list of concrete physical objects you may name in that spread's text. Any noun outside the whitelist guarantees an action_mismatch loop in the illustrator and will fail QA as \`writer_invented_prop\`. Every concrete physical noun the hero or parent INTERACTS WITH (object of a transitive verb, possessive target, prepositional anchor of a touch/lift/hold/pat/etc.) must be either (a) the child or parent themselves, (b) a body part, (c) the spread's location, or (d) an entry in \`proseProps\` (case-insensitive substring match). Background scenery you only mention is exempt unless the hero touches it. If you cannot complete a couplet using the whitelist, choose a different rhyme word — NEVER invent a prop to land a rhyme.
 
 Picture-book structure (MANDATORY when format is picture_book):
-- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Even the infant board-book band uses 4 lines; bands differ by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
+- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6). Even the infant board-book band uses 4 lines; bands differ by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
    * Lines separated by "\\n".
-- Rhyme scheme: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
+- RHYME SCHEME (band-conditional — see the per-age-band block above for the authoritative rule):
+   * PB_TODDLER (0-3) and PB_PRESCHOOL (3-6): full AABB — lines 1+2 rhyme; lines 3+4 rhyme. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
+   * PB_INFANT (0-1) (AA-CW-17): RELAXED. Lines 1+2 MUST rhyme (real end-rhyme, no identity rhyme). Lines 3+4 MAY rhyme OR MAY be free-verse with strong rhythmic parallel — pick whichever yields more natural language. If a previous wave ended in identity_rhyme / forced_rhyme_meaning_drift / writer_invented_prop / unrenderable_action on lines 3+4, prefer free-verse lines 3+4 over forcing the rhyme. Note the choice in \`writerNotes\`.
 - LINE LENGTH — match the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-5 words/line, hardMax 6) inside the 4-line shape. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Consistent pulse across each couplet.
 - NEVER invent fake words just to make a rhyme work. Real English only.
 - NEVER use a simile ("X as Y", "like Y") where Y is implausible for a child to recognize ("light as code", "soft as math"). Use concrete sensory comparisons.
@@ -349,6 +429,10 @@ function renderRewriteMemoryForSpread(doc, spreadNumber) {
 function renderLineCountReminderForRewrite(ageBand) {
   const target = TEXT_LINE_TARGET[ageBand];
   if (target && target.min === target.max) {
+    // AA-CW-17 Part B: PB_INFANT uses relaxed scheme; other PB bands stay AABB.
+    if (ageBand === AGE_BANDS.PB_INFANT) {
+      return `LINE COUNT FOR REWRITES: EXACTLY ${target.min} lines per spread (age band ${ageBand}). Lines 1+2 MUST rhyme; lines 3+4 may rhyme OR may be free-verse — prefer naturalness over forced rhymes.`;
+    }
     return `LINE COUNT FOR REWRITES: EXACTLY ${target.min} lines per spread (age band ${ageBand}). Picture books always emit 4 lines (two AABB couplets).`;
   }
   return '';
@@ -574,6 +658,12 @@ async function writerQaAndRewrite(doc) {
     console.error(
       `[bookPipeline:${bookId}] writer hard gate: ${residuals.length} spread(s) still contain forbidden infant action verbs after ${wave} wave(s) — failing before illustrator`,
     );
+    // AA-CW-17 Part A: persist forensics before throwing.
+    await persistWriterFailureForensics(finalDoc, {
+      reason: 'infant_action_text_residual',
+      waves: wave,
+      residualTags: ['infant_action_text_residual'],
+    });
     throw new WriterUnresolvableError(
       `writer could not produce infant-safe text after ${wave} rewrite wave(s)`,
       { issues, tags: ['infant_action_text_residual'] },
@@ -602,6 +692,12 @@ async function writerQaAndRewrite(doc) {
     console.error(
       `[bookPipeline:${bookId}] writer hard gate (AA-CW-12): ${writerFatal.length} writer-fatal residual(s) after ${wave} wave(s) — ${JSON.stringify(byTag)} — failing before illustrator`,
     );
+    // AA-CW-17 Part A: persist forensics before throwing.
+    await persistWriterFailureForensics(finalDoc, {
+      reason: 'writer_fatal_residual',
+      waves: wave,
+      residualTags: Object.keys(byTag),
+    });
     throw new WriterUnresolvableError(
       `writer could not produce illustrator-safe text after ${wave} rewrite wave(s) (${Object.keys(byTag).join(', ')})`,
       { issues, tags: ['writer_fatal_residual', ...Object.keys(byTag)] },
@@ -627,4 +723,9 @@ module.exports = {
   isEscapeHatchUnlocked,
   renderEscapeHatchForSpread,
   WRITER_ESCAPE_HATCH_AFTER_REJECTIONS,
+  // AA-CW-17 Part A — failure forensics persistence (exported for tests).
+  persistWriterFailureForensics,
+  // AA-CW-17 Part B — exported so tests can prompt-lock the band-conditional rhyme rule.
+  SYSTEM_PROMPT,
+  renderLineCountReminderForRewrite,
 };
