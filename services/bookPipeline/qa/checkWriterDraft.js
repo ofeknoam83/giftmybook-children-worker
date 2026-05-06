@@ -72,15 +72,26 @@ You return ONE JSON object with the schema given at the bottom. No prose, no mar
 == Failure modes — tag exactly as named ==
 Each issue must carry one of these tags. Multiple tags allowed per spread.
 
-1. "rhyme_fail" — couplet does not really rhyme. INCLUDES:
-   - Non-rhymes: "sing/plan", "sigh/Deana", "sniff/off", "high/cuddle".
-   - Identity rhymes (same word): "town/town", "squeals/squeals", "light/light".
-   - Stem rhymes (one word contains the other): "town/hometown", "light/spotlight", "day/today".
-   - Suffix-only rhymes (only the grammatical ending matches): "running/jumping", "sadly/badly", "quickly/slowly", "playing/staying".
-   GOOD: "town/down", "light/bright", "day/play", "high/sky", "ball/tall".
-   In the issue text, name the offending pair AND which sub-mode it is (identity / stem / suffix-only / non-rhyming).
+1. "rhyme_fail" — couplet does not really rhyme. THIS IS THE MOST FAILED RULE. Be ruthless.
 
-2. "dropped_article" — a preposition is followed by a bare singular countable noun with no determiner. BAD: "down street", "by feet", "on bench", "in room". GOOD: "down THE street", "by HER feet", "on a bench", "in HIS room". This is broken phrasing, never a stylistic choice.
+   IDENTITY RHYMES — same word repeated as both rhyme ends. ALWAYS FAIL. NO EXCEPTIONS.
+     BAD: "cheek/cheek", "Mama/Mama", "town/town", "squeals/squeals", "light/light", "name/name".
+     A couplet that ends both lines on the SAME WORD (even with different intervening words) is identity rhyme. Repeating the hero's name or a parent name as the rhyme is identity rhyme. Repeating any noun as both rhyme positions is identity rhyme.
+
+   SLANT RHYMES — vowel or final-consonant mismatches. ALWAYS FAIL.
+     BAD: "outside/glide" (different stressed vowels), "wide/beside" (different stressed-syllable sounds), "along/song" (different vowel quality), "stays/always" (different stress + suffix-only), "pride/outside" (slant), "nose/froes" (one is a fake word, see nonsense_word too), "sing/plan", "sigh/Deana", "sniff/off", "high/cuddle".
+
+   STEM RHYMES — one word contains the other. ALWAYS FAIL.
+     BAD: "town/hometown", "light/spotlight", "day/today", "side/outside".
+
+   SUFFIX-ONLY RHYMES — only the grammatical ending matches. ALWAYS FAIL.
+     BAD: "running/jumping", "sadly/badly", "quickly/slowly", "playing/staying".
+
+   GOOD pairs (real rhymes): "town/down", "light/bright", "day/play", "high/sky", "ball/tall", "chin/grin", "tight/right", "snug/hug", "flies/sighs", "by/high", "there/air", "slow/blow", "cheer/near", "heart/part".
+
+   In the issue text, name the offending pair AND which sub-mode (identity / slant / stem / suffix-only / non-rhyming). When in doubt about a slant pair, FAIL it — the writer can find a real rhyme.
+
+2. "dropped_article" — a preposition is followed by a bare singular countable noun with no determiner. BAD: "down street", "by feet", "on bench", "in room", "drift above land" (should be "above the land"), "go past" used as object ("baskets go past" is fine, but "baskets past store" is broken). GOOD: "down THE street", "by HER feet", "on a bench", "in HIS room", "drift above THE land". This is broken phrasing, never a stylistic choice.
 
 3. "address_name_concat" — a parental address term jammed against the parent's proper first name. BAD: "Mama Courtney", "Daddy John", "Mommy Sarah", "Papa Tom". GOOD: pick one — "Mama" OR "Courtney", never both back-to-back.
 
@@ -108,7 +119,7 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
      • "hop" / "jump" used about a non-baby agent (a bunny, a dad, a frog) — fine.
    Use sit/lie/look/reach/giggle/coo/hold/snuggle/nuzzle/wiggle/wave/peek as positive verbs. Per-spread. List the offending VERB (not a noun) in the issue text. If you cannot name a specific verb, do NOT raise this tag.
 
-10. "nonsense_word" — the manuscript invents a fake word to force a rhyme. BAD: "farf" rhymed with "scarf", "blurp" rhymed with "burp", "shloop" rhymed with "scoop". Real English only (proper names and onomatopoeia like "boop", "pop", "shh" are fine). Name the invented word in the issue.
+10. "nonsense_word" — the manuscript invents a fake word to force a rhyme, OR pluralizes/inflects an invariable phrase to force one. BAD: "farf" rhymed with "scarf", "blurp" rhymed with "burp", "shloop" rhymed with "scoop", "froes" (the phrase "to and fro" is invariable; "froes" is not a word). If the surface form is not in standard English dictionaries and is not a proper name or accepted onomatopoeia (boop, pop, shh, shhh, mmm, oof), it's a nonsense word. Name the invented word in the issue.
 
 11. "nonsense_simile" — a simile ("X as Y", "X like Y") whose comparand is implausible for a baby/preschooler. BAD: "light as code", "soft as math", "like an algorithm", "loud as a server". GOOD: "soft as fluff", "warm as toast", "loud as thunder". Per-spread.
 
@@ -340,6 +351,8 @@ async function checkWriterDraft(doc) {
     }
   }
 
+  const bookId = doc?.operationalContext?.bookId || doc?.request?.bookId || 'n/a';
+
   // Merge per-spread verdicts onto the canonical spread list (1..N).
   const merged = doc.spreads.map(s => {
     const j = perSpreadJudge.find(p => Number(p?.spreadNumber) === s.spreadNumber) || {};
@@ -368,6 +381,44 @@ async function checkWriterDraft(doc) {
     };
   });
 
+  // AA-CW-11: deterministic identity-rhyme audit. The LLM judge has
+  // historically passed couplets ending on the same word ("cheek/cheek",
+  // "Mama/Mama", "squeals/squeals") even when the prompt forbids them.
+  // This pure check runs after the LLM verdict, extracts the last word
+  // of each line, normalises (lowercase, strip punctuation), and forces
+  // a `rhyme_fail` tag with sub-mode "identity" if either couplet ends
+  // on the same surface form. The writer's rewrite loop already consumes
+  // `tags` and `issues`, so no plumbing changes are needed downstream.
+  const identityRhymeOffenders = [];
+  for (const entry of merged) {
+    const spread = doc.spreads.find(s => s.spreadNumber === entry.spreadNumber);
+    const text = spread?.manuscript?.text;
+    const lines = String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+    if (lines.length < 4) continue;
+    const lastWord = (line) => {
+      const m = String(line).toLowerCase().match(/([a-z\u00c0-\u024f']+)[^a-z\u00c0-\u024f']*$/i);
+      return m ? m[1] : '';
+    };
+    const w = [lastWord(lines[0]), lastWord(lines[1]), lastWord(lines[2]), lastWord(lines[3])];
+    const flags = [];
+    if (w[0] && w[0] === w[1]) flags.push({ pair: `${w[0]}/${w[1]}`, lines: '1+2' });
+    if (w[2] && w[2] === w[3]) flags.push({ pair: `${w[2]}/${w[3]}`, lines: '3+4' });
+    if (flags.length === 0) continue;
+    for (const f of flags) {
+      const issue = `rhyme_fail: identity rhyme on lines ${f.lines} — "${f.pair}". Both lines end on the same word; pick a real rhyme partner.`;
+      if (!entry.issues.includes(issue)) entry.issues.push(issue);
+    }
+    if (!entry.tags.includes('rhyme_fail')) entry.tags.push('rhyme_fail');
+    if (!entry.tags.includes('identity_rhyme')) entry.tags.push('identity_rhyme');
+    entry.pass = false;
+    identityRhymeOffenders.push({ spreadNumber: entry.spreadNumber, flags });
+  }
+  if (identityRhymeOffenders.length > 0) {
+    console.warn(
+      `[writerQa.identityRhymeAudit:${bookId}] forced rhyme_fail on ${identityRhymeOffenders.length} spread(s): ${JSON.stringify(identityRhymeOffenders)}`,
+    );
+  }
+
   const repairPlan = merged.filter(m => !m.pass);
   const judgeSaysPass = judge.pass === true;
   const pass = judgeSaysPass && repairPlan.length === 0 && bookLevel.length === 0 && !signatureGateFail;
@@ -375,7 +426,6 @@ async function checkWriterDraft(doc) {
   // Shadow diff — log to stdout so we can grep it during the rollout
   // window. Also recorded structurally on the doc via appendLlmCall.
   const shadowDiff = diffJudgeVerdicts({ pass, perSpread: merged, bookLevel, bookLevelTags }, shadowResult);
-  const bookId = doc?.operationalContext?.bookId || doc?.request?.bookId || 'n/a';
   console.log(
     `[writerQa.shadowDiff:${bookId}] authoritativePass=${shadowDiff.authoritativePass} shadowPass=${shadowDiff.shadowPass} agreement=${shadowDiff.passAgreement} onlyAuthoritative=${JSON.stringify(shadowDiff.onlyAuthoritative)} onlyShadow=${JSON.stringify(shadowDiff.onlyShadow)} shadowFailed=${shadowDiff.shadowFailed === true}`,
   );
