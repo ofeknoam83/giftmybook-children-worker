@@ -65,32 +65,47 @@ function issueMentionsBannedVerb(issueText) {
  * AA-CW-12 — sibling residual collector for writer-side defects that the
  * illustrator can never resolve.
  *
- * Three tags qualify as "writer-fatal" — if they survive all rewrite
- * waves, shipping the manuscript guarantees the illustrator either
+ * Per-spread tags that qualify as "writer-fatal" — if they survive all
+ * rewrite waves, shipping the manuscript guarantees the illustrator either
  * loops on action_mismatch (`unrenderable_action`, `writer_invented_prop`)
  * or ships a printed book where the same word ends both lines of a
- * couplet (`identity_rhyme`). All three are cheaper to fail at the
- * writer stage than to discover at the illustrator stage 5 minutes
- * later.
+ * couplet (`identity_rhyme`).
  *
- * Reads `doc.writerQa.perSpread[*].tags` for any of:
- *   - identity_rhyme
- *   - unrenderable_action
- *   - writer_invented_prop
+ * AA-CW-13 — added per-spread `semantic_filler` and
+ * `forced_rhyme_meaning_drift` (lines that exist only to land a rhyme
+ * with no image, or that drag the rhyme into a wrong meaning), AND
+ * book-level `verb_crutch` (one verb dominating >25% of spreads is a
+ * structural defect the illustrator cannot redeem).
  *
- * Returns offenders even when only the tag is present (no parseable
- * issue text needed) because the wave-exhaustion semantic is "the
- * writer was told and could not fix it" — we don't need to re-validate
- * what the judge already validated.
+ * Reads:
+ *   - doc.writerQa.perSpread[*].tags  — per-spread tags
+ *   - doc.writerQa.bookLevel          — book-level issue strings
+ *
+ * Returns offenders even when issue text is missing because the
+ * wave-exhaustion semantic is "the judge said this and the writer
+ * could not fix it."
  *
  * @param {object} doc
- * @returns {{ spreadNumber: number, tag: string, issue: string }[]}
+ * @returns {{ spreadNumber: number|null, tag: string, issue: string }[]}
  */
-const WRITER_FATAL_TAGS = ['identity_rhyme', 'unrenderable_action', 'writer_invented_prop'];
+const WRITER_FATAL_TAGS = [
+  'identity_rhyme',
+  'unrenderable_action',
+  'writer_invented_prop',
+  'semantic_filler',
+  'forced_rhyme_meaning_drift',
+];
+
+// Book-level tags. spreadNumber is null on these offenders because the
+// defect is a property of the manuscript as a whole, not a single spread.
+const WRITER_FATAL_BOOK_LEVEL_TAGS = ['verb_crutch'];
 
 function collectWriterFatalResiduals(doc) {
   const perSpread = doc?.writerQa?.perSpread || [];
+  const bookLevel = Array.isArray(doc?.writerQa?.bookLevel) ? doc.writerQa.bookLevel : [];
   const offenders = [];
+
+  // Per-spread tags.
   for (const entry of perSpread) {
     const tags = Array.isArray(entry?.tags) ? entry.tags : [];
     const issues = Array.isArray(entry?.issues) ? entry.issues : [];
@@ -108,6 +123,20 @@ function collectWriterFatalResiduals(doc) {
       });
     }
   }
+
+  // Book-level tags. These do not carry a spreadNumber. We match against
+  // book-level issue strings (the judge prompt requires the tag word to
+  // appear in the issue text, e.g. "verb_crutch: 'squeal' appears in 6
+  // of 13 spreads…"). If no matching issue string is found but a
+  // book-level tag was raised by the judge, we still raise the offender
+  // — the wave-exhaustion contract is symmetric with the per-spread case.
+  for (const tag of WRITER_FATAL_BOOK_LEVEL_TAGS) {
+    const matching = bookLevel.find(i => typeof i === 'string' && i.toLowerCase().includes(tag.toLowerCase()));
+    if (matching) {
+      offenders.push({ spreadNumber: null, tag, issue: matching });
+    }
+  }
+
   return offenders;
 }
 
@@ -374,7 +403,10 @@ async function writerQaAndRewrite(doc) {
       acc[r.tag] = (acc[r.tag] || 0) + 1;
       return acc;
     }, {});
-    const issues = writerFatal.map(r => `spread ${r.spreadNumber} [${r.tag}]: ${r.issue}`);
+    const issues = writerFatal.map(r => {
+      const where = r.spreadNumber == null ? 'book-level' : `spread ${r.spreadNumber}`;
+      return `${where} [${r.tag}]: ${r.issue}`;
+    });
     const bookId = finalDoc.operationalContext?.bookId || finalDoc.request?.bookId || 'n/a';
     console.error(
       `[bookPipeline:${bookId}] writer hard gate (AA-CW-12): ${writerFatal.length} writer-fatal residual(s) after ${wave} wave(s) — ${JSON.stringify(byTag)} — failing before illustrator`,
@@ -394,4 +426,5 @@ module.exports = {
   collectWriterFatalResiduals,
   WriterUnresolvableError,
   WRITER_FATAL_TAGS,
+  WRITER_FATAL_BOOK_LEVEL_TAGS,
 };
