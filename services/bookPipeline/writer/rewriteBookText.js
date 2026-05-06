@@ -14,7 +14,7 @@ const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = requ
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
 const { checkWriterDraft, findInfantForbiddenActionVerbs } = require('../qa/checkWriterDraft');
-const { renderInfantContract } = require('./draftBookText');
+const { renderStoryArcContext } = require('./draftBookText');
 
 /**
  * After the rewrite loop exhausts, if the book is an infant book and any
@@ -106,7 +106,6 @@ function rewriteUserPrompt(doc, targets) {
     })
     .filter(Boolean);
   const lineCountReminder = renderLineCountReminderForRewrite(doc.request?.ageBand);
-  const infantContract = renderInfantContract(doc.request?.ageBand);
 
   // AA-CW-5a — thread the canonical pronoun set into the rewrite prompt.
   // Each `items[i].spec` already carries `arcContext`, so we just need
@@ -117,9 +116,14 @@ function rewriteUserPrompt(doc, targets) {
     ? `HERO PRONOUNS — USE ONLY THESE FOR ${heroName} (never swap, never alternate, never use a different pronoun set anywhere in the rewrite):\n  subject: ${pronouns.subject}\n  object: ${pronouns.object}\n  possessive: ${pronouns.possessive}\n  reflexive: ${pronouns.reflexive}`
     : '';
 
+  // AA-CW-5b — surface the curated arc context (narrativeSpine, beats,
+  // motifs, locations) above the spread payload so each rewrite wave keeps
+  // the through-line in view instead of re-reading the full storyBible JSON.
+  const arcContextBlock = renderStoryArcContext(doc.storyBible);
+
   return [
-    infantContract,
     renderTextPolicyBlock(doc),
+    arcContextBlock ? `\n${arcContextBlock}` : '',
     lineCountReminder ? `\n${lineCountReminder}` : '',
     pronounBlock ? `\n${pronounBlock}` : '',
     '',

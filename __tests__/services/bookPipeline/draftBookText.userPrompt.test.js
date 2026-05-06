@@ -64,46 +64,28 @@ function findNegativePrimingHits(text) {
   return Array.from(hits);
 }
 
-describe('renderInfantContract \u2014 the single source of truth for the infant rule', () => {
-  test('emits empty string for non-infant bands', () => {
+describe('renderInfantContract \u2014 AA-CW-5b no-op compat stub', () => {
+  // AA-CW-5b consolidated the infant CORE PRINCIPLE / REFRAME / IDENTITY-
+  // RHYME-BAN / VOCABULARY-DIVERSITY / COMPLETE-SENTENCE / NO-YODA /
+  // STRUCTURE block into a single source of truth in `writer/textPolicies.js`
+  // (`renderTextPolicyBlock` infant branch). The previous duplicate contract
+  // block in draftBookText.js was removed; `renderInfantContract` is kept as
+  // a no-op compatibility stub so external imports (rewriteBookText.js etc.)
+  // don't need to change in this PR. Coverage of the actual infant rule
+  // wording now lives in textPolicies.test.js.
+
+  test('returns "" for every age band (no-op stub)', () => {
+    expect(renderInfantContract(AGE_BANDS.PB_INFANT)).toBe('');
     expect(renderInfantContract(AGE_BANDS.PB_TODDLER)).toBe('');
     expect(renderInfantContract(AGE_BANDS.PB_PRESCHOOL)).toBe('');
+    expect(renderInfantContract(undefined)).toBe('');
   });
 
-  test('emits a contract block for the infant band', () => {
-    const block = renderInfantContract(AGE_BANDS.PB_INFANT);
-    expect(block).toMatch(/INFANT BOOK CONTRACT/);
-    expect(block.length).toBeGreaterThan(500);
-  });
-
-  test('contract block contains ZERO banned-verb literals (no negative priming)', () => {
+  test('the no-op stub trivially satisfies the no-negative-priming guarantee', () => {
+    // Sanity: if the stub ever grows back into a real block, this will
+    // catch any regression that re-introduces banned-verb literals.
     const block = renderInfantContract(AGE_BANDS.PB_INFANT);
     expect(findNegativePrimingHits(block)).toEqual([]);
-  });
-
-  test('contract block describes failure modes abstractly, not by enumerating banned verbs', () => {
-    const block = renderInfantContract(AGE_BANDS.PB_INFANT);
-    // The block must still tell the writer there are constraints \u2014 it must
-    // name "still point", "no dialogue", and "self-locomotion" without
-    // listing the actual trigger words.
-    expect(block).toMatch(/STILL POINT/);
-    expect(block).toMatch(/NO DIALOGUE/);
-    expect(block).toMatch(/self-locomotion/i);
-  });
-
-  test('contract block does NOT contain a "BAD EXAMPLE" that would seed banned tokens', () => {
-    const block = renderInfantContract(AGE_BANDS.PB_INFANT);
-    expect(block).not.toMatch(/BAD EXAMPLE/);
-    // Multiple GOOD examples take its place to give the model concrete patterns.
-    const goodCount = (block.match(/GOOD EXAMPLE [A-Z]/g) || []).length;
-    expect(goodCount).toBeGreaterThanOrEqual(3);
-  });
-
-  test('contract block names the safe-action whitelist for the baby', () => {
-    const block = renderInfantContract(AGE_BANDS.PB_INFANT);
-    for (const verb of ['look', 'reach', 'hold', 'snuggle', 'giggle', 'point']) {
-      expect(block.toLowerCase()).toContain(verb);
-    }
   });
 });
 

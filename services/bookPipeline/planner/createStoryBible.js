@@ -54,7 +54,7 @@ function userPrompt(doc) {
     .map(([k, v]) => `  - ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join('\n') || '  (none)';
 
-  const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {});
+  const personalizationBlock = renderPersonalizationSnapshotForPlanner(brief.child, brief.customDetails || {}, brief.pronouns || null);
   const rich = briefHasRichPersonalization(brief.child, brief.customDetails || {});
   const isInfant = request.ageBand === AGE_BANDS.PB_INFANT;
 

@@ -68,54 +68,72 @@ function renderLineCountReminder(ageBand) {
 }
 
 /**
- * Hard infant contract block. Prepended to the user prompt for PB_INFANT books.
- * Stronger than a one-line reminder — a structured contract with banned verbs,
- * one good example and one bad example so the model has a concrete pattern to
- * imitate. Empty string for non-infant bands.
+ * AA-CW-5b — `renderInfantContract` deleted.
+ *
+ * The single source of truth for the infant CORE PRINCIPLE / REFRAME /
+ * IDENTITY-RHYME-BAN / VOCABULARY-DIVERSITY / COMPLETE-SENTENCE / NO-YODA /
+ * STRUCTURE block now lives entirely in `writer/textPolicies.js`
+ * (`renderTextPolicyBlock` infant branch). Sending both the old contract AND
+ * the textPolicies infant block to the writer was duplicating ~40 lines of
+ * prompt and risking drift between the two blocks (we already saw the
+ * contract say "2-5 words per line" while textPolicies said the same — but
+ * if either was edited in isolation they would silently diverge).
+ *
+ * `renderInfantContract` is kept as a no-op compatibility stub so external
+ * callers (notably rewriteBookText.js) don't have to change in this PR.
  */
-function renderInfantContract(ageBand) {
-  if (ageBand !== AGE_BANDS.PB_INFANT) return '';
-  return [
-    '============================================================',
-    'INFANT BOOK CONTRACT (PB_INFANT, age 0-1) — READ FIRST',
-    '============================================================',
-    'This is a board book for a lap baby. Every spread MUST follow:',
-    '',
-    '1. EXACTLY 4 lines per spread. No 2-line spreads. No 3-line spreads. Four lines, separated by \\n.',
-    '2. The four lines form TWO AABB rhyming couplets: lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.',
-    '3. 2-5 words per line, hardMax 6. Tight, board-book cadence — every word earns its place.',
-    '4. THE BABY IS THE STILL POINT. The baby is held, carried, or seated. The baby never moves themselves through space. Energy and motion come from THE WORLD around the baby — light shifts, cloth flutters, Mama leans in, a leaf drifts past, music sways through the air. The baby watches, reaches, smiles, snuggles, points, claps, gasps, giggles — always from a held or seated position.',
-    '5. NO DIALOGUE. The baby cannot speak in full sentences. Mama and other characters also do not speak in full sentences inside the verse. Sensory observation only — no quotation marks at all.',
-    '6. Use only the safe-action whitelist on the baby: sit, lie, look, see, reach, hold, snuggle, giggle, coo, pat, clap, hear, smell, touch, point, watch, wave, blink, gasp. Anything outside this list, do NOT attach to the baby.',
-    '7. Across the WHOLE book, do not lean on a single noun, descriptor, or sound-word as a refrain across many spreads. Vary the imagery.',
-    '8. Real English only. No invented rhyme-fill words. No similes with abstract comparands.',
-    '',
-    'GOOD EXAMPLE A (one spread — four lines, AABB):',
-    '   Mama lifts the moon.',
-    '   Bright as a silver spoon.',
-    '   Soft light fills the room.',
-    '   Goodbye, little gloom.',
-    '',
-    'GOOD EXAMPLE B (one spread — four lines, AABB):',
-    '   A red leaf drifts by.',
-    '   Little hand waves goodbye.',
-    '   The breeze hums a tune.',
-    '   Baby smiles at the moon.',
-    '',
-    'GOOD EXAMPLE C (one spread — four lines, AABB):',
-    '   Soft sun warms her cheek.',
-    '   Mama plays hide-and-seek.',
-    '   Little fingers spread wide.',
-    '   Joy is curled up inside.',
-    '',
-    'COMMON FAILURE MODES (avoid — described abstractly so the words below are not seeded into your output):',
-    '   - Putting the baby in motion through space (any verb of self-locomotion).',
-    '   - Putting words in the baby\'s mouth (any quoted speech from the hero).',
-    '   - Quoted commands from Mama ("Come on!", "Look at this!") — keep the verse as observation, not stage directions.',
-    '   - Re-using the same descriptor or sound-word as a refrain across many spreads.',
-    '   - Emitting fewer than 4 lines, or breaking AABB rhyme on either couplet.',
-    '============================================================',
-  ].join('\n');
+function renderInfantContract(_ageBand) {
+  return '';
+}
+
+/**
+ * AA-CW-5b — Render a curated STORY ARC CONTEXT block from the storyBible.
+ *
+ * The previous writer prompt dumped the entire `storyBible` JSON object
+ * inline, which (a) buried the load-bearing arc fields under structural
+ * boilerplate and (b) made it harder for the writer to honor the spine
+ * across spreads. This block surfaces ONLY the fields that drive arc
+ * decisions — narrativeSpine, beginningHook/middleEscalation/endingPayoff,
+ * emotionalArc, recurringVisualMotifs, cinematicLocations, humorStrategy
+ * — as a labeled contract the writer can refer back to from any spread.
+ *
+ * The full storyBible JSON is still passed below (for completeness / any
+ * field this block omits); this block is layered on top of it.
+ *
+ * Returns '' if the storyBible is empty.
+ */
+function renderStoryArcContext(storyBible) {
+  if (!storyBible || typeof storyBible !== 'object') return '';
+  const lines = ['### STORY ARC CONTEXT (one through-line — every spread serves this arc):'];
+  const push = (label, value) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      const cleaned = value.map(v => String(v).trim()).filter(Boolean);
+      if (cleaned.length === 0) return;
+      lines.push(`- ${label}:`);
+      for (const v of cleaned) lines.push(`    • ${v}`);
+      return;
+    }
+    const s = String(value).trim();
+    if (!s) return;
+    lines.push(`- ${label}: ${s}`);
+  };
+  push('Title', storyBible.title);
+  push('Narrative spine', storyBible.narrativeSpine);
+  push('Beginning hook', storyBible.beginningHook);
+  push('Middle escalation', storyBible.middleEscalation);
+  push('Ending payoff', storyBible.endingPayoff);
+  push('Emotional arc', storyBible.emotionalArc);
+  push('Humor strategy', storyBible.humorStrategy);
+  push('Location strategy', storyBible.locationStrategy);
+  push('Cinematic locations', storyBible.cinematicLocations);
+  push('Recurring visual motifs', storyBible.recurringVisualMotifs);
+  push('Personalization targets', storyBible.personalizationTargets);
+  if (lines.length === 1) return ''; // nothing populated
+  lines.push(
+    '- Use this arc as the spine of every spread. The opening should plant the first chord; the middle should escalate it; the closing should resolve it as a transformed echo of the opening (callback). When a spread spec\'s `arcContext.callbackToSpread` is set, lean into the recurring motif from the listed earlier spread (a returning prop, a repeated phrase, a planted seed).',
+  );
+  return lines.join('\n');
 }
 
 function userPrompt(doc) {
@@ -161,11 +179,17 @@ function userPrompt(doc) {
     : '';
 
   const lineCountReminder = renderLineCountReminder(doc.request?.ageBand);
-  const infantContract = renderInfantContract(doc.request?.ageBand);
+  const arcContextBlock = renderStoryArcContext(storyBible);
 
+  // AA-CW-5b: the previous prompt prepended an INFANT BOOK CONTRACT block
+  // that duplicated textPolicies.js' infant branch verbatim. That stub is
+  // gone — textPolicies is now the single source of truth. The arc context
+  // block (curated narrativeSpine / beats / motifs / locations) takes its
+  // slot at the top of the prompt so the writer reads the through-line
+  // before any per-spread JSON.
   return [
-    infantContract,
     renderTextPolicyBlock(doc),
+    arcContextBlock ? `\n${arcContextBlock}` : '',
     lineCountReminder ? `\n${lineCountReminder}` : '',
     pronounBlock ? `\n${pronounBlock}` : '',
     '',
@@ -255,4 +279,4 @@ async function draftBookText(doc) {
   return next;
 }
 
-module.exports = { draftBookText, applyManuscript, renderInfantContract };
+module.exports = { draftBookText, applyManuscript, renderInfantContract, renderStoryArcContext };
