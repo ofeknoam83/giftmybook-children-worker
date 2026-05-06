@@ -61,6 +61,56 @@ function issueMentionsBannedVerb(issueText) {
   });
 }
 
+/**
+ * AA-CW-12 — sibling residual collector for writer-side defects that the
+ * illustrator can never resolve.
+ *
+ * Three tags qualify as "writer-fatal" — if they survive all rewrite
+ * waves, shipping the manuscript guarantees the illustrator either
+ * loops on action_mismatch (`unrenderable_action`, `writer_invented_prop`)
+ * or ships a printed book where the same word ends both lines of a
+ * couplet (`identity_rhyme`). All three are cheaper to fail at the
+ * writer stage than to discover at the illustrator stage 5 minutes
+ * later.
+ *
+ * Reads `doc.writerQa.perSpread[*].tags` for any of:
+ *   - identity_rhyme
+ *   - unrenderable_action
+ *   - writer_invented_prop
+ *
+ * Returns offenders even when only the tag is present (no parseable
+ * issue text needed) because the wave-exhaustion semantic is "the
+ * writer was told and could not fix it" — we don't need to re-validate
+ * what the judge already validated.
+ *
+ * @param {object} doc
+ * @returns {{ spreadNumber: number, tag: string, issue: string }[]}
+ */
+const WRITER_FATAL_TAGS = ['identity_rhyme', 'unrenderable_action', 'writer_invented_prop'];
+
+function collectWriterFatalResiduals(doc) {
+  const perSpread = doc?.writerQa?.perSpread || [];
+  const offenders = [];
+  for (const entry of perSpread) {
+    const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+    const issues = Array.isArray(entry?.issues) ? entry.issues : [];
+    for (const tag of WRITER_FATAL_TAGS) {
+      if (!tags.includes(tag)) continue;
+      // Find the most-specific issue text for this tag, or fall back to
+      // a generic descriptor so the operator still sees the spread number.
+      const matching = issues.find(i => typeof i === 'string' && i.toLowerCase().includes(tag.replace(/_/g, ' ').toLowerCase()))
+        || issues.find(i => typeof i === 'string' && i.toLowerCase().includes(tag.toLowerCase()))
+        || `${tag} flagged on spread ${entry.spreadNumber} but no issue text recorded`;
+      offenders.push({
+        spreadNumber: entry.spreadNumber,
+        tag,
+        issue: matching,
+      });
+    }
+  }
+  return offenders;
+}
+
 function collectInfantActionResiduals(doc) {
   const ageBand = doc?.request?.ageBand;
   if (ageBand !== AGE_BANDS.PB_INFANT) return [];
@@ -310,7 +360,38 @@ async function writerQaAndRewrite(doc) {
     );
   }
 
+  // AA-CW-12 hard gate: identity_rhyme / unrenderable_action / writer_invented_prop.
+  // Production log on book e3f4e0c0 proved the pipeline shipped manuscript
+  // text with `identity_rhyme` ("mama/mama") flagged on 3 spreads after
+  // wave 3, and a separate book burned the entire illustrator budget on
+  // "Mama holds her purr" / "Scarlett bites her grin" before SIGTERM.
+  // The renderer cannot resolve any of these — they are writer defects
+  // disguised as illustration failures. Fail fast at the writer stage
+  // with a tag pointing the operator at the real culprit.
+  const writerFatal = collectWriterFatalResiduals(finalDoc);
+  if (writerFatal.length > 0) {
+    const byTag = writerFatal.reduce((acc, r) => {
+      acc[r.tag] = (acc[r.tag] || 0) + 1;
+      return acc;
+    }, {});
+    const issues = writerFatal.map(r => `spread ${r.spreadNumber} [${r.tag}]: ${r.issue}`);
+    const bookId = finalDoc.operationalContext?.bookId || finalDoc.request?.bookId || 'n/a';
+    console.error(
+      `[bookPipeline:${bookId}] writer hard gate (AA-CW-12): ${writerFatal.length} writer-fatal residual(s) after ${wave} wave(s) — ${JSON.stringify(byTag)} — failing before illustrator`,
+    );
+    throw new WriterUnresolvableError(
+      `writer could not produce illustrator-safe text after ${wave} rewrite wave(s) (${Object.keys(byTag).join(', ')})`,
+      { issues, tags: ['writer_fatal_residual', ...Object.keys(byTag)] },
+    );
+  }
+
   return finalDoc;
 }
 
-module.exports = { writerQaAndRewrite, collectInfantActionResiduals, WriterUnresolvableError };
+module.exports = {
+  writerQaAndRewrite,
+  collectInfantActionResiduals,
+  collectWriterFatalResiduals,
+  WriterUnresolvableError,
+  WRITER_FATAL_TAGS,
+};

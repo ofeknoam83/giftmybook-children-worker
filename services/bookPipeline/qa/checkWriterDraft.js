@@ -135,11 +135,33 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
 
 17. "line_length_violation" — a line exceeds the per-band hardMax word count. Per-spread. Name the line and word count.
 
+18. "unrenderable_action" — a line describes an action whose object cannot be drawn as a concrete physical thing. The illustrator is a literal image model: it can only render concrete nouns and physically possible interactions. If a line tells the artist to draw the child interacting with an abstraction (a sound, an emotion, a facial expression), the renderer either freezes or invents a wrong prop and burns the entire illustration retry budget. ALWAYS FAIL these.
+
+   BAD examples (and why):
+     • "Mama holds her purr." — a purr is a sound, not a holdable object.
+     • "Scarlett bites her grin." — a grin is a facial expression, not bitable.
+     • "He catches her smile." — a smile is not catchable as a physical thing.
+     • "She drinks the song." — a song is not a liquid.
+     • "Mama hugs her giggle." — a giggle is a sound, not huggable.
+     • "He grabs the quiet." — quiet is an absence, not a graspable object.
+
+   GOOD substitutions: pick a concrete physical object the illustrator can draw — a blanket, a hand, a cheek, a toy, the lap, the chin, the nose. "Mama holds her tight." / "Scarlett bites Mama's chin." / "He catches her hand." all render fine.
+
+   The test: can a four-year-old reading this line point at a real, drawable thing the verb is acting on? If no, fail it. Per-spread. Quote the offending line in the issue.
+
+19. "writer_invented_prop" — the manuscript text introduces a physical prop or noun that does NOT appear in that spread's spec.focalAction or spec.beat. The illustrator follows the spec, not the text, so writer-invented props guarantee an action_mismatch loop. ALWAYS FAIL.
+
+   Example: spec.focalAction says "Scarlett snuggles into Mama's lap and pats the blanket" but the manuscript line says "Scarlett pats one string." — "string" is invented; the spec only knows about a blanket and a lap. The renderer will draw the spec, and the QA judge will flag action_mismatch every attempt.
+
+   The test: every concrete noun the child INTERACTS WITH in the line (object of a transitive verb the child performs) must be present in the spread's spec.focalAction or spec.beat (case-insensitive substring match is fine — "blanket"/"the blanket" both count). Background scenery ("trees", "sky", "porch") is NOT a writer-invented prop unless the child is interacting with it. Per-spread. Quote the offending line and name the invented prop.
+
 == Repair directive ==
 For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable directive (1-2 sentences) telling the writer what to fix and what to preserve. Do NOT produce the rewrite itself — that's the writer's job in the next wave. Examples:
   - "Replace 'Mama Courtney' with just 'Mama' on line 3; keep the snuggle imagery; line 3 must still rhyme with line 4."
   - "Lines 1-2 don't rhyme ('sing'/'plan'). Re-end line 2 with a real rhyme for 'sing' (ring/wing/king/swing). Keep the bedtime imagery."
   - "Spread 4 uses 'twirls' (forbidden infant locomotion). Recast as 'wiggles' or 'reaches' and adjust the couplet's rhyme accordingly."
+  - "Spread 9 line 4 says 'Mama holds her purr' — a purr is a sound, not holdable. Rewrite the line so 'holds' takes a concrete physical object (her, the blanket, her hand), and keep the rhyme with line 3."
+  - "Spread 7 line 2 says 'Scarlett pats one string' but spec.focalAction is about patting the blanket. Replace 'string' with 'blanket' or whatever concrete prop the spec already names; preserve the AABB rhyme."
 
 == Pass criteria ==
 \`pass: true\` ONLY when ALL of the following hold:
@@ -148,6 +170,8 @@ For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable dire
   - All AABB rhymes are real (no identity/stem/suffix-only).
   - All picture-book spreads have exactly 4 lines and respect the per-band word budget.
   - No infant_action_verb_in_text hits in any infant spread.
+  - No unrenderable_action hits in any spread.
+  - No writer_invented_prop hits in any spread.
   - All questionnaire signature beats land somewhere in the manuscript.
 Anything less → \`pass: false\`.
 
