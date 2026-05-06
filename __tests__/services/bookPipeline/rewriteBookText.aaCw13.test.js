@@ -25,6 +25,11 @@ const {
 const { JUDGE_SYSTEM } = require('../../../services/bookPipeline/qa/checkWriterDraft');
 
 function makeDoc({ perSpread = [], bookLevel = [] } = {}) {
+  // NOTE: this passes 'PB_INFANT' (the constants KEY) not the VALUE
+  // ('0-1'). The AA-CW-20 band check compares against the VALUE, so
+  // these tests do NOT trigger the PB_INFANT taste-tag demotion — they
+  // exercise the full fatal-tag set. AA-CW-20 has its own dedicated
+  // band-conditional tests in __tests__/services/bookPipeline/aaCw20.test.js.
   return {
     request: { ageBand: 'PB_INFANT' },
     operationalContext: { bookId: 'test-book' },
@@ -34,7 +39,11 @@ function makeDoc({ perSpread = [], bookLevel = [] } = {}) {
 
 describe('AA-CW-13 \u2014 general craft rules + verb_crutch hard gate', () => {
   describe('WRITER_FATAL_TAGS (per-spread)', () => {
-    test('includes semantic_filler and forced_rhyme_meaning_drift', () => {
+    test('includes the unconditional + taste tags (union, length 5)', () => {
+      // AA-CW-20: the exported WRITER_FATAL_TAGS is the union of
+      // unconditional and taste tag lists for backwards compatibility.
+      // The actual gating behaviour is band-conditional inside
+      // collectWriterFatalResiduals.
       expect(WRITER_FATAL_TAGS).toEqual(expect.arrayContaining([
         'identity_rhyme',
         'unrenderable_action',
@@ -192,8 +201,13 @@ describe('AA-CW-13 \u2014 general craft rules + verb_crutch hard gate', () => {
     });
 
     test('Pass criteria forbids all five new conditions', () => {
-      expect(JUDGE_SYSTEM).toMatch(/No semantic_filler hits/);
-      expect(JUDGE_SYSTEM).toMatch(/No forced_rhyme_meaning_drift hits/);
+      // AA-CW-20: semantic_filler / forced_rhyme_meaning_drift are
+      // advisory at PB_INFANT but still fatal at PB_TODDLER /
+      // PB_PRESCHOOL. The pass-criteria block names the band-conditional
+      // wording instead of the unconditional "No X hits" lines from
+      // AA-CW-13.
+      expect(JUDGE_SYSTEM).toMatch(/no semantic_filler/);
+      expect(JUDGE_SYSTEM).toMatch(/no forced_rhyme_meaning_drift/);
       expect(JUDGE_SYSTEM).toMatch(/No verb_crutch at book level/);
       expect(JUDGE_SYSTEM).toMatch(/r-controlled-mismatch\/interjection/);
     });

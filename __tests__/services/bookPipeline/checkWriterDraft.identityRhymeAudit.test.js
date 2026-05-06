@@ -90,14 +90,14 @@ afterEach(() => {
   callText.mockReset();
 });
 
-describe('AA-CW-11 \u2014 WRITER_JUDGE model flip', () => {
-  test('WRITER_JUDGE points at gemini-2.5-pro (decoupled from gpt-5.4 writer)', () => {
-    expect(MODELS.WRITER_JUDGE).toBe('gemini-2.5-pro');
+describe('AA-CW-20 \u2014 WRITER_JUDGE model flip (self-critique)', () => {
+  test('WRITER_JUDGE points at gpt-5.4 (same family as writer for self-critique)', () => {
+    expect(MODELS.WRITER_JUDGE).toBe('gpt-5.4');
     expect(MODELS.WRITER).toBe('gpt-5.4');
-    expect(MODELS.WRITER).not.toBe(MODELS.WRITER_JUDGE);
+    expect(MODELS.WRITER).toBe(MODELS.WRITER_JUDGE);
   });
 
-  test('judge call is dispatched with WRITER_JUDGE (gemini-2.5-pro)', async () => {
+  test('judge call is dispatched with WRITER_JUDGE (gpt-5.4)', async () => {
     mockClean();
     const doc = makeDoc([
       // Lines 1+2 rhyme (sky/high), lines 3+4 rhyme (song/long) \u2014 clean.
@@ -105,7 +105,7 @@ describe('AA-CW-11 \u2014 WRITER_JUDGE model flip', () => {
     ]);
     await checkWriterDraft(doc);
     const judgeCall = callText.mock.calls.find(c => c[0].label === 'writerQa.judge')[0];
-    expect(judgeCall.model).toBe('gemini-2.5-pro');
+    expect(judgeCall.model).toBe('gpt-5.4');
     expect(judgeCall.model).toBe(MODELS.WRITER_JUDGE);
   });
 });

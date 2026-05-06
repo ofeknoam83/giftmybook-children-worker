@@ -1,22 +1,35 @@
 /**
  * AA-CW-4 — Writer-side QA, rewritten as a single LLM judge.
+ * AA-CW-11 — cross-family judge (gemini-2.5-pro) replaces same-family judge
+ *            to break shared-blind-spot rhyme failures.
+ * AA-CW-20 — reverted to same-family SELF-CRITIQUE (gpt-5.4 judges gpt-5.4)
+ *            after production showed the cross-family judge raised
+ *            taste-level tags at the 2-5 word infant line budget that
+ *            the writer could not satisfy in 5 rewrite waves. Same-model
+ *            self-critique converges because the critic only raises
+ *            defects the writer can actually fix. Deterministic
+ *            identity-rhyme + dropped-article audits run AFTER the
+ *            self-critique as belt-and-suspenders insurance against the
+ *            shared blind spot. The gemini-2.5-flash shadow stays wired
+ *            up but is observability-only — it never gates pass/fail.
  *
- * Authoritative path: ONE call to a strong LLM (gpt-5.4) that returns the
- * full per-spread + book-level verdict in structured JSON. The 25
- * deterministic helpers from the previous implementation (verb-crutch
- * lemmatization, dropped-article regex, address-name concat, fragment
- * detection, phonetic rhyme tail comparator, nonsense-word lexicon,
- * nonsense-simile keyword list, peer-framing matcher, refrain-crutch
- * counter, infant forbidden-verb regex stack, line-count truncator,
- * etc.) are all DELETED in this PR. The judge prompt enumerates every
- * one of those failure modes with concrete BAD/GOOD examples so the LLM
- * carries the entire signal.
+ * Authoritative path: ONE call to MODELS.WRITER_JUDGE (gpt-5.4 as of
+ * AA-CW-20) that returns the full per-spread + book-level verdict in
+ * structured JSON. The 25 deterministic helpers from the original
+ * implementation (verb-crutch lemmatization, dropped-article regex,
+ * address-name concat, fragment detection, phonetic rhyme tail
+ * comparator, nonsense-word lexicon, nonsense-simile keyword list,
+ * peer-framing matcher, refrain-crutch counter, infant forbidden-verb
+ * regex stack, line-count truncator, etc.) are all DELETED. The judge
+ * prompt enumerates every one of those failure modes with concrete
+ * BAD/GOOD examples so the LLM carries the entire signal.
  *
  * One side call remains:
- *   - Shadow run — the old gemini-2.5-flash literary call still fires
- *     in parallel; its verdict is logged to stdout + appended to
- *     `doc.llmCalls` under stage `writerQa.shadow` for diffing during
- *     the rollout window. NOT authoritative.
+ *   - Shadow run — the gemini-2.5-flash literary call still fires in
+ *     parallel; its verdict is logged to stdout + appended to
+ *     `doc.llmCalls` under stage `writerQa.shadow` for observability
+ *     and rollout-window diffing. NEVER authoritative — it cannot
+ *     fail the manuscript.
  *
  * AA-CW-9: the per-line `infantLocomotionGate` Flash call was deleted.
  * It cost ~38 sequential Flash calls (~65s wall time) per PB_INFANT
@@ -37,7 +50,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS } = require('../constants');
+const { MODELS, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
 const { checkSignatureBeatCoverage, describeBeat } = require('./signatureBeats');
@@ -46,7 +59,9 @@ const { checkSignatureBeatCoverage, describeBeat } = require('./signatureBeats')
 // Judge prompt (authoritative)
 // =============================================================================
 
-const JUDGE_SYSTEM = `You are the senior children's-book editor and the FINAL gate before this manuscript ships. You are not a polite reviewer — you are the last line of defense against bad children's books being printed and mailed to a real family. Be brutal. Hedge nothing. If a couplet does not rhyme, fail it. If an infant book describes the baby running, fail it. If a parent's first name is jammed against an address word, fail it. Your verdict is authoritative.
+const JUDGE_SYSTEM = `You are running a SELF-CRITIQUE pass on a children's-book manuscript that you (the same model family) just wrote. Your job is to catch FIXABLE structural defects — the things the writer can actually correct in a 1-2 wave rewrite — before this manuscript ships to a real family. You are not a literary awards panel. You are not optimising for taste. You are checking that the rules below are satisfied. If a rule is broken, fail it. If a rule is satisfied, pass it. No hedging. No aesthetic disqualifications outside the named tags.
+
+The goal is convergence: every issue you raise must be something the writer can definitely fix in the next wave. If you cannot describe a concrete one-line edit that would clear an issue, do NOT raise it.
 
 You receive: format, ageBand, theme, brief (child name, pronouns, anecdotes, interests, parents), storyBible, the full per-spread manuscript (text + side + spec), an optional theme-directive block listing banned clichés, and an optional signatureBeatsHint listing questionnaire anchors that look unlanded.
 
@@ -150,6 +165,8 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
 
 13. "fragment_line" — a manuscript line has no finite verb and reads as a noun-phrase fragment. BAD: "Mama, soft glow." / "Stars and a yawn." / "Two warm hands." GOOD: "Mama gives a soft glow." / "Stars hang above the yawn." / "Two warm hands hold tight." Per-spread.
 
+   AA-CW-20 BAND POLICY: ADVISORY at PB_INFANT (0-1). The 2-5 word line budget makes finite-verb-on-every-line a constant fight; lap-baby books frequently use a noun-phrase line for percussive rhythm ("Two warm hands.") and that is acceptable. Only raise this tag at PB_INFANT when EVERY line of the spread is a fragment (no spread should be 100% fragments). ALWAYS FAIL at PB_TODDLER and PB_PRESCHOOL.
+
 14. "identity_pronoun_swap" — the hero is referred to with a pronoun set inconsistent with brief.pronouns (e.g. brief says she/her but a spread uses "he"/"him"/"his"/"they"). Per-spread. Quote the offending sentence.
 
 15. "theme_cliche" — the manuscript uses a phrase listed as a BANNED CLICHÉ in the theme-directive block. Per-spread.
@@ -185,7 +202,9 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
      (d) it appears in the spread's \`proseProps\` array (case-insensitive substring — "blanket" matches "the blanket" or "strawberry-print blanket")
    Falling outside all four = \`writer_invented_prop\`. Background scenery the hero only LOOKS AT (sky, trees, clouds) is exempt unless the hero touches it. If \`proseProps\` is missing or empty on a spread, fall back to the legacy substring check against \`spec.focalAction\` + \`spec.plotBeat\` + \`spec.mustUseDetails\`. Per-spread. Quote the offending line and name the invented prop.
 
-20. "semantic_filler" — a line is grammatically complete but adds no image, no action, and no new sensory or emotional information beyond what an adjacent line already carried, OR uses a vague phrase to complete a rhyme. Per-spread. ALWAYS FAIL.
+20. "semantic_filler" — a line is grammatically complete but adds no image, no action, and no new sensory or emotional information beyond what an adjacent line already carried, OR uses a vague phrase to complete a rhyme. Per-spread.
+
+   AA-CW-20 BAND POLICY: ADVISORY at PB_INFANT (0-1) — the 2-5 word line budget makes "every line introduces a new sensory beat" routinely impossible to satisfy when lines 1-2 are already establishing a moment and lines 3-4 are repeating the felt sense (a legitimate read-aloud device for lap-baby books). At PB_INFANT, only raise this tag when a line is OBVIOUSLY a rhyme-completer with a wrong subject or a vague temporal filler (see test (c) below). Do NOT raise it just because a line restates the spread's mood. ALWAYS FAIL at PB_TODDLER and PB_PRESCHOOL.
 
    Three independent tests — failing ANY one is enough:
      (a) Image test: does this line introduce a new sensory detail (sight, sound, touch, motion, smell, taste)? If no, fail.
@@ -202,7 +221,9 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
 
    GOOD substitutions follow the rule "every line earns its place": replace with a concrete sensory beat (a sound, a touch, a movement, a glance) that wasn't already in the spread.
 
-21. "forced_rhyme_meaning_drift" — the manuscript ends a line on a rhyme word that creates a wrong, implausible, or emotionally mismatched meaning. Per-spread. ALWAYS FAIL.
+21. "forced_rhyme_meaning_drift" — the manuscript ends a line on a rhyme word that creates a wrong, implausible, or emotionally mismatched meaning. Per-spread.
+
+   AA-CW-20 BAND POLICY: ADVISORY at PB_INFANT (0-1). Only raise it when the meaning drift is OBVIOUS — a wrong emotional valence ("laughs at her wail") or a physically impossible verb ("kicks the song"). Do NOT raise it on borderline cases at PB_INFANT. ALWAYS FAIL at PB_TODDLER and PB_PRESCHOOL.
 
    Two tests — failing EITHER is enough:
      (a) Emotional valence: does the action match the emotional context of the spread and the book? A baby's wail is distress, not delight — laughing AT a wail is the wrong emotional valence. A snuggle scene's verbs should be tender, not abrupt.
@@ -225,21 +246,31 @@ For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable dire
   - "Spread 5 line 4 'Mama laughs at that wail' has wrong emotional valence (a wail is distress, not delight). Re-end line 4 with a real rhyme for line 3's end-word that names a tender or playful action; preserve the porch-swing imagery."
   - "Verb 'squeal' appears in 6 of 13 spreads. On spreads 7, 11, 12 (the redundant ones), replace the squeal with a different sensory beat — a giggle, a coo, a wave, a reach — and adjust the rhyme accordingly."
 
-== Pass criteria ==
-\`pass: true\` ONLY when ALL of the following hold:
-  - Zero per-spread issues across all spreads.
-  - Zero book-level issues.
+== Pass criteria (AA-CW-20 self-critique) ==
+\`pass: true\` ONLY when ALL of the following STRUCTURAL rules hold. Taste-level tags (semantic_filler / forced_rhyme_meaning_drift / fragment_line) are advisory at PB_INFANT and do NOT block pass at that band even when raised. They DO block pass at PB_TODDLER and PB_PRESCHOOL.
+
+  STRUCTURAL (all bands):
   - All rhymed couplets are real rhymes (no identity/stem/suffix-only/r-controlled-mismatch/interjection). For PB_INFANT, lines 3+4 may be free-verse instead of rhymed — free-verse with parallel rhythm passes; only attempted-but-broken rhymes fail.
   - All picture-book spreads have exactly 4 lines and respect the per-band word budget.
+  - No dropped_article hits.
+  - No address_name_concat hits.
   - No infant_action_verb_in_text hits in any infant spread.
   - No unrenderable_action hits in any spread.
   - No writer_invented_prop hits in any spread.
-  - No semantic_filler hits in any spread.
-  - No forced_rhyme_meaning_drift hits in any spread.
+  - No nonsense_word / nonsense_simile hits.
+  - No identity_pronoun_swap hits.
+  - No theme_cliche hits.
+  - No line_count_violation / line_length_violation hits.
+  - No parent_theme_relationship_framing hits.
   - No verb_crutch at book level.
   - No refrain_crutch at book level.
   - All questionnaire signature beats land somewhere in the manuscript.
-Anything less → \`pass: false\`.
+
+  TASTE (band-conditional):
+  - PB_TODDLER / PB_PRESCHOOL: no semantic_filler, no forced_rhyme_meaning_drift, no fragment_line.
+  - PB_INFANT: these three tags are ADVISORY — raise them when you see them (operators read the logs) but DO NOT set pass=false purely because of them.
+
+Anything less → \`pass: false\`. When the only failures at PB_INFANT are advisory taste tags, set \`pass: true\`.
 
 == Output schema (return EXACTLY this shape) ==
 {
@@ -557,9 +588,57 @@ async function checkWriterDraft(doc) {
     );
   }
 
+  // AA-CW-20: band-conditional taste-tag demotion. At PB_INFANT, the
+  // three taste tags (semantic_filler, forced_rhyme_meaning_drift,
+  // fragment_line) are ADVISORY — they remain on the per-spread output
+  // for observability but do NOT count toward repairPlan or pass=false.
+  // The judge prompt also instructs the LLM to apply this rule; this
+  // post-processing is defensive insurance in case the LLM raises pass=false
+  // on advisory-only tags. Structural tags (rhyme_fail, dropped_article,
+  // identity_rhyme, unrenderable_action, writer_invented_prop, etc.)
+  // remain fully fatal at every band.
+  // ageBand is the VALUE ('0-1' for PB_INFANT), not the key. Compare
+  // against AGE_BANDS.PB_INFANT.
+  const ageBand = doc?.request?.ageBand;
+  const TASTE_TAGS_ADVISORY_AT_INFANT = new Set([
+    'semantic_filler',
+    'forced_rhyme_meaning_drift',
+    'fragment_line',
+  ]);
+  const isAdvisoryOnly = (entry) => {
+    if (ageBand !== AGE_BANDS.PB_INFANT) return false;
+    if (!Array.isArray(entry.tags) || entry.tags.length === 0) return false;
+    return entry.tags.every(t => TASTE_TAGS_ADVISORY_AT_INFANT.has(t));
+  };
+  // Effective per-spread pass = the entry has no STRUCTURAL issues.
+  // Advisory-only entries flip pass back to true even if the LLM said false.
+  for (const entry of merged) {
+    if (!entry.pass && isAdvisoryOnly(entry)) {
+      entry.pass = true;
+      entry.advisoryOnly = true;
+    }
+  }
+
   const repairPlan = merged.filter(m => !m.pass);
   const judgeSaysPass = judge.pass === true;
-  const pass = judgeSaysPass && repairPlan.length === 0 && bookLevel.length === 0 && !signatureGateFail;
+  // AA-CW-20: at PB_INFANT, ignore judgeSaysPass=false when the only
+  // failures are advisory taste tags AND no structural defects survive.
+  const structuralPassOk = repairPlan.length === 0
+    && bookLevel.length === 0
+    && !signatureGateFail;
+  const advisoryOnlyAtInfant = ageBand === AGE_BANDS.PB_INFANT
+    && structuralPassOk
+    && merged.some(m => m.advisoryOnly === true);
+  const pass = (judgeSaysPass || advisoryOnlyAtInfant) && structuralPassOk;
+
+  if (advisoryOnlyAtInfant) {
+    const advisoryCounts = merged
+      .filter(m => m.advisoryOnly)
+      .map(m => ({ spreadNumber: m.spreadNumber, tags: m.tags }));
+    console.log(
+      `[writerQa.advisoryOnly:${bookId}] PB_INFANT manuscript passing with advisory-only taste tags on ${advisoryCounts.length} spread(s): ${JSON.stringify(advisoryCounts)}`,
+    );
+  }
 
   // Shadow diff — log to stdout so we can grep it during the rollout
   // window. Also recorded structurally on the doc via appendLlmCall.

@@ -76,9 +76,15 @@ describe('AA-CW-16 — proseProps whitelist (planner + judge)', () => {
     });
   });
 
-  describe('REPAIR_BUDGETS bumped to 5', () => {
-    test('writerRewriteWaves is 5', () => {
-      expect(REPAIR_BUDGETS.writerRewriteWaves).toBe(5);
+  describe('REPAIR_BUDGETS \u2014 reduced to 2 by AA-CW-20', () => {
+    // AA-CW-16 originally bumped writerRewriteWaves 3 -> 5. AA-CW-20
+    // reduced it back to 2 because same-model self-critique converges
+    // faster: the critic only raises defects the writer can fix, so two
+    // waves are enough — if the writer cannot resolve in two waves the
+    // escape hatch should fire instead of burning more tokens on the
+    // same local optimum.
+    test('writerRewriteWaves is 2 (AA-CW-20)', () => {
+      expect(REPAIR_BUDGETS.writerRewriteWaves).toBe(2);
     });
     test('writerEscapeHatchAfterRejections is set', () => {
       expect(Number.isFinite(REPAIR_BUDGETS.writerEscapeHatchAfterRejections)).toBe(true);

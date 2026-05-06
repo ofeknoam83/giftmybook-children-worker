@@ -108,18 +108,26 @@ const MODELS = {
   ILLUSTRATION_SPEC: 'gpt-5.4-mini',
 
   // --- QA models ---
-  // WRITER_JUDGE — AA-CW-11. Flipped from gpt-5.4 (same model as the
-  // writer) to gemini-2.5-pro (different vendor, different family).
-  // Production showed the gpt-5.4 judge passing identity rhymes
-  // (cheek/cheek, Mama/Mama) and obvious slant rhymes (outside/glide,
-  // wide/beside, along/song) that the writer (also gpt-5.4) had
-  // produced — same distribution, shared blind spots. Decoupling the
-  // judge from the writer's family is the structural fix; AA-CW-11
-  // also adds a deterministic identity-rhyme check that runs after
-  // the LLM judge as belt-and-suspenders insurance.
-  WRITER_JUDGE: 'gemini-2.5-pro',
-  // WRITER_QA — kept for the parallel SHADOW judge (non-authoritative
-  // diffing) and for the per-line infant locomotion gate Flash call.
+  // WRITER_JUDGE — AA-CW-20. Flipped back to gpt-5.4 (same family as the
+  // writer) for SAME-MODEL SELF-CRITIQUE. AA-CW-11..AA-CW-19 used
+  // gemini-2.5-pro as a cross-family judge to catch identity rhymes and
+  // slant rhymes the writer's family was blind to. Production data after
+  // AA-CW-19 showed the cross-family judge raises taste-level tags at
+  // the 2-5 word infant budget (semantic_filler, forced_rhyme_meaning_drift,
+  // fragment_line) that the gpt-5.4 writer cannot satisfy in 5 waves —
+  // book e3f4e0c0 looped to wave 4+ with the writer producing
+  // structurally fine lines that gemini still rejected on aesthetics.
+  // Switching to a same-model self-critique pass should converge: the
+  // critic raises only defects the writer can actually fix. The
+  // deterministic identity-rhyme audit + dropped-article audit (in
+  // checkWriterDraft.js) remain forced-fatal as belt-and-suspenders
+  // insurance against the shared blind spot. The gemini-2.5-flash
+  // shadow judge stays wired up but is observability-only (logs, no
+  // gating).
+  WRITER_JUDGE: 'gpt-5.4',
+  // WRITER_QA — runs as a SHADOW (logs-only, never gates pass/fail)
+  // alongside the authoritative WRITER_JUDGE self-critique, plus the
+  // per-line infant locomotion gate Flash call.
   WRITER_QA: 'gemini-2.5-flash',
   BOOK_WIDE_QA: 'gemini-2.5-flash',
   SPREAD_QA_VISION: 'gemini-2.5-flash',
@@ -135,12 +143,15 @@ const MODELS = {
 };
 
 const REPAIR_BUDGETS = {
-  // AA-CW-16: bumped 3 -> 5. With AA-CW-15's rewrite memory the rewriter
-  // gets explicit signal about prior failed attempts, so additional waves
-  // are no longer wasted on rediscovering the same lossy local optima.
-  // Wave 4+ also unlocks the per-spread escape hatch (relax exactly one
-  // craft constraint on a spread that has been rejected 3 times).
-  writerRewriteWaves: 5,
+  // AA-CW-20: reduced 5 -> 2. With same-model self-critique (gpt-5.4
+  // judging gpt-5.4) the critic only raises defects the writer can fix,
+  // so two waves should converge. If two waves cannot converge, more
+  // waves don't help — the writer is stuck and the escape hatch should
+  // fire instead of burning tokens. Prior 5-wave budget existed because
+  // the cross-family gemini-2.5-pro judge raised aesthetic tags the
+  // writer kept rediscovering local optima for; AA-CW-20 removes that
+  // mismatch.
+  writerRewriteWaves: 2,
   perSpreadInSessionCorrections: 3,
   perSpreadPromptRepairs: 2,
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */

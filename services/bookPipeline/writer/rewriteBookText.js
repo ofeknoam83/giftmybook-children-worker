@@ -166,12 +166,32 @@ function issueMentionsBannedVerb(issueText) {
  * @param {object} doc
  * @returns {{ spreadNumber: number|null, tag: string, issue: string }[]}
  */
-const WRITER_FATAL_TAGS = [
+// AA-CW-20: WRITER_FATAL_TAGS split into UNCONDITIONAL (always fatal,
+// every age band) and TASTE (fatal except at PB_INFANT, where the 2-5
+// word line budget makes "every line earns a new sensory beat" a goal
+// the same-model self-critique cannot reliably satisfy without forcing
+// the writer into local optima it cannot escape). Production data on
+// book e3f4e0c0 (AA-CW-19 deploy) showed the wave-4 rejection set
+// reduced to exactly these taste tags after the structural defects
+// (verb_crutch, refrain_crutch, dropped_article, identity_rhyme) were
+// cleared. Demoting them at PB_INFANT lets the manuscript ship when
+// every structural rule passes; PB_TODDLER and PB_PRESCHOOL keep the
+// stricter bar because their longer line budgets give the writer room
+// to satisfy semantic_filler / forced_rhyme_meaning_drift cleanly.
+const WRITER_FATAL_TAGS_UNCONDITIONAL = [
   'identity_rhyme',
   'unrenderable_action',
   'writer_invented_prop',
+];
+const WRITER_FATAL_TAGS_TASTE = [
   'semantic_filler',
   'forced_rhyme_meaning_drift',
+];
+// Backwards-compatible export — the union of both lists, used by tests
+// and any caller that wants the full historical fatal set.
+const WRITER_FATAL_TAGS = [
+  ...WRITER_FATAL_TAGS_UNCONDITIONAL,
+  ...WRITER_FATAL_TAGS_TASTE,
 ];
 
 // Book-level tags. spreadNumber is null on these offenders because the
@@ -181,13 +201,20 @@ const WRITER_FATAL_BOOK_LEVEL_TAGS = ['verb_crutch'];
 function collectWriterFatalResiduals(doc) {
   const perSpread = doc?.writerQa?.perSpread || [];
   const bookLevel = Array.isArray(doc?.writerQa?.bookLevel) ? doc.writerQa.bookLevel : [];
+  const ageBand = doc?.request?.ageBand || null;
+  // AA-CW-20: PB_INFANT demotes taste tags from fatal to advisory.
+  // ageBand is the VALUE (e.g. '0-1'), not the key — use AGE_BANDS.PB_INFANT
+  // for the comparison.
+  const fatalTagsForBand = ageBand === AGE_BANDS.PB_INFANT
+    ? WRITER_FATAL_TAGS_UNCONDITIONAL
+    : WRITER_FATAL_TAGS;
   const offenders = [];
 
   // Per-spread tags.
   for (const entry of perSpread) {
     const tags = Array.isArray(entry?.tags) ? entry.tags : [];
     const issues = Array.isArray(entry?.issues) ? entry.issues : [];
-    for (const tag of WRITER_FATAL_TAGS) {
+    for (const tag of fatalTagsForBand) {
       if (!tags.includes(tag)) continue;
       // Find the most-specific issue text for this tag, or fall back to
       // a generic descriptor so the operator still sees the spread number.
@@ -938,6 +965,8 @@ module.exports = {
   collectWriterFatalResiduals,
   WriterUnresolvableError,
   WRITER_FATAL_TAGS,
+  WRITER_FATAL_TAGS_UNCONDITIONAL,
+  WRITER_FATAL_TAGS_TASTE,
   WRITER_FATAL_BOOK_LEVEL_TAGS,
   // AA-CW-15 — exported for tests and future composition.
   recordRewriteAttempt,
