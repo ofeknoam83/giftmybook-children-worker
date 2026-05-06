@@ -143,15 +143,13 @@ const MODELS = {
 };
 
 const REPAIR_BUDGETS = {
-  // AA-CW-20: reduced 5 -> 2. With same-model self-critique (gpt-5.4
-  // judging gpt-5.4) the critic only raises defects the writer can fix,
-  // so two waves should converge. If two waves cannot converge, more
-  // waves don't help — the writer is stuck and the escape hatch should
-  // fire instead of burning tokens. Prior 5-wave budget existed because
-  // the cross-family gemini-2.5-pro judge raised aesthetic tags the
-  // writer kept rediscovering local optima for; AA-CW-20 removes that
-  // mismatch.
-  writerRewriteWaves: 2,
+  // AA-CW-21: reduced 2 -> 1. With the judge gutted to five mechanically
+  // falsifiable defects (rhyme_fail, dropped_article, address_name_concat,
+  // infant_action_verb_in_text, identity_pronoun_swap), one rewrite wave
+  // is enough — each is a concrete edit with a clear repair directive.
+  // If the writer still can't satisfy the five rules after one rewrite,
+  // more waves don't help; the escape hatch ships what we have.
+  writerRewriteWaves: 1,
   perSpreadInSessionCorrections: 3,
   perSpreadPromptRepairs: 2,
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */

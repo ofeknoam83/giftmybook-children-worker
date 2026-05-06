@@ -174,7 +174,7 @@ describe('AA-CW-11 \u2014 deterministic identity-rhyme audit', () => {
     expect(verdict.perSpread[0].tags).toContain('identity_rhyme');
   });
 
-  test('preserves existing LLM-judge tags and merges identity_rhyme on top', async () => {
+  test('AA-CW-21: drops non-fatal judge tags but adds the deterministic identity_rhyme', async () => {
     callText.mockImplementation(async ({ label }) => {
       if (label === 'writerQa.judge') {
         return {
@@ -204,9 +204,10 @@ describe('AA-CW-11 \u2014 deterministic identity-rhyme audit', () => {
     ]);
     const verdict = await checkWriterDraft(doc);
     const entry = verdict.perSpread[0];
-    // Original judge tag preserved \u2026
-    expect(entry.tags).toContain('verb_crutch');
-    // \u2026 plus the deterministic addition.
+    // AA-CW-21: verb_crutch is now advisory and filtered out by the
+    // 5-tag whitelist.
+    expect(entry.tags).not.toContain('verb_crutch');
+    // The deterministic identity-rhyme audit still forces these.
     expect(entry.tags).toContain('rhyme_fail');
     expect(entry.tags).toContain('identity_rhyme');
   });

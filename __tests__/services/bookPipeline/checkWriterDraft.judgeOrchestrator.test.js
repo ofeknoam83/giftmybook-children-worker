@@ -152,7 +152,7 @@ describe('AA-CW-4 checkWriterDraft judge orchestrator', () => {
     expect(verdict.repairPlan[0].suggestedRewrite).toMatch(/real rhyme for "town"/);
   });
 
-  test('signature beats missing → book-level fail + per-spread injections', async () => {
+  test('AA-CW-21: signature beats missing is advisory only, does NOT fail the book', async () => {
     mockJudgeAndShadow({
       judgeJson: {
         pass: true,
@@ -189,13 +189,13 @@ describe('AA-CW-4 checkWriterDraft judge orchestrator', () => {
     });
 
     const verdict = await checkWriterDraft(doc);
-    expect(verdict.pass).toBe(false);
-    expect(verdict.bookLevel.join(' ')).toMatch(/signature beats missing/);
-    expect(verdict.bookLevelTags).toContain('signature_beat_missing');
-    // At least one per-spread entry must carry a signature_beat_missing
-    // injection so the rewrite loop has a concrete target.
+    // AA-CW-21: signature_beat_missing was demoted to advisory — the
+    // book passes if no surviving per-spread fatal tags fire.
+    expect(verdict.pass).toBe(true);
+    expect(verdict.bookLevel).toEqual([]);
+    expect(verdict.bookLevelTags).not.toContain('signature_beat_missing');
     const sigSpreads = verdict.perSpread.filter(s => s.tags.includes('signature_beat_missing'));
-    expect(sigSpreads.length).toBeGreaterThan(0);
+    expect(sigSpreads.length).toBe(0);
   });
 
   test('shadow run is recorded via appendLlmCall under writerQa.shadow', async () => {
