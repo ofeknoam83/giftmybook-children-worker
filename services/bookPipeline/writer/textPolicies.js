@@ -100,9 +100,10 @@ function renderTextPolicyBlock(doc) {
     const isToddler = doc.request.ageBand === AGE_BANDS.PB_TODDLER;
 
     if (isInfant) {
-      // Infant band has its own structure: 2 lines per spread (one rhyming
-      // couplet), tiny vocabulary, sensory observation only. Skip the 4-line
-      // structure block entirely.
+      // Infant band shares the 4-line picture-book shape (two AABB couplets)
+      // with the toddler/preschool bands, but with tiny vocabulary, the
+      // "baby-is-the-still-point" action whitelist, sensory observation only,
+      // and a tighter per-line word budget. Same page shape, gentler voice.
       //
       // The block is organized around ONE central principle — "the baby is
       // the still point" — to prevent the writer from reaching for action
@@ -143,7 +144,7 @@ function renderTextPolicyBlock(doc) {
         '- GOOD: "Everleigh sees gold. / Soft cloth held to hold."  (gold/hold = real rhyme)',
         'When you find yourself reusing a word as the rhyme, REWRITE the second line with a different end-word that genuinely rhymes. If you cannot find one, change BOTH end-words and re-rhyme the couplet. Never ship an identity rhyme.',
         '',
-        '### VOCABULARY DIVERSITY (infant book is 13 spreads × 2 lines = 26 lines total):',
+        '### VOCABULARY DIVERSITY (infant book is 13 spreads × 4 lines = 52 lines total):',
         'Across the entire book, no single content word should appear in more than 2 spreads. "sun" in 4 spreads, "toes" in 3 spreads, "peekaboo" in 3+ spreads is a tell-tale sign the writer is reaching for a familiar word instead of a fresh image. Variety of sensory detail is what makes a tiny board book feel like a real book and not a list.',
         'High-risk repeating words to watch for (treat each WHOLE FAMILY as one word — "glow", "glows", "glowing", "aglow" all count as the same crutch):',
         '- sun-family: sun, sunshine, sunlight, sunlit, sunny',
@@ -173,16 +174,18 @@ function renderTextPolicyBlock(doc) {
         '- GOOD: "Breezes lift the leaves on high."  (natural prepositional phrase)',
         '',
         '### STRUCTURE (NON-NEGOTIABLE for infant board books — every single spread):',
-        '- EXACTLY 2 lines of text per spread (one rhyming couplet). Not 1. Not 3. Always 2. Lines separated by a single "\\n".',
-        '- RHYME SCHEME: AA (the two lines rhyme). Real end-rhymes only — no same-word "rhymes", no forced rhymes.',
-        `- LINE LENGTH (ages 0-1 — the shortest): each line is ~${wordBudget.min}-${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, lap-baby cadence.`,
+        '- EXACTLY 4 lines of text per spread (two rhyming couplets). Not 2. Not 3. Always 4. Lines separated by single "\\n" characters.',
+        '- RHYME SCHEME: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other. Real end-rhymes only — no same-word "rhymes", no forced rhymes.',
+        `- LINE LENGTH (ages 0-1 — the shortest): each of the 4 lines is ~${wordBudget.min}-${wordBudget.max} words, never more than ${wordBudget.hardMax}. Tight, sing-song, lap-baby cadence — board-book brevity inside a 4-line shape.`,
         '- TONE: tiny, warm, musical. Sensory observation only — NO conflict, NO plot stakes, NO dialogue, NO chase, NO grabbing of moving objects, NO independent locomotion.',
         '- VOCABULARY: words a baby hears daily — Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup.',
         '- ACTIONS (whitelist — these are the ONLY verbs that may attach to the baby): sees, hears, smiles, reaches, claps, holds, snuggles, points, looks, touches, gasps, giggles, watches, waves, blinks. Forbidden because the baby cannot physically do them: walks, runs, climbs, dances, twirls, spins, jumps, hops, marches, skips, bounces, darts, races, leads, grabs runaway objects.',
         '- DESCRIPTIVE WORDS: avoid using the same descriptor (e.g. "bright") on more than 2-3 spreads across the whole book. If you find yourself reaching for the same adjective again, swap it for a different sensory detail.',
         '- EXAMPLE CADENCE for ages 0-1 (do not copy these words — copy the shape):',
         '    "Little hand sees the light.',
-        '     Mama holds her tight."',
+        '     Mama holds her tight.',
+        '     Soft moon hums above.',
+        '     Baby blinks at love."',
         '',
       );
     } else {

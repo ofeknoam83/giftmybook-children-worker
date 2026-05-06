@@ -4,9 +4,11 @@ const {
 const { AGE_BANDS } = require('../../../services/bookPipeline/constants');
 
 describe('resolvePictureBookLineRange (PR D / D.1)', () => {
-  test('infant band (PB_INFANT, 0-1) requires 2 lines per spread', () => {
+  // AA-CW-5a: infant band now shares the 4-line shape with toddler/preschool.
+  // Bands differ by per-line word budget, not by line count.
+  test('infant band (PB_INFANT, 0-1) requires 4 lines per spread (AABB couplets)', () => {
     const range = resolvePictureBookLineRange(AGE_BANDS.PB_INFANT);
-    expect(range).toEqual({ min: 2, max: 2 });
+    expect(range).toEqual({ min: 4, max: 4 });
   });
 
   test('toddler band (PB_TODDLER, 0-3) requires 4 lines per spread', () => {

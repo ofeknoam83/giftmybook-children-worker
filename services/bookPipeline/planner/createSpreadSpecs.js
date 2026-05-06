@@ -25,6 +25,109 @@ const PARENT_VISIBILITY_VALUES = new Set([
   'full', 'hand', 'shoulder-back', 'cropped-torso', 'shadow', 'object', 'absent',
 ]);
 
+// AA-CW-5a — arcContext schema. Every spread carries an explicit arc record
+// so downstream stages (writer, illustrator, writer QA, consistency QA) can
+// reason about WHERE the spread sits in the book — not just what beat it is
+// in isolation. The writer-QA tag `arc_break` (AA-CW-5b) checks against
+// these fields; the writer prompt threads them so spread 7 knows it's the
+// midpoint pivot, spread 12 knows it's calling back to spread 1, etc. This
+// is what gives the book continuity instead of 13 vignettes.
+const ARC_BEAT_VALUES = new Set([
+  'opening', 'setup', 'rising', 'midpoint', 'deeper', 'peak', 'aftermath', 'return', 'closing',
+]);
+const EMOTIONAL_REGISTER_VALUES = new Set([
+  'warm', 'curious', 'playful', 'tender', 'wonder', 'triumphant', 'reflective',
+]);
+
+// Deterministic fallback: if the LLM omits arcContext on a spread, derive a
+// usable arc record from spreadNumber + purpose so writer/illustrator never
+// see undefined. Pure dictionary lookup — no regex, no heuristics on prose.
+const PURPOSE_TO_BEAT = {
+  hook: 'opening',
+  discovery: 'setup',
+  rising: 'rising',
+  deeper: 'deeper',
+  heart: 'midpoint',
+  turn: 'midpoint',
+  peak: 'peak',
+  aftermath: 'aftermath',
+  resolution: 'aftermath',
+  new_world: 'rising',
+  warm_glow: 'return',
+  reflection: 'return',
+  last_line: 'closing',
+};
+const SPREAD_TO_DEFAULT_BEAT = {
+  1: 'opening', 2: 'setup', 3: 'rising', 4: 'rising',
+  5: 'deeper', 6: 'deeper', 7: 'midpoint',
+  8: 'peak', 9: 'aftermath',
+  10: 'return', 11: 'return', 12: 'closing', 13: 'closing',
+};
+const SPREAD_TO_DEFAULT_REGISTER = {
+  1: 'warm', 2: 'curious', 3: 'curious', 4: 'playful',
+  5: 'curious', 6: 'tender', 7: 'wonder',
+  8: 'wonder', 9: 'tender',
+  10: 'triumphant', 11: 'tender', 12: 'reflective', 13: 'reflective',
+};
+
+/**
+ * Compute act number from spread number. Three-act structure across 13
+ * spreads: act 1 = setup (1-4), act 2 = exploration & midpoint (5-9),
+ * act 3 = return & resolution (10-13).
+ *
+ * @param {number} spreadNumber
+ * @returns {1|2|3}
+ */
+function actNumberFor(spreadNumber) {
+  if (spreadNumber <= 4) return 1;
+  if (spreadNumber <= 9) return 2;
+  return 3;
+}
+
+/**
+ * Normalize the LLM's arcContext object onto a strict shape with deterministic
+ * fallbacks for any missing field. Never throws; never invents content beyond
+ * the lookup tables above.
+ *
+ * @param {object|undefined} raw - rawSpec.arcContext from the LLM
+ * @param {number} spreadNumber
+ * @param {string} purpose - already-trimmed spec.purpose
+ * @returns {{ actNumber: 1|2|3, beat: string, callbackToSpread: number|null, setsUpSpread: number|null, emotionalRegister: string }}
+ */
+function normalizeArcContext(raw, spreadNumber, purpose) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const rawAct = Number(src.actNumber);
+  const actNumber = (rawAct === 1 || rawAct === 2 || rawAct === 3) ? rawAct : actNumberFor(spreadNumber);
+  const beatRaw = String(src.beat || '').trim().toLowerCase();
+  let beat;
+  if (ARC_BEAT_VALUES.has(beatRaw)) {
+    beat = beatRaw;
+  } else if (purpose && PURPOSE_TO_BEAT[purpose.toLowerCase()]) {
+    beat = PURPOSE_TO_BEAT[purpose.toLowerCase()];
+  } else {
+    beat = SPREAD_TO_DEFAULT_BEAT[spreadNumber] || 'rising';
+  }
+  const callbackRaw = Number(src.callbackToSpread);
+  const callbackToSpread = (Number.isFinite(callbackRaw)
+    && callbackRaw >= 1
+    && callbackRaw <= TOTAL_SPREADS
+    && callbackRaw < spreadNumber)
+    ? callbackRaw
+    : null;
+  const setsUpRaw = Number(src.setsUpSpread);
+  const setsUpSpread = (Number.isFinite(setsUpRaw)
+    && setsUpRaw >= 1
+    && setsUpRaw <= TOTAL_SPREADS
+    && setsUpRaw > spreadNumber)
+    ? setsUpRaw
+    : null;
+  const registerRaw = String(src.emotionalRegister || '').trim().toLowerCase();
+  const emotionalRegister = EMOTIONAL_REGISTER_VALUES.has(registerRaw)
+    ? registerRaw
+    : (SPREAD_TO_DEFAULT_REGISTER[spreadNumber] || 'warm');
+  return { actNumber, beat, callbackToSpread, setsUpSpread, emotionalRegister };
+}
+
 // AA-CW-2: the deterministic infant-verb sanitizer (INFANT_FORBIDDEN_PLANNER_VERBS,
 // findInfantPlannerVerbs, INFANT_VERB_SUBSTITUTIONS, INFANT_GENERIC_FOCAL_ACTION,
 // sanitizeInfantText, sanitizeInfantSpec) was deleted. It silently rewrote noun
@@ -98,19 +201,26 @@ function userPrompt(doc) {
   - sceneBridge is a sensory thread ("the same warm light from the kitchen window"), not a plot handoff.`
     : '';
 
+  // AA-CW-5a — hero pronouns block, threaded into every prompt that talks
+  // about the hero. Replaces per-stage gender→pronoun guessing with a
+  // single canonical set resolved at the brief boundary.
+  const pronouns = brief.pronouns || null;
+  const pronounBlock = pronouns
+    ? `Hero pronouns (use ONLY these for ${brief.child.name}; never swap or alternate): ${pronouns.subject} / ${pronouns.object} / ${pronouns.possessive} / ${pronouns.reflexive}.`
+    : '';
+
   return [
     `Child: ${brief.child.name}, age ${brief.child.age}. Age band: ${request.ageBand}. Format: ${request.format}.`,
     `Theme: ${request.theme}.`,
+    pronounBlock,
     // PR Z — anchor allocation block at the top, before theme directives.
     anchorBlock,
     themeBlock,
     personalizationBlock,
     infantPlannerClause,
-    isInfant
-      ? `Target rendered lines per spread: EXACTLY 2 (lap-baby board books are locked to 2 lines per spread, one AA rhyming couplet). Set textLineTarget to 2 on every spread.`
-      : request.format === 'picture_book'
-        ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets). Set textLineTarget to 4 on every spread.`
-        : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
+    request.format === 'picture_book'
+      ? `Target rendered lines per spread: EXACTLY 4 (picture-book format is locked to 4 lines per spread, AABB rhyming couplets — ALL age bands including infant 0-1). Set textLineTarget to 4 on every spread.`
+      : `Target rendered lines per spread: ${lineTarget.min}-${lineTarget.max}.`,
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',
@@ -144,11 +254,20 @@ function userPrompt(doc) {
       "sceneBridge": "spread 1: one line that launches the journey | spreads 2-13: one line that bridges from the prior spread to this one (causal, emotional, or prop-based)",
       "continuityAnchors": ["elements from earlier spreads that must persist — spreads 2+ must include at least one explicit callback"],${isParentTheme ? `
       "parentVisibility": "full | hand | shoulder-back | cropped-torso | shadow | object | absent — see PARENT-VISIBILITY POLICY below",` : ''}
+      "arcContext": {
+        "actNumber": 1 | 2 | 3,
+        "beat": "opening | setup | rising | midpoint | deeper | peak | aftermath | return | closing",
+        "callbackToSpread": <integer 1–${TOTAL_SPREADS} that this spread CALLS BACK to (must be a SMALLER number than this spread's spreadNumber), or null on spread 1>,
+        "setsUpSpread": <integer 1–${TOTAL_SPREADS} that this spread sets up (must be a LARGER number than this spread's spreadNumber, often peak/closing), or null when nothing is being set up>,
+        "emotionalRegister": "warm | curious | playful | tender | wonder | triumphant | reflective"
+      },
       "qaTargets": ["things QA should specifically verify on this spread"],
       "forbiddenMistakes": ["things this spread must not do (include 'unmotivated location change' for any spread that would otherwise teleport)"]
     }
   ]
-}`,
+}
+
+ARC CONTEXT — fill in for every spread. The book is a three-act arc across ${TOTAL_SPREADS} spreads: act 1 (1–4) = setup, act 2 (5–9) = exploration with the midpoint at spread 7 and the visual peak around spread 8, act 3 (10–13) = return + closing. Use \`callbackToSpread\` and \`setsUpSpread\` to bind the book together: the closing should call back to the opening, the peak should be set up by an earlier rising spread, the aftermath should call back to the peak. Empty callback fields on every spread is a failure — the book must read as ONE arc.`,
     retryBlock ? `\n${retryBlock}` : '',
     isParentTheme
       ? `PARENT-VISIBILITY POLICY (parent themes only — every spread MUST have a parentVisibility value):
@@ -218,8 +337,9 @@ async function createSpreadSpecs(doc) {
         parentVisibility = defaultParentVisibilityForSpread(spreadNumber, coverParentPresent);
       }
     }
+    const purpose = String(rawSpec.purpose || '').trim();
     const spec = {
-      purpose: String(rawSpec.purpose || '').trim(),
+      purpose,
       plotBeat: String(rawSpec.plotBeat || '').trim(),
       emotionalBeat: String(rawSpec.emotionalBeat || '').trim(),
       humorBeat: rawSpec.humorBeat ? String(rawSpec.humorBeat).trim() : null,
@@ -234,6 +354,10 @@ async function createSpreadSpecs(doc) {
       qaTargets: Array.isArray(rawSpec.qaTargets) ? rawSpec.qaTargets.map(String) : [],
       forbiddenMistakes: Array.isArray(rawSpec.forbiddenMistakes) ? rawSpec.forbiddenMistakes.map(String) : [],
       parentVisibility,
+      // AA-CW-5a — normalize arcContext with deterministic fallbacks. The
+      // writer prompt and the illustration spec both consume this; we never
+      // want it undefined.
+      arcContext: normalizeArcContext(rawSpec.arcContext, spreadNumber, purpose),
     };
 
     // AA-CW-2: the deterministic strip-and-substitute sanitizer was deleted.
@@ -348,4 +472,8 @@ function defaultParentVisibilityForSpread(spreadNumber, coverParentPresent) {
 
 module.exports = {
   createSpreadSpecs,
+  // Exported for unit tests — deterministic arcContext fallback.
+  normalizeArcContext,
+  ARC_BEAT_VALUES,
+  EMOTIONAL_REGISTER_VALUES,
 };

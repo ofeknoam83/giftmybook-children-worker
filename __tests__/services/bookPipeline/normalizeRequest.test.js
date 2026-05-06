@@ -1,6 +1,8 @@
 const {
   extractChild,
   normalizeAgeBand,
+  derivePronouns,
+  CANONICAL_PRONOUN_SETS,
 } = require('../../../services/bookPipeline/input/normalizeRequest');
 const { AGE_BANDS, FORMATS } = require('../../../services/bookPipeline/constants');
 
@@ -235,5 +237,67 @@ describe('PR Y: extractChild reads questionnaire from raw.childAnecdotes (camelC
     expect(c.anecdotes.funny_thing).toMatch(/bites mama/i);
     expect(c.anecdotes.calls_mom).toBe('Mama');
     expect(c.anecdotes.anything_else).toMatch(/smushy/i);
+  });
+});
+
+// AA-CW-5a: deterministic pronoun resolution at the brief boundary. Pure
+// field mapping — the LLM-only manifesto applies to semantic choices, not
+// to literal field translation (gender: 'female' → she/her).
+describe('derivePronouns (AA-CW-5a)', () => {
+  test('canonical object on child.pronouns is honored verbatim when complete', () => {
+    const custom = { subject: 'xe', object: 'xem', possessive: 'xyr', reflexive: 'xemself' };
+    const out = derivePronouns({ pronouns: custom, gender: 'female' });
+    expect(out).toEqual(custom);
+  });
+
+  test('incomplete canonical object falls through to gender mapping', () => {
+    // Missing reflexive — do NOT trust the partial object.
+    const partial = { subject: 'xe', object: 'xem', possessive: 'xyr' };
+    expect(derivePronouns({ pronouns: partial, gender: 'female' }))
+      .toEqual(CANONICAL_PRONOUN_SETS.she);
+  });
+
+  test('shorthand string "she/her" expands to canonical she set', () => {
+    expect(derivePronouns({ pronouns: 'she/her' })).toEqual(CANONICAL_PRONOUN_SETS.she);
+    expect(derivePronouns({ pronouns: 'SHE/HER' })).toEqual(CANONICAL_PRONOUN_SETS.she);
+    expect(derivePronouns({ pronouns: 'she' })).toEqual(CANONICAL_PRONOUN_SETS.she);
+  });
+
+  test('shorthand strings he/him and they/them expand correctly', () => {
+    expect(derivePronouns({ pronouns: 'he/him' })).toEqual(CANONICAL_PRONOUN_SETS.he);
+    expect(derivePronouns({ pronouns: 'they/them' })).toEqual(CANONICAL_PRONOUN_SETS.they);
+  });
+
+  test('unrecognized pronoun string falls through to gender mapping', () => {
+    // 'xe' alone (no canonical object provided) is not in CANONICAL_PRONOUN_SETS,
+    // so we fall through. With gender 'male', resolve to he.
+    expect(derivePronouns({ pronouns: 'xe', gender: 'male' }))
+      .toEqual(CANONICAL_PRONOUN_SETS.he);
+  });
+
+  test('gender female/girl/woman → she set (case-insensitive)', () => {
+    expect(derivePronouns({ gender: 'female' })).toEqual(CANONICAL_PRONOUN_SETS.she);
+    expect(derivePronouns({ gender: 'GIRL' })).toEqual(CANONICAL_PRONOUN_SETS.she);
+    expect(derivePronouns({ gender: 'Woman' })).toEqual(CANONICAL_PRONOUN_SETS.she);
+  });
+
+  test('gender male/boy/man → he set (case-insensitive)', () => {
+    expect(derivePronouns({ gender: 'male' })).toEqual(CANONICAL_PRONOUN_SETS.he);
+    expect(derivePronouns({ gender: 'BOY' })).toEqual(CANONICAL_PRONOUN_SETS.he);
+    expect(derivePronouns({ gender: 'Man' })).toEqual(CANONICAL_PRONOUN_SETS.he);
+  });
+
+  test('missing/unknown gender and no pronouns → they set (safe fallback)', () => {
+    expect(derivePronouns({})).toEqual(CANONICAL_PRONOUN_SETS.they);
+    expect(derivePronouns({ gender: '' })).toEqual(CANONICAL_PRONOUN_SETS.they);
+    expect(derivePronouns({ gender: 'nonbinary' })).toEqual(CANONICAL_PRONOUN_SETS.they);
+    expect(derivePronouns(null)).toEqual(CANONICAL_PRONOUN_SETS.they);
+  });
+
+  test('returns a fresh object — callers may not mutate canonical sets', () => {
+    const a = derivePronouns({ gender: 'female' });
+    a.subject = 'mutated';
+    const b = derivePronouns({ gender: 'female' });
+    expect(b.subject).toBe('she');
   });
 });

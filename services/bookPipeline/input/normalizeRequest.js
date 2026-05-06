@@ -13,6 +13,71 @@
 
 const { FORMATS, AGE_BANDS, FAILURE_CODES } = require('../constants');
 
+/**
+ * Canonical pronoun sets keyed by lowercased subject pronoun. The pipeline
+ * threads the resolved set as `brief.pronouns = { subject, object, possessive,
+ * reflexive }` into every prompt that talks about the hero (story bible,
+ * spread specs, writer, writer QA, illustration spec) so a single source of
+ * truth replaces the per-stage gender→pronoun guessing that previously
+ * caused she/he swaps mid-book.
+ *
+ * Keep this list small and concrete — `they` is the safe fallback for any
+ * unrecognized input. AA-CW-5a deliberately does not invent neopronouns; if
+ * the caller wants one (xe, ze, etc.) they can pass a full canonical object
+ * via `child.pronouns` and we honor it verbatim.
+ */
+const CANONICAL_PRONOUN_SETS = {
+  she: { subject: 'she', object: 'her', possessive: 'her', reflexive: 'herself' },
+  he: { subject: 'he', object: 'him', possessive: 'his', reflexive: 'himself' },
+  they: { subject: 'they', object: 'them', possessive: 'their', reflexive: 'themself' },
+};
+
+/**
+ * Resolve the hero's canonical pronoun set.
+ *
+ * Precedence (high → low):
+ *   1. `child.pronouns` is already a full canonical object → trust it (caller
+ *      explicitly opted in to a custom set; we honor it verbatim).
+ *   2. `child.pronouns` is a recognized string → expand from
+ *      CANONICAL_PRONOUN_SETS by subject pronoun, including common shorthand
+ *      forms like "she/her".
+ *   3. `child.gender` maps to a canonical set (female → she, male → he, any
+ *      other value → they).
+ *   4. Safe fallback: they/them/their/themself.
+ *
+ * Pure deterministic — no LLM, no regex. The LLM-only manifesto applies to
+ * SEMANTIC choices about a book (rhyme, beat, image); deciding that a
+ * customer who said `gender: 'female'` should be referred to with `she/her`
+ * is a literal field mapping.
+ *
+ * @param {object} child - normalized brief.child
+ * @returns {{ subject: string, object: string, possessive: string, reflexive: string }}
+ */
+function derivePronouns(child) {
+  const raw = child?.pronouns;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const subject = String(raw.subject || '').trim().toLowerCase();
+    const object = String(raw.object || '').trim().toLowerCase();
+    const possessive = String(raw.possessive || '').trim().toLowerCase();
+    const reflexive = String(raw.reflexive || '').trim().toLowerCase();
+    if (subject && object && possessive && reflexive) {
+      return { subject, object, possessive, reflexive };
+    }
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    const head = raw.trim().toLowerCase().split(/[\s/,]+/)[0];
+    if (head && CANONICAL_PRONOUN_SETS[head]) return { ...CANONICAL_PRONOUN_SETS[head] };
+  }
+  const gender = String(child?.gender || '').trim().toLowerCase();
+  if (gender === 'female' || gender === 'girl' || gender === 'woman') {
+    return { ...CANONICAL_PRONOUN_SETS.she };
+  }
+  if (gender === 'male' || gender === 'boy' || gender === 'man') {
+    return { ...CANONICAL_PRONOUN_SETS.he };
+  }
+  return { ...CANONICAL_PRONOUN_SETS.they };
+}
+
 class InputError extends Error {
   constructor(message, failureCode) {
     super(message);
@@ -202,8 +267,17 @@ async function normalizeRequest(raw, _opts = {}) {
       : {}),
   };
 
+  // AA-CW-5a — canonical pronoun set, derived once at the brief boundary
+  // and threaded as a single object into every downstream prompt. This is
+  // the fix for he/she swaps mid-book: instead of letting each stage
+  // re-derive pronouns from `child.gender` (or, worse, let the LLM guess
+  // from the name), we resolve them deterministically here and never look
+  // back. See derivePronouns() above for precedence.
+  const pronouns = derivePronouns(child);
+
   const brief = {
     child,
+    pronouns,
     customDetails,
     creativeGoals,
     constraints: {
@@ -258,4 +332,6 @@ module.exports = {
   // Exported for unit tests — the public entry point is normalizeRequest.
   normalizeAgeBand,
   normalizeFormat,
+  derivePronouns,
+  CANONICAL_PRONOUN_SETS,
 };

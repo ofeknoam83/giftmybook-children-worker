@@ -41,18 +41,42 @@ const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']
 const VISION_MODEL = 'gemini-2.5-flash';
 const VISION_TIMEOUT_MS = 30_000;
 
-const VISION_PROMPT = `Look at this children's book cover. Are there any characters visible BESIDES the main child?
+// AA-CW-5a — promoted from plain-text + 3 regexes (HAS_WOMAN_REGEX,
+// HAS_MAN_REGEX, DEPICTION_REGEX) to a single jsonMode vision call. The
+// LLM now decides categorically whether each cover-character signal is
+// present; we just read fields. This eliminates three regex dependencies
+// from the planner pipeline (per refactor manifesto: "only LLM calls")
+// and removes a real bug source: the prior regex match on the phrase
+// "adult woman" would mis-fire on captions like "as an adult, woman of
+// the house" written by the vision model in unstructured prose. The
+// jsonMode response is structurally guaranteed and has no parsing layer
+// downstream.
+const VISION_PROMPT = `Look at this children's book cover. The main character is a young child. Decide whether any OTHER characters are present, and classify them.
 
-If yes, for EACH non-child character, write ONE line in this exact format:
-- [relationship if apparent, e.g. grandmother/elderly woman/adult man/teen boy]: gender=[woman|man|boy|girl|unclear]; age=[adult|teen|child|elderly]; [brief appearance — hair, skin, clothing, distinguishing features]
+Return STRICT JSON (no markdown, no commentary) with this exact schema:
 
-Rules for gender:
-- "woman" = adult female (any age 18+, including elderly).
-- "man" = adult male (any age 18+, including elderly).
-- "boy"/"girl" = a child or young teen.
-- "unclear" = genuinely ambiguous (back view, heavily obscured, androgynous).
+{
+  "hasNonChildCharacter": <true if any character besides the main child is visible on the cover; false otherwise>,
+  "hasAdultWoman": <true if at least ONE adult female (18+, including elderly) is clearly visible as a real character in the scene; false otherwise>,
+  "hasAdultMan": <true if at least ONE adult male (18+, including elderly) is clearly visible as a real character in the scene; false otherwise>,
+  "isDepictionOnly": <true if the only non-child characters on the cover are stick figures, scribbles, hand-drawings, doodles, sketches, crayon drawings, or paintings of people INSIDE the cover render (i.e. a child's drawing of Mom on the wall, not Mom herself); false if any non-child character is rendered as a real person in the scene>,
+  "characters": [
+    {
+      "role": "<short label, e.g. 'mother', 'grandmother', 'elderly woman', 'adult man', 'teen boy', 'sibling girl'>",
+      "gender": "<one of: woman | man | boy | girl | unclear>",
+      "ageGroup": "<one of: adult | teen | child | elderly>",
+      "appearance": "<short description: hair, skin, clothing, distinguishing features>"
+    }
+  ],
+  "rawDescription": "<one short paragraph describing the non-child characters in plain prose; empty string if none>"
+}
 
-If the main child is the ONLY character, respond with exactly: NONE`;
+Rules:
+- "woman" / "man" must be ADULTS (18+, including elderly). Teens and children do NOT count as adult woman / adult man.
+- A stick-figure or hand-drawn "Mom" rendered on a wall, page, or surface inside the cover is NOT a real character — set isDepictionOnly true and leave hasAdultWoman/hasAdultMan false unless there is ALSO a real adult character.
+- If the main child is the only character, return: { "hasNonChildCharacter": false, "hasAdultWoman": false, "hasAdultMan": false, "isDepictionOnly": false, "characters": [], "rawDescription": "" }.
+
+Return ONLY the JSON object.`;
 
 // Second vision call — runs only when the first call detected an adult on
 // the cover (themed parent: woman for mothers_day, man for fathers_day,
@@ -82,13 +106,9 @@ If no caregiver adult is on the cover, return: {"present": false, "role": "uncle
 
 Return ONLY the JSON object.`;
 
-// Stick-figure / hand-drawn representations of Mom inside the cover render
-// are NOT a usable photoreal cover reference; locking QA to them causes
-// endless cover_secondary_mismatch. Treat as no secondary.
-const DEPICTION_REGEX = /\b(stick\s*-?\s*figure|scribble|doodle|(?:hand[- ]?)?drawing|drawn|sketched?|crayon|(?:marker|paint(?:ing|ed)?)\s+(?:of|drawing|on)|\bdrawing[:\s]|illustration of|cartoon character on|kid'?s drawing)\b/i;
-
-const HAS_WOMAN_REGEX = /gender\s*=\s*woman\b|\badult\s+(?:woman|female)\b/i;
-const HAS_MAN_REGEX = /gender\s*=\s*man\b|\badult\s+(?:man|male)\b/i;
+// AA-CW-5a — DEPICTION_REGEX, HAS_WOMAN_REGEX, HAS_MAN_REGEX deleted. The
+// vision call now returns structured JSON with explicit fields; no regex
+// is used to parse the response. See VISION_PROMPT above.
 
 /**
  * Resolve the approved cover to a base64 JPEG suitable for the Vision call.
@@ -183,7 +203,7 @@ async function callCaregiverVision(imageBase64, mime, signal) {
  * @param {string} imageBase64
  * @param {string} mime
  * @param {AbortSignal} [signal]
- * @returns {Promise<{ rawText: string|null, additionalCoverCharacters: string|null, hasWoman: boolean, hasMan: boolean, isDepictionOnly: boolean }>}
+ * @returns {Promise<{ rawText: string|null, parsed: object|null, additionalCoverCharacters: string|null, hasWoman: boolean, hasMan: boolean, isDepictionOnly: boolean }>}
  */
 async function callVision(imageBase64, mime, signal) {
   const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
@@ -204,7 +224,15 @@ async function callVision(imageBase64, mime, signal) {
               { inline_data: { mime_type: mime, data: imageBase64 } },
             ],
           }],
-          generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
+          // AA-CW-5a — jsonMode (responseMimeType: application/json) so the
+          // response is structurally valid JSON and we never have to regex
+          // over free-form prose. Mirrors the existing CAREGIVER_VISION_PROMPT
+          // call further below.
+          generationConfig: {
+            responseMimeType: 'application/json',
+            maxOutputTokens: 800,
+            temperature: 0.1,
+          },
         }),
         signal: signal || controller?.signal,
       },
@@ -214,21 +242,38 @@ async function callVision(imageBase64, mime, signal) {
     }
     const data = await resp.json();
     const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-    const isNone = !rawText || /^none[.!]?$/i.test(rawText.trim()) || rawText.trim().length <= 5;
-    if (isNone) {
-      return { rawText, additionalCoverCharacters: null, hasWoman: false, hasMan: false, isDepictionOnly: false };
+    if (!rawText) {
+      return { rawText: null, parsed: null, additionalCoverCharacters: null, hasWoman: false, hasMan: false, isDepictionOnly: false };
     }
-    const isDepictionOnly = DEPICTION_REGEX.test(rawText);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      // Malformed JSON despite jsonMode is rare but possible. Treat as a
+      // safe "no detection" rather than throwing — coverParentPresent will
+      // fall back to false, which is the safe direction (implied parent
+      // rendering is recoverable; phantom full-Mom is not).
+      return { rawText, parsed: null, additionalCoverCharacters: null, hasWoman: false, hasMan: false, isDepictionOnly: false };
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return { rawText, parsed: null, additionalCoverCharacters: null, hasWoman: false, hasMan: false, isDepictionOnly: false };
+    }
+    const isDepictionOnly = parsed.isDepictionOnly === true;
+    // When the only non-child content is a depiction (drawing/scribble), we
+    // treat the cover as child-only for caregiver-lock purposes — locking
+    // QA against a stick-figure Mom is the bug class the legacy regex was
+    // protecting against, and the jsonMode field carries that signal
+    // explicitly now.
     if (isDepictionOnly) {
-      return { rawText, additionalCoverCharacters: null, hasWoman: false, hasMan: false, isDepictionOnly: true };
+      return { rawText, parsed, additionalCoverCharacters: null, hasWoman: false, hasMan: false, isDepictionOnly: true };
     }
-    return {
-      rawText,
-      additionalCoverCharacters: rawText,
-      hasWoman: HAS_WOMAN_REGEX.test(rawText),
-      hasMan: HAS_MAN_REGEX.test(rawText),
-      isDepictionOnly: false,
-    };
+    const hasWoman = parsed.hasAdultWoman === true;
+    const hasMan = parsed.hasAdultMan === true;
+    const description = typeof parsed.rawDescription === 'string' ? parsed.rawDescription.trim() : '';
+    const additionalCoverCharacters = parsed.hasNonChildCharacter === true && description
+      ? description
+      : null;
+    return { rawText, parsed, additionalCoverCharacters, hasWoman, hasMan, isDepictionOnly: false };
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -305,6 +350,23 @@ async function detectCoverComposition(doc) {
     );
   }
 
+  // AA-CW-5a — also persist the structured jsonMode payload itself on
+  // brief.coverComposition so downstream stages and tests can introspect
+  // hasNonChildCharacter, isDepictionOnly, characters[] without having to
+  // re-derive from the flat flags. The flat flags (coverParentPresent,
+  // additionalCoverCharacters, coverCaregiverAppearance) remain for
+  // back-compat with stages that already read them.
+  const coverComposition = detection?.parsed && !detectionError
+    ? {
+      hasNonChildCharacter: detection.parsed.hasNonChildCharacter === true,
+      hasAdultWoman: detection.parsed.hasAdultWoman === true,
+      hasAdultMan: detection.parsed.hasAdultMan === true,
+      isDepictionOnly: detection.parsed.isDepictionOnly === true,
+      characters: Array.isArray(detection.parsed.characters) ? detection.parsed.characters : [],
+      rawDescription: typeof detection.parsed.rawDescription === 'string' ? detection.parsed.rawDescription : '',
+    }
+    : null;
+
   // Trace the call so it shows up in the doc's llmCalls trail.
   const traced = appendLlmCall(doc, {
     stage: 'coverComposition',
@@ -322,6 +384,7 @@ async function detectCoverComposition(doc) {
       detectionError,
       finalCoverParentPresent: coverParentPresent,
       coverCaregiverAppearance,
+      coverComposition,
     },
   });
 
@@ -331,6 +394,7 @@ async function detectCoverComposition(doc) {
       coverParentPresent,
       additionalCoverCharacters,
       coverCaregiverAppearance,
+      coverComposition,
     },
   });
 }
