@@ -187,12 +187,24 @@ function composeScene(doc, spread) {
 
   const ageActionConstraint = renderAgeActionConstraint(doc?.request?.ageBand, childAge);
 
+  // AA-CW-5a — arc-context line. Tells the illustrator WHERE this spread
+  // sits in the book so a peak spread reads as a peak (image-led wonder)
+  // and a closing spread reads as a callback to the opening (visual
+  // continuity), not as 13 interchangeable vignettes.
+  const arcContext = spec?.arcContext || null;
+  const arcContextLine = arcContext
+    ? `Arc context: act ${arcContext.actNumber} of 3, beat = ${arcContext.beat}, emotional register = ${arcContext.emotionalRegister}.`
+      + (arcContext.callbackToSpread ? ` Visual callback to spread ${arcContext.callbackToSpread} — reuse a recognizable element (object, light, prop, gesture) from that earlier spread so the reader feels the through-line.` : '')
+      + (arcContext.setsUpSpread ? ` Sets up spread ${arcContext.setsUpSpread} — plant a small visual seed (an object, a direction of travel, a glance) that the later spread will pay off.` : '')
+    : '';
+
   const lines = [
     `Focal action: ${spec.focalAction}.`,
     `Location: ${spec.location}.`,
     `Camera: ${spec.cameraIntent}.`,
     spec.emotionalBeat ? `Emotional beat: ${spec.emotionalBeat}.` : '',
     spec.humorBeat ? `Humor beat: ${spec.humorBeat}.` : '',
+    arcContextLine,
     journey,
     motifs,
     bridge,

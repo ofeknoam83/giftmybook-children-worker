@@ -33,20 +33,18 @@ Hard rules (apply to every spread):
 - Honor the spread spec exactly (side, personalization, beat).
 - Read-aloud quality comes first. Musical cadence, simple words, no large metaphors, low repetition.
 - Third-person by default unless the user prompt overrides.
+- **HERO PRONOUNS — single source of truth.** The user prompt declares ONE pronoun set for the hero (subject / object / possessive / reflexive). Use ONLY those pronouns for the hero across the ENTIRE book. NEVER swap pronoun sets within a spread or between spreads. If a sentence is ambiguous, prefer the hero's name over a pronoun rather than introducing a different pronoun set.
+- **Arc context.** Each spread spec carries \`arcContext\` (actNumber, beat, callbackToSpread, setsUpSpread, emotionalRegister). When \`callbackToSpread\` is set, the verse should subtly echo that earlier spread (a repeated word, a returning prop, a recognizable rhythm). When \`setsUpSpread\` is set, plant a small forward-looking note. The book is ONE arc — closing should feel like a transformed echo of the opening.
 - Funny/playful tone, character-based humor. Mostly implicit emotional meaning — never preach.
 - Use the child's name sometimes, not constantly. Use custom details concretely.
 - **Scene flow:** when \`sceneBridge\` and \`continuityAnchors\` are present on a spread, let the verse acknowledge the *same* story movement — cause, discovery, or callback — so the read-aloud feels like a single adventure, not isolated vignettes. You may imply the bridge subtly (a repeated object, a "still following", "the trail led", "the friend from before") without naming camera directions.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
-- LINE COUNT depends on age band:
-   * Infant band (PB_INFANT, 0-1): EXACTLY 2 lines per spread — one AA rhyming couplet. Board-book brevity. The parent reads one short couplet aloud while the baby looks at the picture. Do NOT pad to 4 lines.
-   * Toddler/Preschool bands (PB_TODDLER 0-3, PB_PRESCHOOL 3-6): EXACTLY 4 lines per spread — two AABB rhyming couplets.
+- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Even the infant board-book band uses 4 lines; the band is differentiated by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
    * Lines are separated by a single "\\n" character.
-- Rhyme scheme:
-   * 2-line (infant): AA — line 1's last word rhymes with line 2's last word.
-   * 4-line (toddler/preschool): AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.
+- Rhyme scheme: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.
 - Real end-rhymes only (e.g. "high / sky", "wide / side", "tune / moon"). Near-rhymes are fine. Same-word rhymes ("cuddle / cuddle", "Mommy / Mommy") and non-rhymes ("sing / plan") are NOT acceptable.
-- LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-4 words/line, hardMax 5). Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
+- LINE LENGTH — see the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-5 words/line, hardMax 6) — board-book brevity inside a 4-line shape. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Never exceed the hardMax for the band. Each line is a natural phrase unit with consistent musical pulse across each couplet.
 - NEVER invent fake words just to make a rhyme work. "Farf" is not a word. If the rhyme word doesn't exist in English, pick a different rhyme — don't fabricate.
 - NEVER use a simile ("X as Y", "like Y") where Y is something the target child wouldn't recognize. "Light as code", "soft as math" are nonsense in a baby book — use concrete sensory comparisons ("soft as fluff", "warm as toast").
 - If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
@@ -55,19 +53,16 @@ Picture-book structure (MANDATORY when format is picture_book — every single s
 Early reader structure (when format is early_reader):
 - 3–4 short prose lines per spread. Rhyme optional — do not force it.
 
-Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "LINE1\\nLINE2[\\nLINE3\\nLINE4]", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks — do NOT emit it as an array. For infant books emit 2 lines; for toddler/preschool books emit 4 lines.`;
+Return ONLY strict JSON: { "spreads": [ { "spreadNumber": 1, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks — do NOT emit it as an array. Picture books always emit EXACTLY 4 lines per spread regardless of age band.`;
 
 /**
  * Render a one-line reminder of the line-count gate for the current age band.
  * Surfaced near the top of the user prompt so the writer can't miss it.
  */
 function renderLineCountReminder(ageBand) {
-  if (ageBand === AGE_BANDS.PB_INFANT) {
-    return 'LINE COUNT FOR THIS BOOK: EXACTLY 2 lines per spread (AA couplet) — infant band. Do NOT emit 4 lines.';
-  }
   const target = TEXT_LINE_TARGET[ageBand];
   if (target && target.min === target.max) {
-    return `LINE COUNT FOR THIS BOOK: EXACTLY ${target.min} lines per spread (age band ${ageBand}).`;
+    return `LINE COUNT FOR THIS BOOK: EXACTLY ${target.min} lines per spread (age band ${ageBand}). Picture books always emit 4 lines per spread — two AABB rhyming couplets.`;
   }
   return '';
 }
@@ -86,33 +81,39 @@ function renderInfantContract(ageBand) {
     '============================================================',
     'This is a board book for a lap baby. Every spread MUST follow:',
     '',
-    '1. EXACTLY 2 lines per spread. No 3-line spreads. No 4-line spreads. Two lines, separated by \\n.',
-    '2. The two lines form one AA rhyming couplet (last word of line 1 rhymes with last word of line 2).',
-    '3. 2-4 words per line, hardMax 5. Tight, board-book cadence.',
+    '1. EXACTLY 4 lines per spread. No 2-line spreads. No 3-line spreads. Four lines, separated by \\n.',
+    '2. The four lines form TWO AABB rhyming couplets: lines 1+2 rhyme; lines 3+4 rhyme. Lines 2 and 4 do NOT need to rhyme with each other.',
+    '3. 2-5 words per line, hardMax 6. Tight, board-book cadence — every word earns its place.',
     '4. THE BABY IS THE STILL POINT. The baby is held, carried, or seated. The baby never moves themselves through space. Energy and motion come from THE WORLD around the baby — light shifts, cloth flutters, Mama leans in, a leaf drifts past, music sways through the air. The baby watches, reaches, smiles, snuggles, points, claps, gasps, giggles — always from a held or seated position.',
     '5. NO DIALOGUE. The baby cannot speak in full sentences. Mama and other characters also do not speak in full sentences inside the verse. Sensory observation only — no quotation marks at all.',
     '6. Use only the safe-action whitelist on the baby: sit, lie, look, see, reach, hold, snuggle, giggle, coo, pat, clap, hear, smell, touch, point, watch, wave, blink, gasp. Anything outside this list, do NOT attach to the baby.',
     '7. Across the WHOLE book, do not lean on a single noun, descriptor, or sound-word as a refrain across many spreads. Vary the imagery.',
     '8. Real English only. No invented rhyme-fill words. No similes with abstract comparands.',
     '',
-    'GOOD EXAMPLE A (one spread):',
+    'GOOD EXAMPLE A (one spread — four lines, AABB):',
     '   Mama lifts the moon.',
-    '   Bright as a spoon.',
+    '   Bright as a silver spoon.',
+    '   Soft light fills the room.',
+    '   Goodbye, little gloom.',
     '',
-    'GOOD EXAMPLE B (one spread):',
+    'GOOD EXAMPLE B (one spread — four lines, AABB):',
     '   A red leaf drifts by.',
     '   Little hand waves goodbye.',
+    '   The breeze hums a tune.',
+    '   Baby smiles at the moon.',
     '',
-    'GOOD EXAMPLE C (one spread):',
+    'GOOD EXAMPLE C (one spread — four lines, AABB):',
     '   Soft sun warms her cheek.',
-    '   Mama hums, hide-and-seek.',
+    '   Mama plays hide-and-seek.',
+    '   Little fingers spread wide.',
+    '   Joy is curled up inside.',
     '',
     'COMMON FAILURE MODES (avoid — described abstractly so the words below are not seeded into your output):',
     '   - Putting the baby in motion through space (any verb of self-locomotion).',
     '   - Putting words in the baby\'s mouth (any quoted speech from the hero).',
     '   - Quoted commands from Mama ("Come on!", "Look at this!") — keep the verse as observation, not stage directions.',
     '   - Re-using the same descriptor or sound-word as a refrain across many spreads.',
-    '   - Padding to 4 lines on an infant spread.',
+    '   - Emitting fewer than 4 lines, or breaking AABB rhyme on either couplet.',
     '============================================================',
   ].join('\n');
 }
@@ -125,6 +126,9 @@ function userPrompt(doc) {
   // is the single semantic check, and it runs upstream as a gate — a hit
   // there triggers a planner retry, not a silent rewrite at the writer
   // boundary. We hand the planner spec to the writer LLM as-is.
+  // AA-CW-5a: include arcContext on each per-spread payload so the writer
+  // can shape callbacks/setups, and use brief.pronouns as the single
+  // canonical pronoun source.
   const specs = spreads.map(s => {
     const baseSpec = s.spec;
     return {
@@ -141,8 +145,20 @@ function userPrompt(doc) {
       mustUseDetails: baseSpec?.mustUseDetails,
       continuityAnchors: baseSpec?.continuityAnchors,
       forbiddenMistakes: baseSpec?.forbiddenMistakes,
+      arcContext: baseSpec?.arcContext || null,
     };
   });
+
+  // AA-CW-5a — hero pronouns block, threaded into the writer prompt as a
+  // hard-rule reminder above the spread specs JSON. The spread specs
+  // themselves don't repeat the pronouns (would just bloat per-spread
+  // tokens); the writer reads this block once and is bound by the
+  // SYSTEM_PROMPT "hero pronouns single source of truth" rule.
+  const pronouns = doc?.brief?.pronouns || null;
+  const heroName = doc?.brief?.child?.name || 'the hero';
+  const pronounBlock = pronouns
+    ? `HERO PRONOUNS — USE ONLY THESE FOR ${heroName} (never swap, never alternate, never use a different pronoun set anywhere in the book):\n  subject: ${pronouns.subject}\n  object: ${pronouns.object}\n  possessive: ${pronouns.possessive}\n  reflexive: ${pronouns.reflexive}`
+    : '';
 
   const lineCountReminder = renderLineCountReminder(doc.request?.ageBand);
   const infantContract = renderInfantContract(doc.request?.ageBand);
@@ -151,6 +167,7 @@ function userPrompt(doc) {
     infantContract,
     renderTextPolicyBlock(doc),
     lineCountReminder ? `\n${lineCountReminder}` : '',
+    pronounBlock ? `\n${pronounBlock}` : '',
     '',
     `Story bible:\n${JSON.stringify(storyBible, null, 2)}`,
     '',

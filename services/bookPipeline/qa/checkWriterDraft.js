@@ -23,8 +23,9 @@ const PREACH_MARKERS = [
 
 const MAX_WORDS_PER_LINE_FALLBACK = 14;
 // Default picture-book line target when age-band has no entry in TEXT_LINE_TARGET.
-// Picture-book toddler/preschool bands lock at 4 lines (AABB couplets); the
-// infant band (PB_INFANT, 0-1) requires only 2 lines (a single AA couplet).
+// All picture-book age bands (PB_INFANT, PB_TODDLER, PB_PRESCHOOL) lock at
+// 4 lines per spread — two AABB rhyming couplets. Bands differ by per-line
+// word budget, not by line count.
 // Use resolvePictureBookLineRange(ageBand) — never read this constant directly.
 const PICTURE_BOOK_LINES_FALLBACK = { min: 4, max: 4 };
 
@@ -1037,11 +1038,11 @@ function deterministicCheck(spread, doc) {
   const ageBand = doc?.request?.ageBand;
 
   if (isPictureBook) {
-    // Line-count gate is age-band aware. Infant books (PB_INFANT, 0-1) get
-    // 2 lines (one AA couplet) per board-book brevity rules; toddler and
-    // preschool bands stay at 4 lines (AABB). Without this, the writer was
-    // shipping 4-line spreads even for infant books, blowing past the
-    // planner's 2-line target and breaking the read-aloud cadence.
+    // Line-count gate. All picture-book age bands (PB_INFANT, PB_TODDLER,
+    // PB_PRESCHOOL) are now locked to 4 lines per spread (two AABB couplets).
+    // Bands differ only by per-line word budget. The infant band keeps the
+    // tightest budget (2-5 words/line, hardMax 6) so the 4-line shape stays
+    // board-book brief.
     const lineRange = resolvePictureBookLineRange(ageBand);
     const expectedDescription = lineRange.min === lineRange.max
       ? `exactly ${lineRange.min} lines`
@@ -1051,16 +1052,16 @@ function deterministicCheck(spread, doc) {
       tags.push('wrong_line_count');
     }
     if (lines.length >= 2) {
-      // Always check the first couplet (AA). For 4-line books we also check
-      // the second couplet (BB). Infant 2-line books only need AA to hold.
+      // First couplet (AA pair): lines 1 + 2 must rhyme.
       const w1 = lastRhymeWord(lines[0]);
       const w2 = lastRhymeWord(lines[1]);
       if (!wordsRhyme(w1, w2)) {
-        issues.push(`lines 1 and 2 do not rhyme (AA required): "${w1}" / "${w2}"`);
+        issues.push(`lines 1 and 2 do not rhyme (AABB required): "${w1}" / "${w2}"`);
         tags.push('rhyme_fail');
       }
     }
     if (lines.length >= 4) {
+      // Second couplet (BB pair): lines 3 + 4 must rhyme.
       const w3 = lastRhymeWord(lines[2]);
       const w4 = lastRhymeWord(lines[3]);
       if (!wordsRhyme(w3, w4)) {
@@ -1116,7 +1117,7 @@ function deterministicCheck(spread, doc) {
   // "Mama eyes aglow" — fragments that scan but say nothing.
   const fragmentLines = findInfantFragmentLines(m.text, ageBand);
   if (fragmentLines.length) {
-    issues.push(`infant line(s) without finite verb (fragment): ${fragmentLines.map(l => `"${l}"`).join(', ')} — every line in a 2-line couplet needs subject + verb (e.g. "Mama lifts her hands"). Don't pad with noun-only fragments to force a rhyme.`);
+    issues.push(`infant line(s) without finite verb (fragment): ${fragmentLines.map(l => `"${l}"`).join(', ')} — every line in the AABB couplets needs subject + verb (e.g. "Mama lifts her hands"). Don't pad with noun-only fragments to force a rhyme.`);
     tags.push('infant_fragment_line');
   }
 
@@ -1157,13 +1158,11 @@ You review an existing manuscript for:
  - rhyme quality where rhyme applies
 
 For picture-book manuscripts specifically, enforce:
- - LINE COUNT depends on age band:
-     * Infant band (PB_INFANT, age 0-1): EXACTLY 2 lines per spread (one AA couplet) — board-book brevity.
-     * Toddler / Preschool bands (PB_TODDLER 0-3, PB_PRESCHOOL 3-6): EXACTLY 4 lines per spread (two AABB couplets).
+ - LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Bands differ by per-line word budget, not by line count. NEVER accept 2-line spreads for picture books.
      * Lines separated by "\\n".
- - Rhyme scheme: AA for 2-line; AABB for 4-line. Same-word rhymes, identity rhymes, stem rhymes, and suffix-only rhymes are NOT real rhymes — fail them.
+ - Rhyme scheme: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Same-word rhymes, identity rhymes, stem rhymes, and suffix-only rhymes are NOT real rhymes — fail them.
  - Consistent musical pulse within each couplet (roughly matched line length and stress count).
- - Short lines: infant 2-4 words/line (hardMax 5); toddler 3-7 words/line (hardMax 8); preschool 6-12 words/line (hardMax 14).
+ - Short lines: infant 2-5 words/line (hardMax 6); toddler 3-7 words/line (hardMax 8); preschool 6-12 words/line (hardMax 14).
 
 Explicit failure modes — each must be tagged exactly as listed:
  - "rhyme_fail": couplet does not really rhyme ("sing/plan", "sigh/Deana", "sniff/off", "high/cuddle"). ALSO use this tag for IDENTITY rhymes ("town/town", "squeals/squeals"), STEM rhymes where one word contains the other ("town/hometown", "light/spotlight", "day/today"), and SUFFIX-ONLY rhymes where the match is carried only by a shared grammatical ending ("running/jumping", "sadly/badly", "quickly/slowly"). Identity, stem, and suffix-only rhymes are NOT real rhymes — fail them.

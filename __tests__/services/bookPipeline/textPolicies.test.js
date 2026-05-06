@@ -52,13 +52,15 @@ describe('textPolicies renderTextPolicyBlock — infant structure', () => {
     };
   }
 
-  test('infant block prescribes EXACTLY 2 lines per spread (AA couplet)', () => {
+  // AA-CW-5a: infant band now uses the unified 4-line / AABB picture-book
+  // shape. Bands differ by per-line word budget (infant 2-5, hardMax 6),
+  // not by line count.
+  test('infant block prescribes EXACTLY 4 lines per spread (two AABB couplets)', () => {
     const block = renderTextPolicyBlock(buildDoc(AGE_BANDS.PB_INFANT));
-    expect(block).toMatch(/EXACTLY 2 lines/);
-    expect(block).toMatch(/AA/);
-    // Must NOT silently inherit the 4-line picture-book rule.
-    expect(block).not.toMatch(/EXACTLY 4 lines/);
-    expect(block).not.toMatch(/AABB/);
+    expect(block).toMatch(/EXACTLY 4 lines/);
+    expect(block).toMatch(/AABB/);
+    // Must NOT carry the legacy 2-line / AA-only rule.
+    expect(block).not.toMatch(/EXACTLY 2 lines/);
   });
 
   test('infant block forbids locomotion verbs in the writer prompt', () => {
