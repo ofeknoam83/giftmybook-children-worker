@@ -206,32 +206,21 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     });
   });
 
-  describe('JUDGE_SYSTEM — band-conditional rhyme enforcement', () => {
+  describe('JUDGE_SYSTEM — band-conditional rhyme enforcement (AA-CW-21 simplified)', () => {
     it('keeps strict AABB enforcement for PB_TODDLER and PB_PRESCHOOL', () => {
-      expect(JUDGE_SYSTEM).toMatch(/PB_TODDLER.*PB_PRESCHOOL.*full AABB/is);
+      expect(JUDGE_SYSTEM).toMatch(/PB_TODDLER and PB_PRESCHOOL.*full AABB/is);
     });
 
-    it('relaxes 3+4 for PB_INFANT but keeps 1+2 mandatory', () => {
-      expect(JUDGE_SYSTEM).toMatch(/PB_INFANT.*RELAXED/is);
-      expect(JUDGE_SYSTEM).toMatch(/Lines 1\+2 MUST rhyme/);
+    it('keeps lines 1+2 mandatory rhyme on PB_INFANT', () => {
+      expect(JUDGE_SYSTEM).toMatch(/PB_INFANT.*lines 1\+2 MUST rhyme/is);
     });
 
     it('tells the judge NOT to raise rhyme_fail on free-verse infant 3+4', () => {
-      // Most important judge change: a clean unrhymed lines 3+4 in an
-      // infant book is no longer a `rhyme_fail`. Only attempted-then-
-      // broken rhymes on lines 3+4 are flagged.
-      expect(JUDGE_SYSTEM).toMatch(/Do NOT raise `rhyme_fail` on lines 3\+4 of an infant spread/i);
-      expect(JUDGE_SYSTEM).toMatch(/Free-verse lines 3\+4 with parallel rhythm are ACCEPTABLE/i);
+      expect(JUDGE_SYSTEM).toMatch(/Do NOT raise rhyme_fail on infant lines 3\+4 purely for being unrhymed/i);
     });
 
-    it('still fails identity rhymes on EVERY couplet that is rhymed at all, in EVERY band', () => {
-      // The relaxation must not become a loophole for sneaking in
-      // identity rhymes on a "free-verse" couplet.
-      expect(JUDGE_SYSTEM).toMatch(/identity rhymes.*ALWAYS `rhyme_fail`/i);
-    });
-
-    it('updates pass criteria to allow free-verse infant 3+4', () => {
-      expect(JUDGE_SYSTEM).toMatch(/free-verse with parallel rhythm passes/i);
+    it('still fails identity rhymes on EVERY rhymed couplet', () => {
+      expect(JUDGE_SYSTEM).toMatch(/Identity rhymes.*ALWAYS rhyme_fail/i);
     });
   });
 });
