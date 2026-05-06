@@ -509,6 +509,54 @@ async function checkWriterDraft(doc) {
     );
   }
 
+  // AA-CW-18 Part C: deterministic dropped-article audit. Forensics from
+  // book e3f4e0c0 showed the LLM judge missing trivial determiner-drops
+  // ("at sky", "by hand", "on lap", "for chin") and burning entire rewrite
+  // waves on cosmetic fixes. This pure regex check forces the
+  // `dropped_article` tag when a preposition is followed by a bare
+  // singular countable noun with no determiner. The check is conservative
+  // — it only flags an explicit short whitelist of common bare-noun
+  // collocations seen in production failures, so false-positives stay rare.
+  const droppedArticleOffenders = [];
+  const BARE_NOUN_AFTER_PREP = new RegExp(
+    // preposition followed by a singular content noun with NO determiner.
+    // Restricted to a curated safe-list of bare nouns seen in production
+    // fails. Add to this list deliberately — every entry must be a
+    // singular countable noun that is broken without a determiner in
+    // child-book voice.
+    String.raw`\b(at|in|on|by|for|to|onto|into|under|over|past|with|near|inside|outside|across)\s+(sky|hand|lap|chin|cheek|sleeve|arm|leaf|blanket|seat|stall|awning|door|path|lane|street|room|bench|porch|floor|table|chair|window|cup|book|house|yard|tree|flower|cloud|moon|sun|star|cat|dog|bird|face|head|foot|knee|nose|ear|eye|mouth|toy|ball|cloth)\b(?!\s*(?:'s|s\b))`,
+    'gi',
+  );
+  for (const entry of merged) {
+    const spread = doc.spreads.find(s => s.spreadNumber === entry.spreadNumber);
+    const text = spread?.manuscript?.text;
+    if (!text) continue;
+    const lines = String(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
+    const hits = [];
+    for (let li = 0; li < lines.length; li += 1) {
+      const line = lines[li];
+      // Reset lastIndex on each line because the regex is global.
+      BARE_NOUN_AFTER_PREP.lastIndex = 0;
+      let m;
+      while ((m = BARE_NOUN_AFTER_PREP.exec(line)) !== null) {
+        hits.push({ line: li + 1, prep: m[1], noun: m[2], match: m[0] });
+      }
+    }
+    if (hits.length === 0) continue;
+    for (const h of hits) {
+      const issue = `dropped_article: line ${h.line} "${h.match}" is missing a determiner. Use "${h.prep} the ${h.noun}", "${h.prep} a ${h.noun}", or "${h.prep} her/his ${h.noun}".`;
+      if (!entry.issues.includes(issue)) entry.issues.push(issue);
+    }
+    if (!entry.tags.includes('dropped_article')) entry.tags.push('dropped_article');
+    entry.pass = false;
+    droppedArticleOffenders.push({ spreadNumber: entry.spreadNumber, hits });
+  }
+  if (droppedArticleOffenders.length > 0) {
+    console.warn(
+      `[writerQa.droppedArticleAudit:${bookId}] forced dropped_article on ${droppedArticleOffenders.length} spread(s): ${JSON.stringify(droppedArticleOffenders)}`,
+    );
+  }
+
   const repairPlan = merged.filter(m => !m.pass);
   const judgeSaysPass = judge.pass === true;
   const pass = judgeSaysPass && repairPlan.length === 0 && bookLevel.length === 0 && !signatureGateFail;
