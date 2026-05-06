@@ -1,1185 +1,152 @@
 /**
- * Writer-side QA for the full manuscript.
+ * AA-CW-4 — Writer-side QA, rewritten as a single LLM judge.
  *
- * Runs two signal layers:
- *   1. Deterministic checks (side mismatch, length, basic readability,
- *      personalization coverage, preachiness markers).
- *   2. A model-assisted literary review that returns a per-spread verdict
- *      and concrete rewrite directives.
+ * Authoritative path: ONE call to a strong LLM (gpt-5.4) that returns the
+ * full per-spread + book-level verdict in structured JSON. The 25
+ * deterministic helpers from the previous implementation (verb-crutch
+ * lemmatization, dropped-article regex, address-name concat, fragment
+ * detection, phonetic rhyme tail comparator, nonsense-word lexicon,
+ * nonsense-simile keyword list, peer-framing matcher, refrain-crutch
+ * counter, infant forbidden-verb regex stack, line-count truncator,
+ * etc.) are all DELETED in this PR. The judge prompt enumerates every
+ * one of those failure modes with concrete BAD/GOOD examples so the LLM
+ * carries the entire signal.
  *
- * Returns `{ pass, perSpread, bookLevel, repairPlan }`.
+ * Two side calls remain:
+ *   1. Infant locomotion gate — a pure Flash call (no regex) that
+ *      returns the list of forbidden-verb hits per infant spread. Used
+ *      both inside the judge verdict AND by the writer-rewrite hard
+ *      gate in rewriteBookText.js (`findInfantForbiddenActionVerbs`).
+ *   2. Shadow run — the old gemini-2.5-flash literary call still fires
+ *      in parallel; its verdict is logged to stdout + appended to
+ *      `doc.llmCalls` under stage `writerQa.shadow` for diffing during
+ *      the rollout window. NOT authoritative.
+ *
+ * `signatureBeats.checkSignatureBeatCoverage` survives as a cheap
+ * deterministic preflight (token-presence over per-anchor keywords)
+ * because the questionnaire-anchor coverage signal is structured data,
+ * not a literary judgment, and the same module is also consumed by
+ * planner/anchorAllocation. It feeds the judge prompt as
+ * `signatureBeatsHint` and gates the final pass independently.
+ *
+ * Returns `{ pass, perSpread, bookLevel, bookLevelTags, repairPlan, updatedDoc }`.
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, FORMATS, WORDS_PER_LINE_TARGET, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
+const { MODELS, AGE_BANDS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
-const { isCommonEnglishWord } = require('./wordDictionary');
 const { checkSignatureBeatCoverage, describeBeat } = require('./signatureBeats');
 
-const PREACH_MARKERS = [
-  /\b(always remember|never forget|the lesson is|the moral is|you should always|we all must)\b/i,
-];
+// =============================================================================
+// Judge prompt (authoritative)
+// =============================================================================
 
-const MAX_WORDS_PER_LINE_FALLBACK = 14;
-// Default picture-book line target when age-band has no entry in TEXT_LINE_TARGET.
-// All picture-book age bands (PB_INFANT, PB_TODDLER, PB_PRESCHOOL) lock at
-// 4 lines per spread — two AABB rhyming couplets. Bands differ by per-line
-// word budget, not by line count.
-// Use resolvePictureBookLineRange(ageBand) — never read this constant directly.
-const PICTURE_BOOK_LINES_FALLBACK = { min: 4, max: 4 };
+const JUDGE_SYSTEM = `You are the senior children's-book editor and the FINAL gate before this manuscript ships. You are not a polite reviewer — you are the last line of defense against bad children's books being printed and mailed to a real family. Be brutal. Hedge nothing. If a couplet does not rhyme, fail it. If an infant book describes the baby running, fail it. If a parent's first name is jammed against an address word, fail it. Your verdict is authoritative.
 
-function resolvePictureBookLineRange(ageBand) {
-  const target = TEXT_LINE_TARGET[ageBand];
-  if (target && Number.isFinite(target.min) && Number.isFinite(target.max)) {
-    return { min: target.min, max: target.max };
-  }
-  return PICTURE_BOOK_LINES_FALLBACK;
+You receive: format, ageBand, theme, brief (child name, pronouns, anecdotes, interests, parents), storyBible, the full per-spread manuscript (text + side + spec), an optional theme-directive block listing banned clichés, and an optional signatureBeatsHint listing questionnaire anchors that look unlanded.
+
+You return ONE JSON object with the schema given at the bottom. No prose, no markdown.
+
+== Universal expectations ==
+- Story coherence and emotional payoff across the 13 spreads (act-1 setup, act-2 stakes, act-3 resolution).
+- Read-aloud musicality. Clear pulse. No tongue-twisters.
+- Age-fit: vocabulary, action, sensory range, attention budget all match the declared age band.
+- Real personalization: hero name, pronouns, parents' address forms (Mama/Daddy/etc.), interests, anecdotes from the questionnaire all appear and feel native — not tacked on.
+- No preachy moralizing ("always remember", "the lesson is", "never forget", "you should always", "the moral is", "we all must").
+- Pronoun discipline: ONE pronoun set for the hero, declared in brief.pronouns. Never alternate, never swap, never use a different set anywhere in the book. When ambiguous, prefer the hero's name.
+
+== Picture-book hard rules (format == "picture_book") — apply to ALL bands ==
+- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6). Two AABB rhyming couplets. NEVER accept 2-line spreads. Lines separated by "\\n".
+- AABB rhyme scheme: lines 1+2 rhyme; lines 3+4 rhyme. Real end-rhymes or near-rhymes only.
+- Per-line word budget:
+  * PB_INFANT (0-1): 2-5 words/line, hardMax 6.
+  * PB_TODDLER (0-3): 3-7 words/line, hardMax 8.
+  * PB_PRESCHOOL (3-6): 6-12 words/line, hardMax 14.
+- Consistent musical pulse within each couplet.
+
+== Failure modes — tag exactly as named ==
+Each issue must carry one of these tags. Multiple tags allowed per spread.
+
+1. "rhyme_fail" — couplet does not really rhyme. INCLUDES:
+   - Non-rhymes: "sing/plan", "sigh/Deana", "sniff/off", "high/cuddle".
+   - Identity rhymes (same word): "town/town", "squeals/squeals", "light/light".
+   - Stem rhymes (one word contains the other): "town/hometown", "light/spotlight", "day/today".
+   - Suffix-only rhymes (only the grammatical ending matches): "running/jumping", "sadly/badly", "quickly/slowly", "playing/staying".
+   GOOD: "town/down", "light/bright", "day/play", "high/sky", "ball/tall".
+   In the issue text, name the offending pair AND which sub-mode it is (identity / stem / suffix-only / non-rhyming).
+
+2. "dropped_article" — a preposition is followed by a bare singular countable noun with no determiner. BAD: "down street", "by feet", "on bench", "in room". GOOD: "down THE street", "by HER feet", "on a bench", "in HIS room". This is broken phrasing, never a stylistic choice.
+
+3. "address_name_concat" — a parental address term jammed against the parent's proper first name. BAD: "Mama Courtney", "Daddy John", "Mommy Sarah", "Papa Tom". GOOD: pick one — "Mama" OR "Courtney", never both back-to-back.
+
+4. "verb_crutch" — ONE content verb dominates the manuscript (>~25% of spreads). Book-level. Name the overused verb and how many spreads it appears in.
+
+5. "refrain_crutch" — ONE non-verb content word (noun, onomatopoeia, exclamation) dominates the manuscript (>~25% of spreads, >~20% for infant). Distinct from verb_crutch. Book-level. Excludes the child's name and declared parent address words. Name the overused word.
+
+6. "low_personalization_saturation" — substantive personalization items from the brief (interests, anecdotes, address forms, custom details) appear in fewer than ~60% of relevant spreads. Book-level. Name the missing items.
+
+7. "signature_beat_missing" — a questionnaire anchor (funny_thing, meaningful_moment, moms_favorite_moment, dads_favorite_moment, anything_else, calls_mom, calls_dad) does NOT surface in any spread. Book-level. Use the signatureBeatsHint input as a pre-screen but make your own call from the manuscript text.
+
+8. "age_mismatch_action" — action attributed to the child is implausible for the declared age band. Per-spread.
+
+9. "infant_action_verb_in_text" — for PB_INFANT (0-1) ONLY, the manuscript uses a locomotion verb the baby physically cannot do. Banned roots (any inflection — base, -s, -ed, -ing): jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab, skip, gallop, stomp, march, crawl, step, stand/stood, bounce, cartwheel, tumble. ALSO reject body-part displacement constructions: "feet flash", "feet pound", "feet step", "feet bounce", "legs kick" (when the baby is the agent). Use sit/lie/look/reach/giggle/coo/hold/snuggle/nuzzle/wiggle instead. Per-spread. List the offending verb(s) in the issue text.
+
+10. "nonsense_word" — the manuscript invents a fake word to force a rhyme. BAD: "farf" rhymed with "scarf", "blurp" rhymed with "burp", "shloop" rhymed with "scoop". Real English only (proper names and onomatopoeia like "boop", "pop", "shh" are fine). Name the invented word in the issue.
+
+11. "nonsense_simile" — a simile ("X as Y", "X like Y") whose comparand is implausible for a baby/preschooler. BAD: "light as code", "soft as math", "like an algorithm", "loud as a server". GOOD: "soft as fluff", "warm as toast", "loud as thunder". Per-spread.
+
+12. "parent_theme_relationship_framing" — for Mother's Day / Father's Day / Grandparents' Day themes, the manuscript casts child + parent as PEERS. Banned framings: "best friends", "best buds", "best mates", "buddies", "besties", "BFF", "we're a team" framed as equals. CORRECT framing: parent as loving caregiver / hero / the one who tucks me in. Per-spread.
+
+13. "fragment_line" — a manuscript line has no finite verb and reads as a noun-phrase fragment. BAD: "Mama, soft glow." / "Stars and a yawn." / "Two warm hands." GOOD: "Mama gives a soft glow." / "Stars hang above the yawn." / "Two warm hands hold tight." Per-spread.
+
+14. "identity_pronoun_swap" — the hero is referred to with a pronoun set inconsistent with brief.pronouns (e.g. brief says she/her but a spread uses "he"/"him"/"his"/"they"). Per-spread. Quote the offending sentence.
+
+15. "theme_cliche" — the manuscript uses a phrase listed as a BANNED CLICHÉ in the theme-directive block. Per-spread.
+
+16. "line_count_violation" — the spread does not have EXACTLY 4 lines (for picture books). Per-spread.
+
+17. "line_length_violation" — a line exceeds the per-band hardMax word count. Per-spread. Name the line and word count.
+
+== Repair directive ==
+For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable directive (1-2 sentences) telling the writer what to fix and what to preserve. Do NOT produce the rewrite itself — that's the writer's job in the next wave. Examples:
+  - "Replace 'Mama Courtney' with just 'Mama' on line 3; keep the snuggle imagery; line 3 must still rhyme with line 4."
+  - "Lines 1-2 don't rhyme ('sing'/'plan'). Re-end line 2 with a real rhyme for 'sing' (ring/wing/king/swing). Keep the bedtime imagery."
+  - "Spread 4 uses 'twirls' (forbidden infant locomotion). Recast as 'wiggles' or 'reaches' and adjust the couplet's rhyme accordingly."
+
+== Pass criteria ==
+\`pass: true\` ONLY when ALL of the following hold:
+  - Zero per-spread issues across all spreads.
+  - Zero book-level issues.
+  - All AABB rhymes are real (no identity/stem/suffix-only).
+  - All picture-book spreads have exactly 4 lines and respect the per-band word budget.
+  - No infant_action_verb_in_text hits in any infant spread.
+  - All questionnaire signature beats land somewhere in the manuscript.
+Anything less → \`pass: false\`.
+
+== Output schema (return EXACTLY this shape) ==
+{
+  "pass": true|false,
+  "bookLevelIssues": ["<plain-text issue>", ...],
+  "bookLevelTags": ["<tag>", ...],
+  "perSpread": [
+    {
+      "spreadNumber": 1,
+      "issues": ["<plain-text issue>", ...],
+      "tags": ["<tag>", ...],
+      "suggestedRewrite": "<short actionable directive>" | null
+    },
+    ...one entry per spread (1..13)...
+  ],
+  "infantLocomotionHits": [
+    { "spreadNumber": 4, "verbs": ["twirls", "spins"] },
+    ...
+  ]
 }
 
-/**
- * Resolve the hard per-line word cap for a given age band. Picture-book
- * toddler band (0-3) is tight: we fail at `hardMax` so the writer can't
- * ship 15-word run-ons for pre-readers.
- */
-function resolveHardMaxWordsPerLine(ageBand) {
-  const budget = WORDS_PER_LINE_TARGET[ageBand];
-  return budget && Number.isFinite(budget.hardMax) ? budget.hardMax : MAX_WORDS_PER_LINE_FALLBACK;
-}
+Return ONLY the JSON object. No prose. No markdown fences.`;
 
-function splitLines(text) {
-  return String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
-}
-
-function wordCount(s) {
-  return (String(s || '').match(/\S+/g) || []).length;
-}
-
-/**
- * Extract the last alphabetical "rhyme word" of a line, lowercased. Strips
- * trailing punctuation, quotes, and non-letter characters. Returns '' if no
- * usable word can be extracted.
- */
-function lastRhymeWord(line) {
-  const match = String(line || '')
-    .toLowerCase()
-    .match(/([a-z']+)[^a-z']*$/i);
-  return match ? match[1].replace(/'+$/, '') : '';
-}
-
-/**
- * Heuristic end-rhyme check. We don't run IPA — we compare the "rhyme tail"
- * (last vowel-run + everything after it) of each word. Rules:
- *   1. Normalize: strip trailing silent "e" (tune → tun, wide → wid).
- *   2. If tails equal, it's a rhyme (wid/sid → "id"/"id").
- *   3. Otherwise if the final consonant cluster matches AND the final
- *      vowel-spelling groups into the same broad English vowel family
- *      (e.g. "u"≈"oo", "i"≈"y", "ee"≈"ea"), it's a near-rhyme.
- *   4. Same-word "rhymes" are rejected.
- *
- * The check is deliberately conservative on false accepts — catches
- * obvious non-rhymes like "sing/plan" or "sigh/Deana" while accepting
- * real pairs like "tune/moon", "door/floor", "high/sky".
- */
-const VOWEL_EQUIV = [
-  new Set(['oo', 'u', 'ue', 'ui', 'ou']),
-  new Set(['ee', 'ea', 'e', 'ie', 'y', 'ey']),
-  new Set(['i', 'y', 'igh', 'ie']),
-  new Set(['ai', 'ay', 'a', 'ei', 'ey']),
-  new Set(['o', 'oa', 'ow', 'oe']),
-  new Set(['ou', 'ow', 'au']),
-];
-
-function normalizeRhymeWord(word) {
-  let w = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
-  // Drop a trailing silent 'e' unless the word is too short to survive it.
-  if (w.length > 3 && w.endsWith('e') && !/[aeiouy]e$/.test(w.slice(-2))) {
-    w = w.slice(0, -1);
-  }
-  // Drop silent trailing "gh" after a vowel (high, sigh, light, night, bright).
-  w = w.replace(/([aeiouy])gh([^aeiouy]*)$/, '$1$2');
-  return w;
-}
-
-/** Canonicalize end-consonants so /s/ and /z/, /f/ and /v/, /p/ and /b/ etc. collapse. */
-function canonicalCoda(coda) {
-  return String(coda || '')
-    .replace(/z/g, 's')
-    .replace(/v/g, 'f')
-    .replace(/b/g, 'p')
-    .replace(/d/g, 't')
-    .replace(/g/g, 'k');
-}
-
-function rhymeTail(word) {
-  const w = normalizeRhymeWord(word);
-  if (!w) return { tail: '', vowel: '', coda: '' };
-  const m = w.match(/([aeiouy]+)([^aeiouy]*)$/);
-  if (!m) return { tail: w, vowel: '', coda: w };
-  return { tail: m[1] + m[2], vowel: m[1], coda: m[2] };
-}
-
-function vowelsEquivalent(va, vb) {
-  if (va === vb) return true;
-  for (const set of VOWEL_EQUIV) {
-    if (set.has(va) && set.has(vb)) return true;
-  }
-  return false;
-}
-
-/**
- * A small set of grammatical-suffix-only matches that share an ending but
- * don't actually rhyme. "running/jumping" is the canonical fail — both end
- * in -ing but the stressed syllable is different (RUN-ning / JUMP-ing).
- * We catch the most common -ing/-ed/-ly/-ness/-ous/-tion/-er/-est family so
- * the AABB check in checkWriterDraft does not silently accept these.
- *
- * Returns true if a and b both end in the SAME suffix and the part before
- * the suffix differs (i.e. the rhyme is carried only by the suffix).
- */
-const SUFFIX_ONLY_PATTERNS = [
-  /(ing|ed|ly|ness|ous|tion|sion|er|est|able|ible|ment|ful|less|ish)$/,
-];
-
-function sharesOnlyAGrammaticalSuffix(a, b) {
-  for (const rx of SUFFIX_ONLY_PATTERNS) {
-    const ma = a.match(rx);
-    const mb = b.match(rx);
-    if (!ma || !mb || ma[0] !== mb[0]) continue;
-    const stemA = a.slice(0, -ma[0].length);
-    const stemB = b.slice(0, -mb[0].length);
-    if (!stemA || !stemB) continue;
-    // If the part before the shared suffix doesn't itself rhyme on its own
-    // tail (vowel + coda), the "rhyme" is being carried purely by the
-    // grammatical suffix — reject.
-    const stemA_tail = rhymeTail(stemA);
-    const stemB_tail = rhymeTail(stemB);
-    if (!stemA_tail.vowel || !stemB_tail.vowel) return true;
-    if (stemA_tail.tail === stemB_tail.tail) return false;
-    if (vowelsEquivalent(stemA_tail.vowel, stemB_tail.vowel)
-      && canonicalCoda(stemA_tail.coda) === canonicalCoda(stemB_tail.coda)) return false;
-    return true;
-  }
-  return false;
-}
-
-/**
- * Stem-rhyme rejection: "town/hometown", "light/spotlight", "day/today".
- * One word entirely contains the other (after trimming a small set of
- * compound prefixes/suffixes), so the rhyme is identity-by-substring — a
- * child reads them as the same word, not as a real couplet pair.
- */
-function isStemRhyme(a, b) {
-  if (!a || !b || a === b) return false;
-  if (a.length < 3 || b.length < 3) return false;
-  if (a.endsWith(b) || b.endsWith(a)) return true;
-  if (a.startsWith(b) || b.startsWith(a)) return true;
-  return false;
-}
-
-function wordsRhyme(a, b) {
-  if (!a || !b) return false;
-  const na = normalizeRhymeWord(a);
-  const nb = normalizeRhymeWord(b);
-  if (!na || !nb || na === nb) return false;
-  // Reject "town/hometown" — one word fully contains the other. A child reads
-  // these as the same end-sound, not as a real rhyming pair.
-  if (isStemRhyme(na, nb)) return false;
-  const ra = rhymeTail(a);
-  const rb = rhymeTail(b);
-  if (!ra.tail || !rb.tail) return false;
-  // Reject suffix-only matches ("running/jumping", "sadly/badly" where the
-  // rhyme is carried only by the -ing or -ly).
-  if (sharesOnlyAGrammaticalSuffix(na, nb)) return false;
-  if (ra.tail === rb.tail) return true;
-  if (ra.coda === rb.coda && vowelsEquivalent(ra.vowel, rb.vowel)) return true;
-  // Near-rhyme: same vowel class AND voicing-equivalent end consonants
-  // (trees/breeze, leaf/believe, bat/bad).
-  if (
-    vowelsEquivalent(ra.vowel, rb.vowel)
-    && canonicalCoda(ra.coda) === canonicalCoda(rb.coda)
-  ) return true;
-  return false;
-}
-
-/**
- * B.2 — Detect dropped articles in prepositional phrases ("down street",
- * "by feet"). The writer was emitting toddler-broken English to force
- * rhymes; this catches the most common shape: PREPOSITION + bare singular
- * countable noun at the end of a line, with no article in between.
- *
- * Returns the offending phrase(s) found in the line, or [] if clean.
- */
-const DROPPED_ARTICLE_PREPS = ['down', 'by', 'on', 'in', 'at', 'near', 'past', 'over', 'under', 'up', 'across', 'through', 'beside', 'beyond'];
-const DROPPED_ARTICLE_NOUNS = new Set([
-  'street', 'road', 'path', 'hill', 'foot', 'feet', 'hand', 'hands', 'river',
-  'fence', 'gate', 'door', 'window', 'wall', 'floor', 'roof', 'tree', 'bench',
-  'house', 'shop', 'store', 'park', 'lake', 'pond', 'beach', 'shore', 'bridge',
-  'porch', 'kitchen', 'garden', 'meadow', 'field', 'yard', 'sky', 'cloud',
-  'moon', 'sun', 'cup', 'plate', 'bed', 'chair', 'table', 'stair', 'stairs',
-]);
-// Articles, possessives, demonstratives, numerals, quantifiers, common
-// proper-noun starts — anything that legitimately precedes the noun.
-const PRECEDING_DETERMINERS = new Set([
-  'a', 'an', 'the', 'my', 'your', 'his', 'her', 'their', 'our', 'its',
-  'this', 'that', 'these', 'those', 'one', 'two', 'three', 'four', 'five',
-  'some', 'any', 'each', 'every', 'no', 'both', 'all',
-]);
-
-function findDroppedArticles(text) {
-  const offenders = [];
-  const lines = splitLines(text);
-  for (const line of lines) {
-    // Tokenize into bare lowercase word sequences per phrase; we look at
-    // every preposition followed directly by a bare singular noun.
-    const tokens = String(line).toLowerCase().match(/[a-z']+/g) || [];
-    for (let i = 0; i < tokens.length - 1; i++) {
-      const prep = tokens[i];
-      const next = tokens[i + 1];
-      if (!DROPPED_ARTICLE_PREPS.includes(prep)) continue;
-      if (!DROPPED_ARTICLE_NOUNS.has(next)) continue;
-      // If a determiner immediately precedes the preposition, it's still
-      // fine ("down THE street"). But by definition the next token IS the
-      // noun, so there is no determiner between prep and noun — fail.
-      offenders.push(`${prep} ${next}`);
-    }
-  }
-  return offenders;
-}
-
-/**
- * B.3 — Detect address-form + proper-name concatenation ("Mama Courtney",
- * "Daddy John"). Address terms are direct-address words a child uses for a
- * parent; proper names are the parent's first name. They should never be
- * jammed together as if it were a title-and-name (we never write
- * "Mr. Mama Courtney"). The bug appeared 4x in Scarlett's Mother's Day book.
- *
- * Returns the offending phrases.
- */
-const PARENT_ADDRESS_TERMS = [
-  'mama', 'mom', 'mommy', 'mother', 'mum', 'mummy',
-  'dada', 'dad', 'daddy', 'father', 'papa', 'pop', 'pops',
-  'grandma', 'granny', 'nana', 'nan',
-  'grandpa', 'grandad', 'grampa', 'pappap', 'pappy', 'pop-pop',
-];
-const ADDRESS_NAME_CONCAT_RX = new RegExp(
-  `\\b(${PARENT_ADDRESS_TERMS.join('|')})\\s+([A-Z][a-z]+)\\b`,
-  'gi',
-);
-
-function findAddressNameConcat(text, brief) {
-  const offenders = [];
-  // Build the set of known proper names from the brief so we don't false-
-  // positive on phrases like "Mama Bear" (a character) where Bear isn't a
-  // declared parent name. We only fail when the matched proper name is one
-  // of the brief's declared parent first names.
-  const knownNames = collectParentProperNames(brief);
-  if (knownNames.size === 0) return offenders;
-  const lines = splitLines(text);
-  for (const line of lines) {
-    let m;
-    ADDRESS_NAME_CONCAT_RX.lastIndex = 0;
-    while ((m = ADDRESS_NAME_CONCAT_RX.exec(line)) !== null) {
-      const properName = m[2];
-      if (knownNames.has(properName.toLowerCase())) {
-        offenders.push(m[0]);
-      }
-    }
-  }
-  return offenders;
-}
-
-function collectParentProperNames(brief) {
-  const names = new Set();
-  if (!brief) return names;
-  const sources = [
-    brief?.customDetails?.mom_name, brief?.customDetails?.moms_name, brief?.customDetails?.mother_name,
-    brief?.customDetails?.dad_name, brief?.customDetails?.dads_name, brief?.customDetails?.father_name,
-    brief?.customDetails?.grandma_name, brief?.customDetails?.grandpa_name,
-    brief?.child?.anecdotes?.mom_name, brief?.child?.anecdotes?.dad_name,
-    brief?.child?.anecdotes?.moms_name, brief?.child?.anecdotes?.dads_name,
-  ];
-  for (const v of sources) {
-    if (typeof v !== 'string') continue;
-    // A questionnaire field may contain a single name, a list, or a free
-    // sentence — take any capitalized word as a candidate.
-    const matches = v.match(/[A-Z][a-z]+/g) || [];
-    for (const name of matches) names.add(name.toLowerCase());
-  }
-  return names;
-}
-
-/**
- * B.4 — Verb-crutch detection. If one content verb appears in >25% of
- * spreads, flag it. Excludes a small allowlist of high-frequency verbs that
- * are basically free in narration (is/was/has/goes/sees/looks/says/etc.).
- *
- * @param {Array} spreads doc.spreads
- * @returns {Array<{ verb: string, count: number, spreadCount: number, ratio: number }>}
- */
-const VERB_CRUTCH_THRESHOLD = 0.25;
-const VERB_CRUTCH_ALLOWLIST = new Set([
-  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am',
-  'has', 'have', 'had',
-  'do', 'does', 'did', 'done',
-  'go', 'goes', 'going', 'went', 'gone',
-  'see', 'sees', 'saw', 'seen',
-  'look', 'looks', 'looking', 'looked',
-  'say', 'says', 'said', 'saying',
-  'come', 'comes', 'came', 'coming',
-  'get', 'gets', 'got',
-  'make', 'makes', 'made',
-  'feel', 'feels', 'felt',
-  'know', 'knows', 'knew',
-  // Articles/prepositions/etc. shouldn't surface as verbs anyway, but
-  // include the most ambiguous to keep the crutch detector quiet.
-]);
-const VERB_LEMMA_RULES = [
-  // very small lemmatizer: only collapse the most common inflections so
-  // squeals/squealed/squealing all count toward "squeal".
-  [/(.+)ies$/, '$1y'],
-  [/(.+)ied$/, '$1y'],
-  [/(.+)ying$/, '$1y'],
-  [/(.+[^aeiou])s$/, '$1'],
-  [/(.+)ed$/, '$1'],
-  [/(.+)ing$/, '$1'],
-];
-function lemmatizeVerb(word) {
-  let w = word.toLowerCase();
-  for (const [rx, repl] of VERB_LEMMA_RULES) {
-    if (rx.test(w)) {
-      const candidate = w.replace(rx, repl);
-      // Only collapse if the result is still a plausible word.
-      if (candidate.length >= 3) {
-        w = candidate;
-        break;
-      }
-    }
-  }
-  return w;
-}
-
-function findVerbCrutches(spreads) {
-  // We don't run a real POS tagger — we look for any non-allowlisted
-  // word ending in -s/-ed/-ing/-y as a candidate "content verb". This is
-  // a heuristic; the allowlist filters the most common false positives.
-  const perVerb = new Map(); // lemma -> { count, spreadSet:Set }
-  let spreadCount = 0;
-  for (const s of spreads) {
-    const text = s?.manuscript?.text;
-    if (!text) continue;
-    spreadCount++;
-    const seenInSpread = new Set();
-    const tokens = String(text).toLowerCase().match(/[a-z']+/g) || [];
-    for (const tok of tokens) {
-      if (tok.length < 4) continue;
-      // Only candidates that look like inflected verbs: ends in s, ed, ing.
-      if (!/(s|ed|ing)$/.test(tok)) continue;
-      if (VERB_CRUTCH_ALLOWLIST.has(tok)) continue;
-      const lemma = lemmatizeVerb(tok);
-      if (VERB_CRUTCH_ALLOWLIST.has(lemma)) continue;
-      if (lemma.length < 3) continue;
-      seenInSpread.add(lemma);
-    }
-    for (const lemma of seenInSpread) {
-      if (!perVerb.has(lemma)) perVerb.set(lemma, { count: 0, spreadSet: new Set() });
-      const entry = perVerb.get(lemma);
-      entry.count += 1;
-      entry.spreadSet.add(s.spreadNumber);
-    }
-  }
-  if (spreadCount === 0) return [];
-  const offenders = [];
-  for (const [lemma, { count, spreadSet }] of perVerb.entries()) {
-    const ratio = spreadSet.size / spreadCount;
-    if (ratio > VERB_CRUTCH_THRESHOLD && spreadSet.size >= 3) {
-      offenders.push({
-        verb: lemma,
-        count,
-        spreadCount: spreadSet.size,
-        spreadNumbers: Array.from(spreadSet).sort((a, b) => a - b),
-        ratio,
-      });
-    }
-  }
-  // Sort by spread coverage descending so the worst offender shows first.
-  offenders.sort((a, b) => b.spreadCount - a.spreadCount);
-  return offenders;
-}
-
-/**
- * B.5 — Personalization saturation. Build a list of substantive
- * personalization items from brief.child + brief.customDetails, then
- * keyword-match each against the full manuscript. Fail when fewer than
- * 60% of substantive items appear at least once.
- *
- * Returns { ratio, threshold, missing[], landed[], total }.
- */
-const PERSONALIZATION_SATURATION_THRESHOLD = 0.6;
-// Free-text questionnaire fields where one answer is one item.
-const PERSONALIZATION_TEXT_KEYS = [
-  'funny_thing', 'meaningful_moment', 'moms_favorite_moment', 'dads_favorite_moment',
-  'favorite_food', 'favorite_toys', 'anything_else', 'other_detail',
-  'nickname', 'nicknames', 'special_routine', 'comfort_object',
-];
-// Address-term fields — each is one item ("calls_mom: Mama" is one item).
-const PERSONALIZATION_ADDRESS_KEYS = ['calls_mom', 'calls_dad'];
-// Tokens that are too generic to count as "used" (a, the, of, etc.).
-const PERSONALIZATION_STOPWORDS = new Set([
-  'a', 'an', 'and', 'the', 'of', 'to', 'in', 'on', 'at', 'is', 'it', 'for',
-  'with', 'her', 'his', 'my', 'our', 'their', 'i', 'me', 'we', 'you', 'be',
-  'as', 'by', 'or', 'so', 'do', 'does', 'did', 'has', 'have', 'had',
-  'this', 'that', 'these', 'those', 'one', 'two', 'three', 'all',
-]);
-
-function extractPersonalizationItems(brief) {
-  const items = []; // { label, keywords:Set<string> }
-  const child = brief?.child || {};
-  const customDetails = brief?.customDetails || {};
-  const anecdotes = (child.anecdotes && typeof child.anecdotes === 'object') ? child.anecdotes : {};
-
-  // Each interest is its own item.
-  if (Array.isArray(child.interests)) {
-    for (const interest of child.interests) {
-      const text = String(interest || '').trim();
-      if (text) items.push(makePersonalizationItem(`interest: ${text}`, text));
-    }
-  }
-
-  // Each anecdote / questionnaire text field is its own item.
-  for (const k of PERSONALIZATION_TEXT_KEYS) {
-    const fromAnec = typeof anecdotes[k] === 'string' ? anecdotes[k].trim() : '';
-    const fromCustom = typeof customDetails[k] === 'string' ? customDetails[k].trim() : '';
-    const text = fromAnec || fromCustom;
-    if (text) items.push(makePersonalizationItem(`questionnaire ${k}: ${text}`, text));
-  }
-
-  // Address-form items: the address word itself ought to surface in the book.
-  for (const k of PERSONALIZATION_ADDRESS_KEYS) {
-    const fromAnec = typeof anecdotes[k] === 'string' ? anecdotes[k].trim() : '';
-    const fromCustom = typeof customDetails[k] === 'string' ? customDetails[k].trim() : '';
-    const text = fromAnec || fromCustom;
-    if (text) items.push(makePersonalizationItem(`address ${k}: ${text}`, text));
-  }
-
-  // Free-text custom details that aren't one of the structured keys above.
-  for (const [k, v] of Object.entries(customDetails)) {
-    if (PERSONALIZATION_TEXT_KEYS.includes(k) || PERSONALIZATION_ADDRESS_KEYS.includes(k)) continue;
-    if (typeof v !== 'string') continue;
-    const text = v.trim();
-    if (text && text.length >= 2) items.push(makePersonalizationItem(`custom ${k}: ${text}`, text));
-  }
-
-  return items;
-}
-
-function makePersonalizationItem(label, sourceText) {
-  // Reduce to a small set of "signal" tokens — lowercased content words
-  // longer than 2 chars, excluding stopwords. Match if ANY signal token
-  // appears in the manuscript (substring match on word boundaries).
-  const tokens = String(sourceText).toLowerCase().match(/[a-z']+/g) || [];
-  const signal = new Set();
-  for (const t of tokens) {
-    if (t.length < 3) continue;
-    if (PERSONALIZATION_STOPWORDS.has(t)) continue;
-    signal.add(t);
-  }
-  return { label, keywords: signal };
-}
-
-function checkPersonalizationSaturation(brief, spreads) {
-  const items = extractPersonalizationItems(brief);
-  if (items.length === 0) {
-    return { ratio: 1, threshold: PERSONALIZATION_SATURATION_THRESHOLD, missing: [], landed: [], total: 0 };
-  }
-  const fullText = spreads
-    .map(s => s?.manuscript?.text || '')
-    .join('\n')
-    .toLowerCase();
-  const corpusTokens = new Set(fullText.match(/[a-z']+/g) || []);
-  const landed = [];
-  const missing = [];
-  for (const item of items) {
-    if (item.keywords.size === 0) {
-      // No usable signal tokens — don't count it against saturation.
-      continue;
-    }
-    let hit = false;
-    for (const k of item.keywords) {
-      if (corpusTokens.has(k)) { hit = true; break; }
-    }
-    if (hit) landed.push(item.label);
-    else missing.push(item.label);
-  }
-  const total = landed.length + missing.length;
-  const ratio = total === 0 ? 1 : landed.length / total;
-  return { ratio, threshold: PERSONALIZATION_SATURATION_THRESHOLD, missing, landed, total };
-}
-
-/**
- * D.2 — infant_action_verb_in_text. The planner already strips locomotion
- * verbs from infant spread specs, but the writer occasionally smuggles them
- * back in ("Up jumps Everleigh", "feet flash past", "laughs jump with each
- * bound"). Lap babies physically can't do these things, so the verse breaks
- * age-fit for the parent reading aloud.
- *
- * Scans the rendered text for forbidden infant action verbs and returns the
- * surface forms found. Empty array when none are present or when the age
- * band isn't PB_INFANT.
- *
- * @param {string} text rendered manuscript text for one spread
- * @param {string} ageBand doc.request.ageBand
- * @returns {string[]} matched surface verb forms (e.g. ["jumps", "twirl"])
- */
-const INFANT_FORBIDDEN_VERB_PATTERNS = [
-  // Each entry is a regex matching all common inflections of the verb.
-  // Word-boundary anchored so we don't false-positive on substrings.
-  /\bjump(?:s|ed|ing)?\b/i,
-  /\brun(?:s|ning)?\b/i,
-  /\brace(?:s|d|ing)?\b/i,
-  /\bspin(?:s|ning)?\b/i,
-  /\btwirl(?:s|ed|ing)?\b/i,
-  /\bhop(?:s|ped|ping)?\b/i,
-  /\bwalk(?:s|ed|ing)?\b/i,
-  /\bclimb(?:s|ed|ing)?\b/i,
-  /\bleap(?:s|ed|t|ing)?\b/i,
-  /\bdance(?:s|d|ing)?\b/i,
-  /\bchase(?:s|d|ing)?\b/i,
-  /\bgrab(?:s|bed|bing)?\b/i,
-  /\bskip(?:s|ped|ping)?\b/i,
-  /\bgallop(?:s|ed|ing)?\b/i,
-  /\bstomp(?:s|ed|ing)?\b/i,
-  /\bmarch(?:es|ed|ing)?\b/i,
-  /\bcrawl(?:s|ed|ing)?\b/i,
-  /\bcartwheel(?:s|ed|ing)?\b/i,
-  /\btumble(?:s|d|ing)?\b/i,
-  // PR G additions — these escaped earlier rounds because they're not
-  // textbook "locomotion" verbs, but they paint a walking/standing picture
-  // the illustrator faithfully renders, then age QA correctly rejects.
-  // Real failing example from prod: "Her brave steps bounce with thrill"
-  // — Gemini drew a walking toddler, then `age_action_impossible` fired
-  // on every retry. Catching these at the writer stage prevents the loop.
-  //   - step(s/ped/ping): unambiguous locomotion when subject is the child
-  //   - stand(s/ing/stood): independent standing is not an infant capability
-  //   - bounce(s/d/ing): "baby bounces" implies independent posture; if a
-  //     parent is bouncing the baby, the rewriter will pick a different verb
-  //     (jiggle/rock/sway) that doesn't carry the standing implication
-  /\bstep(?:s|ped|ping)?\b/i,
-  /\bstand(?:s|ing)?\b/i,
-  /\bstood\b/i,
-  /\bbounc(?:e|es|ed|ing)\b/i,
-  // "feet flash" / "feet pound" — displaced action attributing locomotion to
-  // body parts. We catch by the body part + motion verb construction.
-  // PR G: extend the body-part pattern with the same new verbs.
-  /\bfeet\s+(?:flash|pound|fly|race|run|skip|hop|march|stomp|tap|step|bounce|stand)\w*\b/i,
-];
-
-function findInfantForbiddenActionVerbs(text, ageBand) {
-  if (ageBand !== AGE_BANDS.PB_INFANT) return [];
-  const t = String(text || '');
-  const hits = [];
-  const seen = new Set();
-  for (const rx of INFANT_FORBIDDEN_VERB_PATTERNS) {
-    const m = t.match(rx);
-    if (m) {
-      const surface = m[0].toLowerCase();
-      if (!seen.has(surface)) {
-        seen.add(surface);
-        hits.push(surface);
-      }
-    }
-  }
-  return hits;
-}
-
-/**
- * D.3 — nonsense_word. Detect invented rhyme-fill non-words like "farf"
- * (a fake rhyme for "scarf"). Walks each token in the text and asks the
- * common-English dictionary whether it's a real word. Skips:
- *   - capitalized tokens that aren't sentence-initial (proper nouns)
- *   - tokens shorter than 4 chars (small functional words rarely fail)
- *   - hyphenated compounds where each half is real ("sun-warmed")
- *
- * Returns matched surface forms.
- *
- * @param {string} text
- * @param {object} [brief] used to whitelist declared names
- * @returns {string[]}
- */
-function findNonsenseWords(text, brief) {
-  const t = String(text || '');
-  if (!t) return [];
-  const declaredNames = collectDeclaredProperNames(brief);
-  const hits = [];
-  const seen = new Set();
-  // Token regex captures alphabetic runs (with optional inner apostrophe and
-  // hyphen) so "sun-warmed" and "don't" stay as single tokens.
-  const tokenRx = /[A-Za-z][A-Za-z'\u2019\-]*/g;
-  // Track positions so we can identify sentence-initial tokens.
-  // A token is sentence-initial if the preceding non-space char is one of
-  // .?!”" or it's the first non-space char in the text.
-  let match;
-  while ((match = tokenRx.exec(t)) !== null) {
-    const surface = match[0];
-    const lower = surface.toLowerCase();
-    if (declaredNames.has(lower)) continue;
-    // Skip capitalized tokens unless they're sentence-initial — we treat
-    // unrecognized proper nouns as names rather than nonsense.
-    const isCapitalized = /^[A-Z]/.test(surface);
-    if (isCapitalized) {
-      const start = match.index;
-      let i = start - 1;
-      while (i >= 0 && /\s/.test(t[i])) i--;
-      const isSentenceInitial = i < 0 || /[.?!”"]/.test(t[i]);
-      if (!isSentenceInitial) continue;
-    }
-    // Hyphenated compounds: accept if every part is recognized.
-    if (lower.includes('-')) {
-      const parts = lower.split('-').filter(Boolean);
-      const allReal = parts.every(p => isCommonEnglishWord(p, { minLength: 3 }));
-      if (allReal) continue;
-    }
-    if (isCommonEnglishWord(surface, { minLength: 4 })) continue;
-    if (!seen.has(lower)) {
-      seen.add(lower);
-      hits.push(surface);
-    }
-  }
-  return hits;
-}
-
-function collectDeclaredProperNames(brief) {
-  const names = new Set();
-  if (!brief || typeof brief !== 'object') return names;
-  const child = brief.child || {};
-  const customDetails = brief.customDetails || {};
-  const anecdotes = (child.anecdotes && typeof child.anecdotes === 'object') ? child.anecdotes : {};
-  const candidates = [
-    child.name, child.firstName, child.first_name, child.nickname,
-    customDetails.child_name, customDetails.childs_name,
-    customDetails.mom_name, customDetails.moms_name, customDetails.mother_name,
-    customDetails.dad_name, customDetails.dads_name, customDetails.father_name,
-    customDetails.grandma_name, customDetails.grandpa_name,
-    customDetails.pet_name, customDetails.pets_name,
-    anecdotes.mom_name, anecdotes.dad_name,
-    anecdotes.calls_mom, anecdotes.calls_dad,
-  ];
-  for (const v of candidates) {
-    if (typeof v !== 'string') continue;
-    const matches = v.match(/[A-Za-z][a-z']+/g) || [];
-    for (const name of matches) names.add(name.toLowerCase());
-  }
-  // Also accept anything from interests — may include a place / pet name.
-  if (Array.isArray(child.interests)) {
-    for (const interest of child.interests) {
-      const matches = String(interest || '').match(/[A-Z][a-z']+/g) || [];
-      for (const name of matches) names.add(name.toLowerCase());
-    }
-  }
-  return names;
-}
-
-/**
- * D.4 — nonsense_simile. Catches similes whose comparand makes no sense in
- * a baby/preschool book context. Two surface patterns:
- *   - "as <X> as <Y>"
- *   - "like (a|an|the)? <Y>"
- * Y is rejected when it's in a curated list of comparands that are
- * abstract, technical, or unrecognizable to a small child ("code", "math",
- * "app", "data", "meme", "crypto", "server"...). The list intentionally
- * skews toward modern-tech nouns since those are the most common
- * AI-hallucinated children's-book similes.
- *
- * Returns matched simile fragments (e.g. ["as light as code"]).
- *
- * @param {string} text
- * @returns {string[]}
- */
-const NONSENSE_SIMILE_COMPARANDS = new Set([
-  // Tech / abstractions a baby cannot parse.
-  'code', 'math', 'data', 'app', 'apps', 'algorithm', 'algorithms',
-  'meme', 'memes', 'crypto', 'bitcoin', 'server', 'servers', 'cloud',
-  'wifi', 'broadband', 'spreadsheet', 'spreadsheets', 'database',
-  'pixel', 'pixels', 'firmware', 'software', 'hardware', 'gigabyte',
-  'megabyte', 'kilobyte', 'protocol', 'protocols', 'api', 'apis',
-  'compiler', 'syntax', 'binary', 'integer', 'integers', 'variable',
-  'metadata', 'analytics', 'kpi', 'kpis',
-  // Adult / concept domains that don't translate to a child's frame.
-  'mortgage', 'mortgages', 'taxes', 'invoice', 'invoices', 'receipt',
-  'audit', 'audits', 'budget', 'budgets', 'paperwork', 'meeting',
-  'meetings', 'deadline', 'deadlines', 'inflation', 'recession',
-  'derivative', 'derivatives',
-  // Ambiguously-sized things that don't resolve to a sensory comparison.
-  'logic', 'theory', 'concept', 'principle',
-]);
-
-function findNonsenseSimiles(text) {
-  const t = String(text || '');
-  if (!t) return [];
-  const hits = [];
-  const seen = new Set();
-  // Form 1: "as X as Y" — the canonical book simile ("as light as code").
-  const asAsRx = /\bas\s+[a-z]+\s+as\s+(?:a\s+|an\s+|the\s+)?([a-z]+)\b/gi;
-  // Form 2: "<adj> as Y" — the dropped-leading-as variant baby books often
-  // use ("a blanket soft as math", "warm as toast"). We require an adjective
-  // immediately before "as" so we don't false-positive on "see her as Mama".
-  // We can't POS-tag, so we approximate: any word ending in -y/-er/-ly/-ed
-  // OR one of a small adjective allow-list, followed by "as Y".
-  const adjAsRx = /\b([a-z]+(?:y|er|ly|ed|ft|rm|ld|ee|ow|ll|st)|tiny|small|big|huge|tall|short|fast|slow|warm|cool|cold|hot|wet|dry|new|old|sad|wee|kind|bold|wild|wise|brave|sweet|fierce|loud|quiet|bright|deep|wide|high|low|light|dark|soft|hard|rough|smooth|safe|free|true|sure|pure|clear|cute|nice)\s+as\s+(?:a\s+|an\s+|the\s+)?([a-z]+)\b/gi;
-  // Form 3: "like (a|an|the)? Y" — standalone like-simile.
-  const likeRx = /\blike\s+(?:a\s+|an\s+|the\s+)?([a-z]+)\b/gi;
-
-  let m;
-  for (const [rx, captureIdx] of [[asAsRx, 1], [adjAsRx, 2], [likeRx, 1]]) {
-    rx.lastIndex = 0;
-    while ((m = rx.exec(t)) !== null) {
-      const candidate = m[captureIdx].toLowerCase();
-      if (!NONSENSE_SIMILE_COMPARANDS.has(candidate)) continue;
-      const surface = m[0];
-      const key = surface.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      hits.push(surface);
-    }
-  }
-  return hits;
-}
-
-/**
- * D.5 — parent_theme_relationship_framing. For Mother's/Father's/Grandparents'
- * Day books, the writer must NOT cast the child and parent as peers. Phrases
- * like "best friends", "best buds", "buddies" misframe the relationship and
- * undercut the gift's intent (a child celebrating their parent).
- *
- * Returns matched surface phrases. Empty when not a parent theme.
- *
- * @param {string} text
- * @param {string} theme
- * @returns {string[]}
- */
-const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
-const PEER_FRAMING_PATTERNS = [
-  /\bbest\s+friends?\b/i,
-  /\bbest\s+buds?\b/i,
-  /\bbest\s+mates?\b/i,
-  /\bbest\s+pals?\b/i,
-  /\bbuddies\b/i,
-  /\bbestie(?:s)?\b/i,
-  /\bBFF(?:s)?\b/i,
-];
-
-function findParentThemePeerFraming(text, theme) {
-  if (!PARENT_THEMES.has(String(theme || ''))) return [];
-  const t = String(text || '');
-  const hits = [];
-  const seen = new Set();
-  for (const rx of PEER_FRAMING_PATTERNS) {
-    const m = t.match(rx);
-    if (m) {
-      const surface = m[0];
-      const key = surface.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        hits.push(surface);
-      }
-    }
-  }
-  return hits;
-}
-
-/**
- * PR R — Infant complete-sentence detector.
- *
- * Background: draft 9 (post PR M) showed the writer dodging the verb
- * constraints by emitting fragment lines without any finite verb — e.g.
- *   "Mama, soft glow"           (S8 line 1)
- *   "Leaves, soft show"         (S8 line 2)
- *   "Mama eyes aglow"           (S10 line 1)
- *   "Sunlit joy below"          (S10 line 2)
- * These read as labels, not lines. They also collapse the still-point rule
- * by hiding the absent verb.
- *
- * This detector flags any infant-band line that contains zero finite verbs.
- * It is intentionally conservative: a line with even one plausible verb
- * (including copulas "is/are/was/were", small verbs "sees/holds/sits", or
- * verb-with-inflection "laughs/lifts/spills") passes. We accept some
- * false negatives (e.g. very ambiguous verb/noun pairs like "play" used
- * as a noun) to avoid false positives that would block legitimate poetry.
- *
- * Toddler / preschool / early-reader books tolerate fragments stylistically;
- * this detector only fires for PB_INFANT where every line is one of two
- * lines in the entire spread and a fragment is half the read-aloud.
- *
- * @param {string} text  full manuscript text for the spread
- * @param {string} ageBand
- * @returns {string[]}  the fragment lines (or [] if none)
- */
-const FRAGMENT_DETECT_VERB_RE = (() => {
-  // Common finite-verb endings: -s (3rd-person sing), -ed (past), -ing
-  // (only as a finite verb when paired with be/aux — so we accept it as
-  // a heuristic positive signal here), plus an explicit list of irregular
-  // and copular finite verbs that would never inflect with -s/-ed.
-  // The set is biased toward false negatives; it is OK to miss a verb
-  // and pass a fragment, but not OK to flag a line that has a verb.
-  // NOTE: do NOT include forms like 'leaves' here — it would mis-fire on the
-  // plural noun "leaves" which is by far the more common usage in baby
-  // books ("Leaves, soft show"). The non-final -s heuristic + the noun-
-  // plural exclusion below handles real verb usages of leave conservatively.
-  const explicit = [
-    'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being',
-    'do', 'does', 'did', 'has', 'have', 'had',
-    'see', 'sees', 'saw', 'seen',
-    'go', 'goes', 'went', 'gone',
-    'come', 'comes', 'came',
-    'sit', 'sits', 'sat',
-    'lie', 'lies', 'lay', 'lain',
-    'hold', 'holds', 'held',
-    'find', 'finds', 'found',
-    'feel', 'feels', 'felt',
-    'hear', 'hears', 'heard',
-    'make', 'makes', 'made',
-    'take', 'takes', 'took', 'taken',
-    'give', 'gives', 'gave', 'given',
-    'say', 'says', 'said',
-    'tell', 'tells', 'told',
-    'know', 'knows', 'knew',
-    'think', 'thinks', 'thought',
-    'put', 'puts',
-    'let', 'lets',
-    'meet', 'meets', 'met',
-    'keep', 'keeps', 'kept',
-    'leave', 'left',
-    'bring', 'brings', 'brought',
-    'run', 'runs', 'ran',
-    'open', 'opens', 'opened',
-    'close', 'closes', 'closed',
-    'shut', 'shuts',
-    'rise', 'rises', 'rose', 'risen',
-    'fall', 'falls', 'fell', 'fallen',
-  ];
-  return new RegExp(`\\b(${explicit.join('|')})\\b`, 'i');
-})();
-
-// Plural nouns that look like 3rd-person verbs because they end in -s.
-// Listed so the fragment detector doesn't mistake "Porch shadows" or
-// "Soft beams" for a line with a verb. Conservative — only common
-// concrete plural nouns a baby book would use as the line subject.
-const INFANT_NOUN_PLURALS = new Set([
-  'hands', 'eyes', 'toes', 'feet', 'leaves', 'kids', 'arms', 'ears',
-  'cheeks', 'fingers', 'beams', 'streams', 'dreams', 'shadows',
-  'bees', 'birds', 'trees', 'flowers', 'days', 'nights', 'beads',
-  'curls', 'lashes', 'lips', 'shoes', 'socks', 'breezes',
-  'gleams', 'glows', 'shines', 'sparks',
-]);
-
-function lineHasFiniteVerb(line) {
-  if (!line) return false;
-  const trimmed = String(line).trim();
-  if (!trimmed) return false;
-  // Strip trailing punctuation and split into word tokens.
-  const tokens = trimmed.toLowerCase().match(/[a-z']+/g) || [];
-  if (tokens.length === 0) return false;
-  // Quick path: any explicit copular/irregular finite verb?
-  if (FRAGMENT_DETECT_VERB_RE.test(trimmed)) return true;
-  // Heuristic: any non-final token ending in -s, -es, -ed (regular past /
-  // 3rd-person-singular) and length >= 4 is likely a finite verb. The
-  // "non-final" guard catches plurals at the end of a line ("Mama lifts
-  // her hands" — "hands" is a noun but "lifts" is the verb; the verb is
-  // not the last token). When -s appears ONLY as the last token ("Porch
-  // shadows"), the line probably has no verb.
-  for (let i = 0; i < tokens.length - 1; i++) {
-    const tok = tokens[i];
-    if (tok.length < 3) continue;
-    // Plural nouns — must check FIRST so "eyes", "leaves", "hands" do not
-    // trip the -es/-ed/-s verb heuristic.
-    if (INFANT_NOUN_PLURALS.has(tok)) continue;
-    if (/(es|ed)$/.test(tok)) return true;
-    // Bare -s: real 3rd-person verb if not a known plural noun.
-    if (/s$/.test(tok)) return true;
-  }
-  // Also accept a final-position -s/-ed/-ing word IF the line has at most
-  // 3 tokens AND it isn't one of the obvious noun plurals — e.g. a
-  // one-clause line like "Mama laughs" should pass.
-  if (tokens.length <= 3) {
-    const last = tokens[tokens.length - 1];
-    if (last && last.length >= 3 && /(s|ed|ing)$/.test(last) && !INFANT_NOUN_PLURALS.has(last)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function findInfantFragmentLines(text, ageBand) {
-  if (ageBand !== AGE_BANDS.PB_INFANT) return [];
-  const lines = String(text || '')
-    .split(/\n+/)
-    .map(l => l.trim())
-    .filter(Boolean);
-  const fragments = [];
-  for (const line of lines) {
-    if (!lineHasFiniteVerb(line)) {
-      fragments.push(line);
-    }
-  }
-  return fragments;
-}
-
-/**
- * D.6 — refrain_crutch. The verb-crutch detector at line ~347 looks for
- * inflected verb forms only (-s/-ed/-ing). It misses non-verb refrains:
- * "peekaboo" appears in 5/13 Everleigh spreads (38%) and never trips because
- * it's a noun. This detector counts ANY content word ≥4 chars that doesn't
- * end in a verb inflection AND isn't already covered by VERB_CRUTCH_ALLOWLIST,
- * flagging when it appears in >25% of spreads.
- *
- * @param {Array} spreads doc.spreads
- * @returns {Array<{ word: string, count: number, spreadCount: number, ratio: number }>}
- */
-const REFRAIN_CRUTCH_THRESHOLD = 0.25;
-// Infant board books are shorter (~12 spreads) and rely on more repetition by
-// design; the same 25% threshold lets too many crutches squeak through. Use a
-// tighter bar so 3 of 12 = 25% (which currently does NOT fail) starts to fail.
-const REFRAIN_CRUTCH_THRESHOLD_INFANT = 0.20;
-const REFRAIN_STOPWORDS = new Set([
-  // High-frequency function/closed-class words that can legitimately repeat
-  // without being a refrain crutch. The verb crutch list is for verbs; this
-  // list focuses on non-verb closed-class items.
-  'with', 'from', 'into', 'onto', 'upon', 'over', 'under', 'down',
-  'than', 'then', 'this', 'that', 'these', 'those', 'there',
-  'here', 'when', 'while', 'where', 'will', 'would', 'could', 'should',
-  'they', 'them', 'their', 'theirs', 'your', 'yours', 'mine',
-  'just', 'very', 'much', 'such', 'each', 'some', 'most', 'more',
-  'what', 'which', 'whose', 'whom', 'about',
-  // The child's address forms appear EVERYWHERE in books ("Mama", "Mommy")
-  // by design — personalization saturation, not a crutch. Excluded here.
-  'mama', 'mommy', 'momma', 'mom', 'mum', 'mummy', 'mama',
-  'dada', 'daddy', 'dad', 'papa', 'pop', 'pops',
-  'nana', 'gigi', 'mimi', 'grandma', 'grandpa',
-]);
-
-function findRefrainCrutches(spreads, options = {}) {
-  const perWord = new Map(); // word -> { count, spreadSet:Set }
-  let spreadCount = 0;
-  // Build extra exclusions: child name + parent address forms from the brief.
-  // The personalization saturation check explicitly WANTS these to repeat;
-  // flagging them as refrain crutches is a false positive (e.g. "everleigh"
-  // appearing in 7 of 13 spreads is correct, not a bug).
-  const extraExclusions = new Set();
-  const brief = options.brief;
-  if (brief) {
-    const childName = brief?.child?.name;
-    if (childName) extraExclusions.add(String(childName).toLowerCase());
-    const cd = brief?.customDetails || {};
-    for (const key of ['mom_name', 'dad_name', 'parent_name', 'grandparent_name', 'mother_name', 'father_name']) {
-      const v = cd[key];
-      if (v) extraExclusions.add(String(v).toLowerCase());
-    }
-  }
-  const ageBand = options.ageBand;
-  const threshold = ageBand === AGE_BANDS.PB_INFANT
-    ? REFRAIN_CRUTCH_THRESHOLD_INFANT
-    : REFRAIN_CRUTCH_THRESHOLD;
-  for (const s of spreads) {
-    const text = s?.manuscript?.text;
-    if (!text) continue;
-    spreadCount++;
-    const seenInSpread = new Set();
-    const tokens = String(text).toLowerCase().match(/[a-z']+/g) || [];
-    for (const tok of tokens) {
-      if (tok.length < 4) continue;
-      // Skip verb-inflected tokens — the verb crutch detector owns those.
-      if (/(s|ed|ing)$/.test(tok)) continue;
-      if (REFRAIN_STOPWORDS.has(tok)) continue;
-      if (VERB_CRUTCH_ALLOWLIST.has(tok)) continue;
-      if (extraExclusions.has(tok)) continue;
-      seenInSpread.add(tok);
-    }
-    for (const word of seenInSpread) {
-      if (!perWord.has(word)) perWord.set(word, { count: 0, spreadSet: new Set() });
-      const entry = perWord.get(word);
-      entry.count += 1;
-      entry.spreadSet.add(s.spreadNumber);
-    }
-  }
-  if (spreadCount === 0) return [];
-  const offenders = [];
-  for (const [word, { count, spreadSet }] of perWord.entries()) {
-    const ratio = spreadSet.size / spreadCount;
-    if (ratio > threshold && spreadSet.size >= 3) {
-      offenders.push({
-        word,
-        count,
-        spreadCount: spreadSet.size,
-        spreadNumbers: Array.from(spreadSet).sort((a, b) => a - b),
-        ratio,
-      });
-    }
-  }
-  offenders.sort((a, b) => b.spreadCount - a.spreadCount);
-  return offenders;
-}
-
-function deterministicCheck(spread, doc) {
-  const issues = [];
-  const tags = [];
-  const m = spread.manuscript;
-  const spec = spread.spec;
-  if (!m || !m.text) {
-    return { pass: false, issues: ['manuscript missing'], tags: ['missing_text'] };
-  }
-
-  if (spec && m.side !== spec.textSide) {
-    issues.push(`side mismatch: spec=${spec.textSide} manuscript=${m.side}`);
-    tags.push('side_mismatch');
-  }
-
-  const lines = splitLines(m.text);
-  const isPictureBook = doc?.request?.format === FORMATS.PICTURE_BOOK;
-  const ageBand = doc?.request?.ageBand;
-
-  if (isPictureBook) {
-    // Line-count gate. All picture-book age bands (PB_INFANT, PB_TODDLER,
-    // PB_PRESCHOOL) are now locked to 4 lines per spread (two AABB couplets).
-    // Bands differ only by per-line word budget. The infant band keeps the
-    // tightest budget (2-5 words/line, hardMax 6) so the 4-line shape stays
-    // board-book brief.
-    const lineRange = resolvePictureBookLineRange(ageBand);
-    const expectedDescription = lineRange.min === lineRange.max
-      ? `exactly ${lineRange.min} lines`
-      : `between ${lineRange.min} and ${lineRange.max} lines`;
-    if (lines.length < lineRange.min || lines.length > lineRange.max) {
-      issues.push(`picture-book spreads must have ${expectedDescription} for age band ${ageBand || 'default'}; got ${lines.length}`);
-      tags.push('wrong_line_count');
-    }
-    if (lines.length >= 2) {
-      // First couplet (AA pair): lines 1 + 2 must rhyme.
-      const w1 = lastRhymeWord(lines[0]);
-      const w2 = lastRhymeWord(lines[1]);
-      if (!wordsRhyme(w1, w2)) {
-        issues.push(`lines 1 and 2 do not rhyme (AABB required): "${w1}" / "${w2}"`);
-        tags.push('rhyme_fail');
-      }
-    }
-    if (lines.length >= 4) {
-      // Second couplet (BB pair): lines 3 + 4 must rhyme.
-      const w3 = lastRhymeWord(lines[2]);
-      const w4 = lastRhymeWord(lines[3]);
-      if (!wordsRhyme(w3, w4)) {
-        issues.push(`lines 3 and 4 do not rhyme (AABB required): "${w3}" / "${w4}"`);
-        tags.push('rhyme_fail');
-      }
-    }
-  } else if (lines.length > 5) {
-    issues.push(`too many lines: ${lines.length}`);
-    tags.push('too_many_lines');
-  }
-
-  const hardMax = resolveHardMaxWordsPerLine(doc?.request?.ageBand);
-  const overLong = lines.filter(l => wordCount(l) > hardMax);
-  if (overLong.length) {
-    const ageNote = doc?.request?.ageBand === AGE_BANDS.PB_TODDLER
-      ? ' (ages 0-3 require very short lines — sing-song board-book cadence)'
-      : '';
-    issues.push(`lines too long (>${hardMax} words${ageNote}): ${overLong.length}`);
-    tags.push('line_too_long');
-  }
-
-  const preachy = PREACH_MARKERS.some(rx => rx.test(m.text));
-  if (preachy) {
-    issues.push('preachy phrasing detected');
-    tags.push('preachy');
-  }
-
-  // B.2 — dropped articles in prepositional phrases.
-  const dropped = findDroppedArticles(m.text);
-  if (dropped.length) {
-    issues.push(`dropped article(s) in prepositional phrase: ${dropped.join(', ')} — write "down THE street", not "down street"`);
-    tags.push('dropped_article');
-  }
-
-  // B.3 — "Mama Courtney" / "Daddy John" address-form + proper-name concat.
-  const concat = findAddressNameConcat(m.text, doc?.brief);
-  if (concat.length) {
-    issues.push(`address term concatenated with proper name: ${concat.join(', ')} — write the name OR the address word, not both jammed together`);
-    tags.push('address_name_concat');
-  }
-
-  // D.2 — forbidden infant action verbs (jumps/runs/twirl/etc. for
-  // PB_INFANT). Lap babies cannot do these things — break age-fit.
-  const forbiddenInfantVerbs = findInfantForbiddenActionVerbs(m.text, ageBand);
-  if (forbiddenInfantVerbs.length) {
-    issues.push(`infant book uses forbidden action verb(s): ${forbiddenInfantVerbs.join(', ')} — lap babies don't jump, run, race, twirl, walk, climb, dance, step, stand, or bounce. Use sit/lie/look/reach/giggle/coo/hold/snuggle.`);
-    tags.push('infant_action_verb_in_text');
-  }
-
-  // PR Q+R / R — infant_fragment_line. Every infant couplet line must have a
-  // subject + finite verb. Catches "Mama, soft glow" / "Leaves, soft show" /
-  // "Mama eyes aglow" — fragments that scan but say nothing.
-  const fragmentLines = findInfantFragmentLines(m.text, ageBand);
-  if (fragmentLines.length) {
-    issues.push(`infant line(s) without finite verb (fragment): ${fragmentLines.map(l => `"${l}"`).join(', ')} — every line in the AABB couplets needs subject + verb (e.g. "Mama lifts her hands"). Don't pad with noun-only fragments to force a rhyme.`);
-    tags.push('infant_fragment_line');
-  }
-
-  // D.3 — nonsense / invented words. Ban writer fabrications used as rhyme
-  // fillers ("farf" to rhyme "scarf"). Real English only.
-  const nonsenseWords = findNonsenseWords(m.text, doc?.brief);
-  if (nonsenseWords.length) {
-    issues.push(`invented non-English word(s): ${nonsenseWords.join(', ')} — use real English. If a rhyme requires a fake word, pick a different rhyme.`);
-    tags.push('nonsense_word');
-  }
-
-  // D.4 — nonsense similes ("light as code", "like an algorithm"). Tech /
-  // abstract comparands that a small child cannot parse.
-  const nonsenseSimiles = findNonsenseSimiles(m.text);
-  if (nonsenseSimiles.length) {
-    issues.push(`nonsense simile(s) for a baby/preschool book: ${nonsenseSimiles.join('; ')} — use concrete sensory comparisons (soft as fluff, warm as toast).`);
-    tags.push('nonsense_simile');
-  }
-
-  // D.5 — parent-theme peer framing. "Best friends" misframes the relationship
-  // for Mother's / Father's / Grandparents' Day.
-  const peerFraming = findParentThemePeerFraming(m.text, doc?.request?.theme);
-  if (peerFraming.length) {
-    issues.push(`parent-theme relationship framing error: ${peerFraming.join(', ')} — the child and parent are not peers. Use "my Mama", "my hero", "the one who loves me" instead of peer/buddy language.`);
-    tags.push('parent_theme_relationship_framing');
-  }
-
-  return { pass: issues.length === 0, issues, tags };
-}
-
-const LITERARY_QA_SYSTEM = `You are a senior children's book editor.
-You review an existing manuscript for:
- - story coherence and payoff
- - read-aloud musicality
- - age fit for the given band
- - personalization that feels real, not tacked on
- - absence of preachy moralizing
- - rhyme quality where rhyme applies
-
-For picture-book manuscripts specifically, enforce:
- - LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Bands differ by per-line word budget, not by line count. NEVER accept 2-line spreads for picture books.
-     * Lines separated by "\\n".
- - Rhyme scheme: AABB — lines 1+2 rhyme; lines 3+4 rhyme. Same-word rhymes, identity rhymes, stem rhymes, and suffix-only rhymes are NOT real rhymes — fail them.
- - Consistent musical pulse within each couplet (roughly matched line length and stress count).
- - Short lines: infant 2-5 words/line (hardMax 6); toddler 3-7 words/line (hardMax 8); preschool 6-12 words/line (hardMax 14).
-
-Explicit failure modes — each must be tagged exactly as listed:
- - "rhyme_fail": couplet does not really rhyme ("sing/plan", "sigh/Deana", "sniff/off", "high/cuddle"). ALSO use this tag for IDENTITY rhymes ("town/town", "squeals/squeals"), STEM rhymes where one word contains the other ("town/hometown", "light/spotlight", "day/today"), and SUFFIX-ONLY rhymes where the match is carried only by a shared grammatical ending ("running/jumping", "sadly/badly", "quickly/slowly"). Identity, stem, and suffix-only rhymes are NOT real rhymes — fail them.
- - "dropped_article": a preposition is followed directly by a bare singular countable noun with no determiner ("down street", "by feet", "on bench"). Real English requires "down THE street", "by HER feet". This is broken phrasing, never acceptable as a stylistic choice in a children's book.
- - "address_name_concat": a parental address term is jammed against a parent's proper first name ("Mama Courtney", "Daddy John", "Mommy Sarah"). Use the address word OR the name, never both back-to-back.
- - "verb_crutch": one content verb dominates the manuscript — it appears as the action in more than ~25% of spreads (e.g. "squeal" in 8 of 13 spreads). Flag at the BOOK level in bookLevelIssues, naming the overused verb.
- - "low_personalization_saturation": the brief contains substantive personalization items (interests, anecdotes, address forms, custom details) but fewer than ~60% of them appear anywhere in the manuscript. Flag at the BOOK level in bookLevelIssues, naming the missing items.
- - "age_mismatch_action": the action attributed to the child is implausible for the declared age band (e.g. an infant "running down the street"). Flag the offending spread.
- - "infant_action_verb_in_text": for INFANT books (PB_INFANT, age 0-1) the manuscript text must NEVER use locomotion verbs the baby physically cannot do: jump/jumps/jumped, run/runs/running, race/races, spin/spins, twirl/twirls, hop/hops, walk/walks, climb/climbs, leap/leaps, dance/dances, chase/chases, grab/grabs, skip/skips, gallop, stomp, march, crawl, step/steps/stepped, stand/stands/standing/stood, bounce/bounces/bounced. Also reject body-part displacements ("feet flash", "feet pound", "feet step", "feet bounce"). Use sit/lie/look/reach/giggle/coo/hold/snuggle instead. Flag the offending spread.
- - "nonsense_word": the manuscript invents a fake word to force a rhyme ("farf" rhymed with "scarf", "blurp" rhymed with "burp"). Real English only. If the rhyme requires fabrication, pick a different rhyme — don't ship the made-up word. Flag the offending spread; name the invented word.
- - "nonsense_simile": a simile ("X as Y", "like Y") whose comparand makes no sense in a baby/preschool context — "light as code", "soft as math", "like an algorithm". Use concrete sensory comparisons ("soft as fluff", "warm as toast"). Flag the offending spread.
- - "parent_theme_relationship_framing": for Mother's Day / Father's Day / Grandparents' Day themes, the manuscript MUST NOT cast the child and parent as peers — ban "best friends", "best buds", "best mates", "buddies", "besties", "BFF". Frame the parent as the loving caregiver / hero / the one who tucks me in. Flag the offending spread.
- - "refrain_crutch": one non-verb content word (noun or onomatopoeia) dominates the manuscript — it appears in more than ~25% of spreads (e.g. "peekaboo" in 5 of 13 spreads, "scarf" on every page). Distinct from verb_crutch (which catches verbs). Flag at the BOOK level in bookLevelIssues, naming the overused word.
-
-Return ONLY strict JSON. Be specific and actionable — when a rhyme fails, name the offending word pair in the spread's issues list and explain WHICH failure mode it is (identity / stem / suffix-only / non-rhyming). Mark "pass": true only if the book is genuinely strong AND (for picture books) all AABB rhymes hold AND none of the failure modes above are triggered.`;
-
-function literaryQaUserPrompt(doc) {
+function buildJudgeUserPrompt(doc, signatureHint) {
   const spreads = doc.spreads.map(s => ({
     spreadNumber: s.spreadNumber,
     spec: s.spec,
@@ -1187,134 +154,221 @@ function literaryQaUserPrompt(doc) {
     side: s.manuscript?.side,
   }));
   const themeBlock = renderThemeDirectiveBlock(doc.request.theme);
+  const pronouns = doc?.brief?.pronouns || null;
+  const heroName = doc?.brief?.child?.name || 'the hero';
+  const pronounBlock = pronouns
+    ? `HERO PRONOUNS — the manuscript MUST use ONLY these for ${heroName} everywhere: subject=${pronouns.subject}, object=${pronouns.object}, possessive=${pronouns.possessive}, reflexive=${pronouns.reflexive}. Any other pronoun referring to ${heroName} is identity_pronoun_swap.`
+    : '';
+
   return [
     `Format: ${doc.request.format}. Age band: ${doc.request.ageBand}. Theme: ${doc.request.theme}.`,
+    pronounBlock,
     themeBlock,
     themeBlock ? 'If the manuscript uses any BANNED CLICHÉS from the theme directive, tag those spreads with "theme_cliche" and fail.' : '',
+    `Brief (subset):\n${JSON.stringify({
+      child: doc?.brief?.child || null,
+      parents: doc?.brief?.parents || null,
+      pronouns,
+      interests: doc?.brief?.interests || doc?.brief?.child?.interests || null,
+      anecdotes: doc?.brief?.child?.anecdotes || null,
+      customDetails: doc?.brief?.customDetails || null,
+    }, null, 2)}`,
     `Story bible:\n${JSON.stringify(doc.storyBible, null, 2)}`,
     `Spreads:\n${JSON.stringify(spreads, null, 2)}`,
+    signatureHint ? `signatureBeatsHint (deterministic preflight — verify against the manuscript yourself):\n${JSON.stringify(signatureHint, null, 2)}` : '',
     '',
-    'Return JSON:',
-    `{
-  "pass": true|false,
-  "bookLevelIssues": ["..."],
-  "perSpread": [
-    { "spreadNumber": 1, "issues": ["..."], "tags": ["..."], "suggestedRewrite": "optional short directive" }
-  ]
-}`,
-  ].join('\n');
+    'Emit the JSON verdict now.',
+  ].filter(Boolean).join('\n');
+}
+
+// =============================================================================
+// Infant locomotion — pure LLM Flash call (no regex)
+// =============================================================================
+
+const INFANT_LOCOMOTION_SYSTEM = `You are an infant-development reviewer. You receive a single line of text from a children's book aimed at PB_INFANT (age 0-1, lap-baby). You return JSON listing every word in the line that describes a locomotion or whole-body action a 0-1 year old physically cannot do (jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab forcefully, skip, gallop, stomp, march, crawl independently far, step, stand, stood, bounce on feet, cartwheel, tumble) — including any inflection (-s, -ed, -ing). Also flag body-part displacement constructions where the baby is the agent ("feet flash", "feet pound", "legs kick", "feet bounce"). Sit, lie, look, reach, giggle, coo, hold, snuggle, nuzzle, wiggle, wave, kick (lying down), babble, smile, peek, blink are FINE. Onomatopoeia (boop, shh, pop) is FINE.
+
+Return ONLY: {"hits": ["word1", "word2", ...]}. Empty array if nothing forbidden. Lowercase the surface form you saw in the text. Do not include words from the safe list. No prose, no markdown.`;
+
+function buildInfantLocomotionUserPrompt(line) {
+  return `Line: ${JSON.stringify(line)}\nReturn the JSON now.`;
 }
 
 /**
+ * Async helper used by writer/rewriteBookText.js' final hard gate.
+ *
+ * Replaces the deleted regex helper of the same name. Returns a string[]
+ * of forbidden surface forms found in `text`. Empty array means clean.
+ *
+ * Calls Flash once per line. Skips non-PB_INFANT bands.
+ *
+ * @param {string} text
+ * @param {string} ageBand
+ * @param {{ abortSignal?: AbortSignal }} [options]
+ * @returns {Promise<string[]>}
+ */
+async function findInfantForbiddenActionVerbs(text, ageBand, options = {}) {
+  if (ageBand !== AGE_BANDS.PB_INFANT) return [];
+  const lines = String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+
+  const all = [];
+  for (const line of lines) {
+    try {
+      const result = await callText({
+        model: MODELS.WRITER_QA,
+        systemPrompt: INFANT_LOCOMOTION_SYSTEM,
+        userPrompt: buildInfantLocomotionUserPrompt(line),
+        jsonMode: true,
+        temperature: 0.1,
+        maxTokens: 200,
+        label: 'infantLocomotionGate',
+        abortSignal: options.abortSignal,
+      });
+      const hits = Array.isArray(result?.json?.hits) ? result.json.hits.map(String) : [];
+      for (const h of hits) {
+        const lc = h.toLowerCase();
+        if (lc && !all.includes(lc)) all.push(lc);
+      }
+    } catch (err) {
+      console.warn(`[checkWriterDraft] infant locomotion gate failed for line ${JSON.stringify(line)}: ${err?.message || err}`);
+      // Fail-open: a single line failure doesn't block the gate. The
+      // judge call still runs and the writer-rewrite hard gate will see
+      // an empty hit list; if the line truly contained a forbidden verb
+      // the judge is the redundant safety net.
+    }
+  }
+  return all;
+}
+
+// =============================================================================
+// Shadow run — old gemini-2.5-flash literary call, non-authoritative
+// =============================================================================
+
+const SHADOW_SYSTEM = `You are a senior children's-book editor running in SHADOW mode. Your verdict is logged but not authoritative. Apply the same picture-book rules: AABB 4-line per spread, real rhymes only, no infant locomotion verbs, no dropped articles, no parent-name concat with address words, no fragment lines, no nonsense words/similes, no peer framing for parent themes, consistent hero pronouns. Return JSON: {"pass": bool, "bookLevelIssues": [...], "perSpread": [{"spreadNumber": N, "issues": [...], "tags": [...]}]}. JSON only.`;
+
+function buildShadowUserPrompt(doc) {
+  const spreads = doc.spreads.map(s => ({
+    spreadNumber: s.spreadNumber,
+    text: s.manuscript?.text,
+    side: s.manuscript?.side,
+  }));
+  return [
+    `ageBand=${doc.request.ageBand}, theme=${doc.request.theme}, format=${doc.request.format}.`,
+    `Spreads:\n${JSON.stringify(spreads, null, 2)}`,
+    'Return JSON.',
+  ].join('\n');
+}
+
+async function runShadowJudge(doc) {
+  try {
+    const result = await callText({
+      model: MODELS.WRITER_QA,
+      systemPrompt: SHADOW_SYSTEM,
+      userPrompt: buildShadowUserPrompt(doc),
+      jsonMode: true,
+      temperature: 0.3,
+      maxTokens: 7000,
+      label: 'writerQa.shadow',
+      abortSignal: doc.operationalContext?.abortSignal,
+    });
+    return { ok: true, json: result.json || {}, model: result.model, attempts: result.attempts, usage: result.usage };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+function diffJudgeVerdicts(authoritative, shadow) {
+  if (!shadow || !shadow.ok) return { shadowFailed: true };
+  const auPass = authoritative.pass === true;
+  const shPass = shadow.json?.pass === true;
+  const auTags = new Set();
+  for (const s of authoritative.perSpread || []) for (const t of s.tags || []) auTags.add(t);
+  for (const t of authoritative.bookLevelTags || []) auTags.add(t);
+  const shTags = new Set();
+  for (const s of shadow.json?.perSpread || []) for (const t of s.tags || []) shTags.add(t);
+  for (const t of shadow.json?.bookLevelIssues || []) shTags.add(`book:${String(t).slice(0, 40)}`);
+  const onlyAuthoritative = [...auTags].filter(t => !shTags.has(t));
+  const onlyShadow = [...shTags].filter(t => !auTags.has(t));
+  return {
+    shadowFailed: false,
+    passAgreement: auPass === shPass,
+    authoritativePass: auPass,
+    shadowPass: shPass,
+    onlyAuthoritative,
+    onlyShadow,
+  };
+}
+
+// =============================================================================
+// Orchestrator
+// =============================================================================
+
+/**
  * @param {object} doc
- * @returns {Promise<{ pass: boolean, perSpread: object[], bookLevel: string[], repairPlan: object[], updatedDoc: object }>}
+ * @returns {Promise<{ pass: boolean, perSpread: object[], bookLevel: string[], bookLevelTags: string[], repairPlan: object[], updatedDoc: object }>}
  */
 async function checkWriterDraft(doc) {
-  const deterministic = doc.spreads.map(s => ({
-    spreadNumber: s.spreadNumber,
-    ...deterministicCheck(s, doc),
-  }));
-
-  const result = await callText({
-    model: MODELS.WRITER_QA,
-    systemPrompt: LITERARY_QA_SYSTEM,
-    userPrompt: literaryQaUserPrompt(doc),
-    jsonMode: true,
-    temperature: 0.3,
-    maxTokens: 7000,
-    label: 'writerQa',
-    abortSignal: doc.operationalContext?.abortSignal,
-  });
-
-  const literary = result.json || {};
-  const perSpreadLit = Array.isArray(literary.perSpread) ? literary.perSpread : [];
-  const bookLevel = Array.isArray(literary.bookLevelIssues) ? literary.bookLevelIssues.map(String) : [];
-  const bookLevelTags = [];
-
-  // B.4 — verb-crutch (book-level).
-  // Track per-spread injections so we can inject book-level failures into the
-  // repair plan as targeted spread-level instructions — otherwise the rewrite
-  // loop sees pass=false but no targets and silently exits without fixing.
-  const bookLevelSpreadInjections = new Map(); // spreadNumber -> { issues:[], tags:[] }
-  const addBookLevelInjection = (spreadNumber, issue, tag) => {
-    if (!bookLevelSpreadInjections.has(spreadNumber)) {
-      bookLevelSpreadInjections.set(spreadNumber, { issues: [], tags: [] });
-    }
-    const entry = bookLevelSpreadInjections.get(spreadNumber);
-    entry.issues.push(issue);
-    if (!entry.tags.includes(tag)) entry.tags.push(tag);
-  };
-
-  const crutches = findVerbCrutches(doc.spreads);
-  let bookLevelDeterministicFail = false;
-  if (crutches.length) {
-    const top = crutches[0];
-    bookLevel.push(
-      `verb crutch: "${top.verb}" appears in ${top.spreadCount} of ${doc.spreads.length} spreads (${Math.round(top.ratio * 100)}%) — vary the action verbs across spreads`,
-    );
-    bookLevelTags.push('verb_crutch');
-    bookLevelDeterministicFail = true;
-    // Inject a per-spread directive so the rewrite loop has actionable targets.
-    for (const sn of top.spreadNumbers || []) {
-      addBookLevelInjection(
-        sn,
-        `verb_crutch: avoid the overused verb "${top.verb}" — it appears in ${top.spreadCount} of ${doc.spreads.length} spreads. Replace it on this spread with a different action verb (or recast the line so it isn't needed).`,
-        'verb_crutch',
-      );
-    }
-  }
-
-  // D.6 — refrain crutch (book-level). Catches non-verb content words
-  // repeated >25% of spreads (>20% for infant). Excludes child name and
-  // declared parent address-form names from the brief.
-  const refrains = findRefrainCrutches(doc.spreads, {
-    brief: doc?.brief,
-    ageBand: doc?.request?.ageBand,
-  });
-  if (refrains.length) {
-    const top = refrains[0];
-    bookLevel.push(
-      `refrain crutch: "${top.word}" appears in ${top.spreadCount} of ${doc.spreads.length} spreads (${Math.round(top.ratio * 100)}%) — vary the recurring nouns/refrains across spreads`,
-    );
-    bookLevelTags.push('refrain_crutch');
-    bookLevelDeterministicFail = true;
-    for (const sn of top.spreadNumbers || []) {
-      addBookLevelInjection(
-        sn,
-        `refrain_crutch: avoid the overused word "${top.word}" — it appears in ${top.spreadCount} of ${doc.spreads.length} spreads. Replace it on this spread with different imagery.`,
-        'refrain_crutch',
-      );
-    }
-  }
-
-  // B.5 — personalization saturation (book-level).
-  const saturation = checkPersonalizationSaturation(doc.brief, doc.spreads);
-  if (saturation.total > 0 && saturation.ratio < saturation.threshold) {
-    bookLevel.push(
-      `low personalization saturation: only ${saturation.landed.length} of ${saturation.total} brief items (${Math.round(saturation.ratio * 100)}%) appear in the manuscript; missing: ${saturation.missing.slice(0, 8).join('; ')}`,
-    );
-    bookLevelTags.push('low_personalization_saturation');
-    bookLevelDeterministicFail = true;
-  }
-
-  // PR Y — signature-beat coverage (book-level).
-  // Per-anchor gate: every emotional anchor from the questionnaire
-  // (funny_thing, meaningful_moment, moms/dads_favorite_moment, calls_mom,
-  // calls_dad, anything_else) must surface in at least one spread.
-  // The 60% generic saturation gate is too lenient — Scarlett's failed
-  // book passed it at 50% landed because the half it missed was every
-  // emotional anchor, and the writer got credit for landing generic
-  // interests instead. This gate cannot be averaged away.
+  // Deterministic preflight — signatureBeats is the only deterministic
+  // signal that survives. It's structured questionnaire-anchor coverage,
+  // not literary judgment. Feed it to the judge as a hint and also use it
+  // as an independent book-level gate.
   const signature = checkSignatureBeatCoverage(doc.brief, doc.spreads);
+  const signatureHint = signature.beats.length > 0
+    ? {
+        landed: signature.landed.map(describeBeat),
+        missing: signature.missing.map(describeBeat),
+        coverageRatio: signature.beats.length === 0 ? 1 : signature.landed.length / signature.beats.length,
+      }
+    : null;
+
+  // Authoritative judge + shadow run, in parallel.
+  const [judgeResult, shadowResult] = await Promise.all([
+    callText({
+      model: MODELS.WRITER_JUDGE,
+      systemPrompt: JUDGE_SYSTEM,
+      userPrompt: buildJudgeUserPrompt(doc, signatureHint),
+      jsonMode: true,
+      temperature: 0.2,
+      maxTokens: 12000,
+      label: 'writerQa.judge',
+      abortSignal: doc.operationalContext?.abortSignal,
+    }),
+    runShadowJudge(doc),
+  ]);
+
+  const judge = judgeResult.json || {};
+  const perSpreadJudge = Array.isArray(judge.perSpread) ? judge.perSpread : [];
+  const bookLevel = Array.isArray(judge.bookLevelIssues) ? judge.bookLevelIssues.map(String) : [];
+  const bookLevelTags = Array.isArray(judge.bookLevelTags) ? judge.bookLevelTags.map(String) : [];
+  const infantLocomotionHits = Array.isArray(judge.infantLocomotionHits) ? judge.infantLocomotionHits : [];
+
+  // Independent signature-beat gate. The judge is asked to verify against
+  // the manuscript, but if it disagrees with the deterministic preflight
+  // we trust the preflight (token-presence is unambiguous).
+  let signatureGateFail = false;
   if (signature.missing.length > 0) {
-    bookLevel.push(
-      `signature beats missing: ${signature.missing.length} of ${signature.beats.length} questionnaire anchors did not appear in any spread — ${signature.missing.map(describeBeat).join('; ')}`,
-    );
-    bookLevelTags.push('signature_beat_missing');
-    bookLevelDeterministicFail = true;
-    // Inject one targeted directive per missing beat into the assigned
-    // spread (opening / peak / closing rotation) so the rewrite loop has
-    // a concrete place to land it.
+    const beatList = signature.missing.map(describeBeat).join('; ');
+    const issue = `signature beats missing: ${signature.missing.length} of ${signature.beats.length} questionnaire anchors did not appear in any spread — ${beatList}`;
+    if (!bookLevel.includes(issue)) bookLevel.push(issue);
+    if (!bookLevelTags.includes('signature_beat_missing')) bookLevelTags.push('signature_beat_missing');
+    signatureGateFail = true;
+  }
+
+  // Inject infant locomotion hits as per-spread tags so the rewrite loop
+  // has actionable targets even if the judge missed them.
+  const infantHitsBySpread = new Map();
+  for (const hit of infantLocomotionHits) {
+    const n = Number(hit?.spreadNumber);
+    if (!Number.isFinite(n)) continue;
+    const verbs = Array.isArray(hit?.verbs) ? hit.verbs.map(String) : [];
+    if (verbs.length === 0) continue;
+    infantHitsBySpread.set(n, verbs);
+  }
+
+  // Inject signature_beat_missing per-spread directives into the rotation
+  // assignment so the rewrite loop has concrete spreads to target.
+  const sigInjections = new Map(); // spreadNumber -> { issues:[], tags:[] }
+  if (signature.missing.length > 0) {
     for (let i = 0; i < signature.missing.length; i++) {
       const beat = signature.missing[i];
       const sn = signature.assignments[i];
@@ -1322,46 +376,68 @@ async function checkWriterDraft(doc) {
       const phrasing = (beat.key === 'calls_mom' || beat.key === 'calls_dad')
         ? `${beat.key} parent address word "${beat.text}"`
         : `questionnaire anchor ${describeBeat(beat)}`;
-      addBookLevelInjection(
-        sn,
-        `signature_beat_missing: surface the ${phrasing} in this spread — it is a load-bearing personalization detail from the questionnaire and the manuscript must not ship without it.`,
-        'signature_beat_missing',
-      );
+      const entry = sigInjections.get(sn) || { issues: [], tags: [] };
+      entry.issues.push(`signature_beat_missing: surface the ${phrasing} in this spread — it is a load-bearing personalization detail from the questionnaire and the manuscript must not ship without it.`);
+      if (!entry.tags.includes('signature_beat_missing')) entry.tags.push('signature_beat_missing');
+      sigInjections.set(sn, entry);
     }
   }
 
+  // Merge per-spread verdicts onto the canonical spread list (1..N).
   const merged = doc.spreads.map(s => {
-    const det = deterministic.find(d => d.spreadNumber === s.spreadNumber) || { pass: true, issues: [], tags: [] };
-    const lit = perSpreadLit.find(l => Number(l?.spreadNumber) === s.spreadNumber) || {};
-    const injection = bookLevelSpreadInjections.get(s.spreadNumber) || { issues: [], tags: [] };
-    const issues = [
-      ...det.issues,
-      ...(Array.isArray(lit.issues) ? lit.issues.map(String) : []),
-      ...injection.issues,
-    ];
-    const tags = [
-      ...det.tags,
-      ...(Array.isArray(lit.tags) ? lit.tags.map(String) : []),
-      ...injection.tags,
-    ];
+    const j = perSpreadJudge.find(p => Number(p?.spreadNumber) === s.spreadNumber) || {};
+    const issues = Array.isArray(j.issues) ? j.issues.map(String) : [];
+    const tags = Array.isArray(j.tags) ? j.tags.map(String) : [];
+
+    const infantVerbs = infantHitsBySpread.get(s.spreadNumber);
+    if (infantVerbs && infantVerbs.length > 0) {
+      const issue = `infant_action_verb_in_text: locomotion verbs forbidden for PB_INFANT — ${infantVerbs.join(', ')}`;
+      if (!issues.some(x => x.startsWith('infant_action_verb_in_text'))) issues.push(issue);
+      if (!tags.includes('infant_action_verb_in_text')) tags.push('infant_action_verb_in_text');
+    }
+
+    const sig = sigInjections.get(s.spreadNumber);
+    if (sig) {
+      for (const i of sig.issues) if (!issues.includes(i)) issues.push(i);
+      for (const t of sig.tags) if (!tags.includes(t)) tags.push(t);
+    }
+
     return {
       spreadNumber: s.spreadNumber,
       pass: issues.length === 0,
       issues,
       tags,
-      suggestedRewrite: lit.suggestedRewrite ? String(lit.suggestedRewrite) : null,
+      suggestedRewrite: j.suggestedRewrite ? String(j.suggestedRewrite) : null,
     };
   });
 
   const repairPlan = merged.filter(m => !m.pass);
-  const pass = literary.pass === true && repairPlan.length === 0 && !bookLevelDeterministicFail;
+  const judgeSaysPass = judge.pass === true;
+  const pass = judgeSaysPass && repairPlan.length === 0 && bookLevel.length === 0 && !signatureGateFail;
 
-  const updatedDoc = appendLlmCall(doc, {
-    stage: 'writerQa',
-    model: result.model,
-    attempts: result.attempts,
-    usage: result.usage,
+  // Shadow diff — log to stdout so we can grep it during the rollout
+  // window. Also recorded structurally on the doc via appendLlmCall.
+  const shadowDiff = diffJudgeVerdicts({ pass, perSpread: merged, bookLevel, bookLevelTags }, shadowResult);
+  const bookId = doc?.operationalContext?.bookId || doc?.request?.bookId || 'n/a';
+  console.log(
+    `[writerQa.shadowDiff:${bookId}] authoritativePass=${shadowDiff.authoritativePass} shadowPass=${shadowDiff.shadowPass} agreement=${shadowDiff.passAgreement} onlyAuthoritative=${JSON.stringify(shadowDiff.onlyAuthoritative)} onlyShadow=${JSON.stringify(shadowDiff.onlyShadow)} shadowFailed=${shadowDiff.shadowFailed === true}`,
+  );
+
+  // Persist both calls onto the doc.
+  let updatedDoc = appendLlmCall(doc, {
+    stage: 'writerQa.judge',
+    model: judgeResult.model,
+    attempts: judgeResult.attempts,
+    usage: judgeResult.usage,
   });
+  if (shadowResult && shadowResult.ok) {
+    updatedDoc = appendLlmCall(updatedDoc, {
+      stage: 'writerQa.shadow',
+      model: shadowResult.model,
+      attempts: shadowResult.attempts,
+      usage: shadowResult.usage,
+    });
+  }
 
   return {
     pass,
@@ -1375,21 +451,8 @@ async function checkWriterDraft(doc) {
 
 module.exports = {
   checkWriterDraft,
-  // exported for unit tests
-  wordsRhyme,
-  findDroppedArticles,
-  findAddressNameConcat,
-  findVerbCrutches,
-  checkPersonalizationSaturation,
-  extractPersonalizationItems,
-  checkSignatureBeatCoverage,
-  // PR D detectors
   findInfantForbiddenActionVerbs,
-  findInfantFragmentLines,
-  lineHasFiniteVerb,
-  findNonsenseWords,
-  findNonsenseSimiles,
-  findParentThemePeerFraming,
-  findRefrainCrutches,
-  resolvePictureBookLineRange,
+  // exported for unit tests
+  JUDGE_SYSTEM,
+  INFANT_LOCOMOTION_SYSTEM,
 };

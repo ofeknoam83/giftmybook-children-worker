@@ -29,14 +29,17 @@ const { renderInfantContract } = require('./draftBookText');
  * @param {object} doc
  * @returns {{ spreadNumber: number, hits: string[] }[]}
  */
-function collectInfantActionResiduals(doc) {
+async function collectInfantActionResiduals(doc) {
   const ageBand = doc?.request?.ageBand;
   if (ageBand !== AGE_BANDS.PB_INFANT) return [];
   const offenders = [];
   for (const s of doc.spreads || []) {
     const text = s?.manuscript?.text;
     if (!text) continue;
-    const hits = findInfantForbiddenActionVerbs(text, ageBand);
+    // AA-CW-4: this is now an async pure-LLM Flash call (no regex).
+    const hits = await findInfantForbiddenActionVerbs(text, ageBand, {
+      abortSignal: doc?.operationalContext?.abortSignal,
+    });
     if (hits.length > 0) offenders.push({ spreadNumber: s.spreadNumber, hits });
   }
   return offenders;
@@ -239,7 +242,7 @@ async function writerQaAndRewrite(doc) {
   // forbidden action verbs, do not let the bad text reach the illustrator.
   // The illustrator cannot resolve text-induced age violations and would
   // burn its full per-pair budget for nothing.
-  const residuals = collectInfantActionResiduals(finalDoc);
+  const residuals = await collectInfantActionResiduals(finalDoc);
   if (residuals.length > 0) {
     const issues = residuals.map(r => `spread ${r.spreadNumber}: infant-forbidden action verb(s) remain after ${wave} rewrite wave(s): ${r.hits.join(', ')}`);
     const bookId = finalDoc.operationalContext?.bookId || finalDoc.request?.bookId || 'n/a';
