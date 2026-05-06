@@ -209,7 +209,27 @@ function userPrompt(doc) {
   // block (curated narrativeSpine / beats / motifs / locations) takes its
   // slot at the top of the prompt so the writer reads the through-line
   // before any per-spread JSON.
+  // AA-CW-23: surface the AA-CW-22 RHYME contract as a banner at the
+  // VERY TOP of the user prompt. Production failure (book e3f4e0c0,
+  // post-AA-CW-22 deploy) showed the writer producing 9 identity
+  // rhymes on wave 0 despite the system prompt's RHYME contract — the
+  // textPolicies block + storyBible JSON + spread specs were burying
+  // the system instruction. Lifting the contract into the user prompt
+  // puts it inside the same attention window as the spec data.
+  const rhymeBanner = [
+    'RHYME CONTRACT — READ BEFORE WRITING ANY SPREAD (AA-CW-22, hard rules):',
+    '- Lines 1+2 of every spread MUST end on TWO DIFFERENT WORDS that rhyme.',
+    '- NEVER end both lines on the SAME word. "chin / chin", "face / face", "play / play", "Mama / Mama" are NOT rhymes — they are identity rhymes and they are an automatic gate failure.',
+    '- NEVER end both lines on a STEM PAIR (smushy / mushy, beam / beams, gold / golden, sky / skies). One word containing the other is not a rhyme.',
+    '- NEVER repeat the line-2 end-word inside line 2 itself (e.g. "Mama grins with a grin." repeats grin and is rejected).',
+    '- A real rhyme matches the final vowel + final consonant sound on TWO DIFFERENT words: face/place, cheek/peek, chin/grin, see/glee, day/play, light/tight, near/dear, smushy/cushy. Use these shapes.',
+    '- Before emitting any spread, read lines 1 and 2 aloud in your head. If they end on the same word OR do not actually rhyme OR share a stem, REWRITE BOTH end-words before you emit.',
+    '- DROPPED ARTICLES: never write "in lap", "by chin", "at chin", "on knee", "for arm", "with hand". Always use a determiner: "in her lap", "by Mama\'s chin", "on her knee".',
+  ].join('\n');
+
   return [
+    rhymeBanner,
+    '',
     renderTextPolicyBlock(doc),
     arcContextBlock ? `\n${arcContextBlock}` : '',
     lineCountReminder ? `\n${lineCountReminder}` : '',
