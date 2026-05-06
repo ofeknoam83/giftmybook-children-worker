@@ -220,7 +220,12 @@ async function findInfantForbiddenActionVerbs(text, ageBand, options = {}) {
         userPrompt: buildInfantLocomotionUserPrompt(line),
         jsonMode: true,
         temperature: 0.1,
-        maxTokens: 200,
+        // Gemini Flash 2.5 reserves a thinking-token budget below ~512 before
+        // emitting any output. Budgets of 200/400/800 truncate, force the
+        // wrapper to retry, and waste 2-3x Flash spend + ~3-7s latency per
+        // line. Net JSON output is only ~5-10 tokens, but we need headroom
+        // above the thinking floor for one-shot success.
+        maxTokens: 1024,
         label: 'infantLocomotionGate',
         abortSignal: options.abortSignal,
       });
