@@ -254,7 +254,11 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/IMPLIED presence/i);
   });
 
-  test('parent_as_character_silhouette removes face features from parent shadow', () => {
+  test('parent_as_character_silhouette removes the in-frame silhouette and substitutes hand/object/off-frame shadow', () => {
+    // AA-CW-14b: previous instruction asked the renderer to remove face features
+    // from the silhouette — the renderer cannot reliably do that, so the repair
+    // now instructs a structural swap (hand entering frame OR off-frame cast
+    // shadow OR object) rather than a face-removal edit.
     const out = buildCorrectionTurn({
       ...base,
       issues: ['Themed parent rendered as an anthropomorphized character silhouette / shadow with face features: mother shadow with glowing eyes and open mouth'],
@@ -263,8 +267,14 @@ describe('buildCorrectionTurn — tag directives', () => {
       hasSecondaryOnCover: false,
     });
     expect(out).toMatch(/SPECIFIC ACTIONS/);
-    expect(out).toMatch(/anthropomorphized shadow|FACE FEATURES|featureless/i);
-    expect(out).toMatch(/never a co-actor|ambient only|hand entering frame/i);
+    // Names the failure mode (head-shape with face features inside the silhouette).
+    expect(out).toMatch(/in-frame silhouette|head-shape|face features/i);
+    // Tells the renderer NOT to attempt a face-less silhouette.
+    expect(out).toMatch(/cannot do that reliably|Do NOT attempt to redraw/i);
+    // Substitutes one of the three concrete alternatives.
+    expect(out).toMatch(/hand or forearm entering the frame/i);
+    expect(out).toMatch(/OFF-FRAME cast shadow|just outside the picture/i);
+    expect(out).toMatch(/empty mug|folded blanket|coat on a hook/i);
   });
 
   test('hero_skin_drift directive demands cover skin family with no lighting excuse', () => {

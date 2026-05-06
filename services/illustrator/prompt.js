@@ -385,7 +385,12 @@ function buildParentVisibilityReminder(opts) {
     case 'cropped-torso':
       return '- Themed parent visibility this spread: CROPPED TORSO — chest-down view, face out of frame, body anchored in scene.';
     case 'shadow':
-      return '- Themed parent visibility this spread: SHADOW / REFLECTION — parent shown only as a plain, featureless shadow on a wall or a soft reflection in a window/water. No face features inside the silhouette (NO eyes, NO glowing eyes, NO mouth, NO smile, NO gesturing hand silhouette). No body in direct view. Ambient presence only — never an anthropomorphized character with a face.';
+      // AA-CW-14b: rewrite as an OFF-FRAME cast shadow. The renderer cannot
+      // reliably draw an in-frame silhouette without giving it a head and face
+      // features. A cast shadow falling onto a surface from a person who is
+      // OFF-FRAME (like a long sunset shadow on grass) is a stable, concrete
+      // concept the renderer can produce without inventing facial features.
+      return '- Themed parent visibility this spread: OFF-FRAME CAST SHADOW — the parent stands JUST OUTSIDE the picture (off-frame) and their cast shadow falls onto a surface inside the frame: a long shadow stretching across the floor, the grass, the carpet, the bedspread, or up a wall. The shadow is a soft, elongated dark patch on a surface; the parent\'s body is NOT in frame. Because the parent is off-frame, the shadow is NOT a clean head-and-shoulders profile — it is shaped by the angle of the light and cropped by the edge of the picture. Render it like a literal cast shadow at low/late light: stretched, soft-edged, no facial features visible because the face is off-frame. NO eyes, NO mouth, NO glowing details, NO gesturing-hand silhouette inside the shadow. If you cannot draw a believable off-frame cast shadow, draw the parent\'s hand or forearm entering the frame instead. Never an anthropomorphized in-frame character.';
     case 'object':
       return '- Themed parent visibility this spread: OBJECT IMPLIES THEM — an empty chair, a coat on a hook, a still-warm mug, a folded blanket. Parent is not in frame; their presence is implied by what they left behind.';
     case 'absent':
@@ -610,8 +615,14 @@ function buildTagDirectives(tags, opts) {
     }
   }
   if (set.has('parent_as_character_silhouette')) {
+    // AA-CW-14b: previous repair instruction asked the model to remove face
+    // features from the silhouette — in practice the renderer kept re-emitting
+    // a head-shaped shadow with eyes/mouth on every retry, burning the full
+    // budget. Replace with a structural fix: drop the in-frame silhouette
+    // entirely and substitute a hand or object. This is what the model can
+    // actually deliver reliably.
     out.push(
-      'The previous image rendered the parent as an anthropomorphized shadow / silhouette with FACE FEATURES (eyes, glow, mouth, gesturing hand silhouette). Remove all face features from any parent shadow or silhouette — keep it a plain, featureless dark profile, ambient only. Better: replace the face-having shadow with a soft hand entering frame, a shoulder-back, or no parent presence at all this spread. The parent is NEVER a co-actor with a visible face on interior spreads of this book.',
+      'The previous image rendered the parent as an in-frame silhouette / shadow that took on a head-shape with face features (eyes, mouth, glowing details, gesturing-hand silhouette). Do NOT attempt to redraw the silhouette without face features — the renderer cannot do that reliably. Instead, REMOVE the parent silhouette from the frame entirely and replace it with ONE of: (a) the parent\'s hand or forearm entering the frame from an edge, sleeve continuing to a believable off-frame body, OR (b) an OFF-FRAME cast shadow (the parent is just outside the picture and only their elongated shadow falls onto a surface inside frame — because the body is off-frame, no head profile is visible), OR (c) an object that implies the parent without showing them (an empty mug, a folded blanket, a coat on a hook). The parent is NEVER an in-frame anthropomorphized silhouette with a face on interior spreads of this book.',
     );
   }
   if (set.has('hero_skin_drift')) {
