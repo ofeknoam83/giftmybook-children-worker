@@ -97,12 +97,16 @@ const MODELS = {
   ILLUSTRATION_SPEC: 'gpt-5.4-mini',
 
   // --- QA models ---
-  // WRITER_JUDGE — AA-CW-4. The authoritative writer-side QA judge runs on
-  // gpt-5.4 (same tier as the writer itself) so the literary verdict is
-  // strict enough to catch identity/stem/suffix-only rhymes, fragment lines,
-  // dropped articles, address-name concat, and infant locomotion verbs the
-  // gemini-flash literary call sometimes missed in production.
-  WRITER_JUDGE: 'gpt-5.4',
+  // WRITER_JUDGE — AA-CW-11. Flipped from gpt-5.4 (same model as the
+  // writer) to gemini-2.5-pro (different vendor, different family).
+  // Production showed the gpt-5.4 judge passing identity rhymes
+  // (cheek/cheek, Mama/Mama) and obvious slant rhymes (outside/glide,
+  // wide/beside, along/song) that the writer (also gpt-5.4) had
+  // produced — same distribution, shared blind spots. Decoupling the
+  // judge from the writer's family is the structural fix; AA-CW-11
+  // also adds a deterministic identity-rhyme check that runs after
+  // the LLM judge as belt-and-suspenders insurance.
+  WRITER_JUDGE: 'gemini-2.5-pro',
   // WRITER_QA — kept for the parallel SHADOW judge (non-authoritative
   // diffing) and for the per-line infant locomotion gate Flash call.
   WRITER_QA: 'gemini-2.5-flash',
