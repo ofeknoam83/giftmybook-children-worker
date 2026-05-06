@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "_doc": "Verbs that turn the protagonist into an object — the literal AA-CW (this session) failure 'Scarlett looks where she is kept'. Per-band, because what's wrong for an infant ('walks') is fine for a preschooler. The check looks for `<protagonist_pronoun_or_name> is <verb>` or `<protagonist> was <verb>` patterns plus the verb in any subject-position adjacent to the protagonist's name. False positives are tolerable here — the writer can revise.",
+  "byBand": {
+    "PB_INFANT": {
+      "objectifying": ["kept", "stored", "placed", "set", "parked", "dropped", "left", "put"],
+      "developmentallyImpossible": [
+        "walks", "walked", "running", "ran", "runs", "skipped", "skips",
+        "danced", "dances", "twirled", "twirls",
+        "shouted", "shouts", "yelled", "yells",
+        "talked", "talks", "said", "says",
+        "climbed", "climbs", "jumped", "jumps",
+        "asked", "asks", "explained", "explains"
+      ]
+    },
+    "PB_TODDLER": {
+      "objectifying": ["kept", "stored", "placed", "parked", "dropped"],
+      "developmentallyImpossible": [
+        "explained", "explains", "argued", "argues", "lectured", "lectures",
+        "wrote", "writes", "read", "reads"
+      ]
+    },
+    "PB_PRESCHOOL": {
+      "objectifying": ["kept", "stored", "parked"],
+      "developmentallyImpossible": []
+    },
+    "PB_EARLY_READER": {
+      "objectifying": ["stored"],
+      "developmentallyImpossible": []
+    }
+  }
+}

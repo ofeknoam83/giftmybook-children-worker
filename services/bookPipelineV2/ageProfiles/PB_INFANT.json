@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "ageBand": "PB_INFANT",
+  "ageMonthsRange": [0, 17],
+  "label": "lap baby (0-17 months)",
+  "narrativeConstraints": {
+    "spreadCount": 10,
+    "wordsPerSpread": { "min": 8, "max": 16, "target": 12 },
+    "linesPerSpread": { "min": 2, "max": 4, "target": 4 },
+    "syllablesPerLine": { "min": 4, "max": 7, "target": 6 },
+    "rhymeScheme": "AABB_with_L34_softening_allowed",
+    "rhymeStrictness": "perfect_rhyme_required_imperfect_eye_rhymes_banned",
+    "dialogueDensity": "none",
+    "conflictIntensityMax": 0.0,
+    "repetitionDensity": "high_intentional_refrain_ok",
+    "pageTurnHookStyle": "sensory_anticipation",
+    "abstractionLevel": "concrete_sensory_only",
+    "memoryLoadPerPage": "single_image_per_spread",
+    "namedCharacterCap": 2,
+    "newConceptIntroductionsPerBookMax": 1,
+    "protagonistCanWalk": false,
+    "protagonistCanStandIndependently": false,
+    "protagonistRenderedTeeth": "none_visible"
+  },
+  "vocabularyConstraints": {
+    "maxWordLengthChars": 7,
+    "bannedWordCategories": ["abstract_emotion_nouns", "compound_metaphors", "dialogue_verbs"],
+    "bannedPhrasesCategories": ["filler_meter_phrases", "moralizing_phrases", "dialogue_tags"],
+    "preferredRegister": "warm_concrete_sensory"
+  },
+  "illustrationConstraints": {
+    "sceneDensity": "low_one_focal_point",
+    "backgroundComplexity": "soft_blurred",
+    "facialExpressionRange": "calm_to_warm_smile",
+    "noScaryImagery": true,
+    "noStandingProtagonist": true,
+    "noWalkingProtagonist": true,
+    "noRenderedTeeth": true
+  }
+}

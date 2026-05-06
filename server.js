@@ -1300,8 +1300,15 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           }
         }
 
-        const { generateBook, PipelineError } = require('./services/bookPipeline');
+        // ── Hard PB cutover (AA-CW-29) ──
+        // Picture books route to bookPipelineV2; early readers stay on v1.
+        // Set BOOK_PIPELINE_V2=off as an emergency revert without redeploy.
+        const v2On = process.env.BOOK_PIPELINE_V2 !== 'off';
+        const usePictureBookV2 = v2On && format === 'picture_book';
+        const pipelineModulePath = usePictureBookV2 ? './services/bookPipelineV2' : './services/bookPipeline';
+        const { generateBook, PipelineError } = require(pipelineModulePath);
         const { toLegacyStoryPlan } = require('./services/bookPipeline/adapters/toLegacyStoryPlan');
+        bookContext.log('info', `Pipeline routing: format=${format} → ${usePictureBookV2 ? 'bookPipelineV2 (PB hard cutover)' : 'bookPipeline (v1)'}`);
 
         const stage3Start = Date.now();
         const pipelineRequest = {

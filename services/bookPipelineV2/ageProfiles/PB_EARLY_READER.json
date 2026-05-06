@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "ageBand": "PB_EARLY_READER",
+  "ageMonthsRange": [60, 96],
+  "label": "early reader (5-8 years)",
+  "narrativeConstraints": {
+    "spreadCount": 16,
+    "wordsPerSpread": { "min": 40, "max": 90, "target": 60 },
+    "linesPerSpread": { "min": 4, "max": 8, "target": 6 },
+    "syllablesPerLine": { "min": 6, "max": 14, "target": 10 },
+    "rhymeScheme": "free_or_AABB_per_book",
+    "rhymeStrictness": "if_rhymed_perfect_required_else_prose",
+    "dialogueDensity": "medium",
+    "conflictIntensityMax": 0.6,
+    "repetitionDensity": "low",
+    "pageTurnHookStyle": "hook_and_reveal",
+    "abstractionLevel": "abstract_emotions_named_with_concrete_anchor",
+    "memoryLoadPerPage": "two_to_three_threads",
+    "namedCharacterCap": 5,
+    "newConceptIntroductionsPerBookMax": 5
+  },
+  "vocabularyConstraints": {
+    "maxWordLengthChars": 12,
+    "bannedWordCategories": [],
+    "bannedPhrasesCategories": ["filler_meter_phrases", "moralizing_phrases"],
+    "preferredRegister": "warm_with_full_emotion_vocabulary"
+  },
+  "illustrationConstraints": {
+    "sceneDensity": "full_composed_scene",
+    "backgroundComplexity": "rich",
+    "facialExpressionRange": "full_palette_including_uncertainty",
+    "noScaryImagery": false
+  }
+}

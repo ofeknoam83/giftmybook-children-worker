@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "_doc": "End-of-line filler phrases the writer reaches for when a rhyme is hard. Catches the AA-CW-26 'at rest' / 'in light' regression class. Compared against trailing-N-words of each line after lowercasing and stripping punctuation. If a line ends with one of these AND the line is not load-bearing (i.e. the phrase carries no content), the deterministic gate forces a rewrite.",
+  "endingPhrases": [
+    "at rest",
+    "in rest",
+    "at last",
+    "at play",
+    "in light",
+    "with grace",
+    "with care",
+    "by night",
+    "in flight",
+    "in sight",
+    "on high",
+    "in sky",
+    "in glee",
+    "with glee",
+    "with cheer",
+    "in cheer",
+    "so bright",
+    "so dear",
+    "so true",
+    "all night",
+    "all day",
+    "as one",
+    "in tune"
+  ],
+  "lineLevelFillers": [
+    "and that is that",
+    "and so it goes",
+    "and that's just right",
+    "what a sight",
+    "what a day"
+  ]
+}

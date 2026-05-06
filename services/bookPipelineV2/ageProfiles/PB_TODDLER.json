@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "ageBand": "PB_TODDLER",
+  "ageMonthsRange": [12, 36],
+  "label": "toddler (1-3 years)",
+  "narrativeConstraints": {
+    "spreadCount": 12,
+    "wordsPerSpread": { "min": 12, "max": 28, "target": 20 },
+    "linesPerSpread": { "min": 2, "max": 4, "target": 4 },
+    "syllablesPerLine": { "min": 5, "max": 9, "target": 7 },
+    "rhymeScheme": "AABB",
+    "rhymeStrictness": "perfect_rhyme_required_imperfect_eye_rhymes_banned",
+    "dialogueDensity": "very_low",
+    "conflictIntensityMax": 0.2,
+    "repetitionDensity": "high_intentional_refrain_ok",
+    "pageTurnHookStyle": "soft_anticipation",
+    "abstractionLevel": "concrete_sensory",
+    "memoryLoadPerPage": "single_image_per_spread",
+    "namedCharacterCap": 3,
+    "newConceptIntroductionsPerBookMax": 2
+  },
+  "vocabularyConstraints": {
+    "maxWordLengthChars": 8,
+    "bannedWordCategories": ["abstract_emotion_nouns", "compound_metaphors"],
+    "bannedPhrasesCategories": ["filler_meter_phrases", "moralizing_phrases"],
+    "preferredRegister": "warm_concrete_sensory"
+  },
+  "illustrationConstraints": {
+    "sceneDensity": "low_one_focal_point",
+    "backgroundComplexity": "soft_blurred",
+    "facialExpressionRange": "calm_to_warm_smile",
+    "noScaryImagery": true
+  }
+}
