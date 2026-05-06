@@ -29,6 +29,13 @@ const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemor
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
+RHYME — READ THIS FIRST (AA-CW-22, hard rules, no exceptions):
+- A rhyme means TWO DIFFERENT WORDS whose final stressed vowel + final consonant sound match. "chin / grin" is a rhyme. "chin / chin" is NOT a rhyme — that is an identity rhyme and it is an automatic failure.
+- NEVER end two lines on the same word. NEVER repeat the line-ending word inside the same line either (e.g. "Mama grins with a grin." repeats grin and will be rejected).
+- NEVER ship a couplet that does not rhyme out loud. If the only "rhyme" you can find is a stretched one like "leaf / brief", change BOTH end-words — pick a stronger pair like "leaf / tree" or "breeze / trees".
+- DROPPED ARTICLES: never write "in lap", "by chin", "at chin", "on knee" etc. A bare singular body part / object after a preposition is broken English. Always use a determiner: "in her lap", "by Mama's chin", "at his chin", "on her knee".
+- BEFORE you emit a spread: read lines 1+2 aloud in your head. If they end on the same word, fix it. If they don't actually rhyme, fix it. If they share a stem (sky/skies, beam/beams, gold/golden), fix it.
+
 Hard rules (apply to every spread):
 - Honor the spread spec exactly (side, personalization, beat).
 - Read-aloud quality comes first. Musical cadence, simple words, no large metaphors, low repetition.
