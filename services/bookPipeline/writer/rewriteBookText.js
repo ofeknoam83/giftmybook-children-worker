@@ -205,6 +205,79 @@ Picture-book structure (MANDATORY when format is picture_book):
 
 Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLINE2\\nLINE3\\nLINE4", "side": "left|right", "lineBreakHints": ["..."], "personalizationUsed": ["..."], "writerNotes": "optional" }, ... ] }. The "text" field is a single string with embedded "\\n" line breaks. Picture books always emit EXACTLY 4 lines per spread regardless of age band.`;
 
+/**
+ * AA-CW-15 — writer rewrite memory.
+ *
+ * Production logs (book e3f4e0c0) show the rewriter cycling through the same
+ * 3-4 defects across waves: wave 1 fixes the verb, breaks the rhyme; wave 2
+ * fixes the rhyme, brings back filler; wave 3 fixes filler, brings back the
+ * verb. Without context of what it just tried, the writer rediscovers each
+ * lossy local optimum.
+ *
+ * Memory shape on the doc:
+ *   doc.writerRewriteMemory = {
+ *     <spreadNumber>: [
+ *       { wave: 1, rejectedText: '...', killingTags: [...], killingIssues: [...] },
+ *       { wave: 2, rejectedText: '...', killingTags: [...], killingIssues: [...] },
+ *     ],
+ *   }
+ *
+ * Capped to the last 2 attempts per spread to keep prompt size bounded.
+ */
+const REWRITE_MEMORY_MAX_ATTEMPTS = 2;
+
+function recordRewriteAttempt(doc, spreadNumber, attempt) {
+  const prev = doc.writerRewriteMemory && doc.writerRewriteMemory[spreadNumber]
+    ? doc.writerRewriteMemory[spreadNumber]
+    : [];
+  const next = [...prev, attempt].slice(-REWRITE_MEMORY_MAX_ATTEMPTS);
+  return {
+    ...doc,
+    writerRewriteMemory: {
+      ...(doc.writerRewriteMemory || {}),
+      [spreadNumber]: next,
+    },
+  };
+}
+
+/**
+ * Render the memory block for a single spread's prior failed attempts. The
+ * block is consumed by the rewriter so it does NOT re-emit the same lines and
+ * does NOT just shuffle them; it must change the meaning, image, or rhyme.
+ *
+ * @param {object} doc
+ * @param {number} spreadNumber
+ * @returns {string}
+ */
+function renderRewriteMemoryForSpread(doc, spreadNumber) {
+  const attempts = doc.writerRewriteMemory && doc.writerRewriteMemory[spreadNumber]
+    ? doc.writerRewriteMemory[spreadNumber]
+    : [];
+  if (attempts.length === 0) return '';
+  const lines = [
+    'WHAT YOU JUST TRIED THAT DID NOT WORK — do NOT re-emit any of these lines verbatim, and do NOT just shuffle them. Change the meaning, image, OR rhyme word so the failing tag goes away:',
+  ];
+  for (const a of attempts) {
+    const tags = Array.isArray(a.killingTags) && a.killingTags.length > 0
+      ? a.killingTags.join(', ')
+      : 'unspecified';
+    lines.push(`  - Wave ${a.wave} (rejected with tags: ${tags}):`);
+    const text = (a.rejectedText || '').trim();
+    if (text) {
+      for (const ln of text.split(/\r?\n/)) {
+        if (ln.trim()) lines.push(`      | ${ln}`);
+      }
+    }
+    if (Array.isArray(a.killingIssues) && a.killingIssues.length > 0) {
+      for (const issue of a.killingIssues.slice(0, 4)) {
+        lines.push(`    • why it failed: ${issue}`);
+      }
+    }
+  }
+  lines.push('Your new attempt for this spread MUST differ in substance from every wave above — not just rephrasing.');
+  return lines.join('\n');
+}
+
 function renderLineCountReminderForRewrite(ageBand) {
   const target = TEXT_LINE_TARGET[ageBand];
   if (target && target.min === target.max) {
@@ -224,6 +297,13 @@ function rewriteUserPrompt(doc, targets) {
     .map(t => {
       const s = bySpread.get(t.spreadNumber);
       if (!s) return null;
+      // AA-CW-15: pass prior-wave rejected attempts so the rewriter does not
+      // loop B->C->B on the same defects. Surfaced in a top-level field so
+      // the rewriter sees "WHAT YOU JUST TRIED" for THIS spread before it
+      // emits the next attempt.
+      const priorAttempts = (doc.writerRewriteMemory && doc.writerRewriteMemory[t.spreadNumber])
+        ? doc.writerRewriteMemory[t.spreadNumber]
+        : [];
       return {
         spreadNumber: t.spreadNumber,
         spec: s.spec,
@@ -232,7 +312,18 @@ function rewriteUserPrompt(doc, targets) {
         issues: t.issues,
         tags: t.tags,
         suggestedRewrite: t.suggestedRewrite,
+        priorAttempts,
       };
+    })
+    .filter(Boolean);
+
+  // AA-CW-15: build a separate, prominent memory block per spread so the
+  // "do not re-emit" instruction is loud, not buried inside JSON.
+  const memoryBlocks = items
+    .map(it => {
+      const block = renderRewriteMemoryForSpread(doc, it.spreadNumber);
+      if (!block) return '';
+      return `--- Spread ${it.spreadNumber} ---\n${block}`;
     })
     .filter(Boolean);
   const lineCountReminder = renderLineCountReminderForRewrite(doc.request?.ageBand);
@@ -256,6 +347,11 @@ function rewriteUserPrompt(doc, targets) {
     arcContextBlock ? `\n${arcContextBlock}` : '',
     lineCountReminder ? `\n${lineCountReminder}` : '',
     pronounBlock ? `\n${pronounBlock}` : '',
+    // AA-CW-15: surface the rewrite-memory block ABOVE the JSON payload so
+    // the rewriter cannot miss it (model attention drops by mid-prompt).
+    memoryBlocks.length > 0
+      ? `\n${memoryBlocks.join('\n\n')}\n`
+      : '',
     '',
     `Story bible:\n${JSON.stringify(doc.storyBible, null, 2)}`,
     '',
@@ -319,7 +415,20 @@ async function writerQaAndRewrite(doc) {
     const targets = qa.repairPlan.length > 0 ? qa.repairPlan : qa.perSpread.filter(s => !s.pass);
     if (targets.length === 0) break;
 
+    // AA-CW-15: snapshot the about-to-be-rewritten text + killing tags/issues
+    // BEFORE we call the rewriter. The current manuscript is exactly what the
+    // QA just rejected, so this is the canonical "what you tried that failed"
+    // payload for the next wave's prompt.
+    const bySpreadForSnapshot = new Map(current.spreads.map(s => [s.spreadNumber, s]));
     for (const t of targets) {
+      const snapshotSpread = bySpreadForSnapshot.get(t.spreadNumber);
+      const rejectedText = snapshotSpread?.manuscript?.text || '';
+      current = recordRewriteAttempt(current, t.spreadNumber, {
+        wave: wave + 1,
+        rejectedText,
+        killingTags: Array.isArray(t.tags) ? [...t.tags] : [],
+        killingIssues: Array.isArray(t.issues) ? [...t.issues] : [],
+      });
       current = appendRetryMemory(current, buildRetryEntry({
         stage: 'writerDraft',
         spreadNumber: t.spreadNumber,
@@ -427,4 +536,9 @@ module.exports = {
   WriterUnresolvableError,
   WRITER_FATAL_TAGS,
   WRITER_FATAL_BOOK_LEVEL_TAGS,
+  // AA-CW-15 — exported for tests and future composition.
+  recordRewriteAttempt,
+  renderRewriteMemoryForSpread,
+  rewriteUserPrompt,
+  REWRITE_MEMORY_MAX_ATTEMPTS,
 };
