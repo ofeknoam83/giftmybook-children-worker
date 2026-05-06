@@ -181,6 +181,85 @@ function resolveParentVisibilityWithEscapeHatch(planned, consecutive) {
   return planned;
 }
 
+/**
+ * AA-CW-14a — silhouette escape hatch.
+ *
+ * The QA tag `parent_as_character_silhouette` fires when the model renders the
+ * implied parent as an anthropomorphized shadow / silhouette WITH face
+ * features (eyes, mouth, glow). The repair prompt asks the model to remove
+ * face features from the silhouette — but the image model frequently reproduces
+ * the same head-shaped shadow on every retry, since "silhouette without a
+ * head" is not a stable concept for the renderer.
+ *
+ * Observed in production: spread pairs burn the full ~5-attempt budget on
+ * `parent_as_character_silhouette` alone, then trigger a session rebuild and
+ * burn another full budget — ~150s of GPU time per failing pair, with no
+ * meaningful progress between attempts.
+ *
+ * Mirror PR X (parent-skin escape hatch). After 2 consecutive silhouette-only
+ * rejections, downgrade THAT spread's parentVisibility on the next attempt so
+ * the parent silhouette is removed from frame entirely. The story is about
+ * the hero child; an empty mug / blanket / chair implies the parent without
+ * exposing a face-shaped shadow for QA to re-flag.
+ *
+ * Tier ladder (consecutive silhouette-only rejections for THIS spread):
+ *   < 2  rejections : keep planner's chosen parentVisibility (no override)
+ *   = 2  rejections : downgrade to 'object'  (object stands in for parent)
+ *   >= 3 rejections : downgrade to 'absent'  (child alone in the frame)
+ *
+ * "silhouette-only" means the spread's last rejection had AT LEAST ONE
+ * silhouette tag AND no OTHER unrelated failure tag. Spreads that also have
+ * unrelated tags (e.g. duplicated_hero, outfit_mismatch) take the regular
+ * repair path because those still need real fixes.
+ *
+ * @param {string[]} tags
+ * @returns {boolean}
+ */
+const SILHOUETTE_TAGS = new Set([
+  'parent_as_character_silhouette',
+]);
+
+function isSilhouetteOnlyRejection(tags) {
+  const arr = Array.isArray(tags) ? tags : [];
+  if (arr.length === 0) return false;
+  let hasSilhouette = false;
+  for (const t of arr) {
+    if (SILHOUETTE_TAGS.has(t)) { hasSilhouette = true; continue; }
+    return false;
+  }
+  return hasSilhouette;
+}
+
+/**
+ * @param {number} prev
+ * @param {string[]} latestTags
+ * @returns {number}
+ */
+function nextConsecutiveSilhouetteOnly(prev, latestTags) {
+  if (isSilhouetteOnlyRejection(latestTags)) return (prev || 0) + 1;
+  return 0;
+}
+
+/**
+ * Combine the parent-skin and silhouette escape-hatch tiers into the
+ * effective parentVisibility for the NEXT attempt. We take the strongest
+ * downgrade across both counters: if either has reached 'absent' (>=3) we
+ * return 'absent'; otherwise if either has reached 'object' (>=2) we return
+ * 'object'; otherwise return the planner's value.
+ *
+ * @param {string|null|undefined} planned
+ * @param {number} consecutiveParentSkin
+ * @param {number} consecutiveSilhouette
+ * @returns {string|null|undefined}
+ */
+function resolveParentVisibilityWithBothEscapeHatches(planned, consecutiveParentSkin, consecutiveSilhouette) {
+  const cps = consecutiveParentSkin || 0;
+  const cs = consecutiveSilhouette || 0;
+  if (cps >= 3 || cs >= 3) return 'absent';
+  if (cps >= 2 || cs >= 2) return 'object';
+  return planned;
+}
+
 function quadGenOpts() {
   const openai = String(providerName || '').toLowerCase().includes('openai');
   if (openai) {
@@ -252,6 +331,13 @@ async function processQuadPair(params) {
   let consecParentSkinOnlyA = 0;
   let consecParentSkinOnlyB = 0;
 
+  // AA-CW-14a: per-spread consecutive silhouette-only rejection counters drive
+  // the silhouette escape hatch. Same ladder as parent-skin (>=2 -> 'object',
+  // >=3 -> 'absent'). Removes the parent shadow / silhouette entirely after
+  // 2 unsuccessful repairs so the renderer can stop fighting an unwinnable QA.
+  let consecSilhouetteOnlyA = 0;
+  let consecSilhouetteOnlyB = 0;
+
   function applyTier2CaptionSoftening() {
     const softA = softenCaptionForImageSafetyRetry(baselineCaptionA);
     const softB = softenCaptionForImageSafetyRetry(baselineCaptionB);
@@ -292,6 +378,9 @@ async function processQuadPair(params) {
     // produce a clean render where the previous one drifted.
     consecParentSkinOnlyA = 0;
     consecParentSkinOnlyB = 0;
+    // AA-CW-14a: same fresh-session reset for the silhouette counters.
+    consecSilhouetteOnlyA = 0;
+    consecSilhouetteOnlyB = 0;
 
     while (attempt < totalBudget) {
       attempt += 1;
@@ -330,8 +419,8 @@ async function processQuadPair(params) {
             coverParentPresent: specA.coverParentPresent,
             hasSecondaryOnCover: specA.hasSecondaryOnCover,
             impliedParentDescriptor: specA.impliedParentDescriptor,
-            parentVisibilityA: resolveParentVisibilityWithEscapeHatch(specA.parentVisibility, consecParentSkinOnlyA),
-            parentVisibilityB: resolveParentVisibilityWithEscapeHatch(specB.parentVisibility, consecParentSkinOnlyB),
+            parentVisibilityA: resolveParentVisibilityWithBothEscapeHatches(specA.parentVisibility, consecParentSkinOnlyA, consecSilhouetteOnlyA),
+            parentVisibilityB: resolveParentVisibilityWithBothEscapeHatches(specB.parentVisibility, consecParentSkinOnlyB, consecSilhouetteOnlyB),
           });
           // Schedule a cover re-anchor on the first attempt if this batch covers a
           // strategic spread (mid/late book) — same drift-protection trigger as the
@@ -367,8 +456,8 @@ async function processQuadPair(params) {
             coverParentPresent: specA.coverParentPresent,
             hasSecondaryOnCover: specA.hasSecondaryOnCover,
             impliedParentDescriptor: specA.impliedParentDescriptor,
-            parentVisibilityA: resolveParentVisibilityWithEscapeHatch(specA.parentVisibility, consecParentSkinOnlyA),
-            parentVisibilityB: resolveParentVisibilityWithEscapeHatch(specB.parentVisibility, consecParentSkinOnlyB),
+            parentVisibilityA: resolveParentVisibilityWithBothEscapeHatches(specA.parentVisibility, consecParentSkinOnlyA, consecSilhouetteOnlyA),
+            parentVisibilityB: resolveParentVisibilityWithBothEscapeHatches(specB.parentVisibility, consecParentSkinOnlyB, consecSilhouetteOnlyB),
           });
           if (reanchorThisTurn) {
             console.log(`[${logTagQuad}] re-anchoring cover on attempt ${attempt} (prev tags: ${lastTags.join(',')})`);
@@ -685,6 +774,34 @@ async function processQuadPair(params) {
           `next attempt will downgrade parentVisibility to '${downgrade}' (was '${specB.parentVisibility || 'unset'}')`,
         );
       }
+
+      // AA-CW-14a: per-spread silhouette-only rejection tracking. When ONE
+      // spread keeps failing on parent_as_character_silhouette alone, downgrade
+      // THAT spread's parentVisibility on the next attempt so the silhouette
+      // is removed from frame entirely. The repair prompt cannot reliably get
+      // the renderer to drop face features from a parent shadow; removing the
+      // shadow is the only stable fix.
+      const prevSilhouetteA = consecSilhouetteOnlyA;
+      const prevSilhouetteB = consecSilhouetteOnlyB;
+      consecSilhouetteOnlyA = nextConsecutiveSilhouetteOnly(consecSilhouetteOnlyA, qaA.tags);
+      consecSilhouetteOnlyB = nextConsecutiveSilhouetteOnly(consecSilhouetteOnlyB, qaB.tags);
+      if (consecSilhouetteOnlyA !== prevSilhouetteA && consecSilhouetteOnlyA >= 2) {
+        const downgrade = consecSilhouetteOnlyA >= 3 ? 'absent' : 'object';
+        console.warn(
+          `[${logA}] silhouette escape hatch engaged: ` +
+          `${consecSilhouetteOnlyA} consecutive silhouette-only rejections — ` +
+          `next attempt will downgrade parentVisibility to '${downgrade}' (was '${specA.parentVisibility || 'unset'}')`,
+        );
+      }
+      if (consecSilhouetteOnlyB !== prevSilhouetteB && consecSilhouetteOnlyB >= 2) {
+        const downgrade = consecSilhouetteOnlyB >= 3 ? 'absent' : 'object';
+        console.warn(
+          `[${logB}] silhouette escape hatch engaged: ` +
+          `${consecSilhouetteOnlyB} consecutive silhouette-only rejections — ` +
+          `next attempt will downgrade parentVisibility to '${downgrade}' (was '${specB.parentVisibility || 'unset'}')`,
+        );
+      }
+
       if (shouldEarlyAbortForUnrenderableInfantAction(consecutiveAgeActionImpossible)) {
         console.error(
           `[${logTagQuad}] EARLY-ABORT spreads [${spreadNumbers.join(', ')}] — ` +
@@ -991,4 +1108,8 @@ module.exports = {
   isParentSkinOnlyRejection,
   nextConsecutiveParentSkinOnly,
   resolveParentVisibilityWithEscapeHatch,
+  // AA-CW-14a — exported for unit tests (silhouette escape hatch)
+  isSilhouetteOnlyRejection,
+  nextConsecutiveSilhouetteOnly,
+  resolveParentVisibilityWithBothEscapeHatches,
 };
