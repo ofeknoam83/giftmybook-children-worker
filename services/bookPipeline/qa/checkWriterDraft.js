@@ -87,17 +87,36 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
    SUFFIX-ONLY RHYMES — only the grammatical ending matches. ALWAYS FAIL.
      BAD: "running/jumping", "sadly/badly", "quickly/slowly", "playing/staying".
 
+   R-CONTROLLED VOWEL MISMATCH — pairs whose post-vowel consonant matches but the stressed vowel differs. ALWAYS FAIL. Phonetic principle: in American English, the vowel before /r/ carries the rhyme, not the /r/ itself. If the vowels diverge, the pair only LOOKS like a rhyme on paper.
+     BAD families (each pair is the canonical example of its family): "arm/warm" (/ɑrm/ vs /wɔrm/), "heart/short" (/ɑrt/ vs /ɔrt/), "born/turn" (/ɔrn/ vs /ɜrn/), "care/fear" (/ɛr/ vs /ɪr/), "hard/word" (/ɑrd/ vs /ɜrd/).
+     The test: say both words out loud. If the stressed vowel differs, fail it regardless of how the spelling looks.
+
+   INTERJECTION / EXCLAMATION AS RHYME — the rhyme word on at least one side is an interjection, onomatopoeia, or stage-direction sound used to force a match with a content word. ALWAYS FAIL — interjections are theatrical, not lexical, and pairing them with real words breaks the read-aloud.
+     BAD examples (one per family): "Mama/Ta-da", "flow/Whoa", "day/Yay", "cheer/Hooray", "glow/Oh", "high/Aha", "go/Uh-oh", "bang/Bam", "creep/Boo", "top/Pop".
+     Onomatopoeia is fine WITHIN a line for sound effect, but never as the rhyme word itself. Excludes nothing — even "Ta-da" repeated across multiple spreads as a refrain does not earn it status as a rhyme word.
+
    GOOD pairs (real rhymes): "town/down", "light/bright", "day/play", "high/sky", "ball/tall", "chin/grin", "tight/right", "snug/hug", "flies/sighs", "by/high", "there/air", "slow/blow", "cheer/near", "heart/part".
 
-   In the issue text, name the offending pair AND which sub-mode (identity / slant / stem / suffix-only / non-rhyming). When in doubt about a slant pair, FAIL it — the writer can find a real rhyme.
+   In the issue text, name the offending pair AND which sub-mode (identity / slant / stem / suffix-only / r-controlled / interjection / non-rhyming). When in doubt about a slant pair, FAIL it — the writer can find a real rhyme.
 
 2. "dropped_article" — a preposition is followed by a bare singular countable noun with no determiner. BAD: "down street", "by feet", "on bench", "in room", "drift above land" (should be "above the land"), "go past" used as object ("baskets go past" is fine, but "baskets past store" is broken). GOOD: "down THE street", "by HER feet", "on a bench", "in HIS room", "drift above THE land". This is broken phrasing, never a stylistic choice.
 
 3. "address_name_concat" — a parental address term jammed against the parent's proper first name. BAD: "Mama Courtney", "Daddy John", "Mommy Sarah", "Papa Tom". GOOD: pick one — "Mama" OR "Courtney", never both back-to-back.
 
-4. "verb_crutch" — ONE content verb dominates the manuscript (>~25% of spreads). Book-level. Name the overused verb and how many spreads it appears in.
+4. "verb_crutch" — ONE content-verb LEMMA dominates the manuscript. Book-level. Mandatory counting procedure:
+     a. Walk every line of every spread.
+     b. For each finite verb whose subject is the hero or a parent, normalise to its lemma (squeals/squealed/squealing → squeal; holds/held/holding → hold; smiles/smiled → smile). Skip auxiliaries (is, are, was, has, does), copulas (be, seem, look), and the bare verb "say" used as a speech tag.
+     c. Count distinct spreads each lemma appears in (a lemma used twice in the same spread counts once).
+     d. If any lemma appears in MORE THAN 25% of spreads (≥4 of 13 for a standard picture book), fail.
+   Report format: "verb_crutch: 'squeal' appears in 6 of 13 spreads (46%) — spreads 5, 7, 8, 11, 12, 13. Diversify the hero's actions." Do NOT eyeball this — count.
 
-5. "refrain_crutch" — ONE non-verb content word (noun, onomatopoeia, exclamation) dominates the manuscript (>~25% of spreads, >~20% for infant). Distinct from verb_crutch. Book-level. Excludes the child's name and declared parent address words. Name the overused word.
+5. "refrain_crutch" — ONE non-verb content WORD (noun, adjective, onomatopoeia, exclamation) dominates the manuscript. Book-level. Distinct from verb_crutch. Mandatory counting procedure (same as rule 4):
+     a. Walk every line of every spread; lemmatise to the singular form (toes → toe, leaves → leaf).
+     b. Exclude: the hero's first name, declared parent address words (Mama/Daddy/etc.), articles, prepositions, pronouns, conjunctions.
+     c. Count distinct spreads each lemma appears in.
+     d. If any non-excluded lemma appears in MORE THAN 25% of spreads (≥4 of 13; ≥3 of 13 for PB_INFANT because their vocabulary is tighter), fail.
+   NOTE: a load-bearing motif (a single named prop the book is about — e.g. the blanket in a snuggle book) can legitimately appear often. The judgment call: if removing the word would damage the through-line, it's a motif, not a crutch. When the word adds nothing on a given spread except line-filling, it's a crutch.
+   Report format: "refrain_crutch: 'blanket' appears in 5 of 13 spreads — spreads 1, 2, 4, 6, 8. Reads as line-filler on spreads 4 and 8."
 
 6. "low_personalization_saturation" — substantive personalization items from the brief (interests, anecdotes, address forms, custom details) appear in fewer than ~60% of relevant spreads. Book-level. Name the missing items.
 
@@ -155,6 +174,36 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
 
    The test: every concrete noun the child INTERACTS WITH in the line (object of a transitive verb the child performs) must be present in the spread's spec.focalAction or spec.beat (case-insensitive substring match is fine — "blanket"/"the blanket" both count). Background scenery ("trees", "sky", "porch") is NOT a writer-invented prop unless the child is interacting with it. Per-spread. Quote the offending line and name the invented prop.
 
+20. "semantic_filler" — a line is grammatically complete but adds no image, no action, and no new sensory or emotional information beyond what an adjacent line already carried, OR uses a vague phrase to complete a rhyme. Per-spread. ALWAYS FAIL.
+
+   Three independent tests — failing ANY one is enough:
+     (a) Image test: does this line introduce a new sensory detail (sight, sound, touch, motion, smell, taste)? If no, fail.
+     (b) Cut test: if you delete this line, does the spread lose anything a reader can picture or feel? If no, fail.
+     (c) Rhyme-completer test: is the line a vague phrase that exists primarily to land the rhyme word, not to advance the moment? Symptoms: a verb whose subject is unclear ("she knows" — knows what?), a verb attached to an inanimate subject that cannot perform it ("Blanket folds away" — a blanket cannot fold itself), a phrase that is geometrically or physically odd ("Mama rocks her seat" — the seat is not the thing being rocked), a generic temporal filler ("all day", "so sweet", "stays awhile") that adds no image.
+
+   BAD generic examples:
+     • "Mama stays close, she knows." — knows what? Dangling subordinate.
+     • "Blanket folds away." — blankets don't fold themselves.
+     • "Mama rocks her seat." — Mama rocks the chair OR the baby; "her seat" is geometrically wrong.
+     • "Snuggles stay so sweet." — abstract, no new image.
+     • "Mama stays all day." — generic temporal filler.
+     • "Brings her play." — "brings her playtime" parses; "brings her play" does not.
+
+   GOOD substitutions follow the rule "every line earns its place": replace with a concrete sensory beat (a sound, a touch, a movement, a glance) that wasn't already in the spread.
+
+21. "forced_rhyme_meaning_drift" — the manuscript ends a line on a rhyme word that creates a wrong, implausible, or emotionally mismatched meaning. Per-spread. ALWAYS FAIL.
+
+   Two tests — failing EITHER is enough:
+     (a) Emotional valence: does the action match the emotional context of the spread and the book? A baby's wail is distress, not delight — laughing AT a wail is the wrong emotional valence. A snuggle scene's verbs should be tender, not abrupt.
+     (b) Physical plausibility: is the verb's object physically possible? Can Mama rock a seat? Can a blanket fold itself? Can a child catch a smile? If the noun is grammatically valid but physically nonsensical, fail (note: distinct from rule 18 unrenderable_action, which fires on abstractions like "holds her purr"; rule 21 fires on grammatical-but-wrong-meaning constructions like "laughs at her wail").
+
+   BAD generic examples:
+     • "Mama laughs at that wail." — wrong emotional valence; you don't laugh at a baby's distress.
+     • "Mama rocks her seat." — geometrically odd; Mama rocks a chair or rocks a baby, not a seat.
+     • "He kicks the song." — physical impossibility forced by rhyme.
+
+   The test: say the line out loud as a parent reading to a child. Does anything snag? If yes, the rhyme drove the meaning instead of the meaning driving the rhyme.
+
 == Repair directive ==
 For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable directive (1-2 sentences) telling the writer what to fix and what to preserve. Do NOT produce the rewrite itself — that's the writer's job in the next wave. Examples:
   - "Replace 'Mama Courtney' with just 'Mama' on line 3; keep the snuggle imagery; line 3 must still rhyme with line 4."
@@ -162,16 +211,22 @@ For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable dire
   - "Spread 4 uses 'twirls' (forbidden infant locomotion). Recast as 'wiggles' or 'reaches' and adjust the couplet's rhyme accordingly."
   - "Spread 9 line 4 says 'Mama holds her purr' — a purr is a sound, not holdable. Rewrite the line so 'holds' takes a concrete physical object (her, the blanket, her hand), and keep the rhyme with line 3."
   - "Spread 7 line 2 says 'Scarlett pats one string' but spec.focalAction is about patting the blanket. Replace 'string' with 'blanket' or whatever concrete prop the spec already names; preserve the AABB rhyme."
+  - "Spread 5 line 4 'Mama laughs at that wail' has wrong emotional valence (a wail is distress, not delight). Re-end line 4 with a real rhyme for line 3's end-word that names a tender or playful action; preserve the porch-swing imagery."
+  - "Verb 'squeal' appears in 6 of 13 spreads. On spreads 7, 11, 12 (the redundant ones), replace the squeal with a different sensory beat — a giggle, a coo, a wave, a reach — and adjust the rhyme accordingly."
 
 == Pass criteria ==
 \`pass: true\` ONLY when ALL of the following hold:
   - Zero per-spread issues across all spreads.
   - Zero book-level issues.
-  - All AABB rhymes are real (no identity/stem/suffix-only).
+  - All AABB rhymes are real (no identity/stem/suffix-only/r-controlled-mismatch/interjection).
   - All picture-book spreads have exactly 4 lines and respect the per-band word budget.
   - No infant_action_verb_in_text hits in any infant spread.
   - No unrenderable_action hits in any spread.
   - No writer_invented_prop hits in any spread.
+  - No semantic_filler hits in any spread.
+  - No forced_rhyme_meaning_drift hits in any spread.
+  - No verb_crutch at book level.
+  - No refrain_crutch at book level.
   - All questionnaire signature beats land somewhere in the manuscript.
 Anything less → \`pass: false\`.
 

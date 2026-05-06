@@ -50,7 +50,10 @@ describe('AA-CW-12 — writer-fatal residual hard gate', () => {
       expect(WRITER_FATAL_TAGS).toEqual(
         expect.arrayContaining(['identity_rhyme', 'unrenderable_action', 'writer_invented_prop']),
       );
-      expect(WRITER_FATAL_TAGS).toHaveLength(3);
+      // AA-CW-13 grew this list with semantic_filler and
+      // forced_rhyme_meaning_drift; future PRs may add more. Lock the
+      // AA-CW-12 floor (3 tags) without freezing future growth.
+      expect(WRITER_FATAL_TAGS.length).toBeGreaterThanOrEqual(3);
     });
   });
 
