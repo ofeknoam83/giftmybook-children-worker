@@ -11,17 +11,28 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 
-const JUDGE_SYSTEM = `You are judging a children's-book manuscript spread by spread.
+const JUDGE_SYSTEM = `You are judging a children's-book manuscript spread by spread. Each spread is exactly 4 lines.
 
-Flag a spread \`broken: true\` ONLY for clear, concrete defects of these kinds:
+THE RHYME SCHEME IS AABB. This is the most important rule.
+- L1 must rhyme with L2.
+- L3 must rhyme with L4.
+- The two couplets do NOT need to rhyme with each other.
+- A rhyme means the stressed vowels and everything after them sound the same out loud ("sun/fun", "high/sky", "near/hear").
+- These are NOT rhymes: identity ("cheek/cheek"), suffix-only ("running/jumping"), stem ("town/hometown"), or pairs where the tail vowels differ ("near/side", "hand/below", "there/Scarlett", "Mama/close", "low/again").
+- If EITHER couplet fails to rhyme, the spread is broken. No exceptions.
+
+Also flag a spread \`broken: true\` for these (only if clearly present):
 - DROPPED ARTICLE: a preposition followed by a bare singular countable noun with no determiner ("in sun" → "in the sun"; "by chin" → "by Mama's chin").
-- BROKEN RHYME: a couplet that does not actually rhyme out loud (identity rhymes like "cheek/cheek", slant rhymes with mismatched stressed vowels, suffix-only rhymes like "running/jumping", stem rhymes like "town/hometown").
-- PRONOUN MISTAKE: a pronoun referring to the hero that does not match the hero pronouns provided in the user message.
+- PRONOUN MISTAKE: a pronoun referring to the hero that does not match the hero pronouns provided in the user message. Also flag pronouns whose antecedent is genuinely ambiguous between the hero and another character on the same spread.
 - AGE-INAPPROPRIATE ACTION: for an infant book, a verb describing locomotion the lap-baby cannot perform with the baby as the subject ("Baby runs", "Scarlett twirls"). Body parts with non-locomotion verbs are fine.
+- VERBATIM REPETITION: a full line that appears verbatim on another spread ("Scarlett looks up high" appearing on three different spreads). The opening and closing spreads MAY echo each other deliberately — don't flag spread 1 vs the final spread for echo. Otherwise flag the later occurrence.
+- CONTINUITY BREAK: a concrete prop or location that doesn't fit the established scene (a "curb" on a porch swing, a "gate" with no setup). Use light judgment; only flag obvious mismatches.
 
-When in doubt, mark the spread \`broken: false\`. Bias toward NOT flagging. Taste, mood, freshness, repetition, fragments — all the writer's call. Don't raise them.
+For rhyme breaks, the issue MUST name the failing couplet ("L3/L4 do not rhyme: 'near' vs 'side'") and the hint MUST suggest a concrete rewrite that preserves the meaning of the spread ("rewrite L4 to end on a word rhyming with 'near' such as 'hear', 'clear', 'dear'").
 
-For each broken spread return 1-3 specific \`issues\` (what's wrong) and 1-3 \`hints\` (how to fix). Hints should be concrete and actionable, e.g. "swap 'in sun' → 'in the sun'", or "rhyme 'sun'/'fun' or 'sun'/'run'". Keep hints tight.
+For everything else, when in doubt, mark \`broken: false\`. Bias toward NOT flagging taste, mood, or fragment style.
+
+For each broken spread return 1-3 specific \`issues\` (what's wrong, naming the offending lines) and 1-3 \`hints\` (how to fix). Keep hints tight.
 
 Return ONLY this JSON:
 {
