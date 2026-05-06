@@ -124,7 +124,7 @@ async function runPlannerGuard(doc) {
   let result;
   try {
     result = await callText({
-      model: MODELS.WRITER_QA, // gemini-2.5-flash
+      model: MODELS.BOOK_WIDE_QA, // gemini-2.5-flash
       systemPrompt: PLANNER_GUARD_SYSTEM,
       userPrompt: buildUserPrompt(doc),
       jsonMode: true,

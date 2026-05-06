@@ -8,7 +8,7 @@
  *   3. create visualBible             (planner/createVisualBible)
  *   4. create spreadSpecs             (planner/createSpreadSpecs)
  *   5. draft manuscript               (writer/draftBookText)
- *   6. writer QA + targeted rewrites  (writer/rewriteBookText + qa/checkWriterDraft)
+ *   6. writer QA + targeted rewrites  (writer/rewriteBookText — writer↔judge loop)
  *   7. render spreads in order        (illustrator/renderSpread + continuityMemory)
  *   8. per-spread QA + repair         (qa/checkSpread + qa/planRepair)
  *   9. book-wide QA + late repair     (qa/checkBookWide + qa/planRepair)
@@ -316,10 +316,18 @@ async function generateBook(rawRequest, opts = {}) {
   }
 
   reportProgress(doc, { step: 'writing', message: 'Drafting manuscript' });
-  doc = await runStage(doc, 'writerDraft', d => draftBookText(d), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
+  doc = await runStage(doc, 'writerDraft', d => draftBookText(d), validateManuscript, FAILURE_CODES.UPSTREAM_UNAVAILABLE);
 
+  // AA-CW-24: writerQa always succeeds — the writer↔judge loop returns the
+  // best-seen draft no matter what. Log the residual broken count for
+  // observability.
   reportProgress(doc, { step: 'writerQa', message: 'Reviewing and revising text' });
-  doc = await runStage(doc, 'writerQa', d => writerQaAndRewrite(d), validateManuscript, FAILURE_CODES.WRITER_UNRESOLVABLE);
+  doc = await runStage(doc, 'writerQa', d => writerQaAndRewrite(d), validateManuscript);
+  {
+    const bookId = doc?.operationalContext?.bookId || doc?.request?.bookId || 'n/a';
+    const finalBrokenCount = doc?.writerQa?.finalBrokenCount;
+    console.log(`[bookPipeline:${bookId}] writerQa finalBrokenCount=${finalBrokenCount ?? 'n/a'}`);
+  }
 
   // Emit the final text snapshot so the admin content tab can show the
   // full manuscript while illustrations render. Previously this only
