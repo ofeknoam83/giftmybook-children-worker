@@ -460,6 +460,11 @@ async function processOneSpread(params) {
         heroName: currentDoc.brief?.child?.name || '',
         spreadIndex: spec.spreadIndex,
         recentInteriorRefs,
+        // AA-CW-7: cover-derived caregiver visual lock. When set (caregiver
+        // IS on the cover), the consistency QA gets the SAME identity ground
+        // truth the renderer was instructed to render against and can fire
+        // caregiver_shadow_substitution / caregiver_skin_drift / phantom_arms.
+        caregiverLock: currentDoc.visualBible?.caregiverLock || null,
         abortSignal: currentDoc.operationalContext?.abortSignal,
       });
       const qaMs = Date.now() - qaStart;
@@ -520,6 +525,10 @@ async function processOneSpread(params) {
         attemptNumber: attempt,
         issues: qa.issues,
         tags: qa.tags,
+        // AA-CW-7: surgical BAD/FIX repair instructions from the vision QA
+        // for caregiver-lock-driven tags. planRepair appends them verbatim
+        // to the correction note that goes into the next render attempt.
+        repairInstructions: qa.repairInstructions || [],
       });
       if (plan.correctionMode === 'text_priority') {
         console.log(

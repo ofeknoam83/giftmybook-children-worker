@@ -545,6 +545,8 @@ async function processQuadPair(params) {
           heroName,
           spreadIndex: specA.spreadIndex,
           recentInteriorRefs,
+          // AA-CW-7: cover-derived caregiver lock for the new vision QA tags.
+          caregiverLock: currentDoc.visualBible?.caregiverLock || null,
           abortSignal: currentDoc.operationalContext?.abortSignal,
         }),
         checkSpread({
@@ -561,6 +563,8 @@ async function processQuadPair(params) {
           heroName,
           spreadIndex: specB.spreadIndex,
           recentInteriorRefs,
+          // AA-CW-7: cover-derived caregiver lock for the new vision QA tags.
+          caregiverLock: currentDoc.visualBible?.caregiverLock || null,
           abortSignal: currentDoc.operationalContext?.abortSignal,
         }),
       ]);
@@ -705,12 +709,15 @@ async function processQuadPair(params) {
         attemptNumber: attempt,
         issues: qaA.issues,
         tags: qaA.tags,
+        // AA-CW-7: surgical BAD/FIX repair instructions from the vision QA.
+        repairInstructions: qaA.repairInstructions || [],
       });
       const planB = planSpreadRepair({
         spreadNumber: spreadB.spreadNumber,
         attemptNumber: attempt,
         issues: qaB.issues,
         tags: qaB.tags,
+        repairInstructions: qaB.repairInstructions || [],
       });
       if (planA.correctionMode === 'text_priority' || planB.correctionMode === 'text_priority') {
         console.log(

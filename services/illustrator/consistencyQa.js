@@ -71,6 +71,7 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
     qaAllowedHumansNote: typeof opts.qaAllowedHumansNote === 'string' ? opts.qaAllowedHumansNote.trim() : '',
     recentInteriorCount: recentCount,
     theme: typeof opts.theme === 'string' ? opts.theme : '',
+    caregiverLock: opts.caregiverLock || null,
   });
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
@@ -177,6 +178,7 @@ function buildConsistencyPrompt({
   qaAllowedHumansNote,
   recentInteriorCount,
   theme,
+  caregiverLock,
 }) {
   const recent = typeof recentInteriorCount === 'number' && recentInteriorCount > 0 ? recentInteriorCount : 0;
   const isParentTheme = PARENT_THEMES_QA.has(String(theme || '').toLowerCase());
@@ -199,13 +201,37 @@ function buildConsistencyPrompt({
   const continuityBlock = recent > 0
     ? `\n\n**Continuity (${recent} recent approved interior image(s)):** Between COVER and CANDIDATE you see recent interiors in **story order** (oldest → newest). The CANDIDATE hero's **hair** and **outfit** should stay consistent with those references as well as the COVER (same child, same story-so-far look). Set **hairConsistentWithRecentInteriors** / **outfitConsistentWithRecentInteriors** to **false** on **clear** drift vs the recent refs **or** the cover; lighting, angle, and partial occlusion are not failures. ${continuityStrictness}`
     : '';
+  // Caregiver visual lock block — included whenever a caregiverLock is
+  // present (caregiver IS on the cover). Gives the QA call the SAME
+  // ground-truth identity the renderer was instructed to render. Drives the
+  // three new tags below: caregiver_shadow_substitution, caregiver_skin_drift,
+  // phantom_arms.
+  const lock = caregiverLock || null;
+  const caregiverLockBlock = lock
+    ? `\n\n**Caregiver visual lock (cover-derived — the SAME caregiver that is rendered on the COVER):**\n  - role: ${lock.role || 'caregiver'}\n  - skin tone (LOCK — from the caregiver\'s OWN pixels on the cover, not the child): ${lock.skinTone || '(see cover render)'}\n  - skin family vs the child: ${lock.skinFamilyVsChild || 'unclear'}\n  - hair: ${lock.hair || '(see cover render)'}\n  - outfit: ${lock.outfit || '(see cover render)'}\n  - build: ${lock.build || '(see cover render)'}\n  - face: ${lock.face || '(see cover render)'}\n  When judging the candidate, compare the caregiver in the candidate against THIS lock and against the caregiver as rendered on the COVER — NOT against the hero child. The caregiver is allowed to have a different skin family from the child if the lock says so; what matters is consistency with the lock and the cover.`
+    : '';
+
+  // New schema fields driven by the caregiver lock. These are extra tags on
+  // top of the existing schema so we keep backwards compatibility with the
+  // old prompt; evaluateConsistencyResult also handles missing keys.
+  const caregiverSchema = lock ? `,
+  "caregiverShadowSubstitution": <true ONLY if the caregiver is supposed to be PHYSICALLY in this scene (manuscript text + composition imply she is holding, sitting beside, walking with, or otherwise present with the child) BUT the candidate has REPLACED her body with a flat, featureless cast shadow on a wall, floor, or ceiling instead of rendering her actual visible body. The shadow has no facial features and no rendered torso — it is just a dark profile shape on a surface where her body should be. false if she is genuinely off-frame and only her shadow is shown as ambient atmosphere; false if she is rendered with a real body (head + torso + arms attached). When uncertain, prefer false.>,
+  "caregiverShadowSubstitutionNotes": "<short note if true (e.g. 'spread should show Mama sitting on the bench holding the child, but Mama is rendered as a flat dark profile shadow on the wall behind the bench, with no body in the scene'), else empty string>",
+  "caregiverShadowSubstitutionRepair": "<if true, write a SURGICAL repair instruction in the form: \"Spread N BAD: <one-sentence description of what the candidate did wrong, named concretely>. FIX: <one-sentence description of what to render instead, named concretely, including the caregiver lock skin tone>.\" Example: \"Spread 7 BAD: Mama is rendered as a flat profile shadow on the wall behind the bench, with no body in the scene. FIX: render Mama's full body sitting on the bench holding the child — head, torso, and both arms attached to her single torso, skin tone ${lock.skinTone || '(see cover render)'}, hair ${lock.hair || '(see cover render)'}, outfit ${lock.outfit || '(see cover render)'}. One Mama, two arms, no wall-shadow substitute.\" Else empty string.>",
+  "caregiverSkinDrift": <true ONLY if the caregiver is visibly rendered in the candidate (any meaningful skin patch on the caregiver — face, jaw, neck, shoulder, torso, arm, hand) AND the caregiver's skin family in the candidate clearly differs from the caregiver lock above (and the caregiver as rendered on the COVER) — a clear ≥2-shade gap in lightness OR an obvious undertone shift. Compare against the LOCK / COVER, NOT against the child. The child being lighter than the caregiver is fine when the lock says so. When uncertain, prefer false.>,
+  "caregiverSkinDriftNotes": "<short note if true (e.g. 'cover Mama reads as light warm beige with peachy undertone, candidate Mama reads as medium-tan with cool olive undertone — clear two-shade gap and undertone shift'), else empty string>",
+  "caregiverSkinDriftRepair": "<if true, write a SURGICAL repair instruction in the form: \"Spread N BAD: <how the candidate's caregiver skin drifted vs the lock>. FIX: <restate the locked skin tone and what to render>.\" Example: \"Spread 4 BAD: Mama's arm and shoulder read as medium-tan with a warm olive undertone — darker than her cover render. FIX: render Mama's skin as ${lock.skinTone || '(see cover render)'} on every visible patch (face, neck, arm, hand) so she is clearly the SAME person as on the cover. Do not drift darker than the cover even under warm light.\" Else empty string.>",
+  "phantomArms": <true ONLY if the candidate shows EXTRA or DUPLICATE arms wrapping or reaching toward the child that do NOT anatomically connect to a single visible torso in the frame: a third arm coming from behind the child with no body in the scene, two pairs of caregiver arms (one wrapping the child + another reaching from another direction), a disembodied arm next to the caregiver's actual arm with no body to anchor it, etc. Different from disembodiedLimb (which is about ANY uncanny limb): phantom_arms is specifically about caregiver arms multiplying around the child. When uncertain, prefer false.>
+  ,"phantomArmsNotes": "<short note if true (e.g. 'Mama has one arm visibly holding the child from the left AND a second arm wrapping from behind the child with no torso visible behind the child to anchor it'), else empty string>",
+  "phantomArmsRepair": "<if true, write a SURGICAL repair instruction in the form: \"Spread N BAD: <how the phantom arms appear>. FIX: <restate the one-torso, two-arms rule>.\" Example: \"Spread 4 BAD: a second pair of darker arms wraps the child from behind, with no second torso visible to anchor them. FIX: render Mama as ONE single body — head, torso, two arms, both arms attached to the same visible torso. The child is held by ONE pair of Mama-arms, not two. Skin tone of every Mama-arm must read as ${lock.skinTone || '(see cover render)'}.\" Else empty string.>"` : '';
+
   const continuitySchema = recent > 0 ? `,
   "hairConsistentWithRecentInteriors": <true if the CANDIDATE hero's hair (color family, length, style) is clearly consistent with the RECENT interior reference images and the COVER; false on clear mid-book drift${isParentTheme ? '; for this parent-theme gift book, also false on subtle drift — when uncertain prefer false' : '; if uncertain, prefer true'}>,
   "outfitConsistentWithRecentInteriors": <true if the CANDIDATE hero's visible outfit is clearly consistent with the RECENT interiors' clothing story and the COVER (situational swaps like pajamas/swim still OK if the scene supports it)${isParentTheme ? '; for this parent-theme gift book, prefer false when uncertain' : '; if uncertain, prefer true'}>,
   "hairContinuityNotes": "<short or empty>",
   "outfitContinuityNotes": "<short or empty>"` : '';
 
-  return `You are a quality reviewer comparing the BOOK COVER to a generated interior SPREAD (CANDIDATE — **last image** in this message). Images may include optional real photo (IMAGE 0), then COVER, then optional RECENT APPROVED INTERIORS, then CANDIDATE. Both COVER and CANDIDATE should read as frames from the SAME RENDERING TRADITION — whatever rendering tradition the cover uses (3D CGI / 2D illustration / painted / watercolor / gouache / digital painting). Style consistency between cover and interiors is the contract; the cover is the single visual style ground truth.${photoNote}${desc}${castNote}${continuityBlock}
+  return `You are a quality reviewer comparing the BOOK COVER to a generated interior SPREAD (CANDIDATE — **last image** in this message). Images may include optional real photo (IMAGE 0), then COVER, then optional RECENT APPROVED INTERIORS, then CANDIDATE. Both COVER and CANDIDATE should read as frames from the SAME RENDERING TRADITION — whatever rendering tradition the cover uses (3D CGI / 2D illustration / painted / watercolor / gouache / digital painting). Style consistency between cover and interiors is the contract; the cover is the single visual style ground truth.${photoNote}${desc}${castNote}${caregiverLockBlock}${continuityBlock}
 
 Judgment style: fail heroChildMatches or outfitMatches only on a **clear** mismatch. If uncertain, prefer **true** (pass). Differences in **lighting, shadow, wrinkle/fold, viewing angle, foreshortening, or partial occlusion** are NOT outfit failures. Baby vs older toddler: not an automatic fail for identity — only fail on clearly different hair color family, face shape, skin tone, or a clearly different child.
 
@@ -245,7 +271,7 @@ Return STRICT JSON with this schema (no markdown, no commentary):
   "parentTurnedAway": <true ONLY if a mother or father appears in the CANDIDATE (full figure OR partial presence — visible limb or silhouette) AND their body language is clearly disconnected from the hero child in a way that reads as unnatural for a children's book: the parent's back is turned to the child with no narrative reason, the parent is walking away from the child, the parent is looking off into empty space while the child is behind them, or (for partial presence) the implied hand/arm extends AWAY from the child instead of toward them. false if the parent is oriented toward the child, leaning in, holding the child, sharing the child's focus on a shared object, walking ALONGSIDE the child, leading the child by the hand in profile, or both facing a shared focus together (fireworks, sunset, cake). false if no parent is in the frame. When unclear, prefer false.>,
   "parentTurnedAwayNotes": "<short note if parentTurnedAway is true (e.g. 'mother walking away from child with her back turned, child sitting behind looking at her'), else empty string>",
   "bathModestyOk": <true if the scene is not a bath/shower/swim modesty context, OR if it is, the child is modest per preschool picture-book standards (bubble cover, towel wrap, modest swimwear) — not naked with explicit detail and not fully dressed in street clothes submerged in water. false only on clear modesty violations.>,
-  "bathModestyNotes": "<empty or short note if bathModestyOk is false>"${continuitySchema}
+  "bathModestyNotes": "<empty or short note if bathModestyOk is false>"${caregiverSchema}${continuitySchema}
 }
 
 Style judgment: compare spread to cover, not to an external bar. If the spread's rendering tradition clearly differs from the cover's (e.g. cover is 3D CGI but spread reads as soft painted storybook; or cover is painted but spread reads as photoreal CGI), set artStyleMatchesCover=false. If the spread's rendering tradition matches the cover's — even if the cover itself happens to be a softer painted style — set artStyleMatchesCover=true. Photo-realistic drift (a real photograph) is always a fail; a book illustration is never a photograph regardless of cover style. Duplicated-hero / diptych seams are also fails. Be conservative on face matching — do not mark heroChildMatches false over minor or ambiguous differences. Return ONLY the JSON.`;
@@ -346,6 +372,33 @@ function evaluateConsistencyResult(parsed, recentInteriorCount = 0) {
     tags.push('bath_modesty');
   }
 
+  // New caregiver-lock-driven tags. Each surfaces a surgical BAD/FIX repair
+  // instruction that the orchestrator threads forward to the illustrator on
+  // the next attempt so the model gets concrete guidance instead of generic
+  // tag-derived correction text.
+  const repairInstructions = [];
+  if (parsed.caregiverShadowSubstitution === true) {
+    const notes = (parsed.caregiverShadowSubstitutionNotes || '').trim();
+    issues.push(`Caregiver body replaced by a flat cast shadow on a surface${notes ? `: ${notes}` : ''}`);
+    tags.push('caregiver_shadow_substitution');
+    const repair = (parsed.caregiverShadowSubstitutionRepair || '').trim();
+    if (repair) repairInstructions.push(repair);
+  }
+  if (parsed.caregiverSkinDrift === true) {
+    const notes = (parsed.caregiverSkinDriftNotes || '').trim();
+    issues.push(`Caregiver skin family drifted vs cover render / caregiver lock${notes ? `: ${notes}` : ''}`);
+    tags.push('caregiver_skin_drift');
+    const repair = (parsed.caregiverSkinDriftRepair || '').trim();
+    if (repair) repairInstructions.push(repair);
+  }
+  if (parsed.phantomArms === true) {
+    const notes = (parsed.phantomArmsNotes || '').trim();
+    issues.push(`Phantom / duplicate caregiver arms with no second torso to anchor them${notes ? `: ${notes}` : ''}`);
+    tags.push('phantom_arms');
+    const repair = (parsed.phantomArmsRepair || '').trim();
+    if (repair) repairInstructions.push(repair);
+  }
+
   const recent = typeof recentInteriorCount === 'number' && recentInteriorCount > 0 ? recentInteriorCount : 0;
   if (recent > 0) {
     if (parsed.hairConsistentWithRecentInteriors === false) {
@@ -364,6 +417,7 @@ function evaluateConsistencyResult(parsed, recentInteriorCount = 0) {
     pass: issues.length === 0,
     issues,
     tags: [...new Set(tags)],
+    repairInstructions,
   };
 }
 

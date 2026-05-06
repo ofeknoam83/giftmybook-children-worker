@@ -158,6 +158,7 @@ async function createVisualBible(doc) {
     coverParentPresent: doc?.brief?.coverParentPresent === true,
     childGender: doc?.brief?.child?.gender,
     childPhysicalDescription: json?.hero?.physicalDescription,
+    coverCaregiverAppearance: doc?.brief?.coverCaregiverAppearance || null,
   });
 
   // Cache the composed implied-parent descriptor on the visualBible so the
@@ -165,12 +166,36 @@ async function createVisualBible(doc) {
   // fields per spread. Built once here at planning time; consumed by
   // buildIllustrationSpec.js → buildSpreadTurn (CHARACTER ANCHOR block).
   const impliedParent = composeImpliedParentDescriptor(supportingCast);
+
+  // Caregiver visual lock — derived from the second cover-vision call
+  // (detectCoverComposition.js → callCaregiverVision). Populated only when
+  // the themed parent IS visible on the approved cover. Used by:
+  //   - buildIllustrationSpec.js to thread the lock into every render
+  //   - prompt blocks that say "Mama looks EXACTLY like the cover render: ..."
+  //   - vision QA call as the SAME ground truth so retries don't drift
+  // Without this, the renderer extrapolates caregiver appearance from text
+  // descriptions and produces flat-shadow Mamas, phantom arms, and skin
+  // drift. With this, the cover image is the unambiguous lock.
+  const coverCaregiverAppearance = doc?.brief?.coverCaregiverAppearance || null;
+  const caregiverLock = (coverCaregiverAppearance && coverCaregiverAppearance.present === true)
+    ? {
+      role: coverCaregiverAppearance.role || 'unclear',
+      skinTone: coverCaregiverAppearance.skinTone || '',
+      skinFamilyVsChild: coverCaregiverAppearance.skinFamilyVsChild || 'unclear',
+      hair: coverCaregiverAppearance.hair || '',
+      outfit: coverCaregiverAppearance.outfit || '',
+      build: coverCaregiverAppearance.build || '',
+      face: coverCaregiverAppearance.face || '',
+    }
+    : null;
+
   const visualBible = {
     hero: json.hero || null,
     outfitLocks: json.outfitLocks || null,
     supportingCastPolicy: json.supportingCastPolicy || null,
     supportingCast,
     impliedParent,
+    caregiverLock,
     environmentAnchors: Array.isArray(json.environmentAnchors) ? json.environmentAnchors.map(String) : [],
     recurringProps: (Array.isArray(json.recurringProps) ? json.recurringProps : []).map(p => ({
       name: p?.name ? String(p.name).trim() : '',
@@ -216,6 +241,7 @@ async function createVisualBible(doc) {
  *   coverParentPresent: boolean,
  *   childGender?: string,
  *   childPhysicalDescription?: string,
+ *   coverCaregiverAppearance?: object|null,
  * }} ctx
  */
 function ensureThemedParentBible(ctx) {
@@ -267,11 +293,25 @@ function ensureThemedParentBible(ctx) {
   }
 
   const lock = entry.partialPresenceLock || (entry.partialPresenceLock = {});
+  // Vision-derived caregiver skin tone wins when available — it's a direct
+  // read of the cover image, not a text extrapolation. Only used when the
+  // caregiver is NOT on the cover (this branch only runs in that case),
+  // which is rare but possible: a customer might describe the parent in the
+  // questionnaire and the vision call still picks up their skin tone if
+  // they appear in any partial fragment on the cover. When absent, fall
+  // back to the hero-description-derived lock.
+  const visionSkin = ctx.coverCaregiverAppearance?.skinTone
+    ? String(ctx.coverCaregiverAppearance.skinTone).trim()
+    : '';
   if (!lock.skinTone) {
-    const heroDesc = (ctx.childPhysicalDescription || '').trim();
-    lock.skinTone = heroDesc
-      ? `same family as the hero — match skin tone and undertone described as: ${heroDesc.replace(/\s+/g, ' ').slice(0, 220)}`
-      : 'same family as the hero — match the cover child\'s skin tone and undertone exactly';
+    if (visionSkin) {
+      lock.skinTone = `vision-derived from cover: ${visionSkin}`;
+    } else {
+      const heroDesc = (ctx.childPhysicalDescription || '').trim();
+      lock.skinTone = heroDesc
+        ? `same family as the hero — match skin tone and undertone described as: ${heroDesc.replace(/\s+/g, ' ').slice(0, 220)}`
+        : 'same family as the hero — match the cover child\'s skin tone and undertone exactly';
+    }
   }
   if (!lock.hand) {
     lock.hand = isMother
