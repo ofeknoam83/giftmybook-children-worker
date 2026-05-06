@@ -61,8 +61,12 @@ You return ONE JSON object with the schema given at the bottom. No prose, no mar
 - Pronoun discipline: ONE pronoun set for the hero, declared in brief.pronouns. Never alternate, never swap, never use a different set anywhere in the book. When ambiguous, prefer the hero's name.
 
 == Picture-book hard rules (format == "picture_book") — apply to ALL bands ==
-- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6). Two AABB rhyming couplets. NEVER accept 2-line spreads. Lines separated by "\\n".
-- AABB rhyme scheme: lines 1+2 rhyme; lines 3+4 rhyme. Real end-rhymes or near-rhymes only.
+- LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6). NEVER accept 2-line spreads. Lines separated by "\\n".
+- RHYME SCHEME (band-conditional, AA-CW-17):
+  * PB_TODDLER and PB_PRESCHOOL: full AABB — lines 1+2 MUST rhyme; lines 3+4 MUST rhyme. Real end-rhymes or near-rhymes only. A failed rhyme on either couplet is \`rhyme_fail\`.
+  * PB_INFANT (0-1): RELAXED. Lines 1+2 MUST rhyme (real end-rhyme; identity/slant/stem/suffix-only/r-controlled-mismatch are all \`rhyme_fail\`). Lines 3+4 MAY rhyme OR MAY be free-verse with strong rhythmic parallel. Do NOT raise \`rhyme_fail\` on lines 3+4 of an infant spread purely because they don't rhyme. Only raise \`rhyme_fail\` on lines 3+4 of an infant spread when the writer ATTEMPTED to rhyme them and the attempt is identity/slant/stem/suffix-only/non-rhyme. Free-verse lines 3+4 with parallel rhythm are ACCEPTABLE on infant books — the goal is natural read-aloud, not forced couplets at 3-word line budget.
+  * Universal: identity rhymes (same word as both rhyme ends) are ALWAYS \`rhyme_fail\`, on every couplet that is rhymed at all, in every band.
+  * Universal: a couplet that is rhymed (the writer chose to rhyme it) must be a real rhyme; if it isn't, that's \`rhyme_fail\`. Half-attempted rhymes do not get a pass.
 - Per-line word budget:
   * PB_INFANT (0-1): 2-5 words/line, hardMax 6.
   * PB_TODDLER (0-3): 3-7 words/line, hardMax 8.
@@ -225,7 +229,7 @@ For each failing spread, produce \`suggestedRewrite\` as a SHORT actionable dire
 \`pass: true\` ONLY when ALL of the following hold:
   - Zero per-spread issues across all spreads.
   - Zero book-level issues.
-  - All AABB rhymes are real (no identity/stem/suffix-only/r-controlled-mismatch/interjection).
+  - All rhymed couplets are real rhymes (no identity/stem/suffix-only/r-controlled-mismatch/interjection). For PB_INFANT, lines 3+4 may be free-verse instead of rhymed — free-verse with parallel rhythm passes; only attempted-but-broken rhymes fail.
   - All picture-book spreads have exactly 4 lines and respect the per-band word budget.
   - No infant_action_verb_in_text hits in any infant spread.
   - No unrenderable_action hits in any spread.
@@ -298,7 +302,7 @@ function buildJudgeUserPrompt(doc, signatureHint) {
 // Shadow run — old gemini-2.5-flash literary call, non-authoritative
 // =============================================================================
 
-const SHADOW_SYSTEM = `You are a senior children's-book editor running in SHADOW mode. Your verdict is logged but not authoritative. Apply the same picture-book rules: AABB 4-line per spread, real rhymes only, no infant locomotion verbs, no dropped articles, no parent-name concat with address words, no fragment lines, no nonsense words/similes, no peer framing for parent themes, consistent hero pronouns. Return JSON: {"pass": bool, "bookLevelIssues": [...], "perSpread": [{"spreadNumber": N, "issues": [...], "tags": [...]}]}. JSON only.`;
+const SHADOW_SYSTEM = `You are a senior children's-book editor running in SHADOW mode. Your verdict is logged but not authoritative. Apply the same picture-book rules: 4 lines per spread, real rhymes only on rhymed couplets, no infant locomotion verbs, no dropped articles, no parent-name concat with address words, no fragment lines, no nonsense words/similes, no peer framing for parent themes, consistent hero pronouns. Rhyme scheme is band-conditional (AA-CW-17): PB_TODDLER and PB_PRESCHOOL use full AABB; PB_INFANT requires lines 1+2 to rhyme but allows lines 3+4 to be free-verse with parallel rhythm — do NOT raise rhyme_fail on infant lines 3+4 purely for being unrhymed. Return JSON: {"pass": bool, "bookLevelIssues": [...], "perSpread": [{"spreadNumber": N, "issues": [...], "tags": [...]}]}. JSON only.`;
 
 function buildShadowUserPrompt(doc) {
   const spreads = doc.spreads.map(s => ({

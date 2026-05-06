@@ -38,13 +38,23 @@ const TOTAL_SPREADS = 13;
 
 const TEXT_LINE_TARGET = {
   // Picture books (ages 0-6) are locked at exactly 4 lines per spread,
-  // in AABB rhyming couplets — musical, read-aloud cadence, consistent
-  // page shape. The infant band (0-1) shares this 4-line shape with the
-  // toddler band: parents reading to babies still want a full musical
-  // moment per spread (two short couplets), and a uniform shape simplifies
-  // layout, QA, and downstream rendering. The infant band keeps a tighter
-  // per-line word budget (see WORDS_PER_LINE_TARGET) so the 4 lines stay
-  // board-book brief. Early readers stay at 3-4 prose lines.
+  // for a musical, read-aloud cadence and consistent page shape. The
+  // infant band (0-1) shares this 4-line shape with the toddler band:
+  // parents reading to babies still want a full musical moment per spread,
+  // and a uniform shape simplifies layout, QA, and downstream rendering.
+  //
+  // Rhyme scheme is band-conditional (AA-CW-17):
+  //   * PB_TODDLER and PB_PRESCHOOL: full AABB rhyming couplets.
+  //   * PB_INFANT: lines 1+2 must rhyme; lines 3+4 may rhyme OR be
+  //     free-verse with parallel rhythm. The relaxation exists because at
+  //     the infant per-line word budget (2-5 words/hardMax 6) the writer's
+  //     search space for the second couplet collapses into identity rhymes,
+  //     forced meaning drift, or invented props (book e3f4e0c0 production
+  //     evidence). Lines 1+2 still rhyme to anchor the board-book sing-song.
+  //
+  // The infant band keeps a tighter per-line word budget (see
+  // WORDS_PER_LINE_TARGET) so the 4 lines stay board-book brief.
+  // Early readers stay at 3-4 prose lines.
   [AGE_BANDS.PB_INFANT]: { min: 4, max: 4 },
   [AGE_BANDS.PB_TODDLER]: { min: 4, max: 4 },
   [AGE_BANDS.PB_PRESCHOOL]: { min: 4, max: 4 },
@@ -59,9 +69,10 @@ const TEXT_LINE_TARGET = {
 const WORDS_PER_LINE_TARGET = {
   // Infants (0-1) get the tightest budget — 2-5 words per line, hardMax 6.
   // Designed for the parent reading aloud to a baby who is listening for
-  // sound and rhythm rather than meaning. With 4 lines per spread, the
-  // budget loosens slightly so each line has room to breathe inside an
-  // AABB couplet without padding.
+  // sound and rhythm rather than meaning. AA-CW-17 relaxes the rhyme rule
+  // for this band (lines 1+2 rhyme; lines 3+4 may be free-verse) precisely
+  // because this tight word budget made the second couplet's search space
+  // unrecoverable under the strict AABB constraint.
   [AGE_BANDS.PB_INFANT]: { min: 2, max: 5, hardMax: 6 },
   [AGE_BANDS.PB_TODDLER]: { min: 3, max: 7, hardMax: 8 },
   [AGE_BANDS.PB_PRESCHOOL]: { min: 6, max: 12, hardMax: 14 },
