@@ -389,6 +389,7 @@ async function processQuadPair(params) {
 
       const needsReanchor = !isFirstAttempt && (
         lastTags.includes('hero_mismatch')
+        || lastTags.includes('hero_age_proportions_drift')
         || lastTags.includes('outfit_mismatch')
         || lastTags.includes('hair_continuity_drift')
         || lastTags.includes('outfit_continuity_drift')

@@ -167,6 +167,45 @@ describe('evaluateConsistencyResult', () => {
     expect(r.tags).not.toContain('object_integrity');
   });
 
+  test('heroAgeAndProportionsMatchCover false adds hero_age_proportions_drift tag and issue (lap baby → standing toddler)', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroAgeAndProportionsMatchCover: false,
+      heroAgeAndProportionsNotes: 'cover shows a lap baby with ~1:3 head-to-body ratio sitting on a parent\'s lap; candidate shows a standing toddler walking independently with ~1:4 head-to-body ratio, lengthened limbs, and a visible toothy smile',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('hero_age_proportions_drift');
+    expect(r.issues.some(i => /age \/ proportions drift/i.test(i))).toBe(true);
+    expect(r.issues.join(' ')).toMatch(/standing toddler/);
+  });
+
+  test('heroAgeAndProportionsMatchCover true (default) does not tag', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroAgeAndProportionsMatchCover: true,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.tags).not.toContain('hero_age_proportions_drift');
+  });
+
+  test('heroAgeAndProportionsMatchCover missing/undefined does not tag (backwards compatible)', () => {
+    // Older judge JSON without the field must not regress—absent = pass.
+    const r = evaluateConsistencyResult(baseParsed({}));
+    expect(r.pass).toBe(true);
+    expect(r.tags).not.toContain('hero_age_proportions_drift');
+  });
+
+  test('hero_age_proportions_drift independent of hero_mismatch (face is the same person but age/proportions drifted)', () => {
+    // Canonical Aspen-book failure: same identity, but rendered as a clearly
+    // older child on the spread than on the cover.
+    const r = evaluateConsistencyResult(baseParsed({
+      heroChildMatches: true,
+      heroAgeAndProportionsMatchCover: false,
+      heroAgeAndProportionsNotes: 'cover lap baby, spread standing toddler',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('hero_age_proportions_drift');
+    expect(r.tags).not.toContain('hero_mismatch');
+  });
+
   test('extra_limbs and disembodied_limb are independent (third hand on a body vs floating limb)', () => {
     // The two detectors target different anatomy failures and must surface
     // independent tags so regen prompts can address each.
