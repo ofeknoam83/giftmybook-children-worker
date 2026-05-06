@@ -159,6 +159,13 @@ Hard rules:
 - Use the PERSONALIZATION SNAPSHOT, storyBible personalizationTargets, and customDetails concretely across the book — invent **different** focal images per spread; repeat ideas only when continuityAnchors call for a callback.
 - **Sensory \`focalAction\` for parent themes:** for mother's day / father's day / grandparents day, prefer a SENSORY focalAction whenever the spread has space — a touch (hands meeting on a cold latch), a sound (a kettle whistling, a gate's squeak), a smell (warm bread, cut grass), a temperature (sun on a bench, water at the ankles), a weight (a heavy book passed across a lap). Abstract emotional beats ("a warm hug", "a happy smile", "love filling the room") are the weakest possible focalAction when the writer reads them aloud — they translate into thin SVO sentences. Honor the storyBible's chosen sensory motif on at least 3 of the 13 spreads.
 - No preachy moments. No generic "day at the park" fallback unless the brief demands it.
+- **proseProps (AA-CW-16):** every spread MUST carry an exhaustive whitelist of concrete physical objects the WRITER is allowed to name in that spread's text. The writer is bound to this list — anything outside it counts as \`writer_invented_prop\` and fails. Build it generously from the spread itself:
+  - every concrete object referenced in \`focalAction\`, \`plotBeat\`, \`mustUseDetails\`, or \`continuityAnchors\` (e.g. blanket, stroller, tulip, mug, gate)
+  - the location's defining surfaces and fixtures (e.g. for "flower market lane": stalls, baskets, petals, awning)
+  - the body parts and clothing items the action involves (e.g. cheek, hand, shoe, sleeve, hood)
+  - any anchor object the personalization snapshot puts in the scene
+  - **do NOT** include abstract nouns (love, joy, day, song, smile), people (Mama, Scarlett — those are characters), or background scenery the child does not interact with (sky, clouds, trees) — those don't need whitelisting.
+  Aim for 6–12 entries. Singular, lowercase nouns; one per array slot. The writer reads this list and is told: "every concrete thing you name must appear here." Empty or 1-item lists guarantee the writer will invent.
 - Return ONLY strict JSON matching the user-message schema.`;
 
 function userPrompt(doc) {
@@ -252,7 +259,8 @@ function userPrompt(doc) {
       "textLineTarget": ${Math.round((lineTarget.min + lineTarget.max) / 2)},
       "mustUseDetails": ["custom-detail keys this spread must land"],
       "sceneBridge": "spread 1: one line that launches the journey | spreads 2-13: one line that bridges from the prior spread to this one (causal, emotional, or prop-based)",
-      "continuityAnchors": ["elements from earlier spreads that must persist — spreads 2+ must include at least one explicit callback"],${isParentTheme ? `
+      "continuityAnchors": ["elements from earlier spreads that must persist — spreads 2+ must include at least one explicit callback"],
+      "proseProps": ["exhaustive whitelist of concrete physical objects the writer's text is allowed to name in this spread — see proseProps rule above; aim for 6–12 singular lowercase nouns"],${isParentTheme ? `
       "parentVisibility": "full | hand | shoulder-back | cropped-torso | shadow | object | absent — see PARENT-VISIBILITY POLICY below",` : ''}
       "arcContext": {
         "actNumber": 1 | 2 | 3,
@@ -351,6 +359,16 @@ async function createSpreadSpecs(doc) {
       mustUseDetails: Array.isArray(rawSpec.mustUseDetails) ? rawSpec.mustUseDetails.map(String) : [],
       sceneBridge: String(rawSpec.sceneBridge || '').trim(),
       continuityAnchors: Array.isArray(rawSpec.continuityAnchors) ? rawSpec.continuityAnchors.map(String) : [],
+      // AA-CW-16: prose-side prop whitelist. Lowercased, deduped, trimmed.
+      // Empty arrays are tolerated by the normalizer; the planner SYSTEM_PROMPT
+      // teaches the LLM to fill it, and the writer/judge are bound to it.
+      proseProps: Array.isArray(rawSpec.proseProps)
+        ? Array.from(new Set(
+            rawSpec.proseProps
+              .map(s => String(s || '').trim().toLowerCase())
+              .filter(s => s.length > 0),
+          ))
+        : [],
       qaTargets: Array.isArray(rawSpec.qaTargets) ? rawSpec.qaTargets.map(String) : [],
       forbiddenMistakes: Array.isArray(rawSpec.forbiddenMistakes) ? rawSpec.forbiddenMistakes.map(String) : [],
       parentVisibility,
@@ -476,4 +494,6 @@ module.exports = {
   normalizeArcContext,
   ARC_BEAT_VALUES,
   EMOTIONAL_REGISTER_VALUES,
+  // AA-CW-16 — exported so tests can prompt-lock the proseProps rule.
+  SYSTEM_PROMPT,
 };

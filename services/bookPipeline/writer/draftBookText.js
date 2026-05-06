@@ -38,6 +38,7 @@ Hard rules (apply to every spread):
 - Funny/playful tone, character-based humor. Mostly implicit emotional meaning — never preach.
 - Use the child's name sometimes, not constantly. Use custom details concretely.
 - **Scene flow:** when \`sceneBridge\` and \`continuityAnchors\` are present on a spread, let the verse acknowledge the *same* story movement — cause, discovery, or callback — so the read-aloud feels like a single adventure, not isolated vignettes. You may imply the bridge subtly (a repeated object, a "still following", "the trail led", "the friend from before") without naming camera directions.
+- **PROSE-PROP WHITELIST (AA-CW-16, hard rule).** Each spread spec carries \`proseProps\` — the EXHAUSTIVE list of concrete physical objects you may name in that spread's text. The illustrator renders the spec, not your text, so any noun outside the whitelist guarantees an action_mismatch loop and will fail QA as \`writer_invented_prop\`. Constraint: every concrete physical noun the hero or parent INTERACTS WITH (object of a transitive verb, possessive target, prepositional anchor of a touch/lift/hold/pat/etc.) must be either (a) the child or parent themselves, (b) a body part, (c) the spread's location, or (d) an entry in \`proseProps\` (case-insensitive substring match). Background scenery you only mention (sky, trees, clouds) is exempt unless the hero touches it. If you cannot complete a couplet using the whitelist, choose a different rhyme word — NEVER invent a prop to land a rhyme.
 
 Picture-book structure (MANDATORY when format is picture_book — every single spread, no exceptions):
 - LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Even the infant board-book band uses 4 lines; the band is differentiated by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
@@ -162,6 +163,7 @@ function userPrompt(doc) {
       textLineTarget: baseSpec?.textLineTarget,
       mustUseDetails: baseSpec?.mustUseDetails,
       continuityAnchors: baseSpec?.continuityAnchors,
+      proseProps: baseSpec?.proseProps || [],
       forbiddenMistakes: baseSpec?.forbiddenMistakes,
       arcContext: baseSpec?.arcContext || null,
     };
@@ -279,4 +281,11 @@ async function draftBookText(doc) {
   return next;
 }
 
-module.exports = { draftBookText, applyManuscript, renderInfantContract, renderStoryArcContext };
+module.exports = {
+  draftBookText,
+  applyManuscript,
+  renderInfantContract,
+  renderStoryArcContext,
+  // AA-CW-16 — exported so tests can prompt-lock the proseProps rule.
+  SYSTEM_PROMPT,
+};
