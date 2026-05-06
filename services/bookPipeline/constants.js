@@ -89,6 +89,14 @@ const MODELS = {
   ILLUSTRATION_SPEC: 'gpt-5.4-mini',
 
   // --- QA models ---
+  // WRITER_JUDGE — AA-CW-4. The authoritative writer-side QA judge runs on
+  // gpt-5.4 (same tier as the writer itself) so the literary verdict is
+  // strict enough to catch identity/stem/suffix-only rhymes, fragment lines,
+  // dropped articles, address-name concat, and infant locomotion verbs the
+  // gemini-flash literary call sometimes missed in production.
+  WRITER_JUDGE: 'gpt-5.4',
+  // WRITER_QA — kept for the parallel SHADOW judge (non-authoritative
+  // diffing) and for the per-line infant locomotion gate Flash call.
   WRITER_QA: 'gemini-2.5-flash',
   BOOK_WIDE_QA: 'gemini-2.5-flash',
   SPREAD_QA_VISION: 'gemini-2.5-flash',
