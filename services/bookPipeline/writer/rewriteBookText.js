@@ -13,7 +13,7 @@ const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, FAIL
 const { updateSpread, appendLlmCall, appendRetryMemory, withStageResult } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
-const { checkWriterDraft, findInfantForbiddenActionVerbs } = require('../qa/checkWriterDraft');
+const { checkWriterDraft } = require('../qa/checkWriterDraft');
 const { renderStoryArcContext } = require('./draftBookText');
 
 /**
@@ -26,21 +26,34 @@ const { renderStoryArcContext } = require('./draftBookText');
  * the writer stage instead, with a tag that points the operator at the
  * real culprit.
  *
+ * AA-CW-9: this used to call a per-line `gemini-2.5-flash` gate (~38
+ * sequential calls, ~65s wall time per book) to redo what the gpt-5.4
+ * judge had already evaluated. We now read the judge's authoritative
+ * verdict on the doc and trust its `infant_action_verb_in_text` tag.
+ * The judge prompt enumerates every banned verb root + body-part
+ * displacement construction with concrete examples and lists the
+ * offending verb(s) in the issue text.
+ *
  * @param {object} doc
  * @returns {{ spreadNumber: number, hits: string[] }[]}
  */
-async function collectInfantActionResiduals(doc) {
+function collectInfantActionResiduals(doc) {
   const ageBand = doc?.request?.ageBand;
   if (ageBand !== AGE_BANDS.PB_INFANT) return [];
+  const perSpread = doc?.writerQa?.perSpread || [];
   const offenders = [];
-  for (const s of doc.spreads || []) {
-    const text = s?.manuscript?.text;
-    if (!text) continue;
-    // AA-CW-4: this is now an async pure-LLM Flash call (no regex).
-    const hits = await findInfantForbiddenActionVerbs(text, ageBand, {
-      abortSignal: doc?.operationalContext?.abortSignal,
+  for (const entry of perSpread) {
+    const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+    if (!tags.includes('infant_action_verb_in_text')) continue;
+    const issues = Array.isArray(entry?.issues) ? entry.issues : [];
+    const hits = issues
+      .filter(i => typeof i === 'string' && /infant_action_verb_in_text/i.test(i))
+      .map(i => i.replace(/^infant_action_verb_in_text:?\s*/i, '').trim())
+      .filter(Boolean);
+    offenders.push({
+      spreadNumber: entry.spreadNumber,
+      hits: hits.length > 0 ? hits : ['(see judge issue)'],
     });
-    if (hits.length > 0) offenders.push({ spreadNumber: s.spreadNumber, hits });
   }
   return offenders;
 }
@@ -246,7 +259,7 @@ async function writerQaAndRewrite(doc) {
   // forbidden action verbs, do not let the bad text reach the illustrator.
   // The illustrator cannot resolve text-induced age violations and would
   // burn its full per-pair budget for nothing.
-  const residuals = await collectInfantActionResiduals(finalDoc);
+  const residuals = collectInfantActionResiduals(finalDoc);
   if (residuals.length > 0) {
     const issues = residuals.map(r => `spread ${r.spreadNumber}: infant-forbidden action verb(s) remain after ${wave} rewrite wave(s): ${r.hits.join(', ')}`);
     const bookId = finalDoc.operationalContext?.bookId || finalDoc.request?.bookId || 'n/a';
