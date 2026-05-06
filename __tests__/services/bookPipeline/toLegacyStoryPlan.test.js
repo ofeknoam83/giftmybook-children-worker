@@ -3,7 +3,10 @@ const { computePageCount, computeSynopsis } = require('../../../services/coverMe
 
 function makeDoc(overrides = {}) {
   return {
-    version: 'book-pipeline-v1',
+    // AA-CW-6: pipeline cutover bumped v1 → v2 alongside the AA-CW-1–5b
+    // refactor stack. Use the current PIPELINE_VERSION value here so the
+    // fixture matches the version that runs in production.
+    version: 'book-pipeline-v2',
     request: { theme: 'adventure', child: { name: 'Luna', age: 5 } },
     brief: { child: { name: 'Luna', age: 5, gender: 'girl' } },
     storyBible: {
