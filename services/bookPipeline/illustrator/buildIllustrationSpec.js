@@ -80,6 +80,7 @@ function composeScene(doc, spread) {
       '    - When the manuscript says she is holding, sitting beside, walking with, or otherwise physically with the child, render her ACTUAL VISIBLE BODY in the frame (head + torso + arms attached to the torso).',
       '    - NEVER substitute a flat, featureless cast shadow on a wall, floor, or ceiling for her body. A wall-shadow is NEVER a stand-in for a present caregiver. If she is in the scene, she is rendered, not shadowed.',
       '    - NEVER add disembodied arms or a phantom second pair of arms wrapping the child. The caregiver contributes ONE pair of arms, both attached to her single visible torso in this frame.',
+      '    - EXACTLY ONE caregiver in this frame. NEVER render TWO of the same caregiver — no duplicated body, no second torso, no headless extra body wrapping the child while a fully-rendered caregiver also reaches for the child from the other side. ONE head, ONE torso, ONE pair of arms, ONE pair of legs — all attached on a single coherent body.',
       '    - The caregiver\'s skin tone family in this spread must match the cover render exactly — no "darker family member" drift. Compare against the cover, not against the child.',
     ].join('\n')
     : '';
