@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "_doc": "Therapeutic intent must be delivered structurally, not stated. These phrases are banned across all bands. The list is small on purpose — false positives here are worse than misses, since the spread critic also runs a meaning sanity check.",
+  "phrases": [
+    "believe in yourself",
+    "you can do it",
+    "you can do anything",
+    "be brave",
+    "don't be afraid",
+    "don't be scared",
+    "you are strong",
+    "you are special",
+    "you are enough",
+    "always remember",
+    "never forget",
+    "the lesson is",
+    "the moral is",
+    "and so we learn",
+    "and that's how"
+  ]
+}
