@@ -124,7 +124,12 @@ const MODELS = {
 };
 
 const REPAIR_BUDGETS = {
-  writerRewriteWaves: 3,
+  // AA-CW-16: bumped 3 -> 5. With AA-CW-15's rewrite memory the rewriter
+  // gets explicit signal about prior failed attempts, so additional waves
+  // are no longer wasted on rediscovering the same lossy local optima.
+  // Wave 4+ also unlocks the per-spread escape hatch (relax exactly one
+  // craft constraint on a spread that has been rejected 3 times).
+  writerRewriteWaves: 5,
   perSpreadInSessionCorrections: 3,
   perSpreadPromptRepairs: 2,
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
@@ -132,6 +137,10 @@ const REPAIR_BUDGETS = {
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
   perSpreadExtraSessionRounds: 3,
   bookWideRepairWaves: 2,
+  // AA-CW-16: a spread that has been rejected this many consecutive waves
+  // unlocks the writer's escape hatch on the NEXT wave (wave 4 by default).
+  // Mirrors the parent-skin / silhouette escape hatches in the illustrator.
+  writerEscapeHatchAfterRejections: 3,
   /**
    * Early-abort threshold for the quad illustrator: if a spread pair is
    * rejected this many times in a row with `age_action_impossible` in the

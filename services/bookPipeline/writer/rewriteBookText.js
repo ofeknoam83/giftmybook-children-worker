@@ -194,6 +194,7 @@ Hard rules (same as original writer):
 - Text must be plausible to render in a few lines on one side without crossing center.
 - **HERO PRONOUNS — single source of truth.** The user prompt declares ONE pronoun set for the hero. Use ONLY those pronouns; never swap them across spreads. When a sentence is ambiguous, prefer the hero's name over a different pronoun.
 - **Arc context.** When the spec carries \`arcContext.callbackToSpread\` or \`setsUpSpread\`, your rewrite should preserve or strengthen the bond between those spreads (a returning prop, a repeated phrase, a planted seed) so the rewrite doesn't sever the arc.
+- **PROSE-PROP WHITELIST (AA-CW-16, hard rule).** Each spread spec carries \`proseProps\` — the EXHAUSTIVE list of concrete physical objects you may name in that spread's text. Any noun outside the whitelist guarantees an action_mismatch loop in the illustrator and will fail QA as \`writer_invented_prop\`. Every concrete physical noun the hero or parent INTERACTS WITH (object of a transitive verb, possessive target, prepositional anchor of a touch/lift/hold/pat/etc.) must be either (a) the child or parent themselves, (b) a body part, (c) the spread's location, or (d) an entry in \`proseProps\` (case-insensitive substring match). Background scenery you only mention is exempt unless the hero touches it. If you cannot complete a couplet using the whitelist, choose a different rhyme word — NEVER invent a prop to land a rhyme.
 
 Picture-book structure (MANDATORY when format is picture_book):
 - LINE COUNT: EXACTLY 4 lines per spread for ALL picture-book age bands (PB_INFANT 0-1, PB_TODDLER 0-3, PB_PRESCHOOL 3-6) — two AABB rhyming couplets. Even the infant board-book band uses 4 lines; bands differ by per-line word budget, not by line count. NEVER emit 2-line spreads for picture books.
@@ -226,18 +227,85 @@ Return ONLY strict JSON: { "spreads": [ { "spreadNumber": N, "text": "LINE1\\nLI
  */
 const REWRITE_MEMORY_MAX_ATTEMPTS = 2;
 
+/**
+ * AA-CW-16 — escape-hatch threshold. After this many consecutive rejections
+ * on the SAME spread, the next rewrite wave for that spread is allowed to
+ * relax exactly one craft constraint (rhyme scheme, line count, or repeated
+ * phrase). Mirrors the parent-skin / silhouette escape hatches in the
+ * illustrator. Default sourced from REPAIR_BUDGETS so production can tune it.
+ */
+const { REPAIR_BUDGETS: _REPAIR_BUDGETS } = require('../constants');
+const WRITER_ESCAPE_HATCH_AFTER_REJECTIONS =
+  Number.isFinite(_REPAIR_BUDGETS?.writerEscapeHatchAfterRejections)
+    ? _REPAIR_BUDGETS.writerEscapeHatchAfterRejections
+    : 3;
+
 function recordRewriteAttempt(doc, spreadNumber, attempt) {
   const prev = doc.writerRewriteMemory && doc.writerRewriteMemory[spreadNumber]
     ? doc.writerRewriteMemory[spreadNumber]
     : [];
   const next = [...prev, attempt].slice(-REWRITE_MEMORY_MAX_ATTEMPTS);
+  // AA-CW-16: independent rejection counter that is NOT capped by the memory
+  // window. The memory keeps only the last 2 attempts (prompt-size bound),
+  // but the counter must keep growing so the escape hatch eventually unlocks.
+  const prevCount =
+    doc.writerRewriteRejectionCount && Number.isFinite(doc.writerRewriteRejectionCount[spreadNumber])
+      ? doc.writerRewriteRejectionCount[spreadNumber]
+      : 0;
   return {
     ...doc,
     writerRewriteMemory: {
       ...(doc.writerRewriteMemory || {}),
       [spreadNumber]: next,
     },
+    writerRewriteRejectionCount: {
+      ...(doc.writerRewriteRejectionCount || {}),
+      [spreadNumber]: prevCount + 1,
+    },
   };
+}
+
+/**
+ * AA-CW-16 — has the escape hatch unlocked for this spread? True iff the
+ * spread has been rejected at least `WRITER_ESCAPE_HATCH_AFTER_REJECTIONS`
+ * times. Once unlocked, every subsequent wave for that spread sees the
+ * relaxation block in the rewrite prompt.
+ *
+ * @param {object} doc
+ * @param {number} spreadNumber
+ * @returns {boolean}
+ */
+function isEscapeHatchUnlocked(doc, spreadNumber) {
+  const count =
+    doc?.writerRewriteRejectionCount && Number.isFinite(doc.writerRewriteRejectionCount[spreadNumber])
+      ? doc.writerRewriteRejectionCount[spreadNumber]
+      : 0;
+  return count >= WRITER_ESCAPE_HATCH_AFTER_REJECTIONS;
+}
+
+/**
+ * AA-CW-16 — render the per-spread escape-hatch block for the rewriter.
+ * Surfaced ABOVE the JSON payload, alongside the AA-CW-15 rewrite-memory
+ * block, so the rewriter sees both "what you tried" and "what you may now
+ * relax" before it generates.
+ *
+ * The block authorizes the LLM to relax EXACTLY ONE craft constraint on this
+ * spread (rhyme scheme, line count, or repeated phrase). The other rules
+ * (no invented props, hero pronouns, no nonsense words, no infant-locomotion)
+ * are NEVER relaxed — those are illustrator-safety rails, not craft taste.
+ *
+ * @param {number} spreadNumber
+ * @returns {string}
+ */
+function renderEscapeHatchForSpread(spreadNumber) {
+  return [
+    `ESCAPE HATCH — Spread ${spreadNumber} (AA-CW-16, unlocked after ${WRITER_ESCAPE_HATCH_AFTER_REJECTIONS} consecutive rejections):`,
+    'This spread has been rejected too many times to keep insisting on full craft. You are now permitted to RELAX EXACTLY ONE of the following constraints to break the loop:',
+    '  (a) Rhyme scheme — you may switch this spread from AABB to ABAB, ABCB, or free verse if the rhyme constraint is forcing filler/invented props. The rest of the book stays AABB.',
+    '  (b) Line count — you may emit one fewer line than the band target (e.g. 3 lines for a band that asks for 4) if a clean 4-line shape is unreachable.',
+    '  (c) Repeated phrase — you may drop a refrain or echoed phrase on this spread if it is what is forcing the failing tag.',
+    'You may relax ONLY ONE of (a)/(b)/(c) on this spread. State which one in `writerNotes` (e.g. "escape-hatch: relaxed rhyme scheme to ABAB"). Hard rules NEVER relaxed: no invented props (proseProps whitelist), hero pronouns, no nonsense words, no infant-locomotion verbs, no parent-name concat with address words.',
+  ].join('\n');
 }
 
 /**
@@ -304,6 +372,10 @@ function rewriteUserPrompt(doc, targets) {
       const priorAttempts = (doc.writerRewriteMemory && doc.writerRewriteMemory[t.spreadNumber])
         ? doc.writerRewriteMemory[t.spreadNumber]
         : [];
+      // AA-CW-16: signal the escape hatch on the JSON payload so the rewriter
+      // sees both the relax-instruction block (above the JSON) and a flag in
+      // its own item.
+      const escapeHatchUnlocked = isEscapeHatchUnlocked(doc, t.spreadNumber);
       return {
         spreadNumber: t.spreadNumber,
         spec: s.spec,
@@ -313,17 +385,27 @@ function rewriteUserPrompt(doc, targets) {
         tags: t.tags,
         suggestedRewrite: t.suggestedRewrite,
         priorAttempts,
+        escapeHatchUnlocked,
       };
     })
     .filter(Boolean);
 
   // AA-CW-15: build a separate, prominent memory block per spread so the
   // "do not re-emit" instruction is loud, not buried inside JSON.
+  // AA-CW-16: prepend the escape-hatch authorization for any spread that has
+  // crossed the rejection threshold, so the rewriter sees both "what you
+  // tried" and "what you may now relax" before the JSON payload.
   const memoryBlocks = items
     .map(it => {
-      const block = renderRewriteMemoryForSpread(doc, it.spreadNumber);
-      if (!block) return '';
-      return `--- Spread ${it.spreadNumber} ---\n${block}`;
+      const memBlock = renderRewriteMemoryForSpread(doc, it.spreadNumber);
+      const escapeBlock = isEscapeHatchUnlocked(doc, it.spreadNumber)
+        ? renderEscapeHatchForSpread(it.spreadNumber)
+        : '';
+      if (!memBlock && !escapeBlock) return '';
+      const parts = [`--- Spread ${it.spreadNumber} ---`];
+      if (escapeBlock) parts.push(escapeBlock);
+      if (memBlock) parts.push(memBlock);
+      return parts.join('\n');
     })
     .filter(Boolean);
   const lineCountReminder = renderLineCountReminderForRewrite(doc.request?.ageBand);
@@ -541,4 +623,8 @@ module.exports = {
   renderRewriteMemoryForSpread,
   rewriteUserPrompt,
   REWRITE_MEMORY_MAX_ATTEMPTS,
+  // AA-CW-16 — escape hatch.
+  isEscapeHatchUnlocked,
+  renderEscapeHatchForSpread,
+  WRITER_ESCAPE_HATCH_AFTER_REJECTIONS,
 };

@@ -168,11 +168,18 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
 
    The test: can a four-year-old reading this line point at a real, drawable thing the verb is acting on? If no, fail it. Per-spread. Quote the offending line in the issue.
 
-19. "writer_invented_prop" — the manuscript text introduces a physical prop or noun that does NOT appear in that spread's spec.focalAction or spec.beat. The illustrator follows the spec, not the text, so writer-invented props guarantee an action_mismatch loop. ALWAYS FAIL.
+19. "writer_invented_prop" — the manuscript text names a physical prop the hero or parent INTERACTS WITH that is NOT in the spread's \`proseProps\` whitelist (and not a character / body part / location). The illustrator follows the spec, not the text, so writer-invented props guarantee an action_mismatch loop. ALWAYS FAIL.
 
-   Example: spec.focalAction says "Scarlett snuggles into Mama's lap and pats the blanket" but the manuscript line says "Scarlett pats one string." — "string" is invented; the spec only knows about a blanket and a lap. The renderer will draw the spec, and the QA judge will flag action_mismatch every attempt.
+   AA-CW-16 — the spread spec now carries an explicit \`proseProps\` array: an exhaustive whitelist of concrete physical objects the writer is allowed to name. Use it as your authority.
 
-   The test: every concrete noun the child INTERACTS WITH in the line (object of a transitive verb the child performs) must be present in the spread's spec.focalAction or spec.beat (case-insensitive substring match is fine — "blanket"/"the blanket" both count). Background scenery ("trees", "sky", "porch") is NOT a writer-invented prop unless the child is interacting with it. Per-spread. Quote the offending line and name the invented prop.
+   Example: \`proseProps\` = ["blanket", "lap", "cheek", "stroller", "strawberry-print", "hand"] but the manuscript line says "Scarlett pats one string." — "string" is not in the whitelist, so it is invented. The renderer will draw the spec, the line will not match the image, and the spread fails downstream.
+
+   The test: every concrete physical noun that the hero or parent INTERACTS WITH (object of a transitive verb the child performs, possessive target, prepositional anchor of a touch/hold/pat/lift/grip) must satisfy ONE of:
+     (a) it names the child or parent ("Mama", "Scarlett", "baby")
+     (b) it names a body part (cheek, hand, finger, toe, lap, knee, chin, nose, hair)
+     (c) it appears in the spread's \`location\` (case-insensitive substring)
+     (d) it appears in the spread's \`proseProps\` array (case-insensitive substring — "blanket" matches "the blanket" or "strawberry-print blanket")
+   Falling outside all four = \`writer_invented_prop\`. Background scenery the hero only LOOKS AT (sky, trees, clouds) is exempt unless the hero touches it. If \`proseProps\` is missing or empty on a spread, fall back to the legacy substring check against \`spec.focalAction\` + \`spec.plotBeat\` + \`spec.mustUseDetails\`. Per-spread. Quote the offending line and name the invented prop.
 
 20. "semantic_filler" — a line is grammatically complete but adds no image, no action, and no new sensory or emotional information beyond what an adjacent line already carried, OR uses a vague phrase to complete a rhyme. Per-spread. ALWAYS FAIL.
 
