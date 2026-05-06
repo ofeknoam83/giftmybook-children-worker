@@ -15,6 +15,7 @@ const { renderTextPolicyBlock } = require('./textPolicies');
 const { buildRetryEntry } = require('../retryMemory');
 const { checkWriterDraft } = require('../qa/checkWriterDraft');
 const { renderStoryArcContext } = require('./draftBookText');
+const { lookupRhymes, lastWord } = require('./rhymeBank');
 
 /**
  * AA-CW-17 Part A — failure forensics persistence.
@@ -284,6 +285,14 @@ class WriterUnresolvableError extends Error {
 
 const SYSTEM_PROMPT = `You are rewriting specific spreads of a children's book.
 You keep the rest of the book intact. For each spread listed, produce an improved version that fixes the listed issues.
+
+RHYME — READ THIS FIRST (AA-CW-22, hard rules, no exceptions):
+- A rhyme means TWO DIFFERENT WORDS whose final stressed vowel + final consonant sound match. "chin / grin" is a rhyme. "chin / chin" is NOT a rhyme — that is an identity rhyme and it is a failure.
+- NEVER end two lines on the same word. NEVER repeat the line-ending word inside the same line either (e.g. "Mama grins with a grin." repeats grin and is rejected).
+- NEVER ship a couplet that does not rhyme out loud. "leaf / brief" sounds the same on the page but reads flat aloud — pick a stronger partner like "leaf / tree" or "leaf / breeze". When in doubt, change BOTH end-words.
+- If the per-spread item carries a \`rhymeBank\` array, line 2 MUST end on a word from that array. Do not pick anything else for line 2's final word. The bank is hand-curated to rhyme cleanly with the existing line-1 end-word; using it is the fastest path to passing.
+- DROPPED ARTICLES: never write "in lap", "by chin", "at chin", "on knee" etc. A bare singular body part / object after a preposition is broken English. Always use a determiner: "in her lap", "by Mama's chin", "at his chin", "on her knee".
+
 Hard rules (same as original writer):
 - Honor the spread spec (side, personalization, beat).
 - Read-aloud first. Musical, simple, low repetition, no big metaphors.
@@ -653,6 +662,30 @@ function rewriteUserPrompt(doc, targets) {
       // sees both the relax-instruction block (above the JSON) and a flag in
       // its own item.
       const escapeHatchUnlocked = isEscapeHatchUnlocked(doc, t.spreadNumber);
+      // AA-CW-22: when the killing tags include rhyme_fail or identity_rhyme,
+      // pre-compute a real rhyme bank for the line-1 end-word and inject it
+      // into the item. The rewriter is told (system prompt) to pick line 2's
+      // end-word from the bank when present. This is the fix for the
+      // production failure where the writer kept producing leaf/brief and
+      // chin/grin (with grin) — vague directives like "pick a real rhyme"
+      // weren't enough.
+      const tags = Array.isArray(t.tags) ? t.tags : [];
+      const rhymeFlagged = tags.includes('rhyme_fail') || tags.includes('identity_rhyme');
+      let rhymeBank = null;
+      let rhymeBankWord = null;
+      if (rhymeFlagged) {
+        const currentText = s.manuscript?.text || '';
+        const lines = currentText.split(/\r?\n/);
+        const line1 = lines[0] || '';
+        const word = lastWord(line1);
+        if (word) {
+          const partners = lookupRhymes(word);
+          if (partners.length > 0) {
+            rhymeBank = partners;
+            rhymeBankWord = word;
+          }
+        }
+      }
       return {
         spreadNumber: t.spreadNumber,
         spec: s.spec,
@@ -663,6 +696,7 @@ function rewriteUserPrompt(doc, targets) {
         suggestedRewrite: t.suggestedRewrite,
         priorAttempts,
         escapeHatchUnlocked,
+        ...(rhymeBank ? { rhymeBank, rhymeBankWord } : {}),
       };
     })
     .filter(Boolean);
