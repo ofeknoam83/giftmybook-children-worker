@@ -11,10 +11,27 @@ const ANECDOTE_KEYS_PRIORITY = [
 /**
  * @param {{ interests?: string[], appearance?: string, anecdotes?: Record<string,string> }} child
  * @param {Record<string, unknown>} [customDetails]
+ * @param {{ subject?: string, object?: string, possessive?: string, reflexive?: string }} [pronouns]
+ *   Canonical pronoun set resolved at brief boundary (AA-CW-5a). When provided
+ *   it is rendered as the first line of the snapshot so every planner /
+ *   spread-spec / story-bible prompt sees the same authoritative pronouns and
+ *   cannot drift between waves.
  * @returns {string} Multi-line snapshot for planner LLMs.
  */
-function renderPersonalizationSnapshotForPlanner(child = {}, customDetails = {}) {
+function renderPersonalizationSnapshotForPlanner(child = {}, customDetails = {}, pronouns = null) {
   const lines = [];
+
+  // AA-CW-5b — pronouns first, so every downstream LLM (storyBible,
+  // spreadSpecs) anchors on the same canonical set the writer / rewriter use.
+  if (pronouns && typeof pronouns === 'object') {
+    const s = String(pronouns.subject || '').trim();
+    const o = String(pronouns.object || '').trim();
+    const p = String(pronouns.possessive || '').trim();
+    const r = String(pronouns.reflexive || '').trim();
+    if (s && o && p && r) {
+      lines.push(`PRONOUNS (use ONLY these, never swap, never alternate): subject=${s}, object=${o}, possessive=${p}, reflexive=${r}`);
+    }
+  }
 
   const interests = Array.isArray(child.interests) ? child.interests.filter(Boolean) : [];
   if (interests.length) {
