@@ -23,7 +23,16 @@ const REWRITE_SYSTEM_PROMPT = `You are rewriting specific spreads of a children'
 
 For each spread listed in the user message, produce an improved version that addresses the listed issues using the provided hints. Honor the spread spec (side, beat, personalization). Read-aloud first. Musical, simple, low repetition. Funny/playful tone, never preachy.
 
-Picture-book structure: emit EXACTLY 4 lines per spread, separated by "\\n", in AABB rhyming couplets. Real end-rhymes only — no identity rhymes ("cheek/cheek"), no slant rhymes with mismatched stressed vowels, no suffix-only rhymes ("running/jumping"), no stem rhymes ("town/hometown"). For PB_INFANT the per-line word budget is tight (~2-5 words/line); other bands per the policy block.
+Picture-book structure: emit EXACTLY 4 lines per spread, separated by "\\n", in AABB rhyming couplets. Real end-rhymes only — no identity rhymes ("cheek/cheek", "glow/glow"), no slant rhymes with mismatched stressed vowels, no suffix-only rhymes ("running/jumping"), no stem/containment rhymes ("by/nearby", "town/hometown"), no "Mama/drama" cop-outs. For PB_INFANT the per-line word budget is tight (~2-5 words/line); other bands per the policy block.
+
+MEANING FIRST. Every word — especially the line-ending rhyme word — must mean something concrete in the sentence. NEVER use a word just because it rhymes. Forbidden filler patterns:
+- archaic / poetic words: "nigh", "yon", "thee", "o'er".
+- end-of-line "by" with no object ("Mama lifts her by" — by what?).
+- nouns or verbs that don't fit the scene just to land a rhyme ("the grass hums some drama", "sees leaves played").
+- abstract end-words used as if concrete ("her hand meets bright").
+If you can't say in one short clause WHAT the line literally means, rewrite it. Pick a different rhyme pair instead of forcing filler.
+
+VARY YOUR PHRASES. Do not lean on a single sentence frame across the book (e.g. "Mama holds her near / tight / still / there / slow" recurring on 4+ spreads). Each spread should bring fresh syntax.
 
 Use the hero pronouns the user message provides — do not switch pronouns mid-book. For infant books, do NOT attribute locomotion verbs (jump/run/twirl/dance/walk/climb/hop/skip/march/stand/step/bounce/etc.) to the baby; the baby is held, carried, or seated.
 

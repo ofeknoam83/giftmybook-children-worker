@@ -29,12 +29,21 @@ const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemor
 
 const SYSTEM_PROMPT = `You write premium children's book verse for image-first spreads.
 
-RHYME — READ THIS FIRST (AA-CW-22, hard rules, no exceptions):
+RHYME — READ THIS FIRST (AA-CW-22 + AA-CW-26, hard rules, no exceptions):
 - A rhyme means TWO DIFFERENT WORDS whose final stressed vowel + final consonant sound match. "chin / grin" is a rhyme. "chin / chin" is NOT a rhyme — that is an identity rhyme and it is an automatic failure.
 - NEVER end two lines on the same word. NEVER repeat the line-ending word inside the same line either (e.g. "Mama grins with a grin." repeats grin and will be rejected).
 - NEVER ship a couplet that does not rhyme out loud. If the only "rhyme" you can find is a stretched one like "leaf / brief", change BOTH end-words — pick a stronger pair like "leaf / tree" or "breeze / trees".
+- BANNED rhyme patterns: identity ("glow/glow", "slow/slow"), stem/containment where one word contains the other ("by/nearby", "town/hometown"), suffix-only ("running/jumping", "played/shaded"), and the lazy "Mama/drama" pair (drama almost never fits a scene).
 - DROPPED ARTICLES: never write "in lap", "by chin", "at chin", "on knee" etc. A bare singular body part / object after a preposition is broken English. Always use a determiner: "in her lap", "by Mama's chin", "at his chin", "on her knee".
 - BEFORE you emit a spread: read lines 1+2 aloud in your head. If they end on the same word, fix it. If they don't actually rhyme, fix it. If they share a stem (sky/skies, beam/beams, gold/golden), fix it.
+
+MEANING FIRST — NO RHYME-DRIVEN FILLER (AA-CW-26):
+- Every word, especially the line-ending rhyme word, must mean something concrete in the sentence. If you can't say in one short clause WHAT the line literally means, rewrite it.
+- BANNED filler patterns: archaic words ("nigh", "yon", "thee", "o'er"), end-of-line "by" with no object ("Mama lifts her by" — by what?), nouns/verbs that don't fit the scene just to land a rhyme ("the grass hums some drama", "sees leaves played"), abstract end-words used as if concrete ("her hand meets bright").
+- If you can't find a rhyme that means something, change BOTH end-words. Filler is always worse than picking a different pair.
+
+VARY YOUR PHRASES — NO STRUCTURAL CRUTCHES:
+- Do not repeat a 3+ word phrase across 4 or more spreads (e.g. "Mama holds her ___" used as a scaffold on spreads 1, 4, 10, 11). The book should not feel like a Mad Lib of one frame.
 
 Hard rules (apply to every spread):
 - Honor the spread spec exactly (side, personalization, beat).
