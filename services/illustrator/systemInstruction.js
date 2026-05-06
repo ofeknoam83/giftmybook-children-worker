@@ -299,7 +299,13 @@ When in doubt, show the hero alone with the environment and any companions (pets
 The ${parentWord} is on the BOOK COVER. Interior frames must reuse the **exact same facial identity** as that cover render — NOT a remix, NOT a softer "cousin who looks similar," NOT a generic stock ${parentWord}.
 - Match **face shape, apparent age band, ethnicity / skin tone and undertones, eye color/shape where visible**, **hair length, texture, style, color**, **build**, and **outfit lineage** to the cover on every appearance.
 - Expressions, pose, lighting, and camera angle may vary; the underlying **character model stays one continuous person**.
-- If the descriptive text (${additionalCoverCharacters ? 'and the SECONDARY CHARACTER line above' : 'above'}) lists concrete traits, stay consistent with BOTH the wording and the cover pixels — the image wins on conflict.`
+- If the descriptive text (${additionalCoverCharacters ? 'and the SECONDARY CHARACTER line above' : 'above'}) lists concrete traits, stay consistent with BOTH the wording and the cover pixels — the image wins on conflict.
+
+**HARD RULE — NO SHADOW SUBSTITUTION FOR THE ${parentWord.toUpperCase()}'s BODY.** When the manuscript says the ${parentWord} is holding the hero, sitting beside the hero, walking with the hero, or otherwise PHYSICALLY in the scene, render the ${parentWord}'s ACTUAL VISIBLE BODY in the frame — head, torso, and arms attached to that single torso. A flat, featureless cast shadow on a wall, floor, or ceiling is NEVER a substitute for the ${parentWord}'s body. If the ${parentWord} is in the scene, she is rendered in the scene, not represented by a wall-shadow. Cast shadows on walls are ambient lighting only — not stand-ins for an absent body.
+
+**HARD RULE — ONE TORSO, TWO ARMS.** The ${parentWord} contributes EXACTLY one torso and one pair of arms in any single frame. NEVER add a second pair of arms wrapping the hero from another angle. NEVER render a third disembodied arm reaching toward the hero. NEVER show a phantom arm coming from behind the hero with no torso visible to anchor it. If the ${parentWord} is holding the child, ONE pair of arms holds the child — not two.
+
+**HARD RULE — ${parentWord.toUpperCase()} SKIN TONE = COVER ${parentWord.toUpperCase()} SKIN TONE.** The ${parentWord}'s skin in every interior spread must read as the SAME skin family as the ${parentWord} on the cover — same lightness, same warmth, same undertone. Compare against the cover ${parentWord}'s skin patch, NOT against the hero child's skin. The hero child and the ${parentWord} may have different skin tones (children take after one parent more than the other) — what matters is that the ${parentWord}'s skin matches her OWN cover render. A two-shade gap or undertone shift between the ${parentWord} on the cover and the ${parentWord} in an interior spread is a hard fail.`
     );
   }
 

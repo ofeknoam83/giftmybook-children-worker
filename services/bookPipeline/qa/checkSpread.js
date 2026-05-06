@@ -34,6 +34,10 @@ const { checkSpreadActionConsistency } = require('../../illustrator/actionConsis
  *   the lap-baby age-action floor.
  * @param {string} [params.heroName] - Hero name; used in the action vision
  *   prompt for clearer phrasing.
+ * @param {object|null} [params.caregiverLock] - Cover-derived caregiver visual
+ *   lock (visualBible.caregiverLock). When set, consistency QA receives the
+ *   same identity ground truth the renderer was instructed to render and can
+ *   trigger caregiver_shadow_substitution / caregiver_skin_drift / phantom_arms.
  * @param {number} params.spreadIndex - 0-based
  * @param {Array<{ base64: string, mimeType?: string, spreadNumber?: number }>} [params.recentInteriorRefs]
  *   Recent accepted interiors for continuity QA (hair/outfit vs story-so-far).
@@ -55,6 +59,7 @@ async function checkSpread(params) {
     heroName,
     spreadIndex,
     recentInteriorRefs,
+    caregiverLock,
     abortSignal,
   } = params;
 
@@ -81,11 +86,13 @@ async function checkSpread(params) {
         recentInteriorRefs,
         abortSignal,
         theme,
+        caregiverLock: caregiverLock || null,
       },
     ).catch(err => ({
       pass: false,
       issues: [`consistency QA error: ${err?.message || 'unknown'}`],
       tags: ['qa_consistency_error'],
+      repairInstructions: [],
     })),
     // C.1 + C.2 — does the IMAGE depict what the TEXT says, and is the
     // depicted action possible for the hero's age band? Stateless single
@@ -127,10 +134,20 @@ async function checkSpread(params) {
     issues = issues.filter(i => !/Implied parent/i.test(i));
   }
 
+  // Surgical BAD/FIX repair instructions surfaced by consistencyQa for the
+  // caregiver-lock-driven tags. The orchestrator (illustrator/index.js retry
+  // path) appends these verbatim to the next-attempt correction note so the
+  // model gets concrete "render Mama's full body sitting on the bench…"
+  // guidance instead of a generic tag-derived sentence.
+  const repairInstructions = Array.isArray(consistencyQa.repairInstructions)
+    ? consistencyQa.repairInstructions.filter(s => typeof s === 'string' && s.trim().length > 0)
+    : [];
+
   return {
     pass: issues.length === 0,
     issues,
     tags: [...new Set(tags)],
+    repairInstructions,
     ocrText: textQa.ocrText,
     text: textQa,
     consistency: consistencyQa,

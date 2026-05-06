@@ -55,6 +55,34 @@ function composeScene(doc, spread) {
   const { visualBible, storyBible } = doc;
   const spec = spread.spec;
   const hero = visualBible?.hero || {};
+  // Cover-derived caregiver visual lock — populated by
+  // detectCoverComposition.js → callCaregiverVision when a caregiver IS on
+  // the approved cover. This is the SAME identity the renderer must show on
+  // every interior spread and the SAME identity the QA call compares against.
+  // Without this block, the renderer extrapolates caregiver appearance from
+  // text descriptions and degrades into:
+  //   - flat featureless cast-shadow Mama on the wall (instead of her body)
+  //   - skin tone two shades darker than her cover render
+  //   - a third disembodied arm wrapping the child
+  const caregiverLock = visualBible?.caregiverLock || null;
+  const caregiverLockBlock = caregiverLock
+    ? [
+      'Caregiver visual lock (cover-derived — the SAME person rendered on the approved cover):',
+      `  - role: ${caregiverLock.role || 'caregiver'}`,
+      `  - skin tone (LOCK — read from the caregiver\'s OWN pixels on the cover, not derived from the child): ${caregiverLock.skinTone || '(see cover render)'}`,
+      `  - skin family vs. the child on cover: ${caregiverLock.skinFamilyVsChild || 'unclear'} — never drift the caregiver\'s skin darker or lighter than this between spreads`,
+      `  - hair: ${caregiverLock.hair || '(see cover render)'}`,
+      `  - outfit: ${caregiverLock.outfit || '(see cover render)'}`,
+      `  - build: ${caregiverLock.build || '(see cover render)'}`,
+      `  - face: ${caregiverLock.face || '(see cover render)'}`,
+      '  HARD RULES for this caregiver in every interior spread where she appears:',
+      '    - Render her as the SAME person as on the cover — same face family, same skin family, same hair, outfit lineage continuous across spreads.',
+      '    - When the manuscript says she is holding, sitting beside, walking with, or otherwise physically with the child, render her ACTUAL VISIBLE BODY in the frame (head + torso + arms attached to the torso).',
+      '    - NEVER substitute a flat, featureless cast shadow on a wall, floor, or ceiling for her body. A wall-shadow is NEVER a stand-in for a present caregiver. If she is in the scene, she is rendered, not shadowed.',
+      '    - NEVER add disembodied arms or a phantom second pair of arms wrapping the child. The caregiver contributes ONE pair of arms, both attached to her single visible torso in this frame.',
+      '    - The caregiver\'s skin tone family in this spread must match the cover render exactly — no "darker family member" drift. Compare against the cover, not against the child.',
+    ].join('\n')
+    : '';
   const priorAnchors = spread.spec?.continuityAnchors?.length
     ? `Continuity anchors to preserve: ${spec.continuityAnchors.join('; ')}.`
     : '';
@@ -174,6 +202,7 @@ function composeScene(doc, spread) {
     recurringPropsBlock,
     priorAnchors,
     offCoverCastBlock,
+    caregiverLockBlock,
     captionPlacementLine,
     spec.forbiddenMistakes?.length ? `Avoid: ${spec.forbiddenMistakes.join('; ')}.` : '',
   ].filter(Boolean);

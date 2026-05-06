@@ -85,6 +85,9 @@ const DEFAULT_MUST_PRESERVE = [
 function renderCorrectionNote(issues, tags, options = {}) {
   const mode = options.mode || 'full';
   const tagArr = Array.isArray(tags) ? tags : [];
+  const surgicalRepairs = Array.isArray(options.repairInstructions)
+    ? options.repairInstructions.filter(s => typeof s === 'string' && s.trim().length > 0)
+    : [];
   const lines = [];
   if (issues.length) {
     lines.push('Fix all of the following in the next attempt:');
@@ -173,6 +176,17 @@ function renderCorrectionNote(issues, tags, options = {}) {
       'PRESERVE: keep the hero child\'s face, hair, skin tone, and outfit exactly as in this render — fix only the caption/text problems listed above (wording, placement, center band, no stray words).',
     );
   }
+  // Surgical BAD/FIX repair instructions surfaced by the vision QA call (one
+  // per caregiver-lock-driven tag: caregiver_shadow_substitution,
+  // caregiver_skin_drift, phantom_arms). Appended verbatim AFTER the generic
+  // tag-derived guidance so the model sees the concrete "Spread N BAD: …
+  // FIX: …" sentence with the cover-derived skin tone restated. These
+  // override the generic implied/full body parent skin lines because the
+  // caregiver here is on the cover, not implied.
+  if (surgicalRepairs.length > 0) {
+    lines.push('SURGICAL CAREGIVER REPAIRS (from vision QA — apply EXACTLY as written):');
+    for (const r of surgicalRepairs) lines.push(`- ${r}`);
+  }
   return lines.join('\n');
 }
 
@@ -184,10 +198,13 @@ function renderCorrectionNote(issues, tags, options = {}) {
  * @param {number} params.attemptNumber - 1-based
  * @param {string[]} params.issues
  * @param {string[]} params.tags
+ * @param {string[]} [params.repairInstructions] - Surgical BAD/FIX repair
+ *   instructions surfaced by the vision QA for caregiver-lock-driven tags
+ *   (AA-CW-7). Appended verbatim to the correction note.
  * @returns {{ retryEntry: object, correctionNote: string, correctionMode: string }}
  */
 function planSpreadRepair(params) {
-  const { spreadNumber, attemptNumber, issues, tags } = params;
+  const { spreadNumber, attemptNumber, issues, tags, repairInstructions } = params;
   const correctionMode = classifyCorrectionMode(tags, attemptNumber);
 
   const mustPreserve = correctionMode === 'text_priority' ? TEXT_PRIORITY_PRESERVE : DEFAULT_MUST_PRESERVE;
@@ -202,7 +219,10 @@ function planSpreadRepair(params) {
     bannedRepeats: tags,
   });
 
-  const correctionNote = renderCorrectionNote(issues, tags, { mode: correctionMode });
+  const correctionNote = renderCorrectionNote(issues, tags, {
+    mode: correctionMode,
+    repairInstructions,
+  });
   return { retryEntry, correctionNote, correctionMode };
 }
 
