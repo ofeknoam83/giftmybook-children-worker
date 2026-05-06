@@ -56,6 +56,12 @@ jest.mock('../services/illustrationGenerator', () => ({
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
   fetchWithTimeout: jest.fn(),
   ART_STYLE_CONFIG: { watercolor: { prefix: 'watercolor', suffix: 'soft' } },
+  // The art-style funnel was consolidated to one canonical key ("watercolor")
+  // so server.js calls canonicalBookArtStyle() to normalize whatever the
+  // caller sends. The mock returns the canonical key regardless of input,
+  // matching the production no-op behavior.
+  canonicalBookArtStyle: jest.fn(() => 'watercolor'),
+  PARENT_THEMES: new Set(['mothers_day', 'fathers_day']),
 }));
 jest.mock('../services/chatSessionManager', () => ({
   ChatSessionManager: jest.fn().mockImplementation(() => ({
@@ -223,23 +229,10 @@ describe('POST /generate-book validation', () => {
   });
 });
 
-describe('POST /generate-spread validation', () => {
-  test('rejects missing bookId', async () => {
-    const res = await request(app)
-      .post('/generate-spread')
-      .set('x-api-key', 'test-api-key')
-      .send({ spreadPlan: { spreadNumber: 1 } });
-    expect(res.status).toBe(400);
-  });
-
-  test('rejects missing spreadPlan', async () => {
-    const res = await request(app)
-      .post('/generate-spread')
-      .set('x-api-key', 'test-api-key')
-      .send({ bookId: 'book-123' });
-    expect(res.status).toBe(400);
-  });
-});
+// POST /generate-spread validation describe removed — the /generate-spread
+// endpoint was retired (V2 pipeline generates sequentially), see
+// server.js:2467 "// /generate-spread removed". The endpoint now 404s, so
+// the legacy 400-validation tests no longer apply.
 
 describe('POST /finalize-book validation', () => {
   test('rejects empty spreads', async () => {

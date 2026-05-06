@@ -119,8 +119,12 @@ describe('buildSystemInstruction — shot variety', () => {
 });
 
 describe('buildSystemInstruction — IMPLIED_PARENT skin tone lock', () => {
+  // The implied-parent skin-tone-lock block was reworded from
+  // "SKIN TONE LOCK (implied parent):" to
+  // "SKIN TONE LOCK (any parent / relative not on the cover — HARD LOCK):".
+  // Match the new prefix.
   function countSkinLocks(text) {
-    return (text.match(/SKIN TONE LOCK \(implied parent\):/g) || []).length;
+    return (text.match(/SKIN TONE LOCK \(any parent \/ relative not on the cover/g) || []).length;
   }
 
   test('child-only cover: one skin lock in generic implied-presence branch', () => {
@@ -130,7 +134,8 @@ describe('buildSystemInstruction — IMPLIED_PARENT skin tone lock', () => {
       theme: 'adventure',
     });
     expect(countSkinLocks(out)).toBe(1);
-    expect(out).toMatch(/match the hero child/);
+    // The block must instruct the model to match the hero child's skin tone.
+    expect(out).toMatch(/match the HERO CHILD's skin tone/);
   });
 
   test('mothers_day child-only: skin lock in generic + themed branches', () => {

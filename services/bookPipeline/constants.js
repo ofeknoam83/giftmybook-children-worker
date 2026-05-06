@@ -7,7 +7,15 @@
  * OpenAI-first model strategy, and bounded repair budgets.
  */
 
-const PIPELINE_VERSION = 'book-pipeline-v1';
+// AA-CW-6: bumped v1 → v2. The v1 → v2 cutover marks a stack of breaking
+// pipeline changes shipped over AA-CW-1 through AA-CW-5b: regex sanitizers
+// removed, planner guard added, writer/QA refactored to a single LLM judge,
+// canonical pronouns persisted on the brief and threaded through every
+// downstream prompt, infant rule consolidated to one source of truth
+// (textPolicies), arcContext block surfaced at the writer prompt boundary.
+// Older books in storage still tagged v1 — layoutEngine and any back-fill
+// workers should not assume v1 == v2.
+const PIPELINE_VERSION = 'book-pipeline-v2';
 
 const FORMATS = {
   PICTURE_BOOK: 'picture_book',

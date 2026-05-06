@@ -2,6 +2,12 @@ jest.mock('../../services/illustrationGenerator', () => ({
   getNextApiKey: jest.fn(() => 'test-key'),
   downloadPhotoAsBase64: jest.fn(),
   fetchWithTimeout: jest.fn(),
+  // The art-style funnel collapsed to one canonical key ("watercolor");
+  // every consumer now calls canonicalBookArtStyle() to normalize input.
+  // Mock it so coloringBookGenerator can require it without throwing.
+  canonicalBookArtStyle: jest.fn(() => 'watercolor'),
+  ART_STYLE_CONFIG: { watercolor: { prefix: 'watercolor', suffix: 'soft' } },
+  PARENT_THEMES: new Set(['mothers_day', 'fathers_day']),
 }));
 
 const {
@@ -237,8 +243,11 @@ describe('planColoringScenes with storyMoments', () => {
   });
 
   test('passes storyMoments into the system prompt as complementing guidance', async () => {
+    // planColoringScenes uses fetchWithTimeout (the worker's hardened wrapper),
+    // not global.fetch directly. Wire the mock through the illustrationGenerator
+    // mock instead of patching global.fetch.
     let capturedBody;
-    global.fetch = jest.fn(async (_url, opts) => {
+    fetchWithTimeout.mockImplementation(async (_url, opts) => {
       capturedBody = JSON.parse(opts.body);
       return {
         ok: true,
@@ -272,7 +281,7 @@ describe('planColoringScenes with storyMoments', () => {
 
   test('uses generic guidance when no storyMoments', async () => {
     let capturedBody;
-    global.fetch = jest.fn(async (_url, opts) => {
+    fetchWithTimeout.mockImplementation(async (_url, opts) => {
       capturedBody = JSON.parse(opts.body);
       return {
         ok: true,

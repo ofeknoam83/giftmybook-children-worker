@@ -84,9 +84,15 @@ describe('matchTitleToPlot', () => {
     expect(result).toBe(targetId);
   });
 
-  test('falls back to partial match when LLM returns extra text', async () => {
+  test('partial match: JSON wrapper with extra prose around the plotId still resolves', async () => {
+    // The implementation does a partial includes() check on parsed.plotId
+    // when the cleaned matchedId isn't in validIds — e.g. the LLM returns
+    // "some_prefix_classic_space" or extra qualifier text inside the JSON
+    // value. Make sure that fallback still works.
     const targetId = THEME_PLOTS.space[0].id;
-    callGeminiText.mockResolvedValue({ text: `I think the best match is ${targetId} because it fits` });
+    callGeminiText.mockResolvedValue({
+      text: JSON.stringify({ plotId: `the best match is ${targetId} for this title` }),
+    });
 
     const result = await matchTitleToPlot('Rocket to the Stars', 'space');
     expect(result).toBe(targetId);

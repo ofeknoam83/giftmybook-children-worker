@@ -11,7 +11,10 @@ describe('planRepair tiered correction', () => {
     const tags = ['text_in_center_band', 'outfit_mismatch'];
     expect(classifyCorrectionMode(tags, 1)).toBe('full');
     const note = renderCorrectionNote(['Wrong place', 'Outfit'], tags, { mode: 'full' });
-    expect(note).toContain('Place ALL caption text');
+    // text_in_center_band tag must surface the narrow-the-caption-panel
+    // guidance (current production wording), and outfit_mismatch must
+    // surface the hero-face/hair/outfit "approved cover" directive.
+    expect(note).toMatch(/caption.*midline|narrow the caption panel/i);
     expect(note).toContain('Match the approved cover for hero face');
   });
 
@@ -19,7 +22,7 @@ describe('planRepair tiered correction', () => {
     const tags = ['text_in_center_band', 'hero_mismatch'];
     expect(classifyCorrectionMode(tags, 1)).toBe('text_priority');
     const note = renderCorrectionNote(['Wrong place'], tags, { mode: 'text_priority' });
-    expect(note).toContain('Place ALL caption text');
+    expect(note).toMatch(/caption.*midline|narrow the caption panel/i);
     expect(note).not.toContain('Match the approved cover for hero face');
     expect(note).toContain('PRESERVE: keep the hero child');
   });
@@ -27,7 +30,9 @@ describe('planRepair tiered correction', () => {
   test('attempt 1 + text + style_drift → full (hard non-text)', () => {
     expect(classifyCorrectionMode(['text_in_center_band', 'style_drift'], 1)).toBe('full');
     const note = renderCorrectionNote(['A', 'B'], ['text_in_center_band', 'style_drift'], { mode: 'full' });
-    expect(note).toContain('Match the BOOK COVER');
+    // style_drift tag must surface the BOOK COVER rendering-tradition line.
+    expect(note).toMatch(/BOOK COVER/);
+    expect(note).toMatch(/RENDERING TRADITION/i);
   });
 
   test('attempt 2 + text + hero_mismatch → full', () => {

@@ -1,6 +1,12 @@
-// Mock illustrationGenerator exports used by illustrationChatSession
+// Mock illustrationGenerator exports used by illustrationChatSession.
+// The art-style funnel collapsed to one canonical key, and consumers now
+// call canonicalBookArtStyle() to normalize — mock it as a no-op return
+// of "watercolor" so this suite can require illustrationChatSession.js
+// without TypeError.
 jest.mock('../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(),
+  canonicalBookArtStyle: jest.fn(() => 'watercolor'),
+  PARENT_THEMES: new Set(['mothers_day', 'fathers_day']),
   ART_STYLE_CONFIG: {
     watercolor: {
       prefix: "children's book watercolor illustration,",
@@ -415,10 +421,14 @@ describe('illustrationChatSession', () => {
       const session = createIllustrationSession({ style: 'watercolor' });
       const prompt = _buildCharacterEstablishmentPrompt(session);
 
+      // Font shifted from playful display fonts (BubblegumSans / Fredoka One)
+      // to an elegant Lora-style serif so the in-image text reads as gentle
+      // subtitle copy rather than a poster headline. The drop-shadow and
+      // page-to-page consistency rules are still in force.
       expect(prompt).toContain('TEXT RENDERING RULES FOR ALL ILLUSTRATIONS');
       expect(prompt).toContain('story text rendered directly INTO the image');
-      expect(prompt).toContain('BubblegumSans or Fredoka One');
-      expect(prompt).toContain('white or light-colored text with a dark drop shadow');
+      expect(prompt).toMatch(/elegant, classic serif font style similar to Lora/);
+      expect(prompt).toMatch(/drop shadow|outline for readability/);
       expect(prompt).toContain('NEVER change the font style, size, or color between pages');
     });
   });
