@@ -12,15 +12,19 @@
  * one of those failure modes with concrete BAD/GOOD examples so the LLM
  * carries the entire signal.
  *
- * Two side calls remain:
- *   1. Infant locomotion gate — a pure Flash call (no regex) that
- *      returns the list of forbidden-verb hits per infant spread. Used
- *      both inside the judge verdict AND by the writer-rewrite hard
- *      gate in rewriteBookText.js (`findInfantForbiddenActionVerbs`).
- *   2. Shadow run — the old gemini-2.5-flash literary call still fires
- *      in parallel; its verdict is logged to stdout + appended to
- *      `doc.llmCalls` under stage `writerQa.shadow` for diffing during
- *      the rollout window. NOT authoritative.
+ * One side call remains:
+ *   - Shadow run — the old gemini-2.5-flash literary call still fires
+ *     in parallel; its verdict is logged to stdout + appended to
+ *     `doc.llmCalls` under stage `writerQa.shadow` for diffing during
+ *     the rollout window. NOT authoritative.
+ *
+ * AA-CW-9: the per-line `infantLocomotionGate` Flash call was deleted.
+ * It cost ~38 sequential Flash calls (~65s wall time) per PB_INFANT
+ * book to confirm what the gpt-5.4 judge already reports as
+ * `infant_action_verb_in_text`. The judge's verdict is the single
+ * source of truth; the writer-rewrite hard gate now relies on the
+ * judge's `infant_action_verb_in_text` tag instead of a separate
+ * regex/Flash residual sweep.
  *
  * `signatureBeats.checkSignatureBeatCoverage` survives as a cheap
  * deterministic preflight (token-presence over per-anchor keywords)
@@ -33,7 +37,7 @@
  */
 
 const { callText } = require('../llm/openaiClient');
-const { MODELS, AGE_BANDS } = require('../constants');
+const { MODELS } = require('../constants');
 const { appendLlmCall } = require('../schema/bookDocument');
 const { renderThemeDirectiveBlock } = require('../planner/themeDirectives');
 const { checkSignatureBeatCoverage, describeBeat } = require('./signatureBeats');
@@ -179,70 +183,6 @@ function buildJudgeUserPrompt(doc, signatureHint) {
     '',
     'Emit the JSON verdict now.',
   ].filter(Boolean).join('\n');
-}
-
-// =============================================================================
-// Infant locomotion — pure LLM Flash call (no regex)
-// =============================================================================
-
-const INFANT_LOCOMOTION_SYSTEM = `You are an infant-development reviewer. You receive a single line of text from a children's book aimed at PB_INFANT (age 0-1, lap-baby). You return JSON listing every word in the line that describes a locomotion or whole-body action a 0-1 year old physically cannot do (jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab forcefully, skip, gallop, stomp, march, crawl independently far, step, stand, stood, bounce on feet, cartwheel, tumble) — including any inflection (-s, -ed, -ing). Also flag body-part displacement constructions where the baby is the agent ("feet flash", "feet pound", "legs kick", "feet bounce"). Sit, lie, look, reach, giggle, coo, hold, snuggle, nuzzle, wiggle, wave, kick (lying down), babble, smile, peek, blink are FINE. Onomatopoeia (boop, shh, pop) is FINE.
-
-Return ONLY: {"hits": ["word1", "word2", ...]}. Empty array if nothing forbidden. Lowercase the surface form you saw in the text. Do not include words from the safe list. No prose, no markdown.`;
-
-function buildInfantLocomotionUserPrompt(line) {
-  return `Line: ${JSON.stringify(line)}\nReturn the JSON now.`;
-}
-
-/**
- * Async helper used by writer/rewriteBookText.js' final hard gate.
- *
- * Replaces the deleted regex helper of the same name. Returns a string[]
- * of forbidden surface forms found in `text`. Empty array means clean.
- *
- * Calls Flash once per line. Skips non-PB_INFANT bands.
- *
- * @param {string} text
- * @param {string} ageBand
- * @param {{ abortSignal?: AbortSignal }} [options]
- * @returns {Promise<string[]>}
- */
-async function findInfantForbiddenActionVerbs(text, ageBand, options = {}) {
-  if (ageBand !== AGE_BANDS.PB_INFANT) return [];
-  const lines = String(text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
-  if (lines.length === 0) return [];
-
-  const all = [];
-  for (const line of lines) {
-    try {
-      const result = await callText({
-        model: MODELS.WRITER_QA,
-        systemPrompt: INFANT_LOCOMOTION_SYSTEM,
-        userPrompt: buildInfantLocomotionUserPrompt(line),
-        jsonMode: true,
-        temperature: 0.1,
-        // Gemini Flash 2.5 reserves a thinking-token budget below ~512 before
-        // emitting any output. Budgets of 200/400/800 truncate, force the
-        // wrapper to retry, and waste 2-3x Flash spend + ~3-7s latency per
-        // line. Net JSON output is only ~5-10 tokens, but we need headroom
-        // above the thinking floor for one-shot success.
-        maxTokens: 1024,
-        label: 'infantLocomotionGate',
-        abortSignal: options.abortSignal,
-      });
-      const hits = Array.isArray(result?.json?.hits) ? result.json.hits.map(String) : [];
-      for (const h of hits) {
-        const lc = h.toLowerCase();
-        if (lc && !all.includes(lc)) all.push(lc);
-      }
-    } catch (err) {
-      console.warn(`[checkWriterDraft] infant locomotion gate failed for line ${JSON.stringify(line)}: ${err?.message || err}`);
-      // Fail-open: a single line failure doesn't block the gate. The
-      // judge call still runs and the writer-rewrite hard gate will see
-      // an empty hit list; if the line truly contained a forbidden verb
-      // the judge is the redundant safety net.
-    }
-  }
-  return all;
 }
 
 // =============================================================================
@@ -456,8 +396,6 @@ async function checkWriterDraft(doc) {
 
 module.exports = {
   checkWriterDraft,
-  findInfantForbiddenActionVerbs,
   // exported for unit tests
   JUDGE_SYSTEM,
-  INFANT_LOCOMOTION_SYSTEM,
 };
