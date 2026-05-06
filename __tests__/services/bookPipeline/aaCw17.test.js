@@ -54,8 +54,11 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     };
     const block = renderTextPolicyBlock(doc);
 
-    it('explicitly marks the rhyme scheme as RELAXED for infant', () => {
-      expect(block).toMatch(/RELAXED FOR INFANT/i);
+    it('explicitly marks the rhyme scheme as relaxed/free-verse for infant (AA-CW-17 / AA-CW-18 evolution)', () => {
+      // AA-CW-17 wording was "RELAXED FOR INFANT". AA-CW-18 strengthens
+      // this to "DEFAULT FREE-VERSE ON 3+4 FOR INFANT". Either form
+      // satisfies the prompt-lock spirit.
+      expect(block).toMatch(/RELAXED FOR INFANT|DEFAULT FREE-VERSE.*INFANT/i);
     });
 
     it('still requires lines 1+2 to rhyme (board-book sing-song anchor)', () => {
@@ -63,17 +66,21 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     });
 
     it('permits free-verse on lines 3+4 with strong rhythmic parallel', () => {
-      expect(block).toMatch(/Lines 3\+4 MAY rhyme OR MAY be free-verse/i);
-      expect(block).toMatch(/strong rhythmic parallel/i);
+      // AA-CW-17 wording: "Lines 3+4 MAY rhyme OR MAY be free-verse".
+      // AA-CW-18 wording: "Lines 3+4 DEFAULT to free-verse".
+      expect(block).toMatch(/Lines 3\+4 (?:MAY rhyme OR MAY be free-verse|DEFAULT to free-verse)/i);
+      expect(block).toMatch(/strong rhythmic parallel|parallel rhythm/i);
     });
 
     it('lists the failure modes that justify skipping the second rhyme', () => {
-      // The principle block must enumerate the four conditions where
-      // the writer should choose free-verse over forcing the rhyme:
-      // meaning drift, identity rhyme, invented prop, unrenderable action.
-      expect(block).toMatch(/drag the meaning out of frame/i);
+      // AA-CW-17 enumerated four failure modes (meaning drift, identity
+      // rhyme, invented prop, unrenderable action). AA-CW-18 keeps the
+      // same four under a slightly different framing ("NEVER force a
+      // rhyme that drifts meaning ... uses identity rhyme ... invents a
+      // prop ... requires an unrenderable action").
+      expect(block).toMatch(/meaning|drift/i);
       expect(block).toMatch(/identity rhyme/i);
-      expect(block).toMatch(/invented prop/i);
+      expect(block).toMatch(/invented prop|invents a prop/i);
       expect(block).toMatch(/unrenderable action/i);
     });
 
@@ -99,7 +106,7 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     });
 
     it('does NOT mention the AA-CW-17 infant relaxation', () => {
-      expect(block).not.toMatch(/RELAXED FOR INFANT/i);
+      expect(block).not.toMatch(/RELAXED FOR INFANT|DEFAULT FREE-VERSE.*INFANT/i);
     });
   });
 
@@ -115,7 +122,7 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     });
 
     it('does NOT mention the AA-CW-17 infant relaxation', () => {
-      expect(block).not.toMatch(/RELAXED FOR INFANT/i);
+      expect(block).not.toMatch(/RELAXED FOR INFANT|DEFAULT FREE-VERSE.*INFANT/i);
     });
   });
 
@@ -163,11 +170,13 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     });
 
     it('relaxes lines 3+4 for PB_INFANT', () => {
-      // The infant rule: lines 1+2 MUST rhyme; lines 3+4 may rhyme OR
-      // may be free-verse.
-      expect(WRITER_DRAFT_SYSTEM_PROMPT).toMatch(/PB_INFANT.*RELAXED/is);
+      // The infant rule: lines 1+2 MUST rhyme; lines 3+4 may be
+      // free-verse. AA-CW-17 wording was "RELAXED ... MAY rhyme OR
+      // MAY be free-verse". AA-CW-18 strengthens to "DEFAULT FREE-VERSE".
+      // Either form satisfies this prompt-lock.
+      expect(WRITER_DRAFT_SYSTEM_PROMPT).toMatch(/PB_INFANT.*(?:RELAXED|DEFAULT FREE-VERSE)/is);
       expect(WRITER_DRAFT_SYSTEM_PROMPT).toMatch(/Lines 1\+2 MUST rhyme/);
-      expect(WRITER_DRAFT_SYSTEM_PROMPT).toMatch(/Lines 3\+4 MAY rhyme OR MAY be free-verse/);
+      expect(WRITER_DRAFT_SYSTEM_PROMPT).toMatch(/Lines 3\+4 (?:MAY rhyme OR MAY be free-verse|DEFAULT to free-verse)/);
     });
   });
 
@@ -181,7 +190,7 @@ describe('AA-CW-17 Part B — drop AABB for PB_INFANT (band-conditional rhyme ru
     });
 
     it('relaxes lines 3+4 for PB_INFANT', () => {
-      expect(WRITER_REWRITE_SYSTEM_PROMPT).toMatch(/PB_INFANT.*RELAXED/is);
+      expect(WRITER_REWRITE_SYSTEM_PROMPT).toMatch(/PB_INFANT.*(?:RELAXED|DEFAULT FREE-VERSE)/is);
       expect(WRITER_REWRITE_SYSTEM_PROMPT).toMatch(/free-verse/i);
     });
 

@@ -279,7 +279,7 @@ Picture-book structure (MANDATORY when format is picture_book):
    * Lines separated by "\\n".
 - RHYME SCHEME (band-conditional — see the per-age-band block above for the authoritative rule):
    * PB_TODDLER (0-3) and PB_PRESCHOOL (3-6): full AABB — lines 1+2 rhyme; lines 3+4 rhyme. Real end-rhymes or near-rhymes only — never same-word rhymes, never non-rhymes.
-   * PB_INFANT (0-1) (AA-CW-17): RELAXED. Lines 1+2 MUST rhyme (real end-rhyme, no identity rhyme). Lines 3+4 MAY rhyme OR MAY be free-verse with strong rhythmic parallel — pick whichever yields more natural language. If a previous wave ended in identity_rhyme / forced_rhyme_meaning_drift / writer_invented_prop / unrenderable_action on lines 3+4, prefer free-verse lines 3+4 over forcing the rhyme. Note the choice in \`writerNotes\`.
+   * PB_INFANT (0-1) (AA-CW-18 — DEFAULT FREE-VERSE ON 3+4): Lines 1+2 MUST rhyme (real end-rhyme, no identity, no slant). Lines 3+4 DEFAULT to free-verse with parallel rhythm. STRONG REWRITER GUIDANCE: if a prior wave failed on lines 3+4 with identity_rhyme / rhyme_fail / forced_rhyme_meaning_drift / writer_invented_prop / unrenderable_action, the next wave MUST go free-verse on lines 3+4 — do not try a different rhyme. Do not introduce filler words like "dawning", "teal", "plushy", "gushy". Declare the free-verse choice in \`writerNotes\`.
 - LINE LENGTH — match the per-age-band "LINE LENGTH" rule in the age/voice policy block above. Infants (0-1) are extra-tight (~2-5 words/line, hardMax 6) inside the 4-line shape. Ages 0-3 (PB_TODDLER) are VERY short (~3-7 words/line, sing-song board-book cadence); ages 3-6 (PB_PRESCHOOL) are short (~6-12 words/line). Consistent pulse across each couplet.
 - NEVER invent fake words just to make a rhyme work. Real English only.
 - NEVER use a simile ("X as Y", "like Y") where Y is implausible for a child to recognize ("light as code", "soft as math"). Use concrete sensory comparisons.
@@ -443,6 +443,93 @@ function renderLineCountReminderForRewrite(ageBand) {
  * @param {{ spreadNumber: number, issues: string[], tags: string[], suggestedRewrite: string|null }[]} targets
  * @returns {string}
  */
+/**
+ * AA-CW-18 Part A: parse a book-level QA issue string into a structured
+ * directive that the rewriter can act on. The QA judge emits strings like:
+ *   "verb_crutch: 'give' appears in 5 of 13 spreads (38%) — spreads 4, 8, 9, 10, 12. Diversify the actions."
+ *   "refrain_crutch: 'blanket' appears in 5 of 13 spreads — spreads 1, 2, 4, 6, 8."
+ *   "refrain_crutch: ... 'sleeve' appears in 8/13 spreads, 'hand' in 7/13 ..."
+ * Returns an array of { kind, lemma, spreads }. The kind is the lowercase
+ * tag (e.g. 'verb_crutch'). When the issue mentions multiple lemmas, one
+ * directive is returned per lemma. Spreads default to [] when the judge
+ * does not enumerate them — in that case the rewriter still sees the
+ * directive in its book-level block and can self-diversify on every
+ * occurrence it finds.
+ *
+ * @param {string[]} bookLevelIssues
+ * @returns {{ kind: string, lemma: string, spreads: number[], raw: string }[]}
+ */
+function parseBookLevelDirectives(bookLevelIssues) {
+  const out = [];
+  for (const issue of Array.isArray(bookLevelIssues) ? bookLevelIssues : []) {
+    if (typeof issue !== 'string' || issue.length === 0) continue;
+    const lower = issue.toLowerCase();
+    let kind = null;
+    if (lower.startsWith('verb_crutch')) kind = 'verb_crutch';
+    else if (lower.startsWith('refrain_crutch')) kind = 'refrain_crutch';
+    else continue;
+
+    // Pull every “spreads <list>” enumeration in the message.
+    // Multiple lemmas may share a single enumeration (one verb-crutch line)
+    // or each lemma may have its own (one refrain-crutch line per lemma).
+    const lemmaMatches = [...issue.matchAll(/['‘]([A-Za-z][A-Za-z'-]*)['’]/g)].map(m => m[1].toLowerCase());
+    const spreadMatch = issue.match(/spreads?\s+([0-9,\s]+)/i);
+    let spreads = [];
+    if (spreadMatch && spreadMatch[1]) {
+      spreads = spreadMatch[1]
+        .split(/[,\s]+/)
+        .map(s => Number(s))
+        .filter(n => Number.isInteger(n) && n > 0);
+    }
+    if (lemmaMatches.length === 0) {
+      out.push({ kind, lemma: '', spreads, raw: issue });
+      continue;
+    }
+    for (const lemma of lemmaMatches) {
+      out.push({ kind, lemma, spreads, raw: issue });
+    }
+  }
+  return out;
+}
+
+/**
+ * AA-CW-18 Part A: render a high-priority book-level instruction block
+ * for the rewriter prompt. Goes ABOVE the per-spread JSON payload because
+ * book-level diversification has to happen across the corpus, not inside
+ * any one spread.
+ *
+ * @param {{ kind: string, lemma: string, spreads: number[] }[]} directives
+ * @returns {string}
+ */
+function renderBookLevelDirectivesBlock(directives) {
+  if (!Array.isArray(directives) || directives.length === 0) return '';
+  const verbDirectives = directives.filter(d => d.kind === 'verb_crutch');
+  const refrainDirectives = directives.filter(d => d.kind === 'refrain_crutch');
+  const lines = [
+    'BOOK-LEVEL DIVERSIFICATION (AA-CW-18 — HIGHEST PRIORITY across this rewrite wave):',
+    'The previous wave produced corpus-wide repetition. Per-spread fixes alone will NOT clear these flags — you must replace the overused tokens listed below across the spreads named, choosing different concrete details on each spread you touch.',
+  ];
+  if (verbDirectives.length > 0) {
+    lines.push('', 'Overused VERBS (verb_crutch):');
+    for (const d of verbDirectives) {
+      const spreadList = d.spreads.length > 0 ? `spreads ${d.spreads.join(', ')}` : 'every spread it appears on';
+      lines.push(`- "${d.lemma}" — replace on ${spreadList}. Pick a DIFFERENT verb on each spread; avoid "give", "pat", "hold" if they are also flagged. Use the infant-safe whitelist (sees, hears, smiles, reaches, claps, snuggles, points, looks, touches, gasps, giggles, watches, waves, blinks).`);
+    }
+  }
+  if (refrainDirectives.length > 0) {
+    lines.push('', 'Overused NOUNS / WORDS (refrain_crutch):');
+    for (const d of refrainDirectives) {
+      const spreadList = d.spreads.length > 0 ? `spreads ${d.spreads.join(', ')}` : 'every spread it appears on';
+      lines.push(`- "${d.lemma}" — swap for a different concrete sensory detail on ${spreadList}. Don’t replace one crutch with another from the same set (sleeve / hand / leaf / blanket / arm). Vary the sensory channel (sound, light, breath, weight, texture, shadow) instead of recycling the same prop.`);
+    }
+  }
+  lines.push(
+    '',
+    'WHEN YOU EMIT THE NEW SPREAD TEXT FOR EACH TARGET, you MUST avoid the listed lemma on that spread — even if it appeared safely in your prior attempt. The book-level flag is a corpus problem, not a per-spread problem.',
+  );
+  return lines.join('\n');
+}
+
 function rewriteUserPrompt(doc, targets) {
   const bySpread = new Map(doc.spreads.map(s => [s.spreadNumber, s]));
   const items = targets
@@ -508,11 +595,18 @@ function rewriteUserPrompt(doc, targets) {
   // the through-line in view instead of re-reading the full storyBible JSON.
   const arcContextBlock = renderStoryArcContext(doc.storyBible);
 
+  // AA-CW-18 Part A — thread book-level diversification directives so the
+  // rewriter can act on verb_crutch / refrain_crutch instead of fixing one
+  // spread at a time blindly.
+  const bookLevelDirectives = parseBookLevelDirectives(doc?.writerQa?.bookLevel || []);
+  const bookLevelDirectivesBlock = renderBookLevelDirectivesBlock(bookLevelDirectives);
+
   return [
     renderTextPolicyBlock(doc),
     arcContextBlock ? `\n${arcContextBlock}` : '',
     lineCountReminder ? `\n${lineCountReminder}` : '',
     pronounBlock ? `\n${pronounBlock}` : '',
+    bookLevelDirectivesBlock ? `\n${bookLevelDirectivesBlock}` : '',
     // AA-CW-15: surface the rewrite-memory block ABOVE the JSON payload so
     // the rewriter cannot miss it (model attention drops by mid-prompt).
     memoryBlocks.length > 0
@@ -578,7 +672,38 @@ async function writerQaAndRewrite(doc) {
     }
     if (wave >= REPAIR_BUDGETS.writerRewriteWaves) break;
 
-    const targets = qa.repairPlan.length > 0 ? qa.repairPlan : qa.perSpread.filter(s => !s.pass);
+    let targets = qa.repairPlan.length > 0 ? qa.repairPlan : qa.perSpread.filter(s => !s.pass);
+
+    // AA-CW-18 Part A: when the judge raised book-level tags (verb_crutch /
+    // refrain_crutch) we MUST rewrite the spreads named in those tags even
+    // if they passed per-spread QA — a per-spread fix alone cannot clear
+    // a book-level flag. This keeps the rewriter from getting stuck in a
+    // local optimum where every spread looks fine in isolation but "give"
+    // still appears in 5 of 13 spreads.
+    const bookLevelDirectivesForTargeting = parseBookLevelDirectives(qa.bookLevel || []);
+    const bookLevelSpreads = new Set();
+    for (const d of bookLevelDirectivesForTargeting) {
+      for (const sn of d.spreads) bookLevelSpreads.add(sn);
+    }
+    if (bookLevelSpreads.size > 0) {
+      const existingTargetSpreads = new Set(targets.map(t => t.spreadNumber));
+      const passingByNumber = new Map(qa.perSpread.map(p => [p.spreadNumber, p]));
+      for (const sn of bookLevelSpreads) {
+        if (existingTargetSpreads.has(sn)) continue;
+        const passingEntry = passingByNumber.get(sn);
+        // Only synthesize a target when the spread exists. Carry over the
+        // existing entry's tags/issues (likely empty if it passed) and add
+        // a synthetic book-level note so the per-spread rewrite block also
+        // mentions WHY this previously-passing spread is being touched.
+        const baseEntry = passingEntry || { spreadNumber: sn, issues: [], tags: [], suggestedRewrite: null };
+        const issues = Array.isArray(baseEntry.issues) ? [...baseEntry.issues] : [];
+        const tags = Array.isArray(baseEntry.tags) ? [...baseEntry.tags] : [];
+        issues.push('book_level_diversification: this spread is named in a book-level verb_crutch or refrain_crutch tag. Replace the overused token (see BOOK-LEVEL DIVERSIFICATION block above).');
+        if (!tags.includes('book_level_diversification')) tags.push('book_level_diversification');
+        targets = [...targets, { ...baseEntry, issues, tags, pass: false }];
+      }
+    }
+
     if (targets.length === 0) break;
 
     // AA-CW-15: snapshot the about-to-be-rewritten text + killing tags/issues
@@ -728,4 +853,7 @@ module.exports = {
   // AA-CW-17 Part B — exported so tests can prompt-lock the band-conditional rhyme rule.
   SYSTEM_PROMPT,
   renderLineCountReminderForRewrite,
+  // AA-CW-18 Part A — book-level diversification helpers (exported for tests).
+  parseBookLevelDirectives,
+  renderBookLevelDirectivesBlock,
 };
