@@ -34,9 +34,33 @@ const { renderStoryArcContext } = require('./draftBookText');
  * displacement construction with concrete examples and lists the
  * offending verb(s) in the issue text.
  *
+ * AA-CW-10: structural escape hatch. The judge sometimes raises this
+ * tag but lists ONLY a body-part noun in the issue text (e.g. "feet")
+ * with no actual verb. This is a prompt false positive — the rule is
+ * about VERBS, not nouns. We filter those out before failing the
+ * pipeline. The judge prompt was simultaneously tightened to require
+ * a real verb in the issue text, but this filter is the belt to that
+ * suspenders.
+ *
  * @param {object} doc
  * @returns {{ spreadNumber: number, hits: string[] }[]}
  */
+const INFANT_BANNED_VERB_ROOTS = [
+  'jump', 'run', 'race', 'spin', 'twirl', 'hop', 'walk', 'climb', 'leap',
+  'dance', 'chase', 'skip', 'gallop', 'stomp', 'march', 'crawl', 'step',
+  'stand', 'stood', 'cartwheel', 'tumble', 'flash', 'pound', 'gallop',
+];
+
+function issueMentionsBannedVerb(issueText) {
+  if (typeof issueText !== 'string') return false;
+  const lc = issueText.toLowerCase();
+  return INFANT_BANNED_VERB_ROOTS.some(root => {
+    // word-boundary match for root + optional s/ed/ing/es
+    const re = new RegExp(`\\b${root}(s|es|ed|ing)?\\b`, 'i');
+    return re.test(lc);
+  });
+}
+
 function collectInfantActionResiduals(doc) {
   const ageBand = doc?.request?.ageBand;
   if (ageBand !== AGE_BANDS.PB_INFANT) return [];
@@ -46,8 +70,22 @@ function collectInfantActionResiduals(doc) {
     const tags = Array.isArray(entry?.tags) ? entry.tags : [];
     if (!tags.includes('infant_action_verb_in_text')) continue;
     const issues = Array.isArray(entry?.issues) ? entry.issues : [];
-    const hits = issues
-      .filter(i => typeof i === 'string' && /infant_action_verb_in_text/i.test(i))
+    const matchingIssues = issues
+      .filter(i => typeof i === 'string' && /infant_action_verb_in_text/i.test(i));
+
+    // AA-CW-10 escape hatch: if the judge tagged but no issue text names a
+    // banned verb root, treat as a prompt false positive and skip. The
+    // tightened judge prompt should make this rare; this filter prevents
+    // "feet"/"legs"/"toes"-only flags from blocking the pipeline.
+    const hasRealVerb = matchingIssues.some(issueMentionsBannedVerb);
+    if (matchingIssues.length > 0 && !hasRealVerb) {
+      console.warn(
+        `[rewriteBookText] dropping infant_action_verb_in_text on spread ${entry.spreadNumber}: judge issue text "${matchingIssues.join(' | ')}" names no banned verb root`,
+      );
+      continue;
+    }
+
+    const hits = matchingIssues
       .map(i => i.replace(/^infant_action_verb_in_text:?\s*/i, '').trim())
       .filter(Boolean);
     offenders.push({

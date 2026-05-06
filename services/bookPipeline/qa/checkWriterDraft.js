@@ -94,7 +94,19 @@ Each issue must carry one of these tags. Multiple tags allowed per spread.
 
 8. "age_mismatch_action" — action attributed to the child is implausible for the declared age band. Per-spread.
 
-9. "infant_action_verb_in_text" — for PB_INFANT (0-1) ONLY, the manuscript uses a locomotion verb the baby physically cannot do. Banned roots (any inflection — base, -s, -ed, -ing): jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, grab, skip, gallop, stomp, march, crawl, step, stand/stood, bounce, cartwheel, tumble. ALSO reject body-part displacement constructions: "feet flash", "feet pound", "feet step", "feet bounce", "legs kick" (when the baby is the agent). Use sit/lie/look/reach/giggle/coo/hold/snuggle/nuzzle/wiggle instead. Per-spread. List the offending verb(s) in the issue text.
+9. "infant_action_verb_in_text" — for PB_INFANT (0-1) ONLY, the manuscript uses a locomotion VERB the baby physically cannot do. This rule is about VERBS. Bare nouns are NEVER triggers. Saying "feet", "legs", "toes", "arms", "hands" by themselves is fine.
+
+   Banned verb roots (any inflection — base, -s, -ed, -ing) when the BABY is the subject: jump, run, race, spin, twirl, hop, walk, climb, leap, dance, chase, skip, gallop, stomp, march, crawl, step, stand/stood, cartwheel, tumble.
+
+   Body-part-as-agent constructions trigger ONLY when a body-part noun is paired with a locomotion verb that implies the whole baby moving through space: "feet flash across", "feet pound the floor", "feet step out", "legs march", "feet gallop". A body part used with non-locomotion verbs is FINE.
+
+   Explicitly age-appropriate (DO NOT FLAG):
+     • "tiny feet kick" / "feet kick the air" / "feet wiggle" — lap-baby kicking is normal infant motor activity.
+     • "hands reach" / "fingers grab" / "toes curl" / "arms wave" — fine motor, fine.
+     • "happy feet" / "two little feet" / "warm feet" — nominal mention.
+     • "bounce" when the baby is being bounced ON A LAP / IN ARMS (passive). Only flag "bounce" when the baby is propelling themselves on their feet.
+     • "hop" / "jump" used about a non-baby agent (a bunny, a dad, a frog) — fine.
+   Use sit/lie/look/reach/giggle/coo/hold/snuggle/nuzzle/wiggle/wave/peek as positive verbs. Per-spread. List the offending VERB (not a noun) in the issue text. If you cannot name a specific verb, do NOT raise this tag.
 
 10. "nonsense_word" — the manuscript invents a fake word to force a rhyme. BAD: "farf" rhymed with "scarf", "blurp" rhymed with "burp", "shloop" rhymed with "scoop". Real English only (proper names and onomatopoeia like "boop", "pop", "shh" are fine). Name the invented word in the issue.
 
