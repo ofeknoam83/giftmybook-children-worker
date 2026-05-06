@@ -13,13 +13,23 @@ const { appendLlmCall } = require('../schema/bookDocument');
 
 const JUDGE_SYSTEM = `You are judging a children's-book manuscript spread by spread. Each spread is exactly 4 lines.
 
+IDENTITY-RHYME GATE — CHECK THIS FIRST, BEFORE ANYTHING ELSE.
+- Look at the last word of each of the 4 lines (strip punctuation, lowercase).
+- If the last word of L1 equals the last word of L2, the spread is broken.
+- If the last word of L3 equals the last word of L4, the spread is broken.
+- This applies even when the words appear in different phrases ("sees green trees" / "walks by trees" — still broken: trees=trees).
+- This applies even when the words have different meanings or parts of speech ("settles close" / "Smushy, close" — still broken: close=close).
+- No interpretation. Same word twice = broken. Always.
+- Issue: "L1/L2 identity rhyme: both end on 'trees'" (or "L3/L4 identity rhyme: both end on 'shade'").
+- Hint: "change one of the two end-words; e.g. rewrite L2 to end on a different real rhyme for 'trees' such as 'breeze' or 'knees'".
+
 THE RHYME SCHEME IS AABB. This is the most important rule.
 - L1 must rhyme with L2.
 - L3 must rhyme with L4.
 - The two couplets do NOT need to rhyme with each other.
 - A rhyme means the stressed vowels and everything after them sound the same out loud ("sun/fun", "high/sky", "near/hear").
 - These are NOT rhymes and must be flagged:
-  - identity rhymes: "cheek/cheek", "glow/glow", "slow/slow".
+  - identity rhymes (same word twice — see the IDENTITY-RHYME GATE above; also covers cases where the same word ends BOTH lines of a couplet within different phrases): "cheek/cheek", "glow/glow", "slow/slow", "trees/trees", "shade/shade", "close/close".
   - stem/containment rhymes where one word is contained in the other: "by/nearby", "high/nearby" only-share-y, "town/hometown", "way/byway".
   - suffix-only rhymes: "running/jumping", "played/shaded".
   - mismatched tail vowels: "near/side", "hand/below", "there/Scarlett", "Mama/close", "low/again".
@@ -53,6 +63,27 @@ Return ONLY this JSON:
   ]
 }
 One entry per spread. No markdown, no prose.`;
+
+/**
+ * AA-CW-27: deterministic identity-rhyme detector.
+ * Returns { couplet: 'L1/L2'|'L3/L4', word: string } if the spread has
+ * a same-word identity rhyme on either couplet. Returns null otherwise.
+ */
+function detectIdentityRhyme(text) {
+  const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 4) return null;
+  const lastWord = (line) => {
+    const m = String(line).toLowerCase().match(/([a-z']+)[^a-z']*$/);
+    return m ? m[1] : null;
+  };
+  const w1 = lastWord(lines[0]);
+  const w2 = lastWord(lines[1]);
+  const w3 = lastWord(lines[2]);
+  const w4 = lastWord(lines[3]);
+  if (w1 && w2 && w1 === w2) return { couplet: 'L1/L2', word: w1 };
+  if (w3 && w4 && w3 === w4) return { couplet: 'L3/L4', word: w3 };
+  return null;
+}
 
 function buildJudgeUserPrompt(doc) {
   const spreads = doc.spreads.map(s => ({
@@ -101,12 +132,25 @@ async function judgeWriterDraft({ doc }) {
   }
   const perSpread = doc.spreads.map(s => {
     const j = byNumber.get(s.spreadNumber) || {};
-    return {
+    const entry = {
       spreadNumber: s.spreadNumber,
       broken: j.broken === true,
       issues: Array.isArray(j.issues) ? j.issues.map(String) : [],
       hints: Array.isArray(j.hints) ? j.hints.map(String) : [],
     };
+    // AA-CW-27: deterministic identity-rhyme safety net. The judge has
+    // missed identity rhymes (trees/trees, shade/shade, close/close) on
+    // multiple production books despite explicit prompt rules. Force-flag
+    // any spread where L1==L2 or L3==L4 by last-word.
+    const idRhyme = detectIdentityRhyme(s.manuscript?.text || '');
+    if (idRhyme) {
+      entry.broken = true;
+      const issue = `${idRhyme.couplet} identity rhyme: both end on '${idRhyme.word}'`;
+      const hint = `change one of the two end-words; pick a real rhyme partner for '${idRhyme.word}'`;
+      if (!entry.issues.includes(issue)) entry.issues.unshift(issue);
+      if (!entry.hints.includes(hint)) entry.hints.unshift(hint);
+    }
+    return entry;
   });
 
   const updatedDoc = appendLlmCall(doc, {
@@ -124,4 +168,5 @@ module.exports = {
   // exported for tests / introspection
   JUDGE_SYSTEM,
   buildJudgeUserPrompt,
+  detectIdentityRhyme,
 };
