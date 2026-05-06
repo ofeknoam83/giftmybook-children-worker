@@ -77,7 +77,7 @@ describe('runPlannerGuard \u2014 infant clean run', () => {
     const doc = buildInfantDoc();
     const out = await runPlannerGuard(doc);
     expect(callText).toHaveBeenCalledTimes(1);
-    expect(callText.mock.calls[0][0].model).toBe(MODELS.WRITER_QA);
+    expect(callText.mock.calls[0][0].model).toBe(MODELS.BOOK_WIDE_QA);
     // No spec mutated.
     for (const s of out.spreads) {
       expect(s.spec.plannerGuardHits).toBeUndefined();

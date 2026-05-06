@@ -108,27 +108,12 @@ const MODELS = {
   ILLUSTRATION_SPEC: 'gpt-5.4-mini',
 
   // --- QA models ---
-  // WRITER_JUDGE — AA-CW-20. Flipped back to gpt-5.4 (same family as the
-  // writer) for SAME-MODEL SELF-CRITIQUE. AA-CW-11..AA-CW-19 used
-  // gemini-2.5-pro as a cross-family judge to catch identity rhymes and
-  // slant rhymes the writer's family was blind to. Production data after
-  // AA-CW-19 showed the cross-family judge raises taste-level tags at
-  // the 2-5 word infant budget (semantic_filler, forced_rhyme_meaning_drift,
-  // fragment_line) that the gpt-5.4 writer cannot satisfy in 5 waves —
-  // book e3f4e0c0 looped to wave 4+ with the writer producing
-  // structurally fine lines that gemini still rejected on aesthetics.
-  // Switching to a same-model self-critique pass should converge: the
-  // critic raises only defects the writer can actually fix. The
-  // deterministic identity-rhyme audit + dropped-article audit (in
-  // checkWriterDraft.js) remain forced-fatal as belt-and-suspenders
-  // insurance against the shared blind spot. The gemini-2.5-flash
-  // shadow judge stays wired up but is observability-only (logs, no
-  // gating).
+  // AA-CW-24: same-family self-critique. The judge enumerates only clear,
+  // mechanically falsifiable defects (dropped articles, broken rhymes,
+  // pronoun mistakes, age-inappropriate actions) and biases toward not
+  // flagging. The writer↔judge loop runs up to 3 waves and always returns
+  // the best-seen draft — never fails the book.
   WRITER_JUDGE: 'gpt-5.4',
-  // WRITER_QA — runs as a SHADOW (logs-only, never gates pass/fail)
-  // alongside the authoritative WRITER_JUDGE self-critique, plus the
-  // per-line infant locomotion gate Flash call.
-  WRITER_QA: 'gemini-2.5-flash',
   BOOK_WIDE_QA: 'gemini-2.5-flash',
   SPREAD_QA_VISION: 'gemini-2.5-flash',
 
@@ -143,13 +128,11 @@ const MODELS = {
 };
 
 const REPAIR_BUDGETS = {
-  // AA-CW-21: reduced 2 -> 1. With the judge gutted to five mechanically
-  // falsifiable defects (rhyme_fail, dropped_article, address_name_concat,
-  // infant_action_verb_in_text, identity_pronoun_swap), one rewrite wave
-  // is enough — each is a concrete edit with a clear repair directive.
-  // If the writer still can't satisfy the five rules after one rewrite,
-  // more waves don't help; the escape hatch ships what we have.
-  writerRewriteWaves: 1,
+  // AA-CW-24: writer↔judge loop runs up to 3 waves. Each wave is one judge
+  // call + one writer rewrite call. After the last wave, one final judge
+  // pass scores the result so best-seen tracking is honest. Worst case:
+  // 3 judge + 3 writer + 1 final judge = 7 LLM calls.
+  writerRewriteWaves: 3,
   perSpreadInSessionCorrections: 3,
   perSpreadPromptRepairs: 2,
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
@@ -157,10 +140,6 @@ const REPAIR_BUDGETS = {
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
   perSpreadExtraSessionRounds: 3,
   bookWideRepairWaves: 2,
-  // AA-CW-16: a spread that has been rejected this many consecutive waves
-  // unlocks the writer's escape hatch on the NEXT wave (wave 4 by default).
-  // Mirrors the parent-skin / silhouette escape hatches in the illustrator.
-  writerEscapeHatchAfterRejections: 3,
   /**
    * Early-abort threshold for the quad illustrator: if a spread pair is
    * rejected this many times in a row with `age_action_impossible` in the
@@ -179,7 +158,6 @@ const QA_RECENT_INTERIOR_REFERENCES = 3;
 const FAILURE_CODES = {
   COVER_MISSING: 'cover_missing',
   PLAN_UNRESOLVABLE: 'plan_unresolvable',
-  WRITER_UNRESOLVABLE: 'writer_unresolvable',
   SPREAD_UNRESOLVABLE: 'spread_unresolvable',
   BOOK_WIDE_UNRESOLVABLE: 'book_wide_unresolvable',
   SAFETY_BLOCK: 'safety_block',
