@@ -138,7 +138,12 @@ function renderCorrectionNote(issues, tags, options = {}) {
   }
   if (tagArr.includes('hair_continuity_drift')) {
     lines.push(
-      'Align the hero\'s hair with the approved cover and the most recent approved interior spreads — same color family, length, and style; no silent restyle mid-book.',
+      'Align the hero\'s hair with the approved cover and the most recent approved interior spreads — same color family, length, texture, and style. Lighting can change brightness; it cannot change color family, texture, or volume. No silent restyle mid-book — a dark-brown curly mop on the cover stays a dark-brown curly mop on every spread; a blonde wispy bob stays a blonde wispy bob.',
+    );
+  }
+  if (tagArr.includes('hero_age_proportions_drift')) {
+    lines.push(
+      'Re-render the hero at the SAME AGE as the cover child. The cover sets the age; every spread must match it. If the cover shows a lap baby (~1:3 head-to-body, no rendered teeth, soft rounded limbs, sitting/held), the spread MUST also show a lap baby — do NOT render a standing/walking toddler with lengthened limbs and a toothy smile. If the cover shows a toddler, the spread shows a toddler — not a preschooler. Pose can change (sitting, held, reaching, looking, peeking) but age, head-to-body ratio, dental development, and limb proportions must NOT.',
     );
   }
   if (tagArr.includes('outfit_continuity_drift')) {
