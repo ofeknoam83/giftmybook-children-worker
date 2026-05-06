@@ -525,7 +525,94 @@ function renderBookLevelDirectivesBlock(directives) {
   }
   lines.push(
     '',
+    'AA-CW-19 SENSORY-CHANNEL ROTATION — when replacing a crutch verb, you do NOT have to swap verb-for-verb. Drop the verb-led construction entirely and write a sensory image, state line, or sound line instead. Examples:',
+    '  - verb-led: "Mama gives a warm hug." → sensory image: "Soft sun on her cheek."',
+    '  - verb-led: "Scarlett pats the leaf." → state line: "The room is hush."',
+    '  - verb-led: "Mama says hello." → sound line: "A small bird sings."',
+    'A book of 13 spreads where every line opens with a verb is a book that will crutch. Vary the opening: noun-led, adjective-led, sound-led, image-led. Replacing one crutch verb with another crutch verb (give → say → pat → hold) WILL fail the next wave — the same gate fires on the new lemma.',
+    '',
     'WHEN YOU EMIT THE NEW SPREAD TEXT FOR EACH TARGET, you MUST avoid the listed lemma on that spread — even if it appeared safely in your prior attempt. The book-level flag is a corpus problem, not a per-spread problem.',
+  );
+  return lines.join('\n');
+}
+
+/**
+ * AA-CW-19 — cumulative forbidden-lemma list across rewrite waves.
+ *
+ * The bug AA-CW-18 left behind: when wave 1 flags `verb_crutch "give"` the
+ * rewriter dutifully removes "give" but freely replaces it with "say".
+ * Wave 2 flags `verb_crutch "say"`. Rewriter removes "say", replaces with
+ * "pat". Wave 3 flags "pat". The rewriter has no memory of which lemmas
+ * are already burned, so it whack-a-moles forever and the 5-wave budget
+ * runs out.
+ *
+ * Fix: every wave, append the lemma(s) flagged by `verb_crutch` /
+ * `refrain_crutch` to a cumulative `doc.writerForbiddenLemmas` set, and
+ * pass that whole set into every subsequent rewriter prompt as a
+ * "FORBIDDEN LEMMAS — may not appear in any spread you rewrite" block.
+ * Once burned, a lemma stays burned for the remainder of the book.
+ *
+ * Shape on the doc:
+ *   doc.writerForbiddenLemmas = {
+ *     verbs: ['give', 'say', 'pat'],
+ *     nouns: ['sleeve', 'leaf'],
+ *   }
+ *
+ * Both arrays are deduplicated, lower-cased, and sorted. We DO NOT track
+ * which wave first burned a lemma — the rewriter only needs the union.
+ *
+ * @param {object} doc
+ * @param {{ kind: string, lemma: string }[]} directives
+ * @returns {object}
+ */
+function recordForbiddenLemmasFromDirectives(doc, directives) {
+  if (!Array.isArray(directives) || directives.length === 0) return doc;
+  const prev = doc.writerForbiddenLemmas || { verbs: [], nouns: [] };
+  const verbs = new Set((prev.verbs || []).map(s => String(s).toLowerCase()));
+  const nouns = new Set((prev.nouns || []).map(s => String(s).toLowerCase()));
+  for (const d of directives) {
+    if (!d || !d.lemma) continue;
+    const lemma = String(d.lemma).toLowerCase().trim();
+    if (!lemma) continue;
+    if (d.kind === 'verb_crutch') verbs.add(lemma);
+    else if (d.kind === 'refrain_crutch') nouns.add(lemma);
+  }
+  return {
+    ...doc,
+    writerForbiddenLemmas: {
+      verbs: [...verbs].sort(),
+      nouns: [...nouns].sort(),
+    },
+  };
+}
+
+/**
+ * AA-CW-19 — render the cumulative forbidden-lemma block for the rewriter.
+ * Goes ABOVE the per-spread JSON payload, near the book-level directives,
+ * so the rewriter sees the union of every burned lemma before it generates.
+ *
+ * @param {object} doc
+ * @returns {string}
+ */
+function renderForbiddenLemmasBlock(doc) {
+  const fl = doc?.writerForbiddenLemmas;
+  if (!fl) return '';
+  const verbs = Array.isArray(fl.verbs) ? fl.verbs : [];
+  const nouns = Array.isArray(fl.nouns) ? fl.nouns : [];
+  if (verbs.length === 0 && nouns.length === 0) return '';
+  const lines = [
+    'FORBIDDEN LEMMAS — CUMULATIVE ACROSS ALL WAVES (AA-CW-19, hardest rule in this prompt):',
+    'These tokens were flagged as crutches in earlier rewrite waves. They are now BANNED from every spread you rewrite, in every form (singular/plural, all conjugations, possessive). Replacing one banned lemma with a non-banned crutch is the loop that wasted the last 5 waves — do NOT do it.',
+  ];
+  if (verbs.length > 0) {
+    lines.push(`- BANNED VERB LEMMAS (any conjugation): ${verbs.map(v => `"${v}"`).join(', ')}.`);
+  }
+  if (nouns.length > 0) {
+    lines.push(`- BANNED NOUN LEMMAS (any number/possessive): ${nouns.map(n => `"${n}"`).join(', ')}.`);
+  }
+  lines.push(
+    'If a spread you must rewrite previously contained one of these lemmas, you MUST express that beat WITHOUT using any banned lemma. Use a different verb (or no verb — sensory image / state line / sound line are encouraged), and a different concrete noun.',
+    'If you find yourself unable to write a spread without a banned lemma, you are reaching for a crutch — stop, change the sentence shape, and use a sensory image instead.',
   );
   return lines.join('\n');
 }
@@ -601,11 +688,18 @@ function rewriteUserPrompt(doc, targets) {
   const bookLevelDirectives = parseBookLevelDirectives(doc?.writerQa?.bookLevel || []);
   const bookLevelDirectivesBlock = renderBookLevelDirectivesBlock(bookLevelDirectives);
 
+  // AA-CW-19 — cumulative forbidden-lemma block. The rewrite loop calls
+  // `recordForbiddenLemmasFromDirectives` BEFORE building this prompt, so
+  // `doc.writerForbiddenLemmas` already contains the union of every lemma
+  // flagged in any prior wave plus the lemmas flagged this wave.
+  const forbiddenLemmasBlock = renderForbiddenLemmasBlock(doc);
+
   return [
     renderTextPolicyBlock(doc),
     arcContextBlock ? `\n${arcContextBlock}` : '',
     lineCountReminder ? `\n${lineCountReminder}` : '',
     pronounBlock ? `\n${pronounBlock}` : '',
+    forbiddenLemmasBlock ? `\n${forbiddenLemmasBlock}` : '',
     bookLevelDirectivesBlock ? `\n${bookLevelDirectivesBlock}` : '',
     // AA-CW-15: surface the rewrite-memory block ABOVE the JSON payload so
     // the rewriter cannot miss it (model attention drops by mid-prompt).
@@ -681,6 +775,12 @@ async function writerQaAndRewrite(doc) {
     // local optimum where every spread looks fine in isolation but "give"
     // still appears in 5 of 13 spreads.
     const bookLevelDirectivesForTargeting = parseBookLevelDirectives(qa.bookLevel || []);
+
+    // AA-CW-19 — record every flagged lemma into the cumulative forbidden
+    // set BEFORE we build the rewrite prompt. This is the central change
+    // that breaks the give→say→pat→hold whack-a-mole loop: once a lemma
+    // is burned in any wave, it is banned for every subsequent wave.
+    current = recordForbiddenLemmasFromDirectives(current, bookLevelDirectivesForTargeting);
     const bookLevelSpreads = new Set();
     for (const d of bookLevelDirectivesForTargeting) {
       for (const sn of d.spreads) bookLevelSpreads.add(sn);
@@ -856,4 +956,7 @@ module.exports = {
   // AA-CW-18 Part A — book-level diversification helpers (exported for tests).
   parseBookLevelDirectives,
   renderBookLevelDirectivesBlock,
+  // AA-CW-19 — cumulative forbidden-lemma helpers (exported for tests).
+  recordForbiddenLemmasFromDirectives,
+  renderForbiddenLemmasBlock,
 };

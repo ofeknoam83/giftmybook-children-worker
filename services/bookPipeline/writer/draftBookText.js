@@ -53,6 +53,12 @@ Picture-book structure (MANDATORY when format is picture_book — every single s
 - If a couplet does not actually rhyme when read aloud, rewrite it before emitting.
 - No line may cross the horizontal center of the spread when painted.
 
+BOOK-LEVEL DIVERSITY SELF-AUDIT (AA-CW-19, MANDATORY before you return JSON):
+- Scan the verb lemmas you used across all 13 spreads. NO single verb lemma may appear in more than 3 of 13 spreads (≤23%). "give/gives/gave/giving" all collapse to one lemma; same for "say/says/said", "pat/pats/patted", "hold/holds/held", "tuck/tucks/tucked", etc.
+- Scan concrete refrain nouns (sleeve, hand, leaf, blanket, arm, lap, chin, cheek). NO single noun may appear in more than 3 of 13 spreads.
+- If your draft fails either check, REWRITE the offending spreads BEFORE returning JSON. Vary by sensory channel: a verb-led action line on one spread, a sensory image on the next ("Soft sun on her cheek."), a state line on the next ("The room is hush."), a sound line on the next ("A small bird sings."). Verbs are NOT the only way to open a line; you may use noun-led, adjective-led, or sound-led lines for variety.
+- A book that fails this self-audit at draft time will burn 5 rewrite waves trying to recover and will fail the gate. Self-audit costs you nothing and saves the book.
+
 Early reader structure (when format is early_reader):
 - 3–4 short prose lines per spread. Rhyme optional — do not force it.
 
