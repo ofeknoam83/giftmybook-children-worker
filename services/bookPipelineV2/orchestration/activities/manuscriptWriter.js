@@ -119,6 +119,13 @@ async function manuscriptWriterActivity(input, ctx) {
   normalized.sort((a, b) => a.spread - b.spread);
 
   ctx.log('info', `[v2] manuscriptWriter spreads=${normalized.length}${freshAttempt ? ' (fresh)' : ''}`);
+  // Debug log: dump every spread's lines so we can diagnose under-delivery
+  // (e.g. line_length_window failures across all spreads). Each line is
+  // truncated to keep log volume sane. Remove once writer behaviour stabilises.
+  for (const s of normalized) {
+    const lines = s.lines.map((l, i) => `L${i + 1}:"${String(l).slice(0, 80)}"`).join(' ');
+    ctx.log('info', `[v2] manuscriptWriter.dump spread=${s.spread} lineCount=${s.lines.length} ${lines}`);
+  }
   return { spreads: normalized, model: resp.model };
 }
 
