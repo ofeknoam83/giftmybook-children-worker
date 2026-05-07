@@ -111,12 +111,17 @@ async function postImagesGenerations(p) {
  * (recently approved spreads). The model treats them all as conditioning,
  * not as content to edit literally — there is no `mask` here.
  *
+ * NOTE: the `quality` form field is NOT accepted on this endpoint (the API
+ * returns 400 `unknown_parameter` for it on /v1/images/edits, even though
+ * /v1/images/generations accepts it). Caller may pass `quality` for
+ * symmetry; this helper silently drops it.
+ *
  * @param {object} p
  * @param {string} p.apiKey
  * @param {string} p.model
  * @param {string} p.prompt
  * @param {string} [p.size]
- * @param {string} [p.quality] - low | medium | high | auto (gpt-image-2)
+ * @param {string} [p.quality] - DROPPED on this endpoint (see note above).
  * @param {Array<{ buffer: Buffer, filename: string, mimeType?: string }>} p.imageFiles
  * @param {string} [p.url]
  * @param {number} [p.timeoutMs]
@@ -128,7 +133,6 @@ async function postImagesEdits(p) {
     model,
     prompt,
     size,
-    quality,
     imageFiles,
     url = DEFAULT_IMAGES_EDITS_URL,
     timeoutMs = 180000,
@@ -150,7 +154,6 @@ async function postImagesEdits(p) {
   fd.append('model', model);
   fd.append('prompt', prompt);
   if (size) fd.append('size', size);
-  if (quality) fd.append('quality', quality);
   fd.append('n', '1');
 
   for (const f of imageFiles) {
