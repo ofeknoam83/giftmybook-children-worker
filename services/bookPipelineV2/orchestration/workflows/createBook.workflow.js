@@ -47,9 +47,20 @@ const MAX_REVISION_ROUNDS = 3;
 
 function deriveAgeBandFromRequest(rawRequest) {
   const child = rawRequest?.child || {};
-  const ageMonths = child.ageMonths || child.age_months || null;
-  const ageYears = child.age || child.ageYears || null;
-  return deriveAgeBandFromAge({ ageMonths, ageYears: typeof ageYears === 'number' ? ageYears : null });
+  // Use nullish-coalescing instead of `||` because age=0 is a real, valid
+  // value (a 0-month-old is a lap baby and must resolve to PB_INFANT).
+  // The previous `child.age || child.ageYears || null` chain treated 0 as
+  // falsy and fell through to the default PB_PRESCHOOL — observed in
+  // production on book e3f4e0c0 (mothers_day, birthDate-derived age=0).
+  const pickNumber = (...vals) => {
+    for (const v of vals) {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+    }
+    return null;
+  };
+  const ageMonths = pickNumber(child.ageMonths, child.age_months);
+  const ageYears = pickNumber(child.age, child.ageYears);
+  return deriveAgeBandFromAge({ ageMonths, ageYears });
 }
 
 function avgScore(scores) {
@@ -393,6 +404,7 @@ module.exports = {
   runCreateBookWorkflow,
   // exported for tests
   avgScore,
+  deriveAgeBandFromRequest,
   runManuscriptLoop,
   HARD_GATE_CODES,
   hardFailures,
