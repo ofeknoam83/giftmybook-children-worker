@@ -55,8 +55,9 @@ async function resizeReferenceForApi(buffer, cacheKey) {
     .jpeg({ quality: REFERENCE_RESIZE_JPEG_QUALITY })
     .toBuffer();
   if (cacheKey) {
-    if (_referenceResizeCache.size > 64) {
-      // crude LRU: drop oldest insertion
+    if (_referenceResizeCache.size >= 64) {
+      // Evict the oldest entry (FIFO) so the map never exceeds 64 entries
+      // after the insertion below.
       const firstKey = _referenceResizeCache.keys().next().value;
       _referenceResizeCache.delete(firstKey);
     }

@@ -209,7 +209,14 @@ function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
   const blockH = allLines.length * lineH;
   // Anchor the caption block in the upper-middle of the page so the verso
   // reads as "the words" leading the eye into the recto illustration.
-  const startY = ph * 0.62 + blockH / 2;
+  // PDF y-axis: 0 = bottom, ph = top. startY is the baseline of the first
+  // (topmost) line; lines descend by lineH. Clamp so the block stays within
+  // the printable safe area:
+  //   startY <= ph - SAFE  →  first line stays below the top safe boundary
+  //   startY >= SAFE + blockH  →  last line baseline stays at ≥ (SAFE + lineH)
+  //                              above the bottom safe boundary
+  const idealStartY = ph * 0.62 + blockH / 2;
+  const startY = Math.min(ph - SAFE, Math.max(SAFE + blockH, idealStartY));
   drawCenteredBlock(page, allLines, bodyFont, bodySize, startY, lineH, C.brownMid);
 
   // A subtle gold rule beneath the block — same visual vocabulary as the

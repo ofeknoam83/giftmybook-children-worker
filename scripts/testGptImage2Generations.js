@@ -99,6 +99,7 @@ async function runTextOnly(key, { size, quality }) {
     prompt: 'Minimal test: one small solid green circle on a light gray background, flat, no text.',
     n: 1,
     size,
+    quality,
   });
   console.log('HTTP', r.status);
   if (!r.ok) {
