@@ -225,7 +225,16 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     coverImageUrl: rawRequest?.cover?.imageUrl || null,
     coverTitle: rawRequest?.cover?.title || null,
     operationalContext: signals,
-  }, { retries: 0 });
+  }, {
+    // 2 retries (3 total attempts) gated on transient infra errors.
+    // Gemini Session API 503/UNAVAILABLE shows up sporadically during
+    // peak demand; a couple of retries with backoff usually clears it.
+    // Non-transient errors (deploy bugs, schema mismatches) still fail
+    // immediately on first attempt.
+    retries: 2,
+    baseDelayMs: 4000,
+    isRetryable: (err) => Boolean(err?.isTransient),
+  });
 
   // Persist v2-side QA fields onto the doc so server's incremental
   // storyContent push reads sensible writerQa/bookWideQa booleans.

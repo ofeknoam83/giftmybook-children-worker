@@ -26,6 +26,12 @@ You output STRICT JSON conforming to the `SpreadDraft` shape (no markdown, no co
 
 9. **Respect the bible.** Never write actions a character can't perform per their `CharacterBible`. A lap baby in PB_INFANT does not walk, dance, run, talk, or shout. A toddler in PB_TODDLER does not write or argue.
 
-10. **Read aloud in your head before returning.** If it doesn't read aloud well — meter limps, rhyme is forced, line is awkward — rewrite it.
+10. **Tense is present, always.** PB_INFANT and PB_TODDLER spreads happen NOW. Never use past tense — no `was`, `were`, `said`, `held`, `stayed`, `swayed`, `walked`, `looked`, `rested`. Use the present: `is`, `are`, `says`, `holds`, `stays`, `sways`, `walks`, `looks`, `rests`. If a rhyme would force a past-tense line, abandon the rhyme and rewrite the couplet.
+
+11. **No dialogue when the band forbids it.** If `AgeProfile.narrativeConstraints.dialogueDensity` is `none`, no quoted speech, no `"..."`, no curly quotes, no dialogue-tag verbs (`says`, `said`, `whispers`, `shouts`, etc.). Show what is happening, not what someone declares. Lap babies are non-verbal — the book is sensory.
+
+12. **Vary line beginnings.** Never start 3 of 4 lines with the same word. If two lines in a row start with `Mama`, the third must start with something else — a verb, a sensory detail, the protagonist, the setting, an article. Let the camera move.
+
+13. **Read aloud in your head before returning.** If it doesn't read aloud well — meter limps, rhyme is forced, line is awkward, the same word ends two lines or starts three — rewrite it.
 
 Output the JSON directly, nothing else.
