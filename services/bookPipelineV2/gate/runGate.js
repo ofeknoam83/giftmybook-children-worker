@@ -8,6 +8,10 @@
  * Order matters: cheap, narrow checks first; broad checks last. Most
  * spreads either fail nothing or fail one thing; running everything is
  * cheap.
+ *
+ * Note: most checks are synchronous; `imperfectRhyme` makes a single
+ * LLM call (acoustic rhyme judge) and is therefore async. We `await`
+ * every check uniformly to keep the runner consistent.
  */
 
 const { identityRhymeCheck } = require('./checks/identityRhyme');
@@ -42,14 +46,14 @@ const CHECKS = [
  * @param {object} draft        - SpreadDraft.json
  * @param {object} beat         - BeatSheet entry
  * @param {object} ageProfile   - AgeProfile.json
- * @param {object} ctx          - { protagonistName, ageLabel, ... }
+ * @param {object} ctx          - { protagonistName, ageLabel, log, ... }
  */
-function runGate(draft, beat, ageProfile, ctx = {}) {
+async function runGate(draft, beat, ageProfile, ctx = {}) {
   const failures = [];
   for (const { name, fn } of CHECKS) {
     let r;
     try {
-      r = fn(draft, beat, ageProfile, ctx);
+      r = await fn(draft, beat, ageProfile, ctx);
     } catch (err) {
       r = { passed: false, code: `${name}_threw`, message: `Gate check '${name}' threw: ${err.message}` };
     }

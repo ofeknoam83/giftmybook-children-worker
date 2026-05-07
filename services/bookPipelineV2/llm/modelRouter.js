@@ -14,6 +14,7 @@
  *   - ADJUDICATOR — final tie-breaker (3rd family ideally; we use OpenAI strongest)
  *   - DIRECTOR    — illustration director (text-to-spec)
  *   - SUMMARIZER  — rolling-summary memory
+ *   - RHYME_JUDGE — acoustic rhyme verdicts on couplet end-words
  *
  * The router can be reconfigured per env (e.g. set
  * `BOOK_PIPELINE_V2_WRITER=openai` and `BOOK_PIPELINE_V2_CRITIC=gemini`
@@ -41,6 +42,7 @@ const DEFAULT_ROUTING = {
   ADJUDICATOR: { family: 'openai',  tier: 'strong' },
   DIRECTOR:    { family: 'openai',  tier: 'mid' },
   SUMMARIZER:  { family: 'gemini',  tier: 'mid' },
+  RHYME_JUDGE: { family: 'gemini',  tier: 'mid' }, // <-- different family from WRITER; acoustic-only task, mid tier is plenty
 };
 
 function envOverride(role) {
