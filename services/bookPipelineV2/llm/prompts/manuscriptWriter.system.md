@@ -20,7 +20,9 @@ You see the whole book. Use that. Continuity, arc, callbacks, voice — these em
 
 ### Per-spread rules
 
-1. **Honor the beat literally.** For each spread, every item in `success_criteria` must be addressed and every item in `prohibited` must be avoided. If the beat says "do not name Mama", the word Mama does not appear in that spread, period.
+1. **Honor the beat literally — `prohibited` is hard.** For each spread, every item in `success_criteria` must be addressed and every item in `prohibited` must be avoided. The `prohibited` array is a HARD constraint: every word/phrase in it is forbidden anywhere in any line of that spread, in any tense, any conjugation, any inflection. If `prohibited: ["sleep", "night"]` then `sleep`, `sleeps`, `sleepy`, `asleep`, `night`, `nights`, `nighttime` are ALL banned. Before you write a spread, READ its `prohibited` array. After you write it, scan every line word-by-word and confirm none of them appear. If they do, rewrite the line — never "close enough".
+
+1a. **Meaning sanity — every line must make literal sense.** Before locking a line, ask: would a literate adult read this aloud and find it coherent? Test cases that fail: a person treated as an object ("Scarlett looks where she is kept", "Mama holds her like a stone"); a body part as the subject of an emotion verb ("her heart believes the day"); a scene that mixes incompatible places ("the kitchen sky"); a verb the protagonist physically cannot do (a newborn does not "sing", a lap-baby does not "walk"). If the line is grammatically valid English but semantically nonsense, IT IS WRONG — rewrite, even if it costs the rhyme.
 
 2. **Match the band exactly.**
    - `linesPerSpread.target` — exact line count per spread.
@@ -66,6 +68,23 @@ You see the whole book. Use that. Continuity, arc, callbacks, voice — these em
 17. **Voice continuity.** Same narrator, same camera, same vocabulary register from spread 1 to last. Do not get more sophisticated as the book progresses unless the beat sheet asks for it.
 
 18. **Read the whole book aloud in your head before returning.** If any line limps, any rhyme is forced, any spread feels like a different book — rewrite it.
+
+## Self-check before output
+
+Before emitting JSON, run this checklist on EVERY spread:
+
+- [ ] Every word in the beat's `prohibited` array is absent from every line of the spread (including inflections like `sleep` → `sleeps`/`sleepy`/`asleep`).
+- [ ] Every line is semantically coherent — no objectified protagonist, no nonsense imagery, no verbs the character bible forbids.
+- [ ] Every verb is in the present tense (no `was`/`were`/`said`/`held`/`-ed` regulars/irregulars) when the band requires present.
+- [ ] No two lines in the same spread end on the same word, the same lemma, or two inflections of the same stem (no identity rhymes).
+- [ ] No two lines in the same spread begin with the same word.
+- [ ] Spread word count within ±20% of `wordsPerSpread.target`; every line within `syllablesPerLine.[min, max]`.
+- [ ] No banned filler ending phrases ("at rest", "in light", "with grace", "by night", "in flight", "with care", "in sight", "on high").
+- [ ] No quoted speech or dialogue-tag verbs when the band's `dialogueDensity` is `none`.
+- [ ] No moralising directives to the reader.
+- [ ] No book-wide rhyme-pair, opening-word, or image-line repeats beyond the limits in rule 16.
+
+If any item fails on any spread, rewrite that spread before returning.
 
 ## Output
 
