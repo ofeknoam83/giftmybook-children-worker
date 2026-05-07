@@ -101,15 +101,22 @@ async function postImagesGenerations(p) {
 }
 
 /**
- * POST /v1/images/edits (multipart). Currently unused by the production
- * pipeline (gpt-image-2 returned 400 on this endpoint), but kept for any
- * future fallback or for non-gpt-image-2 callers.
+ * POST /v1/images/edits — multipart, reference-image-conditioned generation.
+ *
+ * For `gpt-image-2` this is the documented path that preserves character
+ * identity across calls. References travel as `image[]` form parts (1-16),
+ * each with a filename and a Content-Type header so the server doesn't
+ * reject the multipart body with `unsupported_content_type`. The first
+ * `image[]` is the canonical reference; additional images supply continuity
+ * (recently approved spreads). The model treats them all as conditioning,
+ * not as content to edit literally — there is no `mask` here.
  *
  * @param {object} p
  * @param {string} p.apiKey
  * @param {string} p.model
  * @param {string} p.prompt
  * @param {string} [p.size]
+ * @param {string} [p.quality] - low | medium | high | auto (gpt-image-2)
  * @param {Array<{ buffer: Buffer, filename: string, mimeType?: string }>} p.imageFiles
  * @param {string} [p.url]
  * @param {number} [p.timeoutMs]
@@ -121,6 +128,7 @@ async function postImagesEdits(p) {
     model,
     prompt,
     size,
+    quality,
     imageFiles,
     url = DEFAULT_IMAGES_EDITS_URL,
     timeoutMs = 180000,
@@ -131,14 +139,25 @@ async function postImagesEdits(p) {
     throw new Error('Node >= 20 required for FormData / Blob (OpenAI images HTTP)');
   }
 
+  if (!Array.isArray(imageFiles) || imageFiles.length === 0) {
+    throw new Error('postImagesEdits: at least one reference image is required');
+  }
+  if (imageFiles.length > 16) {
+    throw new Error(`postImagesEdits: too many references (${imageFiles.length}); OpenAI limit is 16`);
+  }
+
   const fd = new FormData();
   fd.append('model', model);
   fd.append('prompt', prompt);
   if (size) fd.append('size', size);
+  if (quality) fd.append('quality', quality);
   fd.append('n', '1');
 
   for (const f of imageFiles) {
     const mime = f.mimeType || 'image/jpeg';
+    if (!f.filename || typeof f.filename !== 'string' || !f.filename.trim()) {
+      throw new Error('postImagesEdits: every reference image must have a non-empty filename (OpenAI rejects multipart parts without filename)');
+    }
     fd.append('image[]', new Blob([f.buffer], { type: mime }), f.filename);
   }
 

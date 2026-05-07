@@ -32,9 +32,20 @@ const GEMINI_IMAGE_SAFETY_SETTINGS = [
 // the Gemini chat-session interface so the orchestrator can swap providers
 // by flipping `MODELS.SPREAD_RENDER` in bookPipeline/constants.js.
 const OPENAI_IMAGE_MODEL = 'gpt-image-2';
-/** DALL·E 2–only in many accounts; do not use for `gpt-image-2` (see `OPENAI_IMAGES_GENERATIONS_URL`). */
+/**
+ * Reference-image-conditioned generation for `gpt-image-2` lives on the EDIT
+ * endpoint (multipart). `gpt-image-2` is identity-preserving across calls
+ * when references are attached as `image[]` parts. Up to 16 references per
+ * request, each PNG/WebP/JPEG, < 50 MB, with a proper multipart filename.
+ *
+ * Earlier comments in this file claimed `/v1/images/edits` returned 400 for
+ * `gpt-image-2`. That was an incorrect diagnosis of a multipart-formatting
+ * bug (raw fetch + Blob without filename) — see `openai-node#1844`. The
+ * adapter now sends a filename + Content-Type per part, which is what
+ * production needs.
+ */
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
-/** Reference-image + `gpt-image-2` jobs: production API returns 400 on `/v1/images/edits` for this model — use generations. */
+/** Text-to-image only (JSON body); does NOT accept reference images on this endpoint for any image model. */
 const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations';
 // 1:1 square — the picture-book interior page is 8.5×8.5", so a square
 // illustration maps cleanly onto one page of the spread. The opposite page

@@ -3,13 +3,13 @@
  *
  * Covers:
  *   - createSession requires OPENAI_API_KEY and uses square aspect format
- *   - generateSpread POSTs the JSON shape we expect (model/size/quality/prompt)
- *     with NO inline reference images (the /v1/images/generations endpoint
- *     does not accept them; see services/illustrator/openaiImagesHttp.js docs)
+ *   - generateSpread POSTs the multipart-edits shape we expect (model, size,
+ *     quality, image[] reference array, system+user combined prompt) — the
+ *     /v1/images/edits path is what carries reference-image conditioning for
+ *     gpt-image-2; see services/illustrator/openaiImagesHttp.js.
  *   - sendCorrection sets the stateless-retry header in the combined prompt
- *   - markSpreadAccepted still accumulates accepted spreads on the session
- *     (so a future Responses-API migration can restore image references
- *     without changing the orchestrator)
+ *   - markSpreadAccepted accumulates references that travel on the next call
+ *     (cap = SLIDING_WINDOW_ACCEPTED_SPREADS)
  *   - rebuildSession carries forward accepted spreads
  *   - moderation errors classify as isSafetyBlock
  */
@@ -49,7 +49,7 @@ async function buildPngBuffer() {
 }
 
 function mockSuccessfulPost(b64Out = 'aGVsbG8=') {
-  httpMock.postImagesGenerations.mockImplementation(async () => ({
+  httpMock.postImagesEdits.mockImplementation(async () => ({
     ok: true,
     status: 200,
     data: { data: [{ b64_json: b64Out }] },
@@ -69,6 +69,7 @@ describe('openaiImageSession', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
     httpMock.postImagesGenerations.mockReset();
+    httpMock.postImagesEdits.mockReset();
     originalApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = 'sk-test';
   });
@@ -105,7 +106,7 @@ describe('openaiImageSession', () => {
     expect(session.systemInstruction).not.toMatch(/PANORAMA LOCK/);
   });
 
-  test('generateSpread POSTs model/size/quality/prompt JSON with NO inline image references', async () => {
+  test('generateSpread POSTs to /v1/images/edits with cover ref + model/size/quality + stateless+square prompt', async () => {
     const { createSession, generateSpread, establishCharacterReference } =
       require('../../../services/illustrator/openaiImageSession');
     mockSuccessfulPost();
@@ -122,18 +123,23 @@ describe('openaiImageSession', () => {
 
     await generateSpread(session, 'SCENE: Hero in meadow.', 0);
 
-    expect(httpMock.postImagesGenerations).toHaveBeenCalledTimes(1);
-    const call = httpMock.postImagesGenerations.mock.calls[0][0];
+    expect(httpMock.postImagesEdits).toHaveBeenCalledTimes(1);
+    expect(httpMock.postImagesGenerations).not.toHaveBeenCalled();
+
+    const call = httpMock.postImagesEdits.mock.calls[0][0];
     expect(call.model).toBe('gpt-image-2');
     expect(call.size).toBe('1024x1024');
     expect(call.quality).toBe('high');
-    // /v1/images/generations is JSON-only and does NOT accept reference
-    // images. The session adapter passes an empty imageFiles array; the HTTP
-    // layer would also drop any references with a warning if present.
-    expect(call.imageFiles).toEqual([]);
+    expect(call.url).toMatch(/\/v1\/images\/edits$/);
+
+    // Cover only — no accepted spreads yet.
+    expect(call.imageFiles).toHaveLength(1);
+    expect(call.imageFiles[0].mimeType).toBe('image/jpeg');
+    expect(call.imageFiles[0].filename).toBe('cover.jpg');
+    expect(call.imageFiles[0].buffer.length).toBeGreaterThan(0);
 
     expect(call.prompt).toMatch(/STATELESS REQUEST/);
-    expect(call.prompt).toMatch(/NO INLINE REFERENCES/);
+    expect(call.prompt).toMatch(/REFERENCE IMAGE/);
     expect(call.prompt).toMatch(/1:1.*square/);
     expect(call.prompt).toMatch(/Render NO text on the image/);
     expect(call.prompt).toMatch(/SCENE: Hero in meadow\./);
@@ -156,12 +162,12 @@ describe('openaiImageSession', () => {
 
     await sendCorrection(session, 'CORRECTION: outfit drifted, restore cover outfit.', 0);
 
-    const call = httpMock.postImagesGenerations.mock.calls[0][0];
+    const call = httpMock.postImagesEdits.mock.calls[0][0];
     expect(call.prompt).toMatch(/STATELESS RETRY/);
     expect(call.prompt).toMatch(/CORRECTION: outfit drifted/);
   });
 
-  test('markSpreadAccepted still tracks accepted spreads on the session (preserved for future Responses-API migration)', async () => {
+  test('references accumulate as accepted spreads are marked, capped at sliding window of 3', async () => {
     const { createSession, generateSpread, markSpreadAccepted, establishCharacterReference } =
       require('../../../services/illustrator/openaiImageSession');
     mockSuccessfulPost();
@@ -176,6 +182,7 @@ describe('openaiImageSession', () => {
     });
     await establishCharacterReference(session);
 
+    // Mark 5 accepted spreads — sliding window is 3, so only the last 3 should attach.
     const tiny = (await buildPngBuffer()).toString('base64');
     for (let i = 0; i < 5; i++) {
       markSpreadAccepted(session, i, tiny);
@@ -184,10 +191,19 @@ describe('openaiImageSession', () => {
 
     await generateSpread(session, 'SCENE: Hero at a table.', 5);
 
-    // HTTP call still has no inline references — the accepted-spread tracking
-    // is purely for future use (Responses API), not for this endpoint.
-    const call = httpMock.postImagesGenerations.mock.calls[0][0];
-    expect(call.imageFiles).toEqual([]);
+    const call = httpMock.postImagesEdits.mock.calls[0][0];
+    // 1 cover + 3 accepted (sliding window) = 4 references attached.
+    expect(call.imageFiles).toHaveLength(4);
+    expect(call.imageFiles[0].filename).toBe('cover.jpg');
+    expect(call.imageFiles[1].filename).toMatch(/spread-3\.jpg/);
+    expect(call.imageFiles[2].filename).toMatch(/spread-4\.jpg/);
+    expect(call.imageFiles[3].filename).toMatch(/spread-5\.jpg/);
+    // Every reference part must have a non-empty filename — OpenAI rejects
+    // multipart parts without one with `unsupported_content_type`.
+    for (const f of call.imageFiles) {
+      expect(typeof f.filename).toBe('string');
+      expect(f.filename.length).toBeGreaterThan(0);
+    }
   });
 
   test('rebuildSession carries forward accepted spreads and bumps the rebuild counter', async () => {
@@ -215,7 +231,7 @@ describe('openaiImageSession', () => {
   test('OpenAI moderation error is classified as isSafetyBlock', async () => {
     const { createSession, generateSpread, establishCharacterReference } =
       require('../../../services/illustrator/openaiImageSession');
-    httpMock.postImagesGenerations.mockResolvedValue({
+    httpMock.postImagesEdits.mockResolvedValue({
       ok: false,
       status: 400,
       text: '{"error":{"message":"Your request was blocked by safety filters","type":"moderation_blocked"}}',
