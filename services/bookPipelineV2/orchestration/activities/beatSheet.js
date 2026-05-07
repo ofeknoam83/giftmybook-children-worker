@@ -38,13 +38,37 @@ async function beatSheetActivity(input, ctx) {
     maxTokens: 7000,
     label: 'v2.beatSheet',
   });
-  const sheet = resp.json;
-  if (!sheet || !Array.isArray(sheet.spreads)) {
-    throw new Error('beatSheet: model did not return { spreads: [...] }');
+  // Accept several shapes the model may emit despite a strict prompt:
+  //   { spreads: [...] }   (canonical)
+  //   { beats:   [...] }   (common synonym)
+  //   [ ...beats ]         (bare array)
+  //   { beat_sheet: [...] }, { items: [...] }  (rarer)
+  // The downstream contract is `sheet.spreads = [...]`, so we normalize.
+  let sheet = resp.json;
+  let beats = null;
+  if (Array.isArray(sheet)) {
+    beats = sheet;
+    sheet = {};
+  } else if (sheet && typeof sheet === 'object') {
+    beats = (
+      Array.isArray(sheet.spreads)    ? sheet.spreads :
+      Array.isArray(sheet.beats)      ? sheet.beats :
+      Array.isArray(sheet.beat_sheet) ? sheet.beat_sheet :
+      Array.isArray(sheet.items)      ? sheet.items :
+      Array.isArray(sheet.pages)      ? sheet.pages :
+      null
+    );
   }
+  if (!beats) {
+    const keys = sheet && typeof sheet === 'object' ? Object.keys(sheet).join(',') : typeof sheet;
+    throw new Error(`beatSheet: model did not return an array of beats (top-level keys: ${keys})`);
+  }
+  sheet.spreads = beats;
   if (sheet.spreads.length !== spreadCount) {
     ctx.log('warn', `[v2] beatSheet returned ${sheet.spreads.length} beats, age profile asked for ${spreadCount} — will proceed (writer loops handle off-by-one)`);
   }
+  // Drop empties just in case the model padded with placeholders.
+  sheet.spreads = sheet.spreads.filter(b => b && typeof b === 'object');
   // Ensure every beat has the structural fields the writer + gate read.
   sheet.spreads = sheet.spreads.map((b, i) => ({
     spread: typeof b.spread === 'number' ? b.spread : i + 1,
