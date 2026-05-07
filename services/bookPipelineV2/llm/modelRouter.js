@@ -23,9 +23,12 @@
 const { callText } = require('../../bookPipeline/llm/openaiClient');
 
 // Model identifiers (kept in one place so swaps are one-line).
+// Note: we use gpt-5.4 family (NOT gpt-5) because gpt-5 reasoning models
+// don't accept custom `temperature` (only the default value of 1). v1 has
+// run on gpt-5.4 in production for months — sticking with what works.
 const MODELS = {
-  openai_strong: 'gpt-5',
-  openai_mid: 'gpt-5-mini',
+  openai_strong: 'gpt-5.4',
+  openai_mid: 'gpt-5.4-mini',
   gemini_strong: 'gemini-2.5-pro',
   gemini_mid: 'gemini-2.5-flash',
 };
