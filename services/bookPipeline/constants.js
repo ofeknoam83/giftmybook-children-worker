@@ -133,12 +133,19 @@ const REPAIR_BUDGETS = {
   // pass scores the result so best-seen tracking is honest. Worst case:
   // 3 judge + 3 writer + 1 final judge = 7 LLM calls.
   writerRewriteWaves: 3,
-  perSpreadInSessionCorrections: 3,
-  perSpreadPromptRepairs: 2,
+  // Per-pair budget = perSpreadInSessionCorrections + perSpreadPromptRepairs.
+  // Bumped 3+2 → 5+3 (May 2026): production logs show pairs frequently
+  // accept on attempts 2-3 after a cover re-anchor, but late-book outfit /
+  // hair continuity drift can still need 4-5 attempts. The extra headroom
+  // also covers the case where attempt 1 burns on a transient style or
+  // outfit issue that the correction turn can fix in-session — cheaper
+  // than rebuilding the whole illustrator session.
+  perSpreadInSessionCorrections: 5,
+  perSpreadPromptRepairs: 3,
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
   perSpreadEscalations: 3,
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
-  perSpreadExtraSessionRounds: 3,
+  perSpreadExtraSessionRounds: 4,
   bookWideRepairWaves: 2,
   /**
    * Early-abort threshold for the quad illustrator: if a spread pair is
