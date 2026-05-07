@@ -47,16 +47,45 @@ async function manuscriptRevisionActivity(input, ctx) {
   const flaggedSet = new Set(targetedRevisions.map((t) => t.spread));
   const flaggedBeats = (beatSheet?.spreads || []).filter((b) => flaggedSet.has(b.spread));
 
+  // Lift band constraints into a prominent narrative preamble so the model
+  // cannot miss them. Same fix as manuscriptWriter — buried JSON constraints
+  // were causing OVER-delivery and past-tense leaks.
+  const nc = ageProfile?.narrativeConstraints || {};
+  const wps = nc.wordsPerSpread || {};
+  const lps = nc.linesPerSpread || {};
+  const spl = nc.syllablesPerLine || {};
+  const bandName = ageProfile?.ageBand || ageProfile?.band || 'unknown';
+
+  const instructionLines = [
+    `Revise ONLY the spreads listed in targeted_revisions. Fix the listed failures exactly. Do not introduce new defects. Do not return spreads that are not flagged. Mode: ${mode}.`,
+    `Age band: ${bandName}. Spreads flagged for revision: ${targetedRevisions.length}.`,
+    '',
+    'BAND CONSTRAINTS — EVERY REVISED SPREAD MUST SATISFY:',
+    `- Words per spread: between ${wps.min} and ${wps.max} (target ~${wps.target}). Output that is OVER ${wps.max} words is JUST AS WRONG as output that is UNDER ${wps.min} words. Count words before you finalise each spread.`,
+    `- Lines per spread: between ${lps.min} and ${lps.max} (target ${lps.target}).`,
+    `- Syllables per line: between ${spl.min} and ${spl.max} (target ${spl.target}).`,
+    nc.rhymeScheme ? `- Rhyme scheme: ${nc.rhymeScheme} (strictness: ${nc.rhymeStrictness || 'default'}).` : null,
+    nc.dialogueDensity ? `- Dialogue density: ${nc.dialogueDensity}.` : null,
+    '',
+    'TENSE — PRESENT ONLY. NO PAST-TENSE VERBS, regular or irregular.',
+    'If a verb wants to come out as past tense, convert it to present:',
+    '  wrapped → wraps    tucked → tucks    hushed → hushes    curled → curls',
+    '  walked → walks     ran → runs        sang → sings       saw → sees',
+    'Past tense in any line is a HARD failure (past_tense_regular / past_tense_irregular).',
+    '',
+    'Do NOT introduce any HARD_GATE failure that the spread did not already have.',
+  ].filter(Boolean);
+
   const userPrompt = JSON.stringify({
-    instructions: `Revise ONLY the spreads listed in targeted_revisions. Fix the listed failures exactly. Do not introduce new defects. Do not return spreads that are not flagged. Mode: ${mode}.`,
+    instructions: instructionLines.join('\n'),
     ageProfile: {
-      band: ageProfile?.ageBand || ageProfile?.band,
-      linesPerSpread: ageProfile?.narrativeConstraints?.linesPerSpread,
-      wordsPerSpread: ageProfile?.narrativeConstraints?.wordsPerSpread,
-      syllablesPerLine: ageProfile?.narrativeConstraints?.syllablesPerLine,
-      rhymeScheme: ageProfile?.narrativeConstraints?.rhymeScheme,
-      rhymeStrictness: ageProfile?.narrativeConstraints?.rhymeStrictness,
-      dialogueDensity: ageProfile?.narrativeConstraints?.dialogueDensity,
+      band: bandName,
+      linesPerSpread: nc.linesPerSpread,
+      wordsPerSpread: nc.wordsPerSpread,
+      syllablesPerLine: nc.syllablesPerLine,
+      rhymeScheme: nc.rhymeScheme,
+      rhymeStrictness: nc.rhymeStrictness,
+      dialogueDensity: nc.dialogueDensity,
       vocabularyConstraints: ageProfile?.vocabularyConstraints,
     },
     intent: {

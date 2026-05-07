@@ -42,18 +42,48 @@ async function manuscriptWriterActivity(input, ctx) {
     freshAttempt = false,
   } = input;
 
+  // Lift band constraints into a prominent narrative preamble so the model
+  // cannot miss them. Burying these inside JSON has been observed to cause
+  // systematic OVER-delivery (17–23 words per spread when the band is 8–16).
+  const nc = ageProfile?.narrativeConstraints || {};
+  const wps = nc.wordsPerSpread || {};
+  const lps = nc.linesPerSpread || {};
+  const spl = nc.syllablesPerLine || {};
+  const bandName = ageProfile?.ageBand || ageProfile?.band || 'unknown';
+  const beatCount = (beatSheet?.spreads || []).length;
+
+  const instructionLines = [
+    freshAttempt
+      ? 'Write the COMPLETE manuscript FRESH. One entry per beat in the BeatSheet.'
+      : 'Write the COMPLETE manuscript. One entry per beat in the BeatSheet.',
+    `Age band: ${bandName}. Total spreads to write: ${beatCount}.`,
+    '',
+    'BAND CONSTRAINTS — APPLY TO EVERY SPREAD:',
+    `- Words per spread: between ${wps.min} and ${wps.max} (target ~${wps.target}). Output that is OVER ${wps.max} words is JUST AS WRONG as output that is UNDER ${wps.min} words. Count words before you finalise each spread.`,
+    `- Lines per spread: between ${lps.min} and ${lps.max} (target ${lps.target}).`,
+    `- Syllables per line: between ${spl.min} and ${spl.max} (target ${spl.target}).`,
+    nc.rhymeScheme ? `- Rhyme scheme: ${nc.rhymeScheme} (strictness: ${nc.rhymeStrictness || 'default'}).` : null,
+    nc.dialogueDensity ? `- Dialogue density: ${nc.dialogueDensity}.` : null,
+    '',
+    'TENSE — PRESENT ONLY. NO PAST-TENSE VERBS, regular or irregular.',
+    'If a verb wants to come out as past tense, convert it to present:',
+    '  wrapped → wraps    tucked → tucks    hushed → hushes    curled → curls',
+    '  walked → walks     ran → runs        sang → sings       saw → sees',
+    'Past tense in any line is a HARD failure (past_tense_regular / past_tense_irregular).',
+    '',
+    'Honor every beat literally. Apply every rule per-spread AND across the whole book.',
+  ].filter(Boolean);
+
   const userPrompt = JSON.stringify({
-    instructions: freshAttempt
-      ? 'Write the COMPLETE manuscript fresh. Honor every beat literally. Match the band exactly. Apply every rule per-spread AND across the whole book. One entry per beat in the BeatSheet.'
-      : 'Write the COMPLETE manuscript. Honor every beat literally. Match the band exactly. Apply every rule per-spread AND across the whole book. One entry per beat in the BeatSheet.',
+    instructions: instructionLines.join('\n'),
     ageProfile: {
-      band: ageProfile?.ageBand || ageProfile?.band,
-      linesPerSpread: ageProfile?.narrativeConstraints?.linesPerSpread,
-      wordsPerSpread: ageProfile?.narrativeConstraints?.wordsPerSpread,
-      syllablesPerLine: ageProfile?.narrativeConstraints?.syllablesPerLine,
-      rhymeScheme: ageProfile?.narrativeConstraints?.rhymeScheme,
-      rhymeStrictness: ageProfile?.narrativeConstraints?.rhymeStrictness,
-      dialogueDensity: ageProfile?.narrativeConstraints?.dialogueDensity,
+      band: bandName,
+      linesPerSpread: nc.linesPerSpread,
+      wordsPerSpread: nc.wordsPerSpread,
+      syllablesPerLine: nc.syllablesPerLine,
+      rhymeScheme: nc.rhymeScheme,
+      rhymeStrictness: nc.rhymeStrictness,
+      dialogueDensity: nc.dialogueDensity,
       vocabularyConstraints: ageProfile?.vocabularyConstraints,
     },
     intent: {
