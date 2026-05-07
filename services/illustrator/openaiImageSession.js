@@ -273,20 +273,15 @@ async function rebuildSession(oldSession) {
  * reference images so the model knows which is the cover and which are
  * previously accepted spreads.
  */
-function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, aspectHint, isCorrection }) {
+function buildCombinedPrompt({ systemInstruction, userPrompt, aspectHint, isCorrection }) {
   const statelessHeader = isCorrection
-    ? '=== STATELESS RETRY ===\n'
-      + 'You do NOT have memory of any prior failed attempt for this spread. Read every rule below from scratch and produce a NEW image that obeys them. The manuscript wording, the per-spread CHARACTER ANCHOR block, and the issue list inside === THIS SPREAD === describe what to do; the reference images show what the hero must look like. Do not assume you remember the previous output.'
-    : '=== STATELESS REQUEST ===\n'
-      + 'This is a stateless image-generation call — every rule and every reference for this spread is included in this single request. Read all of it before composing.';
+    ? '=== STATELESS RETRY (NO INLINE REFERENCES) ===\n'
+      + 'You do NOT have memory of any prior failed attempt for this spread, and this request does NOT include any reference images attached to the call. Every rule, every character-locked detail, and every issue from the previous attempt is described in TEXT below — read all of it from scratch and produce a NEW image that obeys it. The hero appearance, outfit, hair, and skin tone are described literally in the CHARACTER ANCHOR block; treat those values as ground truth.'
+    : '=== STATELESS REQUEST (NO INLINE REFERENCES) ===\n'
+      + 'This is a stateless text-to-image call — no reference images are attached. The full system instruction, every character lock, and the per-spread scene description are included in this prompt as TEXT. Read all of it before composing.';
 
-  const refGuide = continuityCount > 0
-    ? `REFERENCE IMAGES — the request includes ${continuityCount + 1} reference images:\n`
-      + '  • Reference 1 is the APPROVED BOOK COVER — this is the canonical rendered likeness of the hero child AND the canonical 3D CGI Pixar feature-film art style. Match both exactly.\n'
-      + `  • References 2..${continuityCount + 1} are previously APPROVED interior spreads from this same book. They establish continuity — same character, same outfit family, same rendered style, same location palette where relevant.\n`
-      + 'Every new spread must read as the SAME feature-film render as the cover and the accepted spreads. NEVER switch to a 2D painterly, watercolor, or "storybook illustration" look.'
-    : 'REFERENCE IMAGE — the request includes 1 reference image:\n'
-      + '  • Reference 1 is the APPROVED BOOK COVER — canonical character (face, hair, skin, outfit) AND canonical 3D CGI Pixar feature-film art style. Match both exactly.';
+  const refGuide =
+    'CHARACTER + STYLE — the per-spread CHARACTER ANCHOR block below repeats the literal hero appearance values (face, hair, skin tone, outfit garments, accessories) that come from the BOOK COVER. Match those values exactly. Render in the canonical 3D CGI Pixar feature-film style — never a 2D painterly, watercolor, or "storybook illustration" look.';
 
   const outputHint = aspectHint === 'quad'
     ? 'Output exactly ONE image: **4:1** ultra-wide landscape. LEFT half = first spread (2:1 wide), RIGHT half = second spread (2:1 wide). One continuous CGI world — two captions per system/user prompt. No collage seam at center.'
@@ -349,7 +344,12 @@ async function _postEdit(session, userPrompt, {
   imageSize = OPENAI_IMAGE_SIZE,
   outputLine,
 }) {
-  const { imageFiles, continuityCount } = await collectEditImageFiles(session);
+  // /v1/images/generations for gpt-image-2 is JSON-only and does NOT accept
+  // reference images on this endpoint. We still TRACK accepted spreads on the
+  // session (so a future Responses-API migration can restore image refs
+  // without changing the orchestrator), but we do not pass them to the HTTP
+  // layer — see services/illustrator/openaiImagesHttp.js for context.
+  const continuityCount = session.acceptedSpreads.length;
   const aspectHint = (() => {
     if (imageSize === OPENAI_QUAD_IMAGE_SIZE) return 'quad';
     const m = /^(\d+)x(\d+)$/.exec(String(imageSize || ''));
@@ -368,7 +368,7 @@ async function _postEdit(session, userPrompt, {
   const startMs = Date.now();
   console.log(
     `[illustrator/openaiImageSession] ${turnLabel} spread ${spreadIndex + 1} `
-    + `(${continuityCount + 1} reference images, size=${imageSize})...`,
+    + `(text-to-image, no inline references — see openaiImagesHttp docs; size=${imageSize})...`,
   );
 
   let result;
@@ -380,7 +380,7 @@ async function _postEdit(session, userPrompt, {
       prompt: combinedPrompt,
       size: imageSize,
       quality: OPENAI_IMAGE_QUALITY,
-      imageFiles,
+      imageFiles: [],
       timeoutMs: TURN_TIMEOUT_MS,
       signal: session.abortSignal,
     });

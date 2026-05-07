@@ -3,12 +3,15 @@
  *
  * Covers:
  *   - createSession requires OPENAI_API_KEY and uses square aspect format
- *   - generateSpread POSTs the multipart shape we expect (model, size, quality,
- *     reference image count, system+user combined prompt)
+ *   - generateSpread POSTs the JSON shape we expect (model/size/quality/prompt)
+ *     with NO inline reference images (the /v1/images/generations endpoint
+ *     does not accept them; see services/illustrator/openaiImagesHttp.js docs)
  *   - sendCorrection sets the stateless-retry header in the combined prompt
- *   - markSpreadAccepted accumulates references for the next call
- *   - aspectHint derivation (square vs quad vs legacy)
- *   - reference images are resized before attaching (cap on payload size)
+ *   - markSpreadAccepted still accumulates accepted spreads on the session
+ *     (so a future Responses-API migration can restore image references
+ *     without changing the orchestrator)
+ *   - rebuildSession carries forward accepted spreads
+ *   - moderation errors classify as isSafetyBlock
  */
 
 jest.mock('../../../services/illustrationGenerator', () => ({
@@ -102,7 +105,7 @@ describe('openaiImageSession', () => {
     expect(session.systemInstruction).not.toMatch(/PANORAMA LOCK/);
   });
 
-  test('generateSpread POSTs model, size, quality, reference image array, and stateless+square prompt headers', async () => {
+  test('generateSpread POSTs model/size/quality/prompt JSON with NO inline image references', async () => {
     const { createSession, generateSpread, establishCharacterReference } =
       require('../../../services/illustrator/openaiImageSession');
     mockSuccessfulPost();
@@ -124,13 +127,13 @@ describe('openaiImageSession', () => {
     expect(call.model).toBe('gpt-image-2');
     expect(call.size).toBe('1024x1024');
     expect(call.quality).toBe('high');
-    expect(call.imageFiles).toHaveLength(1);
-    expect(call.imageFiles[0].mimeType).toBe('image/jpeg');
-    // The reference resize converts the source PNG to a small JPEG.
-    expect(call.imageFiles[0].buffer.length).toBeGreaterThan(0);
-    expect(call.imageFiles[0].filename).toBe('cover.jpg');
+    // /v1/images/generations is JSON-only and does NOT accept reference
+    // images. The session adapter passes an empty imageFiles array; the HTTP
+    // layer would also drop any references with a warning if present.
+    expect(call.imageFiles).toEqual([]);
 
     expect(call.prompt).toMatch(/STATELESS REQUEST/);
+    expect(call.prompt).toMatch(/NO INLINE REFERENCES/);
     expect(call.prompt).toMatch(/1:1.*square/);
     expect(call.prompt).toMatch(/Render NO text on the image/);
     expect(call.prompt).toMatch(/SCENE: Hero in meadow\./);
@@ -158,7 +161,7 @@ describe('openaiImageSession', () => {
     expect(call.prompt).toMatch(/CORRECTION: outfit drifted/);
   });
 
-  test('references accumulate as accepted spreads are marked, capped at sliding window', async () => {
+  test('markSpreadAccepted still tracks accepted spreads on the session (preserved for future Responses-API migration)', async () => {
     const { createSession, generateSpread, markSpreadAccepted, establishCharacterReference } =
       require('../../../services/illustrator/openaiImageSession');
     mockSuccessfulPost();
@@ -173,21 +176,18 @@ describe('openaiImageSession', () => {
     });
     await establishCharacterReference(session);
 
-    // Mark 5 accepted spreads — sliding window is 3, so only the last 3 should attach.
     const tiny = (await buildPngBuffer()).toString('base64');
     for (let i = 0; i < 5; i++) {
       markSpreadAccepted(session, i, tiny);
     }
+    expect(session.acceptedSpreads).toHaveLength(5);
 
     await generateSpread(session, 'SCENE: Hero at a table.', 5);
 
+    // HTTP call still has no inline references — the accepted-spread tracking
+    // is purely for future use (Responses API), not for this endpoint.
     const call = httpMock.postImagesGenerations.mock.calls[0][0];
-    // 1 cover + 3 accepted (sliding window) = 4
-    expect(call.imageFiles).toHaveLength(4);
-    expect(call.imageFiles[0].filename).toBe('cover.jpg');
-    expect(call.imageFiles[1].filename).toMatch(/spread-3\.jpg/);
-    expect(call.imageFiles[2].filename).toMatch(/spread-4\.jpg/);
-    expect(call.imageFiles[3].filename).toMatch(/spread-5\.jpg/);
+    expect(call.imageFiles).toEqual([]);
   });
 
   test('rebuildSession carries forward accepted spreads and bumps the rebuild counter', async () => {

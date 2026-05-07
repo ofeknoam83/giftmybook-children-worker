@@ -63,6 +63,12 @@ async function postJson(key, body) {
   return { status: r.status, ok: r.ok, text };
 }
 
+// Multipart was investigated and confirmed UNSUPPORTED by /v1/images/generations
+// for gpt-image-2 — the API returns 400 unsupported_content_type. Reference
+// images on this endpoint are not accepted in either multipart `image[]` or
+// any documented JSON `image` field. Use the Responses API for reference
+// conditioning. Keeping this helper available only as a probe in case OpenAI
+// changes the contract — it is not used by the smoke flow.
 async function postMultipart(key, { model, prompt, size, quality, imageFiles }) {
   if (typeof FormData === 'undefined' || typeof Blob === 'undefined') {
     throw new Error('Node >= 20 required for FormData / Blob');

@@ -228,7 +228,7 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/multiple times|already failed/i);
   });
 
-  test('outfit_mismatch uses cover + session visual lock (no prose wardrobe)', () => {
+  test('outfit_mismatch references the CHARACTER ANCHOR text (no inline references; no prose wardrobe input)', () => {
     const out = buildCorrectionTurn({
       ...base,
       issues: ['Hero outfit differs from cover'],
@@ -236,8 +236,8 @@ describe('buildCorrectionTurn — tag directives', () => {
       characterOutfit: 'navy overalls, red sneakers, yellow tee',
     });
     expect(out).toMatch(/SPECIFIC ACTIONS/);
-    expect(out).toMatch(/BOOK COVER/);
-    expect(out).toMatch(/last accepted interior image/);
+    expect(out).toMatch(/CHARACTER ANCHOR/);
+    expect(out).toMatch(/no inline reference images are attached/);
     expect(out).not.toMatch(/navy overalls/);
   });
 
