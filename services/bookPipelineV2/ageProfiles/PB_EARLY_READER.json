@@ -4,7 +4,7 @@
   "ageMonthsRange": [60, 96],
   "label": "early reader (5-8 years)",
   "narrativeConstraints": {
-    "spreadCount": 16,
+    "spreadCount": 13,
     "wordsPerSpread": { "min": 40, "max": 90, "target": 60 },
     "linesPerSpread": { "min": 4, "max": 8, "target": 6 },
     "syllablesPerLine": { "min": 6, "max": 14, "target": 10 },

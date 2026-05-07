@@ -105,7 +105,7 @@ async function callManuscriptRhymeJudge(payload, ctx) {
         userPrompt: JSON.stringify(payload),
         jsonMode: true,
         temperature: 0.1,
-        // 12 spreads × ~2 couplets × small JSON each → still well under 1500.
+        // 13 spreads × ~2 couplets × small JSON each → still well under 1500.
         maxTokens: 1500,
         label: 'v2.manuscriptRhymeJudge',
       });

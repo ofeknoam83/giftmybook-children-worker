@@ -212,11 +212,11 @@ const rawRequest = {
 
 describe('v2 workflow happy path (manuscript-level)', () => {
   test('end-to-end: planning stages → manuscript writer → gate → critic → illustrator adapter → return shape', async () => {
-    wireMocks(10); // PB_INFANT spreadCount = 10
+    wireMocks(13); // every band ships 13 spreads
     const { document, layout } = await generateBook(rawRequest, { bookId: 'happy_test_book' });
     expect(document).toBeDefined();
     expect(Array.isArray(document.spreads)).toBe(true);
-    expect(document.spreads.length).toBe(10);
+    expect(document.spreads.length).toBe(13);
     // every spread should carry a manuscript text (from writer) and an illustration (from mocked renderer)
     for (const s of document.spreads) {
       expect(typeof s.manuscript?.text).toBe('string');

@@ -4,7 +4,7 @@
   "ageMonthsRange": [0, 17],
   "label": "lap baby (0-17 months)",
   "narrativeConstraints": {
-    "spreadCount": 10,
+    "spreadCount": 13,
     "wordsPerSpread": { "min": 8, "max": 16, "target": 12 },
     "linesPerSpread": { "min": 2, "max": 4, "target": 4 },
     "syllablesPerLine": { "min": 4, "max": 7, "target": 6 },

@@ -18,7 +18,7 @@
  * Why one-shot: gpt-5.4 sees the whole book at once. Continuity, arc,
  * callbacks, and book-wide non-repetition emerge from a single mind
  * writing everything together — no rolling summaries, no per-spread
- * critic loop. The single critic call sees all 12 spreads at once and
+ * critic loop. The single critic call sees all 13 spreads at once and
  * catches arc/voice/repetition issues a per-spread critic literally
  * cannot see.
  *
