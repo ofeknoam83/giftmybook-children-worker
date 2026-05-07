@@ -91,7 +91,13 @@ function buildSystemInstruction(opts) {
     childAppearance,
     locationPalette,
     childAge,
+    // 'wide' (default — 16:9 single image per spread, caption baked-in,
+    // legacy + Gemini path) | 'square' (1:1 single image per spread, NO
+    // on-image text — caption rendered as PDF text on the facing page by
+    // services/layoutEngine.js; OpenAI gpt-image-2 path).
+    aspectFormat = 'wide',
   } = opts;
+  const isSquare = aspectFormat === 'square';
 
   const textRules = resolvePictureBookTextRules(childAge);
 
@@ -107,7 +113,9 @@ function buildSystemInstruction(opts) {
   const sections = [];
 
   sections.push(
-`You are the illustrator for a premium ${TOTAL_SPREADS}-spread children's picture book. You will be given a BOOK COVER image (the ground-truth character + style reference) and then a sequence of ${TOTAL_SPREADS} per-spread prompts. For each prompt, generate ONE 16:9 full-bleed illustration. Every spread must look like it came from the same painting session as the cover — identical art style, identical characters, identical outfits, same quality.`
+isSquare
+? `You are the illustrator for a premium ${TOTAL_SPREADS}-spread children's picture book. You will be given a BOOK COVER image (the ground-truth character + style reference) and then ${TOTAL_SPREADS} per-spread prompts. For each prompt, generate ONE 1:1 square full-bleed illustration. The manuscript caption is rendered as PDF text on the FACING PAGE — your image must contain NO text. Every spread must look like it came from the same painting session as the cover — identical art style, identical characters, identical outfits, same quality.`
+: `You are the illustrator for a premium ${TOTAL_SPREADS}-spread children's picture book. You will be given a BOOK COVER image (the ground-truth character + style reference) and then a sequence of ${TOTAL_SPREADS} per-spread prompts. For each prompt, generate ONE 16:9 full-bleed illustration. Every spread must look like it came from the same painting session as the cover — identical art style, identical characters, identical outfits, same quality.`
   );
 
   sections.push(
@@ -188,6 +196,27 @@ If an object, animal, or secondary character appears in one spread, it MUST keep
   const namedLocationsSection = buildNamedLocationsSection(locationPalette);
   if (namedLocationsSection) sections.push(namedLocationsSection);
 
+  if (isSquare) {
+    sections.push(
+`### COMPOSITION (1:1 SQUARE FRAME — SINGLE PAGE)
+One hero. One moment. One seamless painting that fills a single square 1:1 frame edge-to-edge. The illustration occupies ONE page of the open book; the manuscript caption is rendered as PDF text on the facing page — NOT on this image.
+
+PRINT REALITY (8.5×8.5″ SQUARE PAGE — READ BEFORE COMPOSING):
+- The square frame maps 1:1 onto an 8.5×8.5″ printed page. Treat the entire square as the live area; allow ~5% inward inset for trim/bleed safety on all sides — keep faces, hands, and story-critical action away from the extreme edges.
+- There is NO "other side" of the frame. There is NO diptych, NO panorama, NO 16:9 wide composition, NO left-half / right-half split, NO seam down the middle. The square is a single self-contained painting.
+- Compose for a square: place the focal action centered or on a rule-of-thirds anchor. The composition must read complete on its own — no element should require an off-frame extension to make sense.
+- FORBIDDEN: any vertical seam, gutter line, color shift, lighting jump, perspective change, or "two-different-pictures-glued-together" feel. There is one continuous environment in this square.
+
+NO ON-IMAGE TEXT (HARD):
+- Render NO text of any kind on this image. NO manuscript caption, NO title, NO signage, NO chalkboards, NO posters, NO menus, NO product labels, NO street names, NO storefront lettering, NO signature, NO watermark.
+- The manuscript caption for this spread will be rendered as crisp PDF text on the facing page by the layout engine. If you bake text onto the illustration, the printed book will show the caption twice.
+- If the SCENE description casually mentions a sign, label, or word in the world, render that object WITHOUT readable type — generic shop awning, blank chalkboard, untitled book cover, etc.
+
+SHOT VARIETY (every book):
+- The per-spread user prompt includes a SCENE line from the author: treat that SCENE as the composition contract (who is in frame, where the camera stands, what the moment is). Honor it on top of style and character locks.
+- When the story revisits the same setting on the next spread, keep the place consistent but not the same composition: follow the SCENE for distance, angle, and focal action. Avoid near-duplicate compositions versus the prior spread unless the SCENE explicitly calls for it.`
+    );
+  } else {
   sections.push(
 `### COMPOSITION
 One hero. One moment. One seamless painting — no split panels, no visible seams, no diptychs, no before/after layouts, no comic grids. Full bleed 16:9. The scene should fill the frame with a clear focal point and cinematic depth.
@@ -212,10 +241,15 @@ IN-WORLD READABLE TEXT (STRICT):
 - The ONLY allowed text on the image is the manuscript caption on the CHOSEN SIDE given in the per-spread prompt — character-for-character identical to that passage.
 - **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). Describe places without inviting the model to render type.`
   );
+  }
 
-  sections.push(buildPictureBookPrintAndCaptionPolicy(textRules));
-
-  sections.push(buildTextSection(textRules));
+  if (!isSquare) {
+    // Caption-on-image policies are only relevant for the wide path. The
+    // square path renders the caption as PDF text on the facing page, so
+    // the model must NOT receive caption-placement instructions.
+    sections.push(buildPictureBookPrintAndCaptionPolicy(textRules));
+    sections.push(buildTextSection(textRules));
+  }
 
   sections.push(
 `### QUALITY BAR

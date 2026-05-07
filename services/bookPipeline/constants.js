@@ -119,9 +119,13 @@ const MODELS = {
 
   // --- Image rendering ---
   // Switchable via services/illustrator/sessionDispatch.js:
-  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — default
-  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless)
-  SPREAD_RENDER: 'gemini-3.1-flash-image-preview',
+  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless) — default
+  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful)
+  // The OpenAI path emits 1:1 (1024×1024) per-spread images; the layout engine
+  // places the square illustration on the recto page and renders the caption
+  // as PDF text on the verso. The Gemini path emits a wide (16:9) per-spread
+  // image with the caption baked in, and the layout engine splits it.
+  SPREAD_RENDER: 'gpt-image-2',
 
   // Deprecated alias — keep until callers are fully migrated.
   PLANNER: 'gpt-5.4',
@@ -172,10 +176,12 @@ const FAILURE_CODES = {
 };
 
 /**
- * When no env or request override applies, use quad (4:1 dual-spread) interiors.
- * Set to `false` to default back to legacy 16:9 one-spread-per-image.
+ * Default to the legacy single-spread renderer, not the quad batcher. With
+ * the OpenAI gpt-image-2 path we emit one 1:1 image per spread; the quad
+ * batcher (4:1, two spreads packed into one image) is incompatible with that
+ * geometry. Set to `true` to re-enable quad on the Gemini path.
  */
-const USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT = true;
+const USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT = false;
 
 /**
  * @returns {boolean|null} true = force quad, false = force legacy, null = unset / ignore
