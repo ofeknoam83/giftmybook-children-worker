@@ -119,9 +119,13 @@ const MODELS = {
 
   // --- Image rendering ---
   // Switchable via services/illustrator/sessionDispatch.js:
-  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — default
-  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless)
-  SPREAD_RENDER: 'gemini-3.1-flash-image-preview',
+  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless) — default
+  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful)
+  // The OpenAI path emits 1:1 (1024×1024) per-spread images; the layout engine
+  // places the square illustration on the recto page and renders the caption
+  // as PDF text on the verso. The Gemini path emits a wide (16:9) per-spread
+  // image with the caption baked in, and the layout engine splits it.
+  SPREAD_RENDER: 'gpt-image-2',
 
   // Deprecated alias — keep until callers are fully migrated.
   PLANNER: 'gpt-5.4',
@@ -133,12 +137,19 @@ const REPAIR_BUDGETS = {
   // pass scores the result so best-seen tracking is honest. Worst case:
   // 3 judge + 3 writer + 1 final judge = 7 LLM calls.
   writerRewriteWaves: 3,
-  perSpreadInSessionCorrections: 3,
-  perSpreadPromptRepairs: 2,
+  // Per-pair budget = perSpreadInSessionCorrections + perSpreadPromptRepairs.
+  // Bumped 3+2 → 5+3 (May 2026): production logs show pairs frequently
+  // accept on attempts 2-3 after a cover re-anchor, but late-book outfit /
+  // hair continuity drift can still need 4-5 attempts. The extra headroom
+  // also covers the case where attempt 1 burns on a transient style or
+  // outfit issue that the correction turn can fix in-session — cheaper
+  // than rebuilding the whole illustrator session.
+  perSpreadInSessionCorrections: 5,
+  perSpreadPromptRepairs: 3,
   /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
   perSpreadEscalations: 3,
   /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
-  perSpreadExtraSessionRounds: 3,
+  perSpreadExtraSessionRounds: 4,
   bookWideRepairWaves: 2,
   /**
    * Early-abort threshold for the quad illustrator: if a spread pair is
@@ -165,10 +176,12 @@ const FAILURE_CODES = {
 };
 
 /**
- * When no env or request override applies, use quad (4:1 dual-spread) interiors.
- * Set to `false` to default back to legacy 16:9 one-spread-per-image.
+ * Default to the legacy single-spread renderer, not the quad batcher. With
+ * the OpenAI gpt-image-2 path we emit one 1:1 image per spread; the quad
+ * batcher (4:1, two spreads packed into one image) is incompatible with that
+ * geometry. Set to `true` to re-enable quad on the Gemini path.
  */
-const USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT = true;
+const USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT = false;
 
 /**
  * @returns {boolean|null} true = force quad, false = force legacy, null = unset / ignore

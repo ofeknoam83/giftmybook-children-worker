@@ -36,21 +36,26 @@ const OPENAI_IMAGE_MODEL = 'gpt-image-2';
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
 /** Reference-image + `gpt-image-2` jobs: production API returns 400 on `/v1/images/edits` for this model — use generations. */
 const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generations';
-// 16:9 landscape, both edges multiples of 16, ratio 1.78 ≈ 16:9, total
-// pixels ≈ 1.8M (inside gpt-image-2's 655k-8.3M window).
-const OPENAI_IMAGE_SIZE = '1792x1008';
-/** 4:1 ultra-wide for dual-spread batches (OpenAI generations). Falls back documented in CLAUDE.md if the API rejects. */
+// 1:1 square — the picture-book interior page is 8.5×8.5", so a square
+// illustration maps cleanly onto one page of the spread. The opposite page
+// carries the manuscript caption as PDF text (see services/layoutEngine.js
+// → buildSpreadPagesPair). 1024×1024 is the standard supported size for
+// gpt-image-2; bump to 2048×2048 if validated.
+const OPENAI_IMAGE_SIZE = '1024x1024';
+/** 4:1 ultra-wide for dual-spread batches (Gemini-only — the OpenAI path uses 1:1, no quad). */
 const OPENAI_QUAD_IMAGE_SIZE = '1792x448';
-// Spreads + cover harmonize use `images/generations` (with `image[]` refs) for
-// gpt-image-2. The `quality` form field applies to that endpoint, not to legacy
-// DALL·E `images/edits`.
-// Kept for documentation / a future switch to the generations endpoint.
-const OPENAI_IMAGE_QUALITY = 'medium';
+// Production quality tier for gpt-image-2 on /v1/images/generations. Sent as
+// the `quality` form field by services/illustrator/openaiImagesHttp.js.
+const OPENAI_IMAGE_QUALITY = 'high';
 
 // ── Timeouts ──
-const TURN_TIMEOUT_MS = 180000;          // 3 minutes per image generation turn
+// Gemini Flash Image typically completes in 15-40s; OpenAI gpt-image-2 at
+// `quality: high` with reference images often takes 45-90s. The same
+// timeout covers both — we size it for the slower path to keep the OpenAI
+// default path from tripping flaky timeouts under load.
+const TURN_TIMEOUT_MS = 300000;          // 5 minutes per image generation turn
 /** 4:1 dual-spread turns are heavier; give the API longer before client abort. */
-const TURN_TIMEOUT_QUAD_MS = 300000;   // 5 minutes
+const TURN_TIMEOUT_QUAD_MS = 360000;   // 6 minutes
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
 

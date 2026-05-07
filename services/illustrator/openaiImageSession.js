@@ -19,6 +19,7 @@
  * Provider dispatch is handled by `services/illustrator/sessionDispatch.js`.
  */
 
+const sharp = require('sharp');
 const {
   OPENAI_IMAGE_MODEL,
   OPENAI_IMAGES_GENERATIONS_URL,
@@ -30,6 +31,40 @@ const {
 } = require('./config');
 const { postImagesGenerations } = require('./openaiImagesHttp');
 const { buildSystemInstruction, buildSystemInstructionQuad } = require('./systemInstruction');
+
+/**
+ * Reference images travel as multipart `image[]` parts on every stateless
+ * call. The cover from GCS is print-resolution (often 2-5MB JPEG); accepted
+ * interior PNGs after upscaling can exceed 9MB each. With cover + 3 refs the
+ * per-call payload can hit 30-40MB, which is wasteful (gpt-image-2 reasons
+ * about appearance, not pixel-perfect detail) and risks 413s under load.
+ *
+ * 1024px on the long side, JPEG q85 keeps face/outfit/style detail well
+ * enough for character anchoring while keeping each reference under ~250KB.
+ */
+const REFERENCE_RESIZE_MAX_DIM = 1024;
+const REFERENCE_RESIZE_JPEG_QUALITY = 85;
+const _referenceResizeCache = new Map();
+
+async function resizeReferenceForApi(buffer, cacheKey) {
+  if (cacheKey && _referenceResizeCache.has(cacheKey)) {
+    return _referenceResizeCache.get(cacheKey);
+  }
+  const out = await sharp(buffer)
+    .resize(REFERENCE_RESIZE_MAX_DIM, REFERENCE_RESIZE_MAX_DIM, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: REFERENCE_RESIZE_JPEG_QUALITY })
+    .toBuffer();
+  if (cacheKey) {
+    if (_referenceResizeCache.size >= 64) {
+      // Evict the oldest entry (FIFO) so the map never exceeds 64 entries
+      // after the insertion below.
+      const firstKey = _referenceResizeCache.keys().next().value;
+      _referenceResizeCache.delete(firstKey);
+    }
+    _referenceResizeCache.set(cacheKey, out);
+  }
+  return out;
+}
 
 /**
  * @typedef {Object} OpenAIImageSession
@@ -78,6 +113,9 @@ function createSession(opts) {
     childAppearance: opts.childAppearance,
     locationPalette: opts.locationPalette,
     childAge: opts.childAge,
+    // OpenAI gpt-image-2 path emits 1:1 with no on-image caption — the
+    // layout engine renders the caption as PDF text on the facing page.
+    aspectFormat: 'square',
   });
 
   return {
@@ -235,7 +273,13 @@ async function rebuildSession(oldSession) {
  * reference images so the model knows which is the cover and which are
  * previously accepted spreads.
  */
-function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, aspectHint }) {
+function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, aspectHint, isCorrection }) {
+  const statelessHeader = isCorrection
+    ? '=== STATELESS RETRY ===\n'
+      + 'You do NOT have memory of any prior failed attempt for this spread. Read every rule below from scratch and produce a NEW image that obeys them. The manuscript wording, the per-spread CHARACTER ANCHOR block, and the issue list inside === THIS SPREAD === describe what to do; the reference images show what the hero must look like. Do not assume you remember the previous output.'
+    : '=== STATELESS REQUEST ===\n'
+      + 'This is a stateless image-generation call — every rule and every reference for this spread is included in this single request. Read all of it before composing.';
+
   const refGuide = continuityCount > 0
     ? `REFERENCE IMAGES — the request includes ${continuityCount + 1} reference images:\n`
       + '  • Reference 1 is the APPROVED BOOK COVER — this is the canonical rendered likeness of the hero child AND the canonical 3D CGI Pixar feature-film art style. Match both exactly.\n'
@@ -246,9 +290,13 @@ function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, a
 
   const outputHint = aspectHint === 'quad'
     ? 'Output exactly ONE image: **4:1** ultra-wide landscape. LEFT half = first spread (2:1 wide), RIGHT half = second spread (2:1 wide). One continuous CGI world — two captions per system/user prompt. No collage seam at center.'
-    : 'Output exactly ONE image for this spread, full-bleed 16:9 landscape, one single continuous scene (no diptych seam). Caption: exact manuscript wording, same book-wide serif + modest readable size + natural blend as system instruction — not large display type.';
+    : aspectHint === 'square'
+      ? 'Output exactly ONE image for this spread: a single **1:1 square** frame, full-bleed. Compose the scene to fit a square: hero centred or on a rule-of-thirds anchor, all key action inside the square. No diptych language, no left/right halves, no caption corners — there is no "other side" of the frame here. **Render NO text on the image** — the manuscript caption will be rendered as PDF text on the facing page.'
+      : 'Output exactly ONE image for this spread, full-bleed 16:9 landscape, one single continuous scene (no diptych seam). Caption: exact manuscript wording, same book-wide serif + modest readable size + natural blend as system instruction — not large display type.';
 
   return [
+    statelessHeader,
+    '',
     '=== SYSTEM INSTRUCTION (non-negotiable rules for every illustration) ===',
     systemInstruction,
     '',
@@ -263,16 +311,20 @@ function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, a
 }
 
 /**
- * Cover + last N accepted spreads as buffers for `images/edits` `image[]` parts.
- * @returns {{ imageFiles: Array<{ buffer: Buffer, filename: string, mimeType: string }>, continuityCount: number }}
+ * Cover + last N accepted spreads as buffers for the `image[]` parts of the
+ * stateless `/v1/images/generations` POST. Each reference is resized to keep
+ * the multipart payload small (see resizeReferenceForApi).
+ *
+ * @returns {Promise<{ imageFiles: Array<{ buffer: Buffer, filename: string, mimeType: string }>, continuityCount: number }>}
  */
-function collectEditImageFiles(session) {
-  const coverBuf = Buffer.from(session.coverBase64, 'base64');
+async function collectEditImageFiles(session) {
+  const coverRaw = Buffer.from(session.coverBase64, 'base64');
+  const coverResized = await resizeReferenceForApi(coverRaw, `cover:${session.coverBase64.length}:${session.coverBase64.slice(0, 32)}`);
   const imageFiles = [
     {
-      buffer: coverBuf,
-      filename: `cover.${(session.coverMime || 'image/jpeg').includes('png') ? 'png' : 'jpg'}`,
-      mimeType: session.coverMime || 'image/jpeg',
+      buffer: coverResized,
+      filename: 'cover.jpg',
+      mimeType: 'image/jpeg',
     },
   ];
   const tail = [...session.acceptedSpreads]
@@ -280,10 +332,12 @@ function collectEditImageFiles(session) {
     .sort((a, b) => a.index - b.index)
     .slice(-SLIDING_WINDOW_ACCEPTED_SPREADS);
   for (const accepted of tail) {
+    const raw = Buffer.from(accepted.imageBase64, 'base64');
+    const resized = await resizeReferenceForApi(raw, `spread:${accepted.index}:${accepted.imageBase64.length}:${accepted.imageBase64.slice(0, 32)}`);
     imageFiles.push({
-      buffer: Buffer.from(accepted.imageBase64, 'base64'),
-      filename: `spread-${accepted.index + 1}.png`,
-      mimeType: 'image/png',
+      buffer: resized,
+      filename: `spread-${accepted.index + 1}.jpg`,
+      mimeType: 'image/jpeg',
     });
   }
   return { imageFiles, continuityCount: tail.length };
@@ -295,13 +349,19 @@ async function _postEdit(session, userPrompt, {
   imageSize = OPENAI_IMAGE_SIZE,
   outputLine,
 }) {
-  const { imageFiles, continuityCount } = collectEditImageFiles(session);
-  const aspectHint = imageSize === OPENAI_QUAD_IMAGE_SIZE ? 'quad' : 'legacy';
+  const { imageFiles, continuityCount } = await collectEditImageFiles(session);
+  const aspectHint = (() => {
+    if (imageSize === OPENAI_QUAD_IMAGE_SIZE) return 'quad';
+    const m = /^(\d+)x(\d+)$/.exec(String(imageSize || ''));
+    if (m && m[1] === m[2]) return 'square';
+    return 'legacy';
+  })();
   const combinedPrompt = buildCombinedPrompt({
     systemInstruction: session.systemInstruction,
     userPrompt,
     continuityCount,
     aspectHint,
+    isCorrection,
   });
 
   const turnLabel = outputLine || (isCorrection ? 'correction' : 'generate');

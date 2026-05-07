@@ -170,6 +170,63 @@ function buildBlankPage(pdfDoc, pw, ph) {
   pdfDoc.addPage([pw, ph]);
 }
 
+/**
+ * Caption-only page for the OpenAI 1:1 spread layout. The square illustration
+ * lives on the facing (recto) page; this verso page carries the manuscript
+ * caption as crisp PDF type, plus a small gold rule for visual rhythm.
+ *
+ * Picture-book captions are 4 short lines (or 3-4 prose lines for early
+ * readers). Layout the lines as a centred stacked block in the upper half
+ * of the page so the eye reads top-to-bottom into the facing illustration.
+ *
+ * @param {import('pdf-lib').PDFPage} page
+ * @param {object} fonts - loaded fonts (bubblegum, playfair, helv)
+ * @param {string} captionText - manuscript text for this spread (newline-separated)
+ * @param {{ pw: number, ph: number }} dims - page dimensions in points
+ */
+function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
+  const text = String(captionText || '').trim();
+  if (!text) return;
+
+  const { bubblegum, playfair, playfairItalic, helv } = fonts;
+  const bodyFont = playfairItalic || playfair || bubblegum || helv;
+  const maxW = pw - SAFE * 2;
+
+  // Manuscript text is already line-broken on \n (4-line picture-book cadence).
+  // Preserve the existing line breaks; only wrap individual lines that exceed
+  // the body width — which should be rare given the writer's word budget.
+  const sourceLines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const SIZE_PRIMARY = 22;
+  const SIZE_FALLBACK = 18;
+  let bodySize = SIZE_PRIMARY;
+  let allLines = sourceLines.flatMap(line => wrapText(line, bodyFont, bodySize, maxW));
+  if (allLines.some(l => bodyFont.widthOfTextAtSize(l, bodySize) > maxW * 1.02)) {
+    bodySize = SIZE_FALLBACK;
+    allLines = sourceLines.flatMap(line => wrapText(line, bodyFont, bodySize, maxW));
+  }
+
+  const lineH = bodySize * 1.55;
+  const blockH = allLines.length * lineH;
+  // Anchor the caption block in the upper-middle of the page so the verso
+  // reads as "the words" leading the eye into the recto illustration.
+  // PDF y-axis: 0 = bottom, ph = top. startY is the baseline of the first
+  // (topmost) line; lines descend by lineH. Clamp so the block stays within
+  // the printable safe area:
+  //   startY <= ph - SAFE  →  first line stays below the top safe boundary
+  //   startY >= SAFE + blockH  →  last line baseline stays at ≥ (SAFE + lineH)
+  //                              above the bottom safe boundary
+  const idealStartY = ph * 0.62 + blockH / 2;
+  const startY = Math.min(ph - SAFE, Math.max(SAFE + blockH, idealStartY));
+  drawCenteredBlock(page, allLines, bodyFont, bodySize, startY, lineH, C.brownMid);
+
+  // A subtle gold rule beneath the block — same visual vocabulary as the
+  // dedication page so the typography reads as "from the same book".
+  const ruleY = startY - blockH - 18;
+  if (ruleY > BLEED + 30) {
+    goldRule(page, ruleY, 80);
+  }
+}
+
 function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
   const { bubblegum, playfair, playfairItalic, helv } = fonts;
   const { title, childName } = opts;
@@ -516,6 +573,26 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       continue;
     }
     if (entry.type !== 'spread') continue;
+
+    if (entry.illustrationAspect === 'square') {
+      // 1:1 OpenAI path — verso (left) page is a typeset caption, recto
+      // (right) page is the square illustration full-bleed.
+      const captionPage = pdfDoc.addPage([pw, ph]);
+      const imagePage   = pdfDoc.addPage([pw, ph]);
+      try {
+        buildSpreadCaptionPage(captionPage, fonts, entry.captionText || '', { pw, ph });
+      } catch (e) {
+        console.warn(`[LayoutEngine] spread caption page failed: ${e.message}`);
+      }
+      if (entry.spreadIllustrationBuffer) {
+        try {
+          await embedFullBleed(pdfDoc, imagePage, entry.spreadIllustrationBuffer);
+        } catch (e) {
+          console.warn(`[LayoutEngine] square spread embed failed: ${e.message}`);
+        }
+      }
+      continue;
+    }
 
     // Wide landscape image split down the middle (both trim sizes)
     const leftPage  = pdfDoc.addPage([pw, ph]);
