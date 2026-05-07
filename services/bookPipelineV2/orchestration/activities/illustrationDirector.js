@@ -238,16 +238,7 @@ async function illustrationDirectorActivity(input, ctx) {
   doc.storyBible = legacyStoryBible;
   doc.visualBible = visualBible;
   doc.spreadSpecs = spreadSpecs;
-  doc.spreads = spreadSpecs.map((spec) => {
-    const draft = draftBySpread.get(spec.spreadNumber);
-    const text = draft?.text || (Array.isArray(draft?.lines) ? draft.lines.join('\n') : '');
-    return {
-      spreadNumber: spec.spreadNumber,
-      spec,
-      manuscript: { text, lines: draft?.lines || [] },
-      illustration: null,
-    };
-  });
+  doc.spreads = buildSpreadsForLegacyIllustrator({ spreadSpecs, draftBySpread });
   doc.operationalContext = operationalContext || {};
 
   ctx.log('info', `[v2] illustrationDirector handing off ${doc.spreads.length} spreads to v1 illustrator (renderAllSpreadsQuad)`);
@@ -276,11 +267,40 @@ async function illustrationDirectorActivity(input, ctx) {
   return rendered;
 }
 
+/**
+ * Build the per-spread objects the legacy v1 illustrator (`renderAllSpreadsQuad`)
+ * expects. Each spread MUST carry `qa.{writerChecks,spreadChecks,repairHistory}`
+ * because the legacy renderer mutates those arrays as it runs — missing the
+ * block crashes with `Cannot read properties of undefined (reading 'spreadChecks')`.
+ *
+ * Before the manuscript-level refactor (PR #179) the qa block came in via
+ * `createBookDocument`'s default spread skeleton; this path overwrites that
+ * skeleton, so the qa block must be re-seeded here.
+ */
+function buildSpreadsForLegacyIllustrator({ spreadSpecs, draftBySpread }) {
+  return spreadSpecs.map((spec) => {
+    const draft = draftBySpread.get(spec.spreadNumber);
+    const text = draft?.text || (Array.isArray(draft?.lines) ? draft.lines.join('\n') : '');
+    return {
+      spreadNumber: spec.spreadNumber,
+      spec,
+      manuscript: { text, lines: draft?.lines || [] },
+      illustration: null,
+      qa: {
+        writerChecks: [],
+        spreadChecks: [],
+        repairHistory: [],
+      },
+    };
+  });
+}
+
 module.exports = {
   illustrationDirectorActivity,
   // exported for tests
   buildLegacyVisualBible,
   buildLegacySpreadSpecs,
   buildLegacyStoryBible,
+  buildSpreadsForLegacyIllustrator,
   deriveParentVisibility,
 };
