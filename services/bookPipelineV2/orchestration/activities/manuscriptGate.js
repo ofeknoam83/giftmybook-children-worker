@@ -184,6 +184,16 @@ async function manuscriptGateActivity(input, ctx) {
     const failingSpreads = perSpread.filter((e) => !e.passed)
       .map((e) => `${e.spread}:[${e.failures.map((f) => f.code || f.check).join(',')}]`).join(' ');
     ctx.log('warn', `[v2] manuscriptGate FAIL spreads=${failingSpreads}`);
+    // Debug log: show the FULL failure messages so we can see exactly which
+    // line was out-of-window, what the rhyme judge said, etc. Remove once
+    // writer behaviour stabilises.
+    for (const e of perSpread) {
+      if (e.passed) continue;
+      for (const f of e.failures) {
+        const msg = String(f.message || '').slice(0, 300);
+        ctx.log('warn', `[v2] manuscriptGate.detail spread=${e.spread} code=${f.code || f.check} ${msg}`);
+      }
+    }
   } else {
     ctx.log('info', `[v2] manuscriptGate PASS all=${perSpread.length}`);
   }
