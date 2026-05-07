@@ -99,8 +99,17 @@ function createWorkflowContext({ bookId, store, signals = {}, log }) {
       checkAbort();
       heartbeat(stageKey);
       const t0 = Date.now();
+      // Periodic heartbeat while the activity runs. The per-book watchdog
+      // aborts after 15 min of inactivity, but a single LLM-heavy activity
+      // (det gate with rhyme judge, page writer with retries, etc.) can
+      // exceed several minutes. Tick every 30s so a stuck activity still
+      // surfaces as the activity's own timeout, not as a watchdog kill.
+      const heartbeatTimer = setInterval(() => {
+        try { heartbeat(stageKey); } catch { /* swallow */ }
+      }, 30000);
+      let result;
       try {
-        const result = await activity(input, {
+        result = await activity(input, {
           bookId,
           stageKey,
           attempt,
@@ -110,12 +119,8 @@ function createWorkflowContext({ bookId, store, signals = {}, log }) {
           log: safeLog,
           store,
         });
-        await store.put(stageKey, result, { parent, attempt });
-        const dt = Date.now() - t0;
-        safeLog('info', `[v2] activity '${stageKey}' OK in ${dt}ms (attempt ${attempt}/${retries + 1})`);
-        reportProgress({ step: stageKey, message: `Stage ${stageKey} complete`, attempt });
-        return result;
       } catch (err) {
+        clearInterval(heartbeatTimer);
         lastErr = err;
         const dt = Date.now() - t0;
         const retryable = isRetryable(err);
@@ -125,7 +130,14 @@ function createWorkflowContext({ bookId, store, signals = {}, log }) {
         );
         if (attempt > retries || !retryable) break;
         await delay(baseDelayMs * 2 ** (attempt - 1));
+        continue;
       }
+      clearInterval(heartbeatTimer);
+      await store.put(stageKey, result, { parent, attempt });
+      const dt = Date.now() - t0;
+      safeLog('info', `[v2] activity '${stageKey}' OK in ${dt}ms (attempt ${attempt}/${retries + 1})`);
+      reportProgress({ step: stageKey, message: `Stage ${stageKey} complete`, attempt });
+      return result;
     }
     throw new ActivityFailedError(stageKey, lastErr, retries + 1);
   }

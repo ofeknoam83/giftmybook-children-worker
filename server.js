@@ -345,12 +345,18 @@ function removeBookContext(mapKey) {
   if (ctx?.bookId) clearThrottle(ctx.bookId);
 }
 
-// Per-book watchdog: abort books idle > 15 minutes
+// Per-book watchdog: abort books idle > 20 minutes.
+// Was 15min historically; bumped to 20 because v2 picture-book runs can
+// legitimately spend several minutes inside a single activity (page writer
+// with revision rounds + critic + rhyme judge). The workflow engine emits
+// a periodic heartbeat every 30s while an activity is in flight, so this
+// threshold is now a true "something is broken, kill it" backstop, not a
+// bound on individual activity duration.
 setInterval(() => {
   const now = Date.now();
   for (const [bookId, ctx] of activeBooks) {
     const idle = now - ctx.lastActivity;
-    if (idle > 900000) {
+    if (idle > 1200000) {
       console.error(`[watchdog] Book ${bookId} idle for ${Math.round(idle / 1000)}s - aborting`);
       ctx.abortController.abort();
       if (ctx.reject) ctx.reject(new Error(`Book generation timed out after ${Math.round(idle / 1000)}s of inactivity`));
