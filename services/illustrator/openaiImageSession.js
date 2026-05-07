@@ -349,7 +349,6 @@ async function _postEdit(session, userPrompt, {
   // session (so a future Responses-API migration can restore image refs
   // without changing the orchestrator), but we do not pass them to the HTTP
   // layer — see services/illustrator/openaiImagesHttp.js for context.
-  const continuityCount = session.acceptedSpreads.length;
   const aspectHint = (() => {
     if (imageSize === OPENAI_QUAD_IMAGE_SIZE) return 'quad';
     const m = /^(\d+)x(\d+)$/.exec(String(imageSize || ''));
@@ -359,7 +358,6 @@ async function _postEdit(session, userPrompt, {
   const combinedPrompt = buildCombinedPrompt({
     systemInstruction: session.systemInstruction,
     userPrompt,
-    continuityCount,
     aspectHint,
     isCorrection,
   });
