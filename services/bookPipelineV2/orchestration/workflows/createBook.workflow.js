@@ -65,13 +65,57 @@ function isAcceptableCritic(report) {
   return Boolean(report.accept_recommendation || true);
 }
 
+// Gate-failure codes that must NEVER ship — even after revision rounds
+// are exhausted. These are the structural breaks that destroy the
+// reading experience: a non-rhyme rhyme, banned dialogue, past tense
+// in a present-tense band, the same word starting every line, beat
+// rules ignored. "Soft" failures (line length window, imperfect rhyme
+// when it's an eye-rhyme not a non-rhyme, filler phrases) are tolerated
+// on exhaustion because they're a matter of degree.
+const HARD_GATE_CODES = new Set([
+  'identity_rhyme',
+  'dialogue_quoted_speech',
+  'dialogue_single_quoted',
+  'dialogue_tag_verb',
+  'past_tense_irregular',
+  'past_tense_regular',
+  'line_starter_repeat',
+  'headline_noun_repeat',
+  'beat_prohibited',
+  'protagonist_anti_verb',
+  'moralising_phrase',
+]);
+
+function hardFailures(failures) {
+  if (!Array.isArray(failures)) return [];
+  return failures.filter((f) => HARD_GATE_CODES.has(f.code));
+}
+
+/**
+ * Score a candidate draft for best-of-N selection. Lower is better.
+ * Hard failures count 100 each; soft failures count 1.
+ */
+function draftPenalty(gateResult) {
+  if (!gateResult || gateResult.passed) return 0;
+  const fails = Array.isArray(gateResult.failures) ? gateResult.failures : [];
+  let p = 0;
+  for (const f of fails) p += HARD_GATE_CODES.has(f.code) ? 100 : 1;
+  return p;
+}
+
 /**
  * Run the per-spread writer/gate/critic/revision loop for ONE beat.
  * Returns the best draft we could produce (may carry warnings).
+ *
+ * Best-of-N: track every candidate draft we generate, score by gate
+ * penalty (hard failures cost 100 each, soft cost 1). On exhaustion,
+ * ship the lowest-penalty draft — not necessarily the last one. This
+ * stops the loop from "correcting" a clean draft into a worse one.
  */
 async function runSpreadLoop({ ctx, beat, ageProfile, intent, characterBible, worldBible, summaries }) {
   const protagonistName = (characterBible?.characters || [])[0]?.name || 'the child';
   const stageBase = `spread_${beat.spread}`;
+  const candidates = []; // { draft, gate, critic|null }
 
   // Initial draft.
   let draft = await ctx.execute(
@@ -83,16 +127,17 @@ async function runSpreadLoop({ ctx, beat, ageProfile, intent, characterBible, wo
 
   let lastCritic = null;
   for (let round = 0; round < MAX_REVISION_ROUNDS; round += 1) {
-    // Determinstic gate.
+    // Deterministic gate.
     const gate = await ctx.execute(
       `${stageBase}.gate.r${round}`,
       deterministicGateActivity,
       { draft, beat, ageProfile, protagonistName },
       { retries: 0 },
     );
+    candidates.push({ draft, gate, critic: null });
 
     if (!gate.passed) {
-      ctx.log('warn', `[v2] spread ${beat.spread} det gate failed (round ${round}); revising`);
+      ctx.log('warn', `[v2] spread ${beat.spread} det gate failed (round ${round}): ${gate.failures.map(f => f.code).join(', ')}; revising`);
       draft = await ctx.execute(
         `${stageBase}.draft.r${round + 1}`,
         revisionEngineActivity,
@@ -109,6 +154,8 @@ async function runSpreadLoop({ ctx, beat, ageProfile, intent, characterBible, wo
       { draft, beat, ageProfile, intent, characterBible, previousSummary: summaries[summaries.length - 1] || null },
       { retries: 1 },
     );
+    // Update the latest candidate with the critic verdict.
+    candidates[candidates.length - 1].critic = lastCritic;
 
     if (isAcceptableCritic(lastCritic)) {
       ctx.log('info', `[v2] spread ${beat.spread} ACCEPTED at round ${round}`);
@@ -127,9 +174,55 @@ async function runSpreadLoop({ ctx, beat, ageProfile, intent, characterBible, wo
     );
   }
 
-  // After MAX_REVISION_ROUNDS: ship best draft with warning ("don't fail.. just pass what we have").
-  ctx.log('warn', `[v2] spread ${beat.spread} EXHAUSTED ${MAX_REVISION_ROUNDS} rounds; shipping last draft with warning`);
-  return { draft, critic: lastCritic, rounds: MAX_REVISION_ROUNDS, warning: 'max_rounds_exhausted' };
+  // Exhausted. Pick the candidate with the lowest penalty (best gate result).
+  // If multiple tie at the minimum, prefer the one with a passing critic.
+  candidates.sort((a, b) => {
+    const pa = draftPenalty(a.gate);
+    const pb = draftPenalty(b.gate);
+    if (pa !== pb) return pa - pb;
+    const ca = a.critic && isAcceptableCritic(a.critic) ? 0 : 1;
+    const cb = b.critic && isAcceptableCritic(b.critic) ? 0 : 1;
+    return ca - cb;
+  });
+  const best = candidates[0] || { draft, gate: null, critic: lastCritic };
+  const bestHardFails = hardFailures(best.gate?.failures);
+  if (bestHardFails.length > 0) {
+    // No clean candidate exists. Try ONE more fresh write from scratch —
+    // a structurally new draft is more likely to clear hard failures than
+    // another surgical revision of a stuck one.
+    ctx.log('warn', `[v2] spread ${beat.spread} all ${candidates.length} candidates have hard failures (${bestHardFails.map(f => f.code).join(', ')}); attempting one fresh rewrite`);
+    try {
+      const freshDraft = await ctx.execute(
+        `${stageBase}.draft.fresh`,
+        pageWriterActivity,
+        { beat, ageProfile, intent, characterBible, worldBible, recentSummaries: summaries, freshAttempt: true },
+        { retries: 1 },
+      );
+      const freshGate = await ctx.execute(
+        `${stageBase}.gate.fresh`,
+        deterministicGateActivity,
+        { draft: freshDraft, beat, ageProfile, protagonistName },
+        { retries: 0 },
+      );
+      const freshHard = hardFailures(freshGate.failures);
+      if (freshHard.length < bestHardFails.length) {
+        ctx.log('warn', `[v2] spread ${beat.spread} fresh rewrite is cleaner (${freshHard.length} hard fails vs ${bestHardFails.length}); using it`);
+        return {
+          draft: freshDraft,
+          critic: null,
+          rounds: MAX_REVISION_ROUNDS + 1,
+          warning: freshHard.length === 0 ? 'fresh_rewrite_clean' : 'fresh_rewrite_partial',
+        };
+      }
+    } catch (err) {
+      ctx.log('warn', `[v2] spread ${beat.spread} fresh rewrite failed: ${err.message}`);
+    }
+  }
+  const warning = bestHardFails.length > 0
+    ? `max_rounds_exhausted_with_hard_failures:${bestHardFails.map(f => f.code).join(',')}`
+    : 'max_rounds_exhausted';
+  ctx.log('warn', `[v2] spread ${beat.spread} EXHAUSTED; shipping best-of-${candidates.length} (penalty=${draftPenalty(best.gate)})`);
+  return { draft: best.draft, critic: best.critic || lastCritic, rounds: MAX_REVISION_ROUNDS, warning };
 }
 
 /**
@@ -271,4 +364,7 @@ module.exports = {
   isAcceptableCritic,
   avgScore,
   runSpreadLoop,
+  HARD_GATE_CODES,
+  hardFailures,
+  draftPenalty,
 };
