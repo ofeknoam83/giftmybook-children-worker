@@ -1,0 +1,125 @@
+/**
+ * Stage 8 — Manuscript Writer (one-shot, all spreads)
+ *
+ * Writes the entire picture-book manuscript in ONE LLM call. The writer
+ * sees: AgeProfile, StoryIntent, all CharacterBibles, WorldBible, and
+ * the full BeatSheet. It returns one entry per spread.
+ *
+ * Replaces the per-spread `pageWriter` activity. Continuity, arc,
+ * callbacks and book-wide non-repetition are now the writer's
+ * responsibility (because it sees the whole book) instead of being
+ * patched in via rolling summaries and per-spread loops.
+ *
+ * Output:
+ *   { spreads: [ { spread: number, lines: string[], text: string,
+ *                  version, generated_at, model } ] }
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { callWithRole } = require('../../llm/modelRouter');
+
+const SYSTEM = fs.readFileSync(
+  path.join(__dirname, '../../llm/prompts/manuscriptWriter.system.md'),
+  'utf8',
+);
+
+/**
+ * @param {{
+ *   beatSheet: object,
+ *   ageProfile: object,
+ *   intent: object,
+ *   characterBible: object,
+ *   worldBible: object,
+ *   targetedRevisions?: Array<{ spread: number, failures: Array<object> }>,
+ *   currentManuscript?: Array<{ spread: number, lines: string[] }>,
+ *   freshAttempt?: boolean,
+ * }} input
+ */
+async function manuscriptWriterActivity(input, ctx) {
+  const {
+    beatSheet, ageProfile, intent, characterBible, worldBible,
+    freshAttempt = false,
+  } = input;
+
+  const userPrompt = JSON.stringify({
+    instructions: freshAttempt
+      ? 'Write the COMPLETE manuscript fresh. Honor every beat literally. Match the band exactly. Apply every rule per-spread AND across the whole book. One entry per beat in the BeatSheet.'
+      : 'Write the COMPLETE manuscript. Honor every beat literally. Match the band exactly. Apply every rule per-spread AND across the whole book. One entry per beat in the BeatSheet.',
+    ageProfile: {
+      band: ageProfile?.ageBand || ageProfile?.band,
+      linesPerSpread: ageProfile?.narrativeConstraints?.linesPerSpread,
+      wordsPerSpread: ageProfile?.narrativeConstraints?.wordsPerSpread,
+      syllablesPerLine: ageProfile?.narrativeConstraints?.syllablesPerLine,
+      rhymeScheme: ageProfile?.narrativeConstraints?.rhymeScheme,
+      rhymeStrictness: ageProfile?.narrativeConstraints?.rhymeStrictness,
+      dialogueDensity: ageProfile?.narrativeConstraints?.dialogueDensity,
+      vocabularyConstraints: ageProfile?.vocabularyConstraints,
+    },
+    intent: {
+      logline: intent?.logline,
+      arc: intent?.arc,
+      theme_delivered_via: intent?.theme_delivered_via,
+      callback_motifs: intent?.callback_motifs,
+      banned_elements: intent?.banned_elements,
+      ending_feeling: intent?.ending_feeling,
+      climax_payoff_image: intent?.climax_payoff_image,
+    },
+    characterBible,
+    worldBible: {
+      style_rules: worldBible?.style_rules,
+      cover_anchor_rules: worldBible?.cover_anchor_rules,
+      prohibited_visual_drift: worldBible?.prohibited_visual_drift,
+    },
+    beatSheet: {
+      spreads: (beatSheet?.spreads || []).map((b) => ({
+        spread: b.spread,
+        purpose: b.purpose,
+        target_emotion: b.target_emotion,
+        page_turn_hook: b.page_turn_hook,
+        success_criteria: b.success_criteria,
+        prohibited: b.prohibited,
+        callbacks_introduced: b.callbacks_introduced,
+        callbacks_used: b.callbacks_used,
+      })),
+    },
+  });
+
+  const resp = await callWithRole('WRITER', {
+    systemPrompt: SYSTEM,
+    userPrompt,
+    jsonMode: true,
+    temperature: 0.7,
+    // Enough room for ~12 spreads × ~4 lines × ~12 words plus structure.
+    // Real cost is far smaller; this is the headroom ceiling.
+    maxTokens: 6000,
+    label: freshAttempt ? 'v2.manuscriptWriter.fresh' : 'v2.manuscriptWriter',
+  });
+
+  const out = resp.json;
+  if (!out || typeof out !== 'object' || !Array.isArray(out.spreads)) {
+    throw new Error('manuscriptWriter: empty/invalid JSON (expected { spreads: [...] })');
+  }
+
+  // Normalize each spread.
+  const normalized = out.spreads.map((s) => {
+    const lines = Array.isArray(s.lines) ? s.lines.map(String) : [];
+    return {
+      spread: typeof s.spread === 'number' ? s.spread : null,
+      lines,
+      text: lines.join('\n'),
+      version: '1.0',
+      generated_at: new Date().toISOString(),
+      model: resp.model,
+    };
+  }).filter((s) => s.spread !== null);
+
+  // Order by spread number (writer is asked for ordered output but be
+  // defensive — JSON ordering is not guaranteed by some clients).
+  normalized.sort((a, b) => a.spread - b.spread);
+
+  ctx.log('info', `[v2] manuscriptWriter spreads=${normalized.length}${freshAttempt ? ' (fresh)' : ''}`);
+  return { spreads: normalized, model: resp.model };
+}
+
+module.exports = { manuscriptWriterActivity };

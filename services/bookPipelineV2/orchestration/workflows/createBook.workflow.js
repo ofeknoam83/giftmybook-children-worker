@@ -1,7 +1,7 @@
 /**
  * Top-level v2 workflow: create a picture book from a normalized request.
  *
- * Stages (per design doc §2):
+ * Manuscript-level architecture (post-refactor):
  *   1.  personalizationInterpreter  → PersonalizationBrief
  *   2.  ageAdaptation               → AgeProfile (band-tuned)
  *   3.  storyIntent                 → StoryIntent
@@ -9,9 +9,18 @@
  *   5.  characterBible              → CharacterBible[]
  *   6.  worldBible                  → WorldBible
  *   7.  beatSheet                   → BeatSheet (one beat per spread)
- *   8-11. per-spread: writer → det gate → critic → revision (≤3 rounds)
- *   12. bookWideCritic              → BookWideCriticReport
- *   13. illustrationDirector        → renders all spreads (v1 illustrator for tonight)
+ *   8.  manuscriptWriter            → entire manuscript in ONE call
+ *   9.  manuscriptGate              → sync checks across all spreads + ONE combined rhyme-judge call
+ *   10. manuscriptCritic            → grades whole book + per-spread; emits targeted_revisions
+ *   11. manuscriptRevision          → ONE call to rewrite only flagged spreads (≤ MAX_REVISION_ROUNDS)
+ *   12. illustrationDirector        → renders all spreads (v1 illustrator adapter)
+ *
+ * Why one-shot: gpt-5.4 sees the whole book at once. Continuity, arc,
+ * callbacks, and book-wide non-repetition emerge from a single mind
+ * writing everything together — no rolling summaries, no per-spread
+ * critic loop. The single critic call sees all 12 spreads at once and
+ * catches arc/voice/repetition issues a per-spread critic literally
+ * cannot see.
  *
  * Every stage's output is persisted to the artifact store. Replays from
  * any stage are free.
@@ -28,18 +37,13 @@ const { storyPlannerActivity } = require('../activities/storyPlanner');
 const { characterBibleActivity } = require('../activities/characterBible');
 const { worldBibleActivity } = require('../activities/worldBible');
 const { beatSheetActivity } = require('../activities/beatSheet');
-const { pageWriterActivity } = require('../activities/pageWriter');
-const { deterministicGateActivity } = require('../activities/deterministicGate');
-const { spreadCriticActivity } = require('../activities/spreadCritic');
-const { revisionEngineActivity } = require('../activities/revisionEngine');
-const { bookWideCriticActivity } = require('../activities/bookWideCritic');
+const { manuscriptWriterActivity } = require('../activities/manuscriptWriter');
+const { manuscriptGateActivity } = require('../activities/manuscriptGate');
+const { manuscriptCriticActivity } = require('../activities/manuscriptCritic');
+const { manuscriptRevisionActivity } = require('../activities/manuscriptRevision');
 const { illustrationDirectorActivity } = require('../activities/illustrationDirector');
-const { summarizeSpread, recentSummaries } = require('../../memory/rollingSummary');
 
 const MAX_REVISION_ROUNDS = 3;
-// Critic acceptance thresholds (per design doc §5).
-const ACCEPT_SCORE = 4;        // average of all numeric scores
-const BEAT_FIDELITY_MIN = 4;   // hard floor on beat_fidelity
 
 function deriveAgeBandFromRequest(rawRequest) {
   const child = rawRequest?.child || {};
@@ -54,24 +58,12 @@ function avgScore(scores) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function isAcceptableCritic(report) {
-  if (!report) return false;
-  if (report.meaning_sanity?.passed === false) return false;
-  if (report.prohibited_respected?.passed === false) return false;
-  if (report.bible_consistency?.passed === false) return false;
-  const beatFidelity = report.scores?.beat_fidelity ?? 0;
-  if (beatFidelity < BEAT_FIDELITY_MIN) return false;
-  if (avgScore(report.scores) < ACCEPT_SCORE) return false;
-  return Boolean(report.accept_recommendation || true);
-}
-
 // Gate-failure codes that must NEVER ship — even after revision rounds
-// are exhausted. These are the structural breaks that destroy the
-// reading experience: a non-rhyme rhyme, banned dialogue, past tense
-// in a present-tense band, the same word starting every line, beat
-// rules ignored. "Soft" failures (line length window, imperfect rhyme
-// when it's an eye-rhyme not a non-rhyme, filler phrases) are tolerated
-// on exhaustion because they're a matter of degree.
+// are exhausted. Structural breaks: a non-rhyme rhyme, banned dialogue,
+// past tense in a present-tense band, the same word starting every line,
+// beat rules ignored. "Soft" failures (line length window, imperfect
+// rhyme as eye-rhyme not non-rhyme, filler phrases) are tolerated on
+// exhaustion because they're a matter of degree.
 const HARD_GATE_CODES = new Set([
   'identity_rhyme',
   'dialogue_quoted_speech',
@@ -92,137 +84,192 @@ function hardFailures(failures) {
 }
 
 /**
- * Score a candidate draft for best-of-N selection. Lower is better.
- * Hard failures count 100 each; soft failures count 1.
+ * Merge a revision patch (only flagged spreads) into the current
+ * manuscript. Returns a fresh array.
  */
-function draftPenalty(gateResult) {
-  if (!gateResult || gateResult.passed) return 0;
-  const fails = Array.isArray(gateResult.failures) ? gateResult.failures : [];
-  let p = 0;
-  for (const f of fails) p += HARD_GATE_CODES.has(f.code) ? 100 : 1;
-  return p;
+function mergeRevision(currentManuscript, patchSpreads) {
+  if (!Array.isArray(patchSpreads) || patchSpreads.length === 0) return currentManuscript.slice();
+  const bySpread = new Map(patchSpreads.map((s) => [s.spread, s]));
+  return currentManuscript.map((s) => bySpread.get(s.spread) || s);
 }
 
 /**
- * Run the per-spread writer/gate/critic/revision loop for ONE beat.
- * Returns the best draft we could produce (may carry warnings).
- *
- * Best-of-N: track every candidate draft we generate, score by gate
- * penalty (hard failures cost 100 each, soft cost 1). On exhaustion,
- * ship the lowest-penalty draft — not necessarily the last one. This
- * stops the loop from "correcting" a clean draft into a worse one.
+ * Build a targeted_revisions list from a manuscriptGate result.
+ * Each entry: { spread, failures: [...], reasons: [...] }.
  */
-async function runSpreadLoop({ ctx, beat, ageProfile, intent, characterBible, worldBible, summaries }) {
-  const protagonistName = (characterBible?.characters || [])[0]?.name || 'the child';
-  const stageBase = `spread_${beat.spread}`;
-  const candidates = []; // { draft, gate, critic|null }
+function targetedFromGate(gateResult) {
+  if (!gateResult || !Array.isArray(gateResult.perSpread)) return [];
+  return gateResult.perSpread
+    .filter((e) => !e.passed)
+    .map((e) => ({
+      spread: e.spread,
+      failures: e.failures,
+      reasons: e.failures.map((f) => f.message || f.code || f.check),
+    }));
+}
 
-  // Initial draft.
-  let draft = await ctx.execute(
-    `${stageBase}.draft.r0`,
-    pageWriterActivity,
-    { beat, ageProfile, intent, characterBible, worldBible, recentSummaries: summaries },
+/**
+ * Build a targeted_revisions list from a manuscriptCritic report.
+ * Includes both `targeted_revisions[]` and per-spread issues to give
+ * the revisor the full picture.
+ */
+function targetedFromCritic(criticReport) {
+  if (!criticReport) return [];
+  const tr = Array.isArray(criticReport.targeted_revisions) ? criticReport.targeted_revisions : [];
+  const perSpread = Array.isArray(criticReport.per_spread) ? criticReport.per_spread : [];
+  const targetSet = new Set(tr.map((t) => t.spread));
+  // If targeted_revisions is empty but per_spread has issues with hard codes, include those.
+  if (targetSet.size === 0) return [];
+  return Array.from(targetSet).map((spread) => {
+    const trEntry = tr.find((t) => t.spread === spread) || {};
+    const psEntry = perSpread.find((e) => e.spread === spread) || {};
+    const reasons = [];
+    if (trEntry.reason) reasons.push(trEntry.reason);
+    if (Array.isArray(psEntry.issues)) {
+      for (const iss of psEntry.issues) {
+        const r = [iss.kind, iss.line_index != null ? `L${iss.line_index + 1}` : null, iss.quote ? `"${iss.quote}"` : null, iss.direction]
+          .filter(Boolean).join(' — ');
+        if (r) reasons.push(r);
+      }
+    }
+    return { spread, failures: psEntry.issues || [], reasons };
+  });
+}
+
+/**
+ * Merge gate-targeted and critic-targeted lists into a single list per spread.
+ */
+function mergeTargeted(...lists) {
+  const bySpread = new Map();
+  for (const list of lists) {
+    for (const t of list || []) {
+      const existing = bySpread.get(t.spread);
+      if (existing) {
+        existing.failures = (existing.failures || []).concat(t.failures || []);
+        existing.reasons = (existing.reasons || []).concat(t.reasons || []);
+      } else {
+        bySpread.set(t.spread, { spread: t.spread, failures: t.failures || [], reasons: t.reasons || [] });
+      }
+    }
+  }
+  return Array.from(bySpread.values()).sort((a, b) => a.spread - b.spread);
+}
+
+/**
+ * Run the manuscript-level loop: write → gate → critic → revise (≤ MAX_REVISION_ROUNDS).
+ * Returns: { manuscript, lastGate, lastCritic, rounds, warnings }.
+ */
+async function runManuscriptLoop({ ctx, beatSheet, ageProfile, intent, characterBible, worldBible }) {
+  const protagonistName = (characterBible?.characters || [])[0]?.name || 'the child';
+  const warnings = [];
+
+  // Initial manuscript draft.
+  let writerOut = await ctx.execute(
+    'manuscript.r0',
+    manuscriptWriterActivity,
+    { beatSheet, ageProfile, intent, characterBible, worldBible },
     { retries: 1 },
   );
+  let manuscript = writerOut.spreads;
 
+  let lastGate = null;
   let lastCritic = null;
-  for (let round = 0; round < MAX_REVISION_ROUNDS; round += 1) {
-    // Deterministic gate.
-    const gate = await ctx.execute(
-      `${stageBase}.gate.r${round}`,
-      deterministicGateActivity,
-      { draft, beat, ageProfile, protagonistName },
+  let round = 0;
+
+  for (round = 0; round < MAX_REVISION_ROUNDS; round += 1) {
+    // Gate (sync per-spread + 1 combined rhyme-judge LLM call).
+    lastGate = await ctx.execute(
+      `manuscript.gate.r${round}`,
+      manuscriptGateActivity,
+      { drafts: manuscript, beatSheet, ageProfile, protagonistName },
       { retries: 0 },
     );
-    candidates.push({ draft, gate, critic: null });
 
-    if (!gate.passed) {
-      ctx.log('warn', `[v2] spread ${beat.spread} det gate failed (round ${round}): ${gate.failures.map(f => f.code).join(', ')}; revising`);
-      draft = await ctx.execute(
-        `${stageBase}.draft.r${round + 1}`,
-        revisionEngineActivity,
-        { draft, beat, ageProfile, characterBible, worldBible, recentSummaries: summaries, failures: gate.failures, mode: 'deterministic' },
-        { retries: 1 },
-      );
-      continue; // re-run gate next iteration
-    }
-
-    // Det gate passed → cross-family critic.
+    // Critic (sees current manuscript regardless of gate state).
     lastCritic = await ctx.execute(
-      `${stageBase}.critic.r${round}`,
-      spreadCriticActivity,
-      { draft, beat, ageProfile, intent, characterBible, previousSummary: summaries[summaries.length - 1] || null },
+      `manuscript.critic.r${round}`,
+      manuscriptCriticActivity,
+      { intent, beatSheet, drafts: manuscript, ageProfile, characterBible, worldBible },
       { retries: 1 },
     );
-    // Update the latest candidate with the critic verdict.
-    candidates[candidates.length - 1].critic = lastCritic;
 
-    if (isAcceptableCritic(lastCritic)) {
-      ctx.log('info', `[v2] spread ${beat.spread} ACCEPTED at round ${round}`);
-      return { draft, critic: lastCritic, rounds: round };
+    const gateTargets = targetedFromGate(lastGate);
+    const criticTargets = targetedFromCritic(lastCritic);
+    const merged = mergeTargeted(gateTargets, criticTargets);
+
+    if (merged.length === 0) {
+      ctx.log('info', `[v2] manuscript ACCEPTED at round ${round}`);
+      return { manuscript, lastGate, lastCritic, rounds: round, warnings };
     }
 
-    if (round >= MAX_REVISION_ROUNDS - 1) break;
+    if (round >= MAX_REVISION_ROUNDS - 1) {
+      // Last allowed round already used; break and report.
+      ctx.log('warn', `[v2] manuscript rounds exhausted with ${merged.length} targeted spreads`);
+      break;
+    }
 
-    // Critic rejected → critic-driven revision.
-    ctx.log('info', `[v2] spread ${beat.spread} critic rejected at round ${round}; revising`);
-    draft = await ctx.execute(
-      `${stageBase}.draft.r${round + 1}.critic`,
-      revisionEngineActivity,
-      { draft, beat, ageProfile, characterBible, worldBible, recentSummaries: summaries, failures: lastCritic.suggested_fixes, mode: 'critic' },
+    // Revise the flagged spreads in ONE call.
+    ctx.log('info', `[v2] manuscript round ${round} revising ${merged.length} spreads: ${merged.map((t) => t.spread).join(',')}`);
+    const mode = gateTargets.length && criticTargets.length ? 'mixed'
+      : gateTargets.length ? 'gate' : 'critic';
+    const revOut = await ctx.execute(
+      `manuscript.revision.r${round + 1}`,
+      manuscriptRevisionActivity,
+      {
+        currentManuscript: manuscript.map((d) => ({ spread: d.spread, lines: d.lines })),
+        beatSheet, ageProfile, intent, characterBible, worldBible,
+        targetedRevisions: merged.map((t) => ({ spread: t.spread, failures: t.failures, reasons: t.reasons })),
+        mode,
+      },
       { retries: 1 },
     );
+    manuscript = mergeRevision(manuscript, revOut.spreads);
   }
 
-  // Exhausted. Pick the candidate with the lowest penalty (best gate result).
-  // If multiple tie at the minimum, prefer the one with a passing critic.
-  candidates.sort((a, b) => {
-    const pa = draftPenalty(a.gate);
-    const pb = draftPenalty(b.gate);
-    if (pa !== pb) return pa - pb;
-    const ca = a.critic && isAcceptableCritic(a.critic) ? 0 : 1;
-    const cb = b.critic && isAcceptableCritic(b.critic) ? 0 : 1;
-    return ca - cb;
-  });
-  const best = candidates[0] || { draft, gate: null, critic: lastCritic };
-  const bestHardFails = hardFailures(best.gate?.failures);
-  if (bestHardFails.length > 0) {
-    // No clean candidate exists. Try ONE more fresh write from scratch —
-    // a structurally new draft is more likely to clear hard failures than
-    // another surgical revision of a stuck one.
-    ctx.log('warn', `[v2] spread ${beat.spread} all ${candidates.length} candidates have hard failures (${bestHardFails.map(f => f.code).join(', ')}); attempting one fresh rewrite`);
+  // Exhausted. Compute warnings: any spread with hard failures still standing.
+  const finalGateTargets = targetedFromGate(lastGate);
+  const hardStillStanding = finalGateTargets
+    .map((t) => ({ spread: t.spread, hard: hardFailures(t.failures) }))
+    .filter((x) => x.hard.length > 0);
+
+  if (hardStillStanding.length > 0) {
+    // One last fresh rewrite — sometimes a structurally new draft clears
+    // hard failures that surgical revision can't.
+    ctx.log('warn', `[v2] manuscript ${hardStillStanding.length} spreads still have hard failures (${hardStillStanding.map((x) => x.spread + ':' + x.hard.map(h => h.code).join('|')).join(' ')}); attempting one fresh rewrite`);
     try {
-      const freshDraft = await ctx.execute(
-        `${stageBase}.draft.fresh`,
-        pageWriterActivity,
-        { beat, ageProfile, intent, characterBible, worldBible, recentSummaries: summaries, freshAttempt: true },
+      const freshOut = await ctx.execute(
+        'manuscript.fresh',
+        manuscriptWriterActivity,
+        { beatSheet, ageProfile, intent, characterBible, worldBible, freshAttempt: true },
         { retries: 1 },
       );
       const freshGate = await ctx.execute(
-        `${stageBase}.gate.fresh`,
-        deterministicGateActivity,
-        { draft: freshDraft, beat, ageProfile, protagonistName },
+        'manuscript.gate.fresh',
+        manuscriptGateActivity,
+        { drafts: freshOut.spreads, beatSheet, ageProfile, protagonistName },
         { retries: 0 },
       );
-      const freshHard = hardFailures(freshGate.failures);
-      if (freshHard.length < bestHardFails.length) {
-        ctx.log('warn', `[v2] spread ${beat.spread} fresh rewrite is cleaner (${freshHard.length} hard fails vs ${bestHardFails.length}); using it`);
-        return {
-          draft: freshDraft,
-          critic: null,
-          rounds: MAX_REVISION_ROUNDS + 1,
-          warning: freshHard.length === 0 ? 'fresh_rewrite_clean' : 'fresh_rewrite_partial',
-        };
+      const freshHardCount = freshGate.perSpread
+        .reduce((acc, e) => acc + hardFailures(e.failures).length, 0);
+      const oldHardCount = hardStillStanding.reduce((acc, x) => acc + x.hard.length, 0);
+      if (freshHardCount < oldHardCount) {
+        ctx.log('warn', `[v2] fresh rewrite cleaner (${freshHardCount} vs ${oldHardCount} hard fails); using it`);
+        manuscript = freshOut.spreads;
+        lastGate = freshGate;
+        warnings.push(freshHardCount === 0 ? 'fresh_rewrite_clean' : 'fresh_rewrite_partial');
+      } else {
+        warnings.push(`max_rounds_exhausted_with_hard_failures:${hardStillStanding.map((x) => x.spread).join(',')}`);
       }
     } catch (err) {
-      ctx.log('warn', `[v2] spread ${beat.spread} fresh rewrite failed: ${err.message}`);
+      ctx.log('warn', `[v2] fresh rewrite failed: ${err.message}`);
+      warnings.push(`max_rounds_exhausted_with_hard_failures:${hardStillStanding.map((x) => x.spread).join(',')}`);
     }
+  } else {
+    warnings.push('max_rounds_exhausted_soft_failures_only');
   }
-  const warning = bestHardFails.length > 0
-    ? `max_rounds_exhausted_with_hard_failures:${bestHardFails.map(f => f.code).join(',')}`
-    : 'max_rounds_exhausted';
-  ctx.log('warn', `[v2] spread ${beat.spread} EXHAUSTED; shipping best-of-${candidates.length} (penalty=${draftPenalty(best.gate)})`);
-  return { draft: best.draft, critic: best.critic || lastCritic, rounds: MAX_REVISION_ROUNDS, warning };
+
+  ctx.log('warn', `[v2] manuscript EXHAUSTED at round ${round}; shipping`);
+  return { manuscript, lastGate, lastCritic, rounds: round, warnings };
 }
 
 /**
@@ -250,8 +297,6 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // Stage 2
   const ageProfile = await ctx.execute('ageProfile', ageAdaptationActivity,
     { ageBand, brief }, { retries: 0 });
-  // Belt-and-suspenders: every JSON profile already carries `ageBand`,
-  // but some downstream code reads `band` — set both for safety.
   ageProfile.ageBand = ageBand;
   ageProfile.band = ageBand;
 
@@ -275,36 +320,13 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   const beatSheet = await ctx.execute('beatSheet', beatSheetActivity,
     { intent, storyBible, ageProfile, characterBible, worldBible }, { retries: 1 });
 
-  // Stages 8-11 per spread
-  const accepted = [];
-  const summaries = [];
-  for (const beat of beatSheet.spreads) {
-    ctx.checkAbort();
-    const recent = recentSummaries(summaries, beat.spread, 2);
-    const { draft, critic, rounds, warning } = await runSpreadLoop({
-      ctx, beat, ageProfile, intent, characterBible, worldBible, summaries: recent,
-    });
-    accepted.push({ beat, draft, critic, rounds, warning: warning || null });
-    // Tiny rolling summary for the next spread.
-    try {
-      const summary = await summarizeSpread({ spread: beat.spread, beat, draft, intent });
-      summaries.push(summary);
-    } catch (err) {
-      ctx.log('warn', `[v2] summarizer failed for spread ${beat.spread}: ${err.message} (continuing)`);
-    }
-  }
+  // Stages 8-11 — manuscript-level loop
+  ctx.checkAbort();
+  const { manuscript, lastGate, lastCritic, rounds, warnings } = await runManuscriptLoop({
+    ctx, beatSheet, ageProfile, intent, characterBible, worldBible,
+  });
 
-  // Stage 12 — book-wide critic (advisory tonight; we log targeted_revisions but don't loop)
-  let bookWide = null;
-  try {
-    bookWide = await ctx.execute('bookWide', bookWideCriticActivity,
-      { intent, beatSheet, drafts: accepted.map((a) => a.draft), characterBible, worldBible },
-      { retries: 0 });
-  } catch (err) {
-    ctx.log('warn', `[v2] bookWideCritic failed: ${err.message} (continuing without book-wide grade)`);
-  }
-
-  // Stage 13 — illustration director (adapter to v1 illustrator for tonight)
+  // Stage 12 — illustration director
   const renderedDoc = await ctx.execute('illustrations', illustrationDirectorActivity, {
     rawRequest,
     brief,
@@ -314,16 +336,11 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     characterBible,
     worldBible,
     beatSheet,
-    drafts: accepted.map((a) => a.draft),
+    drafts: manuscript,
     coverImageUrl: rawRequest?.cover?.imageUrl || null,
     coverTitle: rawRequest?.cover?.title || null,
     operationalContext: signals,
   }, {
-    // 2 retries (3 total attempts) gated on transient infra errors.
-    // Gemini Session API 503/UNAVAILABLE shows up sporadically during
-    // peak demand; a couple of retries with backoff usually clears it.
-    // Non-transient errors (deploy bugs, schema mismatches) still fail
-    // immediately on first attempt.
     retries: 2,
     baseDelayMs: 4000,
     isRetryable: (err) => Boolean(err?.isTransient),
@@ -332,11 +349,25 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // Persist v2-side QA fields onto the doc so server's incremental
   // storyContent push reads sensible writerQa/bookWideQa booleans.
   renderedDoc.writerQa = {
-    pass: accepted.every((a) => !a.warning),
-    rounds: accepted.map((a) => ({ spread: a.beat.spread, rounds: a.rounds, warning: a.warning, scores: a.critic?.scores || {} })),
+    pass: warnings.length === 0,
+    rounds,
+    warnings,
+    gate: lastGate ? {
+      passed: lastGate.passed,
+      perSpread: lastGate.perSpread.map((e) => ({ spread: e.spread, passed: e.passed, failureCount: e.failures.length })),
+    } : null,
   };
-  renderedDoc.bookWideQa = bookWide
-    ? { pass: bookWide.accept_recommendation, scores: bookWide.scores, targeted_revisions: bookWide.targeted_revisions }
+  renderedDoc.bookWideQa = lastCritic
+    ? {
+      pass: lastCritic.accept_recommendation,
+      scores: lastCritic.scores,
+      targeted_revisions: lastCritic.targeted_revisions,
+      hard_checks: {
+        meaning: lastCritic.meaning_sanity_book_wide?.passed,
+        bible: lastCritic.bible_consistency_book_wide?.passed,
+        prohibited: lastCritic.prohibited_respected_book_wide?.passed,
+      },
+    }
     : { pass: true, skipped: true };
 
   // Build the layout payload via the existing v1 layout adapter so the
@@ -361,10 +392,12 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 module.exports = {
   runCreateBookWorkflow,
   // exported for tests
-  isAcceptableCritic,
   avgScore,
-  runSpreadLoop,
+  runManuscriptLoop,
   HARD_GATE_CODES,
   hardFailures,
-  draftPenalty,
+  mergeRevision,
+  targetedFromGate,
+  targetedFromCritic,
+  mergeTargeted,
 };

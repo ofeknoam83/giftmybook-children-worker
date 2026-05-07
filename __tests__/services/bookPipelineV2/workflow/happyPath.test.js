@@ -1,10 +1,10 @@
 /**
- * v2 workflow — happy-path smoke test.
+ * v2 workflow — happy-path smoke test (manuscript-level).
  *
  * Mocks `callText` (every LLM call) and v1's `renderAllSpreadsQuad`
  * (the illustrator). Runs the full workflow end-to-end and asserts:
  *   - every planning stage is persisted to the artifact store
- *   - each spread is written, det-gated, critiqued, and accepted
+ *   - the manuscript is written in ONE call, gated, critiqued, and accepted
  *   - the public generateBook returns { document, layout }
  *
  * This is the contract test the CI run protects from regressions.
@@ -15,8 +15,6 @@ jest.mock('../../../../services/bookPipeline/llm/openaiClient', () => ({
 }));
 jest.mock('../../../../services/bookPipeline/illustrator/renderAllSpreadsQuad', () => ({
   renderAllSpreadsQuad: jest.fn(async (doc) => {
-    // Simulate the illustrator: stamp every spread with an illustration
-    // entry and return the mutated doc (matches v1's behaviour).
     return {
       ...doc,
       spreads: doc.spreads.map((s) => ({
@@ -128,52 +126,56 @@ function mockBeatSheetResp(spreadCount) {
   });
 }
 
-function mockWriterResp(spread) {
-  // PB_INFANT band: 4 lines, ~6 syllables, 8–16 words total. Tested
-  // separately to ensure it passes the deterministic gate.
-  const lines = [
+function makeSpreadLines() {
+  // PB_INFANT band: 4 lines, ~6 syllables. End rhymes are perfect-by-sound.
+  return [
     'Pink blanket glows soft.',
     'Mama hums aloft.',
     'Scarlett blinks slow.',
     'Lamps glow low.',
   ];
-  return jsonResponse({ spread, lines, text: lines.join('\n') });
 }
 
-function mockCriticAccept(spread) {
+function mockManuscriptWriterResp(spreadCount) {
   return jsonResponse({
-    spread,
-    scores: { arc_advancement: 5, beat_fidelity: 5, emotional_clarity: 5, read_aloud_rhythm: 5, page_turn_strength: 5, illustration_potential: 5 },
-    meaning_sanity: { passed: true, violations: [] },
-    prohibited_respected: { passed: true, violations: [] },
-    callback_fidelity: { passed: true, notes: [] },
-    bible_consistency: { passed: true, notes: [] },
-    suggested_fixes: [],
-    accept_recommendation: true,
+    spreads: Array.from({ length: spreadCount }, (_, i) => ({
+      spread: i + 1,
+      lines: makeSpreadLines(),
+    })),
   });
 }
 
-function mockBookWideAccept() {
+function mockManuscriptCriticAccept(spreadCount) {
   return jsonResponse({
-    scores: { arc_coherence: 5, callback_payoff: 5, theme_delivered_structurally: 5, abandoned_threads: 5, whole_book_repetition: 5, ending_lands: 5, reads_as_a_book_not_episodes: 5 },
-    meaning_sanity_book_wide: { passed: true },
-    bible_consistency_book_wide: { passed: true },
-    prohibited_respected_book_wide: { passed: true },
-    accept_recommendation: true,
+    scores: {
+      arc_coherence: 5, callback_payoff: 5, theme_delivered_structurally: 5,
+      ending_lands: 5, reads_as_a_book_not_episodes: 5, read_aloud_rhythm: 5,
+      average_beat_fidelity: 5, average_meaning_clarity: 5,
+    },
+    abandoned_threads: [],
+    whole_book_repetition: [],
+    meaning_sanity_book_wide: { passed: true, violations: [] },
+    bible_consistency_book_wide: { passed: true, violations: [] },
+    prohibited_respected_book_wide: { passed: true, violations: [] },
+    per_spread: Array.from({ length: spreadCount }, (_, i) => ({
+      spread: i + 1, beat_fidelity: 5, issues: [],
+    })),
     targeted_revisions: [],
+    accept_recommendation: true,
   });
 }
 
-function mockSummarizerResp(spread) {
-  return jsonResponse({
-    spread,
-    what_happened: 'porch beat established',
-    emotional_state: 'drowsy_observation',
-    callbacks_used: [],
-    callbacks_pending: [],
-    open_threads: [],
-    last_image_cue: 'soft pink blanket',
+function mockManuscriptRhymeJudgeAllPass(payload) {
+  // Mirror the input couplets and mark each ok=true.
+  let parsed = { spreads: [] };
+  try { parsed = JSON.parse(payload); } catch { /* noop */ }
+  const out = (parsed.spreads || []).map((s) => {
+    const entry = { spread: s.spread };
+    if (s.L1L2) entry.L1L2 = { ok: true, reason: 'matches' };
+    if (s.L3L4) entry.L3L4 = { ok: true, reason: 'matches' };
+    return entry;
   });
+  return jsonResponse({ spreads: out });
 }
 
 function wireMocks(spreadCount) {
@@ -186,26 +188,13 @@ function wireMocks(spreadCount) {
     if (label === 'v2.characterBible') return mockCharacterBibleResp();
     if (label === 'v2.worldBible') return mockWorldBibleResp();
     if (label === 'v2.beatSheet') return mockBeatSheetResp(spreadCount);
-    if (label === 'v2.spreadCritic') {
-      let spread = 1;
-      try { spread = JSON.parse(params.userPrompt).draft?.spread || 1; } catch {}
-      return mockCriticAccept(spread);
-    }
-    if (label === 'v2.bookWideCritic') return mockBookWideAccept();
-    if (label === 'v2.summarizer') {
-      let spread = 1;
-      try { spread = JSON.parse(params.userPrompt).spread || 1; } catch {}
-      return mockSummarizerResp(spread);
-    }
-    if (label.startsWith('v2.writer')) {
-      let spread = 1;
-      try { spread = JSON.parse(params.userPrompt).beat?.spread || 1; } catch {}
-      return mockWriterResp(spread);
-    }
-    if (label.startsWith('v2.revision')) {
-      let spread = 1;
-      try { spread = JSON.parse(params.userPrompt).draft?.spread || 1; } catch {}
-      return mockWriterResp(spread);
+    if (label.startsWith('v2.manuscriptWriter')) return mockManuscriptWriterResp(spreadCount);
+    if (label === 'v2.manuscriptRhymeJudge') return mockManuscriptRhymeJudgeAllPass(params.userPrompt);
+    if (label === 'v2.manuscriptCritic') return mockManuscriptCriticAccept(spreadCount);
+    if (label.startsWith('v2.manuscriptRevision')) {
+      // Should never be called in happy path (critic accepts immediately),
+      // but return a no-op patch if triggered.
+      return jsonResponse({ spreads: [] });
     }
     // Unrecognized label — return neutral OK shape (helps catch missing wiring quickly)
     return jsonResponse({});
@@ -221,8 +210,8 @@ const rawRequest = {
   cover: { title: "Scarlett's Soft Evening", imageUrl: 'https://example.test/cover.jpg' },
 };
 
-describe('v2 workflow happy path', () => {
-  test('end-to-end: planning stages → per-spread loop → illustrator adapter → return shape', async () => {
+describe('v2 workflow happy path (manuscript-level)', () => {
+  test('end-to-end: planning stages → manuscript writer → gate → critic → illustrator adapter → return shape', async () => {
     wireMocks(10); // PB_INFANT spreadCount = 10
     const { document, layout } = await generateBook(rawRequest, { bookId: 'happy_test_book' });
     expect(document).toBeDefined();
@@ -237,5 +226,15 @@ describe('v2 workflow happy path', () => {
     expect(layout).toBeDefined();
     expect(document.writerQa?.pass).toBe(true);
     expect(document.bookWideQa?.pass).toBe(true);
+
+    // The manuscript writer should have been called exactly once (no per-spread loop).
+    const writerCalls = callText.mock.calls.filter(([p]) => p.label && p.label.startsWith('v2.manuscriptWriter'));
+    expect(writerCalls.length).toBe(1);
+    // The critic should have been called exactly once (accepted on first round).
+    const criticCalls = callText.mock.calls.filter(([p]) => p.label === 'v2.manuscriptCritic');
+    expect(criticCalls.length).toBe(1);
+    // The combined rhyme-judge should have been called exactly once (one round, one combined call).
+    const rhymeCalls = callText.mock.calls.filter(([p]) => p.label === 'v2.manuscriptRhymeJudge');
+    expect(rhymeCalls.length).toBe(1);
   }, 30000);
 });

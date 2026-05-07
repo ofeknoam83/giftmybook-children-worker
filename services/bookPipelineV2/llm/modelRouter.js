@@ -1,24 +1,23 @@
 /**
- * Cross-family model router for v2.
+ * Model router for v2.
  *
- * Locked principle: the writer model must NEVER be the critic model.
- * v1's writer-judges-itself loop is the single most important thing
- * v2 fixes. We have OpenAI (GPT-5 family) and Gemini available; this
- * router maps logical roles to physical models so the cross-family
- * rule is enforced at one place.
+ * Note: prior versions enforced a cross-family rule (writer ≠ critic family).
+ * That rule was a v1-era reaction to writer-judges-itself loops. In v2 the
+ * deterministic gate + manuscript-level critic prompt + bounded context
+ * constrain the critic enough — and gpt-5.4 is empirically our best writer
+ * AND our best critic. The cross-family rule is dropped; both writer and
+ * critic resolve to gpt-5.4 (strong).
  *
  * Roles:
  *   - PLANNER     — interpreter, intent, story planner, beat sheet
- *   - WRITER      — page writer, revision engine
- *   - CRITIC      — spread critic, book-wide critic, meaning sanity
- *   - ADJUDICATOR — final tie-breaker (3rd family ideally; we use OpenAI strongest)
+ *   - WRITER      — manuscript writer, revision engine
+ *   - CRITIC      — manuscript critic
+ *   - ADJUDICATOR — final tie-breaker
  *   - DIRECTOR    — illustration director (text-to-spec)
- *   - SUMMARIZER  — rolling-summary memory
- *   - RHYME_JUDGE — acoustic rhyme verdicts on couplet end-words
+ *   - RHYME_JUDGE — acoustic rhyme verdicts on couplet end-words (combined call)
  *
  * The router can be reconfigured per env (e.g. set
- * `BOOK_PIPELINE_V2_WRITER=openai` and `BOOK_PIPELINE_V2_CRITIC=gemini`
- * or vice versa to A/B-test both pairings).
+ * `BOOK_PIPELINE_V2_CRITIC_FAMILY=gemini` to A/B-test pairings).
  */
 
 const { callText } = require('../../bookPipeline/llm/openaiClient');
@@ -35,14 +34,18 @@ const MODELS = {
 };
 
 // Default role → family + tier.
+// Manuscript-level v2: WRITER, CRITIC, REVISION (treated as WRITER) all use
+// gpt-5.4 strong. They each make ONE call per manuscript (not 12), so the
+// cost stays roughly equivalent to the per-spread mid-tier setup, while
+// quality goes up because each call sees the whole book.
 const DEFAULT_ROUTING = {
   PLANNER:     { family: 'openai',  tier: 'strong' },
-  WRITER:      { family: 'openai',  tier: 'mid' },
-  CRITIC:      { family: 'gemini',  tier: 'strong' }, // <-- different family from WRITER
+  WRITER:      { family: 'openai',  tier: 'strong' },
+  CRITIC:      { family: 'openai',  tier: 'strong' },
   ADJUDICATOR: { family: 'openai',  tier: 'strong' },
   DIRECTOR:    { family: 'openai',  tier: 'mid' },
-  SUMMARIZER:  { family: 'gemini',  tier: 'mid' },
-  RHYME_JUDGE: { family: 'gemini',  tier: 'mid' }, // <-- different family from WRITER; acoustic-only task, mid tier is plenty
+  SUMMARIZER:  { family: 'gemini',  tier: 'mid' }, // legacy; no longer used in v2 manuscript flow
+  RHYME_JUDGE: { family: 'openai',  tier: 'mid' }, // acoustic-only task, mid tier is plenty
 };
 
 function envOverride(role) {
@@ -68,22 +71,20 @@ function modelFor(role) {
   return { model, family };
 }
 
-function assertCrossFamily(roleA, roleB) {
-  const a = resolveRole(roleA);
-  const b = resolveRole(roleB);
-  if (a.family === b.family) {
-    throw new Error(
-      `modelRouter: cross-family rule violated — role '${roleA}' and role '${roleB}' both resolve to family '${a.family}'. v2's locked principle is that writer and critic must never be the same family.`,
-    );
-  }
+/**
+ * Cross-family check is retained as a no-op for back-compat with callers
+ * still passing `mustDifferFrom`. v2 no longer enforces this — both writer
+ * and critic intentionally resolve to gpt-5.4 strong.
+ */
+function assertCrossFamily(/* roleA, roleB */) {
+  // intentionally no-op; cross-family rule dropped in manuscript-level v2
 }
 
 /**
- * Call a role with an enforced cross-family check against a counterpart
- * role. Use for critic calls so any misconfiguration fails loudly.
+ * Call a role. The optional `mustDifferFrom` parameter is accepted for
+ * back-compat but no longer enforced.
  */
-async function callWithRole(role, params, { mustDifferFrom } = {}) {
-  if (mustDifferFrom) assertCrossFamily(role, mustDifferFrom);
+async function callWithRole(role, params, /* { mustDifferFrom } = {} */) {
   const { model } = modelFor(role);
   return callText({ ...params, model, label: params.label || `v2.${role.toLowerCase()}` });
 }
