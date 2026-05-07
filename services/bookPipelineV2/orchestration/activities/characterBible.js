@@ -31,10 +31,38 @@ async function characterBibleActivity(input, ctx) {
     maxTokens: 3500,
     label: 'v2.characterBible',
   });
-  const out = resp.json;
-  if (!out || !Array.isArray(out.characters)) {
-    throw new Error('characterBible: model did not return { characters: [...] }');
+  // Accept several shapes the model may emit:
+  //   { characters: [...] }    (canonical)
+  //   [ ...character objs ]    (bare array)
+  //   { protagonist: {...}, supporting: [...] }   (common synonym)
+  //   { protagonist: {...} }   (single-character)
+  //   single character object  (no wrapping)
+  let out = resp.json;
+  let characters = null;
+  if (Array.isArray(out)) {
+    characters = out;
+    out = {};
+  } else if (out && typeof out === 'object') {
+    if (Array.isArray(out.characters)) {
+      characters = out.characters;
+    } else if (Array.isArray(out.cast)) {
+      characters = out.cast;
+    } else if (out.protagonist && typeof out.protagonist === 'object') {
+      characters = [out.protagonist].concat(
+        Array.isArray(out.supporting) ? out.supporting :
+        Array.isArray(out.others) ? out.others : []
+      );
+    } else if (out.name && (out.role || out.signature_outfit || out.hair)) {
+      // The whole object looks like a single character.
+      characters = [out];
+      out = {};
+    }
   }
+  if (!characters || !characters.length) {
+    const keys = out && typeof out === 'object' ? Object.keys(out).join(',') : typeof out;
+    throw new Error(`characterBible: model did not return any characters (top-level keys: ${keys})`);
+  }
+  out.characters = characters.filter(c => c && typeof c === 'object');
   out.version = '1.0';
   out.generated_at = new Date().toISOString();
   out.model = resp.model;
