@@ -44,7 +44,7 @@ async function manuscriptWriterActivity(input, ctx) {
 
   // Lift band constraints into a prominent narrative preamble so the model
   // cannot miss them. Burying these inside JSON has been observed to cause
-  // systematic OVER-delivery (17–23 words per spread when the band is 8–16).
+  // systematic OVER-delivery (17–23 words per spread on tight bands).
   const nc = ageProfile?.narrativeConstraints || {};
   const wps = nc.wordsPerSpread || {};
   const lps = nc.linesPerSpread || {};

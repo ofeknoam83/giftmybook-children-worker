@@ -5,7 +5,7 @@
   "label": "lap baby (0-17 months)",
   "narrativeConstraints": {
     "spreadCount": 13,
-    "wordsPerSpread": { "min": 8, "max": 16, "target": 12 },
+    "wordsPerSpread": { "min": 8, "max": 18, "target": 14 },
     "linesPerSpread": { "min": 2, "max": 4, "target": 4 },
     "syllablesPerLine": { "min": 4, "max": 7, "target": 6 },
     "rhymeScheme": "AABB_with_L34_softening_allowed",
