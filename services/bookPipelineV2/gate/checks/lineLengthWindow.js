@@ -45,7 +45,9 @@ function lineLengthWindowCheck(draft, beat, ageProfile) {
 
   if (wps) {
     const total = wordsIn(text);
-    if (total < wps.min || total > wps.max) {
+    // Allow +/- 1 from min/max — matches the syllable-check tolerance and
+    // keeps the revision loop from grinding on off-by-one overruns.
+    if (total < (wps.min - 1) || total > (wps.max + 1)) {
       failures.push({ kind: 'words', observed: total, window: [wps.min, wps.max] });
     }
   }
