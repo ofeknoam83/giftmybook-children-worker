@@ -1,20 +1,13 @@
 /**
  * OpenAI Images API — raw REST.
  *
- * **gpt-image-2 + `/v1/images/generations`:** JSON body required. The endpoint
- * does NOT accept reference images on this route — `image[]` multipart parts
- * (and any equivalent JSON `image` field) are rejected. Reference-conditioned
- * generation requires either:
- *   - `/v1/images/edits` with multipart `image[]` (typically `dall-e-2` /
- *     `gpt-image-1`; gpt-image-2 was reported 400 on this endpoint), or
- *   - the Responses API `/v1/responses` with `input_image` content parts.
+ * **gpt-image-2 + reference-image conditioning** runs on
+ * `POST /v1/images/edits` (multipart). `image[]` form parts (1–16) carry the
+ * reference set; each part needs a filename + Content-Type or the API
+ * rejects with `unsupported_content_type` (see openai-node#1844).
  *
- * The current adapter therefore runs gpt-image-2 in text-to-image mode on
- * `/v1/images/generations` (JSON). When `imageFiles` are supplied to this
- * helper, they are DROPPED with a clear warning — character consistency is
- * carried by the system instruction + per-spread CHARACTER ANCHOR text alone,
- * which is degraded vs. the Gemini chat-session path. Wiring reference images
- * back in is follow-up work (Responses API migration).
+ * `POST /v1/images/generations` is text-to-image only — JSON body, no
+ * reference-image input field on this endpoint for any image model.
  */
 
 'use strict';
@@ -26,7 +19,7 @@ const {
 } = require('./config');
 
 /**
- * POST /v1/images/generations as JSON.
+ * POST /v1/images/generations as JSON. Text-to-image only.
  *
  * @param {object} p
  * @param {string} p.apiKey
@@ -35,7 +28,7 @@ const {
  * @param {string} [p.size]
  * @param {Array<{ buffer: Buffer, filename: string, mimeType?: string }>} [p.imageFiles] - DROPPED with warning; this endpoint is text-to-image only.
  * @param {string} [p.url]
- * @param {string} [p.quality] - for GPT image models on generations only (`low` | `medium` | `high` | `auto`)
+ * @param {string} [p.quality] - low | medium | high | auto (gpt-image-2)
  * @param {number} [p.timeoutMs]
  * @param {AbortSignal} [p.signal]
  * @returns {Promise<
@@ -60,8 +53,7 @@ async function postImagesGenerations(p) {
     console.warn(
       `[openaiImagesHttp] Dropping ${imageFiles.length} reference image(s) — `
       + '/v1/images/generations is JSON-only and does not accept reference images. '
-      + 'Character consistency is carried by the prompt text alone for this call. '
-      + 'See module docs for the Responses-API follow-up to restore image references.',
+      + 'Use postImagesEdits for reference-conditioned generation.',
     );
   }
 
