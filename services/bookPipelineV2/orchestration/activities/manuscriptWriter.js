@@ -90,7 +90,7 @@ async function manuscriptWriterActivity(input, ctx) {
     userPrompt,
     jsonMode: true,
     temperature: 0.7,
-    // Enough room for ~12 spreads × ~4 lines × ~12 words plus structure.
+    // Enough room for 13 spreads × ~6 lines × ~14 words plus structure.
     // Real cost is far smaller; this is the headroom ceiling.
     maxTokens: 6000,
     label: freshAttempt ? 'v2.manuscriptWriter.fresh' : 'v2.manuscriptWriter',
