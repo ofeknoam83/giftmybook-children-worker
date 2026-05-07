@@ -8,13 +8,17 @@
  * Why this is its own activity (not inlined in the workflow): the
  * artifact store records every gate result, so we can audit "what did
  * the gate flag on attempt 2 of spread 7" forever.
+ *
+ * Async because `imperfectRhyme` performs a single LLM call (acoustic
+ * rhyme judge). Other checks are synchronous; runGate awaits them
+ * uniformly.
  */
 
 const { runGate } = require('../../gate/runGate');
 
-function deterministicGateActivity(input, ctx) {
+async function deterministicGateActivity(input, ctx) {
   const { draft, beat, ageProfile, protagonistName } = input;
-  const result = runGate(draft, beat, ageProfile, { protagonistName });
+  const result = await runGate(draft, beat, ageProfile, { protagonistName, log: ctx && ctx.log });
   if (!result.passed) {
     ctx.log('warn', `[v2] det gate FAIL spread=${draft?.spread} count=${result.failures.length} codes=${result.failures.map((f) => f.check).join(',')}`);
   } else {
