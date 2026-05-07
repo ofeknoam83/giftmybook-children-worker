@@ -52,6 +52,9 @@ async function manuscriptWriterActivity(input, ctx) {
   const bandName = ageProfile?.ageBand || ageProfile?.band || 'unknown';
   const beatCount = (beatSheet?.spreads || []).length;
 
+  // Words/line budget tied to band so the model sees the arithmetic explicitly.
+  const wordsPerLineMax = (lps.max && wps.max) ? (wps.max / lps.max).toFixed(1) : null;
+
   const instructionLines = [
     freshAttempt
       ? 'Write the COMPLETE manuscript FRESH. One entry per beat in the BeatSheet.'
@@ -59,16 +62,23 @@ async function manuscriptWriterActivity(input, ctx) {
     `Age band: ${bandName}. Total spreads to write: ${beatCount}.`,
     '',
     'BAND CONSTRAINTS — APPLY TO EVERY SPREAD:',
-    `- Words per spread: between ${wps.min} and ${wps.max} (target ~${wps.target}). Output that is OVER ${wps.max} words is JUST AS WRONG as output that is UNDER ${wps.min} words. Count words before you finalise each spread.`,
+    `- Words per spread: between ${wps.min} and ${wps.max} (target ~${wps.target}). Going OVER ${wps.max} is JUST AS WRONG as going UNDER ${wps.min}.`,
+    wordsPerLineMax ? `- That means with ${lps.max} lines you have at most ~${wordsPerLineMax} words per line on average. Write SHORT lines.` : null,
     `- Lines per spread: between ${lps.min} and ${lps.max} (target ${lps.target}).`,
     `- Syllables per line: between ${spl.min} and ${spl.max} (target ${spl.target}).`,
     nc.rhymeScheme ? `- Rhyme scheme: ${nc.rhymeScheme} (strictness: ${nc.rhymeStrictness || 'default'}).` : null,
     nc.dialogueDensity ? `- Dialogue density: ${nc.dialogueDensity}.` : null,
     '',
-    'TENSE — PRESENT ONLY. NO PAST-TENSE VERBS, regular or irregular.',
-    'If a verb wants to come out as past tense, convert it to present:',
-    '  wrapped → wraps    tucked → tucks    hushed → hushes    curled → curls',
-    '  walked → walks     ran → runs        sang → sings       saw → sees',
+    'SELF-CHECK BEFORE EMITTING EACH SPREAD:',
+    `1. Count the words in the spread. If count > ${wps.max}, delete adjectives or compress phrases until count ≤ ${wps.max}. Do NOT emit a spread that is over the cap.`,
+    `2. Count the words. If count < ${wps.min}, expand naturally until count ≥ ${wps.min}.`,
+    '3. Read every verb. If any verb is in past tense, rewrite it (see TENSE rule below) before emitting.',
+    '',
+    'TENSE — PRESENT ONLY. Every verb must be either:',
+    '  (a) third-person singular present in -s/-es: "she hums", "he runs", "the leaf sways", or',
+    '  (b) base/infinitive form: "to be", "to rest", or',
+    '  (c) present participle in -ing: "humming", "resting".',
+    'NO past-tense verbs of any kind. No -ed endings on verbs (regular past). No irregular past forms (ran, sang, saw, told, came, made, took, gave, knew, slept, woke, stood, sat, held, heard, blew, drew, spoke, broke, went, was, were).',
     'Past tense in any line is a HARD failure (past_tense_regular / past_tense_irregular).',
     '',
     'Honor every beat literally. Apply every rule per-spread AND across the whole book.',
