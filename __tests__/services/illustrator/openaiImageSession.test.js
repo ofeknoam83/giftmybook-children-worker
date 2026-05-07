@@ -129,7 +129,8 @@ describe('openaiImageSession', () => {
     const call = httpMock.postImagesEdits.mock.calls[0][0];
     expect(call.model).toBe('gpt-image-2');
     expect(call.size).toBe('1024x1024');
-    expect(call.quality).toBe('high');
+    // `quality` is passed through to postImagesEdits but the helper drops it
+    // because /v1/images/edits returns 400 `unknown_parameter` for it.
     expect(call.url).toMatch(/\/v1\/images\/edits$/);
 
     // Cover only — no accepted spreads yet.
