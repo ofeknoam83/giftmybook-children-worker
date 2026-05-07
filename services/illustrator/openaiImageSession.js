@@ -22,14 +22,14 @@
 const sharp = require('sharp');
 const {
   OPENAI_IMAGE_MODEL,
-  OPENAI_IMAGES_GENERATIONS_URL,
+  OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGE_SIZE,
   OPENAI_QUAD_IMAGE_SIZE,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
 } = require('./config');
-const { postImagesGenerations } = require('./openaiImagesHttp');
+const { postImagesEdits } = require('./openaiImagesHttp');
 const { buildSystemInstruction, buildSystemInstructionQuad } = require('./systemInstruction');
 
 /**
@@ -276,17 +276,17 @@ async function rebuildSession(oldSession) {
 function buildCombinedPrompt({ systemInstruction, userPrompt, continuityCount, aspectHint, isCorrection }) {
   const statelessHeader = isCorrection
     ? '=== STATELESS RETRY ===\n'
-      + 'You do NOT have memory of any prior failed attempt for this spread. Read every rule below from scratch and produce a NEW image that obeys them. The manuscript wording, the per-spread CHARACTER ANCHOR block, and the issue list inside === THIS SPREAD === describe what to do; the reference images show what the hero must look like. Do not assume you remember the previous output.'
+      + 'You do NOT have memory of any prior failed attempt for this spread. Read every rule below from scratch and produce a NEW image that obeys them. The reference images attached to this request show what the hero MUST look like; the issue list inside === THIS SPREAD === describes what went wrong on the previous attempt; the per-spread CHARACTER ANCHOR block restates the literal hero values. Use the references as the ground truth for face, hair, skin tone, and outfit.'
     : '=== STATELESS REQUEST ===\n'
       + 'This is a stateless image-generation call — every rule and every reference for this spread is included in this single request. Read all of it before composing.';
 
   const refGuide = continuityCount > 0
-    ? `REFERENCE IMAGES — the request includes ${continuityCount + 1} reference images:\n`
-      + '  • Reference 1 is the APPROVED BOOK COVER — this is the canonical rendered likeness of the hero child AND the canonical 3D CGI Pixar feature-film art style. Match both exactly.\n'
-      + `  • References 2..${continuityCount + 1} are previously APPROVED interior spreads from this same book. They establish continuity — same character, same outfit family, same rendered style, same location palette where relevant.\n`
-      + 'Every new spread must read as the SAME feature-film render as the cover and the accepted spreads. NEVER switch to a 2D painterly, watercolor, or "storybook illustration" look.'
-    : 'REFERENCE IMAGE — the request includes 1 reference image:\n'
-      + '  • Reference 1 is the APPROVED BOOK COVER — canonical character (face, hair, skin, outfit) AND canonical 3D CGI Pixar feature-film art style. Match both exactly.';
+    ? `REFERENCE IMAGES — the request includes ${continuityCount + 1} reference images attached as image[] parts:\n`
+      + '  • Reference 1 is the APPROVED BOOK COVER — this is the canonical rendered likeness of the hero child AND the canonical 3D CGI Pixar feature-film art style. Match the hero face, hair, skin tone, and outfit to this image EXACTLY.\n'
+      + `  • References 2..${continuityCount + 1} are previously APPROVED interior spreads from this same book. They establish continuity — same character, same outfit, same rendered style, same location palette where relevant.\n`
+      + 'Every new spread must read as the SAME feature-film render and the SAME hero as the cover and the accepted spreads. NEVER switch to a 2D painterly, watercolor, or "storybook illustration" look. Treat the references as identity ground truth, not as compositions to copy literally.'
+    : 'REFERENCE IMAGE — the request includes 1 reference image attached as an image[] part:\n'
+      + '  • Reference 1 is the APPROVED BOOK COVER — canonical hero (face, hair, skin, outfit) AND canonical 3D CGI Pixar feature-film art style. Match the hero appearance EXACTLY; render the new SCENE in the same style.';
 
   const outputHint = aspectHint === 'quad'
     ? 'Output exactly ONE image: **4:1** ultra-wide landscape. LEFT half = first spread (2:1 wide), RIGHT half = second spread (2:1 wide). One continuous CGI world — two captions per system/user prompt. No collage seam at center.'
@@ -349,6 +349,11 @@ async function _postEdit(session, userPrompt, {
   imageSize = OPENAI_IMAGE_SIZE,
   outputLine,
 }) {
+  // gpt-image-2 reference-image-conditioned generation goes to
+  // /v1/images/edits (multipart). The cover + the last N accepted spreads
+  // travel as `image[]` parts; the model preserves the hero's identity
+  // across calls when given them. See services/illustrator/openaiImagesHttp.js
+  // for context on the multipart filename foot-gun that bit us earlier.
   const { imageFiles, continuityCount } = await collectEditImageFiles(session);
   const aspectHint = (() => {
     if (imageSize === OPENAI_QUAD_IMAGE_SIZE) return 'quad';
@@ -368,14 +373,14 @@ async function _postEdit(session, userPrompt, {
   const startMs = Date.now();
   console.log(
     `[illustrator/openaiImageSession] ${turnLabel} spread ${spreadIndex + 1} `
-    + `(${continuityCount + 1} reference images, size=${imageSize})...`,
+    + `(${imageFiles.length} reference image(s), size=${imageSize})...`,
   );
 
   let result;
   try {
-    result = await postImagesGenerations({
+    result = await postImagesEdits({
       apiKey: session.apiKey,
-      url: OPENAI_IMAGES_GENERATIONS_URL,
+      url: OPENAI_IMAGES_EDIT_URL,
       model: session.model,
       prompt: combinedPrompt,
       size: imageSize,
