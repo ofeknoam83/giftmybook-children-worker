@@ -86,9 +86,25 @@ function buildLegacyVisualBible({ characterBible, worldBible, coverTitle }) {
   const palette = worldBible?.palette
     ? `Primaries: ${(worldBible.palette.primaries || []).join(', ')}. Accents: ${(worldBible.palette.accents || []).join(', ')}. Lighting: ${worldBible.palette.lighting || ''}.`
     : '';
-  const environmentAnchors = (worldBible?.environment_anchors || [])
-    .map((e) => `${e.label}: ${(e.defining_surfaces || []).join(', ')} | props: ${(e.defining_props || []).join(', ')}`)
-    .join('\n');
+  // v1's buildIllustrationSpec expects `environmentAnchors` to be an
+  // array of strings (it does `.slice(0, 3).join('; ')`). Flatten each
+  // env object into one descriptor string but keep the array shape.
+  const rawEnvs = Array.isArray(worldBible?.environment_anchors)
+    ? worldBible.environment_anchors
+    : Array.isArray(worldBible?.environments)
+    ? worldBible.environments
+    : [];
+  const environmentAnchors = rawEnvs
+    .map((e) => {
+      if (typeof e === 'string') return e;
+      if (!e || typeof e !== 'object') return '';
+      const label = e.label || e.name || '';
+      const surfaces = Array.isArray(e.defining_surfaces) ? e.defining_surfaces.join(', ') : '';
+      const props = Array.isArray(e.defining_props) ? e.defining_props.join(', ') : '';
+      const parts = [label, surfaces && `surfaces: ${surfaces}`, props && `props: ${props}`].filter(Boolean);
+      return parts.join(' | ');
+    })
+    .filter(Boolean);
 
   return {
     hero,
