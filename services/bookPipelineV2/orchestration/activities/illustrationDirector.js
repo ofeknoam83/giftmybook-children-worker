@@ -252,7 +252,26 @@ async function illustrationDirectorActivity(input, ctx) {
 
   ctx.log('info', `[v2] illustrationDirector handing off ${doc.spreads.length} spreads to v1 illustrator (renderAllSpreadsQuad)`);
 
-  const rendered = await renderAllSpreadsQuad(doc);
+  let rendered;
+  try {
+    rendered = await renderAllSpreadsQuad(doc);
+  } catch (err) {
+    // Tag transient infra errors so the workflow engine retries the whole
+    // illustration step. v1's renderAllSpreadsQuad already retries 5x
+    // internally on per-spread transient hits, but errors that happen in
+    // setup (model probe, session creation) bypass that loop. Surfacing
+    // the transient flag lets the outer engine retry once.
+    const msg = String(err?.message || '');
+    const looksTransient =
+      err?.isTransientInfrastructure === true ||
+      /Session API error (500|502|503|504|429)\b/.test(msg) ||
+      /"code":\s*(500|502|503|504|429)\b/.test(msg) ||
+      /"status":\s*"(UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED)"/.test(msg) ||
+      /\bUNAVAILABLE\b|\bINTERNAL\b|\bRESOURCE_EXHAUSTED\b/i.test(msg) ||
+      /Deadline expired|timed out/i.test(msg);
+    if (looksTransient && err && !err.isTransient) err.isTransient = true;
+    throw err;
+  }
   ctx.log('info', `[v2] illustrationDirector: render complete, ${rendered.spreads.length} spreads`);
   return rendered;
 }

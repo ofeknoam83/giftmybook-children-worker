@@ -19,6 +19,9 @@ const { protagonistAntiVerbCheck } = require('./checks/protagonistAntiVerb');
 const { lineLengthWindowCheck } = require('./checks/lineLengthWindow');
 const { lineCountCheck } = require('./checks/lineCount');
 const { beatProhibitedCheck } = require('./checks/beatProhibited');
+const { dialogueBanCheck } = require('./checks/dialogueBan');
+const { pastTenseCheck } = require('./checks/pastTense');
+const { lineStarterRepeatCheck } = require('./checks/lineStarterRepeat');
 
 const CHECKS = [
   { name: 'lineCount',              fn: lineCountCheck },
@@ -26,10 +29,13 @@ const CHECKS = [
   { name: 'imperfectRhyme',         fn: imperfectRhymeCheck },
   { name: 'fillerPhraseBlocklist',  fn: fillerPhraseBlocklistCheck },
   { name: 'headlineNounRepeat',     fn: headlineNounRepeatCheck },
+  { name: 'lineStarterRepeat',     fn: lineStarterRepeatCheck },
   { name: 'moralisingPhrases',      fn: moralisingPhrasesCheck },
   { name: 'protagonistAntiVerb',    fn: protagonistAntiVerbCheck },
   { name: 'lineLengthWindow',       fn: lineLengthWindowCheck },
   { name: 'beatProhibited',         fn: beatProhibitedCheck },
+  { name: 'dialogueBan',            fn: dialogueBanCheck },
+  { name: 'pastTense',              fn: pastTenseCheck },
 ];
 
 /**
