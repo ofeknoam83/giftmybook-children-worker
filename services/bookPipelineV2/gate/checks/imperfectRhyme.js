@@ -75,6 +75,12 @@ async function judgeRhymes(pairs, ctx) {
   const userPrompt = JSON.stringify(pairs);
   let lastErr = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Touch activity before each attempt so the per-book watchdog doesn't
+    // trip during a slow LLM call (the workflow engine only heartbeats
+    // once per `execute()`, but the gate may run 4x per spread).
+    if (ctx && typeof ctx.heartbeat === 'function') {
+      try { ctx.heartbeat('rhymeJudge'); } catch { /* swallow */ }
+    }
     try {
       const resp = await callWithRole('RHYME_JUDGE', {
         systemPrompt: SYSTEM,
