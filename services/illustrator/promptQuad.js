@@ -104,10 +104,10 @@ function buildDualSpreadTurn(opts) {
     '### REMINDERS (4:1 DUAL — BOTH HALVES)',
     `- **One 4:1 frame:** LEFT half = spread ${numA} only; RIGHT half = spread ${numB} only. Story order left → right.`,
     '- **Each half is one 2:1 spread:** within each half, the two bound pages are ONE continuous environment — same rules as single-spread panorama (no seam down the middle of that half).',
-    `- **Captions:** spread ${numA}: ${cornerAU} on ${sideA.toUpperCase()} **within the left half only**. Spread ${numB}: ${cornerBU} on ${sideB.toUpperCase()} **within the right half only**. Never place a caption in the partner half.`,
+    `- **Captions — exactly TWO text blocks total in the entire 4:1 image, ONE per half:** spread ${numA}\'s caption appears EXACTLY ONCE in the LEFT half (${cornerAU} on ${sideA.toUpperCase()}). Spread ${numB}\'s caption appears EXACTLY ONCE in the RIGHT half (${cornerBU} on ${sideB.toUpperCase()}). Never place a caption in the partner half. Never repeat the same caption twice within one half (no echo at top + bottom, no echo on left edge + right edge, no second copy anywhere). Never duplicate one half\'s caption into the other half. Two captions total. One per half. Period.`,
     '- **Art style:** match the BOOK COVER\'s rendering tradition exactly on both halves; do not introduce a different rendering tradition than the cover shows.',
     '- **Vertical center of the full 4:1:** transition should stay seamless (lighting/atmosphere) — no harsh cut like two unrelated photos.',
-    '- **Exact text:** character-for-character match for each half\'s TEXT; no extra words, no duplication across halves.',
+    '- **Exact text:** character-for-character match for each half\'s TEXT; no extra words, no duplication across halves, no duplication WITHIN a half.',
     '- **Hero look:** hair color, hairstyle, skin tone, and face must match the BOOK COVER and the HERO LOCK block below on **both** halves and **every** quad batch — no drift across pairs.',
   ];
 

@@ -75,53 +75,72 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
   });
   const url = `${CHAT_API_BASE}/${GEMINI_QA_MODEL}:generateContent?key=${apiKey}`;
 
-  const userParts = [];
-  let imageNum = 1;
-  if (childPhoto) {
+  /**
+   * Build a request body for a given attempt, progressively shrinking the
+   * payload on retries. Empty `len=0, finishReason=n/a` responses from
+   * gemini-2.5-flash are most often a request-side rejection (safety pre-block,
+   * over-large multimodal payload, or a per-key throttle returning a
+   * candidate-less envelope). On retry we trim the payload to the smallest
+   * shape that still answers the question — cover + candidate alone — so a
+   * sustained block on the full 5-image shape doesn't burn the whole spread's
+   * QA budget on identical failures.
+   */
+  function buildBody(attempt) {
+    const includePhoto = childPhoto && attempt === 1;
+    const recentForAttempt = attempt === 1
+      ? recentRefs
+      : (attempt === 2 ? recentRefs.slice(-1) : []);
+    const userParts = [];
+    let imageNum = 1;
+    if (includePhoto) {
+      userParts.push(
+        { text: 'IMAGE 0 — REAL PHOTO of the child (rough identity; lighting and age may differ from the book). Use only to disambiguate when the cover is unclear — the CANONICAL rendered look is still the BOOK COVER (next image).' },
+        { inline_data: { mimeType: 'image/jpeg', data: childPhoto } },
+      );
+    }
     userParts.push(
-      { text: 'IMAGE 0 — REAL PHOTO of the child (rough identity; lighting and age may differ from the book). Use only to disambiguate when the cover is unclear — the CANONICAL rendered look is still the BOOK COVER (next image).' },
-      { inline_data: { mimeType: 'image/jpeg', data: childPhoto } },
-    );
-  }
-  userParts.push(
-    { text: `IMAGE ${imageNum} — BOOK COVER (ground truth for 3D Pixar hero, outfit, and style):` },
-    { inline_data: { mimeType: 'image/jpeg', data: coverBase64 } },
-  );
-  imageNum += 1;
-  for (const ref of recentRefs) {
-    const sn = ref.spreadNumber != null ? ref.spreadNumber : imageNum - 1;
-    userParts.push(
-      { text:
-        `IMAGE ${imageNum} — RECENT APPROVED INTERIOR (spread ${sn}, continuity reference; these are ordered oldest → newest):`,
-      },
-      { inline_data: { mimeType: ref.mimeType || 'image/jpeg', data: ref.base64 } },
+      { text: `IMAGE ${imageNum} — BOOK COVER (ground truth for 3D Pixar hero, outfit, and style):` },
+      { inline_data: { mimeType: 'image/jpeg', data: coverBase64 } },
     );
     imageNum += 1;
+    for (const ref of recentForAttempt) {
+      const sn = ref.spreadNumber != null ? ref.spreadNumber : imageNum - 1;
+      userParts.push(
+        { text:
+          `IMAGE ${imageNum} — RECENT APPROVED INTERIOR (spread ${sn}, continuity reference; these are ordered oldest → newest):`,
+        },
+        { inline_data: { mimeType: ref.mimeType || 'image/jpeg', data: ref.base64 } },
+      );
+      imageNum += 1;
+    }
+    userParts.push(
+      { text: `IMAGE ${imageNum} — GENERATED SPREAD UNDER REVIEW (candidate interior; judge this image):` },
+      { inline_data: { mimeType: 'image/png', data: spreadBase64 } },
+      { text: prompt },
+    );
+    return {
+      body: {
+        contents: [{ role: 'user', parts: userParts }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+          thinkingConfig: { thinkingBudget: 0 },
+          maxOutputTokens: QA_MAX_OUTPUT_TOKENS,
+        },
+      },
+      shape: {
+        attempt,
+        photo: !!includePhoto,
+        recentRefs: recentForAttempt.length,
+        totalImages: 1 + (includePhoto ? 1 : 0) + recentForAttempt.length + 1,
+      },
+    };
   }
-  userParts.push(
-    { text: `IMAGE ${imageNum} — GENERATED SPREAD UNDER REVIEW (candidate interior; judge this image):` },
-    { inline_data: { mimeType: 'image/png', data: spreadBase64 } },
-    { text: prompt },
-  );
-
-  const body = {
-    contents: [{
-      role: 'user',
-      parts: userParts,
-    }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0.1,
-      thinkingConfig: { thinkingBudget: 0 },
-      // Explicit cap — see config.js for rationale. The implicit budget at
-      // thinkingBudget=0 was clipping responses mid-JSON in production.
-      maxOutputTokens: QA_MAX_OUTPUT_TOKENS,
-    },
-  };
 
   let lastErr = null;
   let lastFinishReason = null;
   for (let attempt = 1; attempt <= QA_HTTP_ATTEMPTS; attempt++) {
+    const { body, shape } = buildBody(attempt);
     try {
       const resp = await fetchWithTimeout(url, {
         method: 'POST',
@@ -134,6 +153,26 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
       const txt = extractGeminiResponseText(data);
       const { parsed, repaired } = parseJsonBlock(txt);
       if (!parsed) {
+        // Diagnostic: when len=0 AND finishReason is missing, the response
+        // came back with no candidates at all — the canonical shape of a
+        // pre-model rejection (safety pre-block, payload throttle, or
+        // promptFeedback-only error envelope). Surface enough of the raw
+        // response so we can confirm the cause from logs without re-running.
+        if (!txt && !lastFinishReason) {
+          const promptFeedback = data && typeof data === 'object' ? data.promptFeedback : null;
+          const blockReason = promptFeedback?.blockReason || promptFeedback?.block_reason || null;
+          const safetyRatings = Array.isArray(promptFeedback?.safetyRatings)
+            ? promptFeedback.safetyRatings.filter(r => r && (r.blocked === true || r.probability === 'HIGH'))
+            : [];
+          const candidatesLen = Array.isArray(data?.candidates) ? data.candidates.length : 0;
+          console.warn(
+            `[illustrator/consistencyQa] Empty response diagnostic ` +
+            `attempt=${attempt} payloadShape=${JSON.stringify(shape)} ` +
+            `candidates=${candidatesLen} blockReason=${blockReason || 'null'} ` +
+            `flaggedSafetyRatings=${safetyRatings.length > 0 ? JSON.stringify(safetyRatings) : 'none'} ` +
+            `keys=${data && typeof data === 'object' ? Object.keys(data).join(',') : '(no body)'}`,
+          );
+        }
         lastErr = new Error(
           `Consistency QA unparseable response (finishReason=${lastFinishReason || 'n/a'}, len=${txt.length})`,
         );
@@ -144,6 +183,12 @@ async function checkSpreadConsistency(spreadBase64, coverBase64, opts = {}) {
         console.warn(
           `[illustrator/consistencyQa] Recovered from truncated JSON ` +
           `(finishReason=${lastFinishReason || 'n/a'}, attempt=${attempt})`,
+        );
+      }
+      if (attempt > 1) {
+        console.warn(
+          `[illustrator/consistencyQa] Recovered on retry attempt=${attempt} ` +
+          `payloadShape=${JSON.stringify(shape)} — earlier attempt(s) returned empty`,
         );
       }
       return evaluateConsistencyResult(parsed, recentCount);

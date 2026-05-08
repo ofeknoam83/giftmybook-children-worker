@@ -551,7 +551,13 @@ function buildTagDirectives(tags, opts) {
     );
   }
   if (set.has('text_duplicated_caption') || set.has('duplicated_word')) {
-    out.push(`Render the caption EXACTLY ONCE on the ${side.toUpperCase()} side. Do not repeat it anywhere else on the image.`);
+    out.push(
+      `The previous attempt printed this caption MORE THAN ONCE inside the ${side.toUpperCase()} side ` +
+      `(top + bottom, left edge + right edge, or stacked twice in one corner). ` +
+      `Render the caption EXACTLY ONCE — one single text block only — at the ${side.toUpperCase()} side. ` +
+      `Do not repeat the caption anywhere else on the image: not at the top, not at the bottom, ` +
+      `not echoed in any corner, not mirrored across the midline. The book caption appears one time total per spread.`,
+    );
   }
   if (set.has('extra_word') || set.has('unexpected_text')) {
     out.push(

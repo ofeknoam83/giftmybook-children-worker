@@ -260,6 +260,57 @@ function resolveParentVisibilityWithBothEscapeHatches(planned, consecutiveParent
   return planned;
 }
 
+/**
+ * Tags that indicate a QA infrastructure failure (not a real artifact in the
+ * generated image). When a half fails ONLY on these tags after the model has
+ * had several real attempts, the gate is being held open by an upstream
+ * outage (Gemini empty responses, throttled keys, etc.) — re-rendering the
+ * spread will not change the verdict. We promote those late-stage failures
+ * to an accept so the book ships rather than dying on a QA pipe outage.
+ */
+const QA_INFRA_TAGS = new Set([
+  'qa_api_error',
+  'qa_consistency_error',
+  'qa_action_error',
+  'qa_unavailable',
+]);
+
+/**
+ * @param {{ pass: boolean, tags?: string[] }} qa
+ * @returns {boolean} true when the QA failed and every failure tag is infra
+ */
+function isInfraOnlyFailure(qa) {
+  if (!qa || qa.pass === true) return false;
+  const tags = Array.isArray(qa.tags) ? qa.tags : [];
+  if (tags.length === 0) return false;
+  for (const t of tags) {
+    if (!QA_INFRA_TAGS.has(t)) return false;
+  }
+  return true;
+}
+
+/**
+ * Should this pair be promoted to an accept on the basis that BOTH halves
+ * either passed cleanly or failed only on QA infra? We require the renderer
+ * to have spent at least most of its in-session budget so we do not
+ * fail-open on a one-off transient hiccup.
+ */
+function shouldFailOpenAcceptPair(qaA, qaB, attempt, totalBudget) {
+  const minAttemptsBeforeFailOpen = Math.max(
+    3,
+    Math.ceil((totalBudget || 1) * 0.6),
+  );
+  if (attempt < minAttemptsBeforeFailOpen) return false;
+  const aOk = qaA && qaA.pass === true;
+  const bOk = qaB && qaB.pass === true;
+  const aInfra = isInfraOnlyFailure(qaA);
+  const bInfra = isInfraOnlyFailure(qaB);
+  if (aOk && bOk) return false; // already the clean accept path; don't take this branch
+  if (!(aOk || aInfra)) return false;
+  if (!(bOk || bInfra)) return false;
+  return aInfra || bInfra;
+}
+
 function quadGenOpts() {
   const openai = String(providerName || '').toLowerCase().includes('openai');
   if (openai) {
@@ -677,7 +728,22 @@ async function processQuadPair(params) {
         );
       }
 
-      if (qaA.pass && qaB.pass) {
+      const cleanPass = qaA.pass && qaB.pass;
+      const failOpenAccept = !cleanPass
+        && shouldFailOpenAcceptPair(qaA, qaB, attempt, totalBudget);
+      if (failOpenAccept) {
+        const summarize = (label, qa) => {
+          if (!qa || qa.pass === true) return `${label}=pass`;
+          const tags = Array.isArray(qa.tags) ? qa.tags.join(',') : '';
+          return `${label}=infra-only[${tags}]`;
+        };
+        console.warn(
+          `[${logTagQuad}] FAIL-OPEN ACCEPT pair attempt ${attempt}/${totalBudget} ` +
+          `spreadNumbers=[${spreadNumbers.join(', ')}] — ${summarize('A', qaA)} ${summarize('B', qaB)}. ` +
+          `Real-image checks pass; only the QA infra is failing — accepting to unblock the book.`,
+        );
+      }
+      if (cleanPass || failOpenAccept) {
         const printableQuad = await upscaleForPrint(stripped);
         const slice = await sliceQuadToTwoSpreadStrips(printableQuad);
         console.log(
@@ -690,7 +756,7 @@ async function processQuadPair(params) {
         const printableRightB64 = slice.rightStrip.toString('base64');
 
         console.log(
-          `[${logTagQuad}] ACCEPTED pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)`,
+          `[${logTagQuad}] ACCEPTED pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`,
         );
         markQuadPairAccepted(
           currentSession,

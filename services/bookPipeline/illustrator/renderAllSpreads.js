@@ -91,6 +91,40 @@ function formatQaRejectIssuesForLog(issues) {
   return out;
 }
 
+/**
+ * Tags that indicate a QA infrastructure failure rather than a real problem
+ * with the generated image. When a spread fails ONLY on these tags after
+ * the model has had several real attempts, the gate is being held open by
+ * an upstream outage (Gemini empty responses, throttled keys) — re-rendering
+ * cannot change the verdict, so we promote the failure to an accept.
+ */
+const QA_INFRA_TAGS_SINGLE = new Set([
+  'qa_api_error',
+  'qa_consistency_error',
+  'qa_action_error',
+  'qa_unavailable',
+]);
+
+/**
+ * @param {{ pass: boolean, tags?: string[] }} qa
+ * @param {number} attempt
+ * @param {number} totalBudget
+ * @returns {boolean}
+ */
+function shouldFailOpenAcceptSingle(qa, attempt, totalBudget) {
+  if (!qa || qa.pass === true) return false;
+  const tags = Array.isArray(qa.tags) ? qa.tags : [];
+  if (tags.length === 0) return false;
+  for (const t of tags) {
+    if (!QA_INFRA_TAGS_SINGLE.has(t)) return false;
+  }
+  const minAttemptsBeforeFailOpen = Math.max(
+    3,
+    Math.ceil((totalBudget || 1) * 0.6),
+  );
+  return attempt >= minAttemptsBeforeFailOpen;
+}
+
 /** When Gemini returns 0 content parts (e.g. finishReason=IMAGE_OTHER), wait + retry before failing the spread. */
 const MAX_TRANSIENT_EMPTY_IMAGE_RETRIES = 4;
 const TRANSIENT_EMPTY_IMAGE_BASE_DELAY_MS = 2000;
@@ -469,8 +503,17 @@ async function processOneSpread(params) {
       });
       const qaMs = Date.now() - qaStart;
 
-      if (qa.pass) {
-        console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
+      const cleanPass = qa.pass === true;
+      const failOpenAccept = !cleanPass
+        && shouldFailOpenAcceptSingle(qa, attempt, totalBudget);
+      if (failOpenAccept) {
+        console.warn(
+          `[${logTag}] FAIL-OPEN ACCEPT on attempt ${attempt}/${totalBudget} ` +
+          `tags=[${(qa.tags || []).join(',')}] — only QA infra is failing; accepting to unblock the book.`,
+        );
+      }
+      if (cleanPass || failOpenAccept) {
+        console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`);
         markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
 
         const printable = await upscaleForPrint(stripped);
