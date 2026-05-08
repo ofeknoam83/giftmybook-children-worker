@@ -6,7 +6,7 @@
  */
 
 const { getRulesForTier, TEN_COMMANDMENTS } = require('./rules');
-const { getExemplars } = require('./exemplars');
+const { getExemplars, getAntiExemplars } = require('./exemplars');
 const { buildPronounInstruction } = require('../quality/pronoun');
 
 /**
@@ -69,7 +69,8 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
   if (exemplar && role === 'writer') {
     sections.push('\n## EXEMPLAR — STUDY THIS STYLE\n');
     sections.push(`${exemplar.description}\n`);
-    sections.push('Here is an exemplar showing the craft quality we expect. Study the rhythm, the concrete nouns, the emotional arc, and the natural rhymes:\n');
+    sections.push('Here is an exemplar showing the craft quality we expect. Study the rhythm, the concrete nouns, the emotional arc, and the natural rhymes.');
+    sections.push('Lines marked "[REFRAIN]" show where the same wording returns across the book — observe how the surrounding context shifts even though the refrain itself does not. The "[REFRAIN]" marker is for your study only; do NOT include it in your own output.\n');
     exemplar.spreads.forEach((text, i) => {
       sections.push(`Spread ${i + 1}:\n${text}\n`);
     });
@@ -77,6 +78,32 @@ function buildSystemPrompt(theme, tierName, child, book, opts = {}) {
     if (exemplar.refrainDiscipline) {
       sections.push('\n## REFRAIN DISCIPLINE\n');
       sections.push(`${exemplar.refrainDiscipline}\n`);
+    }
+  }
+
+  // Refrain discipline visible to the planner too — the plan locks beat
+  // placement, so the planner needs to know where the refrain wants to land.
+  if (exemplar && role === 'planner' && exemplar.refrainDiscipline) {
+    sections.push('\n## REFRAIN DISCIPLINE (the writer will be held to this — plan beats so it can land)\n');
+    sections.push(`${exemplar.refrainDiscipline}\n`);
+    sections.push('When you choose the spread for the climax / quiet beat / closing image, leave room for a refrain repeat in the closing third (spread 10 or later). Do not pack every emotional payoff into spread 13 — give the refrain a place to come back.');
+  }
+
+  // Anti-exemplars — show concrete BAD vs FIXED so the anti-AI rules are
+  // illustrated, not just declared. Writer + reviser both benefit.
+  if ((role === 'writer' || role === 'reviser')) {
+    const antiExemplars = getAntiExemplars();
+    if (antiExemplars.length > 0) {
+      sections.push('\n## ANTI-EXEMPLARS — WHAT TO AVOID, WITH FIXES\n');
+      sections.push('Each pair below shows a typical AI-flatness failure on the left and the fixed version on the right. The fixes are what we expect; the failures are ship-blockers.\n');
+      antiExemplars.forEach((pair, i) => {
+        sections.push(`### ${i + 1}. ${pair.label}\n`);
+        sections.push('BAD (do NOT write like this):');
+        sections.push(pair.bad);
+        sections.push('\nFIXED (this is the bar):');
+        sections.push(pair.good);
+        sections.push(`\nWhy: ${pair.why}\n`);
+      });
     }
   }
 

@@ -87,16 +87,23 @@ class GenericThemeWriter extends BaseThemeWriter {
       });
     }
 
-    const refrain = this._chooseRefrain(child, parentName, seed);
+    const refrain = await this._chooseRefrain(child, parentName, seed, book);
 
+    // Always run anecdote enrichment when anecdotes exist — previously skipped
+    // when upstream seed beats were used, which lost personalization. When
+    // beats came from the upstream brainstormer, the enricher must REFINE
+    // descriptions without rewriting the arc (the upstream planner already
+    // shaped the spine for this child). When beats came from our own creative
+    // call, the enricher can be looser.
     let enrichedBeats = beats;
     if (
       child.anecdotes &&
-      Object.keys(child.anecdotes).length > 0 &&
-      !usedStorySeedBeats
+      Object.keys(child.anecdotes).length > 0
     ) {
       try {
-        enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier);
+        enrichedBeats = await this._enrichPlanWithLLM(beats, child, book, parentName, ageTier, {
+          preserveArc: usedStorySeedBeats,
+        });
       } catch (err) {
         console.warn(`[writerV2] Plan enrichment failed, using unenriched beats: ${err.message}`);
       }
@@ -446,8 +453,9 @@ class GenericThemeWriter extends BaseThemeWriter {
   // revise()
   // ──────────────────────────────────────────
 
-  async revise(story, feedback, child, book) {
+  async revise(story, feedback, child, book, opts = {}) {
     const ageTier = story._ageTier || this.getAgeTier(child.age);
+    const plan = opts.plan || null;
     const systemPrompt = buildSystemPrompt(this.themeName, ageTier, child, book, { role: 'reviser' });
 
     const currentText = story.spreads.map(s => {
@@ -456,7 +464,7 @@ class GenericThemeWriter extends BaseThemeWriter {
       return lines.join('\n');
     }).join('\n\n');
 
-    const userPrompt = `Here is the current story with its scene descriptions:\n\n${currentText}\n\n## REVISION FEEDBACK\n\n${feedback}\n\nRevise the story to address ALL of the issues above. Keep the same number of spreads (${story.spreads.length}). Preserve the emotional arc and refrain. Fix the specific issues identified.\n\nOUTPUT FORMAT — EVERY spread MUST still include BOTH a TEXT: block and a SCENE: block:\n\n---SPREAD 1---\nTEXT:\n<story lines>\nSCENE:\n<single-paragraph scene description — ~40-70 words — that matches the TEXT you just revised and locks the assigned palette location>\n\nRewrite the SCENE when you change the TEXT so the two stay aligned. Never omit either block.`;
+    const userPrompt = `Here is the current story with its scene descriptions:\n\n${currentText}\n\n## REVISION FEEDBACK\n\n${feedback}\n\nRevise the story to address ALL of the issues above. Keep the same number of spreads (${story.spreads.length}). Preserve the emotional arc and refrain. Fix the specific issues identified.\n\nOUTPUT FORMAT — EVERY spread MUST still include BOTH a TEXT: block and a SCENE: block:\n\n---SPREAD 1---\nTEXT:\n<story lines>\nSCENE:\n<single-paragraph scene description — ~40-70 words — that matches the TEXT you just revised and locks the assigned palette location>\n\nRewrite the SCENE when you change the TEXT so the two stay aligned. Never omit either block. A SCENE shorter than ~25 words is a ship-blocker; the illustrator reads it verbatim.`;
 
     const result = await this.callLLM('reviser', systemPrompt, userPrompt, { maxTokens: 4000 });
 
@@ -469,14 +477,48 @@ class GenericThemeWriter extends BaseThemeWriter {
       return story;
     }
 
-    // If the reviser dropped the SCENE block on some spreads, inherit the
-    // pre-revision scene for those spreads rather than leaving them blank —
-    // it still reflects a scene that matched an earlier version of the text
-    // and is strictly better than nothing for the illustrator.
+    // SCENE handling post-revise. The reviser is contractually required to
+    // emit a SCENE on every spread (the prompt above re-states this), but the
+    // model occasionally drops one. Two repair strategies depending on what
+    // the new TEXT looks like vs. the pre-revision text:
+    //
+    //   (a) If the TEXT is unchanged from the prior version, inheriting the
+    //       prior SCENE is safe and correct.
+    //   (b) If the TEXT changed, the prior SCENE is stale by definition.
+    //       Synthesize a short stub that names the assigned palette location
+    //       (when known from `plan`) so the next QualityGate iteration
+    //       catches it via the SCENE-length veto and forces re-revision —
+    //       and so the illustrator at least gets the right place if we
+    //       exhaust retries.
     const priorBySpread = new Map();
-    for (const s of story.spreads) priorBySpread.set(s.spread, s.scene || '');
+    for (const s of story.spreads) priorBySpread.set(s.spread, { scene: s.scene || '', text: s.text || '' });
+    const beatLocByNum = new Map();
+    if (plan && Array.isArray(plan.beats)) {
+      for (const b of plan.beats) {
+        if (b && typeof b.location === 'string' && b.location.trim()) {
+          beatLocByNum.set(Number(b.spread), b.location.trim());
+        }
+      }
+    }
     for (const s of spreads) {
-      if (!s.scene) s.scene = priorBySpread.get(s.spread) || '';
+      if (s.scene && s.scene.trim()) continue;
+      const prior = priorBySpread.get(s.spread) || { scene: '', text: '' };
+      const textChanged = (prior.text || '').trim() !== (s.text || '').trim();
+      if (!textChanged && prior.scene) {
+        s.scene = prior.scene;
+        continue;
+      }
+      const loc = beatLocByNum.get(Number(s.spread));
+      if (loc) {
+        // Short, location-naming stub. Intentionally below the 25-word
+        // SCENE-length floor so the gate forces the reviser to flesh it
+        // out on the next pass — but if retries are exhausted, the
+        // illustrator at least sees the locked location instead of nothing.
+        s.scene = `At ${loc}.`;
+        console.warn(`[writerV2] revise: spread ${s.spread} SCENE was missing post-revise; stubbed to assigned location "${loc}" so quality gate can force re-revision.`);
+      } else {
+        s.scene = prior.scene || '';
+      }
     }
 
     checkAndFixPronouns(spreads, child.gender);
@@ -500,7 +542,7 @@ class GenericThemeWriter extends BaseThemeWriter {
   // Refrain
   // ──────────────────────────────────────────
 
-  _chooseRefrain(child, parentName, storySeed) {
+  async _chooseRefrain(child, parentName, storySeed, book) {
     // If the brainstormed seed provided a concrete repeated_phrase, prefer it.
     if (storySeed?.repeated_phrase && typeof storySeed.repeated_phrase === 'string') {
       const phrase = storySeed.repeated_phrase.trim();
@@ -528,7 +570,12 @@ class GenericThemeWriter extends BaseThemeWriter {
       };
     }
 
-    // For non-parent themes, let the LLM choose a theme-appropriate refrain
+    // Non-parent themes: use the hardcoded theme-appropriate suggestions as a
+    // safety net, then try to enrich with 2–3 anecdote-aware options drawn
+    // from the child's specific details (favorite activity, funny thing,
+    // meaningful moment, favorite object). The LLM-generated options sit at
+    // the front of the list so the writer prefers them; the hardcoded
+    // generics remain as fallback if the writer wants more options.
     const themeRefrainHints = {
       birthday:        ['The best day yet.', 'A wish, a breath, a glow.', 'Today is yours.'],
       birthday_magic:  ['The magic knows your name.', 'One more candle, one more year.', 'A wish, a breath, a glow.'],
@@ -550,18 +597,143 @@ class GenericThemeWriter extends BaseThemeWriter {
       self_worth:      ['You are just enough.', 'The world is glad you came.', 'There is only one of you.'],
       family_change:   ['Love does not move out.', 'Home is where you are.', 'We are still a we.'],
     };
+    const fallbacks = themeRefrainHints[this.themeName] || [
+      'And so the story goes.',
+      'Just like only you can.',
+      'That is how it is.',
+    ];
+
+    let anecdoteOptions = [];
+    try {
+      anecdoteOptions = await this._buildAnecdoteAwareRefrainOptions(child, book, fallbacks);
+    } catch (err) {
+      console.warn(`[writerV2] anecdote-aware refrain failed for ${this.themeName}: ${err.message}`);
+    }
+
+    const merged = [];
+    for (const opt of anecdoteOptions) {
+      if (typeof opt === 'string' && opt.trim() && !merged.includes(opt.trim())) {
+        merged.push(opt.trim());
+      }
+    }
+    for (const opt of fallbacks) {
+      if (!merged.includes(opt)) merged.push(opt);
+    }
 
     return {
       parentWord: null,
-      suggestions: themeRefrainHints[this.themeName] || ['And so the story goes.', 'Just like only you can.', 'That is how it is.'],
+      suggestions: merged.slice(0, 6),
+      fromAnecdotes: anecdoteOptions.length > 0,
     };
+  }
+
+  /**
+   * Generate 2–3 short refrain options that incorporate one specific detail
+   * from the child's questionnaire (favorite activity, funny thing, meaningful
+   * moment, or favorite object). Skips the LLM call when no anecdotes exist
+   * or when the theme is generic enough that the hardcoded list is fine.
+   *
+   * Returns an array of refrain strings (≤8 words, includes the child's name
+   * when natural). Never throws — failures fall back to [].
+   *
+   * @param {object} child
+   * @param {object} book
+   * @param {string[]} fallbacks
+   * @returns {Promise<string[]>}
+   */
+  async _buildAnecdoteAwareRefrainOptions(child, book, fallbacks) {
+    const a = (child && child.anecdotes) || {};
+    const interestingFields = [
+      'favorite_activities',
+      'funny_thing',
+      'meaningful_moment',
+      'favorite_toys',
+      'favorite_food',
+      'other_detail',
+      'anything_else',
+    ];
+    const anecdoteLines = [];
+    for (const f of interestingFields) {
+      const v = a[f];
+      if (typeof v === 'string' && v.trim()) {
+        anecdoteLines.push(`- ${f}: ${v.trim()}`);
+      }
+    }
+    const customDetails = (book?.customDetails || '').toString().trim();
+    if (customDetails) anecdoteLines.push(`- customDetails: ${customDetails}`);
+    if (Array.isArray(child.interests) && child.interests.length) {
+      anecdoteLines.push(`- interests: ${child.interests.join(', ')}`);
+    }
+    if (anecdoteLines.length === 0) return [];
+
+    const themeLabel = this.themeName.replace(/_/g, ' ');
+    const childName = (child && child.name) ? String(child.name) : 'the child';
+    const exampleList = fallbacks.slice(0, 3).map(s => `"${s}"`).join(', ');
+
+    const systemPrompt = [
+      'You are a children\'s picture-book lyricist. You write refrains — the one short line that returns 3 times across a book and gives it its heartbeat.',
+      `Generate 3 distinct refrain options for a ${themeLabel} book about a child named ${childName}.`,
+      'STRICT rules for every option:',
+      '- 4 to 8 words. Never longer.',
+      '- Read aloud cleanly: a parent should not stumble.',
+      '- Concrete: a verb or a thing the illustrator could echo across spreads — never a greeting-card declaration ("you are loved", "always remember").',
+      '- Includes ONE specific anecdote element only when it fits naturally — a verb the child does, an object they hold, a place they know. NEVER list a brand or character name. NEVER force the child\'s name in unless it scans.',
+      '- The line should DEEPEN on repeats — meaning, it must work as a small promise (early), as comfort (middle), and as a kept truth (close). Test each option by mentally placing it on spread 3, spread 8, and spread 13.',
+      '- No semicolons, no em-dashes, no parentheses, no exclamation points. End with a period.',
+      `- Tone fits the theme "${themeLabel}". For comparison, generic options that already exist for this theme are: ${exampleList}. Do NOT repeat those — go more specific to the anecdotes.`,
+      '',
+      'Return ONLY a JSON object: {"options": ["...", "...", "..."]}. No prose, no markdown.',
+    ].join('\n');
+
+    const userPrompt = [
+      `Child: ${childName}, age ${child?.age ?? 5}.`,
+      `Theme: ${themeLabel}.`,
+      'Anecdotes (use ONE detail per option, weaving it into the refrain naturally):',
+      anecdoteLines.join('\n'),
+      '',
+      'Emit the JSON now.',
+    ].join('\n');
+
+    let result;
+    try {
+      result = await this.callLLM('planner', systemPrompt, userPrompt, {
+        jsonMode: true,
+        maxTokens: 400,
+        temperature: 0.9,
+      });
+    } catch (err) {
+      console.warn(`[writerV2] anecdote-aware refrain LLM call failed: ${err.message}`);
+      return [];
+    }
+
+    let parsed;
+    try {
+      const raw = String(result.text || '').trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```\s*$/i, '');
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.warn(`[writerV2] anecdote-aware refrain JSON parse failed: ${err.message}`);
+      return [];
+    }
+
+    const opts = Array.isArray(parsed?.options) ? parsed.options : [];
+    return opts
+      .map(s => (typeof s === 'string' ? s.trim() : ''))
+      .filter(s => {
+        if (!s) return false;
+        const wc = s.split(/\s+/).filter(Boolean).length;
+        return wc >= 3 && wc <= 10 && s.length <= 80;
+      })
+      .slice(0, 3);
   }
 
   // ──────────────────────────────────────────
   // LLM plan enrichment
   // ──────────────────────────────────────────
 
-  async _enrichPlanWithLLM(beats, child, book, parentName, ageTier) {
+  async _enrichPlanWithLLM(beats, child, book, parentName, ageTier, opts = {}) {
+    const preserveArc = opts.preserveArc === true;
     const anecdoteText = this._formatAnecdotes(child.anecdotes);
     if (!anecdoteText) return beats;
 
@@ -600,7 +772,23 @@ Refine each beat description to incorporate specific details from the anecdotes.
     const themeLabel = this.themeName.replace(/_/g, ' ');
     const parentNote = parentName ? ` about ${child.name} and ${parentName}` : ` about ${child.name}`;
 
-    const systemPrompt = `You are a children's book story planner specializing in ${themeLabel} picture books. Your job is to weave specific, real details about this child into the story beats.
+    const systemPrompt = preserveArc
+      ? `You are a children's book story planner specializing in ${themeLabel} picture books. The beats below were already shaped by an upstream planner for THIS child — your job is to REFINE the descriptions only, weaving in specific anecdotes WITHOUT rewriting the arc.
+
+REFINEMENT MODE — strict rules:
+- PRESERVE the emotional spine: do NOT change the order of beats, do NOT change which beat is the climax / quiet moment / closing image, do NOT change which spread "feels biggest".
+- PRESERVE the location intent of each beat: if the beat says "at the harbor", do not move it to "at the museum".
+- REFINE the description of each beat to include a concrete, specific anecdote element where one fits naturally — a named object, action, food, or detail from the questionnaire.
+- A 3-year-old listener must still be able to follow every transition between beats. If a transition is unclear in the incoming beat, you may add one short connective phrase to the description.
+- The story must NOT open at home. The closing must NOT default to "walking home" / "heading home" / "back at home" — if you see those phrases, replace them with a concrete final image at wherever the story ended up.
+
+RULES:
+- Keep the same number of beats. Same spread numbers. Same beat labels.
+- Replace generic placeholders with specific anecdotes from the child's real life.
+- Use concrete nouns and actions, never abstract claims.
+- The anecdotes should feel natural in the story, not forced in.
+- Do NOT pile multiple anecdotes onto one beat — distribute them across the book.`
+      : `You are a children's book story planner specializing in ${themeLabel} picture books. Your job is to weave specific, real details about this child into the story beats.
 
 NARRATIVE SHAPE:
 - The beats below are SOFT INSPIRATION, not a rigid scene template. The writer will be told to invent the arc.

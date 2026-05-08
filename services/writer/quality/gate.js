@@ -10,8 +10,10 @@
  * same location across many spreads does not veto a pass by itself.
  *
  * Hard checks: possessive-pronoun regex, identical-word rhyme lint,
- * overlong words (ages 0–3), and scene–palette substring continuity when beats
- * carry `location`.
+ * overlong words (ages 0–3), scene–palette substring continuity when beats
+ * carry `location`, refrain placement (3x with one in spreads 10–13, not
+ * back-to-back), opening-location ban-list (spread 1 must not read as a
+ * mundane home/park/playground default), and SCENE block length floor.
  */
 
 const { BaseThemeWriter } = require('../themes/base');
@@ -68,6 +70,9 @@ class QualityGate {
           rhymeLint: false,
           longWords: false,
           sceneContinuity: false,
+          refrain: false,
+          openingLocation: false,
+          sceneLength: false,
         },
       };
     }
@@ -86,9 +91,21 @@ class QualityGate {
       : [];
 
     const sceneContinuityIssues = QualityGate._collectSceneContinuityIssues(spreads, opts?.plan);
+    const refrainIssues = QualityGate._collectRefrainIssues(spreads, opts?.plan);
+    const openingLocationIssues = QualityGate._collectOpeningLocationIssues(spreads, opts?.plan, book);
+    const sceneLengthIssues = QualityGate._collectSceneLengthIssues(spreads, opts?.plan);
 
     for (const sc of sceneContinuityIssues) {
       issues.push({ dimension: 'sceneContinuity', spread: sc.spread, note: sc.note });
+    }
+    for (const r of refrainIssues) {
+      issues.push({ dimension: 'refrain', spread: r.spread ?? null, note: r.note });
+    }
+    for (const o of openingLocationIssues) {
+      issues.push({ dimension: 'openingLocation', spread: o.spread, note: o.note });
+    }
+    for (const sl of sceneLengthIssues) {
+      issues.push({ dimension: 'sceneLength', spread: sl.spread, note: sl.note });
     }
     for (const e of possessiveErrors) {
       issues.push({
@@ -127,10 +144,25 @@ class QualityGate {
         ? `${feedback}\n\n${QualityGate._sceneContinuityFeedbackBlock(sceneContinuityIssues)}`
         : QualityGate._sceneContinuityFeedbackBlock(sceneContinuityIssues);
     }
+    if (refrainIssues.length > 0) {
+      const block = QualityGate._refrainFeedbackBlock(refrainIssues);
+      feedback = feedback ? `${feedback}\n\n${block}` : block;
+    }
+    if (openingLocationIssues.length > 0) {
+      const block = QualityGate._openingLocationFeedbackBlock(openingLocationIssues);
+      feedback = feedback ? `${feedback}\n\n${block}` : block;
+    }
+    if (sceneLengthIssues.length > 0) {
+      const block = QualityGate._sceneLengthFeedbackBlock(sceneLengthIssues);
+      feedback = feedback ? `${feedback}\n\n${block}` : block;
+    }
     const pass = possessiveErrors.length === 0
       && rhymeLintIssues.length === 0
       && readAloudLongWords.length === 0
-      && sceneContinuityIssues.length === 0;
+      && sceneContinuityIssues.length === 0
+      && refrainIssues.length === 0
+      && openingLocationIssues.length === 0
+      && sceneLengthIssues.length === 0;
 
     let advisoryNotes = '';
     if (!pass) {
@@ -147,6 +179,9 @@ class QualityGate {
       rhymeLint: rhymeLintIssues.length > 0,
       longWords: readAloudLongWords.length > 0,
       sceneContinuity: sceneContinuityIssues.length > 0,
+      refrain: refrainIssues.length > 0,
+      openingLocation: openingLocationIssues.length > 0,
+      sceneLength: sceneLengthIssues.length > 0,
     };
 
     console.log(`[writerV2] qualityGate:`, {
@@ -307,6 +342,231 @@ class QualityGate {
     const lines = issues.map(i => `  - Spread ${i.spread}: ${i.note}`);
     return [
       'SCENE CONTINUITY — rewrite the SCENE blocks below so each one names the assigned palette location and matches its TEXT. The illustrator uses the SCENE verbatim as its prompt; when the SCENE does not name the locked location, every downstream spread drifts visually.',
+      ...lines,
+    ].join('\n');
+  }
+
+  /**
+   * Refrain placement check. The story rules require the refrain to:
+   *   - appear at least 3 times across the book,
+   *   - never on consecutive spreads,
+   *   - include at least one occurrence in spreads 10-13.
+   *
+   * The writer is free to invent its own refrain wording, so we discover the
+   * refrain heuristically: the longest 4+ word phrase (case- and punctuation-
+   * normalized) that appears in the most spreads. This catches the actual
+   * recurring line even when it diverges from `plan.refrain.suggestions`.
+   *
+   * Books with fewer than 6 spreads are skipped (not enough signal).
+   *
+   * @param {Array<object>} spreads
+   * @param {object|null} plan
+   * @returns {Array<{ spread?: number, note: string }>}
+   */
+  static _collectRefrainIssues(spreads, plan) {
+    if (!Array.isArray(spreads) || spreads.length < 6) return [];
+    const lastSpread = Math.max(...spreads.map(s => Number(s.spread) || 0));
+    if (!Number.isFinite(lastSpread) || lastSpread < 6) return [];
+
+    const refrain = QualityGate._discoverRefrain(spreads, plan);
+    if (!refrain) {
+      return [{
+        note: 'No refrain detected — the book needs ONE recognizable repeating line (>= 4 words, exact same wording) appearing on at least 3 spreads. Pick one phrase that captures the emotional core of the theme and place it three times across the book (one of those repeats must land in spreads 10–13).',
+      }];
+    }
+
+    const occurrences = refrain.spreadNumbers.slice().sort((a, b) => a - b);
+    const issues = [];
+
+    if (occurrences.length < 3) {
+      issues.push({
+        note: `Refrain "${refrain.phrase}" appears only ${occurrences.length} time(s) (spreads ${occurrences.join(', ') || 'none'}). Use it on EXACTLY 3 spreads — early, middle, and late — with at least one repeat in spreads 10–13.`,
+      });
+    }
+
+    const lateHit = occurrences.some(n => n >= Math.max(10, lastSpread - 3));
+    if (occurrences.length >= 1 && !lateHit) {
+      issues.push({
+        note: `Refrain "${refrain.phrase}" never lands in spreads 10–${lastSpread}. The closing third of the book must include the refrain so it pays off the emotional arc; without a late hit it reads as abandoned.`,
+      });
+    }
+
+    for (let i = 1; i < occurrences.length; i++) {
+      if (occurrences[i] === occurrences[i - 1] + 1) {
+        issues.push({
+          note: `Refrain "${refrain.phrase}" appears on consecutive spreads ${occurrences[i - 1]} and ${occurrences[i]}. Space the repeats — refrain back-to-back drains its meaning. Move one occurrence to a non-adjacent spread.`,
+        });
+        break;
+      }
+    }
+
+    if (occurrences.length > 4) {
+      issues.push({
+        note: `Refrain "${refrain.phrase}" appears ${occurrences.length} times (spreads ${occurrences.join(', ')}). Three is the sweet spot, four is the cap; more makes the book monotonous. Cut one or two occurrences.`,
+      });
+    }
+
+    return issues;
+  }
+
+  /**
+   * Discover the most-likely refrain by finding the longest 4+ word phrase
+   * shared by the most spreads. Returns null if no phrase repeats across
+   * 2+ spreads.
+   *
+   * @param {Array<object>} spreads
+   * @param {object|null} plan
+   * @returns {{ phrase: string, spreadNumbers: number[] } | null}
+   */
+  static _discoverRefrain(spreads, plan) {
+    const norm = s => String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9'\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const candidates = new Map();
+    const planSuggestions = Array.isArray(plan?.refrain?.suggestions)
+      ? plan.refrain.suggestions.map(norm).filter(s => s.split(' ').length >= 3)
+      : [];
+    for (const sugg of planSuggestions) {
+      candidates.set(sugg, []);
+    }
+
+    const byNum = spreads
+      .map(s => ({ n: Number(s.spread) || 0, t: norm(s.text || '') }))
+      .filter(s => s.n > 0 && s.t.length > 0);
+
+    for (const { n, t } of byNum) {
+      const tokens = t.split(' ');
+      for (let len = Math.min(10, tokens.length); len >= 4; len--) {
+        for (let i = 0; i + len <= tokens.length; i++) {
+          const phrase = tokens.slice(i, i + len).join(' ');
+          if (!candidates.has(phrase)) candidates.set(phrase, []);
+          const arr = candidates.get(phrase);
+          if (!arr.includes(n)) arr.push(n);
+        }
+      }
+    }
+
+    let best = null;
+    for (const [phrase, hits] of candidates.entries()) {
+      if (hits.length < 2) continue;
+      const score = hits.length * 100 + phrase.split(' ').length;
+      if (!best || score > best.score) {
+        best = { phrase, spreadNumbers: hits, score };
+      }
+    }
+    if (!best) return null;
+    return { phrase: best.phrase, spreadNumbers: best.spreadNumbers };
+  }
+
+  static _refrainFeedbackBlock(issues) {
+    const lines = issues.map(i => `  - ${i.note}`);
+    return [
+      'REFRAIN PLACEMENT — children\'s books live or die on the refrain. Pick ONE line of 4+ words and reuse the EXACT same wording 3 times (4 max), spaced apart, with at least one occurrence in the closing third of the book:',
+      ...lines,
+    ].join('\n');
+  }
+
+  /**
+   * Opening location check. Spread 1 must not read as the banned mundane
+   * defaults (waking in bed, kitchen breakfast, living-room rug, generic
+   * playground/park, backyard garden, "at home"). The check inspects both
+   * TEXT and SCENE, with theme-aware exceptions: bedtime themes are exempt
+   * (a bedroom opener is on-theme), and if the planner pre-assigned a palette
+   * location to spread 1, we trust the planner's vetting and only fail on
+   * obvious banned phrases in the TEXT.
+   *
+   * @param {Array<object>} spreads
+   * @param {object|null} plan
+   * @param {object|null} book
+   * @returns {Array<{ spread: number, note: string }>}
+   */
+  static _collectOpeningLocationIssues(spreads, plan, book) {
+    if (!Array.isArray(spreads) || spreads.length === 0) return [];
+    const opener = spreads.find(s => Number(s.spread) === 1) || spreads[0];
+    if (!opener) return [];
+
+    const theme = (book?.theme || plan?.theme || '').toString().toLowerCase();
+    if (theme === 'bedtime') return [];
+
+    const text = String(opener.text || '').toLowerCase();
+    const scene = String(opener.scene || '').toLowerCase();
+    const combined = `${text}\n${scene}`;
+
+    const bannedPhrases = [
+      { rx: /\b(?:in|on|inside)\s+(?:the|her|his)?\s*bed\b/, label: 'opens in bed' },
+      { rx: /\b(?:wakes?|woke|waking)\s+up\b/, label: 'opens with waking up' },
+      { rx: /\bunder\s+the\s+covers?\b/, label: 'opens under the covers' },
+      { rx: /\b(?:the\s+)?kitchen\s+(?:table|counter|sink)\b/, label: 'opens at the kitchen table/counter' },
+      { rx: /\b(?:breakfast|cereal)\s+(?:bowl|table|time)\b/, label: 'opens at breakfast' },
+      { rx: /\bliving[\s-]room\b/, label: 'opens in the living room' },
+      { rx: /\b(?:on|across|in)\s+the\s+rug\b/, label: 'opens on the rug at home' },
+      { rx: /\bplayroom\b/, label: 'opens in a playroom' },
+      { rx: /\b(?:the\s+)?backyard\b/, label: 'opens in the backyard' },
+      { rx: /\bgarden\s+(?:gate|path|patch|bed)\b/, label: 'opens in the home garden' },
+      { rx: /\bat\s+home\b/, label: 'opens "at home"' },
+      { rx: /\bin\s+(?:the|her|his)\s+(?:own\s+)?(?:room|bedroom)\b/, label: 'opens in the bedroom' },
+    ];
+
+    const matched = [];
+    for (const { rx, label } of bannedPhrases) {
+      if (rx.test(combined)) matched.push(label);
+    }
+    if (matched.length === 0) return [];
+
+    return [{
+      spread: opener.spread,
+      note: `Spread 1 ${matched[0]} — that is a banned mundane opener. Rewrite the opener (TEXT and SCENE) to start in a non-home, visually striking location: lighthouse causeway, rope bridge, balloon deck, waterfall ledge, ice-cave mouth, observatory dome, harbor at dawn, marble ruins, treetop walk — or another specific outdoor/landmark setting that earns a "wow" first page. The first page is the cover's promise; do not waste it on a kitchen.`,
+    }];
+  }
+
+  static _openingLocationFeedbackBlock(issues) {
+    const lines = issues.map(i => `  - Spread ${i.spread}: ${i.note}`);
+    return [
+      'OPENING LOCATION — spread 1 sets the visual stakes for the whole book. Mundane home/park/playground openers are banned:',
+      ...lines,
+    ].join('\n');
+  }
+
+  /**
+   * SCENE-length floor. A SCENE block much shorter than 25 words cannot
+   * possibly contain location naming + viewpoint + body action + light cue
+   * + 2-3 visual anchors that the illustrator depends on. We only run this
+   * when the plan supplied palette locations (so we know SCENE is contractually
+   * required), and we tolerate the closing spread being a touch shorter.
+   *
+   * @param {Array<object>} spreads
+   * @param {object|null} plan
+   * @returns {Array<{ spread: number, note: string }>}
+   */
+  static _collectSceneLengthIssues(spreads, plan) {
+    const beats = plan && Array.isArray(plan.beats) ? plan.beats : [];
+    if (beats.length === 0) return [];
+    const hasPalette = beats.some(b => b && typeof b.location === 'string' && b.location.trim());
+    if (!hasPalette) return [];
+
+    const MIN_WORDS = 25;
+    const issues = [];
+    for (const s of spreads) {
+      const scene = typeof s.scene === 'string' ? s.scene.trim() : '';
+      if (!scene) continue;
+      const words = scene.split(/\s+/).filter(Boolean).length;
+      if (words < MIN_WORDS) {
+        issues.push({
+          spread: s.spread,
+          note: `SCENE block is only ${words} words (target 40–70). Expand it to a full art-direction paragraph: name the palette location, the viewpoint/framing in plain words (wide shot, low angle, over-the-shoulder, closer on hands), the time of day and quality of light, the hero's body action and expression, and 2–3 concrete visual anchors. Short SCENE blocks force the illustrator to invent the picture.`,
+        });
+      }
+    }
+    return issues;
+  }
+
+  static _sceneLengthFeedbackBlock(issues) {
+    const lines = issues.map(i => `  - Spread ${i.spread}: ${i.note}`);
+    return [
+      'SCENE LENGTH — the illustrator reads the SCENE block verbatim. Stub-length scenes (under 25 words) silently produce generic art:',
       ...lines,
     ].join('\n');
   }
