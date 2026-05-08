@@ -121,47 +121,31 @@ function composeScene(doc, spread) {
   const declaredOffCoverCast = (visualBible?.supportingCast || [])
     .filter(c => (c?.description || c?.name || c?.role) && c?.onCover !== true);
 
-  function renderPartialPresenceLock(c) {
+  function renderSignatureObjectLock(c) {
     const lock = c?.partialPresenceLock || {};
-    const parts = [
-      lock.skinTone ? `skin tone: ${lock.skinTone}` : '',
-      lock.hand ? `hand/arm: ${lock.hand}` : '',
-      lock.sleeve ? `sleeve/outfit fragment: ${lock.sleeve}` : '',
-      lock.signatureProp ? `signature: ${lock.signatureProp}` : '',
-    ].filter(Boolean);
-    return parts.length > 0
-      ? `        Partial-presence LOCK (use EVERY time this character is implied; must match across all spreads): ${parts.join('; ')}.`
+    const sig = lock.signatureProp;
+    return sig
+      ? `        Signature object LOCK (use EVERY time this character is implied; render IDENTICAL across spreads): ${sig}.`
       : '';
   }
 
   const offCoverCastBlock = declaredOffCoverCast.length > 0
     ? [
-      'Off-cover cast rule (HARD):',
+      'Off-cover cast rule (HARD — no off-cover person ever appears visibly in any form):',
       ...declaredOffCoverCast.flatMap(c => {
         const label = [c.role, c.name ? `(${c.name})` : ''].filter(Boolean).join(' ');
         const ideas = Array.isArray(c.partialPresenceIdeas) && c.partialPresenceIdeas.length > 0
-          ? ` Partial-presence ideas: ${c.partialPresenceIdeas.join(' / ')}.`
+          ? ` Signature-object ideas: ${c.partialPresenceIdeas.join(' / ')}.`
           : '';
-        const lockLine = renderPartialPresenceLock(c);
+        const lockLine = renderSignatureObjectLock(c);
         return [
-          `  - ${label || 'supporting character'} is present in the story but is NOT on the cover. Render only as partial presence: a hand, arm, shoulder, back-of-head, silhouette, or a distant unfocused figure. Never a full face. Never a full body. A personal object (a favorite cup, a knitted scarf, a worn hat) may stand in for them.${ideas}`,
+          `  - ${label || 'supporting character'} is referenced in the story but is NOT on the cover. They NEVER appear visibly in any spread — not as a face, not as a body, not as a hand / arm / finger / shoulder / back-of-head / cropped torso / silhouette / shadow / reflection / distant figure. Their presence is communicated ONLY through (a) the manuscript text, and (b) one or two SIGNATURE OBJECTS placed naturally in the scene (a favorite cup, a knitted scarf, a worn hat, an empty rocking chair, a folded blanket, a coat on a hook).${ideas}`,
           lockLine,
         ].filter(Boolean);
       }),
-      '  Any adult full face or full body figure not on the cover is forbidden.',
-      '  Skin tone of every implied family member MUST plausibly match the hero on the cover — no unexplained ethnicity mismatch.',
-      '  Parent–child orientation rule (HARD — applies to ANY parent in the frame, full figure OR partial presence):',
-      '    - Whenever a mother or father appears (visible body OR implied through a hand/arm/silhouette), they must be visibly engaged with the hero child: oriented toward the child, eyes on the child, sharing the child\'s focus on a shared object, leaning in, holding hands, or walking alongside.',
-      '    - The parent\'s back must NEVER be turned to the child with no narrative reason. No walking away from the child, no ignoring the child, no parent looking off into empty space while the child sits behind them.',
-      '    - For partial presence: the implied hand or arm must reach TOWARD the child (offering, holding, steadying, pointing at the same thing) — not extending away from the child.',
-      '    - Allowed natural exceptions: parent in profile leading the child forward by the hand, both parent and child facing the same shared focus (fireworks, a sunset, a cake), parent kneeling beside the child reaching for something for them. In all these the parent\'s body language still reads as connected to the child.',
-      '  Partial-presence anatomy rule (HARD — image must look natural, never uncanny):',
-      '    - Any visible limb (hand, arm, shoulder) MUST enter the frame from a clear edge (left, right, top, bottom, or behind a foreground object) and continue plausibly off-screen. Never a hand or limb floating in mid-frame with no path to a body.',
-      '    - The off-frame body MUST be physically plausible for the composition: e.g. a parent seated on the swing beside the child, kneeling just out of frame, leaning over the porch railing, sitting across the picnic blanket. The viewer should instantly read where the rest of the body is.',
-      '    - Show enough of the limb that it is unambiguously attached to a body — typically wrist + forearm + at least the start of the elbow or sleeve continuing off-frame. A bare floating hand is forbidden.',
-      '    - Silhouettes and back-of-head views must sit at a believable depth and scale relative to the hero — not pasted at the wrong distance, not hovering, not duplicated.',
-      '    - Never draw extra or duplicated limbs, ghostly second arms, or ambiguous body parts. One implied character contributes one set of limbs in any given spread.',
-      '    - If a clean partial presence cannot be staged naturally in this composition, prefer a personal object (the signature item from the lock) instead of a limb.',
+      '  Any adult face, body, hand, shoulder, silhouette, shadow, or reflection that does not belong to a person on the approved cover is FORBIDDEN.',
+      '  The hero is the only person rendered in any frame where only off-cover cast is referenced. Pets and toys named in the SCENE may appear at their true scale, but they are NEVER a stand-in for an off-cover human.',
+      '  When the manuscript text describes an off-cover person performing an action ("Mama hums", "Daddy laughs", "Grandma reaches for me"), the IMAGE does NOT depict that action with a visible person. The image stages the HERO experiencing the moment — turning toward an off-frame source, smiling at a doorway, sitting beside the person\'s signature object on a chair-back. The TEXT carries the relationship; the IMAGE shows the child\'s world.',
     ].join('\n')
     : '';
 

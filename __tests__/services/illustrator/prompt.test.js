@@ -188,44 +188,33 @@ describe('buildCorrectionTurn — tag directives', () => {
     expect(out).toMatch(/diptych|stitched/i);
   });
 
-  test('implied_parent_skin_mismatch adds skin-matching directive', () => {
-    const out = buildCorrectionTurn({
-      ...base,
-      issues: ['Parent hands wrong tone'],
-      tags: ['implied_parent_skin_mismatch'],
-    });
-    expect(out).toMatch(/SPECIFIC ACTIONS/);
-    expect(out).toMatch(/BOOK COVER/);
-    expect(out).toMatch(/skin tone/);
+  test('implied_parent_skin_mismatch / outfit_drift directives instruct removing the parent fragment entirely and replacing with a signature object', () => {
+    // Off-cover parent policy: the parent is NEVER drawn visibly in any
+    // form. Whenever the QA reports a visible parent fragment (skin or
+    // outfit drift), the correction is to REMOVE that fragment and replace
+    // it with a signature object — not to re-render the fragment cleaner.
+    for (const tag of ['implied_parent_skin_mismatch', 'implied_parent_outfit_drift']) {
+      const out = buildCorrectionTurn({
+        ...base,
+        issues: ['Parent hand visible'],
+        tags: [tag],
+      });
+      expect(out).toMatch(/SPECIFIC ACTIONS/);
+      expect(out).toMatch(/SIGNATURE OBJECT/i);
+      expect(out).toMatch(/rocking chair|mug|blanket|coat|glasses/i);
+      expect(out).toMatch(/REMOVE|never drawn/i);
+    }
   });
 
-  test('implied_parent_skin_mismatch directive includes a fallback escape hatch (object stand-in)', () => {
-    // PR X: when the same tag has already failed multiple times on this spread,
-    // the directive instructs the model to drop the parent fragment entirely
-    // and replace with a SIGNATURE OBJECT — better to ship the book without
-    // the implied-parent fragment than to fail the whole book on a borderline
-    // skin-tone gap the model cannot close.
+  test('full_body_parent_skin_mismatch directive removes the visible adult and replaces with a signature object', () => {
     const out = buildCorrectionTurn({
       ...base,
-      issues: ['Parent hands wrong tone'],
-      tags: ['implied_parent_skin_mismatch'],
-    });
-    expect(out).toMatch(/SIGNATURE OBJECT/i);
-    expect(out).toMatch(/rocking chair|mug|blanket|coat/i);
-    expect(out).toMatch(/multiple times|already failed/i);
-  });
-
-  test('full_body_parent_skin_mismatch directive includes the same escape hatch', () => {
-    // PR X: full-body version of the escape hatch — stop rendering the adult,
-    // replace with object presence.
-    const out = buildCorrectionTurn({
-      ...base,
-      issues: ['Adult skin does not match cover child'],
+      issues: ['Adult is fully visible in frame'],
       tags: ['full_body_parent_skin_mismatch'],
     });
     expect(out).toMatch(/SIGNATURE OBJECT/i);
-    expect(out).toMatch(/rocking chair|mug|blanket|coat/i);
-    expect(out).toMatch(/multiple times|already failed/i);
+    expect(out).toMatch(/rocking chair|mug|blanket|coat|glasses/i);
+    expect(out).toMatch(/never drawn|WITHOUT the adult/i);
   });
 
   test('outfit_mismatch points at the attached BOOK COVER + interior references (no prose wardrobe input)', () => {

@@ -204,7 +204,9 @@ function userPrompt(doc) {
   - FORBIDDEN focalAction verbs: walks, runs, climbs, jumps, rides, leads, chases, grabs (a moving object), says (any quoted speech).
   - In every spread the hero MUST be in a parent's arms, on a parent's lap, in a stroller, in a high chair, lying on a blanket, or seated against a soft prop. Never standing alone, never walking the world unaccompanied.
   - There is NO conflict, NO problem, NO chase. plotBeat is a tiny sensory moment ("Mama lifts Scarlett to see the moon"), not a narrative escalation. emotionalBeat is warm/curious/calm — never "determined", "brave", "scared".
-  - parentVisibility (when the theme requires it) should lean on 'full' / 'hand' / 'cropped-torso' — the parent is physically supporting the baby in nearly every spread. 'absent' is forbidden for infant books.
+  - parentVisibility (when the theme requires it):
+      • If the parent IS on the cover: lean on 'full' / 'hand' / 'cropped-torso' — the parent is physically supporting the baby in nearly every spread. 'absent' is forbidden for these books.
+      • If the parent is NOT on the cover: ONLY 'object' is allowed (no visible parent of any kind). The baby is physically supported by an OBJECT in every spread — stroller, high chair, crib, soft cushion, blanket on the floor, blanket against a wall — NEVER standing alone or sitting unsupported. The signature object that implies the parent (a folded blanket, a mug, a hat on a hook) is staged within the same scene as the support object.
   - sceneBridge is a sensory thread ("the same warm light from the kitchen window"), not a plot handoff.`
     : '';
 
@@ -279,16 +281,16 @@ ARC CONTEXT — fill in for every spread. The book is a three-act arc across ${T
     retryBlock ? `\n${retryBlock}` : '',
     isParentTheme
       ? `PARENT-VISIBILITY POLICY (parent themes only — every spread MUST have a parentVisibility value):
-  - 'full' = render the parent fully visible (face + body), identical to the cover identity. Only valid when the parent IS on the approved cover (this book: ${coverParentPresent ? 'YES, parent IS on cover — full is allowed' : 'NO, parent is NOT on cover — do NOT use full'}).
-  - 'hand' = a hand or forearm entering frame, sleeve continuing to a believable off-frame body anchor. No face, no full body.
-  - 'shoulder-back' = parent shown from behind or from a cropped shoulder, face turned away or out of frame.
-  - 'cropped-torso' = chest-down view, face out of frame, body anchored in scene.
-  - 'shadow' = parent shown only as a shadow on a wall or a reflection in a window/water. No body in direct view.
-  - 'object' = an empty chair, a coat on a hook, a still-warm mug, a folded blanket — parent is not in frame; their presence is implied by what they left behind.
-  - 'absent' = the child is alone in the frame. Use this for up to 3 spreads across the book — for solo-prep beats (preparing a surprise, picking a flower secretly), for hero-in-spectacle shots (the child mid-leap on a hilltop, racing through a market square, climbing a lighthouse stair), and for active-discovery moments (the child finding the next clue, cresting a ridge). The spread is still ABOUT the parent — their presence is felt in the prior/next spread, in a recurring object, or in the location they shaped — but the camera is on the child experiencing the world. Treat 'absent' as a feature, not a fallback: it is how the parent-theme book earns its adventure-book scope.
+  - 'full' = render the parent fully visible (face + body), identical to the cover identity. Only valid when the parent IS on the approved cover (this book: ${coverParentPresent ? 'YES, parent IS on cover — full is allowed' : 'NO, parent is NOT on cover — full is FORBIDDEN'}).
+  - 'hand' = a hand or forearm entering frame. Only valid when the parent IS on the cover.
+  - 'shoulder-back' = parent shown from behind or from a cropped shoulder. Only valid when the parent IS on the cover.
+  - 'cropped-torso' = chest-down view, body anchored in scene. Only valid when the parent IS on the cover.
+  - 'shadow' = parent shown only as a shadow / silhouette. Only valid when the parent IS on the cover.
+  - 'object' = an empty chair, a coat on a hook, a still-warm mug, a folded blanket, the parent's signature item — parent is NEVER in frame; their presence is implied by what they left behind.
+  - 'absent' = the child is alone in the frame. Use for solo-prep beats, hero-in-spectacle shots, and active-discovery moments. The spread is still ABOUT the parent — their presence is felt in the prior/next spread, in a recurring object, or in the location they shaped — but the camera is on the child experiencing the world.
   Distribution rule: vary parentVisibility across the book so the composition doesn't repeat. ${coverParentPresent
     ? 'Since the parent IS on the cover, use \\\'full\\\' on roughly 30-40% of spreads (especially spreads 1, 7, and the climax spreads), and vary the rest across the implied palette. The QUIETEST peak beat (the BOND-PEAK image-led wonder moment per qualityBar item #3) is often best as \\\'shadow\\\' so silhouettes overlap.'
-    : 'Since the parent is NOT on the cover, NEVER use \\\'full\\\'. Vary the implied values across the book and lean into adventure-book composition: use \\\'absent\\\' for 2-3 hero-in-spectacle / active-discovery / solo-prep spreads (the child mid-leap, racing through the location, finding the clue), \\\'object\\\' for 1-2 spreads where a left-behind prop carries the parent forward, \\\'hand\\\' and \\\'shoulder-back\\\' for active interaction beats, \\\'cropped-torso\\\' for arrival/giving beats, and \\\'shadow\\\' for the QUIETEST peak beat. Aim for at least 4 distinct visibility values across the 13 spreads so the camera/composition keeps changing.'}`
+    : 'Since the parent is NOT on the cover, the parent NEVER appears visibly in any spread — no face, no hand, no shoulder, no shadow, no silhouette, no cropped torso. Use ONLY \\\'object\\\' (a left-behind item that implies the parent — mug, coat, scarf, blanket, empty rocking chair, signature prop) and \\\'absent\\\' (child alone in frame). The parent\\\'s presence comes through the manuscript text and through these signature objects. Aim for roughly 4-6 \\\'object\\\' spreads spread across the book and the rest \\\'absent\\\'. The book is still a parent-gift theme — the words carry the relationship; the pictures show the child\\\'s world.'}`
       : '',
     `Rules for textSide: alternate left/right across the book, avoiding more than 2 consecutive same-side spreads.`,
     'Emit the JSON now.',
@@ -333,16 +335,19 @@ async function createSpreadSpecs(doc) {
       const v = typeof rawSpec.parentVisibility === 'string' ? rawSpec.parentVisibility.trim() : '';
       if (PARENT_VISIBILITY_VALUES.has(v)) {
         parentVisibility = v;
-        // Safety: 'full' is only valid when the parent IS on the cover.
-        // If the LLM ignored that constraint, demote silently rather than letting
-        // a face appear interior on an off-cover-parent book (illustrator policy
-        // would reject it later, costing a regen).
-        if (parentVisibility === 'full' && !coverParentPresent) parentVisibility = 'shoulder-back';
       } else {
         // Deterministic fallback when LLM omits or returns junk. Pattern keeps
         // composition rhythm varied across the 13 spreads and concentrates 'full'
         // (when allowed) on opening/peak/closing beats.
         parentVisibility = defaultParentVisibilityForSpread(spreadNumber, coverParentPresent);
+      }
+      // Off-cover parent: ONLY 'object' and 'absent' are allowed — the parent
+      // never appears visibly in any spread (no face, no hand, no shoulder,
+      // no shadow, no silhouette, no cropped torso). Demote any visible
+      // fragment the LLM emitted to 'object' so the illustrator policy stays
+      // consistent without costing a regen. 'absent' is preserved as-is.
+      if (!coverParentPresent && parentVisibility !== 'object' && parentVisibility !== 'absent') {
+        parentVisibility = 'object';
       }
     }
     const purpose = String(rawSpec.purpose || '').trim();
@@ -469,23 +474,27 @@ function defaultParentVisibilityForSpread(spreadNumber, coverParentPresent) {
     12: 'full',         // together in afterglow
     13: 'full',         // echo transformed
   };
+  // Off-cover parent: only 'object' and 'absent' are allowed (parent never
+  // appears visibly). Mix the two so composition stays varied: 'object' beats
+  // carry the parent forward through a left-behind prop; 'absent' beats put
+  // the child fully in the world (spectacle, discovery, solo-prep).
   const offCoverPattern = {
-    1: 'shoulder-back',  // setting out — parent presence anchors the start
-    2: 'hand',           // first interaction beat
-    3: 'absent',         // hero-in-spectacle — child experiencing the first big location
-    4: 'object',         // a left-behind prop carries the parent forward; child solves something
-    5: 'hand',           // pivot together — hands at work
-    6: 'absent',         // active-discovery — child cresting/leaping/finding the next clue
-    7: 'cropped-torso',  // arrival — body anchored in scene
-    8: 'shadow',         // BOND PEAK — silhouettes overlapping (image-led wonder)
-    9: 'absent',         // child leads back — hero-in-spectacle on the return leg
-    10: 'cropped-torso', // the giving / reveal
-    11: 'shoulder-back', // parent's reaction beat
-    12: 'object',        // afterglow — implied presence
-    13: 'shoulder-back', // echo transformed
+    1: 'object',   // opening — a signature item anchors the parent's presence
+    2: 'absent',   // setting out — the child taking on the world
+    3: 'absent',   // hero-in-spectacle — the first big location
+    4: 'object',   // a left-behind prop the child solves with
+    5: 'absent',   // active beat — the child engaging the world
+    6: 'absent',   // active-discovery — child finding the next clue
+    7: 'object',   // arrival — the parent's signature item appears in the new place
+    8: 'absent',   // BOND PEAK — image-led wonder, child alone in the frame
+    9: 'absent',   // child leads back
+    10: 'object',  // the giving / reveal — the gift itself implies the parent
+    11: 'absent',  // child's reaction beat
+    12: 'object',  // afterglow — implied presence via signature item
+    13: 'object',  // echo — close the book on the parent's signature item
   };
   const pattern = coverParentPresent ? onCoverPattern : offCoverPattern;
-  return pattern[spreadNumber] || (coverParentPresent ? 'full' : 'shoulder-back');
+  return pattern[spreadNumber] || (coverParentPresent ? 'full' : 'object');
 }
 
 module.exports = {

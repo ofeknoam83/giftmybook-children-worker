@@ -1,21 +1,26 @@
 /**
- * AA-CW-14b — parentVisibility: 'shadow' rewrite to OFF-FRAME cast shadow.
+ * AA-CW-14b → off-cover parent policy update — parentVisibility under the
+ * "no visible parent" rule.
  *
- * The previous prompt told the renderer to draw a "plain, featureless shadow on
- * a wall" — but the renderer kept inventing a head-and-shoulders profile with
- * face features inside it (eyes, mouth, glow). "Silhouette of a person without
- * a face" is not a stable concept for the image model.
+ * Original AA-CW-14b reworked the 'shadow' visibility into an OFF-FRAME cast
+ * shadow because the renderer kept anthropomorphizing in-frame silhouettes.
+ * The follow-up policy hardened the rule further: when the parent is NOT on
+ * the approved cover, the parent is NEVER drawn visibly in any form — no
+ * face, no body, no hand, no shoulder, no shadow, no silhouette, no
+ * reflection. Only signature OBJECTS may imply them.
  *
- * The rewritten prompt asks for an OFF-FRAME CAST SHADOW: the parent stands
- * just outside the frame and only their cast shadow falls onto a surface
- * inside the frame. Because the body is off-frame, no head profile is visible
- * — the model can produce this reliably without inventing facial features.
+ * `buildParentVisibilityReminder` therefore now silently overrides ANY
+ * visible-fragment value (full / hand / shoulder-back / cropped-torso /
+ * shadow) into the OBJECT directive when `coverParentPresent === false`.
+ * The original visible-fragment branches are still reachable when the parent
+ * IS on the cover.
  */
 
 const { buildParentVisibilityReminder } = require('../../../services/illustrator/prompt');
 
-describe('buildParentVisibilityReminder — shadow visibility (AA-CW-14b)', () => {
-  const baseOpts = { isParentTheme: true, coverParentPresent: false };
+describe('buildParentVisibilityReminder — off-cover parent override', () => {
+  const offCover = { isParentTheme: true, coverParentPresent: false };
+  const onCover = { isParentTheme: true, coverParentPresent: true };
 
   test('returns an empty string when not a parent theme', () => {
     expect(buildParentVisibilityReminder({
@@ -27,75 +32,63 @@ describe('buildParentVisibilityReminder — shadow visibility (AA-CW-14b)', () =
 
   test('returns an empty string when parentVisibility is unset', () => {
     expect(buildParentVisibilityReminder({
-      ...baseOpts,
+      ...offCover,
       parentVisibility: '',
     })).toBe('');
   });
 
-  test('shadow visibility describes an OFF-FRAME parent with a cast shadow on a surface', () => {
-    const out = buildParentVisibilityReminder({
-      ...baseOpts,
-      parentVisibility: 'shadow',
-    });
-    // The new directive establishes the parent is OFF-FRAME, not in-frame.
-    expect(out).toMatch(/OFF-FRAME CAST SHADOW|off-frame|outside the picture/i);
-    // The shadow falls onto a surface inside the frame.
-    expect(out).toMatch(/floor|grass|carpet|bedspread|wall/i);
-    // No facial features inside the shadow.
-    expect(out).toMatch(/NO eyes/);
-    expect(out).toMatch(/NO mouth/);
-    // Explicitly NOT a clean head-and-shoulders profile (this was the failure mode).
-    expect(out).toMatch(/NOT a clean head-and-shoulders profile|cropped by the edge/i);
-    // Provides a fallback: hand entering frame.
-    expect(out).toMatch(/hand or forearm entering the frame/i);
-    // Reaffirms: never an in-frame anthropomorphized character.
-    expect(out).toMatch(/Never an anthropomorphized in-frame character/i);
+  test('off-cover parent + visible-fragment values (full/hand/shoulder/cropped/shadow) all collapse to the OBJECT directive', () => {
+    for (const v of ['full', 'hand', 'shoulder-back', 'cropped-torso', 'shadow']) {
+      const out = buildParentVisibilityReminder({
+        ...offCover,
+        parentVisibility: v,
+      });
+      expect(out).toMatch(/OBJECT IMPLIES THEM/);
+      expect(out).toMatch(/off-cover policy override/i);
+      expect(out).toMatch(/does NOT appear visibly/);
+      expect(out).toMatch(/signature objects/i);
+    }
   });
 
-  test('shadow directive does NOT use the old "ambient presence" / "featureless silhouette" wording that misled the renderer', () => {
+  test('off-cover parent + object value emits the OBJECT directive without the override prefix', () => {
     const out = buildParentVisibilityReminder({
-      ...baseOpts,
-      parentVisibility: 'shadow',
+      ...offCover,
+      parentVisibility: 'object',
     });
-    // The previous prompt opened with "SHADOW / REFLECTION — parent shown only
-    // as a plain, featureless shadow ... ambient presence only". That framing
-    // led the model to draw an in-frame silhouette which it then anthropomorphized.
-    // The new framing is structural (off-frame body, cast shadow on surface).
-    expect(out).not.toMatch(/^- Themed parent visibility this spread: SHADOW \/ REFLECTION/);
-    // The phrase "ambient presence only" was the old vague language; the new
-    // directive is explicit and concrete.
-    expect(out).not.toMatch(/Ambient presence only/);
+    expect(out).toMatch(/OBJECT IMPLIES THEM/);
+    expect(out).not.toMatch(/off-cover policy override/i);
+    expect(out).toMatch(/empty chair|coat on a hook|mug|folded blanket/i);
   });
 
-  test('other visibility modes are not affected by the shadow rewrite', () => {
+  test('off-cover parent + absent value emits the ABSENT directive (hero alone, no signature object either)', () => {
+    const out = buildParentVisibilityReminder({
+      ...offCover,
+      parentVisibility: 'absent',
+    });
+    expect(out).toMatch(/ABSENT/);
+    expect(out).toMatch(/child is alone in the frame/i);
+  });
+
+  test('on-cover parent + visible-fragment values are PRESERVED (no off-cover override)', () => {
     expect(buildParentVisibilityReminder({
-      ...baseOpts,
+      ...onCover,
+      parentVisibility: 'full',
+    })).toMatch(/FULL — render the parent fully visible/);
+    expect(buildParentVisibilityReminder({
+      ...onCover,
       parentVisibility: 'hand',
     })).toMatch(/HAND ONLY/);
     expect(buildParentVisibilityReminder({
-      ...baseOpts,
-      parentVisibility: 'object',
-    })).toMatch(/OBJECT IMPLIES THEM/);
+      ...onCover,
+      parentVisibility: 'shoulder-back',
+    })).toMatch(/SHOULDER \/ BACK-OF-HEAD/);
     expect(buildParentVisibilityReminder({
-      ...baseOpts,
-      parentVisibility: 'absent',
-    })).toMatch(/ABSENT/);
-    expect(buildParentVisibilityReminder({
-      ...baseOpts,
+      ...onCover,
       parentVisibility: 'cropped-torso',
     })).toMatch(/CROPPED TORSO/);
     expect(buildParentVisibilityReminder({
-      ...baseOpts,
-      parentVisibility: 'shoulder-back',
-    })).toMatch(/SHOULDER \/ BACK-OF-HEAD/);
-  });
-
-  test('full-body parent on a non-cover parent still downgrades to implied (existing safety)', () => {
-    const out = buildParentVisibilityReminder({
-      isParentTheme: true,
-      coverParentPresent: false,
-      parentVisibility: 'full',
-    });
-    expect(out).toMatch(/implied only|Do NOT render a full-face parent/i);
+      ...onCover,
+      parentVisibility: 'shadow',
+    })).toMatch(/OFF-FRAME CAST SHADOW|off-frame/i);
   });
 });
