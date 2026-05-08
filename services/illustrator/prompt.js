@@ -344,11 +344,11 @@ function buildCharacterAnchorBlock(opts) {
     } else {
       const impliedDesc = typeof opts.impliedParentDescriptor === 'string' ? opts.impliedParentDescriptor.trim() : '';
       lines.push(
+        '- **Themed parent: NOT on cover — NEVER VISIBLY DRAWN.** The themed parent does NOT appear in any form in this image — not as a face, not as a body, not as a hand / arm / finger, not as a shoulder / back-of-head, not as a cropped torso, not as a shadow, not as a silhouette, not as a reflection. The parent is OFF-FRAME, period. The hero is the only person in this spread.',
         impliedDesc
-          ? `- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / featureless shadow / off-frame object). Locked descriptor (use IDENTICALLY on every spread the parent appears): ${impliedDesc}`
-          : '- Themed parent: NOT on cover — show only via implied presence (hand / shoulder-back / cropped torso / featureless shadow / off-frame object). Whatever sleeve color, hand details, and accessories you render in the FIRST spread the parent appears, keep IDENTICAL on every later spread.',
-        '- **Parent silhouette / shadow rule (HARD):** if a parent shadow or silhouette is in frame, it must be a plain, featureless dark profile — NO eyes, NO glowing eyes, NO mouth, NO smile, NO gesturing hand silhouette, NO face inside the head shape. The parent is never an anthropomorphized character; a face-having shadow is a render failure for this book.',
-        '- **Parent skin tone (HARD LOCK — read this every spread):** the themed parent is NOT on the cover, so there is no cover-rendered parent identity to match. The parent\'s visible skin (hands, fingers, wrist, forearm, sleeve cuffs, neck/jaw if cropped torso, partial-face glimpse) MUST match the HERO CHILD\'s skin tone on the cover EXACTLY — same lightness, same warmth, same undertone. They are immediate family, same household, same ethnicity. If the cover child reads as fair/very pale, the parent\'s hand/arm reads as fair/very pale (NOT medium-tan, NOT olive, NOT a darker family). If the cover child reads as medium, the parent reads as medium (NOT much darker, NOT much lighter). If the cover child reads as deep brown, the parent reads as deep brown (NOT lighter). Treat the cover child\'s skin patch as your literal color reference for any visible parent skin on this spread. Do not introduce a tan, olive, or any meaningfully different skin family for the parent.',
+          ? `- **Parent presence via signature object only:** the parent\'s presence is implied through ONE or TWO signature objects placed naturally in the scene. Locked descriptor (use IDENTICALLY on every spread the parent\'s objects appear): ${impliedDesc}`
+          : '- **Parent presence via signature object only:** the parent\'s presence is implied through ONE or TWO signature objects placed naturally in the scene (e.g. an empty rocking chair, a still-warm mug, a folded cardigan, a coat on a hook, a pair of slippers, the parent\'s reading glasses). Whatever objects you render on the FIRST spread the parent is implied, keep IDENTICAL on every later spread.',
+        '- **No invented stand-in:** never substitute a pet, plush toy, or fictional figure as a visual stand-in for the parent. The parent lives in the manuscript text and the signature objects only.',
       );
     }
   } else if (opts.hasSecondaryOnCover) {
@@ -373,12 +373,19 @@ function buildParentVisibilityReminder(opts) {
   const v = typeof opts.parentVisibility === 'string' ? opts.parentVisibility.trim() : '';
   if (!v) return '';
 
+  // Off-cover parent: visible-fragment values (hand / shoulder-back /
+  // cropped-torso / shadow / full) are silently redirected to OBJECT — the
+  // parent never appears visibly in any form on this book. The planner is
+  // expected to emit only 'object' or 'absent' for off-cover books, but we
+  // belt-and-suspender here in case an older spread spec leaks through.
+  if (!opts.coverParentPresent
+      && (v === 'full' || v === 'hand' || v === 'shoulder-back' || v === 'cropped-torso' || v === 'shadow')) {
+    return '- Themed parent visibility this spread: OBJECT IMPLIES THEM (off-cover policy override) — the parent does NOT appear visibly in any form. Place ONE or TWO of the parent\'s signature objects naturally in the scene (a still-warm mug, a folded cardigan, a coat on a hook, an empty rocking chair, reading glasses). The hero is the only person in the frame.';
+  }
+
   switch (v) {
     case 'full':
-      if (!opts.coverParentPresent) {
-        // Full-body parent only valid when parent is on cover; otherwise downgrade safely.
-        return '- Themed parent visibility this spread: implied only (hand / shoulder / cropped torso) per parent-not-on-cover policy. Do NOT render a full-face parent.';
-      }
+      // Only reachable when parent IS on cover (handled by the off-cover guard above).
       return '- Themed parent visibility this spread: FULL — render the parent fully visible (face + body), identical to the cover identity. Composition should make them clearly present alongside the hero.';
     case 'hand':
       return '- Themed parent visibility this spread: HAND ONLY — a hand or forearm entering frame, sleeve continuing to a believable off-frame body anchor. No face, no full body.';
@@ -387,16 +394,11 @@ function buildParentVisibilityReminder(opts) {
     case 'cropped-torso':
       return '- Themed parent visibility this spread: CROPPED TORSO — chest-down view, face out of frame, body anchored in scene.';
     case 'shadow':
-      // AA-CW-14b: rewrite as an OFF-FRAME cast shadow. The renderer cannot
-      // reliably draw an in-frame silhouette without giving it a head and face
-      // features. A cast shadow falling onto a surface from a person who is
-      // OFF-FRAME (like a long sunset shadow on grass) is a stable, concrete
-      // concept the renderer can produce without inventing facial features.
-      return '- Themed parent visibility this spread: OFF-FRAME CAST SHADOW — the parent stands JUST OUTSIDE the picture (off-frame) and their cast shadow falls onto a surface inside the frame: a long shadow stretching across the floor, the grass, the carpet, the bedspread, or up a wall. The shadow is a soft, elongated dark patch on a surface; the parent\'s body is NOT in frame. Because the parent is off-frame, the shadow is NOT a clean head-and-shoulders profile — it is shaped by the angle of the light and cropped by the edge of the picture. Render it like a literal cast shadow at low/late light: stretched, soft-edged, no facial features visible because the face is off-frame. NO eyes, NO mouth, NO glowing details, NO gesturing-hand silhouette inside the shadow. If you cannot draw a believable off-frame cast shadow, draw the parent\'s hand or forearm entering the frame instead. Never an anthropomorphized in-frame character.';
+      return '- Themed parent visibility this spread: OFF-FRAME CAST SHADOW — the parent stands JUST OUTSIDE the picture (off-frame) and their cast shadow falls onto a surface inside the frame. Render it like a literal cast shadow at low/late light: stretched, soft-edged, no facial features visible. NO eyes, NO mouth, NO glowing details. Never an anthropomorphized in-frame character.';
     case 'object':
-      return '- Themed parent visibility this spread: OBJECT IMPLIES THEM — an empty chair, a coat on a hook, a still-warm mug, a folded blanket. Parent is not in frame; their presence is implied by what they left behind.';
+      return '- Themed parent visibility this spread: OBJECT IMPLIES THEM — an empty chair, a coat on a hook, a still-warm mug, a folded blanket. Parent is NOT in frame in any form (no face, no body, no hand, no shadow); their presence is implied by what they left behind.';
     case 'absent':
-      return '- Themed parent visibility this spread: ABSENT — the child is alone in the frame. This is the permitted solo-prep beat (preparing a surprise, picking a flower secretly, placing a photo). The spread is still ABOUT the parent, but the parent is not in this image.';
+      return '- Themed parent visibility this spread: ABSENT — the child is alone in the frame. The spread is still ABOUT the parent, but the parent is not visible in this image in any form (no face, no body, no hand, no shadow, no signature object either — pure hero-in-the-world beat).';
     default:
       return '';
   }
@@ -561,21 +563,14 @@ function buildTagDirectives(tags, opts) {
   if (set.has('missing_word') || set.has('spelling_mismatch')) {
     out.push(`Render the TEXT character-for-character identical to the passage above on the ${side.toUpperCase()} side. No paraphrasing, no dropped words, no added words.`);
   }
-  if (set.has('implied_parent_skin_mismatch')) {
+  if (set.has('implied_parent_skin_mismatch') || set.has('implied_parent_outfit_drift')) {
     out.push(
-      'Any visible skin on the implied parent (hands, forearms, legs, arms) MUST match the hero child\'s skin tone and undertone from the BOOK COVER — same family, same household. Re-render those partial-body areas to align with the cover child; keep the parent\'s face hidden per policy. ' +
-      'If this same tag has already failed multiple times on this spread, STOP rendering the parent\'s skin entirely — replace the implied-parent hand/arm fragment with a SIGNATURE OBJECT that stands in for the parent (an empty rocking chair, a mug placed beside the child, a folded blanket, a coat over a chair-back). The story spread should read with the child as the only visible figure; presence of the parent is implied by the object alone. This is preferred over another failed re-render of skin tone.',
-    );
-  }
-  if (set.has('implied_parent_outfit_drift')) {
-    out.push(
-      'Implied parent outfit drifted between spreads. The parent\'s visible sleeve color/fabric and signature accessory (ring/watch/necklace) MUST be IDENTICAL on every spread they appear in. Re-render this spread\'s implied-parent fragment to match the locked descriptor in the system instruction and the version that appeared in earlier accepted interior spreads.',
+      'A part of the off-cover parent\'s body (hand / arm / shoulder / torso / face) was rendered in the previous attempt — that violates the off-cover parent policy. The parent is NEVER drawn visibly in this book in any form. Re-render the spread WITHOUT any visible part of the parent: REMOVE the hand / arm / shoulder / torso entirely and replace it with a SIGNATURE OBJECT in the same scene (an empty rocking chair, a still-warm mug on a table, a folded cardigan over a chair-back, a coat on a hook, the parent\'s reading glasses on a side table). The hero is the only person in the frame.',
     );
   }
   if (set.has('full_body_parent_skin_mismatch')) {
     out.push(
-      'A visible adult in this spread has a skin tone that clearly differs from the hero child\'s skin tone on the BOOK COVER. Adults sharing a frame with the hero must read as the same family — match the hero\'s skin tone and undertone exactly. Re-render the adult with the correct skin tone, or (per the parent-not-on-cover policy) replace the full adult figure with implied presence (hand / shoulder / cropped torso / shadow / object) so the wrong-looking adult is no longer in frame. ' +
-      'If this same tag has already failed multiple times on this spread, STOP rendering the adult entirely — replace them with a SIGNATURE OBJECT (rocking chair, mug, folded blanket, coat on a hook) so the parent is implied by the object alone, with no visible adult skin to color-match. This is preferred over another failed re-render of skin tone.',
+      'A visible adult was rendered in this spread — that violates the off-cover parent policy. The parent is NEVER drawn visibly in this book. Re-render the spread WITHOUT the adult figure entirely. Replace them with a SIGNATURE OBJECT (rocking chair, mug, folded blanket, coat on a hook, glasses) placed naturally in the scene. The hero is the only person in the frame.',
     );
   }
   if (set.has('split_panel')) {

@@ -310,20 +310,12 @@ function buildFamilyPolicySection(ctx) {
     lines.push(
 `The cover shows ONLY the hero child — no secondary people. Do not invent new full-face humans (siblings, grandparents, friends, classmates, neighbors) on your own.
 
-When a per-spread prompt explicitly references an adult (e.g., "Mommy", "Daddy", a parent, grandparent, or other family member), you MAY show them — but via IMPLIED PRESENCE only:
-  • A hand or arm entering frame (holding, lifting, reading to, adjusting a blanket).
-  • The back of their head or a shoulder silhouette.
-  • A cropped torso from chest-down, face out of frame.
-  • An empty chair / coat on a hook / mug on a table that implies them.
-NEVER show the referenced adult's face. NEVER render a full-body adult figure. NEVER substitute a pet or plush toy as a stand-in for a referenced human.
-
-${IMPLIED_PRESENCE_ANCHORING_RULE}
-
-${skinLock}
-
-The implicit adult must stay CONSISTENT across every spread they appear in: lock their skin tone, visible clothing colors/fabric, and hand/arm details on their first appearance and keep them identical in later spreads. Treat them like any other recurring character — same look every time.
-
-When in doubt, show the hero alone with the environment and any companions (pets, toys).`
+OFF-COVER ADULT POLICY (HARD — applies to ANY adult or family member referenced in a per-spread prompt who is NOT on the approved cover):
+  - The off-cover adult NEVER appears visibly in any spread of this book — not as a face, not as a full body, not as a hand or arm or finger, not as a shoulder or back-of-head, not as a cropped torso, not as a shadow, not as a silhouette, not as a reflection.
+  - The off-cover adult's presence is communicated ONLY through (a) the manuscript text, and (b) signature OBJECTS in the scene that imply them: a still-warm mug on the table, a coat on a hook, an empty rocking chair, a folded blanket, reading glasses on a counter, a pair of slippers, the parent's signature item from the visual bible.
+  - NEVER render the off-cover adult themselves in any form. NEVER substitute a pet or plush toy as a stand-in.
+  - The composition is the hero alone with their environment, with the implying object placed naturally in the scene.
+  - Pets and toys explicitly mentioned in the SCENE may appear at their true scale.`
     );
   }
 
@@ -346,28 +338,25 @@ The ${parentWord} is on the BOOK COVER. Interior frames must reuse the **exact s
   }
 
   if (isParentTheme && !hasParentOnCover) {
-    lines.push(
-`### THEMED PARENT POLICY (${parentWord.toUpperCase()} NOT ON COVER)
-This is a ${dayLabel} book and the ${parentWord} is NOT on the cover. When the story refers to "${parentShort}" / "${parentWord}", show them via IMPLIED PRESENCE only:
-  • A hand entering frame (reading to the hero, holding a mug, adjusting a blanket).
-  • The back of their head or a shoulder silhouette.
-  • A cropped torso from chest-down, face out of frame.
-  • An empty chair / coat on a hook / mug on a table that implies them.
-NEVER show the ${parentWord}'s face. NEVER invent a full-body ${parentWord}. NEVER substitute a pet, plush toy, or inanimate object as a stand-in for the human ${parentWord} — non-human companions stay at their true scale and are NOT a replacement for the human ${parentWord}.
-
-**HARD RULE — NO ANTHROPOMORPHIZED ${parentWord.toUpperCase()} SILHOUETTE / SHADOW.** The ${parentWord} is NEVER visible in interiors as a character of any kind — not as a face, not as a full torso, and not as their own anthropomorphic silhouette / shadow / dark figure with facial features. A shadow or silhouette of the ${parentWord} must NOT have eyes, glowing eyes, a mouth, a smile, a gesturing hand silhouette, or any expressive feature inside the head shape. If the scene calls for a parent shadow, render it as a plain, featureless dark profile that reads as ambient presence — never as a co-actor with a face. The ${parentWord} can be a hand, a shoulder, a cropped torso, an empty chair, a coat on a hook — NOT a face-having shadow.
-
-${IMPLIED_PRESENCE_ANCHORING_RULE}
-
-${skinLock}`
-    );
-    const lockedParentOutfit = parentOutfit
+    const lockedParentSignatureObject = parentOutfit
       || (isMother
-        ? 'soft cardigan over a simple tee, jeans or a casual skirt, plain band on left ring finger, no other jewelry'
+        ? 'a folded soft cardigan, a still-warm tea mug, a worn paperback face-down on a side table, a single pair of slippers'
         : (isGrandparents
-          ? 'comfortable everyday cardigan or zip fleece, slacks or casual trousers, reading glasses tucked in pocket or on a neck chain'
-          : 'henley or simple long-sleeve shirt, jeans, casual wristwatch on left wrist, no other jewelry'));
-    lines.push(`When parts of the ${parentWord} are visible (hand, shoulder, back of head, cropped torso), they wear: ${lockedParentOutfit}. This outfit and these accessories are LOCKED across every spread — same colors, same fabric, same jewelry. First-appearance details define the canonical look; later spreads must match.`);
+          ? 'reading glasses on a side table, a knitted shawl folded on a chair, a teacup on a saucer, a worn novel face-down'
+          : 'a casual wristwatch on a counter, a folded jacket over a chair-back, a coffee mug, a pair of work boots'));
+    lines.push(
+`### THEMED ${parentWord.toUpperCase()} POLICY (NOT ON COVER) — TEXT + SIGNATURE OBJECT, NEVER VISIBLY DRAWN
+This is a ${dayLabel} book and the ${parentWord} is NOT on the cover. The ${parentWord} is the GIFT RECIPIENT — they are central to the manuscript text — but they NEVER appear visibly in any illustration of this book.
+
+HARD RULES (every spread, no exceptions):
+  - The ${parentWord} is NEVER drawn in any form. NOT as a face. NOT as a full body. NOT as a hand, arm, finger, foot, leg, or any limb. NOT as a shoulder, back-of-head, neck, jaw, or cropped torso. NOT as a shadow, silhouette, reflection, or glowing outline. NOT as a stylized symbolic figure. The ${parentWord}'s body is OFF-FRAME, period.
+  - The ${parentWord}'s presence is communicated through TWO channels only: (a) the manuscript caption text on the page, and (b) signature OBJECTS staged in the scene that clearly belong to them. Examples for this book: ${lockedParentSignatureObject}. Use the same family of signature objects across the book so the reader recognizes them as the ${parentWord}'s.
+  - NEVER substitute a pet, plush toy, or invented relative as a visual stand-in for the ${parentWord}. The hero is the ONLY person in the frame.
+  - The hero is shown ALONE with their environment, with one or two of the signature objects placed naturally in the scene (a mug on the table, a cardigan over a chair-back, a hat on a hook in the doorway).
+  - When the manuscript says "Mama hums" or "Daddy laughs" or "${parentShort} reaches for me", the IMAGE does NOT depict that action with a visible ${parentWord} — instead the image shows the HERO experiencing the moment (turning toward an off-frame source, smiling at an empty doorway with the ${parentShort}'s mug on the counter, sitting on a blanket on the floor with the ${parentShort}'s cardigan folded beside them). The TEXT carries the relationship; the IMAGE carries the child's world.
+
+WHY: this book has no approved cover render of the ${parentWord}. Inventing one (even a "subtle" hand or shoulder) drifts visually across the 13 spreads and breaks the gift. Anchoring the ${parentWord}'s presence in stable signature OBJECTS keeps every spread consistent and trustworthy.`
+    );
   }
 
   lines.push(
