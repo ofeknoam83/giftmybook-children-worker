@@ -106,6 +106,18 @@ const QA_INFRA_TAGS_SINGLE = new Set([
 ]);
 
 /**
+ * "Soft-fail" tags — borderline QA verdicts that, in production, fire on
+ * subtle calls customer-facing readers rarely notice and the renderer often
+ * cannot close after several attempts. Accept ONLY after the renderer has
+ * had a real chance (higher threshold than infra-only accept).
+ */
+const QA_SOFT_FAIL_TAGS_SINGLE = new Set([
+  'implied_parent_outfit_drift',
+  'hair_continuity_drift',
+  'outfit_continuity_drift',
+]);
+
+/**
  * @param {{ pass: boolean, tags?: string[] }} qa
  * @param {number} attempt
  * @param {number} totalBudget
@@ -115,14 +127,21 @@ function shouldFailOpenAcceptSingle(qa, attempt, totalBudget) {
   if (!qa || qa.pass === true) return false;
   const tags = Array.isArray(qa.tags) ? qa.tags : [];
   if (tags.length === 0) return false;
+
+  const minAttemptsInfra = Math.max(3, Math.ceil((totalBudget || 1) * 0.6));
+  const minAttemptsSoft = Math.max(5, Math.ceil((totalBudget || 1) * 0.75));
+
+  let allInfra = true;
+  let allInfraOrSoft = true;
   for (const t of tags) {
-    if (!QA_INFRA_TAGS_SINGLE.has(t)) return false;
+    if (!QA_INFRA_TAGS_SINGLE.has(t)) allInfra = false;
+    if (!QA_INFRA_TAGS_SINGLE.has(t) && !QA_SOFT_FAIL_TAGS_SINGLE.has(t)) {
+      allInfraOrSoft = false;
+    }
   }
-  const minAttemptsBeforeFailOpen = Math.max(
-    3,
-    Math.ceil((totalBudget || 1) * 0.6),
-  );
-  return attempt >= minAttemptsBeforeFailOpen;
+  if (allInfra && attempt >= minAttemptsInfra) return true;
+  if (allInfraOrSoft && attempt >= minAttemptsSoft) return true;
+  return false;
 }
 
 /** When Gemini returns 0 content parts (e.g. finishReason=IMAGE_OTHER), wait + retry before failing the spread. */

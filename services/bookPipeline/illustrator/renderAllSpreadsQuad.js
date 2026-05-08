@@ -276,6 +276,26 @@ const QA_INFRA_TAGS = new Set([
 ]);
 
 /**
+ * "Soft-fail" tags — borderline QA verdicts the model fires on subtle calls
+ * that customer-facing readers rarely notice and the renderer often cannot
+ * close after several attempts. Production logs show pairs burning their
+ * entire repair budget on these tags alone (cardigan-on-a-branch flagged as
+ * outfit drift, headband flagged as hair drift, etc.) — and even when the
+ * renderer fixes the named complaint on attempt N, the QA model finds a
+ * different borderline angle on attempt N+1.
+ *
+ * We accept a spread on these tags AFTER the renderer has had a real chance
+ * to address them (higher threshold than the infra-only accept). Real,
+ * customer-noticeable artifacts (action_mismatch, hero_mismatch,
+ * duplicated_hero, explicit_stranger, split_panel, etc.) still block.
+ */
+const QA_SOFT_FAIL_TAGS = new Set([
+  'implied_parent_outfit_drift',
+  'hair_continuity_drift',
+  'outfit_continuity_drift',
+]);
+
+/**
  * @param {{ pass: boolean, tags?: string[] }} qa
  * @returns {boolean} true when the QA failed and every failure tag is infra
  */
@@ -290,25 +310,49 @@ function isInfraOnlyFailure(qa) {
 }
 
 /**
+ * @param {{ pass: boolean, tags?: string[] }} qa
+ * @returns {boolean} true when every failure tag is in the infra OR soft-fail set
+ */
+function isInfraOrSoftFailOnly(qa) {
+  if (!qa || qa.pass === true) return false;
+  const tags = Array.isArray(qa.tags) ? qa.tags : [];
+  if (tags.length === 0) return false;
+  for (const t of tags) {
+    if (!QA_INFRA_TAGS.has(t) && !QA_SOFT_FAIL_TAGS.has(t)) return false;
+  }
+  return true;
+}
+
+/**
  * Should this pair be promoted to an accept on the basis that BOTH halves
  * either passed cleanly or failed only on QA infra? We require the renderer
  * to have spent at least most of its in-session budget so we do not
  * fail-open on a one-off transient hiccup.
+ *
+ * Two thresholds:
+ *  - infra-only: ~60% of budget (sustained QA-pipe outage)
+ *  - infra OR soft-fail: ~75% of budget (renderer had a real chance and is
+ *    spinning on borderline QA calls)
  */
 function shouldFailOpenAcceptPair(qaA, qaB, attempt, totalBudget) {
-  const minAttemptsBeforeFailOpen = Math.max(
-    3,
-    Math.ceil((totalBudget || 1) * 0.6),
-  );
-  if (attempt < minAttemptsBeforeFailOpen) return false;
   const aOk = qaA && qaA.pass === true;
   const bOk = qaB && qaB.pass === true;
-  const aInfra = isInfraOnlyFailure(qaA);
-  const bInfra = isInfraOnlyFailure(qaB);
-  if (aOk && bOk) return false; // already the clean accept path; don't take this branch
-  if (!(aOk || aInfra)) return false;
-  if (!(bOk || bInfra)) return false;
-  return aInfra || bInfra;
+  if (aOk && bOk) return false; // clean-accept path handles this — don't take this branch
+
+  const minAttemptsInfra = Math.max(3, Math.ceil((totalBudget || 1) * 0.6));
+  const minAttemptsSoft = Math.max(5, Math.ceil((totalBudget || 1) * 0.75));
+
+  if (attempt >= minAttemptsInfra) {
+    const aInfra = isInfraOnlyFailure(qaA);
+    const bInfra = isInfraOnlyFailure(qaB);
+    if ((aOk || aInfra) && (bOk || bInfra) && (aInfra || bInfra)) return true;
+  }
+  if (attempt >= minAttemptsSoft) {
+    const aSoft = isInfraOrSoftFailOnly(qaA);
+    const bSoft = isInfraOrSoftFailOnly(qaB);
+    if ((aOk || aSoft) && (bOk || bSoft) && (aSoft || bSoft)) return true;
+  }
+  return false;
 }
 
 function quadGenOpts() {
@@ -1179,4 +1223,10 @@ module.exports = {
   isSilhouetteOnlyRejection,
   nextConsecutiveSilhouetteOnly,
   resolveParentVisibilityWithBothEscapeHatches,
+  // Fail-open accept (infra-only and infra-or-soft-fail) — exported for tests
+  isInfraOnlyFailure,
+  isInfraOrSoftFailOnly,
+  shouldFailOpenAcceptPair,
+  QA_INFRA_TAGS,
+  QA_SOFT_FAIL_TAGS,
 };
