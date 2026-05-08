@@ -189,8 +189,10 @@ A) ACTION MATCH \u2014 does the IMAGE show ${heroName} doing the action the TEXT
    - If the text says "helps push the stroller" and the image shows ${heroName} strapped INSIDE the stroller (passive), that is action_mismatch \u2014 the depicted action is the opposite of "helping push".
    - If the text says "leads Mama up the hill" and the image shows ${heroName} being carried, that is action_mismatch.
    - If the text says "claps her hands" and the image shows ${heroName} doing nothing visible with the hands, that is action_mismatch.
+   - **AUDIO-ONLY VERBS** (squeal, squeak, sing, hum, whisper, call, shout, laugh, giggle, cry, coo, babble, gasp, sigh, chirp): pictures cannot draw sound. PASS whenever the image shows a plausible PHYSICAL CORRELATE of the audio: an open mouth, a wide smile, eyes scrunched in delight, a body mid-bounce, hands flailing, a happy or excited expression. Only flag action_mismatch when the image shows the OPPOSITE physical state (a sleeping or stoic-faced baby for "squeals"; a closed-mouth blank face for "sings out loud"). A smiling baby satisfies "squeals" \u2014 do not flag.
+   - **SUBTLE PHYSICAL VERBS** (wiggle, jiggle, sway, bounce, shimmer, tremble): a single still frame cannot show motion. PASS whenever the image shows a plausibly mid-action body (any non-stiff pose, slight torso lean, raised arms, any limb mid-arc, blanket folds suggesting movement, hair mid-bounce). Only flag when the image is flatly rigid with no implied motion at all.
    - If the text describes an action and the image plausibly depicts that action OR a closely-related supported equivalent (\"watches the puppy from Mama's lap\" matches \"reaches for the puppy from Mama's lap\"), that is a PASS \u2014 do not flag.
-   - When uncertain, prefer pass.
+   - When uncertain, prefer pass. This tag burns the entire repair budget on borderline calls; a false positive is far more costly than a false negative.
 
 B) AGE-ACTION POSSIBILITY \u2014 given the hero's age limits above, is the depicted action physically possible for a child of that age?
    - The age limits are based on developmental yardsticks; honor them strictly when ageBand is PB_INFANT.
