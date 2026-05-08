@@ -197,7 +197,7 @@ class WriterEngine {
         feedbackDigest: v2FeedbackDigest(quality.feedback),
       });
       try {
-        story = await themeWriter.revise(story, quality.feedback, child, book);
+        story = await themeWriter.revise(story, quality.feedback, child, book, { plan });
       } catch (err) {
         console.warn(`[writerV2] Revise attempt ${attempts} failed: ${err.message} — keeping best-so-far`);
         break;
