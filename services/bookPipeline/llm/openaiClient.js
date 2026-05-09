@@ -25,6 +25,8 @@
  * quality targets warrant different providers).
  */
 
+const { sanitizeForGemini } = require('../../promptSanitizer');
+
 const DEFAULT_TIMEOUT_MS = 180000;
 const DEFAULT_MAX_TOKENS = 12000;
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -335,9 +337,17 @@ async function callGeminiOnce(params) {
 
   const resolvedModel = model && /^gemini-/i.test(model) ? model : GEMINI_TEXT_MODEL;
   const url = `${GEMINI_BASE_URL}/${resolvedModel}:generateContent?key=${key}`;
+
+  // Wire-layer scrub for invisibles/homoglyphs/role-injection patterns.
+  // Both the system and user payloads can have user-provided fields
+  // interpolated upstream; sanitize at the boundary so every Gemini caller
+  // gets the same defense without each call site remembering to do it.
+  const safeSystem = sanitizeForGemini(systemPrompt);
+  const safeUser = sanitizeForGemini(userPrompt);
+
   const body = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    systemInstruction: { parts: [{ text: safeSystem }] },
+    contents: [{ role: 'user', parts: [{ text: safeUser }] }],
     generationConfig: {
       temperature,
       maxOutputTokens: maxTokens,

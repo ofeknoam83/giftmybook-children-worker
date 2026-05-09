@@ -50,7 +50,18 @@ const { pickRecentInteriorRefsForQa } = require('../qa/recentInteriorRefs');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
-const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
+const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
+const { reviseSpreadProseForIllustrator } = require('../writer/rewriteBookText');
+
+// Phase 4 — illustrator-side QA tags that signal a writer-side defect.
+// On these, instead of burning more render attempts on the same prose, the
+// per-spread loop runs ONE prose revision and continues. Bounded to one
+// prose revision per spread so we never spend the whole render budget on
+// the writer side.
+const PROSE_REVISION_TRIGGER_TAGS = new Set([
+  'age_action_impossible',
+  'action_mismatch',
+]);
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -231,8 +242,14 @@ async function processOneSpread(params) {
   let currentSession = session;
 
   const spec = buildIllustrationSpec(currentDoc, spread);
-  const baselineCaption = spec.text;
+  // Phase 4 — `baselineCaption` is mutable now because a prose revision
+  // (writer rewrite triggered by an illustrator-side veto) replaces the
+  // spread's manuscript mid-loop, and subsequent render attempts must use
+  // the new text. Capped at one revision per spread (see proseRevisionsUsed).
+  let baselineCaption = spec.text;
   let renderCaption = baselineCaption;
+  let proseRevisionsUsed = 0;
+  const MAX_PROSE_REVISIONS_PER_SPREAD = 1;
   let expected = { text: renderCaption, side: spec.textSide };
   const hero = currentDoc.visualBible?.hero?.physicalDescription || '';
 
@@ -522,17 +539,37 @@ async function processOneSpread(params) {
       });
       const qaMs = Date.now() - qaStart;
 
+      // Phase 3b — three-state QA verdict for clarity in logs and metrics:
+      //   PASS              — qa.pass === true. Clean accept.
+      //   ACCEPT_WITH_NOTE  — qa failed but the renderer is at attempt budget
+      //                       and only soft-fail / infra tags remain. Ships
+      //                       with a structured warning; counters flag it.
+      //   FAIL              — qa failed and we keep iterating, or we run out
+      //                       of budget and the spread fails the book.
+      // Hero recognition tags (hero_mismatch, hero_skin_drift, etc.) are NOT
+      // in QA_SOFT_FAIL_TAGS_SINGLE, so they hard-fail by construction —
+      // recognizability never rides in on the accept-with-note path.
       const cleanPass = qa.pass === true;
       const failOpenAccept = !cleanPass
         && shouldFailOpenAcceptSingle(qa, attempt, totalBudget);
+      const tagList = Array.isArray(qa.tags) ? qa.tags : [];
+      const softFailDriven = failOpenAccept && tagList.some(t => QA_SOFT_FAIL_TAGS_SINGLE.has(t));
+      const qaState = cleanPass ? 'PASS' : (failOpenAccept ? 'ACCEPT_WITH_NOTE' : 'FAIL');
       if (failOpenAccept) {
+        const reason = softFailDriven ? 'soft_drift' : 'infra_only';
         console.warn(
-          `[${logTag}] FAIL-OPEN ACCEPT on attempt ${attempt}/${totalBudget} ` +
-          `tags=[${(qa.tags || []).join(',')}] — only QA infra is failing; accepting to unblock the book.`,
+          `[${logTag}] qaState=ACCEPT_WITH_NOTE reason=${reason} attempt=${attempt}/${totalBudget} ` +
+          `tags=[${tagList.join(',')}] — shipping with note; this is a quality-regression signal if it persists.`,
         );
+        // Soft-drift accepts ship visible drift; surface them in the BOOK
+        // _COUNTERS line so a regression is obvious before customers tell us.
+        // Infra-only accepts are operational noise — don't pollute the metric.
+        if (softFailDriven) {
+          incrementCounter(currentDoc, 'illustrator.softFailsShipped');
+        }
       }
       if (cleanPass || failOpenAccept) {
-        console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`);
+        console.log(`[${logTag}] qaState=${qaState} on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
         markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
 
         const printable = await upscaleForPrint(stripped);
@@ -581,6 +618,44 @@ async function processOneSpread(params) {
       pruneLastTurn(currentSession);
 
       lastTags = Array.isArray(qa.tags) ? qa.tags : [];
+
+      // Phase 4 — prose ↔ image feedback edge. If the QA failure is
+      // writer-driven (the text asks for an action the hero can't do, or
+      // the prose contradicts the spec's focal action) we burn a single
+      // writer rewrite for THIS spread instead of throwing more render
+      // attempts at the same prose. Bounded by MAX_PROSE_REVISIONS_PER_SPREAD
+      // so we never spend the whole render budget on the writer side.
+      const proseTriggered = lastTags.some(t => PROSE_REVISION_TRIGGER_TAGS.has(t));
+      if (proseTriggered && proseRevisionsUsed < MAX_PROSE_REVISIONS_PER_SPREAD) {
+        proseRevisionsUsed += 1;
+        const triggerTags = lastTags.filter(t => PROSE_REVISION_TRIGGER_TAGS.has(t));
+        console.warn(
+          `[${logTag}] PROSE_REVISION triggered (attempt ${attempt}/${totalBudget}) ` +
+          `tags=[${triggerTags.join(',')}] — burning one writer rewrite before continuing render attempts.`,
+        );
+        const revisedDoc = await reviseSpreadProseForIllustrator(currentDoc, spread.spreadNumber, {
+          tags: triggerTags,
+          issues: qa.issues || [],
+        });
+        const revisedSpread = revisedDoc.spreads.find(s => s.spreadNumber === spread.spreadNumber);
+        const newText = revisedSpread?.manuscript?.text;
+        if (revisedDoc !== currentDoc && newText && newText !== baselineCaption) {
+          incrementCounter(revisedDoc, 'proseRevisionRequests');
+          currentDoc = revisedDoc;
+          baselineCaption = newText;
+          renderCaption = newText;
+          spec.text = newText;
+          expected = { text: renderCaption, side: spec.textSide };
+          console.log(`[${logTag}] PROSE_REVISION applied — new caption length ${newText.length}; resuming render attempts with fresh prose.`);
+          // Skip planSpreadRepair this iteration; we want the next render
+          // attempt to see the new text without an image-side correction
+          // note layered on top.
+          continue;
+        }
+        // Revision didn't actually change the text — fall through to the
+        // normal correction path so we don't get stuck.
+        console.warn(`[${logTag}] PROSE_REVISION returned no change; falling back to normal correction path.`);
+      }
 
       const plan = planSpreadRepair({
         spreadNumber: spread.spreadNumber,

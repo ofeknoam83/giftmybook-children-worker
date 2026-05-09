@@ -11,6 +11,54 @@ const { verifySpreadText } = require('../../illustrator/textQa');
 const { checkSpreadConsistency } = require('../../illustrator/consistencyQa');
 const { checkSpreadActionConsistency } = require('../../illustrator/actionConsistencyQa');
 
+// Phase 3 — retry the QA call itself before tagging as infra error.
+// Previously a single-shot QA throw on Gemini's bad afternoon would tag
+// the spread as `qa_consistency_error` / `qa_action_error`, which the
+// caller's fail-open path then promotes to ACCEPT after a few attempts —
+// silently shipping un-validated images during transient outages. We
+// retry the call up to QA_MAX_ATTEMPTS times with exponential backoff so
+// the infra-tag is reserved for genuine outages, not transient hiccups.
+const QA_MAX_ATTEMPTS = 3;
+const QA_BACKOFF_BASE_MS = 600;
+const QA_BACKOFF_MAX_MS = 4000;
+
+/**
+ * Run an async QA function with bounded retries on thrown errors. Resolves
+ * to whatever the function returns on the first successful attempt; if
+ * every attempt throws, resolves (does NOT reject) to the supplied
+ * `infraTag` shape so the caller's existing tag-merging logic continues
+ * to work unchanged. Aborts immediately if the abortSignal fires.
+ *
+ * @param {() => Promise<object>} fn
+ * @param {{ infraTag: string, label: string, abortSignal?: AbortSignal }} opts
+ * @returns {Promise<object>}
+ */
+async function withQaRetry(fn, opts) {
+  const { infraTag, label, abortSignal } = opts;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= QA_MAX_ATTEMPTS; attempt++) {
+    if (abortSignal?.aborted) {
+      return { pass: false, issues: [`${label} aborted`], tags: [infraTag], repairInstructions: [] };
+    }
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= QA_MAX_ATTEMPTS) break;
+      const delay = Math.min(QA_BACKOFF_BASE_MS * (2 ** (attempt - 1)), QA_BACKOFF_MAX_MS);
+      console.warn(`[qa:${label}] attempt ${attempt}/${QA_MAX_ATTEMPTS} failed (${err?.message || 'unknown'}); retrying in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  console.error(`[qa:${label}] exhausted ${QA_MAX_ATTEMPTS} attempts: ${lastErr?.message || 'unknown'}`);
+  return {
+    pass: false,
+    issues: [`${label} error after ${QA_MAX_ATTEMPTS} attempts: ${lastErr?.message || 'unknown'}`],
+    tags: [infraTag],
+    repairInstructions: [],
+  };
+}
+
 /**
  * @param {object} params
  * @param {string} params.imageBase64
@@ -74,42 +122,44 @@ async function checkSpread(params) {
   // here.
   void additionalCoverCharacters;
 
+  // Phase 3 — each QA leg is now wrapped in `withQaRetry` (3 attempts with
+  // exponential backoff) before tagging as infra error. Reserves the
+  // qa_consistency_error / qa_action_error tags for genuine outages so the
+  // caller's fail-open path doesn't silently ship un-validated images on
+  // transient Gemini hiccups.
   const [textQa, consistencyQa, actionQa] = await Promise.all([
     verifySpreadText(imageBase64, expected, { spreadIndex, abortSignal }),
-    checkSpreadConsistency(
-      imageBase64,
-      coverRef?.base64,
-      {
-        characterDescription: hero,
-        hasSecondaryOnCover: coverParentPresent === true,
-        qaAllowedHumansNote: '',
-        recentInteriorRefs,
-        abortSignal,
-        theme,
-        caregiverLock: caregiverLock || null,
-      },
-    ).catch(err => ({
-      pass: false,
-      issues: [`consistency QA error: ${err?.message || 'unknown'}`],
-      tags: ['qa_consistency_error'],
-      repairInstructions: [],
-    })),
+    withQaRetry(
+      () => checkSpreadConsistency(
+        imageBase64,
+        coverRef?.base64,
+        {
+          characterDescription: hero,
+          hasSecondaryOnCover: coverParentPresent === true,
+          qaAllowedHumansNote: '',
+          recentInteriorRefs,
+          abortSignal,
+          theme,
+          caregiverLock: caregiverLock || null,
+        },
+      ),
+      { infraTag: 'qa_consistency_error', label: 'consistency', abortSignal },
+    ),
     // C.1 + C.2 — does the IMAGE depict what the TEXT says, and is the
     // depicted action possible for the hero's age band? Stateless single
-    // vision call; fails open on infra error so we never block on a flaky
-    // QA pipe.
-    checkSpreadActionConsistency(imageBase64, {
-      text: expected?.text,
-      focalAction,
-      ageBand,
-      childAge,
-      heroName,
-      abortSignal,
-    }).catch(err => ({
-      pass: false,
-      issues: [`action QA error: ${err?.message || 'unknown'}`],
-      tags: ['qa_action_error'],
-    })),
+    // vision call; failures retry before tagging so a flaky QA pipe doesn't
+    // silently promote a spread to accept.
+    withQaRetry(
+      () => checkSpreadActionConsistency(imageBase64, {
+        text: expected?.text,
+        focalAction,
+        ageBand,
+        childAge,
+        heroName,
+        abortSignal,
+      }),
+      { infraTag: 'qa_action_error', label: 'action', abortSignal },
+    ),
   ]);
 
   let issues = [

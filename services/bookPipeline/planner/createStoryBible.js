@@ -41,6 +41,15 @@ Hard rules:
 - **Personalization tie-in (when PERSONALIZATION SNAPSHOT has interests, questionnaire lines, or substantive custom details):** \`narrativeSpine\`, \`middleEscalation\`, at least half of \`personalizationTargets\`, the primary companion or quest object, and \`visualJourneySpine\` must clearly echo at least one concrete item from that snapshot. If the snapshot is nearly empty, inventive generic adventure is OK for adventure / fantasy / space / sea themes. **For parent themes (mother's day / father's day / grandparents day) and birthday, even with a thin snapshot, you must NOT default to the theme's cultural prop set** — the through-line must be a CONCRETE SHARED ACTIVITY in a CONCRETE PLACE (a specific errand, a specific build, a specific reach, a specific outing to a specific named place). It may not be a generic gift-giving sequence, a ribbon trail, a heart-and-bouquet collage, a breakfast tray, or any culturally pre-formed token of the holiday. The personalization may be sparse but the spine must still be a real journey with cause and effect.
 - **Parent themes are adventure books with an emotional spine (additive, not subtractive):** treat parent themes the same way you treat adventure themes for plot construction — same standards for cinematic locations, causal bridges, recurring visual motifs, surprise, and anti-template variety. The parent rail adds emotional anchoring **on top**; it does not lower the adventure bar. The hero/parent bond is the EMOTIONAL spine of the book, not the STRUCTURAL one — the structural spine is still a concrete journey with cause and effect, multiple distinct photogenic locations, and earned escalation. A parent theme that ends up smaller in scope or quieter in stakes than an adventure book has failed.
 - **Sensory spine for parent themes:** for mother's day / father's day / grandparents day, the spine must carry at least ONE sensory anchor that recurs across multiple spreads — a specific scent, a specific sound, a specific texture, a specific temperature, or a specific weight. Examples: the smell of a certain bread, the squeak of a particular gate, the cold of a specific bench, the weight of a satchel, the hush of an empty hall. Generic emotional gestures (a warm hug, a smile, a happy heart) are NOT sensory anchors. Add the chosen sensory motif to \`recurringVisualMotifs\` so the writer has something specific to ground every spread in (taste / touch / sound / smell / temperature) instead of abstract emotional verbs.
+- **Thicker-bible contract (Phase 1).** A book a child asks for again has a unified narrator, a real refrain, and a specific MOMENT. Emit these named fields and treat them as the spine, not decoration:
+  - \`moment\` — the specific hour/occasion the book inhabits, named as a real time and place. NOT "being brave" (a topic) but "the morning between waking up and the bus on the first day of kindergarten" (a moment).
+  - \`weather\` — the atmospheric anchor that holds across all 13 spreads: light, time of day, mood. "Late-afternoon gold," "rainy Tuesday afternoon," "first snow at dusk." Atmosphere does ~70% of the emotional work — pick it before the plot.
+  - \`ritual\` — a small, family-adoptable action the hero does once or twice that a parent could adopt at home (three deep breaths and a wink; tap the door three times; whisper a name to the moon). May be null if no ritual fits this book — but prefer to find one. This is the single highest-leverage move on "asked for again."
+  - \`voiceCard\` — how this book SOUNDS. Four fields: narratorPOV ("third-person warm" / "second-person intimate" / "first-person brave-child"), tonalRegister ("gentle, slightly wry, never cute"), signatureMove (ONE positive narrator trick used recurrently — a sound word, a tiny aside, a sensory zoom; not a "don't"), refrainSeed (4–7 words at the heart of the refrain).
+  - \`refrain\` — a 4-to-12-word phrase that recurs THREE times with three jobs: plant (spread 1–4: introduce at face value), deepen (spread 5–9: same words, weighted by what has happened), transform (spread 10–13: same words, new meaning earned). Pick exact spread numbers that fit this book.
+  - \`openingImage\` — a concrete, drawable image the book opens on (NOT a feeling). "A lunchbox on the counter, lid still open." It must matter at the end.
+  - \`closingCallback\` — how the closing image references or transforms openingImage. Same object, new feeling — or new framing of the same scene. The book ends by re-showing where it began.
+  - \`adultReaderLine\` — ONE short note (≤ 120 chars) describing a single line that should resonate with the ADULT reading aloud, not only the child. A sly aside, a melancholic detail, a wink — something that earns the parent's hundredth re-read. Optional: emit empty string if no line fits this book. The writer is asked to place this beat naturally in one spread, rendered in voice rather than copied as-is.
 - Return ONLY strict JSON matching the schema in the user message.`;
 
 function userPrompt(doc) {
@@ -89,6 +98,28 @@ function userPrompt(doc) {
   // PR M→regen failure: the validator rejects 3+ cinematicLocations for
   // PB_INFANT, but the schema example was telling the model to emit them.
   // Use a band-shaped schema example instead so prose and schema agree.
+  // Phase-1 thicker-bible fields the LLM must emit on every band:
+  //   moment, weather, ritual, voiceCard, refrain{text,plant,deepen,transform},
+  //   openingImage, closingCallback. See SYSTEM_PROMPT for what they mean.
+  const thickerBibleSchema = `  "moment": "one sentence: the specific hour/occasion this book inhabits — a real time and place, not a topic. e.g. 'the morning between waking up and the bus on the first day of kindergarten'.",
+  "weather": "one short phrase: the atmospheric anchor across all 13 spreads (light + time of day + mood). e.g. 'late-afternoon gold, leaves blowing'.",
+  "ritual": { "name": "short name of a small family-adoptable action (3-7 words). null if no ritual fits.", "description": "one sentence: how the ritual works in this book and how a parent could adopt it." },
+  "voiceCard": {
+    "narratorPOV": "one phrase: e.g. 'third-person warm', 'second-person intimate', 'first-person brave-child'.",
+    "tonalRegister": "one phrase: e.g. 'gentle, slightly wry, never cute'.",
+    "signatureMove": "one POSITIVE narrator trick used recurrently (a sound word, a tiny aside to the reader, a sensory zoom). NOT a 'don't'.",
+    "refrainSeed": "4-7 words at the heart of the refrain"
+  },
+  "refrain": {
+    "text": "the 4-to-12-word refrain phrase that will recur three times",
+    "plant": "integer spread number 1-4 where it first appears (face value)",
+    "deepen": "integer spread number 5-9 where it deepens (same words, new weight)",
+    "transform": "integer spread number 10-13 where it transforms (same words, new meaning)"
+  },
+  "openingImage": "one sentence: a concrete, drawable image the book opens on (NOT a feeling). Must matter at the end.",
+  "closingCallback": "one sentence: how the closing image references or transforms openingImage — same object, new feeling, or new framing of the same scene.",
+  "adultReaderLine": "≤ 120 chars: a brief described beat the writer should land in one spread that resonates with the adult reading aloud (a sly aside, a melancholic detail, a wink). Empty string if no such beat fits this book.",`;
+
   const schemaExample = isInfant
     ? `{
   "narrativeSpine": "one sentence that names what this lap-baby book is really about (a sensory discovery thread, NOT a quest)",
@@ -103,7 +134,8 @@ function userPrompt(doc) {
   "cinematicLocations": ["1-2 connected micro-settings only. Use intimate, baby-scale spaces (a sun-warmed bedroom window, a high-chair beside the kitchen sink, a porch swing under a maple, the cot at nap-light). NEVER 3 or more locations. NEVER a 'coastal lighthouse', 'market square', 'hilltop', or 'tide pool' — those are toddler+ scopes and will fail validation. Time-of-day + weather labels are fine but optional."],
   "visualJourneySpine": "2-3 sentences: the SENSORY thread that connects those 1-2 micro-settings (a beam of warm light moving across the room, a familiar song carried from one space to the next, the smell of something baking reaching the cot). NOT a causal action chain. NOT a mission or quest.",
   "recurringVisualMotifs": ["3-5 tactile/auditory anchors a baby actually senses (a soft blanket, Mama's hands, a window of light, a wooden cup, a familiar song, the family cat's tail). Prefer cues from the PERSONALIZATION SNAPSHOT."],
-  "forbiddenMoves": ["things this specific book must avoid (locomotion the baby cannot do, multi-location quests, preachy lessons, bedtime endings unless the brief asks for one)."]
+  "forbiddenMoves": ["things this specific book must avoid (locomotion the baby cannot do, multi-location quests, preachy lessons, bedtime endings unless the brief asks for one)."],
+${thickerBibleSchema}
 }`
     : `{
   "narrativeSpine": "one sentence that names what the book is really about",
@@ -118,7 +150,8 @@ function userPrompt(doc) {
   "cinematicLocations": ["3-5 specific photogenic settings the book MUST visit. Use real location types with time-of-day and weather (e.g. a coastal lighthouse at dusk, a market square strung with lanterns at twilight, a hilltop with a single tree under racing clouds, a tide pool at low tide in morning fog). No generic 'park' or 'garden' — name the time of day AND the weather/light."],
   "visualJourneySpine": "2-4 sentences: the causal thread that connects those places into ONE story — the mission, object, quest, or escalation that justifies each move. Make the chain clear enough that spread-to-spread transitions feel earned, not random.",
   "recurringVisualMotifs": ["3-5 concrete motifs — prefer cues from personalization snapshot before generic luminous trails"],
-  "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"]
+  "forbiddenMoves": ["things this specific book must avoid (generic scenes, bedtime ending, preachiness, etc.)"],
+${thickerBibleSchema}
 }`;
 
   return [
@@ -142,6 +175,63 @@ function userPrompt(doc) {
     retryBlock ? `\n${retryBlock}` : '',
     'Emit the JSON now.',
   ].filter(Boolean).join('\n');
+}
+
+/**
+ * Normalize the LLM's `ritual` object onto a strict shape, or null if no
+ * ritual was emitted / it was emitted empty. The validator allows null
+ * (rituals are optional — not every book needs one) but rejects partial
+ * objects with only one of the two fields filled.
+ *
+ * @param {any} raw
+ * @returns {{ name: string, description: string }|null}
+ */
+function normalizeRitual(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = String(raw.name || '').trim();
+  const description = String(raw.description || '').trim();
+  if (!name && !description) return null;
+  return { name, description };
+}
+
+/**
+ * Normalize the LLM's `voiceCard` object onto its four required fields.
+ * Empty fields are kept as empty strings so the validator can flag the
+ * specific missing field instead of treating the whole object as missing.
+ *
+ * @param {any} raw
+ * @returns {{ narratorPOV: string, tonalRegister: string, signatureMove: string, refrainSeed: string }}
+ */
+function normalizeVoiceCard(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    narratorPOV: String(src.narratorPOV || '').trim(),
+    tonalRegister: String(src.tonalRegister || '').trim(),
+    signatureMove: String(src.signatureMove || '').trim(),
+    refrainSeed: String(src.refrainSeed || '').trim(),
+  };
+}
+
+/**
+ * Normalize the LLM's `refrain` object. Coerces plant/deepen/transform to
+ * integers; preserves zeros so the validator sees the missing assignment
+ * rather than a silently defaulted spread number.
+ *
+ * @param {any} raw
+ * @returns {{ text: string, plant: number, deepen: number, transform: number }}
+ */
+function normalizeRefrain(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  };
+  return {
+    text: String(src.text || '').trim(),
+    plant: num(src.plant),
+    deepen: num(src.deepen),
+    transform: num(src.transform),
+  };
 }
 
 /**
@@ -175,6 +265,22 @@ async function createStoryBible(doc) {
     visualJourneySpine: String(json.visualJourneySpine || '').trim(),
     recurringVisualMotifs: Array.isArray(json.recurringVisualMotifs) ? json.recurringVisualMotifs.map(String) : [],
     forbiddenMoves: Array.isArray(json.forbiddenMoves) ? json.forbiddenMoves.map(String) : [],
+    // Phase 1 — thicker bible. See SYSTEM_PROMPT for semantics. Validators
+    // in schema/validateBookDocument enforce the structure that downstream
+    // stages (writer voice, refrain placement, illustrator opening/closing
+    // image) actually depend on; weak content surfaces as a gate issue and
+    // triggers the existing planner retry budget.
+    moment: String(json.moment || '').trim(),
+    weather: String(json.weather || '').trim(),
+    ritual: normalizeRitual(json.ritual),
+    voiceCard: normalizeVoiceCard(json.voiceCard),
+    refrain: normalizeRefrain(json.refrain),
+    openingImage: String(json.openingImage || '').trim(),
+    closingCallback: String(json.closingCallback || '').trim(),
+    // Phase 5b — optional. Empty string is acceptable if no adult-reader
+    // line fits this specific book; the writer treats empty as "no
+    // adult-reader requirement" rather than failing the gate.
+    adultReaderLine: String(json.adultReaderLine || '').trim(),
   };
 
   const traced = appendLlmCall(doc, {

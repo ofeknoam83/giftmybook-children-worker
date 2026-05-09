@@ -9,108 +9,37 @@
 
 const { WRITER_CONFIG } = require('../config');
 const { getPronounInfo, buildPronounInstruction, checkAndFixPronouns } = require('../quality/pronoun');
-const { sanitizeForGemini } = require('../../promptSanitizer');
 
-// LLM infrastructure — reuse the same HTTP + timeout helpers from storyPlanner
+// LLM HTTP plumbing lives in services/llm.js (the unified bookPipeline client).
+// The two helpers below are thin local delegators that preserve writerV2's
+// historical signatures + return shape so callsites don't change.
+const { callText: _callText } = require('../../llm');
 const DEFAULT_LLM_TIMEOUT_MS = WRITER_CONFIG.timeouts.defaultLLM;
 const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_FLASH_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-
-// ── HTTP helpers ──
-
-async function fetchWithTimeout(url, init, timeoutMs, requestLabel) {
-  const controller = new AbortController();
-  let didTimeout = false;
-  const timer = setTimeout(() => {
-    didTimeout = true;
-    controller.abort();
-  }, timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    if (didTimeout) throw new Error(`${requestLabel || 'LLM request'} timed out after ${timeoutMs}ms`);
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const apiKey = opts.apiKey;
   if (!apiKey) throw new Error('OpenAI API key not available');
 
-  const useStream = (opts.maxTokens || 4000) > 8000;
-  const resp = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'gpt-5.4',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: opts.temperature || 0.8,
-      max_completion_tokens: opts.maxTokens || 4000,
-      response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
-      stream: useStream || undefined,
-      ...(useStream ? { stream_options: { include_usage: true } } : {}),
-    }),
-  }, opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS, opts.requestLabel || 'OpenAI request');
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`OpenAI API error ${resp.status}: ${err.slice(0, 200)}`);
-  }
-
-  if (useStream) {
-    const rawText = await resp.text();
-    if (rawText.trimStart().startsWith('data:')) {
-      const lines = rawText.split('\n');
-      let content = '';
-      let finishReason = 'stop';
-      let inputTokens = 0;
-      let outputTokens = 0;
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (payload === '[DONE]') break;
-        try {
-          const chunk = JSON.parse(payload);
-          const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) content += delta.content;
-          const reason = chunk.choices?.[0]?.finish_reason;
-          if (reason) finishReason = reason;
-          if (chunk.usage) {
-            inputTokens = chunk.usage.prompt_tokens || inputTokens;
-            outputTokens = chunk.usage.completion_tokens || outputTokens;
-          }
-        } catch (_) { /* skip malformed SSE lines */ }
-      }
-      finishReason = finishReason === 'length' ? 'MAX_TOKENS' : (finishReason || 'stop');
-      return { text: content, inputTokens, outputTokens, finishReason };
-    }
-    const data = JSON.parse(rawText);
-    const choice = data.choices?.[0];
-    return {
-      text: choice?.message?.content || '',
-      inputTokens: data.usage?.prompt_tokens || 0,
-      outputTokens: data.usage?.completion_tokens || 0,
-      finishReason: choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop'),
-    };
-  }
-
-  const data = await resp.json();
-  const choice = data.choices?.[0];
-  let content = choice?.message?.content || '';
-  if (Array.isArray(content)) {
-    content = content.map(part => (typeof part === 'string' ? part : part?.text || '')).join('');
-  }
+  const r = await _callText({
+    model: 'gpt-5.4',
+    systemPrompt,
+    userPrompt,
+    jsonMode: !!opts.jsonMode,
+    maxTokens: opts.maxTokens || 4000,
+    temperature: opts.temperature || 0.8,
+    timeoutMs: opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+    apiKey,
+    allowGeminiFallback: false,
+    autoExtendOnTruncation: false,
+    label: opts.requestLabel || 'writerV2.callOpenAI',
+  });
   return {
-    text: typeof content === 'string' ? content : '',
-    inputTokens: data.usage?.prompt_tokens || 0,
-    outputTokens: data.usage?.completion_tokens || 0,
-    finishReason: choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop'),
+    text: r.text,
+    inputTokens: r.usage.inputTokens,
+    outputTokens: r.usage.outputTokens,
+    finishReason: r.finishReason === 'length' ? 'MAX_TOKENS' : (r.finishReason || 'stop'),
   };
 }
 
@@ -118,59 +47,40 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-  const { timeoutMs, requestLabel, model, ...geminiGenConfig } = genConfig || {};
+  const { timeoutMs, requestLabel, model, maxOutputTokens, temperature, responseMimeType } = genConfig || {};
   const geminiModel = model || GEMINI_MODEL;
 
-  // Wire-layer sanitization: scrub invisibles, homoglyphs, and role-injection
-  // patterns that can reach this point after being interpolated from user
-  // input into system prompts / user prompts. See services/promptSanitizer.js.
-  const safeSystem = sanitizeForGemini(systemPrompt);
-  const safeUser = sanitizeForGemini(userPrompt);
+  const r = await _callText({
+    model: geminiModel,
+    systemPrompt,
+    userPrompt,
+    jsonMode: responseMimeType === 'application/json',
+    maxTokens: maxOutputTokens || 4000,
+    temperature: temperature ?? 0.8,
+    timeoutMs: timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+    geminiApiKey: apiKey,
+    allowGeminiFallback: false,
+    autoExtendOnTruncation: false,
+    label: requestLabel || 'writerV2.callGeminiText',
+  });
 
-  const body = {
-    systemInstruction: { parts: [{ text: safeSystem }] },
-    contents: [{ role: 'user', parts: [{ text: safeUser }] }],
-    generationConfig: geminiGenConfig,
-  };
+  // Map unified finishReason vocab back to legacy raw-Gemini vocab so
+  // older callers in this file (and downstream) don't have to change.
+  let finishReason = r.finishReason || 'unknown';
+  if (finishReason === 'length') finishReason = 'MAX_TOKENS';
+  else if (finishReason === 'stop') finishReason = 'STOP';
 
-  let resp;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      resp = await fetchWithTimeout(
-        `${GEMINI_BASE_URL}/${geminiModel}:generateContent?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-        timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
-        requestLabel || `Gemini request attempt ${attempt}`,
-      );
-      break;
-    } catch (fetchErr) {
-      console.warn(`[writerV2] Gemini fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
-      if (attempt === 3) throw fetchErr;
-      await new Promise(r => setTimeout(r, 2000 * attempt));
-    }
-  }
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`Gemini API error ${resp.status}: ${errText.slice(0, 200)}`);
-  }
-
-  const result = await resp.json();
-  const candidate = result.candidates?.[0];
-  const text = candidate?.content?.parts?.[0]?.text || '';
-  const finishReason = candidate?.finishReason || 'unknown';
-
-  // Detect safety blocks and other non-STOP finish reasons with no content
-  if (!text && finishReason !== 'STOP') {
-    const blockReason = result.promptFeedback?.blockReason || candidate?.finishReason || 'unknown';
-    console.error(`[writerV2] Gemini returned empty content. finishReason=${finishReason}, blockReason=${blockReason}`);
-    throw new Error(`Gemini returned no content (finishReason=${finishReason}, blockReason=${blockReason})`);
+  // Preserve legacy safety-block detection: if the model returned no text on
+  // a non-STOP finish, surface the reason instead of silently passing empty.
+  if (!r.text && finishReason !== 'STOP') {
+    console.error(`[writerV2] Gemini returned empty content. finishReason=${finishReason}`);
+    throw new Error(`Gemini returned no content (finishReason=${finishReason})`);
   }
 
   return {
-    text,
-    inputTokens: result.usageMetadata?.promptTokenCount || 0,
-    outputTokens: result.usageMetadata?.candidatesTokenCount || 0,
+    text: r.text,
+    inputTokens: r.usage.inputTokens,
+    outputTokens: r.usage.outputTokens,
     finishReason,
   };
 }

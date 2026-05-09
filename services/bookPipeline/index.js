@@ -24,6 +24,7 @@ const {
   appendStageTrace,
   appendRetryMemory,
   setResult,
+  formatCountersLogLine,
 } = require('./schema/bookDocument');
 const { buildRetryEntry } = require('./retryMemory');
 
@@ -358,6 +359,12 @@ async function generateBook(rawRequest, opts = {}) {
   reportProgress(doc, { step: 'layout', message: 'Preparing layout payload' });
   const layout = toLayoutPayload(doc);
   doc = withStageResult(setResult(doc, 'success'), {});
+
+  // Single grep-friendly observability line. The three counters track the
+  // quality regressions most likely to ship silently: writer revise churn,
+  // soft-fail drift accepted at the illustrator, and prose-revision requests
+  // (Phase 4). Cloud Logging filter: `[BOOK_COUNTERS]`.
+  console.log(formatCountersLogLine(doc));
 
   return { document: doc, layout };
 }

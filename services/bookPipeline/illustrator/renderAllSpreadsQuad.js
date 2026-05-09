@@ -36,7 +36,8 @@ const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { sliceQuadToTwoSpreadStrips } = require('./sliceQuadToTwoSpreadStrips');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
-const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
+const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
+const { reviseSpreadProseForIllustrator } = require('../writer/rewriteBookText');
 const { processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog } = require('./renderAllSpreads');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -396,10 +397,17 @@ async function processQuadPair(params) {
 
   const specA = buildIllustrationSpec(doc, spreadA);
   const specB = buildIllustrationSpec(doc, spreadB);
-  const baselineCaptionA = specA.text;
-  const baselineCaptionB = specB.text;
+  // Phase 4 — captions are mutable: a prose revision (writer rewrite
+  // triggered by an illustrator-side veto) can replace EITHER spread's
+  // manuscript mid-pair before we early-abort the whole pair. Bounded to
+  // one revision per pair so we never spend the whole render budget on
+  // the writer side.
+  let baselineCaptionA = specA.text;
+  let baselineCaptionB = specB.text;
   let renderCaptionA = baselineCaptionA;
   let renderCaptionB = baselineCaptionB;
+  let proseRevisionsUsedQuad = 0;
+  const MAX_PROSE_REVISIONS_PER_PAIR = 1;
   let expectedA = { text: renderCaptionA, side: specA.textSide };
   let expectedB = { text: renderCaptionB, side: specB.textSide };
 
@@ -775,17 +783,32 @@ async function processQuadPair(params) {
       const cleanPass = qaA.pass && qaB.pass;
       const failOpenAccept = !cleanPass
         && shouldFailOpenAcceptPair(qaA, qaB, attempt, totalBudget);
+      // Phase 3b — three-state QA verdict (PASS / ACCEPT_WITH_NOTE / FAIL).
+      // Hero-recognition tags hard-fail by construction; only drift / infra
+      // tags ride in on ACCEPT_WITH_NOTE. softFailDriven marks the version
+      // we want surfaced in BOOK_COUNTERS (visible drift), separate from
+      // pure infra-outage accepts (operational noise).
+      const sideHasSoftFail = qa => {
+        if (!qa || qa.pass === true) return false;
+        const tags = Array.isArray(qa.tags) ? qa.tags : [];
+        return tags.some(t => QA_SOFT_FAIL_TAGS.has(t));
+      };
+      const softFailDriven = failOpenAccept && (sideHasSoftFail(qaA) || sideHasSoftFail(qaB));
       if (failOpenAccept) {
+        const reason = softFailDriven ? 'soft_drift' : 'infra_only';
         const summarize = (label, qa) => {
           if (!qa || qa.pass === true) return `${label}=pass`;
           const tags = Array.isArray(qa.tags) ? qa.tags.join(',') : '';
-          return `${label}=infra-only[${tags}]`;
+          return `${label}=fail[${tags}]`;
         };
         console.warn(
-          `[${logTagQuad}] FAIL-OPEN ACCEPT pair attempt ${attempt}/${totalBudget} ` +
+          `[${logTagQuad}] qaState=ACCEPT_WITH_NOTE reason=${reason} pair attempt ${attempt}/${totalBudget} ` +
           `spreadNumbers=[${spreadNumbers.join(', ')}] — ${summarize('A', qaA)} ${summarize('B', qaB)}. ` +
-          `Real-image checks pass; only the QA infra is failing — accepting to unblock the book.`,
+          `Shipping with note; quality-regression signal if it persists.`,
         );
+        if (softFailDriven) {
+          incrementCounter(currentDoc, 'illustrator.softFailsShipped');
+        }
       }
       if (cleanPass || failOpenAccept) {
         const printableQuad = await upscaleForPrint(stripped);
@@ -800,7 +823,7 @@ async function processQuadPair(params) {
         const printableRightB64 = slice.rightStrip.toString('base64');
 
         console.log(
-          `[${logTagQuad}] ACCEPTED pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`,
+          `[${logTagQuad}] qaState=${cleanPass ? 'PASS' : 'ACCEPT_WITH_NOTE'} pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)`,
         );
         markQuadPairAccepted(
           currentSession,
@@ -851,6 +874,24 @@ async function processQuadPair(params) {
       lastTags = tags;
       lastPairRejectTags = [...new Set(tags)];
       lastPairRejectIssues = issues.slice(0, 12);
+
+      // Phase 5a — quad correlated failure: BOTH halves failed THIS attempt
+      // with at least one overlapping tag. This is the failure mode the
+      // plan flagged as the quad path's risk: one bad render kills two
+      // spreads. Log it as a structured metric so we can decide later
+      // whether to add a mid-book legacy fallback. (Actual fallback is
+      // out of scope for this PR — mid-session mode switch is risky on a
+      // stateful illustrator session.)
+      const aTagSet = new Set(qaA.tags || []);
+      const bTagSet = new Set(qaB.tags || []);
+      const correlatedTags = [...aTagSet].filter(t => bTagSet.has(t));
+      if (qaA.pass !== true && qaB.pass !== true && correlatedTags.length > 0) {
+        console.warn(
+          `[${logTagQuad}] QUAD_CORRELATED_FAILURE attempt=${attempt}/${totalBudget} ` +
+          `spreadNumbers=[${spreadNumbers.join(', ')}] correlatedTags=[${correlatedTags.join(',')}] — ` +
+          `both halves failed on overlapping tags; if this fires repeatedly across books, consider a legacy single-spread fallback.`,
+        );
+      }
 
       // PR F early-abort: count consecutive age_action_impossible rejections
       // and bail out before exhausting the full budget. This typically saves
@@ -914,6 +955,63 @@ async function processQuadPair(params) {
       }
 
       if (shouldEarlyAbortForUnrenderableInfantAction(consecutiveAgeActionImpossible)) {
+        // Phase 4 — before failing the pair, burn ONE writer rewrite for
+        // each half whose prose triggered the abort. Targets the exact
+        // failure mode this branch was built for: text demands an action
+        // the hero physically can't do. Bounded by MAX_PROSE_REVISIONS_PER_
+        // _PAIR so we never replace the early-abort safety net.
+        if (proseRevisionsUsedQuad < MAX_PROSE_REVISIONS_PER_PAIR) {
+          proseRevisionsUsedQuad += 1;
+          console.warn(
+            `[${logTagQuad}] PROSE_REVISION triggered before EARLY-ABORT spreads=[${spreadNumbers.join(', ')}] ` +
+            `tags=[${lastPairRejectTags.join(',')}] — burning one writer rewrite per failing half before giving up.`,
+          );
+          const veto = (qa) => ({
+            tags: (qa.tags || []).filter(t => t === 'age_action_impossible' || t === 'action_mismatch'),
+            issues: qa.issues || [],
+          });
+          let revisedDoc = currentDoc;
+          const aTriggered = (qaA.tags || []).some(t => t === 'age_action_impossible' || t === 'action_mismatch');
+          const bTriggered = (qaB.tags || []).some(t => t === 'age_action_impossible' || t === 'action_mismatch');
+          if (aTriggered) {
+            revisedDoc = await reviseSpreadProseForIllustrator(revisedDoc, spreadA.spreadNumber, veto(qaA));
+          }
+          if (bTriggered) {
+            revisedDoc = await reviseSpreadProseForIllustrator(revisedDoc, spreadB.spreadNumber, veto(qaB));
+          }
+          const revisedSpreadA = revisedDoc.spreads.find(s => s.spreadNumber === spreadA.spreadNumber);
+          const revisedSpreadB = revisedDoc.spreads.find(s => s.spreadNumber === spreadB.spreadNumber);
+          const newTextA = revisedSpreadA?.manuscript?.text;
+          const newTextB = revisedSpreadB?.manuscript?.text;
+          const aChanged = aTriggered && newTextA && newTextA !== baselineCaptionA;
+          const bChanged = bTriggered && newTextB && newTextB !== baselineCaptionB;
+          if (aChanged || bChanged) {
+            incrementCounter(revisedDoc, 'proseRevisionRequests');
+            currentDoc = revisedDoc;
+            if (aChanged) {
+              baselineCaptionA = newTextA;
+              renderCaptionA = newTextA;
+              specA.text = newTextA;
+              expectedA = { text: renderCaptionA, side: specA.textSide };
+            }
+            if (bChanged) {
+              baselineCaptionB = newTextB;
+              renderCaptionB = newTextB;
+              specB.text = newTextB;
+              expectedB = { text: renderCaptionB, side: specB.textSide };
+            }
+            // Reset the consecutive-counter so the next pair render can
+            // try the new prose without immediately tripping early-abort
+            // again on a stale streak.
+            consecutiveAgeActionImpossible = 0;
+            console.log(
+              `[${logTagQuad}] PROSE_REVISION applied — aChanged=${aChanged} bChanged=${bChanged}; ` +
+              `resetting consecutive age_action_impossible streak and resuming render attempts with fresh prose.`,
+            );
+            continue;
+          }
+          console.warn(`[${logTagQuad}] PROSE_REVISION returned no change; falling through to EARLY-ABORT.`);
+        }
         console.error(
           `[${logTagQuad}] EARLY-ABORT spreads [${spreadNumbers.join(', ')}] — ` +
           `${consecutiveAgeActionImpossible} consecutive age_action_impossible rejections; ` +

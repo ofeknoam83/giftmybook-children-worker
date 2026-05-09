@@ -318,16 +318,59 @@ async function detectCoverComposition(doc) {
   //      This is the only place where a non-vision override can take effect.
   //      Already captured by normalizeRequest.resolveCoverParentPresent and
   //      copied to brief.coverParentPresent before this stage runs.
-  //   2. Vision verdict (this stage).
+  //   2. Vision verdict (this stage), with Phase 3d double-check on
+  //      vision-says-YES for parent themes (see below).
   //   3. Safe fallback: false.
   let coverParentPresent;
+  let visionDisagreement = null;
   if (explicitCallerValue !== null) {
     coverParentPresent = explicitCallerValue;
   } else if (detection && !detectionError) {
-    if (theme === 'mothers_day') coverParentPresent = detection.hasWoman;
-    else if (theme === 'fathers_day') coverParentPresent = detection.hasMan;
-    else if (theme === 'grandparents_day') coverParentPresent = detection.hasWoman || detection.hasMan;
-    else coverParentPresent = false;
+    let raw;
+    if (theme === 'mothers_day') raw = detection.hasWoman;
+    else if (theme === 'fathers_day') raw = detection.hasMan;
+    else if (theme === 'grandparents_day') raw = detection.hasWoman || detection.hasMan;
+    else raw = false;
+
+    // Phase 3d — double-check on vision-says-YES for parent themes. A single
+    // false positive cascades into a full-body phantom-Mom in every interior
+    // spread, which is the costliest failure mode of the cover-composition
+    // call. We re-ask with a tighter prompt; if the two calls disagree, fall
+    // back to the SAFE direction (false → implied-only rendering, which is
+    // recoverable) and log the disagreement for monitoring.
+    if (raw && isParentTheme && coverImage) {
+      try {
+        const confirmation = await callVision(
+          coverImage.base64,
+          coverImage.mime,
+          doc?.operationalContext?.abortSignal,
+        );
+        let confirmRaw;
+        if (theme === 'mothers_day') confirmRaw = confirmation.hasWoman;
+        else if (theme === 'fathers_day') confirmRaw = confirmation.hasMan;
+        else if (theme === 'grandparents_day') confirmRaw = confirmation.hasWoman || confirmation.hasMan;
+        else confirmRaw = false;
+
+        if (confirmRaw === raw) {
+          coverParentPresent = raw;
+        } else {
+          visionDisagreement = { firstCall: raw, secondCall: confirmRaw, theme };
+          console.warn(
+            `[detectCoverComposition] vision double-check DISAGREED theme=${theme} ` +
+            `firstCall=${raw} secondCall=${confirmRaw} — falling back to safe direction (false). ` +
+            `Phantom-parent risk in interiors > implied-rendering risk; pick the recoverable side.`,
+          );
+          coverParentPresent = false;
+        }
+      } catch (err) {
+        // Confirmation call failed — keep the first call's verdict. We don't
+        // want a flaky second vision API to silently flip a real cover.
+        console.warn(`[detectCoverComposition] confirmation call failed: ${err?.message || 'unknown'} — using first-call verdict`);
+        coverParentPresent = raw;
+      }
+    } else {
+      coverParentPresent = raw;
+    }
   } else {
     coverParentPresent = false;
   }
@@ -383,6 +426,7 @@ async function detectCoverComposition(doc) {
       hasMan: detection?.hasMan || false,
       detectionError,
       finalCoverParentPresent: coverParentPresent,
+      visionDisagreement,
       coverCaregiverAppearance,
       coverComposition,
     },

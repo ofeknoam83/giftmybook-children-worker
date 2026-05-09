@@ -53,6 +53,17 @@ function createBookDocument(input) {
       stages: [],
       checkpoints: [],
     },
+    // Operational counters surfaced at end-of-pipeline. Three signals
+    // drive most of our quality regressions:
+    //   - writer.reviseLoopsUsed       — writer QA churn (rule mismatch, refrain, pronoun)
+    //   - illustrator.softFailsShipped — drift accepted on the late-attempt path
+    //   - proseRevisionRequests        — illustrator-side QA caused a writer rewrite (Phase 4)
+    // Kept flat + named so Cloud Logging filters and metrics stay simple.
+    counters: {
+      writer: { reviseLoopsUsed: 0 },
+      illustrator: { softFailsShipped: 0 },
+      proseRevisionRequests: 0,
+    },
     result: {
       status: 'pending',
       failureCode: null,
@@ -146,6 +157,58 @@ function setResult(doc, status, details = {}) {
   };
 }
 
+/**
+ * Increment one of the three operational counters in-place. Mutation is
+ * deliberate here — the counters are scratch state, not part of the
+ * stage-immutability contract that applies to storyBible / spreads / etc.
+ *
+ * Counter paths:
+ *   - 'writer.reviseLoopsUsed'
+ *   - 'illustrator.softFailsShipped'
+ *   - 'proseRevisionRequests'
+ *
+ * Unknown paths are silently ignored so a typo in a callsite never crashes
+ * a book — but they are logged once so we notice.
+ *
+ * @param {object} doc
+ * @param {string} path
+ * @param {number} [by=1]
+ */
+function incrementCounter(doc, path, by = 1) {
+  if (!doc || !doc.counters) return;
+  const c = doc.counters;
+  switch (path) {
+    case 'writer.reviseLoopsUsed':
+      c.writer.reviseLoopsUsed += by;
+      return;
+    case 'illustrator.softFailsShipped':
+      c.illustrator.softFailsShipped += by;
+      return;
+    case 'proseRevisionRequests':
+      c.proseRevisionRequests += by;
+      return;
+    default:
+      console.warn(`[bookDocument] incrementCounter: unknown counter path '${path}'`);
+  }
+}
+
+/**
+ * Render the counters as a single grep-friendly log line for end-of-pipeline
+ * observability. Format: `[BOOK_COUNTERS] bookId=... writer.reviseLoopsUsed=N
+ * illustrator.softFailsShipped=N proseRevisionRequests=N`.
+ *
+ * @param {object} doc
+ * @returns {string}
+ */
+function formatCountersLogLine(doc) {
+  const bookId = doc?.operationalContext?.bookId || 'n/a';
+  const c = doc?.counters || {};
+  const writer = c.writer?.reviseLoopsUsed ?? 0;
+  const illustrator = c.illustrator?.softFailsShipped ?? 0;
+  const prose = c.proseRevisionRequests ?? 0;
+  return `[BOOK_COUNTERS] bookId=${bookId} writer.reviseLoopsUsed=${writer} illustrator.softFailsShipped=${illustrator} proseRevisionRequests=${prose}`;
+}
+
 module.exports = {
   createBookDocument,
   withStageResult,
@@ -154,4 +217,6 @@ module.exports = {
   appendStageTrace,
   appendLlmCall,
   setResult,
+  incrementCounter,
+  formatCountersLogLine,
 };

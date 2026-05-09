@@ -16,7 +16,6 @@ const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
 const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
-const { sanitizeForGemini } = require('./promptSanitizer');
 
 const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
@@ -216,181 +215,84 @@ function getEmotionalTier(age) {
 }
 
 const GEMINI_MODEL = 'gemini-3-flash-preview';
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+// LLM HTTP plumbing lives in services/llm.js (which re-exports the unified
+// bookPipeline client). The three helpers below are thin local delegators
+// that preserve this file's historical signatures so callsites don't change.
+// Provider routing, retries, truncation auto-extend, and Gemini fallback all
+// live in one place now.
+const { callText: _callText } = require('./llm');
 
 /**
- * Call OpenAI GPT 5.4 chat completions API.
+ * Call OpenAI GPT 5.4. Returns { text, inputTokens, outputTokens, finishReason }
+ * with `finishReason === 'MAX_TOKENS'` when the model hit its token cap (this
+ * file's parseJsonPlan branches on that exact string — see line 1646).
  */
-async function fetchWithTimeout(url, init, timeoutMs, requestLabel) {
-  const controller = new AbortController();
-  let didTimeout = false;
-  const timer = setTimeout(() => {
-    didTimeout = true;
-    controller.abort();
-  }, timeoutMs);
-
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    if (didTimeout) {
-      throw new Error(`${requestLabel || 'LLM request'} timed out after ${timeoutMs}ms`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const apiKey = opts.apiKey;
   if (!apiKey) throw new Error('OpenAI API key not available');
 
-  // Use streaming for large token budgets to avoid connection timeout on long generations
-  const useStream = (opts.maxTokens || 4000) > 8000;
-
-  const resp = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-5.4',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: opts.temperature || 0.8,
-      max_completion_tokens: opts.maxTokens || 4000,
-      response_format: opts.jsonMode ? { type: 'json_object' } : undefined,
-      stream: useStream || undefined,
-      ...(useStream ? { stream_options: { include_usage: true } } : {}),
-    }),
-  }, opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS, opts.requestLabel || 'OpenAI request');
-
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`OpenAI API error ${resp.status}: ${err.slice(0, 200)}`);
-  }
-
-  if (useStream && typeof resp.text === 'function') {
-    // Read SSE stream and collect content + usage
-    const rawText = await resp.text();
-    if (rawText.trimStart().startsWith('data:')) {
-      const lines = rawText.split('\n');
-      let content = '';
-      let finishReason = 'stop';
-      let inputTokens = 0;
-      let outputTokens = 0;
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (payload === '[DONE]') break;
-        try {
-          const chunk = JSON.parse(payload);
-          const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) content += delta.content;
-          const reason = chunk.choices?.[0]?.finish_reason;
-          if (reason) finishReason = reason;
-          if (chunk.usage) {
-            inputTokens = chunk.usage.prompt_tokens || inputTokens;
-            outputTokens = chunk.usage.completion_tokens || outputTokens;
-          }
-        } catch (_) { /* skip malformed SSE lines */ }
-      }
-
-      finishReason = finishReason === 'length' ? 'MAX_TOKENS' : (finishReason || 'stop');
-      return { text: content, inputTokens, outputTokens, finishReason };
-    }
-    // Response is plain JSON despite stream request — parse normally
-    const data = JSON.parse(rawText);
-    const choice = data.choices?.[0];
-    const fr = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
-    let ct = choice?.message?.content || '';
-    return { text: typeof ct === 'string' ? ct : '', inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0, finishReason: fr };
-  }
-
-  const data = await resp.json();
-  const choice = data.choices?.[0];
-  const finishReason = choice?.finish_reason === 'length' ? 'MAX_TOKENS' : (choice?.finish_reason || 'stop');
-  let content = choice?.message?.content || '';
-  if (Array.isArray(content)) {
-    content = content
-      .map((part) => {
-        if (typeof part === 'string') return part;
-        if (part?.type === 'text') return part.text || '';
-        return '';
-      })
-      .join('');
-  }
+  const r = await _callText({
+    model: 'gpt-5.4',
+    systemPrompt,
+    userPrompt,
+    jsonMode: !!opts.jsonMode,
+    maxTokens: opts.maxTokens || 4000,
+    temperature: opts.temperature || 0.8,
+    timeoutMs: opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+    apiKey,
+    allowGeminiFallback: false,
+    autoExtendOnTruncation: false,
+    label: opts.requestLabel || 'storyPlanner.callOpenAI',
+  });
   return {
-    text: typeof content === 'string' ? content : '',
-    inputTokens: data.usage?.prompt_tokens || 0,
-    outputTokens: data.usage?.completion_tokens || 0,
-    finishReason,
+    text: r.text,
+    inputTokens: r.usage.inputTokens,
+    outputTokens: r.usage.outputTokens,
+    finishReason: r.finishReason === 'length' ? 'MAX_TOKENS' : (r.finishReason || 'stop'),
   };
 }
 
 /**
- * Call Gemini text generation API (fallback).
+ * Call Gemini text. Preserves the legacy raw-Gemini finishReason vocabulary
+ * ('STOP', 'MAX_TOKENS', 'SAFETY', ...) used by older callers in this file.
  */
 async function callGeminiText(systemPrompt, userPrompt, genConfig) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-  const { timeoutMs, requestLabel, ...geminiGenConfig } = genConfig || {};
+  const { timeoutMs, requestLabel, maxOutputTokens, temperature, responseMimeType } = genConfig || {};
 
-  // Wire-layer sanitization — see services/promptSanitizer.js. Scrubs the
-  // serialized prompt copy; upstream templates and user fields are untouched.
-  const safeSystem = sanitizeForGemini(systemPrompt);
-  const safeUser = sanitizeForGemini(userPrompt);
+  const r = await _callText({
+    model: GEMINI_MODEL,
+    systemPrompt,
+    userPrompt,
+    jsonMode: responseMimeType === 'application/json',
+    maxTokens: maxOutputTokens || 4000,
+    temperature: temperature ?? 0.8,
+    timeoutMs: timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
+    geminiApiKey: apiKey,
+    allowGeminiFallback: false,
+    autoExtendOnTruncation: false,
+    label: requestLabel || 'storyPlanner.callGeminiText',
+  });
 
-  const body = {
-    systemInstruction: { parts: [{ text: safeSystem }] },
-    contents: [{ role: 'user', parts: [{ text: safeUser }] }],
-    generationConfig: geminiGenConfig,
+  // Map unified finishReason vocab back to legacy raw-Gemini vocab.
+  let finishReason = r.finishReason || 'unknown';
+  if (finishReason === 'length') finishReason = 'MAX_TOKENS';
+  else if (finishReason === 'stop') finishReason = 'STOP';
+  return {
+    text: r.text,
+    inputTokens: r.usage.inputTokens,
+    outputTokens: r.usage.outputTokens,
+    finishReason,
   };
-
-  let resp;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      resp = await fetchWithTimeout(
-        `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-        timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
-        requestLabel || `Gemini request attempt ${attempt}`
-      );
-      break;
-    } catch (fetchErr) {
-      console.warn(`[storyPlanner] Fetch attempt ${attempt}/3 failed: ${fetchErr.message}`);
-      if (attempt === 3) throw fetchErr;
-      await new Promise(r => setTimeout(r, 2000 * attempt));
-    }
-  }
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    console.error(`[storyPlanner] Gemini API call failed: ${resp.status} ${errText.slice(0, 300)}`);
-    throw new Error(`Story planner API call failed: ${resp.status} ${errText.slice(0, 200)}`);
-  }
-
-  const result = await resp.json();
-  const candidate = result.candidates?.[0];
-  const text = candidate?.content?.parts?.[0]?.text || '';
-  const finishReason = candidate?.finishReason || 'unknown';
-  const inputTokens = result.usageMetadata?.promptTokenCount || 0;
-  const outputTokens = result.usageMetadata?.candidatesTokenCount || 0;
-
-  return { text, inputTokens, outputTokens, finishReason };
 }
 
 /**
- * Call the best available LLM — GPT 5.4 first, Gemini fallback.
+ * Call the best available LLM — GPT 5.4 first, Gemini fallback. Preserves
+ * legacy semantics: if no OPENAI_API_KEY is set, routes directly to Gemini
+ * without raising LlmAuthError (some local/dev paths run Gemini-only).
  */
 async function callLLM(systemPrompt, userPrompt, opts = {}) {
   const openaiKey = opts.openaiApiKey || process.env.OPENAI_API_KEY;

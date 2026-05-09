@@ -7,79 +7,51 @@
  */
 
 const GEMINI_MODEL = 'gemini-3-flash-preview';
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// ── Lightweight LLM routing (mirrors storyPlanner.callLLM) ──
-
-async function fetchWithTimeout(url, init, timeoutMs, label) {
-  const controller = new AbortController();
-  let didTimeout = false;
-  const timer = setTimeout(() => { didTimeout = true; controller.abort(); }, timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    if (didTimeout) throw new Error(`${label || 'LLM request'} timed out after ${timeoutMs}ms`);
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// LLM HTTP plumbing lives in services/llm.js (which re-exports the unified
+// bookPipeline client). The two helpers below are thin local delegators that
+// preserve this file's historical signatures and routing — short timeouts
+// (15s) and the cheap gpt-4.1-mini model — so callsites don't change.
+const { callText: _callText } = require('./llm');
 
 async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
   const apiKey = opts.apiKey;
   if (!apiKey) throw new Error('OpenAI API key not available');
 
-  const resp = await fetchWithTimeout(
-    'https://api.openai.com/v1/chat/completions',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4.1-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: opts.temperature || 0.2,
-        max_tokens: opts.maxTokens || 500,
-        ...(opts.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      }),
-    },
-    opts.timeout || 15000,
-    'qualityGates-openai',
-  );
-  if (!resp.ok) throw new Error(`OpenAI ${resp.status}: ${await resp.text().catch(() => 'unknown')}`);
-  const data = await resp.json();
-  const text = data.choices?.[0]?.message?.content || '';
-  return { text, inputTokens: data.usage?.prompt_tokens || 0, outputTokens: data.usage?.completion_tokens || 0 };
+  const r = await _callText({
+    model: 'gpt-4.1-mini',
+    systemPrompt,
+    userPrompt,
+    jsonMode: !!opts.jsonMode,
+    maxTokens: opts.maxTokens || 500,
+    temperature: opts.temperature || 0.2,
+    timeoutMs: opts.timeout || 15000,
+    apiKey,
+    allowGeminiFallback: false,
+    autoExtendOnTruncation: false,
+    label: 'qualityGates.callOpenAI',
+  });
+  return { text: r.text, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens };
 }
 
 async function callGeminiText(systemPrompt, userPrompt, opts = {}) {
   const apiKey = process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('Gemini API key not available');
 
-  const resp = await fetchWithTimeout(
-    `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          maxOutputTokens: opts.maxTokens || 500,
-          temperature: opts.temperature || 0.2,
-          ...(opts.jsonMode ? { responseMimeType: 'application/json' } : {}),
-        },
-      }),
-    },
-    opts.timeout || 15000,
-    'qualityGates-gemini',
-  );
-  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text().catch(() => 'unknown')}`);
-  const data = await resp.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return { text, inputTokens: data.usageMetadata?.promptTokenCount || 0, outputTokens: data.usageMetadata?.candidatesTokenCount || 0 };
+  const r = await _callText({
+    model: GEMINI_MODEL,
+    systemPrompt,
+    userPrompt,
+    jsonMode: !!opts.jsonMode,
+    maxTokens: opts.maxTokens || 500,
+    temperature: opts.temperature || 0.2,
+    timeoutMs: opts.timeout || 15000,
+    geminiApiKey: apiKey,
+    allowGeminiFallback: false,
+    autoExtendOnTruncation: false,
+    label: 'qualityGates.callGeminiText',
+  });
+  return { text: r.text, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens };
 }
 
 async function callLLM(systemPrompt, userPrompt, opts = {}) {
