@@ -36,7 +36,7 @@ const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { sliceQuadToTwoSpreadStrips } = require('./sliceQuadToTwoSpreadStrips');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
-const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
+const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
 const { processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog } = require('./renderAllSpreads');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -786,6 +786,17 @@ async function processQuadPair(params) {
           `spreadNumbers=[${spreadNumbers.join(', ')}] — ${summarize('A', qaA)} ${summarize('B', qaB)}. ` +
           `Real-image checks pass; only the QA infra is failing — accepting to unblock the book.`,
         );
+        // Count once per pair if EITHER half rode in on a soft-fail tag.
+        // Soft-fail accepts ship visible drift; we want them surfaced in
+        // BOOK_COUNTERS so a regression is obvious before customers tell us.
+        const sideHasSoftFail = qa => {
+          if (!qa || qa.pass === true) return false;
+          const tags = Array.isArray(qa.tags) ? qa.tags : [];
+          return tags.some(t => QA_SOFT_FAIL_TAGS.has(t));
+        };
+        if (sideHasSoftFail(qaA) || sideHasSoftFail(qaB)) {
+          incrementCounter(currentDoc, 'illustrator.softFailsShipped');
+        }
       }
       if (cleanPass || failOpenAccept) {
         const printableQuad = await upscaleForPrint(stripped);

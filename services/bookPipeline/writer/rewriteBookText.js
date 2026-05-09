@@ -14,7 +14,7 @@
 
 const { callText } = require('../llm/openaiClient');
 const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, getWriterTemperature } = require('../constants');
-const { updateSpread, appendLlmCall, withStageResult } = require('../schema/bookDocument');
+const { updateSpread, appendLlmCall, withStageResult, incrementCounter } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { renderStoryArcContext } = require('./draftBookText');
 const { judgeWriterDraft } = require('../qa/checkWriterDraft');
@@ -149,6 +149,7 @@ async function writerQaAndRewrite(doc) {
 
     try {
       current = await rewriteSpreads(current, brokenSpreads, wave);
+      incrementCounter(current, 'writer.reviseLoopsUsed');
     } catch (err) {
       console.warn(`[writerQa:${bookId}] wave=${wave} rewrite call failed: ${err?.message || err}. Returning best-seen draft.`);
       break;

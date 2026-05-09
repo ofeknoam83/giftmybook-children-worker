@@ -50,7 +50,7 @@ const { pickRecentInteriorRefsForQa } = require('../qa/recentInteriorRefs');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
-const { updateSpread, appendRetryMemory } = require('../schema/bookDocument');
+const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -530,6 +530,13 @@ async function processOneSpread(params) {
           `[${logTag}] FAIL-OPEN ACCEPT on attempt ${attempt}/${totalBudget} ` +
           `tags=[${(qa.tags || []).join(',')}] — only QA infra is failing; accepting to unblock the book.`,
         );
+        // Distinguish "soft drift accepted" from "infra outage accepted" so
+        // the BOOK_COUNTERS line tells us what we shipped. Soft-fail accepts
+        // are the real quality risk; infra accepts are operational noise.
+        const tags = Array.isArray(qa.tags) ? qa.tags : [];
+        if (tags.some(t => QA_SOFT_FAIL_TAGS_SINGLE.has(t))) {
+          incrementCounter(currentDoc, 'illustrator.softFailsShipped');
+        }
       }
       if (cleanPass || failOpenAccept) {
         console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`);
