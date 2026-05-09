@@ -62,6 +62,58 @@ function validateStoryBible(doc) {
   } else if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 3) {
     issues.push('storyBible.cinematicLocations must have at least 3 specific photogenic settings (with time-of-day and weather)');
   }
+
+  // Phase 1 — thicker-bible structural gates. These exist because every
+  // downstream stage (writer voice, refrain placement, illustrator opening/
+  // closing image) reads these fields. Empty here = a quietly bad book later.
+  // Bars are deliberately permissive (length only) — content quality is the
+  // writer's job, not the planner gate's.
+  if (!sb.moment || String(sb.moment).trim().length < 12) {
+    issues.push('storyBible.moment weak (need a specific time + place, e.g. "the morning between waking up and the bus on the first day of kindergarten")');
+  }
+  if (!sb.weather || String(sb.weather).trim().length < 6) {
+    issues.push('storyBible.weather weak (need light + time of day + mood, e.g. "late-afternoon gold")');
+  }
+  if (!sb.openingImage || String(sb.openingImage).trim().length < 12) {
+    issues.push('storyBible.openingImage weak (need a concrete, drawable image — not a feeling)');
+  }
+  if (!sb.closingCallback || String(sb.closingCallback).trim().length < 12) {
+    issues.push('storyBible.closingCallback weak (need a concrete callback to openingImage)');
+  }
+  // ritual is optional — null means "no ritual fits this book" — but if
+  // present it must have both fields, otherwise it's noise to downstream.
+  if (sb.ritual !== null && sb.ritual !== undefined) {
+    if (typeof sb.ritual !== 'object') {
+      issues.push('storyBible.ritual must be an object or null');
+    } else if (!sb.ritual.name || !sb.ritual.description) {
+      issues.push('storyBible.ritual partial (need both name and description, or set to null)');
+    }
+  }
+  // voiceCard — all four fields required and non-empty.
+  if (!sb.voiceCard || typeof sb.voiceCard !== 'object') {
+    issues.push('storyBible.voiceCard missing (need narratorPOV, tonalRegister, signatureMove, refrainSeed)');
+  } else {
+    for (const k of ['narratorPOV', 'tonalRegister', 'signatureMove', 'refrainSeed']) {
+      if (!sb.voiceCard[k] || String(sb.voiceCard[k]).trim().length < 3) {
+        issues.push(`storyBible.voiceCard.${k} weak`);
+      }
+    }
+  }
+  // refrain — text required; plant 1-4, deepen 5-9, transform 10-13, strict.
+  if (!sb.refrain || typeof sb.refrain !== 'object') {
+    issues.push('storyBible.refrain missing (need text, plant, deepen, transform)');
+  } else {
+    const text = String(sb.refrain.text || '').trim();
+    const wordCount = text ? text.split(/\s+/).length : 0;
+    if (wordCount < 4 || wordCount > 12) {
+      issues.push('storyBible.refrain.text must be 4-12 words');
+    }
+    const inRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!inRange(sb.refrain.plant, 1, 4)) issues.push('storyBible.refrain.plant must be an integer in 1..4');
+    if (!inRange(sb.refrain.deepen, 5, 9)) issues.push('storyBible.refrain.deepen must be an integer in 5..9');
+    if (!inRange(sb.refrain.transform, 10, 13)) issues.push('storyBible.refrain.transform must be an integer in 10..13');
+  }
+
   return issues;
 }
 
