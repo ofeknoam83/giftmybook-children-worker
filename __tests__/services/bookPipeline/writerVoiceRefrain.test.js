@@ -68,4 +68,15 @@ describe('renderVoiceAndRefrain (Phase 2)', () => {
     });
     expect(out).not.toContain('### REFRAIN');
   });
+
+  test('adult-reader line surfaces when populated and is omitted when empty', () => {
+    const withLine = renderVoiceAndRefrain({
+      adultReaderLine: 'a sly aside about how the cat always knows.',
+    });
+    expect(withLine).toContain('### ADULT-READER LINE');
+    expect(withLine).toContain('a sly aside about how the cat always knows.');
+
+    const withoutLine = renderVoiceAndRefrain({ adultReaderLine: '' });
+    expect(withoutLine).not.toContain('### ADULT-READER LINE');
+  });
 });

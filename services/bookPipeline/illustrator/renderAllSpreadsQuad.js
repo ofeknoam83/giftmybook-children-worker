@@ -875,6 +875,24 @@ async function processQuadPair(params) {
       lastPairRejectTags = [...new Set(tags)];
       lastPairRejectIssues = issues.slice(0, 12);
 
+      // Phase 5a — quad correlated failure: BOTH halves failed THIS attempt
+      // with at least one overlapping tag. This is the failure mode the
+      // plan flagged as the quad path's risk: one bad render kills two
+      // spreads. Log it as a structured metric so we can decide later
+      // whether to add a mid-book legacy fallback. (Actual fallback is
+      // out of scope for this PR — mid-session mode switch is risky on a
+      // stateful illustrator session.)
+      const aTagSet = new Set(qaA.tags || []);
+      const bTagSet = new Set(qaB.tags || []);
+      const correlatedTags = [...aTagSet].filter(t => bTagSet.has(t));
+      if (qaA.pass !== true && qaB.pass !== true && correlatedTags.length > 0) {
+        console.warn(
+          `[${logTagQuad}] QUAD_CORRELATED_FAILURE attempt=${attempt}/${totalBudget} ` +
+          `spreadNumbers=[${spreadNumbers.join(', ')}] correlatedTags=[${correlatedTags.join(',')}] — ` +
+          `both halves failed on overlapping tags; if this fires repeatedly across books, consider a legacy single-spread fallback.`,
+        );
+      }
+
       // PR F early-abort: count consecutive age_action_impossible rejections
       // and bail out before exhausting the full budget. This typically saves
       // ~5 minutes of GPU time per failing pair when the writer text demands

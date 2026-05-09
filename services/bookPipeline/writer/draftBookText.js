@@ -223,6 +223,15 @@ function renderVoiceAndRefrain(storyBible) {
     if (storyBible.closingCallback) lines.push(`- Spread 13 closes by transforming that image: ${storyBible.closingCallback}`);
     lines.push('- The book begins and ends on the same physical thing, with a different feeling. Do not narrate this transformation in prose — show it through what the verse pays attention to on each end.');
   }
+  // Phase 5b — adult-reader line. The book is read aloud 100 times by an
+  // adult. One line should land for THEM as well as the child. Do not
+  // overdo this and never break voice — it's a single beat, not a theme.
+  if (storyBible.adultReaderLine && storyBible.adultReaderLine.trim()) {
+    if (lines.length) lines.push('');
+    lines.push('### ADULT-READER LINE — one beat that lands for the grown-up too:');
+    lines.push(`- Description: ${storyBible.adultReaderLine.trim()}`);
+    lines.push('- Place this beat naturally in ONE spread (you choose which). Do not copy the description verbatim into the prose — render it in voice. This is what survives the 100th re-read.');
+  }
   return lines.join('\n');
 }
 

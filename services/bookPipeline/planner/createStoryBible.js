@@ -49,6 +49,7 @@ Hard rules:
   - \`refrain\` — a 4-to-12-word phrase that recurs THREE times with three jobs: plant (spread 1–4: introduce at face value), deepen (spread 5–9: same words, weighted by what has happened), transform (spread 10–13: same words, new meaning earned). Pick exact spread numbers that fit this book.
   - \`openingImage\` — a concrete, drawable image the book opens on (NOT a feeling). "A lunchbox on the counter, lid still open." It must matter at the end.
   - \`closingCallback\` — how the closing image references or transforms openingImage. Same object, new feeling — or new framing of the same scene. The book ends by re-showing where it began.
+  - \`adultReaderLine\` — ONE short note (≤ 120 chars) describing a single line that should resonate with the ADULT reading aloud, not only the child. A sly aside, a melancholic detail, a wink — something that earns the parent's hundredth re-read. Optional: emit empty string if no line fits this book. The writer is asked to place this beat naturally in one spread, rendered in voice rather than copied as-is.
 - Return ONLY strict JSON matching the schema in the user message.`;
 
 function userPrompt(doc) {
@@ -116,7 +117,8 @@ function userPrompt(doc) {
     "transform": "integer spread number 10-13 where it transforms (same words, new meaning)"
   },
   "openingImage": "one sentence: a concrete, drawable image the book opens on (NOT a feeling). Must matter at the end.",
-  "closingCallback": "one sentence: how the closing image references or transforms openingImage — same object, new feeling, or new framing of the same scene.",`;
+  "closingCallback": "one sentence: how the closing image references or transforms openingImage — same object, new feeling, or new framing of the same scene.",
+  "adultReaderLine": "≤ 120 chars: a brief described beat the writer should land in one spread that resonates with the adult reading aloud (a sly aside, a melancholic detail, a wink). Empty string if no such beat fits this book.",`;
 
   const schemaExample = isInfant
     ? `{
@@ -275,6 +277,10 @@ async function createStoryBible(doc) {
     refrain: normalizeRefrain(json.refrain),
     openingImage: String(json.openingImage || '').trim(),
     closingCallback: String(json.closingCallback || '').trim(),
+    // Phase 5b — optional. Empty string is acceptable if no adult-reader
+    // line fits this specific book; the writer treats empty as "no
+    // adult-reader requirement" rather than failing the gate.
+    adultReaderLine: String(json.adultReaderLine || '').trim(),
   };
 
   const traced = appendLlmCall(doc, {
