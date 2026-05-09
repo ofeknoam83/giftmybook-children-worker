@@ -159,10 +159,70 @@ function renderStoryArcContext(storyBible) {
   push('Cinematic locations', storyBible.cinematicLocations);
   push('Recurring visual motifs', storyBible.recurringVisualMotifs);
   push('Personalization targets', storyBible.personalizationTargets);
+  // Phase 1 thicker bible — surface the new structural fields the writer
+  // is bound by. moment + weather are the atmospheric anchor that should
+  // hold across all 13 spreads; opening/closing image are the structural
+  // bookends spreads 1 and 13 must echo.
+  push('Moment (the hour this book inhabits)', storyBible.moment);
+  push('Weather (atmosphere across all 13 spreads)', storyBible.weather);
+  push('Opening image (must appear on spread 1, drawable, concrete)', storyBible.openingImage);
+  push('Closing callback (spread 13 transforms the opening image)', storyBible.closingCallback);
+  if (storyBible.ritual && storyBible.ritual.name) {
+    push('Ritual (a small adoptable family action — appears once or twice)', `${storyBible.ritual.name} — ${storyBible.ritual.description || ''}`.trim());
+  }
   if (lines.length === 1) return ''; // nothing populated
   lines.push(
     '- Use this arc as the spine of every spread. The opening should plant the first chord; the middle should escalate it; the closing should resolve it as a transformed echo of the opening (callback). When a spread spec\'s `arcContext.callbackToSpread` is set, lean into the recurring motif from the listed earlier spread (a returning prop, a repeated phrase, a planted seed).',
   );
+  return lines.join('\n');
+}
+
+/**
+ * Phase 2 — render the VOICE + REFRAIN block. Surfaced ABOVE every "don't"
+ * in the user prompt so the writer reads HOW this book sounds before any
+ * rule list. Three loud pieces of structure:
+ *
+ *   - voiceCard:  narratorPOV / tonalRegister / signatureMove / refrainSeed
+ *   - refrain:    text + plant/deepen/transform spread numbers (each
+ *                 placement has a different job — same words, three roles)
+ *   - bookends:   opening image (spread 1) + closing callback (spread 13)
+ *
+ * Returns '' if the bible is empty/legacy. Tolerant of missing voiceCard
+ * fields so a half-emitted bible still produces a usable block (the planner
+ * gate is the strict surface; this renderer just shows what's there).
+ *
+ * @param {object} storyBible
+ * @returns {string}
+ */
+function renderVoiceAndRefrain(storyBible) {
+  if (!storyBible || typeof storyBible !== 'object') return '';
+  const lines = [];
+  const vc = storyBible.voiceCard;
+  if (vc && typeof vc === 'object' && (vc.narratorPOV || vc.tonalRegister || vc.signatureMove || vc.refrainSeed)) {
+    lines.push('### VOICE — read this before any "don\'t". This book sounds like:');
+    if (vc.narratorPOV) lines.push(`- Narrator POV: ${vc.narratorPOV}`);
+    if (vc.tonalRegister) lines.push(`- Tonal register: ${vc.tonalRegister}`);
+    if (vc.signatureMove) lines.push(`- Signature move (use it recurrently — a positive narrator trick, not a "don't"): ${vc.signatureMove}`);
+    if (vc.refrainSeed) lines.push(`- Refrain seed (the heart of the recurring phrase): "${vc.refrainSeed}"`);
+    lines.push('- Hold one narrator voice across all 13 spreads. The book should sound like one person reading aloud, not 13 disconnected couplets.');
+  }
+  const r = storyBible.refrain;
+  if (r && typeof r === 'object' && r.text) {
+    if (lines.length) lines.push('');
+    lines.push('### REFRAIN — same words, three jobs across the book:');
+    lines.push(`- The refrain phrase is exactly: "${r.text}"`);
+    lines.push(`- Plant on spread ${r.plant}: introduce the words at face value (this is the first time the reader hears them).`);
+    lines.push(`- Deepen on spread ${r.deepen}: the SAME words, now weighted by what has happened in the middle.`);
+    lines.push(`- Transform on spread ${r.transform}: the SAME words, now meaning something new — the journey has earned a new reading.`);
+    lines.push('- Use the refrain ONLY on those three spreads. Same words each time — do not paraphrase. The repetition is the point.');
+  }
+  if (storyBible.openingImage || storyBible.closingCallback) {
+    if (lines.length) lines.push('');
+    lines.push('### BOOKENDS — concrete image on spread 1, callback on spread 13:');
+    if (storyBible.openingImage) lines.push(`- Spread 1 opens on this concrete, drawable image: ${storyBible.openingImage}`);
+    if (storyBible.closingCallback) lines.push(`- Spread 13 closes by transforming that image: ${storyBible.closingCallback}`);
+    lines.push('- The book begins and ends on the same physical thing, with a different feeling. Do not narrate this transformation in prose — show it through what the verse pays attention to on each end.');
+  }
   return lines.join('\n');
 }
 
@@ -211,6 +271,10 @@ function userPrompt(doc) {
 
   const lineCountReminder = renderLineCountReminder(doc.request?.ageBand);
   const arcContextBlock = renderStoryArcContext(storyBible);
+  // Phase 2 — voice card + refrain-as-data block goes ABOVE the rhyme
+  // banner / rule wall so the writer reads HOW the book sounds before any
+  // "don't". This is the single biggest "feels like a real book" lever.
+  const voiceAndRefrainBlock = renderVoiceAndRefrain(storyBible);
 
   // AA-CW-5b: the previous prompt prepended an INFANT BOOK CONTRACT block
   // that duplicated textPolicies.js' infant branch verbatim. That stub is
@@ -237,6 +301,7 @@ function userPrompt(doc) {
   ].join('\n');
 
   return [
+    voiceAndRefrainBlock ? `${voiceAndRefrainBlock}\n` : '',
     rhymeBanner,
     '',
     renderTextPolicyBlock(doc),
@@ -335,6 +400,7 @@ module.exports = {
   applyManuscript,
   renderInfantContract,
   renderStoryArcContext,
+  renderVoiceAndRefrain,
   // AA-CW-16 — exported so tests can prompt-lock the proseProps rule.
   SYSTEM_PROMPT,
   // AA-CW-17 Part B — exported so tests can prompt-lock the band-conditional rhyme reminder.

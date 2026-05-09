@@ -249,18 +249,26 @@ class WriterEngine {
     // have fixed them — but if we exhausted retries with the error still
     // present, auto-repair here so the customer never receives "him hair"
     // in their book. Silent mechanical fix; logs for audit.
+    // Phase 2 — emit each auto-repair as a structured grep-friendly event
+    // (writerV2:auto_repair) so we can track which prompt rules need to be
+    // strengthened. Today these patches are invisible; if a particular
+    // pronoun error keeps slipping through for a specific theme/age band,
+    // the count tells us where to invest in prompt work.
     let autoFixCount = 0;
     for (const s of finalStory.spreads || []) {
       if (!s.text) continue;
       const fixed = fixPossessivePronounErrors(s.text);
       if (fixed !== s.text) {
-        console.warn(`[writerV2] Auto-repaired possessive pronoun on spread ${s.spread}: "${s.text}" → "${fixed}"`);
+        console.warn(
+          `[writerV2:auto_repair] kind=possessive_pronoun bookId=${bookId || 'n/a'} spread=${s.spread} ` +
+          `before='${s.text.replace(/\n/g, ' / ').slice(0, 200)}' after='${fixed.replace(/\n/g, ' / ').slice(0, 200)}'`,
+        );
         s.text = fixed;
         autoFixCount++;
       }
     }
     if (autoFixCount > 0) {
-      console.warn(`[writerV2] Auto-repaired ${autoFixCount} possessive pronoun error(s) on the way out.`);
+      console.warn(`[writerV2:auto_repair] summary bookId=${bookId || 'n/a'} count=${autoFixCount} (each is a defect signal — see writerV2:auto_repair lines above)`);
     }
 
     // 5. Stamp with version + timestamp

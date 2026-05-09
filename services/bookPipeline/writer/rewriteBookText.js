@@ -16,7 +16,7 @@ const { callText } = require('../llm/openaiClient');
 const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, getWriterTemperature } = require('../constants');
 const { updateSpread, appendLlmCall, withStageResult, incrementCounter } = require('../schema/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
-const { renderStoryArcContext } = require('./draftBookText');
+const { renderStoryArcContext, renderVoiceAndRefrain } = require('./draftBookText');
 const { judgeWriterDraft } = require('../qa/checkWriterDraft');
 
 const REWRITE_SYSTEM_PROMPT = `You are rewriting specific spreads of a children's book. Keep every other spread exactly as-is.
@@ -60,8 +60,13 @@ function buildRewriteUserPrompt(doc, brokenSpreads) {
     ? `Hero "${heroName}" pronouns — use ONLY these: subject=${pronouns.subject}, object=${pronouns.object}, possessive=${pronouns.possessive}, reflexive=${pronouns.reflexive}.`
     : '';
   const arcContextBlock = renderStoryArcContext(doc.storyBible) || '';
+  // Phase 2 — even rewrites must hold the voice + refrain contract. A
+  // rewrite that fixes a rhyme but loses the narrator's signature move or
+  // the refrain placement is a regression, not a fix.
+  const voiceAndRefrainBlock = renderVoiceAndRefrain(doc.storyBible) || '';
 
   return [
+    voiceAndRefrainBlock ? `${voiceAndRefrainBlock}\n` : '',
     renderTextPolicyBlock(doc),
     arcContextBlock ? `\n${arcContextBlock}` : '',
     pronounBlock ? `\n${pronounBlock}` : '',
