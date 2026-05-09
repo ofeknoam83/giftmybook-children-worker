@@ -522,24 +522,37 @@ async function processOneSpread(params) {
       });
       const qaMs = Date.now() - qaStart;
 
+      // Phase 3b — three-state QA verdict for clarity in logs and metrics:
+      //   PASS              — qa.pass === true. Clean accept.
+      //   ACCEPT_WITH_NOTE  — qa failed but the renderer is at attempt budget
+      //                       and only soft-fail / infra tags remain. Ships
+      //                       with a structured warning; counters flag it.
+      //   FAIL              — qa failed and we keep iterating, or we run out
+      //                       of budget and the spread fails the book.
+      // Hero recognition tags (hero_mismatch, hero_skin_drift, etc.) are NOT
+      // in QA_SOFT_FAIL_TAGS_SINGLE, so they hard-fail by construction —
+      // recognizability never rides in on the accept-with-note path.
       const cleanPass = qa.pass === true;
       const failOpenAccept = !cleanPass
         && shouldFailOpenAcceptSingle(qa, attempt, totalBudget);
+      const tagList = Array.isArray(qa.tags) ? qa.tags : [];
+      const softFailDriven = failOpenAccept && tagList.some(t => QA_SOFT_FAIL_TAGS_SINGLE.has(t));
+      const qaState = cleanPass ? 'PASS' : (failOpenAccept ? 'ACCEPT_WITH_NOTE' : 'FAIL');
       if (failOpenAccept) {
+        const reason = softFailDriven ? 'soft_drift' : 'infra_only';
         console.warn(
-          `[${logTag}] FAIL-OPEN ACCEPT on attempt ${attempt}/${totalBudget} ` +
-          `tags=[${(qa.tags || []).join(',')}] — only QA infra is failing; accepting to unblock the book.`,
+          `[${logTag}] qaState=ACCEPT_WITH_NOTE reason=${reason} attempt=${attempt}/${totalBudget} ` +
+          `tags=[${tagList.join(',')}] — shipping with note; this is a quality-regression signal if it persists.`,
         );
-        // Distinguish "soft drift accepted" from "infra outage accepted" so
-        // the BOOK_COUNTERS line tells us what we shipped. Soft-fail accepts
-        // are the real quality risk; infra accepts are operational noise.
-        const tags = Array.isArray(qa.tags) ? qa.tags : [];
-        if (tags.some(t => QA_SOFT_FAIL_TAGS_SINGLE.has(t))) {
+        // Soft-drift accepts ship visible drift; surface them in the BOOK
+        // _COUNTERS line so a regression is obvious before customers tell us.
+        // Infra-only accepts are operational noise — don't pollute the metric.
+        if (softFailDriven) {
           incrementCounter(currentDoc, 'illustrator.softFailsShipped');
         }
       }
       if (cleanPass || failOpenAccept) {
-        console.log(`[${logTag}] ACCEPTED on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`);
+        console.log(`[${logTag}] qaState=${qaState} on attempt ${attempt}/${totalBudget} (render+qa=${Date.now() - attemptStart}ms, qa=${qaMs}ms)`);
         markSpreadAccepted(currentSession, spec.spreadIndex, image.imageBase64);
 
         const printable = await upscaleForPrint(stripped);

@@ -775,26 +775,30 @@ async function processQuadPair(params) {
       const cleanPass = qaA.pass && qaB.pass;
       const failOpenAccept = !cleanPass
         && shouldFailOpenAcceptPair(qaA, qaB, attempt, totalBudget);
+      // Phase 3b — three-state QA verdict (PASS / ACCEPT_WITH_NOTE / FAIL).
+      // Hero-recognition tags hard-fail by construction; only drift / infra
+      // tags ride in on ACCEPT_WITH_NOTE. softFailDriven marks the version
+      // we want surfaced in BOOK_COUNTERS (visible drift), separate from
+      // pure infra-outage accepts (operational noise).
+      const sideHasSoftFail = qa => {
+        if (!qa || qa.pass === true) return false;
+        const tags = Array.isArray(qa.tags) ? qa.tags : [];
+        return tags.some(t => QA_SOFT_FAIL_TAGS.has(t));
+      };
+      const softFailDriven = failOpenAccept && (sideHasSoftFail(qaA) || sideHasSoftFail(qaB));
       if (failOpenAccept) {
+        const reason = softFailDriven ? 'soft_drift' : 'infra_only';
         const summarize = (label, qa) => {
           if (!qa || qa.pass === true) return `${label}=pass`;
           const tags = Array.isArray(qa.tags) ? qa.tags.join(',') : '';
-          return `${label}=infra-only[${tags}]`;
+          return `${label}=fail[${tags}]`;
         };
         console.warn(
-          `[${logTagQuad}] FAIL-OPEN ACCEPT pair attempt ${attempt}/${totalBudget} ` +
+          `[${logTagQuad}] qaState=ACCEPT_WITH_NOTE reason=${reason} pair attempt ${attempt}/${totalBudget} ` +
           `spreadNumbers=[${spreadNumbers.join(', ')}] — ${summarize('A', qaA)} ${summarize('B', qaB)}. ` +
-          `Real-image checks pass; only the QA infra is failing — accepting to unblock the book.`,
+          `Shipping with note; quality-regression signal if it persists.`,
         );
-        // Count once per pair if EITHER half rode in on a soft-fail tag.
-        // Soft-fail accepts ship visible drift; we want them surfaced in
-        // BOOK_COUNTERS so a regression is obvious before customers tell us.
-        const sideHasSoftFail = qa => {
-          if (!qa || qa.pass === true) return false;
-          const tags = Array.isArray(qa.tags) ? qa.tags : [];
-          return tags.some(t => QA_SOFT_FAIL_TAGS.has(t));
-        };
-        if (sideHasSoftFail(qaA) || sideHasSoftFail(qaB)) {
+        if (softFailDriven) {
           incrementCounter(currentDoc, 'illustrator.softFailsShipped');
         }
       }
@@ -811,7 +815,7 @@ async function processQuadPair(params) {
         const printableRightB64 = slice.rightStrip.toString('base64');
 
         console.log(
-          `[${logTagQuad}] ACCEPTED pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)${failOpenAccept ? ' (fail-open on infra)' : ''}`,
+          `[${logTagQuad}] qaState=${cleanPass ? 'PASS' : 'ACCEPT_WITH_NOTE'} pair spreadNumbers=[${spreadNumbers.join(', ')}] attempt ${attempt}/${totalBudget} (qa=${qaMs}ms)`,
         );
         markQuadPairAccepted(
           currentSession,
