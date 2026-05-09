@@ -62,6 +62,14 @@ whitelist, and a one-sentence **voice card** (see W2). Keep
 in the writer theme. Net: ~$X/book saved, one source of truth, one place to
 edit prompts.
 
+**Format constraint — non-negotiable:** every book ships **exactly 13 spreads**
+(Lulu print spec; layout pipeline assumes it). The bible must therefore assign
+a *purpose* to each of the 13 slots so none coast: hook, world, want,
+obstacle, attempt, setback, refrain-deepen, turn, climax, callback, resolve,
+ritual-moment, closing-image. Treat 13 as a poem's meter — a fixed shape
+the story fills with intent. The mid-book sag (spreads 8–10) is where AI
+books die; explicit per-spread purpose is the antidote.
+
 **W2. Add a "voice card" to the bible and pin it everywhere.**
 Today the writer is told *what to write* (beats, props, rhyme rules) but not
 *how the narrator sounds*. Add 4 short fields to the bible:
