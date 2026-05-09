@@ -189,8 +189,58 @@ async function writerQaAndRewrite(doc) {
   });
 }
 
+/**
+ * Phase 4 — prose ↔ image feedback edge.
+ *
+ * When the illustrator's QA flags a writer-side cause (age_action_impossible,
+ * action_mismatch with a clearly-prose origin), the renderer can call this
+ * helper to rewrite JUST that one spread's text before re-rendering. The
+ * caller decides bounding (the per-spread loop should allow at most ONE
+ * prose revision so we don't spend the whole render budget on the writer).
+ *
+ * Returns the updated doc (the spread's manuscript is replaced with the
+ * new text). On any failure (writer call throws, JSON malformed, no spread
+ * matched), returns the doc unchanged so the renderer can continue with
+ * its existing budget.
+ *
+ * @param {object} doc
+ * @param {number} spreadNumber
+ * @param {object} veto - { tags: string[], issues: string[], hints?: string[] }
+ *   The reason the renderer wants the prose changed. Forwarded into the
+ *   writer's user prompt verbatim — be specific.
+ * @returns {Promise<object>} updated doc
+ */
+async function reviseSpreadProseForIllustrator(doc, spreadNumber, veto) {
+  const tags = Array.isArray(veto?.tags) ? veto.tags : [];
+  const issues = Array.isArray(veto?.issues) ? veto.issues : [];
+  const hints = Array.isArray(veto?.hints) ? veto.hints : [];
+
+  // Construct the brokenSpread shape rewriteSpreads expects. Tag the
+  // veto source so the writer's user prompt can read it as a clear
+  // illustrator-driven instruction, not just another quality issue.
+  const renderedHints = [
+    ...hints,
+    `Illustrator could not render this spread because of these tags: [${tags.join(', ')}]. ` +
+    `Rewrite the prose so the named action is something the hero can physically do at this age, ` +
+    `the named props are on this spread's proseProps whitelist, and the focal action lines up with ` +
+    `the spread spec. Keep the voice, refrain placement, and rhyme contract intact.`,
+  ];
+  const brokenSpread = { spreadNumber, issues, hints: renderedHints };
+
+  try {
+    return await rewriteSpreads(doc, [brokenSpread], `proseRevise.spread${spreadNumber}`);
+  } catch (err) {
+    console.warn(
+      `[writer:proseRevise.spread${spreadNumber}] failed: ${err?.message || 'unknown'} — ` +
+      `keeping existing manuscript and letting the render loop continue.`,
+    );
+    return doc;
+  }
+}
+
 module.exports = {
   writerQaAndRewrite,
+  reviseSpreadProseForIllustrator,
   // exported for tests / introspection
   REWRITE_SYSTEM_PROMPT,
   buildRewriteUserPrompt,

@@ -51,6 +51,17 @@ const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
 const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
+const { reviseSpreadProseForIllustrator } = require('../writer/rewriteBookText');
+
+// Phase 4 — illustrator-side QA tags that signal a writer-side defect.
+// On these, instead of burning more render attempts on the same prose, the
+// per-spread loop runs ONE prose revision and continues. Bounded to one
+// prose revision per spread so we never spend the whole render budget on
+// the writer side.
+const PROSE_REVISION_TRIGGER_TAGS = new Set([
+  'age_action_impossible',
+  'action_mismatch',
+]);
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -231,8 +242,14 @@ async function processOneSpread(params) {
   let currentSession = session;
 
   const spec = buildIllustrationSpec(currentDoc, spread);
-  const baselineCaption = spec.text;
+  // Phase 4 — `baselineCaption` is mutable now because a prose revision
+  // (writer rewrite triggered by an illustrator-side veto) replaces the
+  // spread's manuscript mid-loop, and subsequent render attempts must use
+  // the new text. Capped at one revision per spread (see proseRevisionsUsed).
+  let baselineCaption = spec.text;
   let renderCaption = baselineCaption;
+  let proseRevisionsUsed = 0;
+  const MAX_PROSE_REVISIONS_PER_SPREAD = 1;
   let expected = { text: renderCaption, side: spec.textSide };
   const hero = currentDoc.visualBible?.hero?.physicalDescription || '';
 
@@ -601,6 +618,44 @@ async function processOneSpread(params) {
       pruneLastTurn(currentSession);
 
       lastTags = Array.isArray(qa.tags) ? qa.tags : [];
+
+      // Phase 4 — prose ↔ image feedback edge. If the QA failure is
+      // writer-driven (the text asks for an action the hero can't do, or
+      // the prose contradicts the spec's focal action) we burn a single
+      // writer rewrite for THIS spread instead of throwing more render
+      // attempts at the same prose. Bounded by MAX_PROSE_REVISIONS_PER_SPREAD
+      // so we never spend the whole render budget on the writer side.
+      const proseTriggered = lastTags.some(t => PROSE_REVISION_TRIGGER_TAGS.has(t));
+      if (proseTriggered && proseRevisionsUsed < MAX_PROSE_REVISIONS_PER_SPREAD) {
+        proseRevisionsUsed += 1;
+        const triggerTags = lastTags.filter(t => PROSE_REVISION_TRIGGER_TAGS.has(t));
+        console.warn(
+          `[${logTag}] PROSE_REVISION triggered (attempt ${attempt}/${totalBudget}) ` +
+          `tags=[${triggerTags.join(',')}] — burning one writer rewrite before continuing render attempts.`,
+        );
+        const revisedDoc = await reviseSpreadProseForIllustrator(currentDoc, spread.spreadNumber, {
+          tags: triggerTags,
+          issues: qa.issues || [],
+        });
+        const revisedSpread = revisedDoc.spreads.find(s => s.spreadNumber === spread.spreadNumber);
+        const newText = revisedSpread?.manuscript?.text;
+        if (revisedDoc !== currentDoc && newText && newText !== baselineCaption) {
+          incrementCounter(revisedDoc, 'proseRevisionRequests');
+          currentDoc = revisedDoc;
+          baselineCaption = newText;
+          renderCaption = newText;
+          spec.text = newText;
+          expected = { text: renderCaption, side: spec.textSide };
+          console.log(`[${logTag}] PROSE_REVISION applied — new caption length ${newText.length}; resuming render attempts with fresh prose.`);
+          // Skip planSpreadRepair this iteration; we want the next render
+          // attempt to see the new text without an image-side correction
+          // note layered on top.
+          continue;
+        }
+        // Revision didn't actually change the text — fall through to the
+        // normal correction path so we don't get stuck.
+        console.warn(`[${logTag}] PROSE_REVISION returned no change; falling back to normal correction path.`);
+      }
 
       const plan = planSpreadRepair({
         spreadNumber: spread.spreadNumber,

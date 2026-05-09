@@ -37,6 +37,7 @@ const { sliceQuadToTwoSpreadStrips } = require('./sliceQuadToTwoSpreadStrips');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
 const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
 const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
+const { reviseSpreadProseForIllustrator } = require('../writer/rewriteBookText');
 const { processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog } = require('./renderAllSpreads');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -396,10 +397,17 @@ async function processQuadPair(params) {
 
   const specA = buildIllustrationSpec(doc, spreadA);
   const specB = buildIllustrationSpec(doc, spreadB);
-  const baselineCaptionA = specA.text;
-  const baselineCaptionB = specB.text;
+  // Phase 4 — captions are mutable: a prose revision (writer rewrite
+  // triggered by an illustrator-side veto) can replace EITHER spread's
+  // manuscript mid-pair before we early-abort the whole pair. Bounded to
+  // one revision per pair so we never spend the whole render budget on
+  // the writer side.
+  let baselineCaptionA = specA.text;
+  let baselineCaptionB = specB.text;
   let renderCaptionA = baselineCaptionA;
   let renderCaptionB = baselineCaptionB;
+  let proseRevisionsUsedQuad = 0;
+  const MAX_PROSE_REVISIONS_PER_PAIR = 1;
   let expectedA = { text: renderCaptionA, side: specA.textSide };
   let expectedB = { text: renderCaptionB, side: specB.textSide };
 
@@ -929,6 +937,63 @@ async function processQuadPair(params) {
       }
 
       if (shouldEarlyAbortForUnrenderableInfantAction(consecutiveAgeActionImpossible)) {
+        // Phase 4 — before failing the pair, burn ONE writer rewrite for
+        // each half whose prose triggered the abort. Targets the exact
+        // failure mode this branch was built for: text demands an action
+        // the hero physically can't do. Bounded by MAX_PROSE_REVISIONS_PER_
+        // _PAIR so we never replace the early-abort safety net.
+        if (proseRevisionsUsedQuad < MAX_PROSE_REVISIONS_PER_PAIR) {
+          proseRevisionsUsedQuad += 1;
+          console.warn(
+            `[${logTagQuad}] PROSE_REVISION triggered before EARLY-ABORT spreads=[${spreadNumbers.join(', ')}] ` +
+            `tags=[${lastPairRejectTags.join(',')}] — burning one writer rewrite per failing half before giving up.`,
+          );
+          const veto = (qa) => ({
+            tags: (qa.tags || []).filter(t => t === 'age_action_impossible' || t === 'action_mismatch'),
+            issues: qa.issues || [],
+          });
+          let revisedDoc = currentDoc;
+          const aTriggered = (qaA.tags || []).some(t => t === 'age_action_impossible' || t === 'action_mismatch');
+          const bTriggered = (qaB.tags || []).some(t => t === 'age_action_impossible' || t === 'action_mismatch');
+          if (aTriggered) {
+            revisedDoc = await reviseSpreadProseForIllustrator(revisedDoc, spreadA.spreadNumber, veto(qaA));
+          }
+          if (bTriggered) {
+            revisedDoc = await reviseSpreadProseForIllustrator(revisedDoc, spreadB.spreadNumber, veto(qaB));
+          }
+          const revisedSpreadA = revisedDoc.spreads.find(s => s.spreadNumber === spreadA.spreadNumber);
+          const revisedSpreadB = revisedDoc.spreads.find(s => s.spreadNumber === spreadB.spreadNumber);
+          const newTextA = revisedSpreadA?.manuscript?.text;
+          const newTextB = revisedSpreadB?.manuscript?.text;
+          const aChanged = aTriggered && newTextA && newTextA !== baselineCaptionA;
+          const bChanged = bTriggered && newTextB && newTextB !== baselineCaptionB;
+          if (aChanged || bChanged) {
+            incrementCounter(revisedDoc, 'proseRevisionRequests');
+            currentDoc = revisedDoc;
+            if (aChanged) {
+              baselineCaptionA = newTextA;
+              renderCaptionA = newTextA;
+              specA.text = newTextA;
+              expectedA = { text: renderCaptionA, side: specA.textSide };
+            }
+            if (bChanged) {
+              baselineCaptionB = newTextB;
+              renderCaptionB = newTextB;
+              specB.text = newTextB;
+              expectedB = { text: renderCaptionB, side: specB.textSide };
+            }
+            // Reset the consecutive-counter so the next pair render can
+            // try the new prose without immediately tripping early-abort
+            // again on a stale streak.
+            consecutiveAgeActionImpossible = 0;
+            console.log(
+              `[${logTagQuad}] PROSE_REVISION applied — aChanged=${aChanged} bChanged=${bChanged}; ` +
+              `resetting consecutive age_action_impossible streak and resuming render attempts with fresh prose.`,
+            );
+            continue;
+          }
+          console.warn(`[${logTagQuad}] PROSE_REVISION returned no change; falling through to EARLY-ABORT.`);
+        }
         console.error(
           `[${logTagQuad}] EARLY-ABORT spreads [${spreadNumbers.join(', ')}] — ` +
           `${consecutiveAgeActionImpossible} consecutive age_action_impossible rejections; ` +
