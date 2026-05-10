@@ -67,13 +67,16 @@ describe('PR N.1: createStoryBible JSON schema example branches by age band', ()
   });
 
   describe('infant band (PB_INFANT)', () => {
-    test('schema example caps cinematicLocations at 1-2 micro-settings (matches validator)', async () => {
+    test('schema example allows 1-2 indoor micro-settings or up to 3 stops on a continuous outdoor journey (matches validator cap of 3)', async () => {
       await createStoryBible(buildDoc(AGE_BANDS.PB_INFANT));
       const prompt = captureUserPrompt(callText);
-      // The validator rejects 3+. The schema example MUST tell the model
-      // to emit 1-2.
+      // Phase-X — validator now caps at 3 (raised from 2) when stops form
+      // ONE continuous outdoor/semi-outdoor journey the baby is CARRIED
+      // through. The schema example MUST surface both shapes (1-2 indoor
+      // OR up to 3 outdoor stops) and MUST forbid 4+.
       expect(prompt).toMatch(/1-2 connected micro-settings/);
-      expect(prompt).toMatch(/NEVER 3 or more locations/i);
+      expect(prompt).toMatch(/up to 3 stops/i);
+      expect(prompt).toMatch(/NEVER 4 or more locations/i);
     });
 
     test('schema example does NOT show toddler+ exemplar locations as positive examples', async () => {

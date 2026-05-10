@@ -235,6 +235,44 @@ function renderVoiceAndRefrain(storyBible) {
   return lines.join('\n');
 }
 
+/**
+ * Phase-X — when the story bible's `weather` or `moment` clearly places the
+ * book OUTDOORS (porch, garden, river, park, walk, spring, etc.), surface a
+ * small "outdoor sensory budget" requirement above the rule wall. Without
+ * this nudge, infant outdoor books collapse into 13 spreads of "Mama holds
+ * her / blanket / hum / dozes" because the writer's per-spread proseProps
+ * are derived from focal actions and the writer can't reach beyond them.
+ * The contract names a positive sensory palette (petal / breeze / water /
+ * stone / songbird / fragrance / sunlight / dew / gravel) and asks the
+ * writer to land at least 5 such anchors across the 13 spreads.
+ *
+ * Returns '' when the bible is indoor or empty (most non-mothers-day books).
+ *
+ * @param {object} storyBible
+ * @returns {string}
+ */
+const OUTDOOR_TRIGGER_REGEX = /\b(out|outside|outdoor|porch|stoop|garden|park|river|stream|trail|meadow|grass|flower|petal|breeze|sun|spring|summer|walk|stroll|stroller|pram|path|orchard|forest|shore|bench)\b/i;
+
+function renderOutdoorSensoryNudge(storyBible) {
+  if (!storyBible || typeof storyBible !== 'object') return '';
+  const haystack = [
+    storyBible.moment,
+    storyBible.weather,
+    storyBible.locationStrategy,
+    storyBible.visualJourneySpine,
+    Array.isArray(storyBible.cinematicLocations) ? storyBible.cinematicLocations.join(' ') : '',
+    Array.isArray(storyBible.recurringVisualMotifs) ? storyBible.recurringVisualMotifs.join(' ') : '',
+  ].filter(Boolean).join(' ');
+  if (!haystack || !OUTDOOR_TRIGGER_REGEX.test(haystack)) return '';
+
+  return [
+    '### OUTDOOR-SENSORY BUDGET — this book lives outside.',
+    '- Across the 13 spreads, name at LEAST FIVE outdoor sensory anchors drawn from per-spread proseProps. Examples of the palette: petal, leaf, breeze, water, stone, gravel, songbird, fragrance, sunlight, dew, twig, cloud, branch, blossom, pollen.',
+    '- Do not collapse all 13 spreads into "Mama holds her / blanket / hum / dozes" — the world is happening around the baby. The baby observes from the carry; the verse must reach beyond blanket/lap/chin/hum at least 5 times.',
+    '- This is a positive contract, not a "don\'t". You are still bound by proseProps — only name what each spread\'s whitelist allows. If the planner did not put outdoor props on a spread, that spread can stay tactile/auditory and the budget is filled by other spreads.',
+  ].join('\n');
+}
+
 function userPrompt(doc) {
   const { storyBible, visualBible, spreads } = doc;
   const retries = selectRetryMemory(doc.retryMemory, 'writerDraft');
@@ -284,6 +322,10 @@ function userPrompt(doc) {
   // banner / rule wall so the writer reads HOW the book sounds before any
   // "don't". This is the single biggest "feels like a real book" lever.
   const voiceAndRefrainBlock = renderVoiceAndRefrain(storyBible);
+  // Phase-X — outdoor-sensory budget for outdoor-weather books. Empty
+  // string for indoor books; positive contract above the rule wall when
+  // the bible names porch/garden/river/etc.
+  const outdoorSensoryNudge = renderOutdoorSensoryNudge(storyBible);
 
   // AA-CW-5b: the previous prompt prepended an INFANT BOOK CONTRACT block
   // that duplicated textPolicies.js' infant branch verbatim. That stub is
@@ -311,6 +353,7 @@ function userPrompt(doc) {
 
   return [
     voiceAndRefrainBlock ? `${voiceAndRefrainBlock}\n` : '',
+    outdoorSensoryNudge ? `${outdoorSensoryNudge}\n` : '',
     rhymeBanner,
     '',
     renderTextPolicyBlock(doc),
@@ -410,6 +453,7 @@ module.exports = {
   renderInfantContract,
   renderStoryArcContext,
   renderVoiceAndRefrain,
+  renderOutdoorSensoryNudge,
   // AA-CW-16 — exported so tests can prompt-lock the proseProps rule.
   SYSTEM_PROMPT,
   // AA-CW-17 Part B — exported so tests can prompt-lock the band-conditional rhyme reminder.

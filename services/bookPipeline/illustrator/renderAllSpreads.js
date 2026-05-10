@@ -324,11 +324,25 @@ async function processOneSpread(params) {
           // is intentionally sparse — every-turn re-attach raises Gemini's
           // safety-block rate (a second inline child reference is sometimes flagged).
           const scheduledReanchor = SCHEDULED_REANCHOR_INDEXES.has(spec.spreadIndex);
-          image = await generateSpread(currentSession, turn, spec.spreadIndex, {
+          // Phase-X — re-anchor double-Mama guard. On parent-theme books
+          // where the caregiver IS on the cover, the re-anchor turn pins
+          // the cover image as a fresh in-line reference, on top of the
+          // caregiver-lock block in the system instruction and the spread's
+          // own caregiver staging. Three "render Mama" signals on the same
+          // turn can stack into a TWO-Mama composite (cover-Mama looming
+          // above + scene-Mama hugging the baby). One short string append
+          // at the end of the turn pins it back to ONE caregiver.
+          const turnWithReanchorGuard = (scheduledReanchor && spec.coverParentPresent === true)
+            ? `${turn}
+
+### COVER RE-ANCHOR CAUTION
+The cover image is being re-pinned to refresh hero/caregiver identity. Render exactly ONE caregiver in this spread — the cover is reference, not a second character in the frame. Never composite the cover's caregiver pose AS WELL AS this spread's caregiver. ONE head, ONE torso, ONE pair of arms — all on a single coherent body in ONE clear pose.`
+            : turn;
+          image = await generateSpread(currentSession, turnWithReanchorGuard, spec.spreadIndex, {
             reanchorCover: scheduledReanchor,
           });
           if (scheduledReanchor) {
-            console.log(`[${logTag}] scheduled cover re-anchor on spread ${spec.spreadIndex + 1}`);
+            console.log(`[${logTag}] scheduled cover re-anchor on spread ${spec.spreadIndex + 1}${spec.coverParentPresent === true ? ' (with double-Mama guard)' : ''}`);
           }
         } else {
           const correction = buildCorrectionTurn({

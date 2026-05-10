@@ -35,6 +35,7 @@ const sharp = require('sharp');
 const { downloadBuffer } = require('../../gcsStorage');
 const { getNextApiKey } = require('../../illustrationGenerator');
 const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
+const { synthesizeCaregiverLockFallback } = require('./caregiverLockFallback');
 
 const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);
 
@@ -390,6 +391,24 @@ async function detectCoverComposition(doc) {
       coverImage.base64,
       coverImage.mime,
       doc?.operationalContext?.abortSignal,
+    );
+  }
+
+  // Phase-X — caregiver-lock fallback. The full chain of caregiver QA tags
+  // (caregiver_body_duplicated, phantom_arms, caregiver_skin_drift,
+  // caregiver_shadow_substitution) is gated on a non-null `caregiverLock`
+  // in services/illustrator/consistencyQa.js (lines 255 + 262). When the
+  // second vision call fails (transient HTTP, malformed JSON, model
+  // returns present:false on a face it didn't recognize), the lock is null
+  // and the QA model NEVER even sees the JSON field definitions for those
+  // tags — the entire two-Mama defense vanishes silently. This was the
+  // root cause of the "phantom Mom in the stroller" production image.
+  if (coverParentPresent && !coverCaregiverAppearance) {
+    coverCaregiverAppearance = synthesizeCaregiverLockFallback(theme);
+    console.warn(
+      `[detectCoverComposition] caregiver-lock synthesized (vision returned null) — ` +
+      `role=${coverCaregiverAppearance.role} theme=${String(theme || '').toLowerCase() || 'none'}; ` +
+      `QA tags will still fire on duplication / phantom arms / shadow substitution.`,
     );
   }
 
