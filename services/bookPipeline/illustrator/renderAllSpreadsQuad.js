@@ -532,12 +532,23 @@ async function processQuadPair(params) {
           // spreads in this batch hits the threshold.
           const scheduledReanchor = SCHEDULED_REANCHOR_INDEXES.has(specA.spreadIndex)
             || SCHEDULED_REANCHOR_INDEXES.has(specB.spreadIndex);
-          image = await generateSpread(currentSession, turn, specA.spreadIndex, {
+          // Phase-X — re-anchor double-Mama guard (quad). Same logic as the
+          // single-spread path: when re-pinning the cover on a parent-theme
+          // book where the caregiver IS on the cover, the model can stack
+          // cover-Mama + scene-Mama into a two-Mama composite. Append a
+          // single one-caregiver reminder to the dual-spread turn.
+          const turnWithReanchorGuard = (scheduledReanchor && specA.coverParentPresent === true)
+            ? `${turn}
+
+### COVER RE-ANCHOR CAUTION (BOTH HALVES OF THIS PAIR)
+The cover image is being re-pinned to refresh hero/caregiver identity. Render exactly ONE caregiver per half — the cover is reference, not a second character in either frame. Never composite the cover's caregiver pose AS WELL AS the half's caregiver. Per half: ONE head, ONE torso, ONE pair of arms — all on a single coherent body in ONE clear pose.`
+            : turn;
+          image = await generateSpread(currentSession, turnWithReanchorGuard, specA.spreadIndex, {
             ...quadGenOpts(),
             reanchorCover: scheduledReanchor,
           });
           if (scheduledReanchor) {
-            console.log(`[${logTagQuad}] scheduled cover re-anchor on quad batch (spreads ${specA.spreadIndex + 1}, ${specB.spreadIndex + 1})`);
+            console.log(`[${logTagQuad}] scheduled cover re-anchor on quad batch (spreads ${specA.spreadIndex + 1}, ${specB.spreadIndex + 1})${specA.coverParentPresent === true ? ' (with double-Mama guard)' : ''}`);
           }
         } else {
           const correction = buildDualCorrectionTurn({

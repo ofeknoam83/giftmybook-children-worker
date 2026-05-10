@@ -66,11 +66,19 @@ describe('validateStoryBible — cinematicLocations gate', () => {
     expect(issues.some(i => i.includes('cinematicLocations') && i.includes('at least 1'))).toBe(true);
   });
 
-  test('infant band rejects 3+ cinematicLocations (over the lap-baby cap)', () => {
+  test('infant band passes with 3 cinematicLocations (continuous outdoor journey, baby is carried)', () => {
     const doc = buildStoryBibleDoc(AGE_BANDS.PB_INFANT, {
-      cinematicLocations: ['kitchen', 'porch', 'garden'],
+      cinematicLocations: ['front stoop at first light', 'flower-lined path mid-morning', 'river-edge bench under a willow'],
     });
     const issues = validateStoryBible(doc);
-    expect(issues.some(i => i.includes('cinematicLocations') && i.includes('at most 2'))).toBe(true);
+    expect(issues.filter(i => i.includes('cinematicLocations'))).toEqual([]);
+  });
+
+  test('infant band rejects 4+ cinematicLocations (over the lap-baby cap)', () => {
+    const doc = buildStoryBibleDoc(AGE_BANDS.PB_INFANT, {
+      cinematicLocations: ['kitchen', 'porch', 'garden', 'river-edge bench'],
+    });
+    const issues = validateStoryBible(doc);
+    expect(issues.some(i => i.includes('cinematicLocations') && i.includes('at most 3'))).toBe(true);
   });
 });

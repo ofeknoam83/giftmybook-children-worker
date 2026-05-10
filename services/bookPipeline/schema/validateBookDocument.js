@@ -48,16 +48,20 @@ function validateStoryBible(doc) {
   if (!Array.isArray(sb.personalizationTargets) || sb.personalizationTargets.length === 0) {
     issues.push('storyBible.personalizationTargets empty');
   }
-  // Lap-baby books (PB_INFANT) intentionally cap scope at 1-2 micro-settings
-  // — a 7-month-old cannot travel a multi-location quest. Waive the
-  // ≥3-cinematic-locations gate for the infant band; planner already enforces
-  // a tighter 1-2 location ceiling instead.
+  // Lap-baby books (PB_INFANT) intentionally cap scope at 1-3 micro-settings
+  // — a 7-month-old cannot travel a multi-location quest, but the planner
+  // is allowed up to 3 stops on ONE continuous outdoor/semi-outdoor journey
+  // the baby is CARRIED through (front stoop → garden path → river-edge
+  // bench). The previous 1-2 cap snapped any outdoor walk-spine back to
+  // a domestic pair; the still-point rule is enforced separately by the
+  // plannerGuard at the spread-spec layer regardless of how many stops the
+  // bible names. See createStoryBible.js infantStoryBibleClause.
   const isInfant = doc.request?.ageBand === AGE_BANDS.PB_INFANT;
   if (isInfant) {
     if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 1) {
       issues.push('storyBible.cinematicLocations must have at least 1 specific micro-setting (lap, cot, kitchen window, porch, etc.) for infant board books');
-    } else if (sb.cinematicLocations.length > 2) {
-      issues.push('storyBible.cinematicLocations must have at most 2 connected micro-settings for infant board books (lap-baby scope)');
+    } else if (sb.cinematicLocations.length > 3) {
+      issues.push('storyBible.cinematicLocations must have at most 3 micro-settings for infant board books (lap-baby scope; the baby is carried across all stops)');
     }
   } else if (!Array.isArray(sb.cinematicLocations) || sb.cinematicLocations.length < 3) {
     issues.push('storyBible.cinematicLocations must have at least 3 specific photogenic settings (with time-of-day and weather)');
