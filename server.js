@@ -3729,3 +3729,63 @@ app.post('/comics/crop-face', authenticate, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ─── POST /comics/generate-refsheet ───────────────────────────────────────────
+// Admin-only: turn a cropped face into a locked ADULT comic-style character
+// reference sheet + visualLocks JSON. Idempotent via GCS cache; `force` bypass.
+app.post('/comics/generate-refsheet', authenticate, async (req, res) => {
+  const {
+    comicId,
+    characterId,
+    faceCropUrl,
+    name,
+    role,
+    definingTrait,
+    signatureProp,
+    signatureColor,
+    artStyle,
+    portrayalDial,
+    force,
+  } = req.body || {};
+
+  if (!comicId || typeof comicId !== 'string') {
+    return res.status(400).json({ success: false, error: 'comicId is required' });
+  }
+  if (!SAFE_BOOK_ID_RE.test(comicId)) {
+    return res.status(400).json({ success: false, error: 'comicId has unsafe characters' });
+  }
+  if (!characterId || typeof characterId !== 'string') {
+    return res.status(400).json({ success: false, error: 'characterId is required' });
+  }
+  if (!SAFE_BOOK_ID_RE.test(characterId)) {
+    return res.status(400).json({ success: false, error: 'characterId has unsafe characters' });
+  }
+  if (!faceCropUrl || typeof faceCropUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'faceCropUrl is required' });
+  }
+
+  console.log(`[server] /comics/generate-refsheet: comicId=${comicId} characterId=${characterId} force=${!!force}`);
+  try {
+    const { generateCharacterRefSheet } = require('./services/comics/castVisualBible');
+    const result = await generateCharacterRefSheet({
+      comicId,
+      characterId,
+      faceCropUrl,
+      name,
+      role,
+      definingTrait,
+      signatureProp,
+      signatureColor,
+      artStyle,
+      portrayalDial,
+      force: !!force,
+    });
+    res.json({ success: true, refSheetUrl: result.refSheetUrl, visualLocks: result.visualLocks });
+  } catch (err) {
+    console.error(`[server] /comics/generate-refsheet failed: ${err.message}`);
+    const msg = String((err && err.message) || err);
+    // 502 for upstream model/network failures; 500 for everything else.
+    const isUpstream = /HTTP\s\d{3}|No image|refsheet image|vision HTTP/i.test(msg);
+    res.status(isUpstream ? 502 : 500).json({ success: false, error: msg });
+  }
+});
