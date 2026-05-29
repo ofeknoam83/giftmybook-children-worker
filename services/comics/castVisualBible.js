@@ -40,6 +40,15 @@ const CACHE_VERSION = 'v1';
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const IMAGE_TIMEOUT_MS = 120000;
 const VISION_TIMEOUT_MS = 30000;
+function normalizeCacheUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch (_) {
+    return url.split('#')[0].split('?')[0];
+  }
+}
 
 /**
  * Fetch with an AbortController-backed timeout.
@@ -54,6 +63,11 @@ async function fetchWithTimeout(url, init, timeoutMs) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
@@ -81,9 +95,10 @@ async function downloadFaceCrop(url) {
  * @returns {string}
  */
 function computeCacheKey(faceCropUrl, artStyle) {
+  const stableFaceCropUrl = normalizeCacheUrl(faceCropUrl);
   return crypto
     .createHash('sha256')
-    .update(`${faceCropUrl}::${artStyle || ''}::${CACHE_VERSION}`)
+    .update(`${stableFaceCropUrl}::${artStyle || ''}::${CACHE_VERSION}`)
     .digest('hex');
 }
 
@@ -409,8 +424,12 @@ async function generateCharacterRefSheet(params = {}) {
   // 4. Upload PNG → signed URL.
   const refSheetUrl = await uploadBuffer(pngBuf, refSheetPngPath, 'image/png');
 
-  // 5. Save the cache JSON.
-  await saveJson({ cacheKey, refSheetUrl, visualLocks }, cacheJsonPath);
+  // 5. Save the cache JSON (only when visualLocks were produced).
+  if (Object.keys(visualLocks).length > 0) {
+    await saveJson({ cacheKey, refSheetUrl, visualLocks }, cacheJsonPath);
+  } else {
+    console.warn('[castVisualBible] visualLocks empty — skipping cache save to avoid sticky soft-fail');
+  }
 
   console.log(`[castVisualBible] DONE comicId=${comicId} characterId=${characterId} (total ${Date.now() - totalStart}ms)`);
   return { refSheetUrl, visualLocks };
@@ -418,4 +437,9 @@ async function generateCharacterRefSheet(params = {}) {
 
 module.exports = {
   generateCharacterRefSheet,
+  __private: {
+    normalizeCacheUrl,
+    computeCacheKey,
+    fetchWithTimeout,
+  },
 };

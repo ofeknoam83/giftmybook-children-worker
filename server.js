@@ -3647,6 +3647,32 @@ app.post('/upload-cover-pdf', authenticate, async (req, res) => {
 // object in the bucket — including other books' covers and cached face data.
 const SAFE_BOOK_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const SAFE_FILE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+function parseBooleanFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (lowered === 'true') return true;
+    if (lowered === 'false') return false;
+  }
+  return false;
+}
+function isAllowedComicFaceCropUrl(faceCropUrl, comicId) {
+  if (typeof faceCropUrl !== 'string' || typeof comicId !== 'string') return false;
+  try {
+    const url = new URL(faceCropUrl);
+    if (url.protocol !== 'https:') return false;
+    const hostname = url.hostname.toLowerCase();
+    const isGcsHost = hostname === 'storage.googleapis.com' || hostname.endsWith('.storage.googleapis.com');
+    if (!isGcsHost) return false;
+    const expectedRaw = `comics/${comicId}/faces/`;
+    const expectedEncoded = `comics%2F${comicId}%2Ffaces%2F`;
+    const decodedPath = decodeURIComponent(url.pathname || '');
+    const rawHref = faceCropUrl;
+    return decodedPath.includes(`/${expectedRaw}`) || rawHref.includes(expectedRaw) || rawHref.includes(expectedEncoded);
+  } catch (_) {
+    return false;
+  }
+}
 function validateUploadImagePath(customPath, bookId) {
   if (!customPath) return null;
   if (typeof customPath !== 'string') return 'gcsPath must be a string';
@@ -3763,8 +3789,15 @@ app.post('/comics/generate-refsheet', authenticate, async (req, res) => {
   if (!faceCropUrl || typeof faceCropUrl !== 'string') {
     return res.status(400).json({ success: false, error: 'faceCropUrl is required' });
   }
+  if (!isAllowedComicFaceCropUrl(faceCropUrl, comicId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'faceCropUrl must be an HTTPS GCS URL under comics/<comicId>/faces/',
+    });
+  }
+  const forceFlag = parseBooleanFlag(force);
 
-  console.log(`[server] /comics/generate-refsheet: comicId=${comicId} characterId=${characterId} force=${!!force}`);
+  console.log(`[server] /comics/generate-refsheet: comicId=${comicId} characterId=${characterId} force=${forceFlag}`);
   try {
     const { generateCharacterRefSheet } = require('./services/comics/castVisualBible');
     const result = await generateCharacterRefSheet({
@@ -3778,14 +3811,14 @@ app.post('/comics/generate-refsheet', authenticate, async (req, res) => {
       signatureColor,
       artStyle,
       portrayalDial,
-      force: !!force,
+      force: forceFlag,
     });
     res.json({ success: true, refSheetUrl: result.refSheetUrl, visualLocks: result.visualLocks });
   } catch (err) {
     console.error(`[server] /comics/generate-refsheet failed: ${err.message}`);
     const msg = String((err && err.message) || err);
     // 502 for upstream model/network failures; 500 for everything else.
-    const isUpstream = /HTTP\s\d{3}|No image|refsheet image|vision HTTP/i.test(msg);
+    const isUpstream = /HTTP\s\d{3}|No image|refsheet image|vision HTTP|timed out|timeout|aborted|abort/i.test(msg);
     res.status(isUpstream ? 502 : 500).json({ success: false, error: msg });
   }
 });
