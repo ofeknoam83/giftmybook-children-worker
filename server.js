@@ -3677,3 +3677,49 @@ app.post('/upload-image', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── POST /comics/detect-faces ────────────────────────────────────────────────
+// Admin-only: detect human faces in a group photo via Gemini Vision and return
+// normalized 0..1 bounding boxes (top-left origin). Cached in GCS by URL hash.
+app.post('/comics/detect-faces', authenticate, async (req, res) => {
+  const { groupPhotoUrl } = req.body || {};
+  if (!groupPhotoUrl || typeof groupPhotoUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'groupPhotoUrl is required' });
+  }
+  console.log(`[server] /comics/detect-faces: url=${groupPhotoUrl.slice(0, 100)}`);
+  try {
+    const { detectFaces } = require('./services/comics/detectFaces');
+    const result = await detectFaces(groupPhotoUrl);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error(`[server] /comics/detect-faces failed: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /comics/crop-face ───────────────────────────────────────────────────
+// Admin-only: extract a padded JPEG face crop from a group photo given a
+// normalized box, upload it to GCS, and return the signed URL.
+app.post('/comics/crop-face', authenticate, async (req, res) => {
+  const { comicId, groupPhotoUrl, box, padding } = req.body || {};
+  if (!comicId || typeof comicId !== 'string') {
+    return res.status(400).json({ success: false, error: 'comicId is required' });
+  }
+  if (!groupPhotoUrl || typeof groupPhotoUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'groupPhotoUrl is required' });
+  }
+  if (!box) {
+    return res.status(400).json({ success: false, error: 'box is required' });
+  }
+  console.log(`[server] /comics/crop-face: comicId=${comicId}`);
+  try {
+    const { cropFace } = require('./services/comics/cropFace');
+    const opts = { comicId };
+    if (typeof padding === 'number') opts.padding = padding;
+    const result = await cropFace(groupPhotoUrl, box, opts);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error(`[server] /comics/crop-face failed: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
