@@ -3705,11 +3705,17 @@ app.post('/comics/crop-face', authenticate, async (req, res) => {
   if (!comicId || typeof comicId !== 'string') {
     return res.status(400).json({ success: false, error: 'comicId is required' });
   }
+  if (!SAFE_BOOK_ID_RE.test(comicId)) {
+    return res.status(400).json({ success: false, error: 'comicId has unsafe characters' });
+  }
   if (!groupPhotoUrl || typeof groupPhotoUrl !== 'string') {
     return res.status(400).json({ success: false, error: 'groupPhotoUrl is required' });
   }
   if (!box) {
     return res.status(400).json({ success: false, error: 'box is required' });
+  }
+  if (padding !== undefined && (!Number.isFinite(padding) || padding < 0 || padding > 2)) {
+    return res.status(400).json({ success: false, error: 'padding must be a finite number between 0 and 2' });
   }
   console.log(`[server] /comics/crop-face: comicId=${comicId}`);
   try {

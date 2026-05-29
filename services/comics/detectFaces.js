@@ -107,7 +107,7 @@ async function detectFaces(groupPhotoUrl) {
       return { faces: cached.faces, faceCount: cached.faces.length };
     }
   } catch (err) {
-    console.log(`[comics/detectFaces] Cache MISS for ${cacheKey}`);
+    console.warn(`[comics/detectFaces] Cache lookup failed for ${cacheKey}: ${err.message}`);
   }
 
   // Download image

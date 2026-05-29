@@ -251,3 +251,34 @@ describe('POST /finalize-book validation', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /comics/crop-face validation', () => {
+  test('rejects comicId with unsafe characters', async () => {
+    const res = await request(app)
+      .post('/comics/crop-face')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        comicId: '../other-comic',
+        groupPhotoUrl: 'https://example.com/group.jpg',
+        box: [0.1, 0.1, 0.2, 0.2],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('comicId has unsafe characters');
+  });
+
+  test('rejects padding outside the allowed range', async () => {
+    const res = await request(app)
+      .post('/comics/crop-face')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        comicId: 'comic-123',
+        groupPhotoUrl: 'https://example.com/group.jpg',
+        box: [0.1, 0.1, 0.2, 0.2],
+        padding: -0.1,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('padding must be a finite number between 0 and 2');
+  });
+});

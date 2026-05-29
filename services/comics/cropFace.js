@@ -10,6 +10,7 @@
 const crypto = require('crypto');
 const sharp = require('sharp');
 const { uploadBuffer, downloadBuffer } = require('../gcsStorage');
+const SAFE_COMIC_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 /**
  * Coerce a box input (array or object) into { x, y, w, h } normalized 0..1.
@@ -57,6 +58,9 @@ async function cropFace(groupPhotoUrl, box, opts = {}) {
   }
   if (!comicId || typeof comicId !== 'string') {
     throw new Error('comicId is required');
+  }
+  if (!SAFE_COMIC_ID_RE.test(comicId)) {
+    throw new Error('comicId has unsafe characters');
   }
   const nb = normalizeBox(box);
   if (!nb) {
