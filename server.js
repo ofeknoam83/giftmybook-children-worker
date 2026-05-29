@@ -3647,6 +3647,32 @@ app.post('/upload-cover-pdf', authenticate, async (req, res) => {
 // object in the bucket — including other books' covers and cached face data.
 const SAFE_BOOK_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const SAFE_FILE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+function parseBooleanFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (lowered === 'true') return true;
+    if (lowered === 'false') return false;
+  }
+  return false;
+}
+function isAllowedComicFaceCropUrl(faceCropUrl, comicId) {
+  if (typeof faceCropUrl !== 'string' || typeof comicId !== 'string') return false;
+  try {
+    const url = new URL(faceCropUrl);
+    if (url.protocol !== 'https:') return false;
+    const hostname = url.hostname.toLowerCase();
+    const isGcsHost = hostname === 'storage.googleapis.com' || hostname.endsWith('.storage.googleapis.com');
+    if (!isGcsHost) return false;
+    const expectedRaw = `comics/${comicId}/faces/`;
+    const expectedEncoded = `comics%2F${comicId}%2Ffaces%2F`;
+    const decodedPath = decodeURIComponent(url.pathname || '');
+    const rawHref = faceCropUrl;
+    return decodedPath.includes(`/${expectedRaw}`) || rawHref.includes(expectedRaw) || rawHref.includes(expectedEncoded);
+  } catch (_) {
+    return false;
+  }
+}
 function validateUploadImagePath(customPath, bookId) {
   if (!customPath) return null;
   if (typeof customPath !== 'string') return 'gcsPath must be a string';
@@ -3727,5 +3753,72 @@ app.post('/comics/crop-face', authenticate, async (req, res) => {
   } catch (err) {
     console.error(`[server] /comics/crop-face failed: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /comics/generate-refsheet ───────────────────────────────────────────
+// Admin-only: turn a cropped face into a locked ADULT comic-style character
+// reference sheet + visualLocks JSON. Idempotent via GCS cache; `force` bypass.
+app.post('/comics/generate-refsheet', authenticate, async (req, res) => {
+  const {
+    comicId,
+    characterId,
+    faceCropUrl,
+    name,
+    role,
+    definingTrait,
+    signatureProp,
+    signatureColor,
+    artStyle,
+    portrayalDial,
+    force,
+  } = req.body || {};
+
+  if (!comicId || typeof comicId !== 'string') {
+    return res.status(400).json({ success: false, error: 'comicId is required' });
+  }
+  if (!SAFE_BOOK_ID_RE.test(comicId)) {
+    return res.status(400).json({ success: false, error: 'comicId has unsafe characters' });
+  }
+  if (!characterId || typeof characterId !== 'string') {
+    return res.status(400).json({ success: false, error: 'characterId is required' });
+  }
+  if (!SAFE_BOOK_ID_RE.test(characterId)) {
+    return res.status(400).json({ success: false, error: 'characterId has unsafe characters' });
+  }
+  if (!faceCropUrl || typeof faceCropUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'faceCropUrl is required' });
+  }
+  if (!isAllowedComicFaceCropUrl(faceCropUrl, comicId)) {
+    return res.status(400).json({
+      success: false,
+      error: 'faceCropUrl must be an HTTPS GCS URL under comics/<comicId>/faces/',
+    });
+  }
+  const forceFlag = parseBooleanFlag(force);
+
+  console.log(`[server] /comics/generate-refsheet: comicId=${comicId} characterId=${characterId} force=${forceFlag}`);
+  try {
+    const { generateCharacterRefSheet } = require('./services/comics/castVisualBible');
+    const result = await generateCharacterRefSheet({
+      comicId,
+      characterId,
+      faceCropUrl,
+      name,
+      role,
+      definingTrait,
+      signatureProp,
+      signatureColor,
+      artStyle,
+      portrayalDial,
+      force: forceFlag,
+    });
+    res.json({ success: true, refSheetUrl: result.refSheetUrl, visualLocks: result.visualLocks });
+  } catch (err) {
+    console.error(`[server] /comics/generate-refsheet failed: ${err.message}`);
+    const msg = String(err.message || err);
+    // 502 for upstream model/network failures; 500 for everything else.
+    const isUpstream = /HTTP\s\d{3}|No image|refsheet image|vision HTTP|timed out|timeout|aborted|abort/i.test(msg);
+    res.status(isUpstream ? 502 : 500).json({ success: false, error: msg });
   }
 });

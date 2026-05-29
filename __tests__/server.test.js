@@ -114,8 +114,12 @@ jest.mock('../services/progressReporter', () => ({
   reportError: jest.fn(),
   clearThrottle: jest.fn(),
 }));
+jest.mock('../services/comics/castVisualBible', () => ({
+  generateCharacterRefSheet: jest.fn(),
+}));
 
 const request = require('supertest');
+const { generateCharacterRefSheet } = require('../services/comics/castVisualBible');
 const app = require('../server');
 
 describe('GET /health', () => {
@@ -280,5 +284,60 @@ describe('POST /comics/crop-face validation', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('padding must be a finite number between 0 and 2');
+  });
+});
+
+describe('POST /comics/generate-refsheet validation', () => {
+  beforeEach(() => {
+    generateCharacterRefSheet.mockReset();
+  });
+
+  test('rejects faceCropUrl outside expected comics face path', async () => {
+    const res = await request(app)
+      .post('/comics/generate-refsheet')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        comicId: 'comic-123',
+        characterId: 'char-1',
+        faceCropUrl: 'https://example.com/anything.jpg',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('faceCropUrl must be an HTTPS GCS URL');
+  });
+
+  test('parses force string false as false', async () => {
+    generateCharacterRefSheet.mockResolvedValue({
+      refSheetUrl: 'https://storage.googleapis.com/test-bucket/comics/comic-123/refsheets/char-1.png',
+      visualLocks: { hair: 'brown' },
+    });
+
+    const res = await request(app)
+      .post('/comics/generate-refsheet')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        comicId: 'comic-123',
+        characterId: 'char-1',
+        faceCropUrl: 'https://storage.googleapis.com/test-bucket/comics/comic-123/faces/abc.jpg?X-Goog-Signature=1',
+        force: 'false',
+      });
+
+    expect(res.status).toBe(200);
+    expect(generateCharacterRefSheet).toHaveBeenCalledWith(expect.objectContaining({ force: false }));
+  });
+
+  test('returns 502 for timeout-like upstream errors', async () => {
+    generateCharacterRefSheet.mockRejectedValue(new Error('Request timed out after 30000ms'));
+
+    const res = await request(app)
+      .post('/comics/generate-refsheet')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        comicId: 'comic-123',
+        characterId: 'char-1',
+        faceCropUrl: 'https://storage.googleapis.com/test-bucket/comics/comic-123/faces/abc.jpg',
+      });
+
+    expect(res.status).toBe(502);
   });
 });
