@@ -3816,7 +3816,7 @@ app.post('/comics/generate-refsheet', authenticate, async (req, res) => {
     res.json({ success: true, refSheetUrl: result.refSheetUrl, visualLocks: result.visualLocks });
   } catch (err) {
     console.error(`[server] /comics/generate-refsheet failed: ${err.message}`);
-    const msg = String((err && err.message) || err);
+    const msg = String(err.message || err);
     // 502 for upstream model/network failures; 500 for everything else.
     const isUpstream = /HTTP\s\d{3}|No image|refsheet image|vision HTTP|timed out|timeout|aborted|abort/i.test(msg);
     res.status(isUpstream ? 502 : 500).json({ success: false, error: msg });
