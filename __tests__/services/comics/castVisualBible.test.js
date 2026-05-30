@@ -55,6 +55,17 @@ describe('castVisualBible', () => {
       .toThrow('Request timed out after 123ms');
   });
 
+  test('buildRefSheetPrompt leads with identity-first likeness language', () => {
+    const prompt = __private.buildRefSheetPrompt({ visualLocks: { face: 'oval face' } });
+    expect(prompt).toMatch(/recognizable as the EXACT person/);
+    expect(prompt).toMatch(/PRESERVE THE EXACT FACIAL GEOMETRY/);
+    expect(prompt).toMatch(/Likeness is the #1 priority/);
+    expect(prompt).toMatch(/semi-realistic/);
+    // Likeness-maximizing softening: no hard photoreal ban, no cel-shading mandate.
+    expect(prompt).not.toMatch(/NOT photorealistic/);
+    expect(prompt).not.toMatch(/cel shad/i);
+  });
+
   test('skips cache save when visualLocks soft-fail to empty object', async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce({
