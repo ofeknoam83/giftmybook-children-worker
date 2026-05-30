@@ -11,9 +11,11 @@
  *      image → strict JSON visualLocks (face, hair, skinTone, facialHair,
  *      glasses, build, distinguishingFeatures, suggestedOutfit, signatureColor).
  *   3. ADULT comic / graphic-novel reference sheet via IMG2IMG on
- *      `gemini-3.1-flash-image-preview` (front + 3/4 + face close-up,
- *      fully clothed PG-13, cel-shaded line art — NOT photoreal, NOT a
- *      children's storybook style). Preserves likeness from the faceCrop.
+ *      `gemini-3.1-flash-image-preview` (front + 3/4 + dominant face
+ *      close-up, fully clothed PG-13, semi-realistic / lightly-stylized
+ *      graphic-novel portrait with true-to-life facial proportions — NOT a
+ *      photograph, NOT a children's storybook style). Likeness is the #1
+ *      priority and is preserved from the faceCrop.
  *   4. Upload PNG → `comics/<comicId>/refsheets/<characterId>.png`.
  *   5. saveJson cache → `comics/<comicId>/refsheets/<characterId>.json`.
  *
@@ -36,7 +38,7 @@ const {
 } = require('../illustrator/config');
 
 const VISION_MODEL = 'gemini-2.5-flash';
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const IMAGE_TIMEOUT_MS = 120000;
 const VISION_TIMEOUT_MS = 30000;
@@ -123,7 +125,7 @@ function buildVisualLocksPrompt(ctx = {}) {
 
 Return STRICT JSON only, no markdown, no commentary, exactly this shape:
 {
-  "face": "<concise face description: shape, prominent features, age range as a decade bracket only e.g. '30s'>",
+  "face": "<identity-defining facial geometry, precise enough for an artist to redraw the SAME individual: overall face shape (e.g. oval/round/square/heart/long); eye shape and spacing (wide-set vs close-set, almond/round/hooded); eyebrow shape and thickness; nose geometry (bridge width, length, tip shape); lip fullness and mouth width; jawline (soft/defined/angular); cheekbones; chin shape; forehead height; any natural asymmetry or distinctive proportion. End with age range as a decade bracket only, e.g. '30s'>",
   "hair": "<color, texture, length, style, parting, hairline — exact enough to redraw>",
   "skinTone": "<precise artistic descriptor: depth + warmth/coolness + undertones (e.g. 'warm medium-light with peachy undertones', 'deep brown with neutral undertones')>",
   "facialHair": "<exact description, or 'none'>",
@@ -172,34 +174,38 @@ function buildRefSheetPrompt(ctx = {}) {
   if (ctx.signatureProp) ctxLines.push(`Signature prop (include subtly held or worn — not the focus): ${ctx.signatureProp}`);
   if (ctx.portrayalDial) ctxLines.push(`Portrayal dial (tone): ${ctx.portrayalDial}`);
   const styleHint = ctx.artStyle && typeof ctx.artStyle === 'string' && ctx.artStyle.trim().length > 0
-    ? `\n\nArt style hint from the book (interpret within the comic / graphic-novel idiom — do NOT switch to photoreal or to a children's storybook look): ${ctx.artStyle.trim()}`
+    ? `\n\nArt style hint from the book (interpret within the semi-realistic graphic-novel idiom, and never at the expense of likeness — do NOT switch to a literal photograph or to a children's storybook look): ${ctx.artStyle.trim()}`
     : '';
 
-  return `Create an ADULT character REFERENCE SHEET in a modern comic-book / graphic-novel style.
+  return `Create an ADULT character REFERENCE SHEET that is, FIRST AND FOREMOST, immediately recognizable as the EXACT person in the attached reference photo.
 
-The attached image is the actual face reference of the real adult this character is based on. PRESERVE THE FACIAL LIKENESS of that reference photo — face shape, eye spacing, nose, mouth, hairline must clearly read as the same person — but render the character as a stylized comic illustration, not a photo and not a child's storybook.
+IDENTITY — priority #1, above all stylization:
+- The attached image is the actual face of the real adult this character is based on. The rendered character MUST read instantly as the SAME individual — a friend should recognize them at a glance.
+- PRESERVE THE EXACT FACIAL GEOMETRY of the reference: face shape, eye shape AND spacing, eyebrow shape, nose (bridge + tip), mouth and lip fullness, jawline, cheekbones, chin, forehead, hairline, and any distinguishing marks or natural asymmetry. Do not "beautify", average, or generalize the face — keep it true to this specific person.
+- Likeness is the #1 priority. When likeness and stylization conflict, favor likeness every time.
 
 STYLE — required:
-- Comic book / graphic-novel illustration. Clean confident line art with cel shading and vibrant ink-and-color rendering. Modern Western graphic-novel sensibility.
+- A modern, semi-realistic / lightly-stylized graphic-novel portrait: accurate, realistic facial proportions and natural soft shading, rendered as a polished illustrated portrait of the real person. Clean, confident line work is welcome, but the face should be rendered with true-to-life proportions and lifelike modeling — think a high-end illustrated portrait, not a flat cartoon.
 - Affectionate, PG-13, tasteful. Fully clothed.
 
 STYLE — forbidden (negative):
-- NOT photorealistic, NOT a photograph, NOT a 3D render.
-- NOT a child's storybook illustration, NOT watercolor, NOT pixar, NOT anime.
+- Stylized but true-to-life proportions: do NOT over-cartoon, flatten, or exaggerate the features.
+- NOT an actual photograph, NOT a 3D render.
+- NOT a child's storybook illustration, NOT pixar, NOT anime.
 - NO nudity, NO suggestive posing, NO gore, NO weapons aimed at the viewer.
 - NO text, NO speech bubbles, NO captions, NO watermarks, NO logos, NO labels.
 - NO multiple different people — single character only. NO children.
 
-LAYOUT — single composite reference sheet, neutral / plain white background, the SAME character shown in three clearly separated views arranged left-to-right:
-  1. Front-facing full-figure standing pose (head to feet).
-  2. Three-quarter-view full-figure pose (slight turn, same outfit).
-  3. Clear face close-up (head and shoulders, neutral expression, eyes open). This close-up is the recognizability anchor — render it large enough that the likeness reads clearly.
-Consistent design across all three views: identical outfit, identical hair, identical proportions.
+LAYOUT — single composite reference sheet, neutral / plain white background, the SAME character shown in three clearly separated views:
+  1. PRIMARY — a LARGE, detailed head-and-shoulders FACE CLOSE-UP (neutral expression, eyes open, looking toward the viewer). This is the dominant, high-fidelity recognizability anchor: give it the most space and the most rendering detail so the likeness reads with maximum clarity.
+  2. SECONDARY (smaller) — front-facing full-figure standing pose (head to feet).
+  3. SECONDARY (smaller) — three-quarter-view full-figure pose (slight turn, same outfit).
+Consistent design across all three views: identical face, identical outfit, identical hair, identical proportions.
 
 CHARACTER LOCKS — these traits must be visible and consistent across every view:
 ${lockLines.length > 0 ? lockLines.join('\n') : '- (No prior locks — derive from the reference photo and keep them stable across views.)'}${ctxLines.length > 0 ? `\n\nContext:\n${ctxLines.join('\n')}` : ''}${styleHint}
 
-This sheet will be referenced on every later comic panel, so consistency and recognizability matter more than dramatic composition.`;
+This sheet will be referenced on every later comic panel, so recognizability of this specific person matters more than dramatic composition or stylistic flourish.`;
 }
 
 /**
@@ -304,7 +310,7 @@ async function generateRefSheetImage(apiKey, face, ctx) {
     }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
-      imageConfig: { aspectRatio: '16:9' },
+      imageConfig: { aspectRatio: '4:3' },
     },
   };
 
@@ -441,5 +447,7 @@ module.exports = {
     normalizeCacheUrl,
     computeCacheKey,
     fetchWithTimeout,
+    buildRefSheetPrompt,
+    buildVisualLocksPrompt,
   },
 };
