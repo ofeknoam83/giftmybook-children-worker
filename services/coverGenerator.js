@@ -21,7 +21,7 @@ const { TEXT_RULES } = require('./illustrator/config');
 const sharp = require('sharp');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */
-const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_HARMONIZE_MODEL = 'gemini-3.1-flash-image';
 const GEMINI_IMAGE_API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
@@ -149,7 +149,7 @@ function buildCoverSafeZoneInstruction(isHardcover) {
  * `preGeneratedCoverBuffer` (selected cover) instead of a fresh `generateIllustration`
  * call — those assets can be 2D or off-style vs interiors.
  *
- * Uses **Nano Banana 2** (`gemini-3.1-flash-image-preview`) for img2img harmonization.
+ * Uses **Nano Banana 2** (`gemini-3.1-flash-image`) for img2img harmonization.
  * On total failure returns the original buffer.
  *
  * @param {Buffer} frontCoverBuffer
@@ -192,7 +192,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     styleBlock,
   ].join('\n');
 
-  // --- Nano Banana 2 (gemini-3.1-flash-image-preview), same as interior spreads default ---
+  // --- Nano Banana 2 (gemini-3.1-flash-image), same as interior spreads default ---
   const gKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
   if (!gKey) {
     console.warn('[CoverGenerator] No API keys for cover harmonize — using chosen cover as-is');
@@ -362,7 +362,7 @@ ${layoutBlock}`;
     styleRef: refFromCorner ? 'corner-crop' : 'none (text-only)',
   });
   const startTime = Date.now();
-  const model = 'gemini-3.1-flash-image-preview';
+  const model = 'gemini-3.1-flash-image';
   const maxAttempts = refFromCorner ? 2 : 1;
 
   try {
@@ -403,7 +403,7 @@ ${layoutBlock}`;
           const ms = Date.now() - startTime;
           console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
           if (costTracker) {
-            costTracker.addImageGeneration('gemini-3.1-flash-image-preview', 1);
+            costTracker.addImageGeneration('gemini-3.1-flash-image', 1);
           }
           return Buffer.from(img.data, 'base64');
         }
@@ -917,7 +917,7 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
     .toBuffer();
   const refBase64 = ref.toString('base64');
 
-  const model = 'gemini-3.1-flash-image-preview';
+  const model = 'gemini-3.1-flash-image';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   // Use fetchWithTimeout (same as illustrationGenerator) — 3 min per cover

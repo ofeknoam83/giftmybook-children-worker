@@ -12,7 +12,7 @@
 
 const { getNextApiKey, fetchWithTimeout, ART_STYLE_CONFIG, canonicalBookArtStyle } = require('./illustrationGenerator');
 
-const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_MODEL = 'gemini-3.1-flash-image';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // After this many spreads, start a new chat session to avoid token limits
@@ -20,7 +20,7 @@ const MAX_SPREADS_PER_SESSION = 14;
 
 class ChatSessionManager {
   /**
-   * @param {string} [modelName] - Gemini model name (defaults to gemini-3.1-flash-image-preview)
+   * @param {string} [modelName] - Gemini model name (defaults to gemini-3.1-flash-image)
    */
   constructor(modelName) {
     this.model = modelName || GEMINI_MODEL;

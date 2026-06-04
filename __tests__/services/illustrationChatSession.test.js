@@ -54,7 +54,7 @@ describe('illustrationChatSession', () => {
       });
 
       expect(session).toBeDefined();
-      expect(session.model).toBe('gemini-3.1-flash-image-preview');
+      expect(session.model).toBe('gemini-3.1-flash-image');
       expect(session.history).toEqual([]);
       expect(session.turnsUsed).toBe(0);
       expect(session.abandoned).toBe(false);
