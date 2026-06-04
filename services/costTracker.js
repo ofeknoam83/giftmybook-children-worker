@@ -9,6 +9,10 @@ const RATES = {
   'gpt-4.1-mini': { input: 0.40, output: 1.60 },
   'gemini-2.5-flash': { input: 0.30, output: 2.50 },
   'gemini-3-flash-preview': { input: 0.30, output: 2.50 },
+  // DeepSeek (OpenAI-compatible API). Confirm rates against the published
+  // DeepSeek pricing page before relying on these numbers for invoicing.
+  'deepseek-v4-pro':   { input: 0.27, output: 1.10 },
+  'deepseek-v4-flash': { input: 0.14, output: 0.28 },
   // Image models (per image)
   'replicate-faceid': { perImage: 0.05 },
   'replicate-flux': { perImage: 0.04 },

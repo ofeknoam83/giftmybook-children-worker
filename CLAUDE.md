@@ -26,7 +26,8 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 - `API_KEY` — Auth key for incoming requests
 - `GCS_BUCKET_NAME` — Google Cloud Storage bucket
-- `OPENAI_API_KEY` — For GPT-5.4 text generation (story planning primary)
+- `OPENAI_API_KEY` — For GPT-5.4 text generation (WRITER, CRITIC, ADJUDICATOR; also gpt-image-2 illustrations)
+- `DEEPSEEK_API_KEY` — For DeepSeek text generation (PLANNER, DIRECTOR, RHYME_JUDGE by default — see modelRouter)
 - `GEMINI_API_KEY` — For Gemini Flash text and vocabulary checks
 - `GEMINI_API_KEY_1` through `GEMINI_API_KEY_10` — Round-robin pool for parallel illustration generation
 - `GOOGLE_AI_STUDIO_KEY` — Fallback Gemini key
@@ -52,6 +53,26 @@ Rules are layered: **session system instruction** and **per-spread prompt** carr
 - **Entry:** `services/writer/engine.js` — `WriterEngine.generate` (plan → write → `QualityGate` → revise loop → full regen waves).
 - **Book id in logs:** pass `bookId` in the generate options (main pipeline does this) so every `[writerV2]` line is filterable in Cloud Logging.
 - **Two planning passes (by design):** the job first brainstorms a **story seed** in `storyPlanner`, then Writer V2 runs its own **`plan()`** (beats, location palette, refrain). The seed is wired as `storySeed` so brainstormed beats are kept when valid. A future simplification is to merge into a single planner call; not required for correct output today.
+
+## Model routing (`services/bookPipelineV2/llm/modelRouter.js`)
+
+Roles → providers (`DEFAULT_ROUTING`):
+
+| Role        | Provider | Model              |
+|-------------|----------|--------------------|
+| PLANNER     | deepseek | `deepseek-v4-pro`  |
+| WRITER      | openai   | `gpt-5.4`          |
+| CRITIC      | openai   | `gpt-5.4`          |
+| ADJUDICATOR | openai   | `gpt-5.4`          |
+| DIRECTOR    | deepseek | `deepseek-v4-flash`|
+| RHYME_JUDGE | deepseek | `deepseek-v4-flash`|
+| SUMMARIZER  | gemini   | `gemini-2.5-flash` |
+
+WRITER, CRITIC, ADJUDICATOR stay on GPT because manuscript quality drives them. PLANNER / DIRECTOR / RHYME_JUDGE are structured-output tasks where DeepSeek is comparable and meaningfully cheaper.
+
+**Per-role override:** set `BOOK_PIPELINE_V2_<ROLE>_FAMILY=openai|deepseek|gemini` (and optionally `BOOK_PIPELINE_V2_<ROLE>_TIER=strong|mid`) at the Cloud Run revision env to flip any role without a redeploy — e.g., `BOOK_PIPELINE_V2_PLANNER_FAMILY=openai` rolls PLANNER back to gpt-5.4. The startup `[LLM_CONFIG]` check requires both `OPENAI_API_KEY` and `DEEPSEEK_API_KEY` to be set; a missing key fails the boot guard and the deploy workflow blocks promotion.
+
+`services/storyPlanner.js` also resolves its primary model via `modelFor('PLANNER')`, so the PLANNER swap takes effect for the brainstorm pass too (not just WriterV2's planning call).
 
 ## Conventions
 

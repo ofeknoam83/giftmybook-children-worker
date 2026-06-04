@@ -27,25 +27,29 @@ const { callText } = require('../../bookPipeline/llm/openaiClient');
 // don't accept custom `temperature` (only the default value of 1). v1 has
 // run on gpt-5.4 in production for months — sticking with what works.
 const MODELS = {
-  openai_strong: 'gpt-5.4',
-  openai_mid: 'gpt-5.4-mini',
-  gemini_strong: 'gemini-2.5-pro',
-  gemini_mid: 'gemini-2.5-flash',
+  openai_strong:   'gpt-5.4',
+  openai_mid:      'gpt-5.4-mini',
+  gemini_strong:   'gemini-2.5-pro',
+  gemini_mid:      'gemini-2.5-flash',
+  deepseek_strong: 'deepseek-v4-pro',
+  deepseek_mid:    'deepseek-v4-flash',
 };
 
 // Default role → family + tier.
-// Manuscript-level v2: WRITER, CRITIC, REVISION (treated as WRITER) all use
-// gpt-5.4 strong. They each make ONE call per manuscript (not 12), so the
-// cost stays roughly equivalent to the per-spread mid-tier setup, while
-// quality goes up because each call sees the whole book.
+// Manuscript-level v2: WRITER, CRITIC, ADJUDICATOR stay on gpt-5.4 strong —
+// they each make ONE call per manuscript and quality drives them.
+// PLANNER, DIRECTOR, RHYME_JUDGE are routed to DeepSeek (deepseek-v4-pro and
+// deepseek-v4-flash) — these are structured-output tasks where DeepSeek is
+// comparable to GPT and meaningfully cheaper. Any role can be flipped back
+// per-deploy via `BOOK_PIPELINE_V2_<ROLE>_FAMILY=openai` without code changes.
 const DEFAULT_ROUTING = {
-  PLANNER:     { family: 'openai',  tier: 'strong' },
-  WRITER:      { family: 'openai',  tier: 'strong' },
-  CRITIC:      { family: 'openai',  tier: 'strong' },
-  ADJUDICATOR: { family: 'openai',  tier: 'strong' },
-  DIRECTOR:    { family: 'openai',  tier: 'mid' },
-  SUMMARIZER:  { family: 'gemini',  tier: 'mid' }, // legacy; no longer used in v2 manuscript flow
-  RHYME_JUDGE: { family: 'openai',  tier: 'mid' }, // acoustic-only task, mid tier is plenty
+  PLANNER:     { family: 'deepseek', tier: 'strong' },
+  WRITER:      { family: 'openai',   tier: 'strong' },
+  CRITIC:      { family: 'openai',   tier: 'strong' },
+  ADJUDICATOR: { family: 'openai',   tier: 'strong' },
+  DIRECTOR:    { family: 'deepseek', tier: 'mid' },
+  SUMMARIZER:  { family: 'gemini',   tier: 'mid' }, // legacy; no longer used in v2 manuscript flow
+  RHYME_JUDGE: { family: 'deepseek', tier: 'mid' }, // acoustic-only task; cheap tier is plenty
 };
 
 function envOverride(role) {

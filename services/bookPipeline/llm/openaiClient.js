@@ -89,9 +89,21 @@ function resolveOpenaiKey(override) {
   return key;
 }
 
+function resolveDeepseekKey(override) {
+  const key = override || process.env.DEEPSEEK_API_KEY;
+  if (!key) {
+    throw new LlmAuthError(
+      'DeepSeek API key missing (DEEPSEEK_API_KEY is empty or unset). This is a deploy/config bug — refusing to silently fall back because the role is configured to use DeepSeek.',
+      { missingKey: true },
+    );
+  }
+  return key;
+}
+
 /**
  * Inspect an OpenAI-shaped error string for explicit auth signals so we
  * can promote a generic Error into an LlmAuthError when the body says so.
+ * DeepSeek uses the same OpenAI-compatible error shape.
  */
 function looksLikeOpenaiAuthError(errText) {
   if (!errText) return false;
@@ -101,6 +113,17 @@ function looksLikeOpenaiAuthError(errText) {
     || s.includes('missing api key')
     || s.includes('no api key provided');
 }
+
+const OPENAI_COMPAT_PROVIDERS = {
+  openai: {
+    url: 'https://api.openai.com/v1/chat/completions',
+    resolveKey: resolveOpenaiKey,
+  },
+  deepseek: {
+    url: 'https://api.deepseek.com/v1/chat/completions',
+    resolveKey: resolveDeepseekKey,
+  },
+};
 
 function resolveGeminiKey(override) {
   return override
@@ -245,7 +268,10 @@ async function readOpenaiStream(resp) {
 }
 
 /**
- * Call OpenAI chat-completions once.
+ * Call an OpenAI-compatible chat-completions endpoint once.
+ * `provider` selects which base URL and key resolver to use ('openai' | 'deepseek').
+ * DeepSeek's API mirrors OpenAI's chat-completions shape, so the request body,
+ * streaming protocol, and response parsing are all shared.
  */
 async function callOpenaiOnce(params) {
   const {
@@ -258,10 +284,12 @@ async function callOpenaiOnce(params) {
     timeoutMs,
     apiKey,
     label,
+    provider = 'openai',
   } = params;
 
-  const key = resolveOpenaiKey(apiKey);
-  const url = 'https://api.openai.com/v1/chat/completions';
+  const cfg = OPENAI_COMPAT_PROVIDERS[provider] || OPENAI_COMPAT_PROVIDERS.openai;
+  const key = cfg.resolveKey(apiKey);
+  const url = cfg.url;
   const useStream = maxTokens >= STREAM_THRESHOLD_TOKENS;
 
   const body = {
@@ -426,8 +454,10 @@ async function callText(params) {
   let lastErr = null;
   let resolvedModel = model;
   const isGeminiPrimary = /^gemini-/i.test(model);
+  const isDeepseekPrimary = /^deepseek-/i.test(model);
+  const primaryProvider = isGeminiPrimary ? 'gemini' : (isDeepseekPrimary ? 'deepseek' : 'openai');
 
-  console.log(`[llm:${label}] calling ${model} (provider=${isGeminiPrimary ? 'gemini' : 'openai'}, maxTokens=${maxTokens}, jsonMode=${!!jsonMode}, temperature=${temperature}, stream=${!isGeminiPrimary && maxTokens >= STREAM_THRESHOLD_TOKENS})`);
+  console.log(`[llm:${label}] calling ${model} (provider=${primaryProvider}, maxTokens=${maxTokens}, jsonMode=${!!jsonMode}, temperature=${temperature}, stream=${!isGeminiPrimary && maxTokens >= STREAM_THRESHOLD_TOKENS})`);
   const overallStart = Date.now();
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -457,6 +487,7 @@ async function callText(params) {
             timeoutMs,
             apiKey,
             label,
+            provider: primaryProvider,
           });
 
       if (resp.finishReason === 'length') {
@@ -509,8 +540,9 @@ async function callText(params) {
       // is fixed instead of silently serving Gemini-quality output on a
       // GPT-tuned prompt set. (Post-incident PR AA-1, 2026-05-06.)
       if (authError) {
+        const envKey = primaryProvider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENAI_API_KEY';
         console.error(
-          `[LLM_AUTH_FAIL] label=${label} model=${model} httpStatus=${err.httpStatus || 'none'} missingKey=${err.missingKey ? 'true' : 'false'} msg='${err.message.slice(0, 300)}' — refusing Gemini fallback; fix OPENAI_API_KEY and redeploy`,
+          `[LLM_AUTH_FAIL] label=${label} model=${model} provider=${primaryProvider} httpStatus=${err.httpStatus || 'none'} missingKey=${err.missingKey ? 'true' : 'false'} msg='${err.message.slice(0, 300)}' — refusing Gemini fallback; fix ${envKey} and redeploy`,
         );
         throw err;
       }
