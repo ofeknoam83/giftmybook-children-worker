@@ -45,16 +45,18 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_AI_STUDIO_KEY: ${{ secrets.GOOGLE_AI_STUDIO_KEY }}
           GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           missing=()
           [ -z "$OPENAI_API_KEY" ] && missing+=(OPENAI_API_KEY)
           [ -z "$GOOGLE_AI_STUDIO_KEY" ] && missing+=(GOOGLE_AI_STUDIO_KEY)
           [ -z "$GEMINI_API_KEY_1" ] && missing+=(GEMINI_API_KEY_1)
+          [ -z "$DEEPSEEK_API_KEY" ] && missing+=(DEEPSEEK_API_KEY)
           if [ ${#missing[@]} -ne 0 ]; then
             echo "::error::Required secrets are empty/unset: ${missing[*]}. Set them in repo Settings → Secrets → Actions and re-run."
             exit 1
           fi
-          echo "✅ All required secrets present (OPENAI_API_KEY length: ${#OPENAI_API_KEY})"
+          echo "✅ All required secrets present (OPENAI_API_KEY length: ${#OPENAI_API_KEY}, DEEPSEEK_API_KEY length: ${#DEEPSEEK_API_KEY})"
 
       - name: Deploy to Cloud Run
         run: |
@@ -72,7 +74,7 @@ jobs:
             --execution-environment=gen2 \
             --cpu-boost \
             --no-cpu-throttling \
-            --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }},GEMINI_PROXY_URL=${{ secrets.GEMINI_PROXY_URL }},GEMINI_PROXY_API_KEY=${{ secrets.GEMINI_PROXY_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }},GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }},GEMINI_API_KEY_3=${{ secrets.GEMINI_API_KEY_3 }},GEMINI_API_KEY_4=${{ secrets.GEMINI_API_KEY_4 }},USE_CHAT_ILLUSTRATIONS=true" \
+            --update-env-vars="GOOGLE_AI_STUDIO_KEY=${{ secrets.GOOGLE_AI_STUDIO_KEY }},GEMINI_PROXY_URL=${{ secrets.GEMINI_PROXY_URL }},GEMINI_PROXY_API_KEY=${{ secrets.GEMINI_PROXY_API_KEY }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }},GEMINI_API_KEY_1=${{ secrets.GEMINI_API_KEY_1 }},GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }},GEMINI_API_KEY_3=${{ secrets.GEMINI_API_KEY_3 }},GEMINI_API_KEY_4=${{ secrets.GEMINI_API_KEY_4 }},USE_CHAT_ILLUSTRATIONS=true" \
             --quiet
 
       - name: Route all traffic to latest
@@ -139,7 +141,7 @@ jobs:
           echo "$LOGS"
           echo "--- end ---"
           if echo "$LOGS" | grep -q '\[LLM_CONFIG\] FAIL'; then
-            echo "::error::[LLM_CONFIG] FAIL detected in revision $REVISION boot logs — OPENAI_API_KEY is empty/unset. Failing the deploy so this revision is not promoted to handle traffic."
+            echo "::error::[LLM_CONFIG] FAIL detected in revision $REVISION boot logs — a required LLM key (OPENAI_API_KEY or DEEPSEEK_API_KEY) is empty/unset. Failing the deploy so this revision is not promoted to handle traffic."
             exit 1
           fi
           if echo "$LOGS" | grep -q '\[LLM_CONFIG\] ok'; then

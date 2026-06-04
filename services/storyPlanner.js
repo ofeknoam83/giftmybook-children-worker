@@ -222,31 +222,38 @@ const GEMINI_MODEL = 'gemini-3-flash-preview';
 // Provider routing, retries, truncation auto-extend, and Gemini fallback all
 // live in one place now.
 const { callText: _callText } = require('./llm');
+const { modelFor } = require('./bookPipelineV2/llm/modelRouter');
 
 /**
- * Call OpenAI GPT 5.4. Returns { text, inputTokens, outputTokens, finishReason }
- * with `finishReason === 'MAX_TOKENS'` when the model hit its token cap (this
+ * Call the resolved PLANNER model (GPT or DeepSeek depending on
+ * `BOOK_PIPELINE_V2_PLANNER_FAMILY` and the modelRouter default). Returns
+ * { text, model, inputTokens, outputTokens, finishReason } with
+ * `finishReason === 'MAX_TOKENS'` when the model hit its token cap (this
  * file's parseJsonPlan branches on that exact string — see line 1646).
+ *
+ * `opts.model` may override the role-resolved model. The api key for the
+ * resolved provider is read from `process.env` inside the shared client
+ * (`OPENAI_API_KEY` for `gpt-*`, `DEEPSEEK_API_KEY` for `deepseek-*`).
  */
 async function callOpenAI(systemPrompt, userPrompt, opts = {}) {
-  const apiKey = opts.apiKey;
-  if (!apiKey) throw new Error('OpenAI API key not available');
+  const model = opts.model || modelFor('PLANNER').model;
 
   const r = await _callText({
-    model: 'gpt-5.4',
+    model,
     systemPrompt,
     userPrompt,
     jsonMode: !!opts.jsonMode,
     maxTokens: opts.maxTokens || 4000,
     temperature: opts.temperature || 0.8,
     timeoutMs: opts.timeoutMs || DEFAULT_LLM_TIMEOUT_MS,
-    apiKey,
+    apiKey: opts.apiKey,
     allowGeminiFallback: false,
     autoExtendOnTruncation: false,
-    label: opts.requestLabel || 'storyPlanner.callOpenAI',
+    label: opts.requestLabel || 'storyPlanner.callPlanner',
   });
   return {
     text: r.text,
+    model: r.model || model,
     inputTokens: r.usage.inputTokens,
     outputTokens: r.usage.outputTokens,
     finishReason: r.finishReason === 'length' ? 'MAX_TOKENS' : (r.finishReason || 'stop'),
@@ -290,18 +297,23 @@ async function callGeminiText(systemPrompt, userPrompt, genConfig) {
 }
 
 /**
- * Call the best available LLM — GPT 5.4 first, Gemini fallback. Preserves
- * legacy semantics: if no OPENAI_API_KEY is set, routes directly to Gemini
- * without raising LlmAuthError (some local/dev paths run Gemini-only).
+ * Call the best available LLM — the role-resolved PLANNER model first
+ * (GPT or DeepSeek), Gemini fallback. Preserves legacy semantics: if the
+ * primary provider's API key isn't set, routes directly to Gemini without
+ * raising LlmAuthError (some local/dev paths run Gemini-only).
  */
 async function callLLM(systemPrompt, userPrompt, opts = {}) {
-  const openaiKey = opts.openaiApiKey || process.env.OPENAI_API_KEY;
+  const { model: plannerModel, family: plannerFamily } = modelFor('PLANNER');
+  const primaryKey = plannerFamily === 'deepseek'
+    ? (opts.deepseekApiKey || process.env.DEEPSEEK_API_KEY)
+    : (opts.openaiApiKey || process.env.OPENAI_API_KEY);
 
-  if (openaiKey) {
+  if (primaryKey) {
     try {
-      console.log('[storyPlanner] Calling GPT 5.4...');
+      console.log(`[storyPlanner] Calling ${plannerModel} (family=${plannerFamily})...`);
       const result = await callOpenAI(systemPrompt, userPrompt, {
-        apiKey: openaiKey,
+        model: plannerModel,
+        apiKey: primaryKey,
         temperature: opts.temperature || 0.8,
         maxTokens: opts.maxTokens || 8000,
         jsonMode: opts.jsonMode,
@@ -309,14 +321,14 @@ async function callLLM(systemPrompt, userPrompt, opts = {}) {
         requestLabel: opts.requestLabel,
       });
       if (opts.jsonMode && !String(result.text || '').trim()) {
-        throw new Error('GPT 5.4 returned empty JSON-mode content');
+        throw new Error(`${plannerModel} returned empty JSON-mode content`);
       }
       if (opts.costTracker) {
-        opts.costTracker.addTextUsage('gpt-5.4', result.inputTokens, result.outputTokens);
+        opts.costTracker.addTextUsage(plannerModel, result.inputTokens, result.outputTokens);
       }
-      return { ...result, model: 'gpt-5.4' };
+      return { ...result, model: plannerModel };
     } catch (err) {
-      console.warn(`[storyPlanner] GPT 5.4 failed, falling back to Gemini: ${err.message}`);
+      console.warn(`[storyPlanner] ${plannerModel} failed, falling back to Gemini: ${err.message}`);
     }
   }
 

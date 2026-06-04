@@ -819,7 +819,7 @@ app.post('/health', (req, res) => {
 // every book request. Cheap to call — no LLM round-trip.
 app.get('/healthz', (req, res) => {
   const { assertLlmConfig } = require('./services/llm');
-  const llm = assertLlmConfig({ require: ['OPENAI_API_KEY'] });
+  const llm = assertLlmConfig({ require: ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY'] });
   const status = llm.ok ? 200 : 503;
   res.status(status).json({
     status: llm.ok ? 'ready' : 'degraded',
@@ -3614,7 +3614,7 @@ if (require.main === module) {
   // visible in Cloud Run logs without waiting for the first book to fail.
   try {
     const { assertLlmConfig } = require('./services/llm');
-    assertLlmConfig({ require: ['OPENAI_API_KEY'] });
+    assertLlmConfig({ require: ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY'] });
   } catch (e) {
     console.error(`[LLM_CONFIG] startup check threw: ${e.message}`);
   }
