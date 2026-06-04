@@ -13,7 +13,7 @@ const RATES = {
   'replicate-faceid': { perImage: 0.05 },
   'replicate-flux': { perImage: 0.04 },
   'gemini-image': { perImage: 0.02 },
-  'gemini-3.1-flash-image-preview': { perImage: 0.02 },
+  'gemini-3.1-flash-image': { perImage: 0.02 },
   'gemini-2.5-flash-image': { perImage: 0.02 },
 };
 

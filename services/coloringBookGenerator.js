@@ -3,7 +3,7 @@
 const { getNextApiKey, downloadPhotoAsBase64, fetchWithTimeout } = require('./illustrationGenerator');
 const sharp = require('sharp');
 
-const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_MODEL = 'gemini-3.1-flash-image';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**

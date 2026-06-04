@@ -18,7 +18,7 @@
 const { fetchWithTimeout, ART_STYLE_CONFIG, PARENT_THEMES, canonicalBookArtStyle } = require('./illustrationGenerator');
 const { resolvePictureBookTextRules } = require('./illustrator/config');
 
-const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_MODEL = 'gemini-3.1-flash-image';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const TURN_TIMEOUT_MS = 180000; // 3 minutes per turn
 const MAX_HISTORY_IMAGES = 10; // Start trimming when history has this many images
@@ -46,7 +46,7 @@ function pickSessionApiKey() {
  *
  * @param {object} opts
  * @param {string} [opts.apiKey] - Override API key (otherwise picked from pool)
- * @param {string} [opts.model] - Gemini model (default: gemini-3.1-flash-image-preview)
+ * @param {string} [opts.model] - Gemini model (default: gemini-3.1-flash-image)
  * @param {string} [opts.characterPhotoBase64] - Original uploaded photo (ground truth)
  * @param {string} [opts.characterPhotoMime] - MIME type of the photo
  * @param {string} [opts.coverBase64] - Approved cover image

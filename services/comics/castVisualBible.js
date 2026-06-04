@@ -11,7 +11,7 @@
  *      image → strict JSON visualLocks (face, hair, skinTone, facialHair,
  *      glasses, build, distinguishingFeatures, suggestedOutfit, signatureColor).
  *   3. ADULT comic / graphic-novel reference sheet via IMG2IMG on
- *      `gemini-3.1-flash-image-preview` (front + 3/4 + dominant face
+ *      `gemini-3.1-flash-image` (front + 3/4 + dominant face
  *      close-up, fully clothed PG-13, semi-realistic / lightly-stylized
  *      graphic-novel portrait with true-to-life facial proportions — NOT a
  *      photograph, NOT a children's storybook style). Likeness is the #1
@@ -288,7 +288,7 @@ async function describeVisualLocks(apiKey, face, ctx) {
 }
 
 /**
- * Call gemini-3.1-flash-image-preview img2img with the faceCrop reference and
+ * Call gemini-3.1-flash-image img2img with the faceCrop reference and
  * return the generated PNG buffer.
  *
  * @param {string} apiKey

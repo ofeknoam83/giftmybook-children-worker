@@ -119,13 +119,13 @@ const MODELS = {
 
   // --- Image rendering ---
   // Switchable via services/illustrator/sessionDispatch.js:
-  //   - 'gemini-3.1-flash-image-preview'  → Nano Banana 2 (Gemini chat session, stateful) — default
+  //   - 'gemini-3.1-flash-image'  → Nano Banana 2 (Gemini chat session, stateful) — default
   //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless), 1:1 + caption-on-verso layout
   // The Gemini path emits a wide (16:9) per-spread image with the caption baked
   // in, and the layout engine splits it. The OpenAI path emits 1:1 (1024×1024)
   // per-spread images; the layout engine places the square illustration on the
   // recto page and renders the caption as PDF text on the verso.
-  SPREAD_RENDER: 'gemini-3.1-flash-image-preview',
+  SPREAD_RENDER: 'gemini-3.1-flash-image',
 
   // Deprecated alias — keep until callers are fully migrated.
   PLANNER: 'gpt-5.4',
