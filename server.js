@@ -68,6 +68,7 @@ const { reportProgress, reportProgressForce, reportComplete, reportError, clearT
 const { CostTracker } = require('./services/costTracker');
 const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
+const { resolveBookPipeline, isV3Available } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');
 const { sceneHasFramingHint } = require('./services/writer/sceneFramingHint');
 
@@ -877,6 +878,26 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const parentStoryContent = req.body.parentStoryContent || null;
   const parentCharacterAnchor = req.body.parentCharacterAnchor || null;
 
+  // Explicit pipeline selection ('v2' | 'v3'), sent by the admin test path.
+  // Resolved against env kill-switches and the checkpoint in pipelineRouter.
+  let requestedPipelineVersion = null;
+  if (req.body.pipelineVersion !== undefined && req.body.pipelineVersion !== null && req.body.pipelineVersion !== '') {
+    const v = String(req.body.pipelineVersion).toLowerCase().trim();
+    if (!['v2', 'v3'].includes(v)) {
+      return res.status(400).json({ success: false, error: `Unsupported pipelineVersion '${req.body.pipelineVersion}' — expected 'v2' or 'v3'` });
+    }
+    requestedPipelineVersion = v;
+  }
+  // Fail fast BEFORE the 202: an explicit v3 request on a worker without the
+  // module must surface to the caller, not silently run v2 and poison A/B
+  // comparisons. (BOOK_PIPELINE_V3=off routes v3 requests to v2 by design.)
+  if (requestedPipelineVersion === 'v3' && process.env.BOOK_PIPELINE_V3 !== 'off' && !isV3Available()) {
+    return res.status(400).json({
+      success: false,
+      error: "pipelineVersion 'v3' requested but services/bookPipelineV3 is not deployed on this worker; use 'v2' or deploy V3",
+    });
+  }
+
   // When generating from a parent book, always preserve the original title.
   // Derive parentBookTitle from parentStoryContent.title if not explicitly set,
   // and lock approvedTitle so the planner never invents a different one.
@@ -915,6 +936,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
   let format = bookFormat;
   const style = canonicalBookArtStyle(artStyle);
   const costTracker = new CostTracker();
+  // Which pipeline actually generated this book — reported in every callback
+  // so pipeline A/B comparisons stay trustworthy. Null for chapter/GN formats.
+  let pipelineVersionUsed = null;
   const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
   const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
 
@@ -1306,15 +1330,21 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           }
         }
 
-        // ── Hard PB cutover (AA-CW-29) ──
-        // Picture books route to bookPipelineV2; early readers stay on v1.
-        // Set BOOK_PIPELINE_V2=off as an emergency revert without redeploy.
-        const v2On = process.env.BOOK_PIPELINE_V2 !== 'off';
-        const usePictureBookV2 = v2On && format === 'picture_book';
-        const pipelineModulePath = usePictureBookV2 ? './services/bookPipelineV2' : './services/bookPipeline';
-        const { generateBook, PipelineError } = require(pipelineModulePath);
+        // ── Pipeline version routing ──
+        // Precedence: env kill-switches → checkpoint (resumes stay on the
+        // pipeline they started on) → explicit request ('v2'|'v3' from the
+        // admin test path) → default (v2 for picture books per the AA-CW-29
+        // hard cutover, v1 for early readers). See services/pipelineRouter.js.
+        const routed = resolveBookPipeline({
+          format,
+          requestedVersion: requestedPipelineVersion,
+          checkpointVersion: checkpoint?.pipelineVersion || null,
+          log: (msg) => bookContext.log('warn', msg),
+        });
+        pipelineVersionUsed = routed.version;
+        const { generateBook, PipelineError } = require(routed.modulePath);
         const { toLegacyStoryPlan } = require('./services/bookPipeline/adapters/toLegacyStoryPlan');
-        bookContext.log('info', `Pipeline routing: format=${format} → ${usePictureBookV2 ? 'bookPipelineV2 (PB hard cutover)' : 'bookPipeline (v1)'}`);
+        bookContext.log('info', `Pipeline routing: format=${format} → ${routed.moduleName} (version=${routed.version}, source=${routed.source}, requested=${requestedPipelineVersion || 'none'})`);
 
         const stage3Start = Date.now();
         const pipelineRequest = {
@@ -1322,6 +1352,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookId,
           format,
           theme,
+          pipelineVersion: routed.version,
           child: childDetails,
           customDetails: plannerCustomDetails || sanitized.customDetails || {},
           cover: {
@@ -1463,6 +1494,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           completedStage: 'illustration',
           storyPlan,
           illustrationResults: storyPlan.entries,
+          pipelineVersion: routed.version,
           timestamp: new Date().toISOString(),
           accumulatedCosts: costTracker.getSummary(),
         });
@@ -2288,6 +2320,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
                 upsellCovers: upsellCoversWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
                 costs: costSummary,
                 emotionalCategory: emotionalCategory || null,
+                pipelineVersionUsed,
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
               }),
@@ -2312,6 +2345,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           upsellCovers: upsellCoversWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
           costs: costSummary,
           emotionalCategory: emotionalCategory || null,
+          pipelineVersionUsed,
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
           logs: bookContext.logs,
         });
@@ -2333,7 +2367,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
             await fetch(callbackUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify({ success: false, bookId, error: err.message, logs: bookContext.logs }),
+              body: JSON.stringify({ success: false, bookId, error: err.message, pipelineVersionUsed, logs: bookContext.logs }),
               signal: errorAbort.signal,
             });
             clearTimeout(errorTimeout);
@@ -2346,7 +2380,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
       }
 
       if (progressCallbackUrl) {
-        reportError(progressCallbackUrl, { bookId, error: err.message, logs: bookContext.logs });
+        reportError(progressCallbackUrl, { bookId, error: err.message, pipelineVersionUsed, logs: bookContext.logs });
       }
     } finally {
       clearInterval(heartbeatInterval);
