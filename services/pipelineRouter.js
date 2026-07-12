@@ -95,11 +95,14 @@ function resolveBookPipeline({
 
   // 2. Kill switch beats any request.
   if (v3Env === 'off') {
-    if (checkpointVersion === 'v3' || requestedVersion === 'v3') {
+    const wanted = checkpointVersion || requestedVersion;
+    const source = checkpointVersion ? 'checkpoint' : requestedVersion ? 'request' : 'default';
+    if (wanted === 'v3') {
       log('pipeline v3 requested but disabled by BOOK_PIPELINE_V3=off — using v2');
       return pick('v2', 'env');
     }
-    return pick('v2', checkpointVersion === 'v2' ? 'checkpoint' : requestedVersion === 'v2' ? 'request' : 'default');
+    if (wanted === 'v1') return pick('v1', source);
+    return pick('v2', source);
   }
 
   // 3. Global force-on: never brick customer books over a missing module.
