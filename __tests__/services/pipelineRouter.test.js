@@ -40,6 +40,12 @@ describe('pipelineRouter.resolveBookPipeline', () => {
     expect(messages.join(' ')).toContain('BOOK_PIPELINE_V3=off');
   });
 
+  test('BOOK_PIPELINE_V3=off still honors an existing v1 checkpoint', () => {
+    process.env.BOOK_PIPELINE_V3 = 'off';
+    expect(resolveBookPipeline({ format: 'picture_book', checkpointVersion: 'v1', log: noopLog }))
+      .toMatchObject({ version: 'v1', source: 'checkpoint' });
+  });
+
   test('BOOK_PIPELINE_V3=on uses v3 when the module is deployed', () => {
     process.env.BOOK_PIPELINE_V3 = 'on';
     expect(resolveBookPipeline({ format: 'picture_book', v3Available: true, log: noopLog }))
