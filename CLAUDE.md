@@ -35,6 +35,16 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 
+### Book pipeline version routing
+
+- **Resolver:** [`services/pipelineRouter.js`](services/pipelineRouter.js) — one place decides v1/v2/v3 for `/generate-book`. Precedence: **env kill-switches → checkpoint → request → default** (v2 for picture books per AA-CW-29, v1 for early readers).
+- **`BOOK_PIPELINE_V2=off`** — emergency revert, everything on v1 (unchanged).
+- **`BOOK_PIPELINE_V3`** — `off` = v3 never runs even if requested; `on` = v3 for picture books when `services/bookPipelineV3` is deployed, else a loud `FALLING BACK` log + v2 (an env var set ahead of a deploy must not brick customer books).
+- **Request override:** `pipelineVersion: 'v2' | 'v3'` on the generate-book payload (sent by the main app's admin test path; stored on the book row there). An explicit `'v3'` on a worker without the module is rejected **400 before the 202** — no silent fallback, so pipeline A/B comparisons stay trustworthy. Invalid values also 400.
+- **Checkpoint:** the resolved version is persisted in the book checkpoint, so retries/resumes finish on the pipeline they started on (checkpoint beats a later request flag).
+- **Reporting:** every completion/failure callback and `reportComplete`/`reportError` payload carries `pipelineVersionUsed`; the main app persists it into `generationProgress`.
+- **V3 contract:** when `services/bookPipelineV3` ships it must export the same `{ generateBook, PipelineError }` and document shape consumed by `toLegacyStoryPlan` (see `docs/PIPELINE_V3_DESIGN.md` §10-11).
+
 ### Book pipeline — quad dual-spread illustrator (default on)
 
 - **Default:** Quad path is **on** in code (`USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT` in [`services/bookPipeline/constants.js`](services/bookPipeline/constants.js)). Interiors use [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js) unless overridden.

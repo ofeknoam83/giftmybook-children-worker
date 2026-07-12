@@ -265,6 +265,9 @@ async function normalizeRequest(raw, _opts = {}) {
     ...(typeof raw.useQuadSpreadIllustrator === 'boolean'
       ? { useQuadSpreadIllustrator: raw.useQuadSpreadIllustrator }
       : {}),
+    ...(typeof raw.pipelineVersion === 'string' && raw.pipelineVersion
+      ? { pipelineVersion: raw.pipelineVersion }
+      : {}),
   };
 
   // AA-CW-5a — canonical pronoun set, derived once at the brief boundary
