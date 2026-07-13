@@ -3,9 +3,11 @@
  *
  * Writes ONE complete manuscript (all spreads, one call) from the winning
  * concept. The workflow invokes this activity twice in parallel with
- * different DRAFT VARIANT directives — that is where best-of-2 diversity
- * comes from, because the anthropic family rejects sampling-temperature
- * overrides (claude-opus-4-8 400s on `temperature`; do not add it back).
+ * different DRAFT VARIANT directives — best-of-2 diversity comes from the
+ * prompt variants because they work across every model family. (Do not
+ * replace them with a temperature spread: the anthropic family, available
+ * per-role via BOOK_PIPELINE_V3_*_FAMILY, rejects sampling-temperature
+ * overrides — claude-opus-4-8 400s on `temperature`.)
  *
  * Also used for the exhaustion-ladder 'fresh' manuscript (from the
  * runner-up concept) and for gate mechanical fixes via `mechanicalNotes`.

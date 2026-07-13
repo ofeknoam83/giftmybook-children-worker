@@ -1,10 +1,18 @@
 /**
  * Model router for bookPipelineV3.
  *
- * V3 routes its writing-craft roles to Claude (docs/PIPELINE_V3_DESIGN.md §8)
- * and keeps the judge panel CROSS-FAMILY — three judges from three different
- * model families score manuscripts blind, so no family judges its own prose
- * (self-preference defense).
+ * Defaults run entirely on the vendors the worker already has keys for
+ * (openai / deepseek / gemini) — product decision 2026-07-13: no new
+ * vendor dependency for milestone 1. The anthropic family stays fully
+ * wired (client + MODELS + env keys) so any role can be flipped to
+ * Claude per-deploy for A/B tests:
+ *   BOOK_PIPELINE_V3_WRITER_FAMILY=anthropic  (needs ANTHROPIC_API_KEY)
+ *
+ * The judge panel stays CROSS-FAMILY — three judges from three different
+ * model families score manuscripts blind, so no single family's tastes
+ * dominate the verdict (self-preference defense). With an openai writer,
+ * JUDGE_B shares the writer's family (same relationship the original
+ * claude-writer design had with its claude judge).
  *
  * Roles:
  *   - BRIEF    — W0 creative brief
@@ -32,13 +40,13 @@ const MODELS = {
 };
 
 const DEFAULT_ROUTING = {
-  BRIEF:   { family: 'anthropic', tier: 'strong' },
-  CONCEPT: { family: 'anthropic', tier: 'strong' },
-  EDITOR:  { family: 'openai',    tier: 'strong' },
-  WRITER:  { family: 'anthropic', tier: 'strong' },
-  JUDGE_A: { family: 'anthropic', tier: 'strong' },
-  JUDGE_B: { family: 'openai',    tier: 'strong' },
-  JUDGE_C: { family: 'gemini',    tier: 'strong' }, // deepseek is the env-flippable alternative
+  BRIEF:   { family: 'openai',   tier: 'strong' },
+  CONCEPT: { family: 'openai',   tier: 'strong' },
+  EDITOR:  { family: 'deepseek', tier: 'strong' }, // cross-family from the openai writer
+  WRITER:  { family: 'openai',   tier: 'strong' },
+  JUDGE_A: { family: 'deepseek', tier: 'strong' },
+  JUDGE_B: { family: 'openai',   tier: 'strong' },
+  JUDGE_C: { family: 'gemini',   tier: 'strong' },
 };
 
 const JUDGE_ROLES = ['JUDGE_A', 'JUDGE_B', 'JUDGE_C'];
