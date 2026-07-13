@@ -28,6 +28,7 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - `GCS_BUCKET_NAME` — Google Cloud Storage bucket
 - `OPENAI_API_KEY` — For GPT-5.4 text generation (WRITER, CRITIC, ADJUDICATOR; also gpt-image-2 illustrations)
 - `DEEPSEEK_API_KEY` — For DeepSeek text generation (PLANNER, DIRECTOR, RHYME_JUDGE by default — see modelRouter)
+- `ANTHROPIC_API_KEY` — For Claude text generation (bookPipelineV3 BRIEF/CONCEPT/WRITER/JUDGE_A). Required only for v3 runs; `assertV3Config` fails the book loudly before any LLM spend when missing. Also forwardable per-request via the main app's `apiKeys` payload.
 - `GEMINI_API_KEY` — For Gemini Flash text and vocabulary checks
 - `GEMINI_API_KEY_1` through `GEMINI_API_KEY_10` — Round-robin pool for parallel illustration generation
 - `GOOGLE_AI_STUDIO_KEY` — Fallback Gemini key
@@ -40,7 +41,7 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - **Resolver:** [`services/pipelineRouter.js`](services/pipelineRouter.js) — one place decides v1/v2/v3 for `/generate-book`. Precedence: **env kill-switches → checkpoint → request → default** (v2 for picture books per AA-CW-29, v1 for early readers).
 - **`BOOK_PIPELINE_V2=off`** — emergency revert, everything on v1 (unchanged).
 - **`BOOK_PIPELINE_V3`** — `off` = v3 never runs even if requested; `on` = v3 for picture books when `services/bookPipelineV3` is deployed, else a loud `FALLING BACK` log + v2 (an env var set ahead of a deploy must not brick customer books).
-- **Request override:** `pipelineVersion: 'v2' | 'v3'` on the generate-book payload (sent by the main app's admin test path; stored on the book row there). An explicit `'v3'` on a worker without the module is rejected **400 before the 202** — no silent fallback, so pipeline A/B comparisons stay trustworthy. Invalid values also 400.
+- **Request override:** `pipelineVersion: 'v2' | 'v3'` on the generate-book payload (sent by the main app's admin test path; stored on the book row there). An explicit `'v3'` on a worker without the module is rejected **400 before the 202** — no silent fallback, so pipeline A/B comparisons stay trustworthy. Invalid values also 400. (The module IS deployed as of milestone 1, so v3 requests route for real.)
 - **Checkpoint:** the resolved version is persisted in the book checkpoint, so retries/resumes finish on the pipeline they started on (checkpoint beats a later request flag).
 - **Reporting:** every completion/failure callback and `reportComplete`/`reportError` payload carries `pipelineVersionUsed`; the main app persists it into `generationProgress`.
 - **V3 contract:** when `services/bookPipelineV3` ships it must export the same `{ generateBook, PipelineError }` and document shape consumed by `toLegacyStoryPlan` (see `docs/PIPELINE_V3_DESIGN.md` §10-11).
@@ -83,6 +84,25 @@ WRITER, CRITIC, ADJUDICATOR stay on GPT because manuscript quality drives them. 
 **Per-role override:** set `BOOK_PIPELINE_V2_<ROLE>_FAMILY=openai|deepseek|gemini` (and optionally `BOOK_PIPELINE_V2_<ROLE>_TIER=strong|mid`) at the Cloud Run revision env to flip any role without a redeploy — e.g., `BOOK_PIPELINE_V2_PLANNER_FAMILY=openai` rolls PLANNER back to gpt-5.4. The startup `[LLM_CONFIG]` check requires both `OPENAI_API_KEY` and `DEEPSEEK_API_KEY` to be set; a missing key fails the boot guard and the deploy workflow blocks promotion.
 
 `services/storyPlanner.js` also resolves its primary model via `modelFor('PLANNER')`, so the PLANNER swap takes effect for the brainstorm pass too (not just WriterV2's planning call).
+
+## Book Pipeline V3 (milestone 1 — writer + v1 illustrator adapter)
+
+`services/bookPipelineV3` implements the writer half of `docs/PIPELINE_V3_DESIGN.md` (see the module README). Runs only on explicit `pipelineVersion: 'v3'` (admin test path), a v3 checkpoint, or `BOOK_PIPELINE_V3=on`.
+
+Roles → providers (`services/bookPipelineV3/llm/modelRouter.js`, override via `BOOK_PIPELINE_V3_<ROLE>_FAMILY`/`_TIER`):
+
+| Role | Provider | Model |
+|---|---|---|
+| BRIEF / CONCEPT / WRITER | anthropic | `claude-opus-4-8` |
+| EDITOR | openai | `gpt-5.4` |
+| JUDGE_A | anthropic | `claude-opus-4-8` |
+| JUDGE_B | openai | `gpt-5.4` |
+| JUDGE_C | gemini | `gemini-2.5-pro` |
+
+- Judges must stay **cross-family** (blind panel, median ≥ 4 on all 7 rubric dimensions to pass); a collapsing env override logs `FAMILY COLLAPSE`.
+- The anthropic client (`llm/anthropicClient.js`) never sends `temperature`/`top_p` — `claude-opus-4-8` rejects them (400). Best-of-2 draft diversity comes from prompt variants.
+- **No ship-anyway:** panel exhaustion (after ≤2 revision rounds + second draft + fresh manuscript from the runner-up concept) throws `PipelineError` `judge_panel_exhausted` with judge history. Smoke-test escape hatch: `BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1`.
+- Filter `[bookPipelineV3]` in Cloud Logging; the run ends with a one-line `cost summary` (per-call ledger in `document.v3.costs`).
 
 ## Conventions
 
