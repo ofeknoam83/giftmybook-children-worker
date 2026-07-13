@@ -218,6 +218,8 @@ New terminal state replacing every "ship anyway" branch:
 
 ## 8. Model selection (D3 — fully open)
 
+> **Milestone-1 amendment (2026-07-13, product decision):** the shipped defaults use only already-provisioned vendors — writer-class roles on `gpt-5.4`, editor + one judge on DeepSeek, one judge on Gemini. The Claude rows below remain the per-role env flip (`BOOK_PIPELINE_V3_<ROLE>_FAMILY=anthropic`) for A/B tests once an `ANTHROPIC_API_KEY` is provisioned.
+
 | Job | Primary | Rationale / fallback |
 |---|---|---|
 | W0 brief, W1 concepts, W3 manuscript, W6 revision | Claude (Opus-class) | strongest literary prose and voice; fallback GPT-5.4 |

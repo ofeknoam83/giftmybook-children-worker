@@ -96,9 +96,9 @@ describe('pipelineRouter.resolveBookPipeline', () => {
 });
 
 describe('pipelineRouter.isV3Available', () => {
-  test('is false until services/bookPipelineV3 ships', () => {
-    // When bookPipelineV3 lands this flips to true — update the test, and
-    // delete the fail-fast stub expectations in the /generate-book docs.
-    expect(isV3Available()).toBe(false);
+  test('is true — services/bookPipelineV3 is deployed (milestone 1)', () => {
+    // Flipped when bookPipelineV3 shipped: explicit v3 requests no longer
+    // 400 at /generate-book; the router resolves them to the real module.
+    expect(isV3Available()).toBe(true);
   });
 });

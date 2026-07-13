@@ -1,0 +1,19 @@
+{
+  "angles": [
+    {
+      "id": "quest_transformation",
+      "label": "Quest & transformation",
+      "directive": "Build the story as a small, concrete quest: the child wants or seeks one specific thing, meets escalating obstacles that test them in different ways, and comes out changed. The external goal and the internal change must be DIFFERENT things — the child may fail the quest and still win the change, or win the quest and discover it mattered less than what happened on the way."
+    },
+    {
+      "id": "quiet_observational",
+      "label": "Quiet & observational",
+      "directive": "Build the story as a quiet, sensory close-up on a small world: no quest, no villain, no race. Tension comes from attention — something tiny changes spread by spread (light, weather, a creature, a routine, a feeling) and the child notices what grown-ups miss. The climax is a moment of recognition or connection, not an event. Musicality and stillness carry the book."
+    },
+    {
+      "id": "call_and_response_humor",
+      "label": "Call-and-response humor",
+      "directive": "Build the story around a playful, repeatable comic engine: a pattern the read-aloud adult and child can perform together (a question and answer, a sound that grows, a wrong guess repeated, a rule that keeps breaking). Escalate the pattern with variation — same shape, bigger stakes or sillier outcomes — then break the pattern ONCE at the climax for the laugh, and land on warmth."
+    }
+  ]
+}
