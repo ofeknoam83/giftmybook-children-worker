@@ -36,7 +36,7 @@ const {
   SIGNATURE_TEXT_KEYS,
 } = require('../qa/signatureBeats');
 
-const { TOTAL_SPREADS } = require('../constants');
+const { TOTAL_SPREADS } = require('../../bookPipelineV3/contract/constants');
 
 /**
  * Spread-role allocation map for a 13-spread infant/toddler book.

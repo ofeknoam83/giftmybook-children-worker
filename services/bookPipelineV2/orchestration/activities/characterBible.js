@@ -9,7 +9,7 @@
  * cover before calling generateBook), we fall back to text-only.
  */
 
-const { callWithRole } = require('../../llm/modelRouter');
+const { callWithRole } = require('../../../shared/llm/modelRouter');
 
 const SYSTEM = `You are a character-bible author for a children's picture book. Produce a CharacterBible JSON for the protagonist (and any other named characters). Lock: name, role, age_months, age_band, ethnicity_descriptor, skin_tone_family, hair { color_family, length, texture, volume, signature_styling }, eyes { color, shape }, face { cheek_quality, mouth }, body { head_to_body_ratio, developmental_stage, can_stand_independently, rendered_teeth, limb_quality }, signature_outfit { top, bottom, accessories }, signature_prop, personality, speaking_style, visual_rules (array), anti_rules (array), derived_from_cover_image (URL or null). For PB_INFANT, body MUST reflect a lap baby (1:3 head-to-body, no rendered teeth, cannot stand independently, soft rounded limbs). For PB_TODDLER, age-appropriate toddler proportions. visual_rules and anti_rules are explicit do/do-not lists the illustrator will read. Output STRICT JSON only — an object with key 'characters' that is an array.`;
 

@@ -8,6 +8,10 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - **CommonJS modules** throughout (no ESM)
 - **Async pipeline**: POST /generate-book returns 202, processes in background, reports progress via callbacks
 
+## Shared services (`services/shared/`)
+
+Cross-pipeline code extracted from the legacy modules ahead of their deletion (v3-only cutover plan): `shared/llm/openaiClient.js` (unified LLM client), `shared/llm/modelRouter.js` (role routing, used by storyPlanner + v2), `shared/text/sanitize.js` + `shared/text/sceneFramingHint.js`, `shared/illustration/config.js` + `illustrationPolicy.js` (used by games, cover, comics, illustrationGenerator), `shared/emotionalTiers.js`. The v1/v2 pipelines require FROM these locations — never the reverse — so deleting `bookPipeline`/`bookPipelineV2` is a pure directory removal. The v1 document contract (constants, bookDocument schema, toLayoutPayload, toLegacyStoryPlan) now lives in `services/bookPipelineV3/contract/`.
+
 ## Key Services
 
 - `storyPlanner.js` — GPT-5.4 (Gemini fallback) plans complete V2 story with text + illustration prompts in one call
@@ -48,12 +52,12 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 ### Book pipeline — quad dual-spread illustrator (default on)
 
-- **Default:** Quad path is **on** in code (`USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT` in [`services/bookPipeline/constants.js`](services/bookPipeline/constants.js)). Interiors use [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js) unless overridden.
+- **Default:** Quad path is **on** in code (`USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT` in [`services/bookPipelineV3/contract/constants.js`](services/bookPipelineV3/contract/constants.js)). Interiors use [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js) unless overridden.
 - **`GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR`** — Optional override: `1` / `true` / `yes` / `quad` forces quad; `0` / `false` / `no` / `legacy` forces legacy [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js).
 - **Request override:** `useQuadSpreadIllustrator: true` or `false` on the generate-book payload (stored on `doc.request`) when you need per-book control without redeploying.
 - **API:** Gemini Flash Image uses `imageConfig.aspectRatio: "4:1"` (supported on the Generative Language API). **OpenAI** path uses size **`1792x448`** (`OPENAI_QUAD_IMAGE_SIZE`) for quad batches; if the Images API rejects that size, fall back to Gemini for illustration or disable quad for that deployment.
 - **Logs:** Filter `bookPipeline:*:quad` for batch lines (`spreadNumbers=[a, b]`, slice map); spread `13` logs `mode=single_spread` / `aspect=16:9` when present.
-- **Gemini resilience:** 4:1 turns use a longer client timeout (`TURN_TIMEOUT_QUAD_MS`, 5 min in [`services/illustrator/config.js`](services/illustrator/config.js)). HTTP **503 / 504 / 429** and bodies mentioning **Deadline expired** / **UNAVAILABLE** / **RESOURCE_EXHAUSTED** are tagged as transient and retried with exponential backoff (same logical attempt) in [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js) and [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js).
+- **Gemini resilience:** 4:1 turns use a longer client timeout (`TURN_TIMEOUT_QUAD_MS`, 5 min in [`services/shared/illustration/config.js`](services/shared/illustration/config.js)). HTTP **503 / 504 / 429** and bodies mentioning **Deadline expired** / **UNAVAILABLE** / **RESOURCE_EXHAUSTED** are tagged as transient and retried with exponential backoff (same logical attempt) in [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js) and [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js).
 
 ## Illustrator V2 — enforcement tiers
 
@@ -65,7 +69,7 @@ Rules are layered: **session system instruction** and **per-spread prompt** carr
 - **Book id in logs:** pass `bookId` in the generate options (main pipeline does this) so every `[writerV2]` line is filterable in Cloud Logging.
 - **Two planning passes (by design):** the job first brainstorms a **story seed** in `storyPlanner`, then Writer V2 runs its own **`plan()`** (beats, location palette, refrain). The seed is wired as `storySeed` so brainstormed beats are kept when valid. A future simplification is to merge into a single planner call; not required for correct output today.
 
-## Model routing (`services/bookPipelineV2/llm/modelRouter.js`)
+## Model routing (`services/shared/llm/modelRouter.js`)
 
 Roles → providers (`DEFAULT_ROUTING`):
 
@@ -101,8 +105,17 @@ Roles → providers (`services/bookPipelineV3/llm/modelRouter.js`, override via 
 
 - Judges must stay **cross-family** (blind panel, median ≥ 4 on all 7 rubric dimensions to pass); a collapsing env override logs `FAMILY COLLAPSE`.
 - The anthropic client (`llm/anthropicClient.js`) never sends `temperature`/`top_p` — `claude-opus-4-8` rejects them (400). Best-of-2 draft diversity comes from prompt variants (works across all families).
-- **No ship-anyway:** panel exhaustion (after ≤2 revision rounds + second draft + fresh manuscript from the runner-up concept) throws `PipelineError` `judge_panel_exhausted` with judge history. Smoke-test escape hatch: `BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1`.
+- **No ship-anyway → review queue:** panel exhaustion (after ≤2 revision rounds + second draft + fresh manuscript from the runner-up concept) throws `PipelineError` with `failureCode: 'needs_review'` and a structured payload (`services/bookPipelineV3/reviewQueue/payload.js`: stage, reason `judge_panel_exhausted`, defects, judge scores + history). server.js persists the payload in the book checkpoint and forwards it on the failure callbacks (`needsReview` field). Admin resolution via `POST /v3/review/approve` (ship best manuscript on re-dispatch) or `/v3/review/regen-manuscript`; `pick-candidate`/`regen-spread` 409 until the native illustrator (milestone 2 W10). The endpoints only mutate the checkpoint — the main app re-dispatches `/generate-book`. Smoke-test escape hatch: `BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1`.
 - Filter `[bookPipelineV3]` in Cloud Logging; the run ends with a one-line `cost summary` (per-call ledger in `document.v3.costs`).
+
+### Native V3 illustrator (milestone 2, in progress — see `docs/ILLUSTRATOR_V3_MILESTONE2_PLAN.md`)
+
+- **Flag:** `BOOK_PIPELINE_V3_ILLUSTRATOR=native|legacy` (deploy default `legacy`); per-book request override `illustratorVersion` (invalid values 400 before the 202). Precedence checkpoint → request → env → default (`services/bookPipelineV3/illustrator/config.js`); the checkpoint pins the illustrator a book started rendering on, and callbacks carry `illustratorVersionUsed` beside `pipelineVersionUsed`.
+- **Roles:** ART_DIRECTOR `gemini-2.5-pro`, QA_VISION `gemini-2.5-flash`, LIKENESS_JUDGE_A `gemini-2.5-flash` + LIKENESS_JUDGE_B `gpt-5.4` (cross-family ENFORCED — `validateLikenessFamilies` logs FAMILY COLLAPSE). Renderer models (`gemini-3.1-flash-image`) resolve in illustrator/config.js (`BOOK_PIPELINE_V3_SHEET/SPREAD_RENDERER_MODEL`).
+- **Pipeline (code-complete, gated on Phase C validation):** A0 identity kit (`illustrator/identityKit/` — likeness brief + best-of-3 character sheet judged cross-family vs the photo, GCS-cached by photoHash+styleVersion; runs parallel with the writer) → A1 art direction (`artDirection/` — one multimodal call: shot budget deterministically validated/repaired, quiet zones, palette arc, world plates; unstageable contracts BOUNCE to one writer revision round before any pixels) → A2 parallel renders (`render/` — 1:1, 2 candidates/spread from fixed refs [sheet+photo+cover+plate], GCS-resume, no sessions/quad) → A3 QA cascade (`qa/` — sharp integrity + letterform hard-fail + spread judge + cross-family likeness; one repair wave with named defects; exhaustion → needs_review with ALL candidates) → A4 book pass (`bookPass/` — contact-sheet review, one targeted regen wave). Native books lay out in caption mode (typeset verso + full-bleed recto) — **no text in pixels, ever** (D5).
+- **Review resolutions:** `/v3/review/pick-candidate` (bypass QA for an admin-picked candidate) and `/v3/review/regen-spread` (force fresh renders with the admin note in the prompt) are live for native books; other spreads replay from GCS on the re-run.
+- **Style bible:** `illustrator/styleBible.js` is a versioned PLACEHOLDER (blocks real quality validation) — when the product-authored bible lands, bump `STYLE_VERSION` (invalidates every cached identity kit).
+- **Calibration:** run `node scripts/calibrateIllustratorJudges.js labels.json` — every hard-fail class (lettering / duplicated hero / wrong child) needs ≥0.90 judge–human agreement before spread-QA thresholds are trusted.
 
 ## Conventions
 

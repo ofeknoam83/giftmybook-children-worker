@@ -21,14 +21,14 @@ const {
   QA_TIMEOUT_MS,
   QA_HTTP_ATTEMPTS,
   QA_MAX_OUTPUT_TOKENS,
-} = require('./config');
+} = require('../shared/illustration/config');
 const {
   extractGeminiResponseText,
   extractFinishReason,
   parseJsonBlock,
 } = require('./qaResponseParser');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
-const { QA_RECENT_INTERIOR_REFERENCES } = require('../bookPipeline/constants');
+const { QA_RECENT_INTERIOR_REFERENCES } = require('../bookPipelineV3/contract/constants');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 

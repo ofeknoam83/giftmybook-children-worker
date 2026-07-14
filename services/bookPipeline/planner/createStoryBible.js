@@ -7,9 +7,9 @@
  * strict JSON output.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS, AGE_BANDS } = require('../constants');
-const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS, AGE_BANDS } = require('../../bookPipelineV3/contract/constants');
+const { appendLlmCall, withStageResult } = require('../../bookPipelineV3/contract/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { renderThemeDirectiveBlock } = require('./themeDirectives');
 const {

@@ -11,7 +11,7 @@
  * immediately with a machine-readable failure code.
  */
 
-const { FORMATS, AGE_BANDS, FAILURE_CODES } = require('../constants');
+const { FORMATS, AGE_BANDS, FAILURE_CODES } = require('../../bookPipelineV3/contract/constants');
 
 /**
  * Canonical pronoun sets keyed by lowercased subject pronoun. The pipeline

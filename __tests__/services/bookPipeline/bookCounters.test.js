@@ -10,7 +10,7 @@ const {
   withStageResult,
   incrementCounter,
   formatCountersLogLine,
-} = require('../../../services/bookPipeline/schema/bookDocument');
+} = require('../../../services/bookPipelineV3/contract/bookDocument');
 
 function newDoc() {
   return createBookDocument({

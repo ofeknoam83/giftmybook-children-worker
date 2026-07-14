@@ -20,11 +20,12 @@
  * completed book regardless: BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1.
  */
 
-const { createWorkflowContext } = require('../../../bookPipelineV2/orchestration/workflowEngine');
-const { createArtifactStore } = require('../../../bookPipelineV2/artifactStore');
-const { getAgeProfile } = require('../../../bookPipelineV2/ageProfiles');
-const { deriveAgeBandFromRequest } = require('../../../bookPipelineV2/orchestration/workflows/createBook.workflow');
-const { TOTAL_SPREADS } = require('../../../bookPipeline/constants');
+const { createWorkflowContext } = require('../workflowEngine');
+const { createArtifactStore } = require('../../artifactStore');
+const { getAgeProfile } = require('../../ageProfiles');
+const { deriveAgeBandFromRequest } = require('../../ageProfiles');
+const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
+const { TOTAL_SPREADS } = require('../../contract/constants');
 
 const { creativeBriefActivity } = require('../activities/creativeBrief');
 const { conceptRoomActivity, CONCEPT_ANGLES } = require('../activities/conceptRoom');
@@ -34,15 +35,20 @@ const { mechanicalGateActivity } = require('../activities/mechanicalGate');
 const { judgePanelActivity } = require('../activities/judgePanel');
 const { manuscriptRevisionActivity, mergeTargets } = require('../activities/manuscriptRevision');
 const { illustrationDirectorActivity } = require('../activities/illustrationDirector');
+const { runNativeIllustrator } = require('../../illustrator');
+const { resolveIllustratorVersion } = require('../../illustrator/config');
+const { buildIdentityKit } = require('../../illustrator/identityKit');
 const { validatePanelFamilies } = require('../../llm/modelRouter');
 
 const MAX_REVISION_ROUNDS = 2;
 
 class V3ExhaustionError extends Error {
-  constructor(message, { issues } = {}) {
+  constructor(message, { issues, needsReview, stage } = {}) {
     super(message);
     this.name = 'V3ExhaustionError';
     this.issues = issues || [];
+    this.needsReview = needsReview || null;
+    this.stage = stage || 'writerQa';
   }
 }
 
@@ -236,6 +242,42 @@ function summarizePanel(panel, manuscriptId) {
 }
 
 /**
+ * Native illustration with the art director's bounce-back edge (A1):
+ * unstageable scene contracts get ONE targeted writer revision round
+ * (the feedback loop v1/v2 never had — problems fixed before pixels),
+ * then the second pass either stages everything or goes to review.
+ */
+async function runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger }) {
+  const opts = { retries: 2, baseDelayMs: 4000, isRetryable: (err) => Boolean(err?.isTransient) };
+  try {
+    return await ctx.execute('illustrations.native', runNativeIllustrator, { ...illustrationInput, allowBounce: true }, opts);
+  } catch (err) {
+    const bounce = err?.name === 'ArtDirectionBounceError' ? err : (err?.cause?.name === 'ArtDirectionBounceError' ? err.cause : null);
+    if (!bounce) throw err;
+
+    ctx.log('warn', `[v3] art director bounced spreads [${bounce.bounces.map((b) => b.spread).join(', ')}] — one targeted writer revision before any rendering`);
+    const targets = bounce.bounces.map((b) => ({
+      spread: b.spread,
+      failures: [],
+      reasons: [`unstageable for the illustrator: ${b.problem}`, `suggested fix: ${b.suggestion}`].filter(Boolean),
+    }));
+    const revised = await ctx.execute('manuscript.bounceFix', manuscriptRevisionActivity, {
+      brief,
+      ageProfile,
+      manuscript: illustrationInput.manuscript,
+      targets,
+    }, { retries: 1 });
+    ledger.add('manuscript.bounceFix', revised);
+
+    return ctx.execute('illustrations.native.r2', runNativeIllustrator, {
+      ...illustrationInput,
+      manuscript: revised,
+      allowBounce: false,
+    }, opts);
+  }
+}
+
+/**
  * @param {{ rawRequest: object, signals?: object, log?: function }} opts
  */
 async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
@@ -255,6 +297,33 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   ageProfile.ageBand = ageBand;
   ageProfile.band = ageBand;
   const theme = rawRequest?.theme || 'adventure';
+
+  // Milestone-2 flag: native "Art Studio" vs the legacy v1 quad adapter.
+  // Resolved once per run (checkpoint → request → env → default) and
+  // reported in doc.v3 + pipeline callbacks so A/B stays auditable.
+  const illustrator = resolveIllustratorVersion({
+    requestedVersion: rawRequest?.illustratorVersion || null,
+    checkpointVersion: rawRequest?.checkpointIllustratorVersion || null,
+    log: (msg) => ctx.log('warn', `[v3] ${msg}`),
+  });
+  ctx.log('info', `[v3] illustrator: ${illustrator.version} (source=${illustrator.source})`);
+
+  // A0 identity kit runs in PARALLEL with the writer (native path only) —
+  // photos → likeness brief → judged character model sheet, GCS-cached.
+  // Joined before rendering; a kit failure surfaces there.
+  const kitPhotoUrls = rawRequest?.child?.photoUrls || [];
+  let identityKitPromise = null;
+  if (illustrator.version === 'native' && kitPhotoUrls.length > 0) {
+    ctx.log('info', `[v3] identity kit: starting in parallel with the writer (${kitPhotoUrls.length} photo(s))`);
+    identityKitPromise = buildIdentityKit({
+      photoUrls: kitPhotoUrls,
+      ageBand,
+      childDetails: { name: rawRequest?.child?.name, gender: rawRequest?.child?.gender },
+      abortSignal: signals?.abortSignal,
+      log: (m) => ctx.log('info', `[v3] [identityKit] ${m}`),
+    });
+    identityKitPromise.catch(() => {}); // defused here; the real await rethrows at the join
+  }
 
   // ── planning ──
   ctx.reportProgress({ step: 'planning', message: 'Building creative brief' });
@@ -334,12 +403,29 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
         ([id, agg]) => `${id}: sumMedians=${agg.sumMedians.toFixed(1)} failing=[${agg.failingDimensions.join(',')}]`,
       )),
     ];
+    const reviewResolution = rawRequest?.reviewResolution || null;
     if (process.env.BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION === '1') {
       ctx.log('warn', '[v3] SHIP_ON_EXHAUSTION=1 — shipping best-scoring manuscript with writerQa.pass=false');
+    } else if (reviewResolution?.action === 'ship_best') {
+      ctx.log('warn', `[v3] review approval (${reviewResolution.admin || 'admin'}) — shipping best-scoring manuscript with writerQa.pass=false`);
     } else {
       throw new V3ExhaustionError(
         'manuscript failed the bookstore-standard judge panel after revision rounds, the second draft, and a fresh attempt from the runner-up concept',
-        { issues },
+        {
+          issues,
+          needsReview: buildNeedsReviewPayload({
+            stage: 'writerQa',
+            reason: 'judge_panel_exhausted',
+            defects: issues,
+            judgeScores: finalSummary || null,
+            manuscriptHistory: [outcome.manuscript && {
+              id: outcome.manuscript.id,
+              title: outcome.manuscript.title,
+              conceptId: outcome.manuscript.concept_id || null,
+            }].filter(Boolean),
+            judgeHistory: panelHistory.map((p) => p.perManuscript),
+          }),
+        },
       );
     }
   }
@@ -349,7 +435,27 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 
   // ── illustrating ──
   ctx.checkAbort();
-  const renderedDoc = await ctx.execute('illustrations', illustrationDirectorActivity, {
+  // Join the identity kit (native path): exhaustion becomes a stage-tagged
+  // needs_review, infra errors propagate as ordinary failures.
+  let identityKit = null;
+  if (identityKitPromise) {
+    try {
+      identityKit = await identityKitPromise;
+      ctx.log('info', `[v3] identity kit ready (fromCache=${identityKit.fromCache}, minLikeness=${identityKit.judgeScores?.minLikeness ?? 'n/a'})`);
+    } catch (err) {
+      if (err?.needsReview) {
+        throw new V3ExhaustionError(err.message, {
+          issues: err.needsReview.defects || [],
+          needsReview: err.needsReview,
+          stage: 'identityKit',
+        });
+      }
+      throw err;
+    }
+  }
+
+  const illustrationInput = {
+    identityKit,
     rawRequest,
     brief,
     ageProfile,
@@ -358,18 +464,38 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     coverImageUrl: rawRequest?.cover?.imageUrl || null,
     coverTitle: rawRequest?.cover?.title || null,
     operationalContext: signals,
-  }, {
-    retries: 2,
-    baseDelayMs: 4000,
-    isRetryable: (err) => Boolean(err?.isTransient),
-  });
-
+  };
+  let renderedDoc;
+  try {
+    renderedDoc = illustrator.version === 'native'
+      ? await runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger })
+      : await ctx.execute('illustrations', illustrationDirectorActivity, illustrationInput, {
+        retries: 2,
+        baseDelayMs: 4000,
+        isRetryable: (err) => Boolean(err?.isTransient),
+      });
+  } catch (err) {
+    // QA/art-direction exhaustion is a review item, not a plain failure (D6).
+    const payload = err?.needsReview || err?.cause?.needsReview;
+    if (payload) {
+      throw new V3ExhaustionError(err.cause?.message || err.message, {
+        issues: payload.defects || [],
+        needsReview: payload,
+        stage: payload.stage || 'spreadQa',
+      });
+    }
+    throw err;
+  }
   // ── bookWideQa / layout ──
   ctx.reportProgress({ step: 'bookWideQa', message: 'Attaching quality report' });
   renderedDoc.writerQa = {
     pass: outcome.accepted,
     rounds: outcome.rounds,
-    warnings: outcome.accepted ? [] : ['judge_panel_exhausted_shipped_by_env_flag'],
+    warnings: outcome.accepted ? [] : [
+      rawRequest?.reviewResolution?.action === 'ship_best'
+        ? 'judge_panel_exhausted_shipped_by_review_approval'
+        : 'judge_panel_exhausted_shipped_by_env_flag',
+    ],
     gate: gate ? {
       passed: gate.passed,
       hardFailureCount: gate.hardFailureCount,
@@ -383,6 +509,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     judges: (panel?.reports || []).map((r) => ({ judge: r.judge, family: r.family, model: r.model })),
   };
   renderedDoc.v3 = {
+    illustrator: { version: illustrator.version, source: illustrator.source },
     concepts,
     selection,
     manuscriptMeta: {
@@ -406,7 +533,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   ctx.log('info', `[bookPipelineV3] cost summary calls=${costs.calls} in=${costs.inputTokens} out=${costs.outputTokens} knownEstUsd=$${costs.knownEstUsd}`);
 
   ctx.reportProgress({ step: 'layout', message: 'Preparing layout' });
-  const { toLayoutPayload } = require('../../../bookPipeline/adapters/toLayoutPayload');
+  const { toLayoutPayload } = require('../../contract/toLayoutPayload');
   let layout;
   try {
     layout = toLayoutPayload(renderedDoc);

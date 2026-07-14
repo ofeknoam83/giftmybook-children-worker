@@ -1,6 +1,14 @@
 # Illustrator V3 — Milestone 2 Implementation Plan ("Art Studio")
 
-Status: **PLAN** (2026-07-14)
+Status: **IMPLEMENTED (code-complete, pre-validation)** — phases 0-6 (W3-W10)
+landed 2026-07-14 on this branch; `BOOK_PIPELINE_V3_ILLUSTRATOR` defaults to
+`legacy` until the Phase C validation gate passes. Two deliberate deltas from
+the plan below: (1) native art renders at **1:1** and ships in the proven
+caption layout mode (typeset verso + full-bleed recto) — D5 satisfied with the
+existing engine; wide-art zone-overlay typesetting is a post-cutover
+enhancement, and (2) the style bible ships as a **versioned placeholder**
+(`illustrator/styleBible.js`) pending the product-authored artifact — bumping
+STYLE_VERSION regenerates every cached identity kit.
 Scope: picture books, V3 pipeline only. Implements the illustrator half (§5–§7) of
 `docs/PIPELINE_V3_DESIGN.md`; milestone 1 (V3 writer + v1 illustrator adapter) is the
 starting point.

@@ -31,14 +31,14 @@ const {
   QA_TIMEOUT_MS,
   QA_HTTP_ATTEMPTS,
   QA_MAX_OUTPUT_TOKENS,
-} = require('./config');
+} = require('../shared/illustration/config');
 const {
   extractGeminiResponseText,
   extractFinishReason,
   parseJsonBlock,
 } = require('./qaResponseParser');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
-const { AGE_BANDS } = require('../bookPipeline/constants');
+const { AGE_BANDS } = require('../bookPipelineV3/contract/constants');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 

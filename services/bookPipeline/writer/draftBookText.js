@@ -6,9 +6,9 @@
  * line-break hints. Does not redesign plot structure.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, getWriterTemperature } = require('../constants');
-const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS, getWriterTemperature } = require('../../bookPipelineV3/contract/constants');
+const { updateSpread, appendLlmCall } = require('../../bookPipelineV3/contract/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 

@@ -10,7 +10,7 @@
  * (no separate prompt file — the contract is small enough).
  */
 
-const { callWithRole } = require('../../llm/modelRouter');
+const { callWithRole } = require('../../../shared/llm/modelRouter');
 
 const SYSTEM = `You are a children's-book story planner. Given a StoryIntent and an AgeProfile, produce a StoryBible JSON: { logline, three_act_shape: { act_1, act_2, act_3 }, midpoint, climax_payoff_image, ending_image, theme_motif_table: [ { motif_id, role_in_arc } ], protagonist_voice_notes }. Be concrete. Make sure climax_payoff_image and ending_image are physical images a director could brief, not abstract concepts. Output STRICT JSON only.`;
 

@@ -19,8 +19,8 @@
 
 const { __testables } = require('../../../services/bookPipeline');
 const { runStage, PLAN_GATE_RETRIES } = __testables;
-const { createBookDocument } = require('../../../services/bookPipeline/schema/bookDocument');
-const { FAILURE_CODES, AGE_BANDS, FORMATS } = require('../../../services/bookPipeline/constants');
+const { createBookDocument } = require('../../../services/bookPipelineV3/contract/bookDocument');
+const { FAILURE_CODES, AGE_BANDS, FORMATS } = require('../../../services/bookPipelineV3/contract/constants');
 
 function buildDoc() {
   return createBookDocument({

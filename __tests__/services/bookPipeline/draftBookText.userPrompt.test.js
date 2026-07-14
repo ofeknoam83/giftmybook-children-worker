@@ -25,7 +25,7 @@
 const path = require('path');
 const fs = require('fs');
 const { renderInfantContract } = require('../../../services/bookPipeline/writer/draftBookText');
-const { AGE_BANDS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS } = require('../../../services/bookPipelineV3/contract/constants');
 
 // Verb literals that must NOT appear in the writer's prompt as enumerated
 // triggers. We hand-roll this list inside the test (NOT imported from the

@@ -11,7 +11,7 @@
  * swapped with a single constant change.
  */
 
-const { MODELS } = require('../bookPipeline/constants');
+const { MODELS } = require('../bookPipelineV3/contract/constants');
 
 const geminiSession = require('./session');
 const openaiSession = require('./openaiImageSession');

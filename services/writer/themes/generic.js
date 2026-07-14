@@ -13,7 +13,7 @@
 const { BaseThemeWriter, stripOutfitLockFromRaw } = require('./base');
 const { buildSystemPrompt } = require('../prompts/system');
 const { checkAndFixPronouns } = require('../quality/pronoun');
-const { sanitizeNonLatinChars } = require('../quality/sanitize');
+const { sanitizeNonLatinChars } = require('../../shared/text/sanitize');
 const { isPlaceholderTitle } = require('./plots');
 const { buildFavoriteObjectLock } = require('./anecdotes');
 const { getParentRefrainSuggestions } = require('./parentRefrainSuggestions');

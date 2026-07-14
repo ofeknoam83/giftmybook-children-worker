@@ -42,9 +42,9 @@
  * audit by a small LLM.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS, AGE_BANDS } = require('../constants');
-const { appendLlmCall } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS, AGE_BANDS } = require('../../bookPipelineV3/contract/constants');
+const { appendLlmCall } = require('../../bookPipelineV3/contract/bookDocument');
 
 const PLANNER_GUARD_SYSTEM = `You are an INFANT BAND safety auditor for a personalized children's picture book pipeline.
 

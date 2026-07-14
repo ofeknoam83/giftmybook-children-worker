@@ -23,19 +23,19 @@
 
 const fs = require('fs');
 const path = require('path');
-const { callWithRole } = require('../../llm/modelRouter');
+const { callWithRole } = require('../../../shared/llm/modelRouter');
 
 // Reuse the existing per-spread sync checks from gate/checks.
-const { identityRhymeCheck } = require('../../gate/checks/identityRhyme');
+const { identityRhymeCheck } = require('../../../bookPipelineV3/gate/checks/identityRhyme');
 const { fillerPhraseBlocklistCheck } = require('../../gate/checks/fillerPhraseBlocklist');
 const { headlineNounRepeatCheck } = require('../../gate/checks/headlineNounRepeat');
-const { moralisingPhrasesCheck } = require('../../gate/checks/moralisingPhrases');
-const { protagonistAntiVerbCheck } = require('../../gate/checks/protagonistAntiVerb');
+const { moralisingPhrasesCheck } = require('../../../bookPipelineV3/gate/checks/moralisingPhrases');
+const { protagonistAntiVerbCheck } = require('../../../bookPipelineV3/gate/checks/protagonistAntiVerb');
 const { lineLengthWindowCheck } = require('../../gate/checks/lineLengthWindow');
-const { lineCountCheck } = require('../../gate/checks/lineCount');
+const { lineCountCheck } = require('../../../bookPipelineV3/gate/checks/lineCount');
 const { beatProhibitedCheck } = require('../../gate/checks/beatProhibited');
 const { dialogueBanCheck } = require('../../gate/checks/dialogueBan');
-const { pastTenseCheck } = require('../../gate/checks/pastTense');
+const { pastTenseCheck } = require('../../../bookPipelineV3/gate/checks/pastTense');
 const { lineStarterRepeatCheck } = require('../../gate/checks/lineStarterRepeat');
 const { couplets } = require('../../gate/checks/imperfectRhyme');
 

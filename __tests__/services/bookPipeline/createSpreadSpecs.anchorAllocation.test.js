@@ -11,13 +11,13 @@
  *      address line lands on spread 1.
  */
 
-jest.mock('../../../services/bookPipeline/llm/openaiClient', () => ({
+jest.mock('../../../services/shared/llm/openaiClient', () => ({
   callText: jest.fn(),
 }));
 
-const { callText } = require('../../../services/bookPipeline/llm/openaiClient');
+const { callText } = require('../../../services/shared/llm/openaiClient');
 const { createSpreadSpecs } = require('../../../services/bookPipeline/planner/createSpreadSpecs');
-const { AGE_BANDS, FORMATS, TOTAL_SPREADS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS, FORMATS, TOTAL_SPREADS } = require('../../../services/bookPipelineV3/contract/constants');
 
 function buildDoc(overrides = {}) {
   // Initialize spreads as the schema expects: TOTAL_SPREADS slots, each with

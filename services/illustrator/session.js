@@ -28,7 +28,7 @@ const {
   SLIDING_WINDOW_ACCEPTED_SPREADS,
   GEMINI_IMAGE_MAX_OUTPUT_TOKENS,
   GEMINI_IMAGE_SAFETY_SETTINGS,
-} = require('./config');
+} = require('../shared/illustration/config');
 const { fetchWithTimeout } = require('../illustrationGenerator');
 const { buildSystemInstruction, buildSystemInstructionQuad } = require('./systemInstruction');
 const { sanitizeForGemini, sanitizeHistory } = require('../promptSanitizer');

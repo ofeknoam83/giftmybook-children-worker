@@ -12,9 +12,9 @@
  * LLM calls per book in the worst case.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, getWriterTemperature } = require('../constants');
-const { updateSpread, appendLlmCall, withStageResult, incrementCounter } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS, REPAIR_BUDGETS, TOTAL_SPREADS, getWriterTemperature } = require('../../bookPipelineV3/contract/constants');
+const { updateSpread, appendLlmCall, withStageResult, incrementCounter } = require('../../bookPipelineV3/contract/bookDocument');
 const { renderTextPolicyBlock } = require('./textPolicies');
 const { renderStoryArcContext, renderVoiceAndRefrain } = require('./draftBookText');
 const { judgeWriterDraft } = require('../qa/checkWriterDraft');

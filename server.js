@@ -55,7 +55,8 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
+const { brainstormStorySeed, planChapterBook } = require('./services/storyPlanner');
+const { EMOTIONAL_THEMES, getEmotionalTier } = require('./services/shared/emotionalTiers');
 const { generateIllustration, downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
 // generateIllustration is only used for chapter books and graphic novels.
 // Picture book illustration is handled exclusively by services/illustrator (new minimal module).
@@ -70,7 +71,7 @@ const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAge
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { resolveBookPipeline, isV3Available } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');
-const { sceneHasFramingHint } = require('./services/writer/sceneFramingHint');
+const { sceneHasFramingHint } = require('./services/shared/text/sceneFramingHint');
 
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
@@ -898,6 +899,18 @@ app.post('/generate-book', authenticate, async (req, res) => {
     });
   }
 
+  // Milestone-2 illustrator selection ('native' | 'legacy'), v3-only.
+  // Same contract as pipelineVersion: invalid values 400 before the 202,
+  // and the checkpoint pins the illustrator a book started rendering on.
+  let requestedIllustratorVersion = null;
+  if (req.body.illustratorVersion !== undefined && req.body.illustratorVersion !== null && req.body.illustratorVersion !== '') {
+    const v = String(req.body.illustratorVersion).toLowerCase().trim();
+    if (!['native', 'legacy'].includes(v)) {
+      return res.status(400).json({ success: false, error: `Unsupported illustratorVersion '${req.body.illustratorVersion}' — expected 'native' or 'legacy'` });
+    }
+    requestedIllustratorVersion = v;
+  }
+
   // When generating from a parent book, always preserve the original title.
   // Derive parentBookTitle from parentStoryContent.title if not explicitly set,
   // and lock approvedTitle so the planner never invents a different one.
@@ -939,6 +952,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // Which pipeline actually generated this book — reported in every callback
   // so pipeline A/B comparisons stay trustworthy. Null for chapter/GN formats.
   let pipelineVersionUsed = null;
+  // Which illustrator rendered a v3 book (native|legacy) — reported beside
+  // pipelineVersionUsed so illustrator A/B comparisons stay auditable.
+  let illustratorVersionUsed = null;
   const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
   const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
 
@@ -1343,7 +1359,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         });
         pipelineVersionUsed = routed.version;
         const { generateBook, PipelineError } = require(routed.modulePath);
-        const { toLegacyStoryPlan } = require('./services/bookPipeline/adapters/toLegacyStoryPlan');
+        const { toLegacyStoryPlan } = require('./services/bookPipelineV3/contract/toLegacyStoryPlan');
         bookContext.log('info', `Pipeline routing: format=${format} → ${routed.moduleName} (version=${routed.version}, source=${routed.source}, requested=${requestedPipelineVersion || 'none'})`);
 
         const stage3Start = Date.now();
@@ -1359,6 +1375,14 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             title: approvedTitle || sanitized.approvedTitle || 'My Story',
             imageUrl: approvedCoverUrl || null,
           },
+          // Admin review resolution (set by /v3/review/* on a needs_review
+          // checkpoint). 'ship_best' lets the workflow ship the best-scoring
+          // manuscript on panel exhaustion instead of failing again.
+          ...(checkpoint?.reviewResolution ? { reviewResolution: checkpoint.reviewResolution } : {}),
+          // Milestone-2 illustrator flag: request override + checkpoint pin,
+          // resolved inside the v3 workflow (checkpoint → request → env → default).
+          ...(requestedIllustratorVersion ? { illustratorVersion: requestedIllustratorVersion } : {}),
+          ...(checkpoint?.illustratorVersion ? { checkpointIllustratorVersion: checkpoint.illustratorVersion } : {}),
         };
 
         let pipelineResult;
@@ -1446,11 +1470,28 @@ Be concise. Only describe adults/secondary people, not the main child.` },
               stage: pipelineErr.stage,
               issues: pipelineErr.issues,
             });
-            throw new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
+            // needs_review is a terminal REVIEW state, not a plain failure
+            // (design D6 / cutover plan W2): persist the structured payload
+            // in the checkpoint so the /v3/review/* endpoints can resolve it,
+            // and carry it to the failure callbacks so the main app's review
+            // dashboard gets the full context (defects, judge history).
+            if (pipelineErr.failureCode === 'needs_review' && pipelineErr.needsReview) {
+              await saveCheckpoint(bookId, {
+                completedStage: 'needs_review',
+                pipelineVersion: routed.version,
+                needsReview: pipelineErr.needsReview,
+                request: { theme, format },
+              });
+            }
+            const wrapped = new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
+            wrapped.failureCode = pipelineErr.failureCode || null;
+            wrapped.needsReview = pipelineErr.needsReview || null;
+            throw wrapped;
           }
           throw pipelineErr;
         }
 
+        illustratorVersionUsed = pipelineResult.document?.v3?.illustrator?.version || null;
         const synthesized = toLegacyStoryPlan(pipelineResult.document);
         storyPlan = synthesized.storyPlan;
 
@@ -1495,6 +1536,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           storyPlan,
           illustrationResults: storyPlan.entries,
           pipelineVersion: routed.version,
+          // Pin the illustrator a v3 book rendered on so retries/resumes
+          // finish on it (native|legacy, milestone-2 flag).
+          ...(pipelineResult.document?.v3?.illustrator?.version
+            ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
+            : {}),
           timestamp: new Date().toISOString(),
           accumulatedCosts: costTracker.getSummary(),
         });
@@ -1650,7 +1696,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           filterConfirmedForCoverPolicy,
           mergeCoverAndConfirmedSecondaries,
           buildQaAllowedHumansNote,
-        } = require('./services/illustrator/illustrationPolicy');
+        } = require('./services/shared/illustration/illustrationPolicy');
         const { applyScenePolicyToEntries } = require('./services/illustrator/scenePolicyGate');
         const { describeHeroOutfitFromCover } = require('./services/coverHeroOutfit');
 
@@ -2321,6 +2367,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
                 costs: costSummary,
                 emotionalCategory: emotionalCategory || null,
                 pipelineVersionUsed,
+                ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
               }),
@@ -2346,6 +2393,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           costs: costSummary,
           emotionalCategory: emotionalCategory || null,
           pipelineVersionUsed,
+          ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
           logs: bookContext.logs,
         });
@@ -2367,7 +2415,16 @@ If the main child is the ONLY character, respond with exactly: NONE` },
             await fetch(callbackUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify({ success: false, bookId, error: err.message, pipelineVersionUsed, logs: bookContext.logs }),
+              body: JSON.stringify({
+                success: false,
+                bookId,
+                error: err.message,
+                pipelineVersionUsed,
+                ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
+                logs: bookContext.logs,
+                ...(err.failureCode ? { failureCode: err.failureCode } : {}),
+                ...(err.needsReview ? { needsReview: err.needsReview } : {}),
+              }),
               signal: errorAbort.signal,
             });
             clearTimeout(errorTimeout);
@@ -2380,7 +2437,15 @@ If the main child is the ONLY character, respond with exactly: NONE` },
       }
 
       if (progressCallbackUrl) {
-        reportError(progressCallbackUrl, { bookId, error: err.message, pipelineVersionUsed, logs: bookContext.logs });
+        reportError(progressCallbackUrl, {
+          bookId,
+          error: err.message,
+          pipelineVersionUsed,
+          ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
+          logs: bookContext.logs,
+          ...(err.failureCode ? { failureCode: err.failureCode } : {}),
+          ...(err.needsReview ? { needsReview: err.needsReview } : {}),
+        });
       }
     } finally {
       clearInterval(heartbeatInterval);
@@ -3297,6 +3362,123 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 // ── POST /rebuild-cover-pdf — Rebuild cover PDF only (binding-aware) ──
 //
 // Rebuilds the Lulu wrap-around cover PDF using the exact same pipeline as
+// ── POST /v3/review/* — resolution endpoints for needs_review books ──
+// A V3 book that exhausts a quality budget terminates as `needs_review`
+// with a structured payload persisted in its GCS checkpoint (design D6,
+// cutover plan W2). These endpoints record the admin's resolution in the
+// checkpoint; the caller (main app) then re-dispatches /generate-book,
+// and the workflow honors the resolution on that run. They deliberately
+// do NOT re-trigger generation themselves — the worker never stores the
+// full request payload, the main app does.
+const V3_REVIEW_BOOK_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+async function loadNeedsReviewCheckpoint(bookId, res) {
+  if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
+    res.status(400).json({ success: false, error: 'invalid bookId' });
+    return null;
+  }
+  const checkpoint = await loadCheckpoint(bookId);
+  if (!checkpoint) {
+    res.status(404).json({ success: false, error: `no checkpoint for book ${bookId}` });
+    return null;
+  }
+  if (!checkpoint.needsReview) {
+    res.status(409).json({ success: false, error: `book ${bookId} is not awaiting review (completedStage=${checkpoint.completedStage || 'n/a'})` });
+    return null;
+  }
+  return checkpoint;
+}
+
+async function resolveNeedsReview(bookId, checkpoint, resolution) {
+  const next = {
+    ...checkpoint,
+    reviewResolution: resolution,
+    resolvedNeedsReview: checkpoint.needsReview,
+  };
+  delete next.needsReview; // needsReview present ⇔ awaiting review
+  await saveCheckpoint(bookId, next);
+}
+
+// Approve as-is: ship the best-scoring manuscript despite panel exhaustion.
+app.post('/v3/review/approve', authenticate, async (req, res) => {
+  try {
+    const { bookId, note } = req.body || {};
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({ action: 'ship_best', note, admin: req.body?.admin || null });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} approved (ship_best) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'ship_best', next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] approve failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Regenerate the manuscript from scratch (fresh writer run on re-dispatch).
+app.post('/v3/review/regen-manuscript', authenticate, async (req, res) => {
+  try {
+    const { bookId, note } = req.body || {};
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({ action: 'regen_manuscript', note, admin: req.body?.admin || null });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (regen_manuscript) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'regen_manuscript', next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] regen-manuscript failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Spread-level actions (W10, native V3 illustrator): the admin picks one
+// of a failed spread's candidates, or forces a fresh render with a note.
+// Both only record the resolution — the main app re-dispatches, and the
+// native illustrator honors it (pick bypasses QA for that candidate;
+// regen ignores the spread's cached renders and feeds the note into the
+// prompt). Cached candidates for the other spreads replay from GCS, so
+// the re-run only spends on the resolved spread.
+app.post('/v3/review/pick-candidate', authenticate, async (req, res) => {
+  try {
+    const { bookId, spread, candidateUrl, note } = req.body || {};
+    if (!Number.isFinite(Number(spread))) return res.status(400).json({ success: false, error: 'spread (number) is required' });
+    if (!candidateUrl || typeof candidateUrl !== 'string') return res.status(400).json({ success: false, error: 'candidateUrl is required' });
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({
+      action: 'pick_candidate', note, spread: Number(spread), candidateUrl, admin: req.body?.admin || null,
+    });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (pick_candidate spread=${spread}) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'pick_candidate', spread: Number(spread), next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] pick-candidate failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/v3/review/regen-spread', authenticate, async (req, res) => {
+  try {
+    const { bookId, spread, note } = req.body || {};
+    if (!Number.isFinite(Number(spread))) return res.status(400).json({ success: false, error: 'spread (number) is required' });
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({
+      action: 'regen_spread', note, spread: Number(spread), admin: req.body?.admin || null,
+    });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (regen_spread spread=${spread}) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'regen_spread', spread: Number(spread), next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] regen-spread failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // initial book generation (services/coverGenerator.generateCover), so that
 // flipping the binding type (paperback ↔ hardcover) or re-running after an
 // edit produces bit-for-bit equivalent output.

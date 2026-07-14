@@ -20,12 +20,16 @@
  *   - EDITOR   — W2 editorial selection (deliberately NOT the writer family)
  *   - WRITER   — W3 manuscripts + W6 revisions + gate mechanical fixes
  *   - JUDGE_A / JUDGE_B / JUDGE_C — W5 panel, one per family
+ *   - ART_DIRECTOR — A1 art direction (multimodal: sees cover + sheet)
+ *   - QA_VISION — A3 spread QA (anatomy, contract adherence, zones, style, cast)
+ *   - LIKENESS_JUDGE_A / LIKENESS_JUDGE_B — A0/A3 likeness vs the photo,
+ *     enforced cross-family (validateLikenessFamilies)
  *
  * Per-deploy override: BOOK_PIPELINE_V3_<ROLE>_FAMILY / _TIER (same
  * mechanism as v2's BOOK_PIPELINE_V2_* overrides).
  */
 
-const { callText } = require('../../bookPipeline/llm/openaiClient');
+const { callText } = require('../../shared/llm/openaiClient');
 const { callClaude } = require('./anthropicClient');
 
 const MODELS = {
@@ -47,9 +51,19 @@ const DEFAULT_ROUTING = {
   JUDGE_A: { family: 'deepseek', tier: 'strong' },
   JUDGE_B: { family: 'openai',   tier: 'strong' },
   JUDGE_C: { family: 'gemini',   tier: 'strong' },
+  // ── Native illustrator roles (milestone 2 Phase 0) ──
+  // ART_DIRECTOR must SEE the cover + character sheet (multimodal); the
+  // vision QA judge is cheap at candidate volume; the two likeness judges
+  // are deliberately cross-family — likeness is the product promise, and a
+  // single family grading its own generator invites self-preference.
+  ART_DIRECTOR:     { family: 'gemini', tier: 'strong' },
+  QA_VISION:        { family: 'gemini', tier: 'mid' },
+  LIKENESS_JUDGE_A: { family: 'gemini', tier: 'mid' },
+  LIKENESS_JUDGE_B: { family: 'openai', tier: 'strong' },
 };
 
 const JUDGE_ROLES = ['JUDGE_A', 'JUDGE_B', 'JUDGE_C'];
+const LIKENESS_ROLES = ['LIKENESS_JUDGE_A', 'LIKENESS_JUDGE_B'];
 
 // Env keys each family needs at run time. Gemini accepts either key
 // (openaiClient's resolveGeminiKey checks both).
@@ -119,6 +133,27 @@ function validatePanelFamilies(log = (msg) => console.warn(msg)) {
 }
 
 /**
+ * Likeness judging must stay cross-family (the illustrator plan's hard
+ * rule — the core promise is never graded by a single family). Same
+ * warn-don't-throw contract as validatePanelFamilies.
+ *
+ * @returns {{ ok: boolean, families: string[] }}
+ */
+function validateLikenessFamilies(log = (msg) => console.warn(msg)) {
+  const families = LIKENESS_ROLES.map((r) => resolveRole(r).family);
+  const distinct = new Set(families);
+  if (distinct.size < LIKENESS_ROLES.length) {
+    log(
+      `[bookPipelineV3] LIKENESS JUDGE FAMILY COLLAPSE: judges resolve to [${families.join(', ')}] — ` +
+      'likeness must be scored by two distinct model families; ' +
+      'check BOOK_PIPELINE_V3_LIKENESS_JUDGE_*_FAMILY overrides.',
+    );
+    return { ok: false, families };
+  }
+  return { ok: true, families };
+}
+
+/**
  * Call a role with family-appropriate dispatch. Anthropic goes through
  * callClaude (which never sends sampling params); every other family goes
  * through v1's callText with cross-family fallback disabled — V3 reports
@@ -139,9 +174,11 @@ module.exports = {
   MODELS,
   DEFAULT_ROUTING,
   JUDGE_ROLES,
+  LIKENESS_ROLES,
   modelFor,
   resolveRole,
   requiredApiKeys,
   validatePanelFamilies,
+  validateLikenessFamilies,
   callWithRole,
 };

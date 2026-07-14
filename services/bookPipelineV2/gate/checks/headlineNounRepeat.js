@@ -15,7 +15,7 @@
  * child's name instead of 'Mama'.
  */
 
-const { lastWord } = require('./identityRhyme');
+const { lastWord } = require('../../../bookPipelineV3/gate/checks/identityRhyme');
 
 function firstSubjectWord(line) {
   if (typeof line !== 'string') return null;

@@ -26,9 +26,9 @@
  * any stage are free.
  */
 
-const { createWorkflowContext } = require('../workflowEngine');
-const { createArtifactStore } = require('../../artifactStore');
-const { getAgeProfile, deriveAgeBandFromAge } = require('../../ageProfiles');
+const { createWorkflowContext } = require('../../../bookPipelineV3/orchestration/workflowEngine');
+const { createArtifactStore } = require('../../../bookPipelineV3/artifactStore');
+const { getAgeProfile, deriveAgeBandFromRequest } = require('../../../bookPipelineV3/ageProfiles');
 
 const { personalizationInterpreterActivity } = require('../activities/personalizationInterpreter');
 const { ageAdaptationActivity } = require('../activities/ageAdaptation');
@@ -44,24 +44,6 @@ const { manuscriptRevisionActivity } = require('../activities/manuscriptRevision
 const { illustrationDirectorActivity } = require('../activities/illustrationDirector');
 
 const MAX_REVISION_ROUNDS = 3;
-
-function deriveAgeBandFromRequest(rawRequest) {
-  const child = rawRequest?.child || {};
-  // Use nullish-coalescing instead of `||` because age=0 is a real, valid
-  // value (a 0-month-old is a lap baby and must resolve to PB_INFANT).
-  // The previous `child.age || child.ageYears || null` chain treated 0 as
-  // falsy and fell through to the default PB_PRESCHOOL — observed in
-  // production on book e3f4e0c0 (mothers_day, birthDate-derived age=0).
-  const pickNumber = (...vals) => {
-    for (const v of vals) {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-    }
-    return null;
-  };
-  const ageMonths = pickNumber(child.ageMonths, child.age_months);
-  const ageYears = pickNumber(child.age, child.ageYears);
-  return deriveAgeBandFromAge({ ageMonths, ageYears });
-}
 
 function avgScore(scores) {
   const values = Object.values(scores || {}).filter((v) => typeof v === 'number');
@@ -383,7 +365,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 
   // Build the layout payload via the existing v1 layout adapter so the
   // server's downstream PDF code is untouched.
-  const { toLayoutPayload } = require('../../../bookPipeline/adapters/toLayoutPayload');
+  const { toLayoutPayload } = require('../../../bookPipelineV3/contract/toLayoutPayload');
   let layout;
   try {
     layout = toLayoutPayload(renderedDoc);
@@ -404,7 +386,7 @@ module.exports = {
   runCreateBookWorkflow,
   // exported for tests
   avgScore,
-  deriveAgeBandFromRequest,
+
   runManuscriptLoop,
   HARD_GATE_CODES,
   hardFailures,

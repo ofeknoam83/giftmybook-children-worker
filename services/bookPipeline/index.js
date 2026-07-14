@@ -25,7 +25,7 @@ const {
   appendRetryMemory,
   setResult,
   formatCountersLogLine,
-} = require('./schema/bookDocument');
+} = require('../bookPipelineV3/contract/bookDocument');
 const { buildRetryEntry } = require('./retryMemory');
 
 const {
@@ -37,7 +37,7 @@ const {
   validateAllIllustrations,
 } = require('./schema/validateBookDocument');
 
-const { FAILURE_CODES, getIllustrationRenderer } = require('./constants');
+const { FAILURE_CODES, getIllustrationRenderer } = require('../bookPipelineV3/contract/constants');
 
 const { normalizeRequest } = require('./input/normalizeRequest');
 const { detectCoverComposition } = require('./planner/detectCoverComposition');
@@ -50,7 +50,7 @@ const { renderAllSpreads } = require('./illustrator/renderAllSpreads');
 const { renderAllSpreadsQuad } = require('./illustrator/renderAllSpreadsQuad');
 const { runBookWideQa } = require('./qa/checkBookWide');
 const { validateRecurringProps } = require('./qa/validateRecurringProps');
-const { toLayoutPayload } = require('./adapters/toLayoutPayload');
+const { toLayoutPayload } = require('../bookPipelineV3/contract/toLayoutPayload');
 
 class PipelineError extends Error {
   constructor(message, { failureCode, stage, issues, tags } = {}) {

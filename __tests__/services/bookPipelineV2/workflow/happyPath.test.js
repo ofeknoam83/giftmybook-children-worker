@@ -10,7 +10,7 @@
  * This is the contract test the CI run protects from regressions.
  */
 
-jest.mock('../../../../services/bookPipeline/llm/openaiClient', () => ({
+jest.mock('../../../../services/shared/llm/openaiClient', () => ({
   callText: jest.fn(),
 }));
 jest.mock('../../../../services/bookPipeline/illustrator/renderAllSpreadsQuad', () => ({
@@ -29,7 +29,7 @@ jest.mock('../../../../services/bookPipeline/illustrator/renderAllSpreadsQuad', 
   }),
 }));
 
-const { callText } = require('../../../../services/bookPipeline/llm/openaiClient');
+const { callText } = require('../../../../services/shared/llm/openaiClient');
 const { generateBook } = require('../../../../services/bookPipelineV2');
 
 function jsonResponse(json, model = 'gpt-5-mock') {

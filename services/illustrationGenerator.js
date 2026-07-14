@@ -8,7 +8,7 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-const { resolvePictureBookTextRules } = require('./illustrator/config');
+const { resolvePictureBookTextRules } = require('./shared/illustration/config');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.

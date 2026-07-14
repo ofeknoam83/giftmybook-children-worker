@@ -3,7 +3,7 @@
  * so Gemini is not asked for compositions vision QA will reject.
  */
 
-const { PARENT_THEMES } = require('./config');
+const { PARENT_THEMES } = require('../shared/illustration/config');
 
 const IMPLIED_PARENT_STAGING = `
 

@@ -14,9 +14,9 @@
  * let the pipeline proceed to layout.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS } = require('../constants');
-const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS } = require('../../bookPipelineV3/contract/constants');
+const { appendLlmCall, withStageResult } = require('../../bookPipelineV3/contract/bookDocument');
 
 const SYSTEM_PROMPT = `You are the final reviewer on a premium personalized children's book.
 Review the full manuscript and the list of illustrations as a whole.

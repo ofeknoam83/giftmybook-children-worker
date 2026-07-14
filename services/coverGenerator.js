@@ -17,7 +17,7 @@ const {
   canonicalBookArtStyle,
 } = require('./illustrationGenerator');
 const { downloadBuffer } = require('./gcsStorage');
-const { TEXT_RULES } = require('./illustrator/config');
+const { TEXT_RULES } = require('./shared/illustration/config');
 const sharp = require('sharp');
 
 /** Nano Banana 2 (same as `GEMINI_IMAGE_MODEL` in illustrator/config.js). */

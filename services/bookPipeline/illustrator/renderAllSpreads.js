@@ -49,8 +49,8 @@ const { planSpreadRepair } = require('../qa/planRepair');
 const { pickRecentInteriorRefsForQa } = require('../qa/recentInteriorRefs');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
-const { REPAIR_BUDGETS, FAILURE_CODES, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
-const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
+const { REPAIR_BUDGETS, FAILURE_CODES, QA_RECENT_INTERIOR_REFERENCES } = require('../../bookPipelineV3/contract/constants');
+const { updateSpread, appendRetryMemory, incrementCounter } = require('../../bookPipelineV3/contract/bookDocument');
 const { reviseSpreadProseForIllustrator } = require('../writer/rewriteBookText');
 
 // Phase 4 — illustrator-side QA tags that signal a writer-side defect.

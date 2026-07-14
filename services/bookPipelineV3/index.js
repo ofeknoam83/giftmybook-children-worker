@@ -19,7 +19,8 @@
  *
  * NOTE the design intent (docs/PIPELINE_V3_DESIGN.md): no ship-anyway.
  * A manuscript the judge panel rejects after the whole exhaustion ladder
- * FAILS the book with failureCode 'judge_panel_exhausted' — milestone 1
+ * terminates the book as failureCode 'needs_review' (reason: judge_panel_exhausted)
+ * with a structured reviewQueue payload — milestone 1
  * has no review queue, and V3 traffic is admin test books only.
  */
 
@@ -27,13 +28,18 @@ const { runCreateBookWorkflow, V3ExhaustionError } = require('./orchestration/wo
 const { resolveRole, DEFAULT_ROUTING } = require('./llm/modelRouter');
 
 class PipelineError extends Error {
-  constructor(message, { failureCode, stage, issues, tags } = {}) {
+  constructor(message, { failureCode, stage, issues, tags, needsReview } = {}) {
     super(message);
     this.name = 'PipelineError';
     this.failureCode = failureCode || null;
     this.stage = stage || null;
     this.issues = issues || [];
     this.tags = tags || [];
+    // Structured review-queue payload (reviewQueue/payload.js). Present iff
+    // failureCode === 'needs_review' — server.js persists it in the book
+    // checkpoint and forwards it on the failure callbacks so the main app's
+    // review dashboard can act on it (cutover plan W2/D6).
+    this.needsReview = needsReview || null;
   }
 }
 
@@ -119,10 +125,11 @@ async function generateBook(rawRequest, opts = {}) {
     if (err instanceof PipelineError) throw err;
     if (err && err.name === 'V3ExhaustionError') {
       throw new PipelineError(err.message, {
-        failureCode: 'judge_panel_exhausted',
-        stage: 'writerQa',
+        failureCode: 'needs_review',
+        stage: err.stage || 'writerQa',
         issues: err.issues,
-        tags: ['needs_review'],
+        tags: ['needs_review', err.needsReview?.reason || 'judge_panel_exhausted'],
+        needsReview: err.needsReview || null,
       });
     }
     if (err && err.name === 'WorkflowAbortError') {
@@ -135,10 +142,11 @@ async function generateBook(rawRequest, opts = {}) {
       // occurs inside an execute() — unwrap for the honest failure code.
       if (err.cause?.name === 'V3ExhaustionError') {
         throw new PipelineError(err.cause.message, {
-          failureCode: 'judge_panel_exhausted',
-          stage: 'writerQa',
+          failureCode: 'needs_review',
+          stage: err.cause.stage || 'writerQa',
           issues: err.cause.issues,
-          tags: ['needs_review'],
+          tags: ['needs_review', err.cause.needsReview?.reason || 'judge_panel_exhausted'],
+          needsReview: err.cause.needsReview || null,
         });
       }
       throw new PipelineError(err.message, {
