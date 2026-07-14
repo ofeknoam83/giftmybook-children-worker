@@ -72,14 +72,15 @@ async function loadExistingCandidates(bookId, spreadNumber) {
  */
 async function renderAllSpreadsNative({
   bookId, spreads, directionBySpread = null, platesByLocation = null,
-  bookPack, briefText, wardrobeNote, abortSignal, log = () => {}, onSpreadDone = () => {},
+  bookPack, briefText, wardrobeNote, forceSpreads = new Set(), abortSignal, log = () => {}, onSpreadDone = () => {},
 }) {
   if (!bookId) throw new Error('renderAllSpreadsNative: bookId is required');
   const limit = createLimiter(RENDER_CONCURRENCY);
   let done = 0;
 
   const results = await Promise.all(spreads.map((spread) => limit(async () => {
-    const existing = await loadExistingCandidates(bookId, spread.spread);
+    // regen_spread resolution: ignore cached candidates, render fresh over them.
+    const existing = forceSpreads.has(spread.spread) ? [] : await loadExistingCandidates(bookId, spread.spread);
     if (existing.length >= CANDIDATES_PER_SPREAD) {
       log(`spread ${spread.spread}: reusing ${existing.length} rendered candidate(s) from GCS (resume)`);
       done += 1;

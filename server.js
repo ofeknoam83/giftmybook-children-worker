@@ -3433,15 +3433,51 @@ app.post('/v3/review/regen-manuscript', authenticate, async (req, res) => {
   }
 });
 
-// Spread-level actions become available with the native V3 illustrator (W10).
-for (const action of ['pick-candidate', 'regen-spread']) {
-  app.post(`/v3/review/${action}`, authenticate, (req, res) => {
-    res.status(409).json({
-      success: false,
-      error: `${action} requires the native V3 illustrator (spread-level candidates); available after milestone 2 W10`,
+// Spread-level actions (W10, native V3 illustrator): the admin picks one
+// of a failed spread's candidates, or forces a fresh render with a note.
+// Both only record the resolution — the main app re-dispatches, and the
+// native illustrator honors it (pick bypasses QA for that candidate;
+// regen ignores the spread's cached renders and feeds the note into the
+// prompt). Cached candidates for the other spreads replay from GCS, so
+// the re-run only spends on the resolved spread.
+app.post('/v3/review/pick-candidate', authenticate, async (req, res) => {
+  try {
+    const { bookId, spread, candidateUrl, note } = req.body || {};
+    if (!Number.isFinite(Number(spread))) return res.status(400).json({ success: false, error: 'spread (number) is required' });
+    if (!candidateUrl || typeof candidateUrl !== 'string') return res.status(400).json({ success: false, error: 'candidateUrl is required' });
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({
+      action: 'pick_candidate', note, spread: Number(spread), candidateUrl, admin: req.body?.admin || null,
     });
-  });
-}
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (pick_candidate spread=${spread}) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'pick_candidate', spread: Number(spread), next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] pick-candidate failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/v3/review/regen-spread', authenticate, async (req, res) => {
+  try {
+    const { bookId, spread, note } = req.body || {};
+    if (!Number.isFinite(Number(spread))) return res.status(400).json({ success: false, error: 'spread (number) is required' });
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({
+      action: 'regen_spread', note, spread: Number(spread), admin: req.body?.admin || null,
+    });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (regen_spread spread=${spread}) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'regen_spread', spread: Number(spread), next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] regen-spread failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // initial book generation (services/coverGenerator.generateCover), so that
 // flipping the binding type (paperback ↔ hardcover) or re-running after an

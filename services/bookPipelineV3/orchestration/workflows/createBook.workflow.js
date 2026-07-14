@@ -242,6 +242,42 @@ function summarizePanel(panel, manuscriptId) {
 }
 
 /**
+ * Native illustration with the art director's bounce-back edge (A1):
+ * unstageable scene contracts get ONE targeted writer revision round
+ * (the feedback loop v1/v2 never had — problems fixed before pixels),
+ * then the second pass either stages everything or goes to review.
+ */
+async function runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger }) {
+  const opts = { retries: 2, baseDelayMs: 4000, isRetryable: (err) => Boolean(err?.isTransient) };
+  try {
+    return await ctx.execute('illustrations.native', runNativeIllustrator, { ...illustrationInput, allowBounce: true }, opts);
+  } catch (err) {
+    const bounce = err?.name === 'ArtDirectionBounceError' ? err : (err?.cause?.name === 'ArtDirectionBounceError' ? err.cause : null);
+    if (!bounce) throw err;
+
+    ctx.log('warn', `[v3] art director bounced spreads [${bounce.bounces.map((b) => b.spread).join(', ')}] — one targeted writer revision before any rendering`);
+    const targets = bounce.bounces.map((b) => ({
+      spread: b.spread,
+      failures: [],
+      reasons: [`unstageable for the illustrator: ${b.problem}`, `suggested fix: ${b.suggestion}`].filter(Boolean),
+    }));
+    const revised = await ctx.execute('manuscript.bounceFix', manuscriptRevisionActivity, {
+      brief,
+      ageProfile,
+      manuscript: illustrationInput.manuscript,
+      targets,
+    }, { retries: 1 });
+    ledger.add('manuscript.bounceFix', revised);
+
+    return ctx.execute('illustrations.native.r2', runNativeIllustrator, {
+      ...illustrationInput,
+      manuscript: revised,
+      allowBounce: false,
+    }, opts);
+  }
+}
+
+/**
  * @param {{ rawRequest: object, signals?: object, log?: function }} opts
  */
 async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
@@ -432,18 +468,14 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   let renderedDoc;
   try {
     renderedDoc = illustrator.version === 'native'
-      ? await ctx.execute('illustrations.native', runNativeIllustrator, illustrationInput, {
-        retries: 2,
-        baseDelayMs: 4000,
-        isRetryable: (err) => Boolean(err?.isTransient),
-      })
+      ? await runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger })
       : await ctx.execute('illustrations', illustrationDirectorActivity, illustrationInput, {
         retries: 2,
         baseDelayMs: 4000,
         isRetryable: (err) => Boolean(err?.isTransient),
       });
   } catch (err) {
-    // Spread-QA exhaustion is a review item, not a plain failure (D6).
+    // QA/art-direction exhaustion is a review item, not a plain failure (D6).
     const payload = err?.needsReview || err?.cause?.needsReview;
     if (payload) {
       throw new V3ExhaustionError(err.cause?.message || err.message, {

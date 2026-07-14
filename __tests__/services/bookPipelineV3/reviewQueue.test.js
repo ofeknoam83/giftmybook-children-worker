@@ -145,16 +145,35 @@ describe('POST /v3/review/*', () => {
     expect(saved.reviewResolution.note).toMatch(/voice is flat/);
   });
 
-  test('pick-candidate and regen-spread 409 until W10', async () => {
-    for (const action of ['pick-candidate', 'regen-spread']) {
-      const res = await request(app).post(`/v3/review/${action}`).set(auth).send({ bookId: 'book-4' });
-      expect(res.status).toBe(409);
-      expect(res.body.error).toMatch(/native V3 illustrator/);
-    }
+  test('regen-spread records a spread-scoped resolution (W10)', async () => {
+    const needsReview = buildNeedsReviewPayload({ stage: 'spreadQa', reason: 'spread_qa_exhausted', spread: 7 });
+    seedCheckpoint('book-4', { completedStage: 'needs_review', pipelineVersion: 'v3', illustratorVersion: 'native', needsReview });
+
+    const res = await request(app).post('/v3/review/regen-spread').set(auth)
+      .send({ bookId: 'book-4', spread: 7, note: 'hero duplicated' });
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(mockGcsFiles.get('children-jobs/book-4/checkpoint.json').toString());
+    expect(saved.reviewResolution).toMatchObject({ action: 'regen_spread', spread: 7, note: 'hero duplicated' });
+    expect(saved.illustratorVersion).toBe('native'); // illustrator pin survives resolution
+  });
+
+  test('pick-candidate requires spread + candidateUrl and records them', async () => {
+    const needsReview = buildNeedsReviewPayload({ stage: 'spreadQa', reason: 'spread_qa_exhausted', spread: 3 });
+    seedCheckpoint('book-5', { completedStage: 'needs_review', pipelineVersion: 'v3', needsReview });
+
+    const missing = await request(app).post('/v3/review/pick-candidate').set(auth).send({ bookId: 'book-5', spread: 3 });
+    expect(missing.status).toBe(400);
+
+    const res = await request(app).post('/v3/review/pick-candidate').set(auth)
+      .send({ bookId: 'book-5', spread: 3, candidateUrl: 'children-jobs/book-5/v3-renders/spread-3-c2.png' });
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(mockGcsFiles.get('children-jobs/book-5/checkpoint.json').toString());
+    expect(saved.reviewResolution).toMatchObject({ action: 'pick_candidate', spread: 3 });
+    expect(saved.reviewResolution.candidateUrl).toContain('spread-3-c2');
   });
 
   test('all review endpoints require the API key', async () => {
-    const res = await request(app).post('/v3/review/approve').send({ bookId: 'book-5' });
+    const res = await request(app).post('/v3/review/approve').send({ bookId: 'book-9' });
     expect([401, 403]).toContain(res.status);
   });
 });
