@@ -34,7 +34,9 @@ function _resolveIllustrationAspect() {
  * @returns {{ format: string, entries: object[], opts: object, spreadStorageKeys: string[] }}
  */
 function toLayoutPayload(doc) {
-  const aspect = _resolveIllustrationAspect();
+  // Native V3 illustrator renders 1:1 no-text art laid out in caption mode
+  // (typeset verso + full-bleed recto) — same geometry as the OpenAI path.
+  const aspect = doc.v3?.illustrator?.version === 'native' ? 'square' : _resolveIllustrationAspect();
   const entries = doc.spreads.map(s => ({
     type: 'spread',
     spread: s.spreadNumber,

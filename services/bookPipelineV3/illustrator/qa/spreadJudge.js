@@ -1,0 +1,92 @@
+/**
+ * Spread vision judge (A3, second tier) — scores one candidate against
+ * its scene contract on the non-likeness dimensions:
+ *
+ *   anatomy / integrity, scene-contract adherence, cast compliance,
+ *   style fidelity, quiet-zone compliance
+ *
+ * Likeness is deliberately NOT judged here — it has its own cross-family
+ * judge (likenessJudge.js); this judge is single-family (QA_VISION,
+ * cheap at candidate volume). The tag taxonomy mirrors the legacy
+ * qaTagCounts so existing Cloud Logging dashboards keep working.
+ */
+
+const { callVisionRole } = require('../../llm/visionClient');
+
+const SPREAD_PASS_SCORE = 4;
+
+/** qaTagCounts-compatible tags the judge may emit. */
+const SPREAD_QA_TAGS = [
+  'anatomy_hands', 'anatomy_limbs', 'anatomy_face', 'object_integrity',
+  'action_mismatch', 'setting_mismatch', 'missing_object', 'emotion_mismatch',
+  'extra_character', 'duplicated_hero', 'missing_character',
+  'style_drift', 'zone_busy',
+];
+
+function buildSpreadJudgePrompt({ sceneContract, direction }) {
+  return `You are quality-judging a children's picture-book illustration against its scene contract.
+
+SCENE CONTRACT (what the image MUST show):
+- Setting: ${sceneContract.setting || 'unspecified'}
+- Characters present (exactly these, nobody else): ${(sceneContract.characters_present || []).join(', ') || 'the child'}
+- The child's action: ${sceneContract.hero_action || 'unspecified'}
+- Emotion: ${sceneContract.emotion || 'unspecified'}
+- Required objects: ${(sceneContract.key_objects || []).join(', ') || 'none'}
+${direction?.shot ? `- Directed shot: ${direction.shot}` : ''}
+${direction?.textZone ? `- Quiet zone: the ${direction.textZone} area must be visually calm/low-detail` : ''}
+
+Score each dimension 1-5 (5 = flawless) and tag concrete defects.
+Return STRICT JSON:
+{
+  "anatomy": 1-5,          // hands, limbs, faces, object coherence
+  "contract": 1-5,         // shows the contracted setting + action + objects
+  "cast": 1-5,             // exactly the listed characters; 1 if the hero appears twice or strangers appear
+  "style": 1-5,            // consistent storybook style, no photoreal/3D drift
+  "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
+  "tags": ["choose only from: ${SPREAD_QA_TAGS.join(', ')}"],
+  "defects": ["specific, actionable notes with locations"]
+}
+Rules: duplicated hero or a wrong/extra person caps cast at 1. Six fingers, fused hands, or a third arm caps anatomy at 2.`;
+}
+
+/**
+ * @param {object} opts
+ * @param {{base64: string, mimeType?: string}} opts.candidate
+ * @param {object} opts.sceneContract
+ * @param {object|null} [opts.direction]
+ * @param {AbortSignal} [opts.abortSignal]
+ * @returns {Promise<{ scores: object, minScore: number, pass: boolean, tags: string[], defects: string[], model: string }>}
+ */
+async function judgeSpreadCandidate({ candidate, sceneContract, direction = null, abortSignal }) {
+  const { json, model } = await callVisionRole('QA_VISION', {
+    prompt: buildSpreadJudgePrompt({ sceneContract, direction }),
+    images: [candidate],
+    label: 'v3.qa.spread',
+    expectJson: true,
+    abortSignal,
+  });
+
+  const scores = {
+    anatomy: Number(json.anatomy) || 1,
+    contract: Number(json.contract) || 1,
+    cast: Number(json.cast) || 1,
+    style: Number(json.style) || 1,
+    zone: Number(json.zone) || 5,
+  };
+  const minScore = Math.min(scores.anatomy, scores.contract, scores.cast, scores.style, scores.zone);
+  return {
+    scores,
+    minScore,
+    pass: minScore >= SPREAD_PASS_SCORE,
+    tags: Array.isArray(json.tags) ? json.tags.filter((t) => SPREAD_QA_TAGS.includes(t)) : [],
+    defects: Array.isArray(json.defects) ? json.defects.map(String) : [],
+    model,
+  };
+}
+
+module.exports = {
+  judgeSpreadCandidate,
+  buildSpreadJudgePrompt,
+  SPREAD_PASS_SCORE,
+  SPREAD_QA_TAGS,
+};

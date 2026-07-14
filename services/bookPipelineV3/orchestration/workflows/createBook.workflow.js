@@ -429,17 +429,31 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     coverTitle: rawRequest?.cover?.title || null,
     operationalContext: signals,
   };
-  const renderedDoc = illustrator.version === 'native'
-    ? await ctx.execute('illustrations.native', runNativeIllustrator, illustrationInput, {
-      retries: 2,
-      baseDelayMs: 4000,
-      isRetryable: (err) => Boolean(err?.isTransient),
-    })
-    : await ctx.execute('illustrations', illustrationDirectorActivity, illustrationInput, {
-      retries: 2,
-      baseDelayMs: 4000,
-      isRetryable: (err) => Boolean(err?.isTransient),
-    });
+  let renderedDoc;
+  try {
+    renderedDoc = illustrator.version === 'native'
+      ? await ctx.execute('illustrations.native', runNativeIllustrator, illustrationInput, {
+        retries: 2,
+        baseDelayMs: 4000,
+        isRetryable: (err) => Boolean(err?.isTransient),
+      })
+      : await ctx.execute('illustrations', illustrationDirectorActivity, illustrationInput, {
+        retries: 2,
+        baseDelayMs: 4000,
+        isRetryable: (err) => Boolean(err?.isTransient),
+      });
+  } catch (err) {
+    // Spread-QA exhaustion is a review item, not a plain failure (D6).
+    const payload = err?.needsReview || err?.cause?.needsReview;
+    if (payload) {
+      throw new V3ExhaustionError(err.cause?.message || err.message, {
+        issues: payload.defects || [],
+        needsReview: payload,
+        stage: payload.stage || 'spreadQa',
+      });
+    }
+    throw err;
+  }
   // ── bookWideQa / layout ──
   ctx.reportProgress({ step: 'bookWideQa', message: 'Attaching quality report' });
   renderedDoc.writerQa = {
