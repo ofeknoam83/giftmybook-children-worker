@@ -7,7 +7,7 @@
  * that stage.
  */
 
-const { TOTAL_SPREADS, AGE_BANDS, FORMATS } = require('../constants');
+const { TOTAL_SPREADS, AGE_BANDS, FORMATS } = require('../../bookPipelineV3/contract/constants');
 
 function validateInput(doc) {
   const issues = [];

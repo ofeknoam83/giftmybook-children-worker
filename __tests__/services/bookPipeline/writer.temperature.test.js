@@ -14,7 +14,7 @@
  *    breaking the unit tests.
  */
 
-jest.mock('../../../services/bookPipeline/llm/openaiClient', () => ({
+jest.mock('../../../services/shared/llm/openaiClient', () => ({
   callText: jest.fn(),
 }));
 
@@ -22,8 +22,8 @@ const {
   AGE_BANDS,
   WRITER_TEMPERATURE,
   getWriterTemperature,
-} = require('../../../services/bookPipeline/constants');
-const { callText } = require('../../../services/bookPipeline/llm/openaiClient');
+} = require('../../../services/bookPipelineV3/contract/constants');
+const { callText } = require('../../../services/shared/llm/openaiClient');
 
 describe('PR J.4: getWriterTemperature policy', () => {
   test('infant draft samples at low temperature for hard-constraint task', () => {

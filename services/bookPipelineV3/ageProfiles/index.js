@@ -46,10 +46,32 @@ function deriveAgeBandFromAge({ ageMonths, ageYears }) {
   return 'PB_EARLY_READER';
 }
 
+/**
+ * Derive the age band straight from a raw generate-book request.
+ * Use nullish-aware number picking instead of `||` because age=0 is a real,
+ * valid value (a 0-month-old is a lap baby and must resolve to PB_INFANT).
+ * The previous `child.age || child.ageYears || null` chain treated 0 as
+ * falsy and fell through to the default PB_PRESCHOOL — observed in
+ * production on book e3f4e0c0 (mothers_day, birthDate-derived age=0).
+ */
+function deriveAgeBandFromRequest(rawRequest) {
+  const child = rawRequest?.child || {};
+  const pickNumber = (...vals) => {
+    for (const v of vals) {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+    }
+    return null;
+  };
+  const ageMonths = pickNumber(child.ageMonths, child.age_months);
+  const ageYears = pickNumber(child.age, child.ageYears);
+  return deriveAgeBandFromAge({ ageMonths, ageYears });
+}
+
 module.exports = {
   getAgeProfile,
   listAgeBands,
   isPictureBookBand,
   deriveAgeBandFromAge,
+  deriveAgeBandFromRequest,
   PROFILES,
 };

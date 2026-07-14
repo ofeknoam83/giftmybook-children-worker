@@ -18,11 +18,11 @@
  */
 
 const { renderAllSpreadsQuad } = require('../../../bookPipeline/illustrator/renderAllSpreadsQuad');
-const { createBookDocument } = require('../../../bookPipeline/schema/bookDocument');
+const { createBookDocument } = require('../../contract/bookDocument');
 const {
   deriveParentVisibility,
   buildSpreadsForLegacyIllustrator,
-} = require('../../../bookPipelineV2/orchestration/activities/illustrationDirector');
+} = require('./illustrationAdapterHelpers');
 
 const CAREGIVER_RE = /\b(mama|mommy|mom|mother|dada|daddy|dad|father|grandma|granny|nana|grandpa|papa|abuela|abuelo|savta|saba|ima|aba)\b/i;
 

@@ -7,9 +7,9 @@
  * gemini, no deterministic audits, no repair plan.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS } = require('../constants');
-const { appendLlmCall } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS } = require('../../bookPipelineV3/contract/constants');
+const { appendLlmCall } = require('../../bookPipelineV3/contract/bookDocument');
 
 const JUDGE_SYSTEM = `You are judging a children's-book manuscript spread by spread. Each spread is exactly 4 lines.
 

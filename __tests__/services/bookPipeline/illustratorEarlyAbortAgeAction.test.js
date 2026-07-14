@@ -14,7 +14,7 @@ const {
   nextConsecutiveAgeActionImpossible,
   shouldEarlyAbortForUnrenderableInfantAction,
 } = require('../../../services/bookPipeline/illustrator/renderAllSpreadsQuad');
-const { REPAIR_BUDGETS } = require('../../../services/bookPipeline/constants');
+const { REPAIR_BUDGETS } = require('../../../services/bookPipelineV3/contract/constants');
 
 describe('nextConsecutiveAgeActionImpossible', () => {
   test('increments when the latest rejection includes age_action_impossible', () => {

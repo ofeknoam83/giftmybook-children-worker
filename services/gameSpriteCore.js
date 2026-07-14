@@ -8,7 +8,7 @@
  */
 
 const sharp = require('sharp');
-const { GEMINI_IMAGE_MODEL, CHAT_API_BASE } = require('./illustrator/config');
+const { GEMINI_IMAGE_MODEL, CHAT_API_BASE } = require('./shared/illustration/config');
 const { fetchWithTimeout, downloadPhotoAsBase64 } = require('./illustrationGenerator');
 
 function pickApiKey() {

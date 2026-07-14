@@ -16,7 +16,7 @@ const { fetchWithTimeout } = require('../illustrationGenerator');
 const {
   OPENAI_IMAGES_EDIT_URL: DEFAULT_IMAGES_EDITS_URL,
   OPENAI_IMAGES_GENERATIONS_URL: DEFAULT_IMAGES_GENERATIONS_URL,
-} = require('./config');
+} = require('../shared/illustration/config');
 
 /**
  * POST /v1/images/generations as JSON. Text-to-image only.

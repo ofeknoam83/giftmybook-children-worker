@@ -8,6 +8,10 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 - **CommonJS modules** throughout (no ESM)
 - **Async pipeline**: POST /generate-book returns 202, processes in background, reports progress via callbacks
 
+## Shared services (`services/shared/`)
+
+Cross-pipeline code extracted from the legacy modules ahead of their deletion (v3-only cutover plan): `shared/llm/openaiClient.js` (unified LLM client), `shared/llm/modelRouter.js` (role routing, used by storyPlanner + v2), `shared/text/sanitize.js` + `shared/text/sceneFramingHint.js`, `shared/illustration/config.js` + `illustrationPolicy.js` (used by games, cover, comics, illustrationGenerator), `shared/emotionalTiers.js`. The v1/v2 pipelines require FROM these locations — never the reverse — so deleting `bookPipeline`/`bookPipelineV2` is a pure directory removal. The v1 document contract (constants, bookDocument schema, toLayoutPayload, toLegacyStoryPlan) now lives in `services/bookPipelineV3/contract/`.
+
 ## Key Services
 
 - `storyPlanner.js` — GPT-5.4 (Gemini fallback) plans complete V2 story with text + illustration prompts in one call
@@ -48,12 +52,12 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 ### Book pipeline — quad dual-spread illustrator (default on)
 
-- **Default:** Quad path is **on** in code (`USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT` in [`services/bookPipeline/constants.js`](services/bookPipeline/constants.js)). Interiors use [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js) unless overridden.
+- **Default:** Quad path is **on** in code (`USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT` in [`services/bookPipelineV3/contract/constants.js`](services/bookPipelineV3/contract/constants.js)). Interiors use [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js) unless overridden.
 - **`GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR`** — Optional override: `1` / `true` / `yes` / `quad` forces quad; `0` / `false` / `no` / `legacy` forces legacy [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js).
 - **Request override:** `useQuadSpreadIllustrator: true` or `false` on the generate-book payload (stored on `doc.request`) when you need per-book control without redeploying.
 - **API:** Gemini Flash Image uses `imageConfig.aspectRatio: "4:1"` (supported on the Generative Language API). **OpenAI** path uses size **`1792x448`** (`OPENAI_QUAD_IMAGE_SIZE`) for quad batches; if the Images API rejects that size, fall back to Gemini for illustration or disable quad for that deployment.
 - **Logs:** Filter `bookPipeline:*:quad` for batch lines (`spreadNumbers=[a, b]`, slice map); spread `13` logs `mode=single_spread` / `aspect=16:9` when present.
-- **Gemini resilience:** 4:1 turns use a longer client timeout (`TURN_TIMEOUT_QUAD_MS`, 5 min in [`services/illustrator/config.js`](services/illustrator/config.js)). HTTP **503 / 504 / 429** and bodies mentioning **Deadline expired** / **UNAVAILABLE** / **RESOURCE_EXHAUSTED** are tagged as transient and retried with exponential backoff (same logical attempt) in [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js) and [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js).
+- **Gemini resilience:** 4:1 turns use a longer client timeout (`TURN_TIMEOUT_QUAD_MS`, 5 min in [`services/shared/illustration/config.js`](services/shared/illustration/config.js)). HTTP **503 / 504 / 429** and bodies mentioning **Deadline expired** / **UNAVAILABLE** / **RESOURCE_EXHAUSTED** are tagged as transient and retried with exponential backoff (same logical attempt) in [`renderAllSpreads.js`](services/bookPipeline/illustrator/renderAllSpreads.js) and [`renderAllSpreadsQuad.js`](services/bookPipeline/illustrator/renderAllSpreadsQuad.js).
 
 ## Illustrator V2 — enforcement tiers
 
@@ -65,7 +69,7 @@ Rules are layered: **session system instruction** and **per-spread prompt** carr
 - **Book id in logs:** pass `bookId` in the generate options (main pipeline does this) so every `[writerV2]` line is filterable in Cloud Logging.
 - **Two planning passes (by design):** the job first brainstorms a **story seed** in `storyPlanner`, then Writer V2 runs its own **`plan()`** (beats, location palette, refrain). The seed is wired as `storySeed` so brainstormed beats are kept when valid. A future simplification is to merge into a single planner call; not required for correct output today.
 
-## Model routing (`services/bookPipelineV2/llm/modelRouter.js`)
+## Model routing (`services/shared/llm/modelRouter.js`)
 
 Roles → providers (`DEFAULT_ROUTING`):
 

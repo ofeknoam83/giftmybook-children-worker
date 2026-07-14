@@ -15,9 +15,9 @@ const { getAgeTier, getEmotionalAgeTier } = require('../prompts/writerBrief');
 const { enrichCustomDetails } = require('./customDetailsEnricher');
 const { checkPronounConsistency, simpleReplace } = require('./pronouns');
 const { selectNarrativePatterns, formatPatternsForWriter, formatPatternsForCritic, formatPatternsForChunks, formatPatternsForStoryBible } = require('./narrativePatterns');
-const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
+const { sanitizeMixedScriptString } = require('./shared/text/sanitize');
 
-const EMOTIONAL_THEMES = new Set(['anxiety', 'anger', 'fear', 'grief', 'loneliness', 'new_beginnings', 'self_worth', 'family_change']);
+const { EMOTIONAL_THEMES, getEmotionalTier } = require('./shared/emotionalTiers');
 const DEFAULT_LLM_TIMEOUT_MS = 120000;
 const GRAPHIC_NOVEL_FULL_PLAN_TIMEOUT_MS = 480000;
 const GRAPHIC_NOVEL_CHUNK_TIMEOUT_MS = 240000;
@@ -206,13 +206,7 @@ function getAgeAppropriateFallbackObject(age) {
   return 'something they always carry';           // vague but not babyish for 10+
 }
 
-function getEmotionalTier(age) {
-  const a = Number(age) || 5;
-  if (a <= 3)  return { tier: 'E1', bookFormat: 'PICTURE_BOOK', spreads: 8,  minPages: 32 };
-  if (a <= 6)  return { tier: 'E2', bookFormat: 'PICTURE_BOOK', spreads: 13, minPages: 32 };
-  if (a <= 9)  return { tier: 'E3', bookFormat: 'EARLY_READER', spreads: 18, minPages: 48 };
-  return       { tier: 'E4', bookFormat: 'EARLY_READER', spreads: 20, minPages: 56 };
-}
+// getEmotionalTier moved to services/shared/emotionalTiers.js
 
 const GEMINI_MODEL = 'gemini-3-flash-preview';
 
@@ -222,7 +216,7 @@ const GEMINI_MODEL = 'gemini-3-flash-preview';
 // Provider routing, retries, truncation auto-extend, and Gemini fallback all
 // live in one place now.
 const { callText: _callText } = require('./llm');
-const { modelFor } = require('./bookPipelineV2/llm/modelRouter');
+const { modelFor } = require('./shared/llm/modelRouter');
 
 /**
  * Call the resolved PLANNER model (GPT or DeepSeek depending on

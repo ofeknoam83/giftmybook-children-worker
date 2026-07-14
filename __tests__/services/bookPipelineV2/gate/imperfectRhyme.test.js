@@ -13,11 +13,11 @@
  *   - judge error → fail-open (book is never blocked on transient LLM)
  */
 
-jest.mock('../../../../services/bookPipelineV2/llm/modelRouter', () => ({
+jest.mock('../../../../services/shared/llm/modelRouter', () => ({
   callWithRole: jest.fn(),
 }));
 
-const { callWithRole } = require('../../../../services/bookPipelineV2/llm/modelRouter');
+const { callWithRole } = require('../../../../services/shared/llm/modelRouter');
 const { imperfectRhymeCheck } = require('../../../../services/bookPipelineV2/gate/checks/imperfectRhyme');
 
 function draftFromLines(lines) { return { text: lines.join('\n'), lines }; }

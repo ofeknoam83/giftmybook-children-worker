@@ -11,13 +11,13 @@
  * userPrompt for a Scarlett-style brief.
  */
 
-jest.mock('../../../services/bookPipeline/llm/openaiClient', () => ({
+jest.mock('../../../services/shared/llm/openaiClient', () => ({
   callText: jest.fn(),
 }));
 
-const { callText } = require('../../../services/bookPipeline/llm/openaiClient');
+const { callText } = require('../../../services/shared/llm/openaiClient');
 const { createStoryBible } = require('../../../services/bookPipeline/planner/createStoryBible');
-const { AGE_BANDS, FORMATS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS, FORMATS } = require('../../../services/bookPipelineV3/contract/constants');
 
 function buildDoc(overrides = {}) {
   return {

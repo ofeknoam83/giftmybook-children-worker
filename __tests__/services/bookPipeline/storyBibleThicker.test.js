@@ -10,7 +10,7 @@
 const {
   validateStoryBible,
 } = require('../../../services/bookPipeline/schema/validateBookDocument');
-const { AGE_BANDS, FORMATS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS, FORMATS } = require('../../../services/bookPipelineV3/contract/constants');
 
 function buildDoc(sbOverrides = {}) {
   const baseSb = {

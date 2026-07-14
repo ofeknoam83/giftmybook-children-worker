@@ -8,8 +8,8 @@
  */
 
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
-const { defaultTextCorner, resolveSideAndCorner } = require('../../illustrator/config');
-const { AGE_BANDS } = require('../constants');
+const { defaultTextCorner, resolveSideAndCorner } = require('../../shared/illustration/config');
+const { AGE_BANDS } = require('../../bookPipelineV3/contract/constants');
 
 /**
  * Render an age-aware action constraint paragraph for the image model. For

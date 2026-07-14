@@ -1,5 +1,5 @@
-const { toLegacyStoryPlan } = require('../../../services/bookPipeline/adapters/toLegacyStoryPlan');
-const { computePageCount, computeSynopsis } = require('../../../services/coverMetadata');
+const { toLegacyStoryPlan } = require('../../../../services/bookPipelineV3/contract/toLegacyStoryPlan');
+const { computePageCount, computeSynopsis } = require('../../../../services/coverMetadata');
 
 function makeDoc(overrides = {}) {
   return {

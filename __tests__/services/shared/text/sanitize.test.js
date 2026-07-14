@@ -1,4 +1,4 @@
-const { sanitizeMixedScriptString, sanitizeNonLatinChars } = require('../../../services/writer/quality/sanitize');
+const { sanitizeMixedScriptString, sanitizeNonLatinChars } = require('../../../../services/shared/text/sanitize');
 
 describe('sanitizeMixedScriptString', () => {
   test('maps common Cyrillic homoglyphs to ASCII', () => {

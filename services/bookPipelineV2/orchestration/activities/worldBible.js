@@ -11,7 +11,7 @@
  * which the AA-CW work shipped.)
  */
 
-const { callWithRole } = require('../../llm/modelRouter');
+const { callWithRole } = require('../../../shared/llm/modelRouter');
 
 const SYSTEM = `You are the art director for a premium personalized children's picture book. Produce a WorldBible JSON. Lock: palette { primaries[], accents[], lighting }, style_rules[] (premium 3D character-driven, warm cinematic light, materials with weight; one focal action per spread), environment_anchors[] (each: id, label, defining_surfaces[], defining_props[]), recurring_motifs[] (each: id, label, where_it_appears[]), recurring_props[] (each: id, name, locked_description with color+pattern+material+size_relative_to_hero, appears_in_spreads[]), supporting_cast[] (each: id, role, on_cover boolean, partial_presence_lock { skin_tone, hand_or_arm, sleeve_or_outfit_fragment, signature_item }), text_placement_policy { default_side, never_cross_center: true }, cover_anchor_rules[] (do/do-not list explicitly bound to the cover image), prohibited_visual_drift[]. The world must feel like ONE journey across varied photogenic places. Off-cover characters are never drawn full face/body. Output STRICT JSON only.`;
 

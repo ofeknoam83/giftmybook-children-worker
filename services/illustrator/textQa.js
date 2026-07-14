@@ -24,14 +24,14 @@ const {
   QA_MAX_OUTPUT_TOKENS,
   TEXT_RULES,
   defaultTextSide,
-} = require('./config');
+} = require('../shared/illustration/config');
 const {
   extractGeminiResponseText,
   extractFinishReason,
   parseJsonBlock,
 } = require('./qaResponseParser');
 const { fetchWithTimeout, getNextApiKey } = require('../illustrationGenerator');
-const { sanitizeMixedScriptString } = require('../writer/quality/sanitize');
+const { sanitizeMixedScriptString } = require('../shared/text/sanitize');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 

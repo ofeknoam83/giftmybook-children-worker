@@ -46,7 +46,7 @@ const {
   renderAllocationBlockForPlanner,
 } = require('../services/bookPipeline/planner/anchorAllocation');
 const { checkSignatureBeatCoverage, describeBeat } = require('../services/bookPipeline/qa/signatureBeats');
-const { createBookDocument, appendStageTrace } = require('../services/bookPipeline/schema/bookDocument');
+const { createBookDocument, appendStageTrace } = require('../services/bookPipelineV3/contract/bookDocument');
 
 async function loadBookRequestById(bookId) {
   const conn = process.env.DATABASE_URL;

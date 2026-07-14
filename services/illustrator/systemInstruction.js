@@ -13,7 +13,7 @@
  *   - One hero, one moment, one seamless painting
  */
 
-const { PIXAR_STYLE, TEXT_RULES, TOTAL_SPREADS, PARENT_THEMES, resolvePictureBookTextRules } = require('./config');
+const { PIXAR_STYLE, TEXT_RULES, TOTAL_SPREADS, PARENT_THEMES, resolvePictureBookTextRules } = require('../shared/illustration/config');
 
 /**
  * Shared rule for hidden-face implied presence — prevents disembodied hands/arms.

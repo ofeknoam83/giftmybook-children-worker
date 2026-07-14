@@ -6,7 +6,7 @@
  * can fail loud on it without wrecking creative latitude.
  */
 
-const MORALISING = require('../../lexicons/moralisingPhrases.json');
+const MORALISING = require('../lexicons/moralisingPhrases.json');
 
 function moralisingPhrasesCheck(draft) {
   const text = String(draft?.text || '').toLowerCase();

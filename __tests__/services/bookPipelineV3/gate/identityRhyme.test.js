@@ -5,7 +5,7 @@
  * L3/L4 last-word equality (case-insensitive, punctuation-stripped).
  */
 
-const { identityRhymeCheck } = require('../../../../services/bookPipelineV2/gate/checks/identityRhyme');
+const { identityRhymeCheck } = require('../../../../services/bookPipelineV3/gate/checks/identityRhyme');
 
 function draftFromLines(lines) { return { text: lines.join('\n'), lines }; }
 const beat = {};

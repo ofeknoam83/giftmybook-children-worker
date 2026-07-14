@@ -14,17 +14,17 @@
  * every check uniformly to keep the runner consistent.
  */
 
-const { identityRhymeCheck } = require('./checks/identityRhyme');
+const { identityRhymeCheck } = require('../../bookPipelineV3/gate/checks/identityRhyme');
 const { imperfectRhymeCheck } = require('./checks/imperfectRhyme');
 const { fillerPhraseBlocklistCheck } = require('./checks/fillerPhraseBlocklist');
 const { headlineNounRepeatCheck } = require('./checks/headlineNounRepeat');
-const { moralisingPhrasesCheck } = require('./checks/moralisingPhrases');
-const { protagonistAntiVerbCheck } = require('./checks/protagonistAntiVerb');
+const { moralisingPhrasesCheck } = require('../../bookPipelineV3/gate/checks/moralisingPhrases');
+const { protagonistAntiVerbCheck } = require('../../bookPipelineV3/gate/checks/protagonistAntiVerb');
 const { lineLengthWindowCheck } = require('./checks/lineLengthWindow');
-const { lineCountCheck } = require('./checks/lineCount');
+const { lineCountCheck } = require('../../bookPipelineV3/gate/checks/lineCount');
 const { beatProhibitedCheck } = require('./checks/beatProhibited');
 const { dialogueBanCheck } = require('./checks/dialogueBan');
-const { pastTenseCheck } = require('./checks/pastTense');
+const { pastTenseCheck } = require('../../bookPipelineV3/gate/checks/pastTense');
 const { lineStarterRepeatCheck } = require('./checks/lineStarterRepeat');
 
 const CHECKS = [

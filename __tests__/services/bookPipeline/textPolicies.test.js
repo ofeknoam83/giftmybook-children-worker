@@ -2,7 +2,7 @@ const {
   ageRules,
   renderTextPolicyBlock,
 } = require('../../../services/bookPipeline/writer/textPolicies');
-const { AGE_BANDS, FORMATS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS, FORMATS } = require('../../../services/bookPipelineV3/contract/constants');
 
 describe('textPolicies ageRules', () => {
   test('returns infant-specific guidance for PB_INFANT', () => {

@@ -14,7 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { callWithRole } = require('../../llm/modelRouter');
+const { callWithRole } = require('../../../shared/llm/modelRouter');
 
 const SYSTEM = fs.readFileSync(
   path.join(__dirname, '../../llm/prompts/manuscriptCritic.system.md'),

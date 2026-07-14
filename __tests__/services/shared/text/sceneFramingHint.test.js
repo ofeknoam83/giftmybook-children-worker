@@ -1,4 +1,4 @@
-const { sceneHasFramingHint } = require('../../../services/writer/sceneFramingHint');
+const { sceneHasFramingHint } = require('../../../../services/shared/text/sceneFramingHint');
 
 describe('sceneHasFramingHint', () => {
   test('returns false for empty or non-string', () => {

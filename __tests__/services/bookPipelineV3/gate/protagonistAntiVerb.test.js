@@ -3,7 +3,7 @@
  * 'Scarlett looks where she is kept').
  */
 
-const { protagonistAntiVerbCheck } = require('../../../../services/bookPipelineV2/gate/checks/protagonistAntiVerb');
+const { protagonistAntiVerbCheck } = require('../../../../services/bookPipelineV3/gate/checks/protagonistAntiVerb');
 
 function draft(lines) { return { text: lines.join('\n'), lines }; }
 const beat = {};

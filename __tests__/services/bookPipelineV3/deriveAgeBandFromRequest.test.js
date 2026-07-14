@@ -2,7 +2,7 @@
 
 const {
   deriveAgeBandFromRequest,
-} = require('../../../../services/bookPipelineV2/orchestration/workflows/createBook.workflow');
+} = require('../../../services/bookPipelineV3/ageProfiles');
 
 describe('deriveAgeBandFromRequest', () => {
   test('age=0 (lap baby) resolves to PB_INFANT, not PB_PRESCHOOL', () => {

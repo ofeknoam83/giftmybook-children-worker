@@ -15,7 +15,7 @@
  * grammar.
  */
 
-const ANTI = require('../../lexicons/protagonistAntiVerbs.json');
+const ANTI = require('../lexicons/protagonistAntiVerbs.json');
 
 function escape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 

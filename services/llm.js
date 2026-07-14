@@ -30,7 +30,7 @@ const {
   parseJsonLoose,
   fetchWithTimeout,
   assertLlmConfig,
-} = require('./bookPipeline/llm/openaiClient');
+} = require('./shared/llm/openaiClient');
 
 module.exports = {
   callText,

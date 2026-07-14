@@ -8,7 +8,7 @@ const {
   resolvePictureBookTextRules,
   PARENT_THEMES,
   resolveSideAndCorner,
-} = require('./config');
+} = require('../shared/illustration/config');
 const { buildTextBlock, buildCharacterAnchorBlock, buildParentVisibilityReminder } = require('./prompt');
 
 function oppositeSide(side) {

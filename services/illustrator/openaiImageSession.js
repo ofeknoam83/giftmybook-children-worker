@@ -28,7 +28,7 @@ const {
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
-} = require('./config');
+} = require('../shared/illustration/config');
 const { postImagesEdits } = require('./openaiImagesHttp');
 const { buildSystemInstruction, buildSystemInstructionQuad } = require('./systemInstruction');
 

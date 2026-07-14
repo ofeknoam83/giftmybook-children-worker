@@ -21,7 +21,7 @@ const path = require('path');
 
 const MODULE_PATH = path.resolve(
   __dirname,
-  '../../../services/bookPipeline/llm/openaiClient.js',
+  '../../../../services/shared/llm/openaiClient.js',
 );
 
 function freshClient() {

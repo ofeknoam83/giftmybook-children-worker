@@ -18,13 +18,13 @@
  *     spread but does NOT leak full spec internals.
  */
 
-jest.mock('../../../services/bookPipeline/llm/openaiClient', () => ({
+jest.mock('../../../services/shared/llm/openaiClient', () => ({
   callText: jest.fn(),
 }));
 
-const { callText } = require('../../../services/bookPipeline/llm/openaiClient');
+const { callText } = require('../../../services/shared/llm/openaiClient');
 const { runPlannerGuard, __testInternals } = require('../../../services/bookPipeline/planner/plannerGuard');
-const { AGE_BANDS, MODELS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS, MODELS } = require('../../../services/bookPipelineV3/contract/constants');
 
 function buildInfantDoc(overrides = {}) {
   const spreads = Array.from({ length: 13 }, (_, i) => ({

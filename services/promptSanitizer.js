@@ -20,7 +20,7 @@
  *   without changing the story's meaning.
  */
 
-const { sanitizeMixedScriptString } = require('./writer/quality/sanitize');
+const { sanitizeMixedScriptString } = require('./shared/text/sanitize');
 
 /**
  * Invisibles / directional controls that can sneak into LLM output via copy-paste

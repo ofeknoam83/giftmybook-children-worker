@@ -20,7 +20,7 @@
  * `BOOK_PIPELINE_V2_CRITIC_FAMILY=gemini` to A/B-test pairings).
  */
 
-const { callText } = require('../../bookPipeline/llm/openaiClient');
+const { callText } = require('./openaiClient');
 
 // Model identifiers (kept in one place so swaps are one-line).
 // Note: we use gpt-5.4 family (NOT gpt-5) because gpt-5 reasoning models

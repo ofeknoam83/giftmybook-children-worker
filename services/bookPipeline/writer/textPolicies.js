@@ -7,7 +7,7 @@
  * emotional meaning, rhyme by default for picture books.
  */
 
-const { FORMATS, AGE_BANDS, RHYME_POLICY, TEXT_LINE_TARGET, WORDS_PER_LINE_TARGET } = require('../constants');
+const { FORMATS, AGE_BANDS, RHYME_POLICY, TEXT_LINE_TARGET, WORDS_PER_LINE_TARGET } = require('../../bookPipelineV3/contract/constants');
 
 /**
  * @param {string} ageBand

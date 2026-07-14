@@ -35,7 +35,7 @@ const { withRetry } = require('../retry');
 const {
   GEMINI_IMAGE_MODEL,
   CHAT_API_BASE,
-} = require('../illustrator/config');
+} = require('../shared/illustration/config');
 
 const VISION_MODEL = 'gemini-2.5-flash';
 const CACHE_VERSION = 'v2';

@@ -8,9 +8,9 @@
  */
 
 const { createWorkflowContext, WorkflowAbortError, ActivityFailedError } =
-  require('../../../../services/bookPipelineV2/orchestration/workflowEngine');
+  require('../../../services/bookPipelineV3/orchestration/workflowEngine');
 const { createArtifactStore } =
-  require('../../../../services/bookPipelineV2/artifactStore');
+  require('../../../services/bookPipelineV3/artifactStore');
 
 function makeCtx(opts = {}) {
   const store = createArtifactStore({ bookId: 'test_book' });

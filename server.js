@@ -55,7 +55,8 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { brainstormStorySeed, EMOTIONAL_THEMES, getEmotionalTier, planChapterBook } = require('./services/storyPlanner');
+const { brainstormStorySeed, planChapterBook } = require('./services/storyPlanner');
+const { EMOTIONAL_THEMES, getEmotionalTier } = require('./services/shared/emotionalTiers');
 const { generateIllustration, downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
 // generateIllustration is only used for chapter books and graphic novels.
 // Picture book illustration is handled exclusively by services/illustrator (new minimal module).
@@ -70,7 +71,7 @@ const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAge
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { resolveBookPipeline, isV3Available } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');
-const { sceneHasFramingHint } = require('./services/writer/sceneFramingHint');
+const { sceneHasFramingHint } = require('./services/shared/text/sceneFramingHint');
 
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
@@ -1343,7 +1344,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         });
         pipelineVersionUsed = routed.version;
         const { generateBook, PipelineError } = require(routed.modulePath);
-        const { toLegacyStoryPlan } = require('./services/bookPipeline/adapters/toLegacyStoryPlan');
+        const { toLegacyStoryPlan } = require('./services/bookPipelineV3/contract/toLegacyStoryPlan');
         bookContext.log('info', `Pipeline routing: format=${format} → ${routed.moduleName} (version=${routed.version}, source=${routed.source}, requested=${requestedPipelineVersion || 'none'})`);
 
         const stage3Start = Date.now();
@@ -1650,7 +1651,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           filterConfirmedForCoverPolicy,
           mergeCoverAndConfirmedSecondaries,
           buildQaAllowedHumansNote,
-        } = require('./services/illustrator/illustrationPolicy');
+        } = require('./services/shared/illustration/illustrationPolicy');
         const { applyScenePolicyToEntries } = require('./services/illustrator/scenePolicyGate');
         const { describeHeroOutfitFromCover } = require('./services/coverHeroOutfit');
 

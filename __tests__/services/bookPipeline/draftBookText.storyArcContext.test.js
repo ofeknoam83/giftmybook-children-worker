@@ -14,7 +14,7 @@ const {
   renderStoryArcContext,
   renderInfantContract,
 } = require('../../../services/bookPipeline/writer/draftBookText');
-const { AGE_BANDS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS } = require('../../../services/bookPipelineV3/contract/constants');
 
 describe('renderStoryArcContext (AA-CW-5b)', () => {
   test('returns "" for null / non-object input', () => {

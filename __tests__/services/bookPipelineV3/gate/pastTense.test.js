@@ -1,4 +1,4 @@
-const { pastTenseCheck } = require('../../../../services/bookPipelineV2/gate/checks/pastTense');
+const { pastTenseCheck } = require('../../../../services/bookPipelineV3/gate/checks/pastTense');
 
 const infantBand = { ageBand: 'PB_INFANT', narrativeConstraints: { dialogueDensity: 'none' } };
 const earlyReader = { ageBand: 'PB_EARLY_READER', narrativeConstraints: {} };

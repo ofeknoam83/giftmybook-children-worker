@@ -2,7 +2,7 @@
 
 const {
   buildSpreadsForLegacyIllustrator,
-} = require('../../../../services/bookPipelineV2/orchestration/activities/illustrationDirector');
+} = require('../../../services/bookPipelineV3/orchestration/activities/illustrationAdapterHelpers');
 
 /**
  * Regression: production book e3f4e0c0 crashed with

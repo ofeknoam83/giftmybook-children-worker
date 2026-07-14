@@ -20,11 +20,11 @@
  * completed book regardless: BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1.
  */
 
-const { createWorkflowContext } = require('../../../bookPipelineV2/orchestration/workflowEngine');
-const { createArtifactStore } = require('../../../bookPipelineV2/artifactStore');
-const { getAgeProfile } = require('../../../bookPipelineV2/ageProfiles');
-const { deriveAgeBandFromRequest } = require('../../../bookPipelineV2/orchestration/workflows/createBook.workflow');
-const { TOTAL_SPREADS } = require('../../../bookPipeline/constants');
+const { createWorkflowContext } = require('../workflowEngine');
+const { createArtifactStore } = require('../../artifactStore');
+const { getAgeProfile } = require('../../ageProfiles');
+const { deriveAgeBandFromRequest } = require('../../ageProfiles');
+const { TOTAL_SPREADS } = require('../../contract/constants');
 
 const { creativeBriefActivity } = require('../activities/creativeBrief');
 const { conceptRoomActivity, CONCEPT_ANGLES } = require('../activities/conceptRoom');
@@ -406,7 +406,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   ctx.log('info', `[bookPipelineV3] cost summary calls=${costs.calls} in=${costs.inputTokens} out=${costs.outputTokens} knownEstUsd=$${costs.knownEstUsd}`);
 
   ctx.reportProgress({ step: 'layout', message: 'Preparing layout' });
-  const { toLayoutPayload } = require('../../../bookPipeline/adapters/toLayoutPayload');
+  const { toLayoutPayload } = require('../../contract/toLayoutPayload');
   let layout;
   try {
     layout = toLayoutPayload(renderedDoc);

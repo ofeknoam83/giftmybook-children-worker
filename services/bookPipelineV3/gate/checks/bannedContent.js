@@ -9,7 +9,7 @@
  *      banned content in V3, same as v2.
  */
 
-const { moralisingPhrasesCheck } = require('../../../bookPipelineV2/gate/checks/moralisingPhrases');
+const { moralisingPhrasesCheck } = require('./moralisingPhrases');
 
 function bannedContentCheck(draft, beat, ageProfile, ctx = {}) {
   const text = String(draft?.text || '').toLowerCase();

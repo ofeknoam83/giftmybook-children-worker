@@ -7,9 +7,9 @@
  * the text rendering rules used by every spread.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS, VISUAL_STYLE, TEXT_PLACEMENT } = require('../constants');
-const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS, VISUAL_STYLE, TEXT_PLACEMENT } = require('../../bookPipelineV3/contract/constants');
+const { appendLlmCall, withStageResult } = require('../../bookPipelineV3/contract/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 
 const SYSTEM_PROMPT = `You are the art director for a premium personalized children's book.

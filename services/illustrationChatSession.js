@@ -16,7 +16,7 @@
  */
 
 const { fetchWithTimeout, ART_STYLE_CONFIG, PARENT_THEMES, canonicalBookArtStyle } = require('./illustrationGenerator');
-const { resolvePictureBookTextRules } = require('./illustrator/config');
+const { resolvePictureBookTextRules } = require('./shared/illustration/config');
 
 const GEMINI_MODEL = 'gemini-3.1-flash-image';
 const CHAT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';

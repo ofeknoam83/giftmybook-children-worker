@@ -4,7 +4,7 @@
 
 const sharp = require('sharp');
 const { sliceQuadToTwoSpreadStrips } = require('../../../services/bookPipeline/illustrator/sliceQuadToTwoSpreadStrips');
-const { getIllustrationRenderer } = require('../../../services/bookPipeline/constants');
+const { getIllustrationRenderer } = require('../../../services/bookPipelineV3/contract/constants');
 const { buildDualSpreadTurn } = require('../../../services/illustrator/promptQuad');
 
 describe('sliceQuadToTwoSpreadStrips', () => {

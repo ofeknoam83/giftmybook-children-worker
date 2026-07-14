@@ -25,7 +25,7 @@
  * mechanism as v2's BOOK_PIPELINE_V2_* overrides).
  */
 
-const { callText } = require('../../bookPipeline/llm/openaiClient');
+const { callText } = require('../../shared/llm/openaiClient');
 const { callClaude } = require('./anthropicClient');
 
 const MODELS = {

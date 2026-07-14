@@ -21,7 +21,7 @@
  * responsibility so this module stays pure).
  */
 
-const { MODELS } = require('../constants');
+const { MODELS } = require('./constants');
 
 function _resolveIllustrationAspect() {
   const m = String(MODELS.SPREAD_RENDER || '').toLowerCase();

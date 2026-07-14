@@ -34,7 +34,7 @@ const sharp = require('sharp');
 
 const { downloadBuffer } = require('../../gcsStorage');
 const { getNextApiKey } = require('../../illustrationGenerator');
-const { appendLlmCall, withStageResult } = require('../schema/bookDocument');
+const { appendLlmCall, withStageResult } = require('../../bookPipelineV3/contract/bookDocument');
 const { synthesizeCaregiverLockFallback } = require('./caregiverLockFallback');
 
 const PARENT_THEMES = new Set(['mothers_day', 'fathers_day', 'grandparents_day']);

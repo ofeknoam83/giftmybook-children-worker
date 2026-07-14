@@ -20,7 +20,11 @@
  */
 
 const { renderAllSpreadsQuad } = require('../../../bookPipeline/illustrator/renderAllSpreadsQuad');
-const { createBookDocument } = require('../../../bookPipeline/schema/bookDocument');
+const { createBookDocument } = require('../../../bookPipelineV3/contract/bookDocument');
+const {
+  deriveParentVisibility,
+  buildSpreadsForLegacyIllustrator,
+} = require('../../../bookPipelineV3/orchestration/activities/illustrationAdapterHelpers');
 
 /**
  * Build a v1-shape `visualBible` from the v2 CharacterBible + WorldBible.
@@ -134,25 +138,8 @@ function buildLegacyVisualBible({ characterBible, worldBible, coverTitle }) {
  * sceneBridge, mustUseDetails, parentVisibility, proseProps, textSide,
  * arcContext, plotBeat, purpose, textLineTarget.
  */
-// Map a free-text caregiver hint from the v2 beat sheet to a v1
-// parentVisibility enum value. The illustrator-side guard in
-// services/illustrator/prompt.js#buildParentVisibilityReminder will
-// silently demote any visible-fragment value (full/hand/shoulder-back/
-// cropped-torso/shadow) to 'object' when the parent is NOT on the
-// approved cover — see the off-cover policy. So callers don't have to
-// know cover state here; they just supply the planner's intent.
-function deriveParentVisibility(implied, ageBand) {
-  if (!implied) return ageBand === 'PB_INFANT' || ageBand === 'PB_TODDLER' ? 'cropped-torso' : 'object';
-  const s = String(implied).toLowerCase();
-  if (s.includes('full')) return 'full';
-  if (s.includes('arm') || s.includes('hand')) return 'hand';
-  if (s.includes('shoulder') || s.includes('back')) return 'shoulder-back';
-  if (s.includes('torso') || s.includes('crop')) return 'cropped-torso';
-  if (s.includes('shadow')) return 'shadow';
-  if (s.includes('object') || s.includes('mug') || s.includes('chair') || s.includes('coat')) return 'object';
-  if (s.includes('voice') || s.includes('off')) return 'absent';
-  return 'object';
-}
+// deriveParentVisibility moved to bookPipelineV3's illustrationAdapterHelpers
+// (shared with V3's adapter); see that module for the off-cover demotion note.
 
 function buildLegacySpreadSpecs({ beatSheet, ageProfile }) {
   const ageBand = ageProfile?.ageBand || ageProfile?.band || 'PB_PRESCHOOL';
@@ -275,40 +262,13 @@ async function illustrationDirectorActivity(input, ctx) {
   return rendered;
 }
 
-/**
- * Build the per-spread objects the legacy v1 illustrator (`renderAllSpreadsQuad`)
- * expects. Each spread MUST carry `qa.{writerChecks,spreadChecks,repairHistory}`
- * because the legacy renderer mutates those arrays as it runs — missing the
- * block crashes with `Cannot read properties of undefined (reading 'spreadChecks')`.
- *
- * Before the manuscript-level refactor (PR #179) the qa block came in via
- * `createBookDocument`'s default spread skeleton; this path overwrites that
- * skeleton, so the qa block must be re-seeded here.
- */
-function buildSpreadsForLegacyIllustrator({ spreadSpecs, draftBySpread }) {
-  return spreadSpecs.map((spec) => {
-    const draft = draftBySpread.get(spec.spreadNumber);
-    const text = draft?.text || (Array.isArray(draft?.lines) ? draft.lines.join('\n') : '');
-    return {
-      spreadNumber: spec.spreadNumber,
-      spec,
-      manuscript: { text, lines: draft?.lines || [] },
-      illustration: null,
-      qa: {
-        writerChecks: [],
-        spreadChecks: [],
-        repairHistory: [],
-      },
-    };
-  });
-}
-
 module.exports = {
   illustrationDirectorActivity,
   // exported for tests
   buildLegacyVisualBible,
   buildLegacySpreadSpecs,
   buildLegacyStoryBible,
+  // re-exported from the shared adapter helpers for existing consumers
   buildSpreadsForLegacyIllustrator,
   deriveParentVisibility,
 };

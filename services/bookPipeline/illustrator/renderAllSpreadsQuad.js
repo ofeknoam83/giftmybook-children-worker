@@ -15,7 +15,7 @@ const {
   rebuildSession,
   providerName,
 } = require('../../illustrator/sessionDispatch');
-const { OPENAI_QUAD_IMAGE_SIZE } = require('../../illustrator/config');
+const { OPENAI_QUAD_IMAGE_SIZE } = require('../../shared/illustration/config');
 const { buildDualSpreadTurn, buildDualCorrectionTurn } = require('../../illustrator/promptQuad');
 const {
   deescalateSceneForSignage,
@@ -35,8 +35,8 @@ const { pickRecentInteriorRefsForQa } = require('../qa/recentInteriorRefs');
 const { buildIllustrationSpec } = require('./buildIllustrationSpec');
 const { sliceQuadToTwoSpreadStrips } = require('./sliceQuadToTwoSpreadStrips');
 const { isTransientIllustrationInfraError } = require('../../illustrator/transientInfraError');
-const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS, QA_RECENT_INTERIOR_REFERENCES } = require('../constants');
-const { updateSpread, appendRetryMemory, incrementCounter } = require('../schema/bookDocument');
+const { REPAIR_BUDGETS, FAILURE_CODES, TOTAL_SPREADS, QA_RECENT_INTERIOR_REFERENCES } = require('../../bookPipelineV3/contract/constants');
+const { updateSpread, appendRetryMemory, incrementCounter } = require('../../bookPipelineV3/contract/bookDocument');
 const { reviseSpreadProseForIllustrator } = require('../writer/rewriteBookText');
 const { processOneSpread, resolveCoverBase64, formatQaRejectIssuesForLog } = require('./renderAllSpreads');
 

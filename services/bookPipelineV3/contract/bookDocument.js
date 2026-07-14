@@ -7,7 +7,7 @@
  * merge over its prior state. Stages MUST NOT mutate earlier fields.
  */
 
-const { PIPELINE_VERSION, VISUAL_STYLE, TOTAL_SPREADS } = require('../constants');
+const { PIPELINE_VERSION, VISUAL_STYLE, TOTAL_SPREADS } = require('./constants');
 
 /**
  * Create an empty book document skeleton from a normalized input payload.

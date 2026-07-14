@@ -6,9 +6,9 @@
  * show, without writing final prose or final render prompts.
  */
 
-const { callText } = require('../llm/openaiClient');
-const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../constants');
-const { updateSpread, appendLlmCall } = require('../schema/bookDocument');
+const { callText } = require('../../shared/llm/openaiClient');
+const { MODELS, TOTAL_SPREADS, TEXT_LINE_TARGET, AGE_BANDS } = require('../../bookPipelineV3/contract/constants');
+const { updateSpread, appendLlmCall } = require('../../bookPipelineV3/contract/bookDocument');
 const { selectRetryMemory, renderRetryMemoryForPrompt } = require('../retryMemory');
 const { renderThemeDirectiveBlock } = require('./themeDirectives');
 const {

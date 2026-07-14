@@ -20,10 +20,10 @@
  * sheet) and passed as null.
  */
 
-const { lineCountCheck } = require('../../bookPipelineV2/gate/checks/lineCount');
-const { identityRhymeCheck } = require('../../bookPipelineV2/gate/checks/identityRhyme');
-const { protagonistAntiVerbCheck } = require('../../bookPipelineV2/gate/checks/protagonistAntiVerb');
-const { pastTenseCheck } = require('../../bookPipelineV2/gate/checks/pastTense');
+const { lineCountCheck } = require('./checks/lineCount');
+const { identityRhymeCheck } = require('./checks/identityRhyme');
+const { protagonistAntiVerbCheck } = require('./checks/protagonistAntiVerb');
+const { pastTenseCheck } = require('./checks/pastTense');
 const { wordBudgetCheck } = require('./checks/wordBudget');
 const { bannedContentCheck } = require('./checks/bannedContent');
 const { nameLockCheck } = require('./checks/nameLock');

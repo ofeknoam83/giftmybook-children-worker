@@ -5,7 +5,7 @@
 
 const {
   getAgeProfile, listAgeBands, isPictureBookBand, deriveAgeBandFromAge,
-} = require('../../../services/bookPipelineV2/ageProfiles');
+} = require('../../../services/bookPipelineV3/ageProfiles');
 
 describe('ageProfiles', () => {
   test('lists the 4 picture-book bands', () => {

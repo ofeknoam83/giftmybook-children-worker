@@ -29,7 +29,7 @@ jest.mock('../../../services/bookPipeline/illustrator/renderAllSpreadsQuad', () 
 
 const { callWithRole } = require('../../../services/bookPipelineV3/llm/modelRouter');
 const { runCreateBookWorkflow, V3ExhaustionError } = require('../../../services/bookPipelineV3/orchestration/workflows/createBook.workflow');
-const { toLegacyStoryPlan } = require('../../../services/bookPipeline/adapters/toLegacyStoryPlan');
+const { toLegacyStoryPlan } = require('../../../services/bookPipelineV3/contract/toLegacyStoryPlan');
 const { RAW_REQUEST, makeConceptJson, makeManuscriptJson, makeJudgeReportJson } = require('./helpers/fixtures');
 
 const BRIEF_JSON = {

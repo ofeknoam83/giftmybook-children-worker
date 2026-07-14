@@ -7,7 +7,7 @@
  * deterministic tweaks; the LLM-tuned version is a follow-up.
  */
 
-const { getAgeProfile } = require('../../ageProfiles');
+const { getAgeProfile } = require('../../../bookPipelineV3/ageProfiles');
 
 function ageAdaptationActivity(input, ctx) {
   const { ageBand, brief } = input;

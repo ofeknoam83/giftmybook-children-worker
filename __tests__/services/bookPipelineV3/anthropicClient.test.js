@@ -1,5 +1,5 @@
 const { callClaude, ANTHROPIC_URL } = require('../../../services/bookPipelineV3/llm/anthropicClient');
-const { LlmAuthError } = require('../../../services/bookPipeline/llm/openaiClient');
+const { LlmAuthError } = require('../../../services/shared/llm/openaiClient');
 
 function anthropicResponse({ text = 'hello', stopReason = 'end_turn', inputTokens = 100, outputTokens = 50 } = {}) {
   return {

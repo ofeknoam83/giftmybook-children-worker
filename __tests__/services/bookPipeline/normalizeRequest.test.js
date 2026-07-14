@@ -4,7 +4,7 @@ const {
   derivePronouns,
   CANONICAL_PRONOUN_SETS,
 } = require('../../../services/bookPipeline/input/normalizeRequest');
-const { AGE_BANDS, FORMATS } = require('../../../services/bookPipeline/constants');
+const { AGE_BANDS, FORMATS } = require('../../../services/bookPipelineV3/contract/constants');
 
 describe('normalizeRequest extractChild', () => {
   test('collects interests from child.interests', () => {

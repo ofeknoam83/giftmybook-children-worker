@@ -1,4 +1,4 @@
-const { parseJsonLoose, LlmParseError } = require('../../../services/bookPipeline/llm/openaiClient');
+const { parseJsonLoose, LlmParseError } = require('../../../../services/shared/llm/openaiClient');
 
 describe('parseJsonLoose', () => {
   test('parses raw JSON', () => {

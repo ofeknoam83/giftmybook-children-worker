@@ -27,8 +27,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { lastWord } = require('./identityRhyme');
-const { callWithRole } = require('../../llm/modelRouter');
+const { lastWord } = require('../../../bookPipelineV3/gate/checks/identityRhyme');
+const { callWithRole } = require('../../../shared/llm/modelRouter');
 
 const SYSTEM = fs.readFileSync(
   path.join(__dirname, '../../llm/prompts/rhymeJudge.system.md'),

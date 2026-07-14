@@ -26,7 +26,7 @@ const {
   resolveSideAndCorner,
   PARENT_THEMES,
   resolvePictureBookTextRules,
-} = require('./config');
+} = require('../shared/illustration/config');
 
 /** Tags from textQa (layout + caption fidelity) — used for staged corrections before hero/outfit fixes. */
 const ILLUSTRATOR_TEXT_QA_TAGS = new Set([

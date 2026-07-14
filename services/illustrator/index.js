@@ -27,7 +27,7 @@ const {
   PARENT_THEMES,
   defaultTextSide,
   SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
-} = require('./config');
+} = require('../shared/illustration/config');
 const {
   createSession,
   establishCharacterReference,
