@@ -100,6 +100,8 @@ describe('runCreateBookWorkflow — happy path', () => {
 
     // V3 namespace (milestone-2 seam)
     expect(document.v3.concepts).toHaveLength(3);
+    // Phase 0: illustrator resolution recorded (default legacy)
+    expect(document.v3.illustrator).toEqual({ version: 'legacy', source: 'default' });
     expect(document.v3.manuscriptMeta.conceptId).toBe('quest_transformation');
     expect(document.v3.sceneContracts).toHaveLength(13);
     expect(document.v3.costs.calls).toBeGreaterThan(5);
@@ -130,6 +132,34 @@ describe('runCreateBookWorkflow — happy path', () => {
     const labels = callWithRole.mock.calls.map(([, p]) => p.label);
     expect(labels.filter((l) => l === 'v3.revision')).toHaveLength(0);
     expect(labels.filter((l) => l.startsWith('v3.manuscript.'))).toHaveLength(2); // A + B only, no fresh
+  });
+});
+
+describe('runCreateBookWorkflow — illustrator flag (W3)', () => {
+  test("illustratorVersion 'native' routes to the stub and fails loudly (no silent legacy fallback)", async () => {
+    wireModelLayer({ judgeScore: 5 });
+    let thrown;
+    try {
+      await runCreateBookWorkflow({
+        rawRequest: { ...RAW_REQUEST, illustratorVersion: 'native' },
+        signals: {},
+        log: () => {},
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeDefined();
+    expect(String(thrown.message)).toMatch(/native V3 illustrator selected but not yet implemented/);
+  });
+
+  test('checkpoint pin beats request: legacy checkpoint + native request stays legacy', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const { document } = await runCreateBookWorkflow({
+      rawRequest: { ...RAW_REQUEST, illustratorVersion: 'native', checkpointIllustratorVersion: 'legacy' },
+      signals: {},
+      log: () => {},
+    });
+    expect(document.v3.illustrator).toEqual({ version: 'legacy', source: 'checkpoint' });
   });
 });
 

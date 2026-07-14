@@ -35,6 +35,8 @@ const { mechanicalGateActivity } = require('../activities/mechanicalGate');
 const { judgePanelActivity } = require('../activities/judgePanel');
 const { manuscriptRevisionActivity, mergeTargets } = require('../activities/manuscriptRevision');
 const { illustrationDirectorActivity } = require('../activities/illustrationDirector');
+const { runNativeIllustrator } = require('../../illustrator');
+const { resolveIllustratorVersion } = require('../../illustrator/config');
 const { validatePanelFamilies } = require('../../llm/modelRouter');
 
 const MAX_REVISION_ROUNDS = 2;
@@ -368,7 +370,17 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 
   // ── illustrating ──
   ctx.checkAbort();
-  const renderedDoc = await ctx.execute('illustrations', illustrationDirectorActivity, {
+  // Milestone-2 flag: native "Art Studio" vs the legacy v1 quad adapter.
+  // Resolved once per run (checkpoint → request → env → default) and
+  // reported in doc.v3 + pipeline callbacks so A/B stays auditable.
+  const illustrator = resolveIllustratorVersion({
+    requestedVersion: rawRequest?.illustratorVersion || null,
+    checkpointVersion: rawRequest?.checkpointIllustratorVersion || null,
+    log: (msg) => ctx.log('warn', `[v3] ${msg}`),
+  });
+  ctx.log('info', `[v3] illustrator: ${illustrator.version} (source=${illustrator.source})`);
+
+  const illustrationInput = {
     rawRequest,
     brief,
     ageProfile,
@@ -377,12 +389,18 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     coverImageUrl: rawRequest?.cover?.imageUrl || null,
     coverTitle: rawRequest?.cover?.title || null,
     operationalContext: signals,
-  }, {
-    retries: 2,
-    baseDelayMs: 4000,
-    isRetryable: (err) => Boolean(err?.isTransient),
-  });
-
+  };
+  const renderedDoc = illustrator.version === 'native'
+    ? await ctx.execute('illustrations.native', runNativeIllustrator, illustrationInput, {
+      retries: 2,
+      baseDelayMs: 4000,
+      isRetryable: (err) => Boolean(err?.isTransient),
+    })
+    : await ctx.execute('illustrations', illustrationDirectorActivity, illustrationInput, {
+      retries: 2,
+      baseDelayMs: 4000,
+      isRetryable: (err) => Boolean(err?.isTransient),
+    });
   // ── bookWideQa / layout ──
   ctx.reportProgress({ step: 'bookWideQa', message: 'Attaching quality report' });
   renderedDoc.writerQa = {
@@ -406,6 +424,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     judges: (panel?.reports || []).map((r) => ({ judge: r.judge, family: r.family, model: r.model })),
   };
   renderedDoc.v3 = {
+    illustrator: { version: illustrator.version, source: illustrator.source },
     concepts,
     selection,
     manuscriptMeta: {

@@ -899,6 +899,18 @@ app.post('/generate-book', authenticate, async (req, res) => {
     });
   }
 
+  // Milestone-2 illustrator selection ('native' | 'legacy'), v3-only.
+  // Same contract as pipelineVersion: invalid values 400 before the 202,
+  // and the checkpoint pins the illustrator a book started rendering on.
+  let requestedIllustratorVersion = null;
+  if (req.body.illustratorVersion !== undefined && req.body.illustratorVersion !== null && req.body.illustratorVersion !== '') {
+    const v = String(req.body.illustratorVersion).toLowerCase().trim();
+    if (!['native', 'legacy'].includes(v)) {
+      return res.status(400).json({ success: false, error: `Unsupported illustratorVersion '${req.body.illustratorVersion}' — expected 'native' or 'legacy'` });
+    }
+    requestedIllustratorVersion = v;
+  }
+
   // When generating from a parent book, always preserve the original title.
   // Derive parentBookTitle from parentStoryContent.title if not explicitly set,
   // and lock approvedTitle so the planner never invents a different one.
@@ -940,6 +952,9 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // Which pipeline actually generated this book — reported in every callback
   // so pipeline A/B comparisons stay trustworthy. Null for chapter/GN formats.
   let pipelineVersionUsed = null;
+  // Which illustrator rendered a v3 book (native|legacy) — reported beside
+  // pipelineVersionUsed so illustrator A/B comparisons stay auditable.
+  let illustratorVersionUsed = null;
   const isChapterBook = bookFormat === 'CHAPTER_BOOK' || (childAge >= 9 && req.body.bookFormat === 'CHAPTER_BOOK');
   const isGraphicNovel = bookFormat === 'GRAPHIC_NOVEL';
 
@@ -1364,6 +1379,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           // checkpoint). 'ship_best' lets the workflow ship the best-scoring
           // manuscript on panel exhaustion instead of failing again.
           ...(checkpoint?.reviewResolution ? { reviewResolution: checkpoint.reviewResolution } : {}),
+          // Milestone-2 illustrator flag: request override + checkpoint pin,
+          // resolved inside the v3 workflow (checkpoint → request → env → default).
+          ...(requestedIllustratorVersion ? { illustratorVersion: requestedIllustratorVersion } : {}),
+          ...(checkpoint?.illustratorVersion ? { checkpointIllustratorVersion: checkpoint.illustratorVersion } : {}),
         };
 
         let pipelineResult;
@@ -1472,6 +1491,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           throw pipelineErr;
         }
 
+        illustratorVersionUsed = pipelineResult.document?.v3?.illustrator?.version || null;
         const synthesized = toLegacyStoryPlan(pipelineResult.document);
         storyPlan = synthesized.storyPlan;
 
@@ -1516,6 +1536,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           storyPlan,
           illustrationResults: storyPlan.entries,
           pipelineVersion: routed.version,
+          // Pin the illustrator a v3 book rendered on so retries/resumes
+          // finish on it (native|legacy, milestone-2 flag).
+          ...(pipelineResult.document?.v3?.illustrator?.version
+            ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
+            : {}),
           timestamp: new Date().toISOString(),
           accumulatedCosts: costTracker.getSummary(),
         });
@@ -2342,6 +2367,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
                 costs: costSummary,
                 emotionalCategory: emotionalCategory || null,
                 pipelineVersionUsed,
+                ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
               }),
@@ -2367,6 +2393,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           costs: costSummary,
           emotionalCategory: emotionalCategory || null,
           pipelineVersionUsed,
+          ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
           logs: bookContext.logs,
         });
@@ -2393,6 +2420,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
                 bookId,
                 error: err.message,
                 pipelineVersionUsed,
+                ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
                 logs: bookContext.logs,
                 ...(err.failureCode ? { failureCode: err.failureCode } : {}),
                 ...(err.needsReview ? { needsReview: err.needsReview } : {}),
@@ -2413,6 +2441,7 @@ If the main child is the ONLY character, respond with exactly: NONE` },
           bookId,
           error: err.message,
           pipelineVersionUsed,
+          ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
           logs: bookContext.logs,
           ...(err.failureCode ? { failureCode: err.failureCode } : {}),
           ...(err.needsReview ? { needsReview: err.needsReview } : {}),

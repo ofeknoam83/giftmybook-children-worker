@@ -108,6 +108,12 @@ Roles → providers (`services/bookPipelineV3/llm/modelRouter.js`, override via 
 - **No ship-anyway → review queue:** panel exhaustion (after ≤2 revision rounds + second draft + fresh manuscript from the runner-up concept) throws `PipelineError` with `failureCode: 'needs_review'` and a structured payload (`services/bookPipelineV3/reviewQueue/payload.js`: stage, reason `judge_panel_exhausted`, defects, judge scores + history). server.js persists the payload in the book checkpoint and forwards it on the failure callbacks (`needsReview` field). Admin resolution via `POST /v3/review/approve` (ship best manuscript on re-dispatch) or `/v3/review/regen-manuscript`; `pick-candidate`/`regen-spread` 409 until the native illustrator (milestone 2 W10). The endpoints only mutate the checkpoint — the main app re-dispatches `/generate-book`. Smoke-test escape hatch: `BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1`.
 - Filter `[bookPipelineV3]` in Cloud Logging; the run ends with a one-line `cost summary` (per-call ledger in `document.v3.costs`).
 
+### Native V3 illustrator (milestone 2, in progress — see `docs/ILLUSTRATOR_V3_MILESTONE2_PLAN.md`)
+
+- **Flag:** `BOOK_PIPELINE_V3_ILLUSTRATOR=native|legacy` (deploy default `legacy`); per-book request override `illustratorVersion` (invalid values 400 before the 202). Precedence checkpoint → request → env → default (`services/bookPipelineV3/illustrator/config.js`); the checkpoint pins the illustrator a book started rendering on, and callbacks carry `illustratorVersionUsed` beside `pipelineVersionUsed`.
+- **Roles:** ART_DIRECTOR `gemini-2.5-pro`, QA_VISION `gemini-2.5-flash`, LIKENESS_JUDGE_A `gemini-2.5-flash` + LIKENESS_JUDGE_B `gpt-5.4` (cross-family ENFORCED — `validateLikenessFamilies` logs FAMILY COLLAPSE). Renderer models (`gemini-3.1-flash-image`) resolve in illustrator/config.js (`BOOK_PIPELINE_V3_SHEET/SPREAD_RENDERER_MODEL`).
+- **No silent fallback:** selecting `native` before the milestone-2 phases are deployed fails loudly (`ILLUSTRATOR_NATIVE_NOT_READY`), never silently rendering legacy.
+
 ## Conventions
 
 - All functions use JSDoc comments
