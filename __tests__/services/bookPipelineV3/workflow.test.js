@@ -149,7 +149,7 @@ describe('runCreateBookWorkflow — illustrator flag (W3)', () => {
       thrown = err;
     }
     expect(thrown).toBeDefined();
-    expect(String(thrown.message)).toMatch(/native V3 illustrator selected but not yet implemented/);
+    expect(String(thrown.message)).toMatch(/native V3 illustrator selected but rendering is not yet implemented/);
   });
 
   test('checkpoint pin beats request: legacy checkpoint + native request stays legacy', async () => {

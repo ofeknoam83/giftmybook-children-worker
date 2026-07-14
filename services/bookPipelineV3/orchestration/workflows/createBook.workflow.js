@@ -37,16 +37,18 @@ const { manuscriptRevisionActivity, mergeTargets } = require('../activities/manu
 const { illustrationDirectorActivity } = require('../activities/illustrationDirector');
 const { runNativeIllustrator } = require('../../illustrator');
 const { resolveIllustratorVersion } = require('../../illustrator/config');
+const { buildIdentityKit } = require('../../illustrator/identityKit');
 const { validatePanelFamilies } = require('../../llm/modelRouter');
 
 const MAX_REVISION_ROUNDS = 2;
 
 class V3ExhaustionError extends Error {
-  constructor(message, { issues, needsReview } = {}) {
+  constructor(message, { issues, needsReview, stage } = {}) {
     super(message);
     this.name = 'V3ExhaustionError';
     this.issues = issues || [];
     this.needsReview = needsReview || null;
+    this.stage = stage || 'writerQa';
   }
 }
 
@@ -260,6 +262,33 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   ageProfile.band = ageBand;
   const theme = rawRequest?.theme || 'adventure';
 
+  // Milestone-2 flag: native "Art Studio" vs the legacy v1 quad adapter.
+  // Resolved once per run (checkpoint → request → env → default) and
+  // reported in doc.v3 + pipeline callbacks so A/B stays auditable.
+  const illustrator = resolveIllustratorVersion({
+    requestedVersion: rawRequest?.illustratorVersion || null,
+    checkpointVersion: rawRequest?.checkpointIllustratorVersion || null,
+    log: (msg) => ctx.log('warn', `[v3] ${msg}`),
+  });
+  ctx.log('info', `[v3] illustrator: ${illustrator.version} (source=${illustrator.source})`);
+
+  // A0 identity kit runs in PARALLEL with the writer (native path only) —
+  // photos → likeness brief → judged character model sheet, GCS-cached.
+  // Joined before rendering; a kit failure surfaces there.
+  const kitPhotoUrls = rawRequest?.child?.photoUrls || [];
+  let identityKitPromise = null;
+  if (illustrator.version === 'native' && kitPhotoUrls.length > 0) {
+    ctx.log('info', `[v3] identity kit: starting in parallel with the writer (${kitPhotoUrls.length} photo(s))`);
+    identityKitPromise = buildIdentityKit({
+      photoUrls: kitPhotoUrls,
+      ageBand,
+      childDetails: { name: rawRequest?.child?.name, gender: rawRequest?.child?.gender },
+      abortSignal: signals?.abortSignal,
+      log: (m) => ctx.log('info', `[v3] [identityKit] ${m}`),
+    });
+    identityKitPromise.catch(() => {}); // defused here; the real await rethrows at the join
+  }
+
   // ── planning ──
   ctx.reportProgress({ step: 'planning', message: 'Building creative brief' });
   const brief = await ctx.execute('brief', creativeBriefActivity, { rawRequest, ageProfile }, { retries: 1 });
@@ -370,17 +399,27 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 
   // ── illustrating ──
   ctx.checkAbort();
-  // Milestone-2 flag: native "Art Studio" vs the legacy v1 quad adapter.
-  // Resolved once per run (checkpoint → request → env → default) and
-  // reported in doc.v3 + pipeline callbacks so A/B stays auditable.
-  const illustrator = resolveIllustratorVersion({
-    requestedVersion: rawRequest?.illustratorVersion || null,
-    checkpointVersion: rawRequest?.checkpointIllustratorVersion || null,
-    log: (msg) => ctx.log('warn', `[v3] ${msg}`),
-  });
-  ctx.log('info', `[v3] illustrator: ${illustrator.version} (source=${illustrator.source})`);
+  // Join the identity kit (native path): exhaustion becomes a stage-tagged
+  // needs_review, infra errors propagate as ordinary failures.
+  let identityKit = null;
+  if (identityKitPromise) {
+    try {
+      identityKit = await identityKitPromise;
+      ctx.log('info', `[v3] identity kit ready (fromCache=${identityKit.fromCache}, minLikeness=${identityKit.judgeScores?.minLikeness ?? 'n/a'})`);
+    } catch (err) {
+      if (err?.needsReview) {
+        throw new V3ExhaustionError(err.message, {
+          issues: err.needsReview.defects || [],
+          needsReview: err.needsReview,
+          stage: 'identityKit',
+        });
+      }
+      throw err;
+    }
+  }
 
   const illustrationInput = {
+    identityKit,
     rawRequest,
     brief,
     ageProfile,

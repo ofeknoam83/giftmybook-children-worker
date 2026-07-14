@@ -14,8 +14,8 @@
  * legacy adapter, so A/B comparisons stay trustworthy.
  */
 
-const IMPLEMENTED_PHASES = [];
-const PENDING_PHASES = ['identityKit (W4)', 'render (W5)', 'qa (W6)', 'artDirection (W7/W8)', 'bookPass+typesetting (W9)', 'reviewQueue wiring (W10)'];
+const IMPLEMENTED_PHASES = ['identityKit (W4)'];
+const PENDING_PHASES = ['render (W5)', 'qa (W6)', 'artDirection (W7/W8)', 'bookPass+typesetting (W9)', 'reviewQueue wiring (W10)'];
 
 /**
  * Run the native illustrator over a written manuscript.
@@ -23,13 +23,16 @@ const PENDING_PHASES = ['identityKit (W4)', 'render (W5)', 'qa (W6)', 'artDirect
  * returns a rendered v1-shape document (spreads with illustration slots
  * filled) so toLegacyStoryPlan and layout stay untouched.
  *
- * @param {object} input - { rawRequest, brief, ageProfile, concept, manuscript, coverImageUrl, coverTitle, operationalContext }
+ * @param {object} input - { identityKit, rawRequest, brief, ageProfile, concept, manuscript, coverImageUrl, coverTitle, operationalContext }
+ *   `identityKit` is built by the workflow in parallel with the writer
+ *   (identityKit/index.js) — sheet + brief + photos, the fixed reference
+ *   set every spread render attaches.
  * @param {object} ctx - workflow context ({ log, bookId, reportProgress, execute })
  * @returns {Promise<object>} rendered document
  */
 async function runNativeIllustrator(input, ctx) {
   const err = new Error(
-    'native V3 illustrator selected but not yet implemented on this worker '
+    'native V3 illustrator selected but rendering is not yet implemented on this worker '
     + `(implemented: [${IMPLEMENTED_PHASES.join(', ') || 'none'}]; pending: [${PENDING_PHASES.join(', ')}]). `
     + "Use illustratorVersion 'legacy' or deploy the milestone-2 phases.",
   );

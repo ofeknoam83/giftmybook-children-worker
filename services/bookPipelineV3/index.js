@@ -126,9 +126,9 @@ async function generateBook(rawRequest, opts = {}) {
     if (err && err.name === 'V3ExhaustionError') {
       throw new PipelineError(err.message, {
         failureCode: 'needs_review',
-        stage: 'writerQa',
+        stage: err.stage || 'writerQa',
         issues: err.issues,
-        tags: ['needs_review', 'judge_panel_exhausted'],
+        tags: ['needs_review', err.needsReview?.reason || 'judge_panel_exhausted'],
         needsReview: err.needsReview || null,
       });
     }
@@ -143,9 +143,9 @@ async function generateBook(rawRequest, opts = {}) {
       if (err.cause?.name === 'V3ExhaustionError') {
         throw new PipelineError(err.cause.message, {
           failureCode: 'needs_review',
-          stage: 'writerQa',
+          stage: err.cause.stage || 'writerQa',
           issues: err.cause.issues,
-          tags: ['needs_review', 'judge_panel_exhausted'],
+          tags: ['needs_review', err.cause.needsReview?.reason || 'judge_panel_exhausted'],
           needsReview: err.cause.needsReview || null,
         });
       }
