@@ -3,7 +3,7 @@
  *   - happy path: every stage runs, ≤ round budget honored, {document, layout}
  *     shape, toLegacyStoryPlan sanity (string synopsis), band-named progress
  *   - exhaustion: panel never passes → V3ExhaustionError with judge history,
- *     mapped by index.js to PipelineError('judge_panel_exhausted')
+ *     mapped by index.js to PipelineError('needs_review') with a reviewQueue payload
  */
 
 jest.mock('../../../services/bookPipelineV3/llm/modelRouter', () => ({
@@ -145,6 +145,10 @@ describe('runCreateBookWorkflow — exhaustion', () => {
     expect(thrown).toBeInstanceOf(V3ExhaustionError);
     expect(thrown.issues.length).toBeGreaterThan(0);
     expect(thrown.issues.join(' ')).toMatch(/failing dimensions/i);
+    // W2: exhaustion carries the structured review-queue payload
+    expect(thrown.needsReview).toMatchObject({ stage: 'writerQa', reason: 'judge_panel_exhausted' });
+    expect(thrown.needsReview.defects.length).toBeGreaterThan(0);
+    expect(Array.isArray(thrown.needsReview.judgeHistory)).toBe(true);
 
     const labels = callWithRole.mock.calls.map(([, p]) => p.label);
     expect(labels).toContain('v3.revision'); // revision rounds ran
@@ -162,10 +166,21 @@ describe('runCreateBookWorkflow — exhaustion', () => {
       delete process.env.BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION;
     }
   });
+
+  test("review resolution action 'ship_best' ships with writerQa.pass=false (W2)", async () => {
+    wireModelLayer({ judgeScore: 3 });
+    const { document } = await runCreateBookWorkflow({
+      rawRequest: { ...RAW_REQUEST, reviewResolution: { action: 'ship_best', admin: 'qa@giftmybook.com' } },
+      signals: {},
+      log: () => {},
+    });
+    expect(document.writerQa.pass).toBe(false);
+    expect(document.writerQa.warnings).toContain('judge_panel_exhausted_shipped_by_review_approval');
+  });
 });
 
 describe('index.js error mapping', () => {
-  test('V3ExhaustionError maps to PipelineError judge_panel_exhausted', async () => {
+  test('V3ExhaustionError maps to PipelineError needs_review with payload', async () => {
     // Set required keys so assertV3Config passes; the mocked router still runs the workflow.
     const saved = {};
     for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'DEEPSEEK_API_KEY']) {
@@ -182,9 +197,11 @@ describe('index.js error mapping', () => {
         thrown = err;
       }
       expect(thrown).toBeInstanceOf(PipelineError);
-      expect(thrown.failureCode).toBe('judge_panel_exhausted');
+      expect(thrown.failureCode).toBe('needs_review');
       expect(thrown.tags).toContain('needs_review');
+      expect(thrown.tags).toContain('judge_panel_exhausted');
       expect(thrown.stage).toBe('writerQa');
+      expect(thrown.needsReview).toMatchObject({ stage: 'writerQa', reason: 'judge_panel_exhausted' });
     } finally {
       for (const [k, v] of Object.entries(saved)) {
         if (v === undefined) delete process.env[k];

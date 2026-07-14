@@ -24,6 +24,7 @@ const { createWorkflowContext } = require('../workflowEngine');
 const { createArtifactStore } = require('../../artifactStore');
 const { getAgeProfile } = require('../../ageProfiles');
 const { deriveAgeBandFromRequest } = require('../../ageProfiles');
+const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 const { TOTAL_SPREADS } = require('../../contract/constants');
 
 const { creativeBriefActivity } = require('../activities/creativeBrief');
@@ -39,10 +40,11 @@ const { validatePanelFamilies } = require('../../llm/modelRouter');
 const MAX_REVISION_ROUNDS = 2;
 
 class V3ExhaustionError extends Error {
-  constructor(message, { issues } = {}) {
+  constructor(message, { issues, needsReview } = {}) {
     super(message);
     this.name = 'V3ExhaustionError';
     this.issues = issues || [];
+    this.needsReview = needsReview || null;
   }
 }
 
@@ -334,12 +336,29 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
         ([id, agg]) => `${id}: sumMedians=${agg.sumMedians.toFixed(1)} failing=[${agg.failingDimensions.join(',')}]`,
       )),
     ];
+    const reviewResolution = rawRequest?.reviewResolution || null;
     if (process.env.BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION === '1') {
       ctx.log('warn', '[v3] SHIP_ON_EXHAUSTION=1 — shipping best-scoring manuscript with writerQa.pass=false');
+    } else if (reviewResolution?.action === 'ship_best') {
+      ctx.log('warn', `[v3] review approval (${reviewResolution.admin || 'admin'}) — shipping best-scoring manuscript with writerQa.pass=false`);
     } else {
       throw new V3ExhaustionError(
         'manuscript failed the bookstore-standard judge panel after revision rounds, the second draft, and a fresh attempt from the runner-up concept',
-        { issues },
+        {
+          issues,
+          needsReview: buildNeedsReviewPayload({
+            stage: 'writerQa',
+            reason: 'judge_panel_exhausted',
+            defects: issues,
+            judgeScores: finalSummary || null,
+            manuscriptHistory: [outcome.manuscript && {
+              id: outcome.manuscript.id,
+              title: outcome.manuscript.title,
+              conceptId: outcome.manuscript.concept_id || null,
+            }].filter(Boolean),
+            judgeHistory: panelHistory.map((p) => p.perManuscript),
+          }),
+        },
       );
     }
   }
@@ -369,7 +388,11 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   renderedDoc.writerQa = {
     pass: outcome.accepted,
     rounds: outcome.rounds,
-    warnings: outcome.accepted ? [] : ['judge_panel_exhausted_shipped_by_env_flag'],
+    warnings: outcome.accepted ? [] : [
+      rawRequest?.reviewResolution?.action === 'ship_best'
+        ? 'judge_panel_exhausted_shipped_by_review_approval'
+        : 'judge_panel_exhausted_shipped_by_env_flag',
+    ],
     gate: gate ? {
       passed: gate.passed,
       hardFailureCount: gate.hardFailureCount,

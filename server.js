@@ -1360,6 +1360,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             title: approvedTitle || sanitized.approvedTitle || 'My Story',
             imageUrl: approvedCoverUrl || null,
           },
+          // Admin review resolution (set by /v3/review/* on a needs_review
+          // checkpoint). 'ship_best' lets the workflow ship the best-scoring
+          // manuscript on panel exhaustion instead of failing again.
+          ...(checkpoint?.reviewResolution ? { reviewResolution: checkpoint.reviewResolution } : {}),
         };
 
         let pipelineResult;
@@ -1447,7 +1451,23 @@ Be concise. Only describe adults/secondary people, not the main child.` },
               stage: pipelineErr.stage,
               issues: pipelineErr.issues,
             });
-            throw new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
+            // needs_review is a terminal REVIEW state, not a plain failure
+            // (design D6 / cutover plan W2): persist the structured payload
+            // in the checkpoint so the /v3/review/* endpoints can resolve it,
+            // and carry it to the failure callbacks so the main app's review
+            // dashboard gets the full context (defects, judge history).
+            if (pipelineErr.failureCode === 'needs_review' && pipelineErr.needsReview) {
+              await saveCheckpoint(bookId, {
+                completedStage: 'needs_review',
+                pipelineVersion: routed.version,
+                needsReview: pipelineErr.needsReview,
+                request: { theme, format },
+              });
+            }
+            const wrapped = new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
+            wrapped.failureCode = pipelineErr.failureCode || null;
+            wrapped.needsReview = pipelineErr.needsReview || null;
+            throw wrapped;
           }
           throw pipelineErr;
         }
@@ -2368,7 +2388,15 @@ If the main child is the ONLY character, respond with exactly: NONE` },
             await fetch(callbackUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify({ success: false, bookId, error: err.message, pipelineVersionUsed, logs: bookContext.logs }),
+              body: JSON.stringify({
+                success: false,
+                bookId,
+                error: err.message,
+                pipelineVersionUsed,
+                logs: bookContext.logs,
+                ...(err.failureCode ? { failureCode: err.failureCode } : {}),
+                ...(err.needsReview ? { needsReview: err.needsReview } : {}),
+              }),
               signal: errorAbort.signal,
             });
             clearTimeout(errorTimeout);
@@ -2381,7 +2409,14 @@ If the main child is the ONLY character, respond with exactly: NONE` },
       }
 
       if (progressCallbackUrl) {
-        reportError(progressCallbackUrl, { bookId, error: err.message, pipelineVersionUsed, logs: bookContext.logs });
+        reportError(progressCallbackUrl, {
+          bookId,
+          error: err.message,
+          pipelineVersionUsed,
+          logs: bookContext.logs,
+          ...(err.failureCode ? { failureCode: err.failureCode } : {}),
+          ...(err.needsReview ? { needsReview: err.needsReview } : {}),
+        });
       }
     } finally {
       clearInterval(heartbeatInterval);
@@ -3298,6 +3333,87 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 // ── POST /rebuild-cover-pdf — Rebuild cover PDF only (binding-aware) ──
 //
 // Rebuilds the Lulu wrap-around cover PDF using the exact same pipeline as
+// ── POST /v3/review/* — resolution endpoints for needs_review books ──
+// A V3 book that exhausts a quality budget terminates as `needs_review`
+// with a structured payload persisted in its GCS checkpoint (design D6,
+// cutover plan W2). These endpoints record the admin's resolution in the
+// checkpoint; the caller (main app) then re-dispatches /generate-book,
+// and the workflow honors the resolution on that run. They deliberately
+// do NOT re-trigger generation themselves — the worker never stores the
+// full request payload, the main app does.
+const V3_REVIEW_BOOK_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+async function loadNeedsReviewCheckpoint(bookId, res) {
+  if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
+    res.status(400).json({ success: false, error: 'invalid bookId' });
+    return null;
+  }
+  const checkpoint = await loadCheckpoint(bookId);
+  if (!checkpoint) {
+    res.status(404).json({ success: false, error: `no checkpoint for book ${bookId}` });
+    return null;
+  }
+  if (!checkpoint.needsReview) {
+    res.status(409).json({ success: false, error: `book ${bookId} is not awaiting review (completedStage=${checkpoint.completedStage || 'n/a'})` });
+    return null;
+  }
+  return checkpoint;
+}
+
+async function resolveNeedsReview(bookId, checkpoint, resolution) {
+  const next = {
+    ...checkpoint,
+    reviewResolution: resolution,
+    resolvedNeedsReview: checkpoint.needsReview,
+  };
+  delete next.needsReview; // needsReview present ⇔ awaiting review
+  await saveCheckpoint(bookId, next);
+}
+
+// Approve as-is: ship the best-scoring manuscript despite panel exhaustion.
+app.post('/v3/review/approve', authenticate, async (req, res) => {
+  try {
+    const { bookId, note } = req.body || {};
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({ action: 'ship_best', note, admin: req.body?.admin || null });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} approved (ship_best) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'ship_best', next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] approve failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Regenerate the manuscript from scratch (fresh writer run on re-dispatch).
+app.post('/v3/review/regen-manuscript', authenticate, async (req, res) => {
+  try {
+    const { bookId, note } = req.body || {};
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({ action: 'regen_manuscript', note, admin: req.body?.admin || null });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (regen_manuscript) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'regen_manuscript', next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] regen-manuscript failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Spread-level actions become available with the native V3 illustrator (W10).
+for (const action of ['pick-candidate', 'regen-spread']) {
+  app.post(`/v3/review/${action}`, authenticate, (req, res) => {
+    res.status(409).json({
+      success: false,
+      error: `${action} requires the native V3 illustrator (spread-level candidates); available after milestone 2 W10`,
+    });
+  });
+}
+
 // initial book generation (services/coverGenerator.generateCover), so that
 // flipping the binding type (paperback ↔ hardcover) or re-running after an
 // edit produces bit-for-bit equivalent output.
