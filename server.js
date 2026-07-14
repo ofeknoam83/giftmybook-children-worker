@@ -1338,7 +1338,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         // document; we synthesize a legacy-shaped storyPlan for the
         // downstream PDF/upsell/cover code that has not yet been ported.
         bookContext.checkAbort();
-        bookContext.log('info', 'Starting bookPipeline v1 generation', { theme: theme || 'adventure', format });
+        // NOTE: the pipeline VERSION is decided by resolveBookPipeline below —
+        // this line must stay version-neutral (a hardcoded "v1" here confused
+        // production log readers for months).
+        bookContext.log('info', 'Starting book pipeline generation', { theme: theme || 'adventure', format });
 
         if (apiKeys) {
           for (const [key, val] of Object.entries(apiKeys)) {

@@ -19,11 +19,20 @@ describe('pipelineRouter.resolveBookPipeline', () => {
     }
   });
 
-  test('defaults: v2 for picture_book, v1 otherwise', () => {
-    expect(resolveBookPipeline({ format: 'picture_book', log: noopLog }))
-      .toMatchObject({ version: 'v2', moduleName: 'bookPipelineV2', source: 'default' });
+  test('defaults: v3 for picture_book (W11 cutover), v1 safety net otherwise', () => {
+    expect(resolveBookPipeline({ format: 'picture_book', v3Available: true, log: noopLog }))
+      .toMatchObject({ version: 'v3', moduleName: 'bookPipelineV3', source: 'default' });
+    // Retired formats are rejected upstream by validation; if one slips
+    // through, it stays on v1 rather than mis-rendering on v3.
     expect(resolveBookPipeline({ format: 'early_reader', log: noopLog }))
       .toMatchObject({ version: 'v1', moduleName: 'bookPipeline', source: 'default' });
+  });
+
+  test('default falls back LOUDLY to v2 when the v3 module is missing', () => {
+    const messages = [];
+    expect(resolveBookPipeline({ format: 'picture_book', v3Available: false, log: (m) => messages.push(m) }))
+      .toMatchObject({ version: 'v2', moduleName: 'bookPipelineV2', source: 'default' });
+    expect(messages.join(' ')).toContain('FALLING BACK');
   });
 
   test('BOOK_PIPELINE_V2=off forces v1 and beats any request', () => {
@@ -82,16 +91,16 @@ describe('pipelineRouter.resolveBookPipeline', () => {
       .toMatchObject({ version: 'v2', source: 'checkpoint' });
   });
 
-  test('non-picture_book formats ignore version requests', () => {
+  test('non-picture_book formats ignore version requests (safety net)', () => {
     const messages = [];
     expect(resolveBookPipeline({ format: 'early_reader', requestedVersion: 'v3', v3Available: true, log: (m) => messages.push(m) }))
       .toMatchObject({ version: 'v1', source: 'default' });
-    expect(messages.length).toBeGreaterThan(0);
+    expect(messages.join(' ')).toContain('retired format');
   });
 
   test('modulePath points at the services directory', () => {
-    const { modulePath } = resolveBookPipeline({ format: 'picture_book', log: noopLog });
-    expect(modulePath).toMatch(/services[/\\]bookPipelineV2$/);
+    const { modulePath } = resolveBookPipeline({ format: 'picture_book', v3Available: true, log: noopLog });
+    expect(modulePath).toMatch(/services[/\\]bookPipelineV3$/);
   });
 });
 

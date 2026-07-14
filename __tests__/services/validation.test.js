@@ -175,8 +175,28 @@ describe('validateGenerateBookRequest', () => {
     expect(result3.sanitized.childAge).toBe(5); // default
   });
 
-  test('defaults invalid bookFormat', () => {
+  test('defaults unknown/missing bookFormat to picture_book', () => {
     const result = validateGenerateBookRequest({ ...validBody, bookFormat: 'invalid' });
+    expect(result.valid).toBe(true);
+    expect(result.sanitized.bookFormat).toBe('picture_book');
+    const missing = validateGenerateBookRequest({ ...validBody, bookFormat: undefined });
+    expect(missing.valid).toBe(true);
+    expect(missing.sanitized.bookFormat).toBe('picture_book');
+  });
+
+  test('rejects retired formats loudly (v3-only cutover, W11)', () => {
+    // An explicit retired format means the caller wants a product we no
+    // longer make — a silent picture_book default would ship the wrong book.
+    for (const retired of ['early_reader', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL']) {
+      const result = validateGenerateBookRequest({ ...validBody, bookFormat: retired });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('retired'))).toBe(true);
+    }
+  });
+
+  test('uppercase PICTURE_BOOK normalizes to picture_book', () => {
+    const result = validateGenerateBookRequest({ ...validBody, bookFormat: 'PICTURE_BOOK' });
+    expect(result.valid).toBe(true);
     expect(result.sanitized.bookFormat).toBe('picture_book');
   });
 

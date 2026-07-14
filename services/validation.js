@@ -4,8 +4,11 @@
 
 const { CANONICAL_BOOK_ART_STYLE } = require('./illustrationGenerator');
 
-const VALID_FORMATS = ['picture_book', 'early_reader', 'PICTURE_BOOK', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
-const FORMAT_NORMALIZE = { PICTURE_BOOK: 'picture_book', EARLY_READER: 'early_reader' };
+// v3-only cutover (W11): picture books are the only supported format. The
+// retired formats are rejected 400 BEFORE the 202 — a silent default to
+// picture_book would generate a different product than the one requested.
+const VALID_FORMATS = ['picture_book', 'PICTURE_BOOK'];
+const RETIRED_FORMATS = ['early_reader', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
 // Legacy/alternate keys clients may still send; sanitized `artStyle` is always canonical 3D Pixar.
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
 const VALID_THEMES = ['adventure', 'friendship', 'bedtime', 'birthday', 'birthday_magic', 'holiday', 'school', 'nature', 'space', 'underwater', 'fantasy',
@@ -194,16 +197,15 @@ function validateGenerateBookRequest(body) {
     errors.push(`childName must be 1-${MAX_NAME_LENGTH} characters`);
   }
 
-  const photoOptionalFormats = ['CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
-  const isPhotoOptional = photoOptionalFormats.includes(body.bookFormat);
+  // v3-only cutover: retired formats fail loudly. Missing/unknown values
+  // still default to picture_book (the only product), but an EXPLICIT
+  // retired format means the caller wants a product we no longer make.
+  if (RETIRED_FORMATS.includes(body.bookFormat)) {
+    errors.push(`bookFormat '${body.bookFormat}' is retired — only picture books are supported`);
+  }
 
   if (!Array.isArray(body.childPhotoUrls) || body.childPhotoUrls.length === 0) {
-    if (isPhotoOptional) {
-      // Normalize missing/empty to [] for formats that don't require photos
-      body.childPhotoUrls = [];
-    } else {
-      errors.push('childPhotoUrls is required and must be a non-empty array');
-    }
+    errors.push('childPhotoUrls is required and must be a non-empty array');
   } else if (body.childPhotoUrls.length > MAX_PHOTO_URLS) {
     errors.push(`childPhotoUrls must have at most ${MAX_PHOTO_URLS} items`);
   } else {
@@ -226,7 +228,7 @@ function validateGenerateBookRequest(body) {
     childGender: normaliseGender(body.childGender),
     childAppearance: sanitizeForPrompt(body.childAppearance || '', 300),
     childInterests: sanitizeInterests(body.childInterests),
-    bookFormat: VALID_FORMATS.includes(body.bookFormat) ? (FORMAT_NORMALIZE[body.bookFormat] || body.bookFormat) : 'picture_book',
+    bookFormat: 'picture_book',
     artStyle: CANONICAL_BOOK_ART_STYLE,
     theme: VALID_THEMES.includes(body.theme) ? body.theme : 'adventure',
     customDetails: sanitizeForPrompt(body.customDetails || '', MAX_CUSTOM_DETAILS_LENGTH),
