@@ -28,10 +28,10 @@ const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
  * Run the full cascade for one candidate.
  * @returns {Promise<object>} evaluation record
  */
-async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts }) {
+async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts, log = () => {} }) {
   const record = { candidateIndex: candidate.candidateIndex, path: candidate.path, defects: [], tags: [] };
 
-  const pre = await runDeterministicChecks(candidate, abortSignal);
+  const pre = await runDeterministicChecks(candidate, abortSignal, log);
   if (!pre.pass) {
     record.stage = 'deterministic';
     record.pass = false;
@@ -123,7 +123,7 @@ async function selectSpreadWinner({
   for (let wave = 0; wave <= REPAIR_WAVES_PER_SPREAD; wave += 1) {
     const fresh = allCandidates.filter((c) => !evaluations.some((e) => e.candidateIndex === c.candidateIndex));
     for (const candidate of fresh) {
-      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts });
+      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts, log });
       evaluations.push(record);
       log(`spread ${spread.spread} c${candidate.candidateIndex}: ${record.pass ? 'PASS' : `fail@${record.stage}`}${record.likeness ? ` likeness=${record.likeness}` : ''}${record.defects.length ? ` [${record.defects[0]}]` : ''}`);
     }

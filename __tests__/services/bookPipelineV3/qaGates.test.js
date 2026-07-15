@@ -29,15 +29,32 @@ describe('letterform gate', () => {
     expect(LETTERFORM_PROMPT).toContain('abstract squiggles');
     expect(LETTERFORM_PROMPT).not.toMatch(/resembles lettering/);
     expect(LETTERFORM_PROMPT).toContain('"what"');
+    expect(LETTERFORM_PROMPT).toContain('"textType"');
+    expect(LETTERFORM_PROMPT).toContain('isolated_glyph');
   });
 
-  test('hasText=true fails with what/where in the defect; runs at temperature 0', async () => {
-    callVisionRole.mockResolvedValueOnce({ json: { hasText: true, what: 'the word STAR', where: 'on the map, upper right' }, model: 'm', family: 'gemini' });
+  test('readable WORDS fail with what/where in the defect; runs at temperature 0', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: { hasText: true, textType: 'words', what: 'the word STAR', where: 'on the map, upper right' }, model: 'm', family: 'gemini' });
     const res = await letterformCheck(CANDIDATE);
     expect(res.pass).toBe(false);
     expect(res.defects[0]).toContain('the word STAR');
     expect(res.defects[0]).toContain('on the map, upper right');
     expect(callVisionRole.mock.calls[0][1].temperature).toBe(0);
+  });
+
+  test("an isolated glyph on a prop (compass 'N') is tolerated with a log note", async () => {
+    callVisionRole.mockResolvedValueOnce({ json: { hasText: true, textType: 'isolated_glyph', what: "the letter 'N'", where: 'compass rose' }, model: 'm', family: 'gemini' });
+    const notes = [];
+    const res = await letterformCheck(CANDIDATE, undefined, (m) => notes.push(m));
+    expect(res.pass).toBe(true);
+    expect(res.defects).toHaveLength(0);
+    expect(notes.join(' ')).toContain("tolerated isolated glyph (the letter 'N' — compass rose)");
+  });
+
+  test('hasText=true with no textType stays a hard fail (safe default)', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: { hasText: true, what: 'unclear marks', where: 'sign' }, model: 'm', family: 'gemini' });
+    const res = await letterformCheck(CANDIDATE);
+    expect(res.pass).toBe(false);
   });
 
   test('hasText=false passes', async () => {

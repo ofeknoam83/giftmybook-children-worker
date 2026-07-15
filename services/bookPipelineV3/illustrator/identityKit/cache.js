@@ -17,7 +17,10 @@ const { STYLE_VERSION } = require('../styleBible');
 // ik-3: likeness judged vs the APPROVED COVER character (not the photo);
 //       cover URL joins the cache key — a different cover is a different
 //       approved character.
-const KIT_PROMPT_VERSION = 'ik-3';
+// ik-4: renderer upgraded to the pro image tier — flash-rendered sheets
+//       must regenerate (the sheet anchors every spread; a flash sheet
+//       under pro spreads reintroduces a quality/style seam).
+const KIT_PROMPT_VERSION = 'ik-4';
 
 const KIT_CACHE_PREFIX = 'identity-kit';
 

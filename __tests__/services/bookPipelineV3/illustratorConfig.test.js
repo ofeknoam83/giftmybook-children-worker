@@ -69,6 +69,12 @@ describe('resolveIllustratorVersion', () => {
   test('progress sub-steps are defined for the admin stepper', () => {
     expect(ILLUSTRATOR_STEPS).toEqual(['identity_kit', 'art_direction', 'rendering', 'spread_qa', 'book_pass']);
   });
+
+  test('renderers default to the PRO image tier (product decision 2026-07-15); env overrides win', () => {
+    const { SHEET_RENDERER_MODEL, SPREAD_RENDERER_MODEL } = require('../../../services/bookPipelineV3/illustrator/config');
+    expect(SHEET_RENDERER_MODEL).toBe('gemini-3.1-pro-image');
+    expect(SPREAD_RENDERER_MODEL).toBe('gemini-3.1-pro-image');
+  });
 });
 
 describe('modelRouter illustrator roles', () => {
