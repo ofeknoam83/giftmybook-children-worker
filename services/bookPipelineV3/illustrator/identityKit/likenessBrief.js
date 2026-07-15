@@ -42,11 +42,14 @@ Rules:
  * @param {Array<{base64: string, mimeType?: string}>} opts.photos - decoded child photos
  * @param {string} opts.ageBand - PB_* band
  * @param {object} [opts.childDetails] - { name, gender } for the composed text (never sent to the model)
+ * @param {boolean} [opts.hasCover] - an approved cover exists: proportions/age defer to the
+ *   cover character instead of the band note (the band push-down aged characters down vs
+ *   the parent-approved art — 2026-07-15 exhaustion)
  * @param {string} [opts.label]
  * @param {AbortSignal} [opts.abortSignal]
  * @returns {Promise<{ fields: object, proportionsNote: string, briefText: string, model: string }>}
  */
-async function buildLikenessBrief({ photos, ageBand, childDetails = {}, label = 'v3.identitykit.brief', abortSignal }) {
+async function buildLikenessBrief({ photos, ageBand, childDetails = {}, hasCover = false, label = 'v3.identitykit.brief', abortSignal }) {
   if (!photos || photos.length === 0) throw new Error('buildLikenessBrief: at least one photo is required');
 
   const { json: fields, model } = await callVisionRole('QA_VISION', {
@@ -57,7 +60,9 @@ async function buildLikenessBrief({ photos, ageBand, childDetails = {}, label = 
     abortSignal,
   });
 
-  const proportionsNote = PROPORTIONS_BY_BAND[ageBand] || PROPORTIONS_BY_BAND.PB_PRESCHOOL;
+  const proportionsNote = hasCover
+    ? 'match the approved cover character\'s apparent age, build, and head-to-body proportions EXACTLY — the cover is the ground truth, not a generic age chart'
+    : (PROPORTIONS_BY_BAND[ageBand] || PROPORTIONS_BY_BAND.PB_PRESCHOOL);
   const pronoun = childDetails.gender === 'male' ? 'He' : childDetails.gender === 'female' ? 'She' : 'They';
 
   const briefText = [
@@ -70,8 +75,10 @@ async function buildLikenessBrief({ photos, ageBand, childDetails = {}, label = 
       ? `- Most recognizable features (preserve ALL): ${fields.distinguishingFeatures.join('; ')}`
       : null,
     fields.expressionNotes ? `- Characteristic expression: ${fields.expressionNotes}` : null,
-    `- Body proportions (MUST match age band): ${proportionsNote}`,
-    `${pronoun} must be recognizable as THIS child in every image — skin tone, hair, and the listed features are locked and may never drift.`,
+    `- Body proportions and apparent age: ${proportionsNote}`,
+    hasCover
+      ? `${pronoun} must be recognizable as the character on this book's APPROVED COVER in every image — where this description and the cover disagree, the cover wins.`
+      : `${pronoun} must be recognizable as THIS child in every image — skin tone, hair, and the listed features are locked and may never drift.`,
   ].filter(Boolean).join('\n');
 
   return { fields, proportionsNote, briefText, model };

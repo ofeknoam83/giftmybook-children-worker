@@ -14,20 +14,29 @@ const { STYLE_VERSION } = require('../styleBible');
 
 /** Bump to invalidate every cached kit (prompt/judging changes). */
 // ik-2: cover-anchored sheet generation + defect-fed repair wave (2026-07-15)
-const KIT_PROMPT_VERSION = 'ik-2';
+// ik-3: likeness judged vs the APPROVED COVER character (not the photo);
+//       cover URL joins the cache key — a different cover is a different
+//       approved character.
+const KIT_PROMPT_VERSION = 'ik-3';
 
 const KIT_CACHE_PREFIX = 'identity-kit';
 
 /**
  * @param {string[]} photoUrls
+ * @param {string|null} [coverImageUrl] - the approved cover (identity ground truth)
  * @returns {string} GCS folder for this kit
  */
-function computeKitCacheKey(photoUrls) {
+function computeKitCacheKey(photoUrls, coverImageUrl = null) {
+  // Signed URLs rotate their query tokens — hash the stable object path only.
+  const stable = (u) => String(u).trim().split('?')[0];
   const photoHash = crypto.createHash('sha256')
-    .update((photoUrls || []).map((u) => String(u).trim()).sort().join('|'))
+    .update((photoUrls || []).map(stable).sort().join('|'))
     .digest('hex')
     .slice(0, 24);
-  return `${KIT_CACHE_PREFIX}/${photoHash}-${STYLE_VERSION}-${KIT_PROMPT_VERSION}`;
+  const coverHash = coverImageUrl
+    ? `-c${crypto.createHash('sha256').update(stable(coverImageUrl)).digest('hex').slice(0, 12)}`
+    : '';
+  return `${KIT_CACHE_PREFIX}/${photoHash}${coverHash}-${STYLE_VERSION}-${KIT_PROMPT_VERSION}`;
 }
 
 /**

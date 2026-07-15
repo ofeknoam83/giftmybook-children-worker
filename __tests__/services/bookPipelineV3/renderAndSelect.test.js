@@ -140,7 +140,7 @@ describe('selectSpreadWinner cascade', () => {
     const qaTagCounts = {};
     const res = await selectSpreadWinner({
       bookId: 'bk', spread: SPREAD(1), candidates: CANDS, bookPack: PACK,
-      photos: PHOTOS, briefText: 'B', qaTagCounts, log: () => {},
+      referenceImages: PHOTOS, briefText: 'B', qaTagCounts, log: () => {},
     });
     expect(res.selected.candidateIndex).toBe(2);
     expect(judgeSpreadCandidate).toHaveBeenCalledTimes(1); // c1 never reached the judge
@@ -156,7 +156,7 @@ describe('selectSpreadWinner cascade', () => {
 
     const res = await selectSpreadWinner({
       bookId: 'bk', spread: SPREAD(1), candidates: CANDS, bookPack: PACK,
-      photos: PHOTOS, briefText: 'B', log: () => {},
+      referenceImages: PHOTOS, briefText: 'B', log: () => {},
     });
     expect(res.selected.candidateIndex).toBe(2);
     expect(res.selected.likeness).toBe(5);
@@ -176,7 +176,7 @@ describe('selectSpreadWinner cascade', () => {
     const qaTagCounts = {};
     const res = await selectSpreadWinner({
       bookId: 'bk', spread: SPREAD(7), candidates: CANDS, bookPack: PACK,
-      photos: PHOTOS, briefText: 'B', qaTagCounts, log: () => {},
+      referenceImages: PHOTOS, briefText: 'B', qaTagCounts, log: () => {},
     });
     expect(res.selected).toBeNull();
     expect(res.repairWaves).toBe(1);

@@ -28,7 +28,7 @@ const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
  * Run the full cascade for one candidate.
  * @returns {Promise<object>} evaluation record
  */
-async function evaluateCandidate({ candidate, sceneContract, direction, photos, abortSignal, qaTagCounts }) {
+async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts }) {
   const record = { candidateIndex: candidate.candidateIndex, path: candidate.path, defects: [], tags: [] };
 
   const pre = await runDeterministicChecks(candidate, abortSignal);
@@ -51,7 +51,12 @@ async function evaluateCandidate({ candidate, sceneContract, direction, photos, 
     return record;
   }
 
-  const likeness = await judgeLikenessCrossFamily({ candidate, photos, abortSignal });
+  const likeness = await judgeLikenessCrossFamily({
+    candidate,
+    referenceImages,
+    contextNote: 'The reference art is this book\'s character MODEL SHEET and/or APPROVED COVER — judge whether the candidate spread stars the same character.',
+    abortSignal,
+  });
   record.likeness = likeness.minLikeness;
   if (!likeness.pass) {
     record.stage = 'likeness';
@@ -94,7 +99,8 @@ function minSpread(e) {
  * @param {object|null} [opts.direction]
  * @param {Array} opts.bookPack - reference pack (for the repair wave)
  * @param {object|null} [opts.plate]
- * @param {Array} opts.photos - real photos (likeness judging)
+ * @param {Array} opts.referenceImages - approved reference art for likeness judging
+ *   (model sheet + cover — NOT the raw photos; the parent approved the cover character)
  * @param {string} opts.briefText
  * @param {string} [opts.wardrobeNote]
  * @param {object} [opts.qaTagCounts] - mutable telemetry counters
@@ -104,7 +110,7 @@ function minSpread(e) {
  */
 async function selectSpreadWinner({
   bookId, spread, candidates, direction = null, bookPack, plate = null,
-  photos, briefText, wardrobeNote, qaTagCounts, abortSignal, log = () => {},
+  referenceImages, briefText, wardrobeNote, qaTagCounts, abortSignal, log = () => {},
 }) {
   const sceneContract = spread.scene_contract || {};
   let allCandidates = [...candidates];
@@ -114,7 +120,7 @@ async function selectSpreadWinner({
   for (let wave = 0; wave <= REPAIR_WAVES_PER_SPREAD; wave += 1) {
     const fresh = allCandidates.filter((c) => !evaluations.some((e) => e.candidateIndex === c.candidateIndex));
     for (const candidate of fresh) {
-      const record = await evaluateCandidate({ candidate, sceneContract, direction, photos, abortSignal, qaTagCounts });
+      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts });
       evaluations.push(record);
       log(`spread ${spread.spread} c${candidate.candidateIndex}: ${record.pass ? 'PASS' : `fail@${record.stage}`}${record.likeness ? ` likeness=${record.likeness}` : ''}${record.defects.length ? ` [${record.defects[0]}]` : ''}`);
     }
