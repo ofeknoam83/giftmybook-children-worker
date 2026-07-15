@@ -76,6 +76,11 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+afterEach(() => {
+  delete process.env.BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION;
+  delete process.env.BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE;
+});
+
 describe('identity-kit cache', () => {
   test('key is order-insensitive over photo URLs and carries versions', () => {
     const a = computeKitCacheKey(['https://x/1.jpg', 'https://x/2.jpg']);
@@ -155,12 +160,113 @@ describe('generateCharacterSheet', () => {
 
     let thrown;
     try {
-      await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', log: () => {} });
+      await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', bookId: 'book-x', log: () => {} });
     } catch (err) { thrown = err; }
     expect(thrown).toBeDefined();
     expect(thrown.needsReview).toMatchObject({ stage: 'identityKit', reason: 'identity_kit_exhausted' });
     expect(thrown.needsReview.defects).toContain('generic child');
     expect(generateImage).toHaveBeenCalledTimes(6);
+  });
+
+  test('wave 2 feeds the prior wave\'s judge defects back into the prompt (REPAIR block)', async () => {
+    for (let i = 0; i < 6; i += 1) generateImage.mockResolvedValueOnce(sheetImage(`x${i}`));
+    mockLikenessVerdicts(Array.from({ length: 12 }, () => ({ likeness: 2, defects: ['hair too dark', 'skin lightened vs photo'] })));
+
+    await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', log: () => {} }).catch(() => {});
+
+    const wave1Prompt = generateImage.mock.calls[0][0].prompt;
+    const wave2Prompt = generateImage.mock.calls[3][0].prompt;
+    expect(wave1Prompt).not.toContain('REPAIR');
+    expect(wave2Prompt).toContain('REPAIR');
+    expect(wave2Prompt).toContain('hair too dark');
+    expect(wave2Prompt).toContain('skin lightened vs photo');
+  });
+
+  test('approved cover attaches as the generation reference; absent cover means no references', async () => {
+    generateImage.mockResolvedValue(sheetImage('a'));
+    mockLikenessVerdicts([{ likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }]);
+    await generateCharacterSheet({
+      photos: PHOTOS,
+      briefText: 'brief',
+      coverReference: { base64: 'cover-b64', mimeType: 'image/jpeg' },
+      log: () => {},
+    });
+    const call = generateImage.mock.calls[0][0];
+    expect(call.references).toHaveLength(1);
+    expect(call.references[0].base64).toBe('cover-b64');
+    expect(call.references[0].note).toContain('APPROVED BOOK COVER');
+    expect(call.prompt).toContain('APPROVED COVER REFERENCE');
+    // Part B invariant: the real PHOTOS are never in the reference list
+    expect(call.references.some((r) => r.base64 === 'photo1')).toBe(false);
+
+    jest.clearAllMocks();
+    generateImage.mockResolvedValue(sheetImage('b'));
+    mockLikenessVerdicts([{ likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }]);
+    await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', log: () => {} });
+    expect(generateImage.mock.calls[0][0].references).toHaveLength(0);
+    expect(generateImage.mock.calls[0][0].prompt).not.toContain('APPROVED COVER REFERENCE');
+  });
+
+  test('exhaustion payload carries candidate URLs + per-judge verdicts for the review queue', async () => {
+    for (let i = 0; i < 6; i += 1) generateImage.mockResolvedValueOnce(sheetImage(`x${i}`));
+    mockLikenessVerdicts(Array.from({ length: 12 }, (_, i) => ({ likeness: 2 + (i % 2), defects: ['generic child'] })));
+
+    let thrown;
+    try {
+      await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', bookId: 'book-42', log: () => {} });
+    } catch (err) { thrown = err; }
+    expect(thrown.needsReview.candidateUrls).toHaveLength(6);
+    expect(thrown.needsReview.candidateUrls[0]).toContain('children-jobs/book-42/identity-kit-review/');
+    const attempt = thrown.needsReview.judgeScores.attempts[0];
+    expect(attempt.judges).toHaveLength(LIKENESS_ROLES.length);
+    expect(attempt.judges[0]).toMatchObject({ role: expect.any(String), likeness: expect.any(Number) });
+  });
+
+  test('BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION=1 ships the best-scoring sheet with a loud marker', async () => {
+    process.env.BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION = '1';
+    for (let i = 0; i < 6; i += 1) generateImage.mockResolvedValueOnce(sheetImage(`x${i}`));
+    // all fail the bar; candidate x2 has the best minLikeness (3)
+    mockLikenessVerdicts([
+      { likeness: 2 }, { likeness: 2 },
+      { likeness: 2 }, { likeness: 2 },
+      { likeness: 3 }, { likeness: 3 },
+      { likeness: 2 }, { likeness: 2 },
+      { likeness: 2 }, { likeness: 2 },
+      { likeness: 2 }, { likeness: 2 },
+    ]);
+    const warnings = [];
+    const res = await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', log: (m) => warnings.push(m) });
+    expect(res.sheetBuffer.toString()).toBe('sheet-x2');
+    expect(res.judgeScores.shippedOnExhaustion).toBe(true);
+    expect(warnings.join(' ')).toMatch(/KIT_SHIP_ON_EXHAUSTION/);
+  });
+
+  test('env-lowered likeness pass score takes effect (BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE=3)', async () => {
+    process.env.BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE = '3';
+    generateImage.mockResolvedValue(sheetImage('a'));
+    // likeness 3 fails the default bar (4) but passes the lowered one
+    mockLikenessVerdicts([{ likeness: 3 }, { likeness: 3 }]);
+    const res = await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', log: () => {} });
+    expect(res.judgeScores.minLikeness).toBe(3);
+  });
+});
+
+describe('likeness judge rubric', () => {
+  test('pins the stylization clause (identity cues, not medium)', () => {
+    const { JUDGE_PROMPT } = require('../../../services/bookPipelineV3/illustrator/qa/likenessJudge');
+    expect(JUDGE_PROMPT).toContain('stylization is expected');
+    expect(JUDGE_PROMPT).toContain('IDENTITY CUES');
+    expect(JUDGE_PROMPT).toContain('Do NOT deduct for the medium');
+  });
+
+  test('resolveLikenessPassScore clamps garbage to the default', () => {
+    const { resolveLikenessPassScore, LIKENESS_PASS_SCORE } = require('../../../services/bookPipelineV3/illustrator/qa/likenessJudge');
+    process.env.BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE = 'strict';
+    expect(resolveLikenessPassScore()).toBe(LIKENESS_PASS_SCORE);
+    process.env.BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE = '9';
+    expect(resolveLikenessPassScore()).toBe(LIKENESS_PASS_SCORE);
+    process.env.BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE = '3';
+    expect(resolveLikenessPassScore()).toBe(3);
   });
 });
 
@@ -207,5 +313,35 @@ describe('buildIdentityKit', () => {
 
   test('requires photos', async () => {
     await expect(buildIdentityKit({ photoUrls: [], ageBand: 'PB_TODDLER' })).rejects.toThrow(/photo URL/);
+  });
+
+  test('pick_sheet resolution bypasses generation + judging and uses the admin-picked candidate', async () => {
+    mockBriefCall(); // the brief is still built (downstream renders need it)
+    const kit = await buildIdentityKit({
+      photoUrls: ['https://x/7.jpg'],
+      ageBand: 'PB_PRESCHOOL',
+      reviewResolution: { action: 'pick_sheet', candidateUrl: 'https://storage.test/children-jobs/b/identity-kit-review/candidate-w1.2.png', admin: 'qa@giftmybook.com' },
+      log: () => {},
+    });
+    expect(generateImage).not.toHaveBeenCalled(); // no sheet generation
+    expect(kit.judgeScores).toMatchObject({ adminPick: true, resolvedBy: 'qa@giftmybook.com' });
+    expect(kit.fromCache).toBe(false);
+    // the picked sheet was cached like any other kit
+    expect(kit.sheetUrl).toContain('identity-kit/');
+  });
+
+  test('pick_sheet ignores a stale cached kit (admin decision wins)', async () => {
+    const key = computeKitCacheKey(['https://x/8.jpg']);
+    await setCachedKit(key, { brief: { briefText: 'cached' }, judgeScores: { minLikeness: 5 }, sheetBuffer: Buffer.from('old'), sheetMime: 'image/png' });
+    jest.clearAllMocks();
+    mockBriefCall();
+    const kit = await buildIdentityKit({
+      photoUrls: ['https://x/8.jpg'],
+      ageBand: 'PB_PRESCHOOL',
+      reviewResolution: { action: 'pick_sheet', candidateUrl: 'https://storage.test/picked.png' },
+      log: () => {},
+    });
+    expect(kit.fromCache).toBe(false);
+    expect(kit.judgeScores.adminPick).toBe(true);
   });
 });

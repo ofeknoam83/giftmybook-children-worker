@@ -69,7 +69,7 @@ function buildNeedsReviewPayload({
 }
 
 /** Valid resolution actions the /v3/review endpoints accept. */
-const REVIEW_ACTIONS = new Set(['ship_best', 'regen_manuscript', 'pick_candidate', 'regen_spread']);
+const REVIEW_ACTIONS = new Set(['ship_best', 'regen_manuscript', 'pick_candidate', 'regen_spread', 'pick_sheet']);
 
 /**
  * Build the resolution record persisted into the checkpoint by the

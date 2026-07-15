@@ -318,6 +318,13 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
       photoUrls: kitPhotoUrls,
       ageBand,
       childDetails: { name: rawRequest?.child?.name, gender: rawRequest?.child?.gender },
+      // The parent-approved cover anchors sheet generation (it's an
+      // illustration, so attaching it is PROHIBITED_CONTENT-safe).
+      coverImageUrl: rawRequest?.cover?.imageUrl || null,
+      bookId,
+      // pick_sheet resolution (admin picked a rejected candidate) bypasses
+      // generation + judging on the re-dispatch.
+      reviewResolution: rawRequest?.reviewResolution || null,
       abortSignal: signals?.abortSignal,
       log: (m) => ctx.log('info', `[v3] [identityKit] ${m}`),
     });

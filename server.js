@@ -2452,6 +2452,29 @@ app.post('/v3/review/regen-spread', authenticate, async (req, res) => {
   }
 });
 
+// Identity-kit resolution: after an identity_kit_exhausted needs_review
+// (payload carries candidateUrls of the judged-but-rejected sheets), the
+// admin picks one — human judgment outranks the automated likeness judges.
+// The re-dispatched run uses the picked candidate as the model sheet.
+app.post('/v3/review/pick-sheet', authenticate, async (req, res) => {
+  try {
+    const { bookId, candidateUrl, note } = req.body || {};
+    if (!candidateUrl || typeof candidateUrl !== 'string') return res.status(400).json({ success: false, error: 'candidateUrl is required' });
+    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
+    if (!checkpoint) return;
+    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
+    const resolution = buildReviewResolution({
+      action: 'pick_sheet', note, candidateUrl, admin: req.body?.admin || null,
+    });
+    await resolveNeedsReview(bookId, checkpoint, resolution);
+    console.log(`[v3-review] ${bookId} resolved (pick_sheet) by ${resolution.admin || 'admin'}`);
+    res.json({ success: true, bookId, action: 'pick_sheet', next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3-review] pick-sheet failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // initial book generation (services/coverGenerator.generateCover), so that
 // flipping the binding type (paperback ↔ hardcover) or re-running after an
 // edit produces bit-for-bit equivalent output.
