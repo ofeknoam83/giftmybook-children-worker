@@ -67,6 +67,8 @@ describe('judgePanelActivity', () => {
     expect(out.perManuscript.A.medians.age_fit).toBe(4);
     expect(Object.keys(out.usageByJudge)).toHaveLength(3);
     expect(out.passMedian).toBe(PANEL_PASS_MEDIAN);
+    // 8000, not 4000: gemini-2.5-pro truncated at 4000 on every observed run.
+    expect(callWithRole.mock.calls[0][1].maxTokens).toBe(8000);
   });
 
   test('any meaning_sanity_fail vetoes the manuscript regardless of scores', async () => {

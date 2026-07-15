@@ -29,7 +29,7 @@ const {
 } = require('../orchestration/activities/illustrationDirector');
 const { buildSpreadsForLegacyIllustrator } = require('../orchestration/activities/illustrationAdapterHelpers');
 const { buildBookReferencePack } = require('./render/referencePack');
-const { renderAllSpreadsNative } = require('./render/renderAllSpreads');
+const { renderAllSpreadsNative, createLimiter } = require('./render/renderAllSpreads');
 const { renderSpreadCandidates, buildSpreadRenderPrompt } = require('./render/renderSpread');
 const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('./qa/select');
 const { runArtDirection } = require('./artDirection/artDirector');
@@ -179,13 +179,18 @@ async function runNativeIllustrator(input, ctx) {
     }),
   });
 
-  // ── A3: QA cascade + selection ──
+  // ── A3: QA cascade + selection — spreads judged in PARALLEL ──
+  // The serial version cost 30-60s per spread × 13 spreads (~7-13 min of
+  // wall clock) while renders were already parallel. Object mutations
+  // below (selections/failures/qaTagCounts) are single-threaded-safe.
   ctx.reportProgress?.({ step: 'illustrating', message: 'Judging candidates (QA cascade)' });
   const qaTagCounts = {};
   const failures = [];
   const selections = new Map();
+  const qaLimit = createLimiter(Number(process.env.BOOK_PIPELINE_V3_QA_CONCURRENCY) >= 1
+    ? Number(process.env.BOOK_PIPELINE_V3_QA_CONCURRENCY) : 4);
 
-  for (const entry of rendered) {
+  await Promise.all(rendered.map((entry) => qaLimit(async () => {
     const spread = manuscriptSpreads.find((s) => s.spread === entry.spread);
 
     // W10 pick_candidate resolution: admin picked one — bypass QA for it.
@@ -199,7 +204,7 @@ async function runNativeIllustrator(input, ctx) {
           repairWaves: 0,
           allCandidates: entry.candidates,
         });
-        continue;
+        return;
       }
       log(`review resolution: pick_candidate URL did not match any candidate of spread ${entry.spread} — falling through to QA`);
     }
@@ -222,9 +227,10 @@ async function runNativeIllustrator(input, ctx) {
     });
     if (result.selected) selections.set(entry.spread, result);
     else failures.push({ spread: entry.spread, evaluations: result.evaluations, allCandidates: result.allCandidates });
-  }
+  })));
 
   if (failures.length > 0) {
+    failures.sort((a, b) => a.spread - b.spread); // stable payloads regardless of completion order
     throw await spreadQaFailure(failures);
   }
 

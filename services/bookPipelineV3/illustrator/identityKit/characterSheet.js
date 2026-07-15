@@ -92,9 +92,10 @@ async function runSheetWave({ prompt, photos, coverReference, waveTag, count, ab
   const referenceImages = coverReference
     ? [{ base64: coverReference.base64, mimeType: coverReference.mimeType || 'image/jpeg' }]
     : photos;
-  const attempts = [];
-  for (const [i, candidate] of candidates.entries()) {
-    if (!candidate) continue;
+  // Judge the wave's candidates in parallel (the serial loop cost
+  // ~10-15s per candidate of pure wall clock).
+  const attempts = (await Promise.all(candidates.map(async (candidate, i) => {
+    if (!candidate) return null;
     try {
       const verdict = await judgeLikenessCrossFamily({
         candidate: { base64: candidate.buffer.toString('base64'), mimeType: candidate.mimeType },
@@ -102,12 +103,13 @@ async function runSheetWave({ prompt, photos, coverReference, waveTag, count, ab
         contextNote: 'The candidate is a character MODEL SHEET containing multiple views/poses of the same character — judge the character design against the approved cover character, not the sheet layout.',
         abortSignal,
       });
-      attempts.push({ tag: `${waveTag}.${i + 1}`, candidate, verdict });
       log(`sheet ${waveTag}.${i + 1}: likeness=${verdict.minLikeness} pass=${verdict.pass}${verdict.defects.length ? ` defects=[${verdict.defects.slice(0, 3).join('; ')}]` : ''}`);
+      return { tag: `${waveTag}.${i + 1}`, candidate, verdict };
     } catch (err) {
       log(`sheet ${waveTag}.${i + 1} judging failed: ${err.message}`);
+      return null;
     }
-  }
+  }))).filter(Boolean);
 
   const passing = attempts.filter((a) => a.verdict.pass)
     .sort((a, b) => b.verdict.minLikeness - a.verdict.minLikeness);

@@ -48,6 +48,33 @@ describe('letterform gate', () => {
   });
 });
 
+describe('spread judge rubric — non-critical failure allowances (2026-07-15)', () => {
+  const { buildSpreadJudgePrompt } = require('../../../services/bookPipelineV3/illustrator/qa/spreadJudge');
+
+  test('one-moment rule, minor-anatomy allowance, object equivalence, no identity judging, shot advisory', () => {
+    const p = buildSpreadJudgePrompt({ sceneContract: { hero_action: 'tries to lift the lid' }, direction: { shot: 'over-shoulder' } });
+    expect(p).toContain('ONE-MOMENT RULE');
+    expect(p).toContain('never fail for not depicting a sequence');
+    expect(p).toContain('MINOR-ANATOMY ALLOWANCE');
+    expect(p).toContain('scores 4, not 3');
+    expect(p).toContain('OBJECT EQUIVALENCE');
+    expect(p).toContain('NO IDENTITY OR GENDER JUDGING');
+    expect(p).toContain('ADVISORY');
+    // hard fails survive
+    expect(p).toContain('caps cast at 1');
+    expect(p).toContain('caps anatomy at 2');
+  });
+
+  test('when the art director specified a moment, the judge grades the action against IT', () => {
+    const p = buildSpreadJudgePrompt({
+      sceneContract: { hero_action: 'searches the porch, then unfolds the map' },
+      direction: { moment: 'kneeling on the porch, map half-unfolded in both hands' },
+    });
+    expect(p).toContain('THE DEPICTED MOMENT');
+    expect(p).toContain('kneeling on the porch, map half-unfolded in both hands');
+  });
+});
+
 describe('judge determinism (temperature 0)', () => {
   test('spread judge', async () => {
     callVisionRole.mockResolvedValueOnce({

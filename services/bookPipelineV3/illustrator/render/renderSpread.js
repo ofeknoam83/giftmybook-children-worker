@@ -50,7 +50,11 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
     `- Characters present: ${(sc.characters_present || []).join(', ') || 'the child'}`,
-    `- The child is: ${sc.hero_action || 'present in the scene'}`,
+    // The art director's `moment` is ONE paintable freeze-frame of the
+    // action — using it (over the writer's multi-beat sentence) removes
+    // the sequence-vs-frame ambiguity the QA judge then grades against.
+    `- The child is: ${direction?.moment || sc.hero_action || 'present in the scene'}`,
+    direction?.poseHint ? `- Pose: ${direction.poseHint}` : null,
     `- Emotion on the child's face/body: ${sc.emotion || 'engaged'}`,
     (sc.key_objects || []).length ? `- Must include: ${sc.key_objects.join(', ')}` : null,
     sc.time_of_day ? `- Time of day: ${sc.time_of_day}` : null,
@@ -76,6 +80,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     'WORDLESS PROPS: if the scene includes any written artifact — a map, note, letter, book, scroll, sign, or label — depict it WITHOUT readable writing. Use abstract wavy squiggle lines, dots, star-glyphs, or symbols that clearly cannot be read as letters or numbers. A map shows paths, landmarks, and constellation marks — never place names or words.',
     'The child is the ORIGINAL ILLUSTRATED CHARACTER from the attached MODEL SHEET — match that character design exactly. It is a storybook character, not a reproduction of any real, identifiable person.',
     'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
+    'HANDS: every visible hand has exactly five clearly separated fingers. Prefer simple, natural grips (whole-hand holds, open palms); avoid complex finger-object interlocks and foreshortened finger tangles.',
   ].filter((l) => l !== null).join('\n');
 }
 
