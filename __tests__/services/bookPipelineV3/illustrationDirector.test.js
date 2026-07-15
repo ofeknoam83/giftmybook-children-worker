@@ -108,4 +108,53 @@ describe('illustrationDirectorActivity', () => {
       coverImageUrl: null, coverTitle: null, operationalContext: {},
     }, ctx)).rejects.toMatchObject({ isTransient: true });
   });
+
+  // P2 (audit 2026-07-15): QA-budget exhaustion routes to the review queue
+  // instead of dying as a bare failure — the workflow maps err.needsReview
+  // to a needs_review terminal state (design D6).
+  test('spread_unresolvable exhaustion attaches a needs_review payload', async () => {
+    const exhausted = new Error('spreads 5-6: spread pair exhausted repair budget');
+    exhausted.failureCode = 'spread_unresolvable';
+    exhausted.exhaustion = {
+      spreads: [5, 6],
+      tags: ['text_crosses_midline', 'hero_mismatch'],
+      issues: ['Text block extends past the active-side boundary'],
+    };
+    renderAllSpreadsQuad.mockRejectedValueOnce(exhausted);
+    const m = manuscriptWithCaregiver();
+    let caught;
+    try {
+      await illustrationDirectorActivity({
+        rawRequest: RAW_REQUEST, brief: BRIEF, ageProfile: PRESCHOOL_PROFILE,
+        concept: makeConceptJson('a1'), manuscript: m,
+        coverImageUrl: null, coverTitle: null, operationalContext: {},
+      }, ctx);
+    } catch (err) { caught = err; }
+    expect(caught).toBeTruthy();
+    expect(caught.needsReview).toMatchObject({
+      stage: 'illustration',
+      reason: 'spread_qa_exhausted',
+      spread: 5,
+    });
+    expect(caught.needsReview.defects.join(' ')).toContain('text_crosses_midline');
+    expect(caught.needsReview.defects.join(' ')).toContain('Spread(s) 5, 6');
+    expect(caught.isTransient).toBeFalsy();
+  });
+
+  test('transient errors never get a needs_review payload (retry instead)', async () => {
+    const transientErr = new Error('Deadline expired');
+    transientErr.failureCode = 'spread_unresolvable'; // pathological combo — transient wins
+    renderAllSpreadsQuad.mockRejectedValueOnce(transientErr);
+    const m = manuscriptWithCaregiver();
+    let caught;
+    try {
+      await illustrationDirectorActivity({
+        rawRequest: RAW_REQUEST, brief: BRIEF, ageProfile: PRESCHOOL_PROFILE,
+        concept: makeConceptJson('a1'), manuscript: m,
+        coverImageUrl: null, coverTitle: null, operationalContext: {},
+      }, ctx);
+    } catch (err) { caught = err; }
+    expect(caught.isTransient).toBe(true);
+    expect(caught.needsReview).toBeUndefined();
+  });
 });

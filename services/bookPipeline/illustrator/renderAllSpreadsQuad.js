@@ -1123,6 +1123,11 @@ The cover image is being re-pinned to refresh hero/caregiver identity. Render ex
         session: currentSession,
         issues: ['spread pair exhausted repair budget'],
         tags: ['spread_unresolvable'],
+        // Last rejection details ride to the review queue (P2, audit
+        // 2026-07-15) so the admin sees WHAT kept failing, not just that
+        // the budget ran out.
+        lastRejectTags: lastPairRejectTags,
+        lastRejectIssues: lastPairRejectIssues,
       };
     }
     extraRoundsRemaining -= 1;
@@ -1260,6 +1265,11 @@ async function renderAllSpreadsQuad(doc) {
     if (!result.accepted) {
       const err = new Error(`spreads ${spreadA.spreadNumber}-${spreadB.spreadNumber}: ${result.issues.join('; ') || 'unaccepted'}`);
       err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
+      err.exhaustion = {
+        spreads: [spreadA.spreadNumber, spreadB.spreadNumber],
+        tags: result.lastRejectTags || result.tags || [],
+        issues: result.lastRejectIssues || result.issues || [],
+      };
       throw err;
     }
 
@@ -1304,6 +1314,11 @@ async function renderAllSpreadsQuad(doc) {
     if (!singleResult.accepted) {
       const err = new Error(`spread ${last.spreadNumber}: ${singleResult.issues.join('; ') || 'unaccepted'}`);
       err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
+      err.exhaustion = {
+        spreads: [last.spreadNumber],
+        tags: singleResult.lastRejectTags || singleResult.tags || [],
+        issues: singleResult.lastRejectIssues || singleResult.issues || [],
+      };
       throw err;
     }
 
