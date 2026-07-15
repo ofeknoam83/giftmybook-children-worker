@@ -1,15 +1,11 @@
-jest.mock('../../../services/bookPipeline/illustrator/renderAllSpreadsQuad', () => ({
-  renderAllSpreadsQuad: jest.fn(),
-}));
-
-const { renderAllSpreadsQuad } = require('../../../services/bookPipeline/illustrator/renderAllSpreadsQuad');
+// Builder tests only — the legacy illustrationDirectorActivity (V3→v1 quad
+// adapter) was deleted in the native-illustrator cutover; the pure builders
+// survive because the native illustrator derives its inputs from them.
 const {
-  illustrationDirectorActivity, buildVisualBible, buildSpreadSpecs, buildStoryBible, collectVisualFacts,
+  buildSpreadSpecs, buildStoryBible, collectVisualFacts,
 } = require('../../../services/bookPipelineV3/orchestration/activities/illustrationDirector');
 const { normalizeManuscript } = require('../../../services/bookPipelineV3/schema/document');
-const { PRESCHOOL_PROFILE, BRIEF, RAW_REQUEST, makeConceptJson, makeManuscriptJson } = require('./helpers/fixtures');
-
-const ctx = { log: jest.fn(), bookId: 'test-book-1' };
+const { PRESCHOOL_PROFILE, makeConceptJson, makeManuscriptJson } = require('./helpers/fixtures');
 
 function manuscriptWithCaregiver() {
   const raw = makeManuscriptJson(4);
@@ -17,11 +13,6 @@ function manuscriptWithCaregiver() {
   raw.spreads[2].scene_contract.key_objects = ['red bucket', 'striped towel'];
   return normalizeManuscript(raw, { id: 'A', expectedSpreads: 4 });
 }
-
-beforeEach(() => {
-  renderAllSpreadsQuad.mockReset();
-  ctx.log.mockClear();
-});
 
 describe('collectVisualFacts', () => {
   test('recurring props = key_objects on >=2 spreads; cast excludes the hero', () => {
@@ -75,86 +66,3 @@ describe('buildStoryBible', () => {
   });
 });
 
-describe('illustrationDirectorActivity', () => {
-  test('seeds mandatory qa blocks and hands a v1-shaped doc to the renderer', async () => {
-    renderAllSpreadsQuad.mockImplementation(async (doc) => doc);
-    const m = manuscriptWithCaregiver();
-    const rendered = await illustrationDirectorActivity({
-      rawRequest: RAW_REQUEST, brief: BRIEF, ageProfile: PRESCHOOL_PROFILE,
-      concept: makeConceptJson('a1'), manuscript: m,
-      coverImageUrl: RAW_REQUEST.cover.imageUrl, coverTitle: RAW_REQUEST.cover.title,
-      operationalContext: {},
-    }, ctx);
-
-    const doc = renderAllSpreadsQuad.mock.calls[0][0];
-    expect(doc.spreads).toHaveLength(4);
-    for (const s of doc.spreads) {
-      expect(s.qa).toEqual({ writerChecks: [], spreadChecks: [], repairHistory: [] });
-      expect(s.manuscript.text).toBeTruthy();
-      expect(s.illustration).toBeNull();
-      expect(s.spec.spreadNumber).toBe(s.spreadNumber);
-    }
-    expect(doc.visualBible.hero.name).toBe('Zoe');
-    expect(doc.cover.title).toBe(m.title);
-    expect(rendered.spreads).toHaveLength(4);
-  });
-
-  test('tags transient infra errors so the engine can retry', async () => {
-    renderAllSpreadsQuad.mockRejectedValueOnce(new Error('Session API error 503: UNAVAILABLE'));
-    const m = manuscriptWithCaregiver();
-    await expect(illustrationDirectorActivity({
-      rawRequest: RAW_REQUEST, brief: BRIEF, ageProfile: PRESCHOOL_PROFILE,
-      concept: makeConceptJson('a1'), manuscript: m,
-      coverImageUrl: null, coverTitle: null, operationalContext: {},
-    }, ctx)).rejects.toMatchObject({ isTransient: true });
-  });
-
-  // P2 (audit 2026-07-15): QA-budget exhaustion routes to the review queue
-  // instead of dying as a bare failure — the workflow maps err.needsReview
-  // to a needs_review terminal state (design D6).
-  test('spread_unresolvable exhaustion attaches a needs_review payload', async () => {
-    const exhausted = new Error('spreads 5-6: spread pair exhausted repair budget');
-    exhausted.failureCode = 'spread_unresolvable';
-    exhausted.exhaustion = {
-      spreads: [5, 6],
-      tags: ['text_crosses_midline', 'hero_mismatch'],
-      issues: ['Text block extends past the active-side boundary'],
-    };
-    renderAllSpreadsQuad.mockRejectedValueOnce(exhausted);
-    const m = manuscriptWithCaregiver();
-    let caught;
-    try {
-      await illustrationDirectorActivity({
-        rawRequest: RAW_REQUEST, brief: BRIEF, ageProfile: PRESCHOOL_PROFILE,
-        concept: makeConceptJson('a1'), manuscript: m,
-        coverImageUrl: null, coverTitle: null, operationalContext: {},
-      }, ctx);
-    } catch (err) { caught = err; }
-    expect(caught).toBeTruthy();
-    expect(caught.needsReview).toMatchObject({
-      stage: 'illustration',
-      reason: 'spread_qa_exhausted',
-      spread: 5,
-    });
-    expect(caught.needsReview.defects.join(' ')).toContain('text_crosses_midline');
-    expect(caught.needsReview.defects.join(' ')).toContain('Spread(s) 5, 6');
-    expect(caught.isTransient).toBeFalsy();
-  });
-
-  test('transient errors never get a needs_review payload (retry instead)', async () => {
-    const transientErr = new Error('Deadline expired');
-    transientErr.failureCode = 'spread_unresolvable'; // pathological combo — transient wins
-    renderAllSpreadsQuad.mockRejectedValueOnce(transientErr);
-    const m = manuscriptWithCaregiver();
-    let caught;
-    try {
-      await illustrationDirectorActivity({
-        rawRequest: RAW_REQUEST, brief: BRIEF, ageProfile: PRESCHOOL_PROFILE,
-        concept: makeConceptJson('a1'), manuscript: m,
-        coverImageUrl: null, coverTitle: null, operationalContext: {},
-      }, ctx);
-    } catch (err) { caught = err; }
-    expect(caught.isTransient).toBe(true);
-    expect(caught.needsReview).toBeUndefined();
-  });
-});

@@ -4,39 +4,30 @@
  * Converts the canonical book document into the shape that the existing
  * `services/layoutEngine.assemblePdf` expects.
  *
- * Two layout shapes are supported, driven by `MODELS.SPREAD_RENDER`:
+ * Two layout shapes exist in assemblePdf:
  *
- *   - **wide** (Gemini path): caption is baked into the wide 16:9 illustration
- *     by the renderer, so this adapter does NOT pass caption text — only the
- *     wide spread image. assemblePdf splits the image into left + right pages.
+ *   - **square** (the native illustrator — every book since the cutover):
+ *     the renderer emits a 1:1 illustration with NO on-image text. This
+ *     adapter forwards the manuscript caption text per spread; assemblePdf
+ *     renders the caption as PDF text on the verso (left) page and the
+ *     square illustration full-bleed on the recto (right) page.
  *
- *   - **square** (OpenAI gpt-image-2 path): the renderer emits a 1:1
- *     illustration with NO on-image text. This adapter forwards the manuscript
- *     caption text per spread; assemblePdf renders the caption as PDF text on
- *     the verso (left) page and the square illustration full-bleed on the
- *     recto (right) page.
+ *   - **wide** (pre-cutover legacy books only): caption baked into the wide
+ *     illustration; no caption text passed; assemblePdf splits the image
+ *     into left + right pages. Kept so a legacy-rendered checkpoint doc
+ *     re-entering layout (re-finalize) still lays out correctly.
  *
  * The caller is responsible for fetching `spreadIllustrationBuffer` from
  * `imageStorageKey` before calling assemblePdf (kept as a caller
  * responsibility so this module stays pure).
  */
 
-const { MODELS } = require('./constants');
-
-function _resolveIllustrationAspect() {
-  const m = String(MODELS.SPREAD_RENDER || '').toLowerCase();
-  if (m.startsWith('gpt-image') || m.startsWith('openai-image')) return 'square';
-  return 'wide';
-}
-
 /**
  * @param {object} doc
  * @returns {{ format: string, entries: object[], opts: object, spreadStorageKeys: string[] }}
  */
 function toLayoutPayload(doc) {
-  // Native V3 illustrator renders 1:1 no-text art laid out in caption mode
-  // (typeset verso + full-bleed recto) — same geometry as the OpenAI path.
-  const aspect = doc.v3?.illustrator?.version === 'native' ? 'square' : _resolveIllustrationAspect();
+  const aspect = doc.v3?.illustrator?.version === 'native' ? 'square' : 'wide';
   const entries = doc.spreads.map(s => ({
     type: 'spread',
     spread: s.spreadNumber,

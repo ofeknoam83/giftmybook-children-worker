@@ -175,49 +175,9 @@ const FAILURE_CODES = {
   UPSTREAM_UNAVAILABLE: 'upstream_unavailable',
 };
 
-/**
- * When no env or request override applies, use quad (4:1 dual-spread) interiors.
- * Quad is the production-tested path on the Gemini renderer (our default
- * provider); it packs two spreads into one 4:1 image for a ~2× throughput win
- * vs. the legacy 16:9 one-spread-per-image renderer. The quad batcher is
- * incompatible with the OpenAI 1:1 layout — flip to `false` (or use the env /
- * request override) when running on the OpenAI provider.
- */
-const USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT = true;
-
-/**
- * @returns {boolean|null} true = force quad, false = force legacy, null = unset / ignore
- */
-function _parseEnvQuadSpreadFlag() {
-  const v = process.env.GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR;
-  if (v === undefined || v === '') return null;
-  const s = String(v).toLowerCase().trim();
-  if (['1', 'true', 'yes', 'on', 'quad'].includes(s)) return true;
-  if (['0', 'false', 'no', 'off', 'legacy'].includes(s)) return false;
-  return null;
-}
-
-/**
- * Illustration pipeline variant. Precedence: env (if recognized) → request boolean → code default.
- *
- * @param {object} [doc] - Book document (`doc.request.useQuadSpreadIllustrator`)
- * @returns {{ renderer: 'legacy' | 'quad', source: 'default' | 'env' | 'request' }}
- */
-function getIllustrationRenderer(doc) {
-  const env = _parseEnvQuadSpreadFlag();
-  if (env === true) return { renderer: 'quad', source: 'env' };
-  if (env === false) return { renderer: 'legacy', source: 'env' };
-  if (doc?.request?.useQuadSpreadIllustrator === false) {
-    return { renderer: 'legacy', source: 'request' };
-  }
-  if (doc?.request?.useQuadSpreadIllustrator === true) {
-    return { renderer: 'quad', source: 'request' };
-  }
-  if (USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT) {
-    return { renderer: 'quad', source: 'default' };
-  }
-  return { renderer: 'legacy', source: 'default' };
-}
+// Quad/legacy renderer selection (GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR,
+// getIllustrationRenderer) deleted in the native-illustrator cutover —
+// interiors render per-spread at 1:1 inside bookPipelineV3/illustrator.
 
 // PR J.4 — per-band sampling temperatures for the writer.
 //
@@ -283,8 +243,6 @@ module.exports = {
   REPAIR_BUDGETS,
   QA_RECENT_INTERIOR_REFERENCES,
   FAILURE_CODES,
-  USE_QUAD_SPREAD_ILLUSTRATOR_DEFAULT,
-  getIllustrationRenderer,
   WRITER_TEMPERATURE,
   getWriterTemperature,
 };

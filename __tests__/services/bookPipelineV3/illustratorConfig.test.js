@@ -1,8 +1,10 @@
 /**
- * Native illustrator Phase 0 (milestone 2 W3):
- *   - resolveIllustratorVersion precedence: checkpoint → request → env → default
- *   - invalid request values throw (server 400s them upstream)
- *   - modelRouter: new illustrator roles resolve; likeness judges are
+ * Native illustrator config (post-cutover — native is the ONLY illustrator):
+ *   - resolveIllustratorVersion always resolves native; pre-cutover 'legacy'
+ *     checkpoints map LOUDLY onto native (their code is deleted); stale env
+ *     values warn and are ignored; invalid request values throw (server
+ *     400s them upstream).
+ *   - modelRouter: illustrator roles resolve; likeness judges are
  *     cross-family by default and a collapsing override warns.
  */
 
@@ -25,27 +27,31 @@ afterEach(() => {
 });
 
 describe('resolveIllustratorVersion', () => {
-  test('default is legacy until the native path passes validation', () => {
-    expect(DEFAULT_ILLUSTRATOR).toBe('legacy');
-    expect(resolveIllustratorVersion({})).toEqual({ version: 'legacy', source: 'default' });
+  test('native is the one and only default', () => {
+    expect(DEFAULT_ILLUSTRATOR).toBe('native');
+    expect(resolveIllustratorVersion({})).toEqual({ version: 'native', source: 'default' });
   });
 
-  test('env flag selects native', () => {
+  test("env flag 'native' resolves with source=env", () => {
     process.env.BOOK_PIPELINE_V3_ILLUSTRATOR = 'native';
     expect(resolveIllustratorVersion({})).toEqual({ version: 'native', source: 'env' });
   });
 
-  test('request override beats env', () => {
-    process.env.BOOK_PIPELINE_V3_ILLUSTRATOR = 'native';
-    expect(resolveIllustratorVersion({ requestedVersion: 'legacy' }))
-      .toEqual({ version: 'legacy', source: 'request' });
+  test("a 'native' checkpoint pins with source=checkpoint", () => {
+    expect(resolveIllustratorVersion({ checkpointVersion: 'native' }))
+      .toEqual({ version: 'native', source: 'checkpoint' });
   });
 
-  test('checkpoint pins the illustrator over a later request flag', () => {
+  test("a pre-cutover 'legacy' checkpoint maps LOUDLY onto native", () => {
     const log = jest.fn();
-    expect(resolveIllustratorVersion({ requestedVersion: 'native', checkpointVersion: 'legacy', log }))
-      .toEqual({ version: 'legacy', source: 'checkpoint' });
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(/checkpoint pins 'legacy'/));
+    expect(resolveIllustratorVersion({ checkpointVersion: 'legacy', log }))
+      .toEqual({ version: 'native', source: 'default' });
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/deleted in the native cutover/));
+  });
+
+  test("a 'legacy' request value throws (no code behind it)", () => {
+    expect(() => resolveIllustratorVersion({ requestedVersion: 'legacy' }))
+      .toThrow(/Unsupported illustratorVersion 'legacy'/);
   });
 
   test('invalid request value throws with a code', () => {
@@ -53,11 +59,11 @@ describe('resolveIllustratorVersion', () => {
       .toThrow(/Unsupported illustratorVersion 'quad'/);
   });
 
-  test('garbage env value warns and falls back to default', () => {
-    process.env.BOOK_PIPELINE_V3_ILLUSTRATOR = 'turbo';
+  test("stale env value (e.g. 'legacy') warns and is ignored", () => {
+    process.env.BOOK_PIPELINE_V3_ILLUSTRATOR = 'legacy';
     const log = jest.fn();
-    expect(resolveIllustratorVersion({ log })).toEqual({ version: 'legacy', source: 'default' });
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(/not 'native'\|'legacy'/));
+    expect(resolveIllustratorVersion({ log })).toEqual({ version: 'native', source: 'default' });
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/stale/));
   });
 
   test('progress sub-steps are defined for the admin stepper', () => {
