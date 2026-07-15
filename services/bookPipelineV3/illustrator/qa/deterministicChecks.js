@@ -21,11 +21,19 @@ const MIN_DIMENSION_PX = Number(process.env.BOOK_PIPELINE_V3_MIN_RENDER_PX || 76
 // the first native book (star trails / map squiggles read as "letter-like").
 // The gate now flags READABLE marks only — actual letterforms a reader
 // would attempt to read — and names what/where so repairs are targeted.
+// Second calibration same day: a single 'N' on a compass rose is a real
+// letter but not the garbled-word print-defect class D5 exists to block —
+// the gate now distinguishes WORDS (hard fail) from an ISOLATED GLYPH
+// integrated into a prop (tolerated, logged).
 const LETTERFORM_PROMPT = `Look at this illustration. Does it contain READABLE TEXT — actual letters, numbers, or words a reader would attempt to read? This includes tiny, blurry, partial, or stylized-but-legible writing: captions, signage, book pages with words, labels, watermarks.
 
 NOT text (do not flag): abstract squiggles or wavy lines standing in for writing, star trails and constellation lines, glowing glyphs or symbols that cannot be read, decorative patterns, branches, fabric texture. The rule: if no specific letters or digits can be made out or reasonably inferred, hasText is false.
 
-Return STRICT JSON: { "hasText": true|false, "what": "the readable text or marks you see, or null", "where": "short location description or null" }`;
+Classify what you found:
+- "words": any word, name, multi-letter or multi-digit sequence, caption, signage text, or writing on a page/label — anything a reader would READ.
+- "isolated_glyph": one or more SINGLE, separate letters or digits integrated into an object's design (a compass point letter, a single dial marking, a jersey-style single digit) that do not combine into any word or number.
+
+Return STRICT JSON: { "hasText": true|false, "textType": "words"|"isolated_glyph"|null, "what": "the readable text or marks you see, or null", "where": "short location description or null" }`;
 
 /**
  * @param {{base64: string}} candidate
@@ -48,9 +56,10 @@ async function integrityCheck(candidate) {
 /**
  * @param {{base64: string, mimeType?: string}} candidate
  * @param {AbortSignal} [abortSignal]
+ * @param {(msg: string) => void} [log]
  * @returns {Promise<{ pass: boolean, defects: string[] }>}
  */
-async function letterformCheck(candidate, abortSignal) {
+async function letterformCheck(candidate, abortSignal, log = () => {}) {
   const { json } = await callVisionRole('QA_VISION', {
     prompt: LETTERFORM_PROMPT,
     images: [candidate],
@@ -61,6 +70,15 @@ async function letterformCheck(candidate, abortSignal) {
   });
   if (json.hasText === true) {
     const detail = [json.what, json.where].filter(Boolean).join(' — ');
+    // Product decision 2026-07-15: single isolated glyphs integrated into a
+    // prop (compass 'N', a dial marking) are tolerated — they either read
+    // correctly (harmless at print size) or read as an abstract mark. Only
+    // WORDS/readable sequences are the print-defect class D5 blocks. An
+    // unknown/missing textType stays a hard fail (safe default).
+    if (json.textType === 'isolated_glyph') {
+      log(`letterform: tolerated isolated glyph${detail ? ` (${detail})` : ''}`);
+      return { pass: true, defects: [] };
+    }
     return { pass: false, defects: [`lettering detected in artwork${detail ? ` (${detail})` : ''} — automatic fail (D5: no text in pixels)`] };
   }
   return { pass: true, defects: [] };
@@ -71,12 +89,13 @@ async function letterformCheck(candidate, abortSignal) {
  *
  * @param {{base64: string, mimeType?: string}} candidate
  * @param {AbortSignal} [abortSignal]
+ * @param {(msg: string) => void} [log]
  * @returns {Promise<{ pass: boolean, defects: string[] }>}
  */
-async function runDeterministicChecks(candidate, abortSignal) {
+async function runDeterministicChecks(candidate, abortSignal, log) {
   const integrity = await integrityCheck(candidate);
   if (!integrity.pass) return integrity;
-  const letterform = await letterformCheck(candidate, abortSignal);
+  const letterform = await letterformCheck(candidate, abortSignal, log);
   return { pass: letterform.pass, defects: letterform.defects };
 }
 

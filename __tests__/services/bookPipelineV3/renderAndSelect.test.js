@@ -78,6 +78,8 @@ describe('buildSpreadRenderPrompt', () => {
     const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
     expect(p).toContain('WORDLESS PROPS');
     expect(p).toContain('never place names or words');
+    expect(p).toContain('NEVER the letters N/S/E/W'); // compass rule
+    expect(p).toContain('dots or dashes, never numerals'); // clocks/dials
   });
 
   test("renders the art director's MOMENT (one freeze-frame) instead of the multi-beat action, with pose + hands guidance", () => {

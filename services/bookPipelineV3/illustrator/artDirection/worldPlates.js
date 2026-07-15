@@ -16,7 +16,7 @@ function buildPlatePrompt(location, palette) {
     'No people, no animals, no characters of any kind. The location only, fully dressed with its furniture/props/vegetation.',
     palette ? `Palette/lighting: ${palette}` : null,
     STYLE_BIBLE,
-    'ABSOLUTELY NO TEXT anywhere in the image. Any signs, maps, books, or labels in the location are WORDLESS — abstract squiggles or symbols that cannot be read as letters or numbers.',
+    'ABSOLUTELY NO TEXT anywhere in the image. Any signs, maps, books, or labels in the location are WORDLESS — abstract squiggles or symbols that cannot be read as letters or numbers. Compasses show a pointed star and arrows, never N/S/E/W letters; clock faces show dots or dashes, never numerals.',
   ].filter(Boolean).join('\n');
 }
 
