@@ -415,7 +415,7 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
 - The UPPER TWO-THIRDS must be calm, dark-leaning, and low-detail (open sky, soft gradient, distant scenery) — book text will be printed over it later, so no busy shapes, no high-contrast highlights there
 - Keep richer scenery detail in the lower third only
 
-ABSOLUTELY NO TEXT: do not render any words, letters, numbers, captions, titles, logos, or barcodes anywhere in the image. The image must be 100% text-free artwork.
+ABSOLUTELY NO TEXT: do not render any words, letters, numbers, captions, titles, logos, or barcodes anywhere in the image. ALSO no blank labels, plaques, empty rectangles, frames, or barcode-shaped patches (audit: the model painted an empty white barcode-shaped box). The image must be 100% text-free, plaque-free artwork.
 
 FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide'}.
 
@@ -618,6 +618,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         + `The scene should feel inviting, wondrous, and cinematic — promising a real adventure from the very first frame. `
         + `The child is the clear focal point, confident and emotionally expressive, with a strong silhouette and Pixar-quality facial acting. `
         + `Background is a thematic 3D environment with ray-traced volumetric lighting, real depth, and genuine optical bokeh — fully modeled, not painted. `
+        + `WARDROBE RULE: the child's clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos (e.g. NASA), no national flags. Use plain fabric or generic letter-free emblems (a star patch, a simple rocket motif). The cover anchors every interior spread, and tiny repainted clothing text garbles into misspellings in print. `
         + aspectHint + '\n\n'
         + safeZoneInstruction;
 

@@ -25,6 +25,7 @@ const TEXT_QA_TAGS = new Set([
   'text_crosses_midline',
   'text_on_both_sides',
   'text_trim_clipped',
+  'wearable_text',
   'wrong_font',
   'spelling_mismatch',
   'missing_word',
@@ -96,6 +97,12 @@ function renderCorrectionNote(issues, tags, options = {}) {
   }
   if (tagArr.includes('extra_word') || tagArr.includes('unexpected_text')) {
     lines.push('Do not paint any extra words, signage, or environmental text. Only the provided caption.');
+  }
+  if (tagArr.includes('wearable_text')) {
+    lines.push('Remove ALL lettering from every character\'s clothing and body: no name tags, no letter badges, no printed text on shirts. Copy the garment, not its lettering — plain fabric or a letter-free emblem instead.');
+  }
+  if (tagArr.includes('real_world_logo')) {
+    lines.push('Remove real-world logos and national flags (e.g. NASA, country flags). Use generic invented emblems: a plain star patch, a simple rocket motif with no letters.');
   }
   if (tagArr.includes('text_trim_clipped')) {
     lines.push('The caption touched the OUTER image edge and its glyphs get cut off by the print trim. Move the entire caption block inward: the first character of every line must start at least 7% of the image width away from the outer edge. Nothing readable may sit in the outer 5% of the image.');

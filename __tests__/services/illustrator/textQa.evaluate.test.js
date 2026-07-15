@@ -106,3 +106,31 @@ describe('evaluateOcrResult — fold line and trim edge (audit 2026-07-15)', () 
     expect(r.pass).toBe(true);
   });
 });
+
+// ── Audit 2026-07-15 (book 2): wearable text ──
+// The hero's vest name tag repainted as "RioIt"/"Anilt" across spreads.
+// Lettering on clothing is never allowed — caption is the only type.
+describe('evaluateOcrResult — wearable_text (audit book 2)', () => {
+  const ctx = { expectedText: 'Hello there.', expectedSide: 'left', anyExpected: true };
+  function parsedWith(over = {}) {
+    return {
+      ocrText: 'Hello there.', leftText: 'Hello there.', rightText: '', centerText: '',
+      crossesMidline: false, textBlockOverflow: false, textOnBothSides: false,
+      anyTextTouchesFoldLine: false, textClippedAtOuterEdge: false,
+      textOnClothing: '', fontLooksPlainBookSerif: true, ...over,
+    };
+  }
+  test('garbled name tag on clothing hard-fails with wearable_text', () => {
+    const r = evaluateOcrResult(parsedWith({ textOnClothing: 'RioIt' }), ctx);
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('wearable_text');
+    expect(r.issues.some(i => i.includes('RioIt'))).toBe(true);
+  });
+  test('even a correctly-spelled tag fails (clothing must be letter-free)', () => {
+    const r = evaluateOcrResult(parsedWith({ textOnClothing: 'Amit' }), ctx);
+    expect(r.tags).toContain('wearable_text');
+  });
+  test('empty clothing text passes', () => {
+    expect(evaluateOcrResult(parsedWith(), ctx).pass).toBe(true);
+  });
+});

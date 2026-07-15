@@ -242,7 +242,8 @@ function buildOcrPrompt({ expectedText, expectedSide, anyExpected }) {
   "textBlockOverflow": <true if ANY text block's bounding box extends past the active-side boundary into the central no-text zone — even if it doesn't fully cross to the opposite side. Active side is "${expectedSide.toUpperCase()}". On LEFT-side captions: any portion of any text past x=${activeMax.toFixed(3)} fails (the caption must stay entirely in x ∈ [0, ${activeMax.toFixed(3)}]). On RIGHT-side captions: any portion below x=${(1 - activeMax).toFixed(3)} fails (the caption must stay entirely in x ∈ [${(1 - activeMax).toFixed(3)}, 1]). False otherwise. When uncertain, prefer false.>,
   "textOnBothSides": <true if there is text whose bbox is entirely in x < 0.5 AND text whose bbox is entirely in x > 0.5, otherwise false>,
   "anyTextTouchesFoldLine": <true if ANY text block or individual word overlaps the exact vertical line x=0.500 — this is the physical page fold; any word there is cut in half in print. Check every text block edge carefully; when a block clearly straddles x=0.5, this is true even if it stays inside the center band.>,
-  "textClippedAtOuterEdge": <true if ANY text is flush against or cut off by an outer image edge: a text bbox that starts at x < 0.030 or ends at x > 0.970, or any glyphs that are visibly truncated/cropped by the image border (e.g. the first letters of lines missing). The outer 3% of the image is trimmed in print.>,
+  "textClippedAtOuterEdge": <true if ANY text is flush against or cut off by ANY image edge: a text bbox that starts at x < 0.030 or ends at x > 0.970, a text bbox that starts at y < 0.030 (top) or ends at y > 0.970 (bottom), or any glyphs/lines visibly truncated by an image border (first letters of lines missing; the TOP HALF of the first line sliced off; descenders of the last line cut). The outer 3% of the image on every side is trimmed in print.>,
+  "textOnClothing": "<any legible or partially-legible characters visible on ANY character's clothing or body — name tags, letter badges, logo text, printed shirts. Report the exact glyphs as rendered (e.g. 'RioIt', 'NASA'). Empty string if none.>",
   "fontLooksPlainBookSerif": <true ONLY if the text is rendered in an upright, plain book serif (Georgia / Book Antiqua style). Return false if the text is handwritten, script, cursive, calligraphic, italic, bold display, rounded bubble, decorative, Comic Sans, Papyrus, or any marker/chalk/crayon style.>
 }
 
@@ -278,6 +279,7 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
   const textOnBothSides = !!parsed.textOnBothSides;
   const touchesFoldLine = !!parsed.anyTextTouchesFoldLine;
   const clippedAtOuterEdge = !!parsed.textClippedAtOuterEdge;
+  const clothingText = String(parsed.textOnClothing || '').trim();
   const fontOk = parsed.fontLooksPlainBookSerif !== false; // missing -> treat as OK (fail-safe on infra)
 
   // ── No-text case ──
@@ -314,8 +316,15 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
     if (!tags.includes('text_crosses_midline')) tags.push('text_crosses_midline');
   }
   if (clippedAtOuterEdge) {
-    issues.push('Text is flush against or clipped by the outer image edge — the outer 3% is trimmed in print, cutting off glyphs');
+    issues.push('Text is flush against or clipped by an image edge — the outer 3% on every side is trimmed in print, cutting off glyphs/lines');
     tags.push('text_trim_clipped');
+  }
+  // Audit 2026-07-15 (book 2): the hero's vest name tag repainted as
+  // 'RioIt'/'Anilt' across spreads. Lettering on clothing is NEVER allowed —
+  // the caption is the only permitted type in the frame.
+  if (clothingText) {
+    issues.push(`Lettering on a character's clothing/body: "${clothingText.slice(0, 60)}" — clothing must be letter-free (tiny repainted type garbles in print)`);
+    tags.push('wearable_text');
   }
   if (textOnBothSides || oppositeOcr) {
     issues.push(
