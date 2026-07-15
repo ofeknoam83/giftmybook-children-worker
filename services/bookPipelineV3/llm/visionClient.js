@@ -15,7 +15,7 @@
  */
 
 const { modelFor } = require('./modelRouter');
-const { parseJsonLoose, LlmParseError, fetchWithTimeout } = require('../../shared/llm/openaiClient');
+const { parseJsonLoose, LlmParseError, fetchWithTimeout, isNetworkError } = require('../../shared/llm/openaiClient');
 
 const DEFAULT_TIMEOUT_MS = 120000;
 const MAX_ATTEMPTS = 3;
@@ -146,7 +146,7 @@ async function callVisionRole(role, { prompt, images = [], label, expectJson = f
       return out;
     } catch (err) {
       lastErr = err;
-      const retryable = err?.isTransient === true || err?.name === 'AbortError' && false;
+      const retryable = err?.isTransient === true || isNetworkError(err);
       if (retryable && attempt < MAX_ATTEMPTS) {
         const delay = 1000 * 2 ** (attempt - 1);
         console.warn(`[visionClient] ${tag}: transient failure (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${delay}ms: ${err.message}`);
