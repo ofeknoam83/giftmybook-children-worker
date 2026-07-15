@@ -19,7 +19,7 @@ const { ART_DIRECTION_REASKS } = require('../config');
 
 const ZONES = ['left-top', 'left-bottom', 'right-top', 'right-bottom', 'left', 'right'];
 
-function buildDirectorPrompt({ manuscript, ageBand, violations = null }) {
+function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, violations = null }) {
   const contracts = manuscript.spreads.map((s) => ({
     spread: s.spread,
     setting: s.scene_contract?.setting,
@@ -30,7 +30,15 @@ function buildDirectorPrompt({ manuscript, ageBand, violations = null }) {
     time: s.scene_contract?.time_of_day,
   }));
 
-  return `You are the art director for a children's picture book ("${manuscript.title}", age band ${ageBand}).
+  // Bounce judgments must use the child's REAL age when known — the top
+  // band (PB_EARLY_READER) covers every child 6+, and judging an 11-year-old
+  // by the band label flagged perfectly feasible actions as "age-impossible"
+  // (2026-07-15 needs_review).
+  const heroDescriptor = Number.isFinite(Number(ageYears)) && Number(ageYears) > 0
+    ? `a ${Number(ageYears)}-year-old child`
+    : `an ${ageBand} child`;
+
+  return `You are the art director for a children's picture book ("${manuscript.title}", age band ${ageBand}; the hero is ${heroDescriptor}).
 Image 1 is the child's character model sheet; image 2 (if present) is the parent-approved cover — outfit and style ground truth.
 
 MANUSCRIPT SCENE CONTRACTS (${contracts.length} spreads):
@@ -57,28 +65,32 @@ RULES:
 - SHOT VARIETY IS A HARD BUDGET: at least 4 distinct shot types across the book; NO two adjacent spreads may share a shot type.
 - The palette arc must move with the story (e.g. darken at the low point, warm at the resolution).
 - worldPlates: only locations visited on 2+ spreads.
-- bounces: be strict — an ${ageBand} child cannot perform impossible locomotion; flag it rather than plan around it.${violations ? `\n\nYOUR PREVIOUS PLAN VIOLATED THE SHOT BUDGET:\n- ${violations.join('\n- ')}\nFix exactly these violations and return the corrected full JSON.` : ''}`;
+- bounces: flag a contract ONLY when it truly cannot be staged for ${heroDescriptor} — impossible locomotion, prop soup, unstageable geometry. Judge feasibility and safety against the hero's ACTUAL age above (what is dangerous for a toddler is ordinary for an older child); do not bounce ordinary, age-appropriate adventure.${violations ? `\n\nYOUR PREVIOUS PLAN VIOLATED THE SHOT BUDGET:\n- ${violations.join('\n- ')}\nFix exactly these violations and return the corrected full JSON.` : ''}`;
 }
 
 /**
  * @param {object} opts
  * @param {object} opts.manuscript
  * @param {string} opts.ageBand
+ * @param {number|null} [opts.ageYears] - the child's real age; sharpens the bounce criteria
  * @param {Array<{base64: string, mimeType?: string}>} opts.referenceImages - [sheet, cover?]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ directionBySpread: Map<number, object>, paletteArc: object, continuityLocks: object, worldPlates: object[], bounces: object[], shotBudget: {ok: boolean, reassigned: boolean} }>}
  */
-async function runArtDirection({ manuscript, ageBand, referenceImages, abortSignal, log = () => {} }) {
+async function runArtDirection({ manuscript, ageBand, ageYears = null, referenceImages, abortSignal, log = () => {} }) {
   let plan = null;
   let violations = null;
 
   for (let attempt = 0; attempt <= ART_DIRECTION_REASKS; attempt += 1) {
     const { json } = await callVisionRole('ART_DIRECTOR', {
-      prompt: buildDirectorPrompt({ manuscript, ageBand, violations }),
+      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, violations }),
       images: referenceImages,
       label: `v3.artdirector.r${attempt}`,
       expectJson: true,
+      // Deterministic: the bounce list must not differ between the pre- and
+      // post-revision passes by sampling luck (spread-10-only-on-pass-2 bug).
+      temperature: 0,
       abortSignal,
     });
     plan = json;

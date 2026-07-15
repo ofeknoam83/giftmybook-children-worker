@@ -88,10 +88,24 @@ function wireModelLayer({ judgeScore = 4, flagged = [{ spread: 2, dimension: 'ag
       });
     }
     if (label.startsWith('v3.manuscript.')) return resp(makeManuscriptJson(13));
-    if (label === 'v3.revision') {
-      // Return the flagged spread rewritten (valid shape).
+    if (label === 'v3.revision' || label === 'v3.revision.contractfix') {
+      // Return every targeted spread rewritten (valid shape). Bounce targets
+      // (requireContractChange) get a CHANGED scene_contract, mirroring a
+      // compliant writer.
       const { makeSpread } = require('./helpers/fixtures');
-      return resp({ spreads: [makeSpread(2)] });
+      const req = JSON.parse(params.userPrompt);
+      const spreads = (req.targeted_revisions || []).map((t) => {
+        const s = makeSpread(t.spread);
+        if (t.requireContractChange) {
+          s.scene_contract = {
+            ...s.scene_contract,
+            setting: `revised ${s.scene_contract.setting}`,
+            hero_action: `revised ${s.scene_contract.hero_action}`,
+          };
+        }
+        return s;
+      });
+      return resp({ spreads });
     }
     if (label.startsWith('v3.judge.')) {
       const labels = JSON.parse(params.userPrompt).manuscripts.map((m) => m.label);
@@ -180,6 +194,53 @@ describe('runCreateBookWorkflow — illustrator resolution (post-cutover)', () =
     });
     expect(document.v3.illustrator).toEqual({ version: 'native', source: 'default' });
     expect(warnings.join(' ')).toMatch(/deleted in the native cutover/);
+  });
+});
+
+describe('runCreateBookWorkflow — art-direction bounce loop', () => {
+  const { runNativeIllustrator } = require('../../../services/bookPipelineV3/illustrator');
+
+  beforeEach(() => {
+    runNativeIllustrator.mockClear(); // keep the default impl, reset call counts
+  });
+
+  function bounceError(spreads) {
+    return Object.assign(new Error(`bounced [${spreads.join(',')}]`), {
+      name: 'ArtDirectionBounceError',
+      bounces: spreads.map((n) => ({ spread: n, problem: 'unstageable geometry', suggestion: 'move the action' })),
+    });
+  }
+
+  test('a spread newly flagged on a later pass gets its own revision round', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    runNativeIllustrator
+      .mockImplementationOnce(async () => { throw bounceError([6]); })
+      .mockImplementationOnce(async () => { throw bounceError([10]); });
+    // third call falls through to the default doc-composing mock
+    const { document } = await runCreateBookWorkflow({ rawRequest: { ...RAW_REQUEST }, signals: {}, log: () => {} });
+    expect(document.spreads).toHaveLength(13);
+    const revisions = callWithRole.mock.calls.map(([, p]) => p.label).filter((l) => l === 'v3.revision');
+    expect(revisions).toHaveLength(2); // one per bounce round
+    expect(runNativeIllustrator).toHaveBeenCalledTimes(3);
+    expect(runNativeIllustrator.mock.calls[0][0].allowBounce).toBe(true);
+    expect(runNativeIllustrator.mock.calls[1][0].allowBounce).toBe(true);
+    expect(runNativeIllustrator.mock.calls[2][0].allowBounce).toBe(false); // final pass: bounces become needs_review
+    // the second pass renders the manuscript revised for spread 6
+    expect(runNativeIllustrator.mock.calls[1][0].manuscript.spreads[5].scene_contract.setting).toMatch(/^revised /);
+  });
+
+  test('a spread RE-flagged after its revision short-circuits to needs_review', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    runNativeIllustrator
+      .mockImplementationOnce(async () => { throw bounceError([6]); })
+      .mockImplementationOnce(async () => { throw bounceError([6]); });
+    let thrown;
+    try {
+      await runCreateBookWorkflow({ rawRequest: { ...RAW_REQUEST }, signals: {}, log: () => {} });
+    } catch (err) { thrown = err; }
+    expect(thrown).toBeInstanceOf(V3ExhaustionError);
+    expect(thrown.needsReview).toMatchObject({ stage: 'artDirection', reason: 'art_direction_unstageable', spread: 6 });
+    expect(runNativeIllustrator).toHaveBeenCalledTimes(2); // no wasted third pass
   });
 });
 

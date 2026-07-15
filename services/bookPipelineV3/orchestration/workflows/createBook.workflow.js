@@ -241,39 +241,65 @@ function summarizePanel(panel, manuscriptId) {
   };
 }
 
+/** Bounded writer-revision rounds for art-director bounces. */
+const MAX_BOUNCE_REVISIONS = 2;
+
 /**
  * Native illustration with the art director's bounce-back edge (A1):
- * unstageable scene contracts get ONE targeted writer revision round
- * (the feedback loop v1/v2 never had — problems fixed before pixels),
- * then the second pass either stages everything or goes to review.
+ * unstageable scene contracts get targeted writer revision rounds (the
+ * feedback loop v1/v2 never had — problems fixed before pixels), bounded
+ * at MAX_BOUNCE_REVISIONS. A spread newly flagged on a later pass gets its
+ * own revision chance (the director is a model; pass 1 can miss a spread
+ * pass 2 catches), but a spread RE-flagged after its revision short-circuits
+ * to needs_review — revision demonstrably can't fix it.
  */
 async function runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger }) {
   const opts = { retries: 2, baseDelayMs: 4000, isRetryable: (err) => Boolean(err?.isTransient) };
-  try {
-    return await ctx.execute('illustrations.native', runNativeIllustrator, { ...illustrationInput, allowBounce: true }, opts);
-  } catch (err) {
-    const bounce = err?.name === 'ArtDirectionBounceError' ? err : (err?.cause?.name === 'ArtDirectionBounceError' ? err.cause : null);
-    if (!bounce) throw err;
+  let manuscript = illustrationInput.manuscript;
+  const revisedSpreads = new Set();
 
-    ctx.log('warn', `[v3] art director bounced spreads [${bounce.bounces.map((b) => b.spread).join(', ')}] — one targeted writer revision before any rendering`);
-    const targets = bounce.bounces.map((b) => ({
-      spread: b.spread,
-      failures: [],
-      reasons: [`unstageable for the illustrator: ${b.problem}`, `suggested fix: ${b.suggestion}`].filter(Boolean),
-    }));
-    const revised = await ctx.execute('manuscript.bounceFix', manuscriptRevisionActivity, {
-      brief,
-      ageProfile,
-      manuscript: illustrationInput.manuscript,
-      targets,
-    }, { retries: 1 });
-    ledger.add('manuscript.bounceFix', revised);
+  for (let round = 0; ; round += 1) {
+    const allowBounce = round < MAX_BOUNCE_REVISIONS; // final pass converts bounces to needs_review itself
+    const passLabel = round === 0 ? 'illustrations.native' : `illustrations.native.r${round + 1}`;
+    try {
+      return await ctx.execute(passLabel, runNativeIllustrator, { ...illustrationInput, manuscript, allowBounce }, opts);
+    } catch (err) {
+      const bounce = err?.name === 'ArtDirectionBounceError' ? err : (err?.cause?.name === 'ArtDirectionBounceError' ? err.cause : null);
+      if (!bounce) throw err;
 
-    return ctx.execute('illustrations.native.r2', runNativeIllustrator, {
-      ...illustrationInput,
-      manuscript: revised,
-      allowBounce: false,
-    }, opts);
+      const reflagged = bounce.bounces.filter((b) => revisedSpreads.has(b.spread));
+      if (reflagged.length > 0) {
+        // The writer already revised these spreads and the director still
+        // can't stage them — more rounds won't converge. Human review.
+        const reviewErr = new Error(`art director still cannot stage spread(s) [${reflagged.map((b) => b.spread).join(', ')}] after a writer revision round`);
+        reviewErr.needsReview = buildNeedsReviewPayload({
+          stage: 'artDirection',
+          reason: 'art_direction_unstageable',
+          spread: reflagged[0].spread,
+          defects: bounce.bounces.map((b) => `spread ${b.spread}: ${b.problem} (suggested: ${b.suggestion})`),
+        });
+        throw reviewErr;
+      }
+
+      ctx.log('warn', `[v3] art director bounced spreads [${bounce.bounces.map((b) => b.spread).join(', ')}] (revision round ${round + 1}/${MAX_BOUNCE_REVISIONS}) — targeted writer revision before any rendering`);
+      const targets = bounce.bounces.map((b) => ({
+        spread: b.spread,
+        // Scene-level flags: the revision MUST change the scene_contract —
+        // the art director stages from the contract, not the prose.
+        requireContractChange: true,
+        notes: [`unstageable for the illustrator: ${b.problem}`, `suggested fix: ${b.suggestion}`].filter(Boolean),
+      }));
+      const fixLabel = round === 0 ? 'manuscript.bounceFix' : `manuscript.bounceFix.r${round + 1}`;
+      const revised = await ctx.execute(fixLabel, manuscriptRevisionActivity, {
+        brief,
+        ageProfile,
+        manuscript,
+        targets,
+      }, { retries: 1 });
+      ledger.add(fixLabel, revised);
+      for (const b of bounce.bounces) revisedSpreads.add(b.spread);
+      manuscript = revised;
+    }
   }
 }
 

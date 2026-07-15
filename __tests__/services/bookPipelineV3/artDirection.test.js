@@ -99,6 +99,26 @@ describe('runArtDirection', () => {
     expect(res.bounces).toHaveLength(1);
     expect(res.bounces[0].spread).toBe(4);
   });
+
+  test("the hero's REAL age drives the bounce criteria (an 11-year-old is not a preschooler)", async () => {
+    callVisionRole.mockResolvedValueOnce({ json: goodPlan, model: 'm', family: 'gemini' });
+    await runArtDirection({ manuscript: MS, ageBand: 'PB_EARLY_READER', ageYears: 11, referenceImages: [], log: () => {} });
+    const [, params] = callVisionRole.mock.calls[0];
+    expect(params.prompt).toContain('a 11-year-old child');
+    expect(params.prompt).toContain("Judge feasibility and safety against the hero's ACTUAL age");
+  });
+
+  test('falls back to the band label when the age is unknown', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: goodPlan, model: 'm', family: 'gemini' });
+    await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
+    expect(callVisionRole.mock.calls[0][1].prompt).toContain('an PB_TODDLER child');
+  });
+
+  test('art direction runs deterministic (temperature 0) so passes never disagree by sampling', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: goodPlan, model: 'm', family: 'gemini' });
+    await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
+    expect(callVisionRole.mock.calls[0][1].temperature).toBe(0);
+  });
 });
 
 describe('book pass', () => {

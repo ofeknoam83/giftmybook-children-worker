@@ -115,6 +115,7 @@ async function runNativeIllustrator(input, ctx) {
   const direction = await runArtDirection({
     manuscript,
     ageBand: ageProfile?.ageBand || ageProfile?.band,
+    ageYears: Number(rawRequest?.child?.age) || null,
     referenceImages: directorRefs,
     abortSignal,
     log,
