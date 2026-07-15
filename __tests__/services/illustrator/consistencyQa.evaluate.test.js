@@ -240,3 +240,20 @@ describe('evaluateConsistencyResult — hero_in_gutter (audit 2026-07-15)', () =
     expect(r.tags).not.toContain('hero_in_gutter');
   });
 });
+
+// ── Audit 2026-07-15 (book 2): real-world logos/flags ──
+describe('evaluateConsistencyResult — real_world_logo (audit book 2)', () => {
+  test('NASA logo + flag adds real_world_logo tag and issue', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      realWorldLogoOrFlag: true,
+      realWorldLogoOrFlagNotes: 'NASA logo on the vest, US flag on the sleeve',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('real_world_logo');
+    expect(r.issues.some(i => /NASA/.test(i))).toBe(true);
+  });
+  test('generic emblems pass', () => {
+    const r = evaluateConsistencyResult(baseParsed({ realWorldLogoOrFlag: false }));
+    expect(r.tags).not.toContain('real_world_logo');
+  });
+});

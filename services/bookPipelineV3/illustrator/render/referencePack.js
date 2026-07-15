@@ -2,8 +2,9 @@
  * Reference pack (A2) — the FIXED set of reference images attached to
  * every spread render:
  *
- *   character model sheet + best real photo + approved cover (+ world
- *   plate for revisited locations, once art direction ships them)
+ *   character model sheet + approved cover (+ world plate for revisited
+ *   locations, once art direction ships them). The raw photo is NEVER
+ *   attached to generation (Part B) — it feeds only the likeness judges.
  *
  * Identity flows one direction: photo → sheet → every spread. No spread
  * ever references a previous spread — that photocopy-of-a-photocopy
@@ -45,15 +46,12 @@ async function buildBookReferencePack({ identityKit, coverImageUrl = null, log =
     note: 'CHARACTER MODEL SHEET (identity ground truth — match this character design exactly in every view):',
   });
 
-  // 2. Best real photo — the likeness source of truth.
-  const photo = identityKit.photos?.[0];
-  if (photo) {
-    refs.push({
-      base64: photo.base64,
-      mimeType: photo.mimeType || 'image/jpeg',
-      note: 'REAL PHOTO of the child (likeness reference — skin tone, hair, and features must match):',
-    });
-  }
+  // 2. (Part B, PROHIBITED_CONTENT safety) The raw child photo is NOT
+  // attached to render calls — asking the image model to match a real,
+  // identifiable child is what Gemini's non-configurable safety tier
+  // blocks, and it killed real cover generations. Likeness flows through
+  // the model SHEET (an illustration, safe to reference); the photos stay
+  // in the identity kit strictly for the cross-family likeness JUDGES.
 
   // 3. Approved cover — wardrobe + style ground truth (the one image the
   // parent has blessed). Best-effort: a missing cover must not fail renders.

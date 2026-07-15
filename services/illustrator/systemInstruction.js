@@ -141,7 +141,7 @@ Identity is the contract of this book. Lighting, camera angle, mood, and weather
 `### CHARACTER LOCK
 The hero child on the cover is the ONLY hero of every spread. Preserve their face, ethnicity, skin tone, eye color, hair color + hairstyle, and body proportions EXACTLY as rendered on the cover.
 ${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
-Outfit (visual lock only — no separate text wardrobe list): Copy the hero's clothing **as it appears on the BOOK COVER image** and keep it aligned with **your own prior interior frames in this chat**. Same shirt/dress/pants/shoes family, colors, and silhouette across spreads unless the SCENE explicitly calls for a situational swap (pajamas, swimwear, coat in snow, bath/towel per rules below). Do not invent a new outfit each spread when the cover and recent frames show a consistent look.
+Outfit (visual lock only — no separate text wardrobe list): Copy the hero's clothing **as it appears on the BOOK COVER image** and keep it aligned with **your own prior interior frames in this chat** — but if the cover outfit shows ANY lettering, name tag, badge with letters, brand logo, or national flag, copy the GARMENT and OMIT the lettering/logo/flag entirely (plain fabric there instead): tiny repainted type garbles into misspellings in print (audit 2026-07-15: the hero's name tag rendered 'RioIt'/'Anilt' across spreads). Same shirt/dress/pants/shoes family, colors, and silhouette across spreads unless the SCENE explicitly calls for a situational swap (pajamas, swimwear, coat in snow, bath/towel per rules below). Do not invent a new outfit each spread when the cover and recent frames show a consistent look.
 **Bathtub / shower:** the usual street outfit does NOT apply while the child is in bath water — see ### BATH, SHOWER, AND SWIMMING below (bubbles/towel; never fully clothed in the tub).
 Show the hero EXACTLY ONCE per spread. Never twins, never split mirror views, never montages of the hero doing multiple things.
 
@@ -239,7 +239,7 @@ SHOT VARIETY (every book):
 
 IN-WORLD READABLE TEXT (STRICT):
 - The ONLY allowed text on the image is the manuscript caption on the CHOSEN SIDE given in the per-spread prompt — character-for-character identical to that passage.
-- **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). Describe places without inviting the model to render type.`
+- **Forbidden:** painted signage, shop names, storefront lettering, chalkboards, posters, menus, product labels, street names, or any other readable words in the scene (they are not in these books' manuscripts and cause OCR / QA failures). ALSO forbidden: lettering on any character's clothing (name tags, letter badges, printed shirts), real-world brand logos (e.g. NASA), and national flags — use plain fabric or generic star/planet patches instead. Describe places without inviting the model to render type.`
   );
   }
 
@@ -565,7 +565,7 @@ Think: a still frame from a modern Disney-Pixar feature film — NOT a tradition
     `### CHARACTER LOCK
 The hero child on the cover is the ONLY hero of every spread. Preserve their face, ethnicity, skin tone, eye color, hair color + hairstyle, and body proportions EXACTLY as rendered on the cover.
 ${childAppearance ? `Short reference (belt-and-suspenders with the cover image): ${childAppearance}.` : ''}
-Copy the hero's clothing **as on the BOOK COVER** and prior interiors. Same outfit family unless the SCENE explicitly calls for bath/pool/pajamas/layer per system rules.
+Copy the hero's clothing **as on the BOOK COVER** and prior interiors. Same outfit family unless the SCENE explicitly calls for bath/pool/pajamas/layer per system rules. If the cover outfit shows lettering, a name tag, a logo, or a flag — copy the garment but OMIT the lettering/logo/flag (plain fabric).
 Show the hero **EXACTLY ONCE per spread half** — each half is one moment. Across the pair the story may advance so the hero appears in both halves with correct continuity.`,
   );
 
