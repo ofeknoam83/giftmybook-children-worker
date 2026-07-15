@@ -125,7 +125,10 @@ const QA_INFRA_TAGS_SINGLE = new Set([
 const QA_SOFT_FAIL_TAGS_SINGLE = new Set([
   'implied_parent_outfit_drift',
   'hair_continuity_drift',
-  'outfit_continuity_drift',
+  // 'outfit_continuity_drift' was REMOVED from this whitelist (audit
+  // 2026-07-15): a shipped book's hero flipped between blue jeans and brown
+  // pants mid-book — the flip rode in on the fail-open accept. Outfit
+  // continuity is a customer-visible identity signal and must hard-fail.
 ]);
 
 /**

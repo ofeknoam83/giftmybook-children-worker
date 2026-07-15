@@ -2,8 +2,10 @@
  * Cover Generator — Creates Lulu-compliant wrap-around cover PDF
  * (back cover + spine + front cover) with 0.125" bleed.
  *
- * Back cover: Gemini-generated illustration matching front cover style,
- * with synopsis, heartfelt note, branding, and fake barcode integrated.
+ * Back cover: Gemini-generated TEXT-FREE illustration matching the front
+ * cover style; synopsis, heartfelt note, and branding are TYPESET with
+ * pdf-lib on top (never painted — painted text ships garbled words). No
+ * barcode is drawn; Lulu applies the real ISBN barcode.
  * Spine: Color-matched to front cover, no text for books under 80 pages.
  */
 
@@ -291,50 +293,129 @@ async function buildBackCoverStyleReferenceBuffer(frontCoverBuffer) {
 }
 
 /**
+ * Word-wrap a string to a pixel width for a pdf-lib font.
+ *
+ * @param {string} text
+ * @param {import('pdf-lib').PDFFont} font
+ * @param {number} size - font size in points
+ * @param {number} maxWidth - available width in points
+ * @returns {string[]} wrapped lines
+ */
+function wrapTextToWidth(text, font, size, maxWidth) {
+  const lines = [];
+  let current = '';
+  for (const word of String(text || '').split(/\s+/).filter(Boolean)) {
+    const attempt = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(attempt, size) > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = attempt;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+/**
+ * Typeset the back-cover text (synopsis, heartfelt note, branding) with
+ * pdf-lib, on top of whatever background is already drawn (Gemini art or
+ * the plain-color fallback). This is the ONLY way text reaches the back
+ * cover — the image model paints artwork only (audit 2026-07-15: painted
+ * synopses shipped garbled words on a printed book).
+ *
+ * Legibility over arbitrary art: each line is drawn 4× in a dark ink at
+ * sub-point offsets (a poor man's outline) and then once in warm cream on
+ * top. All text stays inside the trim safe area; the bottom-left barcode
+ * region is left clear (Lulu applies the real ISBN barcode — we no longer
+ * paint a fake one).
+ *
+ * @param {import('pdf-lib').PDFPage} page
+ * @param {object} geom - { edgeBleed, trimWidth, totalHeight }
+ * @param {object} fonts - { font, boldFont, italicFont }
+ * @param {object} content - { synopsis, heartfeltNote, bookFrom, childName }
+ */
+function drawBackCoverTypeset(page, geom, fonts, content) {
+  const { edgeBleed, trimWidth, totalHeight } = geom;
+  const { font, boldFont, italicFont } = fonts;
+  const { synopsis, heartfeltNote, bookFrom, childName } = content;
+
+  const SAFE = 45; // 0.625" inside trim — comfortably clear of Lulu trim variance
+  const contentWidth = trimWidth - SAFE * 2;
+  const centerX = edgeBleed + trimWidth / 2;
+  const cream = rgb(0.98, 0.95, 0.86);
+  const ink = rgb(0.13, 0.11, 0.09);
+
+  const drawOutlined = (text, x, y, size, f) => {
+    for (const [dx, dy] of [[-0.7, 0], [0.7, 0], [0, -0.7], [0, 0.7]]) {
+      page.drawText(text, { x: x + dx, y: y + dy, size, font: f, color: ink });
+    }
+    page.drawText(text, { x, y, size, font: f, color: cream });
+  };
+
+  let y = totalHeight - edgeBleed - SAFE - 60;
+
+  if (synopsis) {
+    const size = 13;
+    const lineGap = 21;
+    for (const line of wrapTextToWidth(synopsis, boldFont, size, contentWidth)) {
+      const lw = boldFont.widthOfTextAtSize(line, size);
+      drawOutlined(line, centerX - lw / 2, y, size, boldFont);
+      y -= lineGap;
+    }
+    y -= 18;
+  }
+
+  if (heartfeltNote) {
+    const size = 11;
+    const lineGap = 18;
+    const noteText = bookFrom ? `${heartfeltNote} — ${bookFrom}` : heartfeltNote;
+    for (const line of wrapTextToWidth(noteText, italicFont, size, contentWidth)) {
+      const lw = italicFont.widthOfTextAtSize(line, size);
+      drawOutlined(line, centerX - lw / 2, y, size, italicFont);
+      y -= lineGap;
+    }
+  }
+
+  // Branding near the bottom center, above the barcode strip Lulu reserves.
+  const madeFor = `Made with love for ${childName || 'you'}`;
+  const madeForW = boldFont.widthOfTextAtSize(madeFor, 12);
+  drawOutlined(madeFor, centerX - madeForW / 2, edgeBleed + SAFE + 42, 12, boldFont);
+  const brand = 'GiftMyBook.com';
+  const brandW = boldFont.widthOfTextAtSize(brand, 12);
+  drawOutlined(brand, centerX - brandW / 2, edgeBleed + SAFE + 24, 12, boldFont);
+}
+
+/**
  * Generate back cover illustration using Gemini, matching the front cover style.
+ * ARTWORK ONLY — all back-cover text is typeset by drawBackCoverTypeset.
  *
  * @param {Buffer} frontCoverBuffer - Front cover image
  * @param {object} opts - { title, childName, synopsis, heartfeltNote, bookFrom, bookFormat }
  * @returns {Promise<Buffer|null>} Back cover image buffer, or null on failure
  */
 async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
-  const { childName, synopsis, heartfeltNote, bookFrom, costTracker, bookFormat, isHardcover } = opts;
+  const { costTracker, bookFormat, isHardcover } = opts;
   const fmt = (bookFormat || '').toLowerCase();
   const isSquare = fmt === 'picture_book' || fmt === 'early_reader';
 
   const refFromCorner = await buildBackCoverStyleReferenceBuffer(frontCoverBuffer);
 
-  // Build the text elements for the back cover
-  const textElements = [];
-  if (synopsis) {
-    textElements.push(`At the top center, in Bubblegum Sans font (rounded, bubbly, matching the interior pages):\n"${synopsis}"`);
-  }
-  if (heartfeltNote) {
-    const noteText = bookFrom
-      ? `${heartfeltNote}\n— ${bookFrom}`
-      : heartfeltNote;
-    textElements.push(`Below a small decorative separator:\n${noteText}`);
-  }
-  textElements.push(`Near the bottom center:\n"Made with love for ${childName || 'you'}"\n"GiftMyBook.com"`);
-
+  // The back cover carries the most-read text on the book (the synopsis).
+  // It is TYPESET with pdf-lib after generation — the image model paints
+  // ARTWORK ONLY. Painted text shipped garbled words on a real customer
+  // book (audit 2026-07-15: "stofor", "swoown"), and image models cannot
+  // be trusted with letterforms. The prompt therefore reserves a calm
+  // upper region for the typeset text instead of asking for any text.
   const layoutBlock = `LAYOUT REQUIREMENTS:
 - This is the BACK COVER of the book — it should feel like a companion to the front cover
 - Background: Use a softer, calmer version of the front cover's scene/colors — like a continuation of the world
 - The main character should NOT appear on the back cover
 - Include gentle, decorative elements from the story world (stars, clouds, or thematic elements from the front cover)
+- The UPPER TWO-THIRDS must be calm, dark-leaning, and low-detail (open sky, soft gradient, distant scenery) — book text will be printed over it later, so no busy shapes, no high-contrast highlights there
+- Keep richer scenery detail in the lower third only
 
-TEXT TO INCLUDE (render beautifully integrated into the illustration):
-
-${textElements.join('\n\n')}
-
-BARCODE: Include a realistic-looking fake barcode in the bottom-left corner (standard book barcode size, approximately 2" x 1.25"). It should look like a real ISBN barcode with vertical lines and numbers underneath, but the numbers can be fictional.
-
-TEXT RULES:
-- ALL text must be perfectly legible and correctly spelled
-- FONT: Use Bubblegum Sans — rounded, bubbly, matching the interior pages exactly
-- Use warm, soft colors that match the front cover palette
-- Text should feel integrated into the illustration, not overlaid
-- The overall feel should be warm, cozy, and premium
+ABSOLUTELY NO TEXT: do not render any words, letters, numbers, captions, titles, logos, or barcodes anywhere in the image. The image must be 100% text-free artwork.
 
 FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide'}.
 
@@ -594,6 +675,7 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   const page = pdfDoc.addPage([totalWidth, totalHeight]);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
   const backWidth = edgeBleed + trimWidth;
   const spineX = backWidth;
@@ -639,50 +721,32 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         .toBuffer();
       const img = await pdfDoc.embedJpg(resized);
       page.drawImage(img, { x: 0, y: 0, width: backWidth, height: totalHeight });
-      console.log('[CoverGenerator] Back cover illustration embedded');
+      console.log('[CoverGenerator] Back cover illustration embedded (textless art)');
     } catch (err) {
       console.error('[CoverGenerator] Failed to embed back cover illustration:', err.message);
-      // Fall through to plain text fallback
+      // Fall through to plain-color background
       backCoverBuffer = null;
     }
   }
 
   if (!backCoverBuffer) {
-    // Fallback: plain colored back cover with text
+    // Fallback background: plain colored back cover
     const backBgColor = softenColor(coverColor, 0.6);
-    const textColor = { r: 0.2, g: 0.18, b: 0.15 };
     page.drawRectangle({
       x: 0, y: 0,
       width: backWidth, height: totalHeight,
       color: rgb(backBgColor.r, backBgColor.g, backBgColor.b),
     });
-
-    const centerX = bleed + trimWidth / 2;
-    const contentWidth = trimWidth - 72;
-
-    // Synopsis
-    if (synopsis) {
-      const words = synopsis.split(/\s+/);
-      const lines = [];
-      let cl = '';
-      for (const w of words) {
-        const tl = cl ? `${cl} ${w}` : w;
-        if (font.widthOfTextAtSize(tl, 12) > contentWidth && cl) { lines.push(cl); cl = w; } else { cl = tl; }
-      }
-      if (cl) lines.push(cl);
-      let y = totalHeight - bleed - 100;
-      for (const line of lines) {
-        const lw = font.widthOfTextAtSize(line, 12);
-        page.drawText(line, { x: centerX - lw / 2, y, size: 12, font, color: rgb(textColor.r, textColor.g, textColor.b) });
-        y -= 20;
-      }
-    }
-
-    // Brand
-    const brand = 'GiftMyBook.com';
-    const bw = font.widthOfTextAtSize(brand, 8);
-    page.drawText(brand, { x: centerX - bw / 2, y: bleed + 25, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
   }
+
+  // Typeset ALL back-cover text with pdf-lib — on art or fallback alike.
+  // Never painted by the image model (see drawBackCoverTypeset).
+  drawBackCoverTypeset(
+    page,
+    { edgeBleed, trimWidth, totalHeight },
+    { font, boldFont, italicFont },
+    { synopsis, heartfeltNote, bookFrom, childName },
+  );
 
   // ═══════════════════════════════════════
   // SPINE TEXT (drawn after covers so text is on top)
@@ -1047,4 +1111,6 @@ module.exports = {
   UPSELL_STYLE_LABELS,
   geminiImagePartFromResponsePart,
   shouldSkipCoverStyleHarmonize,
+  wrapTextToWidth,
+  drawBackCoverTypeset,
 };

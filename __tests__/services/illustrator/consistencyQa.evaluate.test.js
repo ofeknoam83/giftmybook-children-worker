@@ -219,3 +219,24 @@ describe('evaluateConsistencyResult', () => {
     expect(r.tags).toEqual(expect.arrayContaining(['extra_limbs', 'disembodied_limb']));
   });
 });
+
+// ── Audit 2026-07-15: hero on the page fold ──
+// A shipped book bisected the hero at the fold (arm on one printed page,
+// body on the other). heroOnFoldLine is a dedicated hard fail, independent
+// of splitPanel (that one detects render seams, not composition).
+describe('evaluateConsistencyResult — hero_in_gutter (audit 2026-07-15)', () => {
+  test('heroOnFoldLine true adds hero_in_gutter tag and a fold issue', () => {
+    const r = evaluateConsistencyResult(baseParsed({
+      heroOnFoldLine: true,
+      heroOnFoldLineNotes: 'fold passes through his torso',
+    }));
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('hero_in_gutter');
+    expect(r.issues.some(i => /fold|cut in half/i.test(i))).toBe(true);
+  });
+
+  test('heroOnFoldLine false keeps a passing spread passing', () => {
+    const r = evaluateConsistencyResult(baseParsed({ heroOnFoldLine: false }));
+    expect(r.tags).not.toContain('hero_in_gutter');
+  });
+});

@@ -65,3 +65,44 @@ describe('evaluateOcrResult', () => {
     expect(r.tags).toContain('extra_word');
   });
 });
+
+// ── Audit 2026-07-15: fold-line + trim-edge hard fails ──
+// A shipped book split words in half at the page fold ("He pl|ants") and
+// clipped first letters at the outer trim. These pin the new OCR fields.
+describe('evaluateOcrResult — fold line and trim edge (audit 2026-07-15)', () => {
+  function passingParsed(over = {}) {
+    return {
+      ocrText: 'Hello there.',
+      leftText: 'Hello there.',
+      rightText: '',
+      centerText: '',
+      crossesMidline: false,
+      textBlockOverflow: false,
+      textOnBothSides: false,
+      anyTextTouchesFoldLine: false,
+      textClippedAtOuterEdge: false,
+      fontLooksPlainBookSerif: true,
+      ...over,
+    };
+  }
+  const ctx = { expectedText: 'Hello there.', expectedSide: 'left', anyExpected: true };
+
+  test('text on the exact fold line (x=0.5) hard-fails with text_crosses_midline', () => {
+    const r = evaluateOcrResult(passingParsed({ anyTextTouchesFoldLine: true }), ctx);
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('text_crosses_midline');
+    expect(r.issues.some(i => /fold/i.test(i))).toBe(true);
+  });
+
+  test('text clipped at the outer trim edge hard-fails with text_trim_clipped', () => {
+    const r = evaluateOcrResult(passingParsed({ textClippedAtOuterEdge: true }), ctx);
+    expect(r.pass).toBe(false);
+    expect(r.tags).toContain('text_trim_clipped');
+    expect(r.issues.some(i => /outer/i.test(i))).toBe(true);
+  });
+
+  test('both new fields false → still passes', () => {
+    const r = evaluateOcrResult(passingParsed(), ctx);
+    expect(r.pass).toBe(true);
+  });
+});
