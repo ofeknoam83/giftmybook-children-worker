@@ -61,6 +61,9 @@ Return STRICT JSON:
 
 Rules:
 - Judge character identity, not art quality. A beautiful image of the wrong character scores 1.
+- FRAMING ALLOWANCE: story spreads use varied shots. When the character is far away, small, back-turned, seen from above, or partially out of frame, judge ONLY the identity features the framing makes visible (silhouette, hair color/shape, outfit, skin tone where shown) and give full credit for features the shot cannot show. Absence of evidence is NOT a mismatch.
+- wrongChild=true requires POSITIVE evidence of a different character (visibly different hair, face, or skin) — never set it merely because the face is small or hidden.
+- Scene lighting is not a skin-tone mismatch: night, dusk, firelight, or golden-hour grading shifts apparent tone on EVERY character. Judge the underlying undertone/depth in the context of the scene's light; set skinToneMatch=false only when the character's skin genuinely reads as a different tone than the reference under comparable light.
 - skinToneMatch=false or wrongChild=true are HARD failures regardless of the likeness number.`;
 
 /**
@@ -82,6 +85,7 @@ async function judgeLikenessOnce({ role, candidate, referenceImages, contextNote
     images: [candidate, ...referenceImages],
     label: `v3.likeness.${role.toLowerCase()}`,
     expectJson: true,
+    temperature: 0, // stable verdicts — repair waves need a fixed target
     abortSignal,
   });
   const likeness = Number(json.likeness) || 1;

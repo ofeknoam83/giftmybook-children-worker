@@ -54,7 +54,10 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
   const likeness = await judgeLikenessCrossFamily({
     candidate,
     referenceImages,
-    contextNote: 'The reference art is this book\'s character MODEL SHEET and/or APPROVED COVER — judge whether the candidate spread stars the same character.',
+    contextNote: [
+      'The reference art is this book\'s character MODEL SHEET and/or APPROVED COVER — judge whether the candidate spread stars the same character.',
+      direction?.shot ? `This spread uses a "${direction.shot}" framing — apply the framing allowance accordingly.` : null,
+    ].filter(Boolean).join(' '),
     abortSignal,
   });
   record.likeness = likeness.minLikeness;
@@ -134,12 +137,19 @@ async function selectSpreadWinner({
       repairWaves += 1;
       const namedDefects = [...new Set(evaluations.flatMap((e) => e.defects))].slice(0, 8);
       log(`spread ${spread.spread}: no candidate passed — repair wave with named defects: ${namedDefects.join('; ') || 'none recorded'}`);
+      // Lettering rejections get a SPECIFIC fix instruction — "avoid
+      // lettering" is too weak when the scene itself contains a map/note
+      // the model keeps writing on.
+      const letteringDefects = namedDefects.filter((d) => d.includes('lettering detected'));
       const repairSpread = {
         ...spread,
         scene_contract: {
           ...sceneContract,
           continuity_notes: [
             sceneContract.continuity_notes,
+            letteringDefects.length
+              ? `CRITICAL REPAIR: previous renders contained readable writing (${letteringDefects.join('; ')}). Depict every written artifact (map, note, sign, book) with WORDLESS abstract marks — wavy squiggles, dots, star-glyphs — never letters or numbers.`
+              : null,
             namedDefects.length ? `AVOID these defects from rejected attempts: ${namedDefects.join('; ')}` : null,
           ].filter(Boolean).join(' | '),
         },

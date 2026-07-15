@@ -73,6 +73,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     STYLE_BIBLE,
     '',
     'ABSOLUTELY NO TEXT of any kind in the image — no letters, words, numbers, signs with writing, book pages with visible words, or watermarks. The story text is printed separately. Clothing must be letter-free: no name tags, letter badges, real-world logos, or national flags.',
+    'WORDLESS PROPS: if the scene includes any written artifact — a map, note, letter, book, scroll, sign, or label — depict it WITHOUT readable writing. Use abstract wavy squiggle lines, dots, star-glyphs, or symbols that clearly cannot be read as letters or numbers. A map shows paths, landmarks, and constellation marks — never place names or words.',
     'The child is the ORIGINAL ILLUSTRATED CHARACTER from the attached MODEL SHEET — match that character design exactly. It is a storybook character, not a reproduction of any real, identifiable person.',
     'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
   ].filter((l) => l !== null).join('\n');
