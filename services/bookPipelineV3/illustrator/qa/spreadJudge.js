@@ -63,6 +63,7 @@ async function judgeSpreadCandidate({ candidate, sceneContract, direction = null
     images: [candidate],
     label: 'v3.qa.spread',
     expectJson: true,
+    temperature: 0, // stable verdicts — repair waves need a fixed target
     abortSignal,
   });
 

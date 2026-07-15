@@ -343,6 +343,11 @@ async function runNativeIllustrator(input, ctx) {
   return doc;
 
   async function spreadQaFailure(failedSpreads) {
+    // The tag distribution is the fastest diagnostic for a systematic
+    // exhaustion — log it and ride it on the payload BEFORE throwing
+    // (previously it was attached to the doc only on the success path
+    // and died with the exhaustion).
+    log(`spread QA exhausted — qaTagCounts: ${JSON.stringify(qaTagCounts)}`);
     const urls = await Promise.all(
       failedSpreads.flatMap((f) => f.allCandidates.map(async (c) => [c.path, await getSignedUrl(c.path).catch(() => c.path)])),
     );
@@ -351,6 +356,7 @@ async function runNativeIllustrator(input, ctx) {
       `${failedSpreads.length} spread(s) exhausted the QA budget (spreads ${failedSpreads.map((f) => f.spread).join(', ')}) — needs human review with all candidates attached`,
     );
     err.needsReview = buildSpreadQaNeedsReview(failedSpreads, (p) => urlByPath.get(p) || p);
+    if (err.needsReview.judgeScores) err.needsReview.judgeScores.qaTagCounts = qaTagCounts;
     return err;
   }
 }

@@ -73,6 +73,12 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('ABSOLUTELY NO TEXT');
     expect(p).toContain('Exactly ONE instance of the child');
   });
+
+  test('written artifacts in the scene must be wordless (maps/notes get squiggles, not letters)', () => {
+    const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(p).toContain('WORDLESS PROPS');
+    expect(p).toContain('never place names or words');
+  });
 });
 
 describe('renderAllSpreadsNative', () => {
@@ -192,5 +198,42 @@ describe('selectSpreadWinner cascade', () => {
     expect(payload.spread).toBe(7);
     expect(payload.candidateUrls).toHaveLength(4);
     expect(payload.defects[0]).toMatch(/spread 7 c1 \[spreadJudge\]: two copies of the hero/);
+  });
+
+  test('lettering rejections produce a SPECIFIC wordless-props repair instruction', async () => {
+    runDeterministicChecks.mockResolvedValue({
+      pass: false,
+      defects: ['lettering detected in artwork (handwriting on the map — upper right) — automatic fail (D5: no text in pixels)'],
+    });
+    const repairPrompts = [];
+    generateImage.mockImplementation(async ({ prompt, label }) => {
+      repairPrompts.push(prompt);
+      return { buffer: Buffer.from(label), mimeType: 'image/png' };
+    });
+
+    const res = await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(4), candidates: CANDS, bookPack: PACK,
+      referenceImages: PHOTOS, briefText: 'B', qaTagCounts: {}, log: () => {},
+    });
+    expect(res.selected).toBeNull();
+    expect(repairPrompts.length).toBeGreaterThan(0);
+    for (const p of repairPrompts) {
+      expect(p).toContain('CRITICAL REPAIR: previous renders contained readable writing');
+      expect(p).toContain('handwriting on the map');
+      expect(p).toContain('WORDLESS abstract marks');
+    }
+  });
+
+  test('the likeness judge receives the spread\'s shot framing for the framing allowance', async () => {
+    runDeterministicChecks.mockResolvedValue({ pass: true, defects: [] });
+    judgeSpreadCandidate.mockResolvedValue(passingSpreadJudge);
+    judgeLikenessCrossFamily.mockResolvedValue({ pass: true, minLikeness: 5, verdicts: [], defects: [] });
+
+    await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(1), candidates: [CANDS[0]], bookPack: PACK,
+      direction: { shot: 'wide-establishing', textZone: 'left-top' },
+      referenceImages: PHOTOS, briefText: 'B', log: () => {},
+    });
+    expect(judgeLikenessCrossFamily.mock.calls[0][0].contextNote).toContain('"wide-establishing" framing');
   });
 });

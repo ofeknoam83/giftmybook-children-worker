@@ -16,9 +16,16 @@ const { callVisionRole } = require('../../llm/visionClient');
 
 const MIN_DIMENSION_PX = Number(process.env.BOOK_PIPELINE_V3_MIN_RENDER_PX || 768);
 
-const LETTERFORM_PROMPT = `Look at this illustration. Does it contain ANY text, letters, numbers, words, captions, signage with writing, book pages with visible words, watermarks, or letter-like glyphs anywhere — even tiny, blurry, or partially hidden?
-Return STRICT JSON: { "hasText": true|false, "where": "short location description or null" }
-Err on the side of hasText=true if anything even resembles lettering.`;
+// Calibrated 2026-07-15: the old "err on the side of hasText=true if
+// anything even resembles lettering" wording hard-failed 11/13 spreads of
+// the first native book (star trails / map squiggles read as "letter-like").
+// The gate now flags READABLE marks only — actual letterforms a reader
+// would attempt to read — and names what/where so repairs are targeted.
+const LETTERFORM_PROMPT = `Look at this illustration. Does it contain READABLE TEXT — actual letters, numbers, or words a reader would attempt to read? This includes tiny, blurry, partial, or stylized-but-legible writing: captions, signage, book pages with words, labels, watermarks.
+
+NOT text (do not flag): abstract squiggles or wavy lines standing in for writing, star trails and constellation lines, glowing glyphs or symbols that cannot be read, decorative patterns, branches, fabric texture. The rule: if no specific letters or digits can be made out or reasonably inferred, hasText is false.
+
+Return STRICT JSON: { "hasText": true|false, "what": "the readable text or marks you see, or null", "where": "short location description or null" }`;
 
 /**
  * @param {{base64: string}} candidate
@@ -49,10 +56,12 @@ async function letterformCheck(candidate, abortSignal) {
     images: [candidate],
     label: 'v3.qa.letterform',
     expectJson: true,
+    temperature: 0, // a hard-fail gate must not flip verdicts by sampling luck
     abortSignal,
   });
   if (json.hasText === true) {
-    return { pass: false, defects: [`lettering detected in artwork${json.where ? ` (${json.where})` : ''} — automatic fail (D5: no text in pixels)`] };
+    const detail = [json.what, json.where].filter(Boolean).join(' — ');
+    return { pass: false, defects: [`lettering detected in artwork${detail ? ` (${detail})` : ''} — automatic fail (D5: no text in pixels)`] };
   }
   return { pass: true, defects: [] };
 }
