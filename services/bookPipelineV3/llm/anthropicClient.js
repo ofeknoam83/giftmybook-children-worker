@@ -31,6 +31,7 @@ const {
   LlmTruncationError,
   parseJsonLoose,
   fetchWithTimeout,
+  isNetworkError,
 } = require('../../shared/llm/openaiClient');
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -209,7 +210,7 @@ async function callClaude(params) {
         console.error(`[LLM_AUTH_FAIL] label=${label} model=${model} provider=anthropic httpStatus=${err.httpStatus || 'none'} missingKey=${err.missingKey ? 'true' : 'false'} msg='${String(err.message).slice(0, 300)}' — no cross-family fallback; fix ANTHROPIC_API_KEY and redeploy`);
         throw err;
       }
-      const retryable = err?.isTransient === true;
+      const retryable = err?.isTransient === true || isNetworkError(err);
       if (!retryable) {
         console.error(`[llm:${label}] non-transient error after ${Date.now() - attemptStart}ms: ${err.message}`);
         throw err;

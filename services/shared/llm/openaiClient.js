@@ -125,6 +125,33 @@ const OPENAI_COMPAT_PROVIDERS = {
   },
 };
 
+/**
+ * Network-level fetch failures carry no HTTP status — the socket died
+ * before or while the body streamed — so the status-based transient
+ * classification never sees them: undici's `terminated` / `fetch failed`,
+ * ECONNRESET, EPIPE, socket hang up, DNS blips. They are transient by
+ * nature. Without this, one dropped connection fails the whole activity
+ * (seen live 2026-07-15: DeepSeek closed a 50s v3.editor call mid-body
+ * and the book died on "non-transient error: terminated").
+ *
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isNetworkError(err) {
+  if (!err) return false;
+  const code = err.code || err.cause?.code || '';
+  if ([
+    'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+    'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  ].includes(code)) return true;
+  const msg = String(err.message || '').toLowerCase();
+  return msg.includes('terminated')
+    || msg.includes('fetch failed')
+    || msg.includes('socket hang up')
+    || msg.includes('network error')
+    || (msg.includes('connection') && (msg.includes('reset') || msg.includes('closed') || msg.includes('refused')));
+}
+
 function resolveGeminiKey(override) {
   return override
     || process.env.GEMINI_API_KEY
@@ -532,7 +559,7 @@ async function callText(params) {
       };
     } catch (err) {
       lastErr = err;
-      const transient = err?.isTransient === true;
+      const transient = err?.isTransient === true || isNetworkError(err);
       const truncation = err?.isTruncation === true;
       const authError = err?.isAuthError === true;
 
@@ -629,4 +656,5 @@ module.exports = {
   parseJsonLoose,
   fetchWithTimeout,
   assertLlmConfig,
+  isNetworkError,
 };
