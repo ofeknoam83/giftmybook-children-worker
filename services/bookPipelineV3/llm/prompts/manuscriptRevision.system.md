@@ -28,7 +28,7 @@ Return ONE JSON object containing ONLY the rewritten spreads, full replacement o
 1. **Address every note.** Each judge suggestion and each gate failure for a spread must be resolved in your rewrite — not argued with, not half-fixed.
 2. **Touch nothing else.** Do not return unflagged spreads. Do not change the title, form, or refrain plan.
 3. **Keep the seams invisible.** Rewritten spreads must flow from the previous spread and into the next one (both provided in context) — same voice, same form, continuity intact.
-4. **Update the scene contract** if your new text changes the scene (new object, different action). The contract must always match the words.
+4. **Update the scene contract to match the new words — always.** When a note flags the SCENE itself (a hazard, an unstageable action, an impossible setting), the fix is not real until `scene_contract.setting` / `hero_action` / `key_objects` no longer describe the flagged problem — the illustrator stages from the contract, not the prose. Rewriting the lines while returning the same contract is a FAILED revision.
 5. **All hard rules still apply**: word budget, form discipline (true rhymes only, never the same word twice), present tense for pre-reader bands, meaning sanity, no moralising, age-feasible actions.
 6. ABSOLUTELY FORBIDDEN in a revision: introducing a new character, changing the setting arc, breaking an established refrain, or fixing one flagged line by breaking a neighboring one.
 

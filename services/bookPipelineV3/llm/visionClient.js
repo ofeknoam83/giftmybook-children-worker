@@ -36,7 +36,7 @@ function resolveGeminiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_KEY || null;
 }
 
-async function callGeminiVision({ model, prompt, images, timeoutMs, abortSignal }) {
+async function callGeminiVision({ model, prompt, images, timeoutMs, abortSignal, temperature }) {
   const apiKey = resolveGeminiKey();
   if (!apiKey) throw new Error('visionClient: no GEMINI_API_KEY / GOOGLE_AI_STUDIO_KEY set');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -44,10 +44,12 @@ async function callGeminiVision({ model, prompt, images, timeoutMs, abortSignal 
   for (const img of images) {
     parts.push({ inline_data: { mime_type: img.mimeType || 'image/jpeg', data: img.base64 } });
   }
+  const body = { contents: [{ parts }] };
+  if (Number.isFinite(temperature)) body.generationConfig = { temperature };
   const resp = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts }] }),
+    body: JSON.stringify(body),
     signal: abortSignal,
   }, timeoutMs);
   if (!resp.ok) {
@@ -65,7 +67,7 @@ async function callGeminiVision({ model, prompt, images, timeoutMs, abortSignal 
   return { text, usage };
 }
 
-async function callOpenAiVision({ model, prompt, images, timeoutMs, abortSignal }) {
+async function callOpenAiVision({ model, prompt, images, timeoutMs, abortSignal, temperature }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('visionClient: no OPENAI_API_KEY set');
   const content = [{ type: 'text', text: prompt }];
@@ -78,7 +80,11 @@ async function callOpenAiVision({ model, prompt, images, timeoutMs, abortSignal 
   const resp = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content }],
+      ...(Number.isFinite(temperature) ? { temperature } : {}),
+    }),
     signal: abortSignal,
   }, timeoutMs);
   if (!resp.ok) {
@@ -111,10 +117,13 @@ const FAMILY_DISPATCH = {
  * @param {string} [params.label] - Cloud Logging label
  * @param {boolean} [params.expectJson] - parse the reply with parseJsonLoose
  * @param {number} [params.timeoutMs]
+ * @param {number} [params.temperature] - optional sampling temperature; omit for
+ *   provider default. Pass 0 for deterministic calls (e.g. the art director,
+ *   whose bounce list must not change between passes by sampling luck).
  * @param {AbortSignal} [params.abortSignal]
  * @returns {Promise<{ text: string, json?: object, model: string, family: string, usage: object|null }>}
  */
-async function callVisionRole(role, { prompt, images = [], label, expectJson = false, timeoutMs = DEFAULT_TIMEOUT_MS, abortSignal } = {}) {
+async function callVisionRole(role, { prompt, images = [], label, expectJson = false, timeoutMs = DEFAULT_TIMEOUT_MS, temperature, abortSignal } = {}) {
   if (!prompt) throw new Error('callVisionRole: prompt is required');
   const { model, family } = modelFor(role);
   const dispatch = FAMILY_DISPATCH[family];
@@ -129,7 +138,7 @@ async function callVisionRole(role, { prompt, images = [], label, expectJson = f
   let lastErr;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
-      const { text, usage } = await dispatch({ model, prompt, images, timeoutMs, abortSignal });
+      const { text, usage } = await dispatch({ model, prompt, images, timeoutMs, abortSignal, temperature });
       const out = { text, model, family, usage };
       if (expectJson) {
         try {

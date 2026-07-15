@@ -150,4 +150,51 @@ describe('manuscriptRevision', () => {
       targets: [{ spread: 2, notes: ['fix'] }],
     }, ctx)).rejects.toThrow(/none of the returned spreads/);
   });
+
+  // Art-director bounces set requireContractChange: the director stages
+  // from scene_contract, so a lines-only rewrite is a failed revision.
+  test('requireContractChange: an unchanged scene_contract triggers one harder re-ask', async () => {
+    const stale = { ...makeSpread(2) }; // identical contract → stale
+    const fixed = { ...makeSpread(2) };
+    fixed.scene_contract = { ...fixed.scene_contract, setting: 'a dry cavern behind the falls', hero_action: 'follows the path into the dry cavern' };
+    callWithRole
+      .mockResolvedValueOnce(resp({ spreads: [stale] }))
+      .mockResolvedValueOnce(resp({ spreads: [fixed] }));
+
+    const revised = await manuscriptRevisionActivity({
+      brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, manuscript,
+      targets: [{ spread: 2, notes: ['unstageable: behind the waterfall'], requireContractChange: true }],
+    }, ctx);
+
+    expect(callWithRole).toHaveBeenCalledTimes(2);
+    expect(callWithRole.mock.calls[1][1].label).toBe('v3.revision.contractfix');
+    expect(callWithRole.mock.calls[1][1].userPrompt).toContain('YOUR PREVIOUS REVISION FAILED');
+    expect(revised.spreads.find((s) => s.spread === 2).scene_contract.setting).toContain('dry cavern');
+  });
+
+  test('requireContractChange: still-stale after the re-ask continues with a loud warning', async () => {
+    const stale = { ...makeSpread(2) };
+    callWithRole
+      .mockResolvedValueOnce(resp({ spreads: [stale] }))
+      .mockResolvedValueOnce(resp({ spreads: [stale] }));
+
+    const revised = await manuscriptRevisionActivity({
+      brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, manuscript,
+      targets: [{ spread: 2, notes: ['unstageable'], requireContractChange: true }],
+    }, ctx);
+
+    expect(revised.spreads).toHaveLength(4); // never bricks the book
+    const warns = ctx.log.mock.calls.filter(([level]) => level === 'warn').map(([, msg]) => msg).join(' ');
+    expect(warns).toMatch(/STILL unchanged/);
+  });
+
+  test('judge-path targets (no requireContractChange) never re-ask on an unchanged contract', async () => {
+    const stale = { ...makeSpread(2) };
+    callWithRole.mockResolvedValueOnce(resp({ spreads: [stale] }));
+    await manuscriptRevisionActivity({
+      brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, manuscript,
+      targets: [{ spread: 2, notes: ['craft: weak line'] }],
+    }, ctx);
+    expect(callWithRole).toHaveBeenCalledTimes(1);
+  });
 });

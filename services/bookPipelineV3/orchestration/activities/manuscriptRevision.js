@@ -41,10 +41,18 @@ function mergeTargets(judgeFlags = [], gatePerSpread = []) {
   return Array.from(bySpread.values()).sort((a, b) => a.spread - b.spread);
 }
 
+/** Stable fingerprint of the contract fields the art director stages from. */
+function contractFingerprint(sceneContract) {
+  const sc = sceneContract || {};
+  return [sc.setting, sc.hero_action, ...(Array.isArray(sc.key_objects) ? sc.key_objects : [])]
+    .map((v) => String(v ?? '').trim().toLowerCase())
+    .join('|');
+}
+
 /**
  * @param {{
  *   brief: object, ageProfile: object, manuscript: object,
- *   targets: Array<{spread:number, notes:string[]}>,
+ *   targets: Array<{spread:number, notes:string[], requireContractChange?:boolean}>,
  * }} input
  */
 async function manuscriptRevisionActivity(input, ctx) {
@@ -53,7 +61,7 @@ async function manuscriptRevisionActivity(input, ctx) {
     throw new Error('manuscriptRevision: no targets');
   }
 
-  const userPrompt = JSON.stringify({
+  const buildUserPrompt = (revisionTargets) => JSON.stringify({
     brief: {
       gift_intent: brief?.gift_intent,
       child_as_character: brief?.child_as_character,
@@ -75,12 +83,22 @@ async function manuscriptRevisionActivity(input, ctx) {
         scene_contract: s.scene_contract,
       })),
     },
-    targeted_revisions: targets,
+    targeted_revisions: revisionTargets,
   });
+
+  const targetSet = new Set(targets.map((t) => t.spread));
+  const collectPatches = (out) => {
+    const patches = new Map();
+    for (const s of out.spreads) {
+      if (typeof s.spread !== 'number' || !targetSet.has(s.spread)) continue; // ignore off-target rewrites
+      patches.set(s.spread, s);
+    }
+    return patches;
+  };
 
   const resp = await callWithRole('WRITER', {
     systemPrompt: SYSTEM,
-    userPrompt,
+    userPrompt: buildUserPrompt(targets),
     jsonMode: true,
     maxTokens: 4000,
     label: 'v3.revision',
@@ -91,14 +109,47 @@ async function manuscriptRevisionActivity(input, ctx) {
     throw new Error('manuscriptRevision: expected { spreads: [...] } with rewritten spreads');
   }
 
-  const targetSet = new Set(targets.map((t) => t.spread));
-  const patches = new Map();
-  for (const s of out.spreads) {
-    if (typeof s.spread !== 'number' || !targetSet.has(s.spread)) continue; // ignore off-target rewrites
-    patches.set(s.spread, s);
-  }
+  const patches = collectPatches(out);
   if (patches.size === 0) {
     throw new Error(`manuscriptRevision: none of the returned spreads matched targets [${Array.from(targetSet).join(',')}]`);
+  }
+
+  // Scene-level targets (art-director bounces set requireContractChange)
+  // are only fixed when the CONTRACT changed — the art director stages from
+  // scene_contract, never the prose, so a lines-only rewrite loops forever.
+  // One harder re-ask for stale contracts; if still stale, continue loudly
+  // (the next art-direction pass produces an actionable needs_review).
+  const originalBySpread = new Map(manuscript.spreads.map((s) => [s.spread, s]));
+  const staleContract = (t) => {
+    if (!t.requireContractChange) return false;
+    const patch = patches.get(t.spread);
+    if (!patch) return false;
+    return contractFingerprint(patch.scene_contract) === contractFingerprint(originalBySpread.get(t.spread)?.scene_contract);
+  };
+  let stale = targets.filter(staleContract);
+  if (stale.length > 0) {
+    ctx.log('warn', `[v3] revision returned an UNCHANGED scene_contract for spread(s) [${stale.map((t) => t.spread).join(',')}] — one harder re-ask (the illustrator stages from the contract)`);
+    const reaskTargets = stale.map((t) => ({
+      ...t,
+      notes: [
+        ...(t.notes || []),
+        'YOUR PREVIOUS REVISION FAILED: it changed the lines but returned the scene_contract UNCHANGED. The illustrator stages from the contract. Rewrite so scene_contract.setting / hero_action / key_objects no longer describe the flagged problem.',
+      ],
+    }));
+    const reask = await callWithRole('WRITER', {
+      systemPrompt: SYSTEM,
+      userPrompt: buildUserPrompt(reaskTargets),
+      jsonMode: true,
+      maxTokens: 4000,
+      label: 'v3.revision.contractfix',
+    });
+    if (reask.json && Array.isArray(reask.json.spreads)) {
+      for (const [spread, patch] of collectPatches(reask.json)) patches.set(spread, patch);
+    }
+    stale = targets.filter(staleContract);
+    if (stale.length > 0) {
+      ctx.log('warn', `[v3] scene_contract STILL unchanged for spread(s) [${stale.map((t) => t.spread).join(',')}] after re-ask — continuing; the art director will re-evaluate`);
+    }
   }
 
   const mergedRaw = {
