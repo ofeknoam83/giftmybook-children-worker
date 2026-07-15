@@ -21,15 +21,15 @@ const ILLUSTRATOR_STEPS = ['identity_kit', 'art_direction', 'rendering', 'spread
 
 // ── Image renderer models ──
 // Image generation is not a text-LLM role, so renderer models resolve here
-// (not in llm/modelRouter). PRO tier everywhere (product decision
-// 2026-07-15): better anatomy/hands, no-text instruction-following, and
-// character consistency — the three defect classes from the first native
-// books; slower + pricier per image, accepted. The env overrides are both
-// the instant rollback to flash AND the fix-up if the provisioned pro
-// model id differs (a wrong id 404s loudly — books fail fast, env-flip
-// fixes without a redeploy).
-const SHEET_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SHEET_RENDERER_MODEL || 'gemini-3.1-pro-image';
-const SPREAD_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL || 'gemini-3.1-pro-image';
+// (not in llm/modelRouter). Defaults MUST be a model verified available on
+// the public Generative Language API for the worker's keys ('gemini-3.1-
+// pro-image' was not — every render 404'd on 2026-07-15 and books
+// dead-ended). The pro-tier upgrade (still wanted: better hands, no-text
+// compliance, consistency) flips in via the env overrides once the real
+// provisioned id is confirmed from ListModels; imageClient also falls back
+// to FALLBACK_IMAGE_MODEL loudly if a configured id turns out invalid.
+const SHEET_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SHEET_RENDERER_MODEL || 'gemini-3.1-flash-image';
+const SPREAD_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL || 'gemini-3.1-flash-image';
 
 // ── Bounded budgets (plan §5 — no unbounded loop exists on the native path) ──
 // Sheet budgets are env-tunable (ops lever after an identity_kit_exhausted
