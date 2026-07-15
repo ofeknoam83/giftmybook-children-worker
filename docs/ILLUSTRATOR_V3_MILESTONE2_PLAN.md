@@ -1,8 +1,10 @@
 # Illustrator V3 — Milestone 2 Implementation Plan ("Art Studio")
 
-Status: **IMPLEMENTED (code-complete, pre-validation)** — phases 0-6 (W3-W10)
-landed 2026-07-14 on this branch; `BOOK_PIPELINE_V3_ILLUSTRATOR` defaults to
-`legacy` until the Phase C validation gate passes. Two deliberate deltas from
+Status: **LIVE — the ONLY illustrator** (direct cutover 2026-07-15, Phase C
+gate superseded by product decision — see `docs/PHASE_C_VALIDATION.md`). The
+legacy illustrator (`services/bookPipeline/`, `services/illustrator/`, the v3
+legacy adapter) was deleted in the same PR; `DEFAULT_ILLUSTRATOR = 'native'`
+and no other value exists. Two deliberate deltas from
 the plan below: (1) native art renders at **1:1** and ships in the proven
 caption layout mode (typeset verso + full-bleed recto) — D5 satisfied with the
 existing engine; wide-art zone-overlay typesetting is a post-cutover

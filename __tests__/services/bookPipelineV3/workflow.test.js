@@ -18,8 +18,32 @@ jest.mock('../../../services/bookPipelineV3/llm/modelRouter', () => ({
   DEFAULT_ROUTING: { WRITER: { family: 'anthropic', tier: 'strong' } },
 }));
 
-jest.mock('../../../services/bookPipeline/illustrator/renderAllSpreadsQuad', () => ({
-  renderAllSpreadsQuad: jest.fn(async (doc) => {
+// Mock the native illustrator (the only illustrator since the cutover):
+// compose the same v1-shaped doc the real one does, minus the rendering.
+jest.mock('../../../services/bookPipelineV3/illustrator', () => ({
+  runNativeIllustrator: jest.fn(async (input, ctx) => {
+    const { createBookDocument } = jest.requireActual('../../../services/bookPipelineV3/contract/bookDocument');
+    const { buildVisualBible, buildSpreadSpecs, buildStoryBible } =
+      jest.requireActual('../../../services/bookPipelineV3/orchestration/activities/illustrationDirector');
+    const { buildSpreadsForLegacyIllustrator } =
+      jest.requireActual('../../../services/bookPipelineV3/orchestration/activities/illustrationAdapterHelpers');
+    const { rawRequest, brief, ageProfile, concept, manuscript, coverImageUrl, coverTitle, operationalContext } = input;
+    const doc = createBookDocument({
+      request: { ...rawRequest, bookId: ctx.bookId, ageBand: ageProfile?.ageBand || ageProfile?.band },
+      brief: rawRequest || {},
+      cover: {
+        title: manuscript.title || coverTitle || rawRequest?.cover?.title || 'My Story',
+        imageUrl: coverImageUrl || rawRequest?.cover?.imageUrl || null,
+        characterLocks: {},
+        outfitLocks: {},
+      },
+    });
+    doc.storyBible = buildStoryBible({ concept, manuscript });
+    doc.visualBible = buildVisualBible({ rawRequest, brief, concept, manuscript });
+    doc.spreadSpecs = buildSpreadSpecs({ manuscript, ageProfile });
+    const draftBySpread = new Map(manuscript.spreads.map((s) => [s.spread, { text: s.text, lines: s.lines }]));
+    doc.spreads = buildSpreadsForLegacyIllustrator({ spreadSpecs: doc.spreadSpecs, draftBySpread });
+    doc.operationalContext = operationalContext || {};
     for (const s of doc.spreads) {
       s.illustration = { imageUrl: `https://cdn.example/spread-${s.spreadNumber}.jpg`, scenePrompt: 'prompt' };
     }
@@ -100,8 +124,8 @@ describe('runCreateBookWorkflow — happy path', () => {
 
     // V3 namespace (milestone-2 seam)
     expect(document.v3.concepts).toHaveLength(3);
-    // Phase 0: illustrator resolution recorded (default legacy)
-    expect(document.v3.illustrator).toEqual({ version: 'legacy', source: 'default' });
+    // Illustrator resolution recorded (native is the only illustrator)
+    expect(document.v3.illustrator).toEqual({ version: 'native', source: 'default' });
     expect(document.v3.manuscriptMeta.conceptId).toBe('quest_transformation');
     expect(document.v3.sceneContracts).toHaveLength(13);
     expect(document.v3.costs.calls).toBeGreaterThan(5);
@@ -135,31 +159,27 @@ describe('runCreateBookWorkflow — happy path', () => {
   });
 });
 
-describe('runCreateBookWorkflow — illustrator flag (W3)', () => {
-  test("illustratorVersion 'native' routes to the stub and fails loudly (no silent legacy fallback)", async () => {
-    wireModelLayer({ judgeScore: 5 });
-    let thrown;
-    try {
-      await runCreateBookWorkflow({
-        rawRequest: { ...RAW_REQUEST, illustratorVersion: 'native' },
-        signals: {},
-        log: () => {},
-      });
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeDefined();
-    expect(String(thrown.message)).toMatch(/native illustrator requires an identity kit/);
-  });
-
-  test('checkpoint pin beats request: legacy checkpoint + native request stays legacy', async () => {
+describe('runCreateBookWorkflow — illustrator resolution (post-cutover)', () => {
+  test("a 'native' checkpoint pins with source=checkpoint", async () => {
     wireModelLayer({ judgeScore: 5 });
     const { document } = await runCreateBookWorkflow({
-      rawRequest: { ...RAW_REQUEST, illustratorVersion: 'native', checkpointIllustratorVersion: 'legacy' },
+      rawRequest: { ...RAW_REQUEST, checkpointIllustratorVersion: 'native' },
       signals: {},
       log: () => {},
     });
-    expect(document.v3.illustrator).toEqual({ version: 'legacy', source: 'checkpoint' });
+    expect(document.v3.illustrator).toEqual({ version: 'native', source: 'checkpoint' });
+  });
+
+  test("a pre-cutover 'legacy' checkpoint maps LOUDLY onto native (its code is deleted)", async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const warnings = [];
+    const { document } = await runCreateBookWorkflow({
+      rawRequest: { ...RAW_REQUEST, checkpointIllustratorVersion: 'legacy' },
+      signals: {},
+      log: (level, msg) => { if (level === 'warn') warnings.push(String(msg)); },
+    });
+    expect(document.v3.illustrator).toEqual({ version: 'native', source: 'default' });
+    expect(warnings.join(' ')).toMatch(/deleted in the native cutover/);
   });
 });
 

@@ -1,25 +1,21 @@
 /**
- * Native V3 illustrator — configuration + version resolution (milestone 2
- * Phase 0, docs/ILLUSTRATOR_V3_MILESTONE2_PLAN.md).
+ * Native V3 illustrator — configuration + version resolution.
  *
- * The native illustrator replaces the legacy v1 quad adapter behind a flag:
- *   BOOK_PIPELINE_V3_ILLUSTRATOR = native | legacy   (deploy default)
- *   request.illustratorVersion   = native | legacy   (per-book override,
- *     admin test path; validated 400 in server.js)
- *
- * Precedence mirrors pipelineVersion routing: checkpoint → request → env →
- * default. A book that started rendering on one illustrator finishes on it.
+ * The native illustrator is the ONLY illustrator (cutover 2026-07-15; the
+ * legacy v1 session/quad adapter was deleted). Version resolution survives
+ * because checkpoints and requests written before the cutover may still say
+ * 'legacy' — those map LOUDLY onto native instead of crashing, the same way
+ * pipelineRouter maps v1/v2 checkpoints onto v3.
  */
 
-const ILLUSTRATOR_VERSIONS = new Set(['native', 'legacy']);
+const ILLUSTRATOR_VERSIONS = new Set(['native']);
 
-/** Deploy default until the native path passes the Phase C validation gate. */
-const DEFAULT_ILLUSTRATOR = 'legacy';
+/** The one illustrator. 'legacy' has no code behind it anymore. */
+const DEFAULT_ILLUSTRATOR = 'native';
 
 /**
  * Progress sub-steps the native illustrator reports (all inside the
- * existing `illustrating` band so the admin progress bar keeps working;
- * the S3 cutover PR upgrades the client stepper to these keys).
+ * existing `illustrating` band so the admin progress bar keeps working).
  */
 const ILLUSTRATOR_STEPS = ['identity_kit', 'art_direction', 'rendering', 'spread_qa', 'book_pass'];
 
@@ -40,27 +36,33 @@ const BOOK_PASS_REGEN_WAVES = 1;  // one targeted regen wave, then needs_review
 const RENDER_CONCURRENCY = Number(process.env.BOOK_PIPELINE_V3_RENDER_CONCURRENCY || 6);
 
 /**
- * Resolve which illustrator a run uses.
+ * Resolve which illustrator a run uses. Always 'native' — this function's
+ * remaining job is provenance (`source`) and loud handling of pre-cutover
+ * 'legacy' state.
  *
  * @param {object} opts
- * @param {('native'|'legacy'|null)} [opts.requestedVersion] - request override (validated upstream)
+ * @param {(string|null)} [opts.requestedVersion] - request override (validated 400 in server.js)
  * @param {(string|null)} [opts.checkpointVersion] - illustrator persisted in the book checkpoint
  * @param {(msg: string) => void} [opts.log]
- * @returns {{ version: 'native'|'legacy', source: 'checkpoint'|'request'|'env'|'default' }}
+ * @returns {{ version: 'native', source: 'checkpoint'|'request'|'env'|'default' }}
  */
 function resolveIllustratorVersion({ requestedVersion = null, checkpointVersion = null, log = () => {} } = {}) {
   if (checkpointVersion && ILLUSTRATOR_VERSIONS.has(checkpointVersion)) {
-    if (requestedVersion && requestedVersion !== checkpointVersion) {
-      log(`illustrator '${requestedVersion}' requested but checkpoint pins '${checkpointVersion}' — resumes stay on the illustrator they started on`);
-    }
     return { version: checkpointVersion, source: 'checkpoint' };
+  }
+  if (checkpointVersion) {
+    // Pre-cutover checkpoint (e.g. 'legacy'): the code it pinned is deleted.
+    // Restart illustration on native — the manuscript still replays from the
+    // checkpoint, only the render work is redone.
+    log(`checkpoint pins illustrator '${checkpointVersion}' but that code was deleted in the native cutover — restarting illustration on 'native'`);
+    return { version: DEFAULT_ILLUSTRATOR, source: 'default' };
   }
   if (requestedVersion) {
     if (!ILLUSTRATOR_VERSIONS.has(requestedVersion)) {
       // server.js 400s invalid request values before the 202; this is a
       // second line of defense for internal callers.
       throw Object.assign(
-        new Error(`Unsupported illustratorVersion '${requestedVersion}' — expected 'native' or 'legacy'`),
+        new Error(`Unsupported illustratorVersion '${requestedVersion}' — 'native' is the only illustrator`),
         { code: 'ILLUSTRATOR_VERSION_INVALID' },
       );
     }
@@ -69,7 +71,7 @@ function resolveIllustratorVersion({ requestedVersion = null, checkpointVersion 
   const env = process.env.BOOK_PIPELINE_V3_ILLUSTRATOR;
   if (env) {
     if (ILLUSTRATOR_VERSIONS.has(env)) return { version: env, source: 'env' };
-    log(`BOOK_PIPELINE_V3_ILLUSTRATOR='${env}' is not 'native'|'legacy' — using default '${DEFAULT_ILLUSTRATOR}'`);
+    log(`BOOK_PIPELINE_V3_ILLUSTRATOR='${env}' is stale — the native illustrator is the only illustrator; ignoring`);
   }
   return { version: DEFAULT_ILLUSTRATOR, source: 'default' };
 }

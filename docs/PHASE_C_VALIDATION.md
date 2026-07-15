@@ -1,16 +1,20 @@
-# Phase C — Native Illustrator Validation Gate
+# Phase C — Native Illustrator Validation Gate — **SUPERSEDED**
 
-The native "Art Studio" illustrator (milestone 2) is code-complete and, as of
-Part B, **policy-safe**: no generation call ever receives the raw child photo
+> **2026-07-15 product decision: direct cutover.** The staged gate below was
+> never run — the native illustrator was flipped to default AND the legacy
+> illustrator was deleted in the same PR ("one perfect illustrator, no more
+> versions"). The needs_review queue is the safety net: a native failure
+> queues for admin resolution instead of shipping. What remains useful here:
+> the **C2 audit checklist** (use it on every early native book) and the C1
+> calibration harness (`scripts/calibrateIllustratorJudges.js`) for tuning
+> judge prompts against real defects.
+
+The native "Art Studio" illustrator is code-complete and, as of Part B,
+**policy-safe**: no generation call ever receives the raw child photo
 ("render this exact real child" is what Gemini's non-configurable safety tier
 blocks — it killed real cover generations on 2026-07-15). Identity flows
 photo → likeness brief (vision analysis, allowed) → model sheet → spreads,
 with the photos used only by the cross-family likeness JUDGES.
-
-Phase C is the exit gate before `BOOK_PIPELINE_V3_ILLUSTRATOR` flips from
-`legacy` to `native`. Three steps, in order. Do not flip early — the legacy
-path works and the print audits (2026-07-15, books `f417a6ed` and `37cadb95`)
-show its remaining defect classes are contained by the interim QA patches.
 
 ## C1 — Judge calibration (gate: ≥0.90 agreement per hard-fail class)
 

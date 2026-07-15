@@ -1,30 +1,19 @@
 /**
- * Illustration Director — V3→v1 adapter (milestone 1).
+ * Illustration spec builders — manuscript → visual bible / spread specs /
+ * story bible.
  *
- * Milestone 1 reuses v1's production illustrator (renderAllSpreadsQuad),
- * exactly as v2 does: this activity synthesizes a v1-shaped book document
- * from V3 artifacts (creative brief, winning concept, manuscript with
- * per-spread scene_contracts) and hands it to the renderer.
+ * Historically this file was the V3→v1 adapter (`illustrationDirectorActivity`)
+ * that handed a synthesized v1 document to the legacy quad renderer. The
+ * legacy renderer was deleted in the native-illustrator cutover (2026-07-15);
+ * what survives are the pure builders the NATIVE illustrator consumes
+ * (`bookPipelineV3/illustrator/index.js`) to derive its art-direction inputs
+ * from the writer's scene contracts.
  *
- * This file is the contract boundary between V3 writing and v1 rendering —
- * the same "single seam, easy to rip out" rule as v2's adapter. Milestone 2
- * (identity kit + per-spread photo-referenced rendering, design doc §5)
- * replaces this file; the raw scene contracts it consumes are preserved
- * under `doc.v3` so the native art director never has to re-derive them.
- *
- * Deliberate difference from v2's adapter: `storyBible.narrativeSpine` is a
- * STRING here. toLegacyStoryPlan String()s that field into the back-cover
- * synopsis; v2 passes an array which collapses to "[object Object]" junk.
+ * Note: `storyBible.narrativeSpine` is deliberately a STRING —
+ * toLegacyStoryPlan String()s that field into the back-cover synopsis.
  */
 
-const { renderAllSpreadsQuad } = require('../../../bookPipeline/illustrator/renderAllSpreadsQuad');
-const { createBookDocument } = require('../../contract/bookDocument');
-const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
-const { FAILURE_CODES } = require('../../contract/constants');
-const {
-  deriveParentVisibility,
-  buildSpreadsForLegacyIllustrator,
-} = require('./illustrationAdapterHelpers');
+const { deriveParentVisibility } = require('./illustrationAdapterHelpers');
 
 const CAREGIVER_RE = /\b(mama|mommy|mom|mother|dada|daddy|dad|father|grandma|granny|nana|grandpa|papa|abuela|abuelo|savta|saba|ima|aba)\b/i;
 
@@ -175,84 +164,7 @@ function buildStoryBible({ concept, manuscript }) {
   };
 }
 
-/**
- * Compose the v1 document and run the v1 renderer.
- */
-async function illustrationDirectorActivity(input, ctx) {
-  const {
-    rawRequest, brief, ageProfile, concept, manuscript,
-    coverImageUrl, coverTitle, operationalContext,
-  } = input;
-
-  const visualBible = buildVisualBible({ rawRequest, brief, concept, manuscript });
-  const spreadSpecs = buildSpreadSpecs({ manuscript, ageProfile });
-  const storyBible = buildStoryBible({ concept, manuscript });
-  const draftBySpread = new Map(manuscript.spreads.map((s) => [s.spread, { text: s.text, lines: s.lines }]));
-
-  let doc = createBookDocument({
-    request: { ...rawRequest, bookId: ctx.bookId, ageBand: ageProfile?.ageBand || ageProfile?.band },
-    brief: rawRequest || {},
-    cover: {
-      title: manuscript.title || coverTitle || rawRequest?.cover?.title || 'My Story',
-      imageUrl: coverImageUrl || rawRequest?.cover?.imageUrl || null,
-      characterLocks: {},
-      outfitLocks: {},
-    },
-  });
-  doc.storyBible = storyBible;
-  doc.visualBible = visualBible;
-  doc.spreadSpecs = spreadSpecs;
-  doc.spreads = buildSpreadsForLegacyIllustrator({ spreadSpecs, draftBySpread });
-  doc.operationalContext = operationalContext || {};
-
-  ctx.log('info', `[v3] illustrationDirector handing off ${doc.spreads.length} spreads to v1 illustrator (renderAllSpreadsQuad)`);
-
-  let rendered;
-  try {
-    rendered = await renderAllSpreadsQuad(doc);
-  } catch (err) {
-    // Same transient-tagging as v2's adapter: setup-phase infra errors
-    // bypass the renderer's internal retries, so surface `isTransient`
-    // for the workflow engine's outer retry.
-    const msg = String(err?.message || '');
-    const looksTransient =
-      err?.isTransientInfrastructure === true ||
-      /Session API error (500|502|503|504|429)\b/.test(msg) ||
-      /"code":\s*(500|502|503|504|429)\b/.test(msg) ||
-      /"status":\s*"(UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED)"/.test(msg) ||
-      /\bUNAVAILABLE\b|\bINTERNAL\b|\bRESOURCE_EXHAUSTED\b/i.test(msg) ||
-      /Deadline expired|timed out/i.test(msg);
-    if (looksTransient && err && !err.isTransient) err.isTransient = true;
-
-    // P2 (audit 2026-07-15): a spread that exhausts its QA budget is a
-    // REVIEW item, not a bare failure (design D6). Attaching the payload
-    // here routes the error through the workflow's needs_review mapping,
-    // so the admin sees which spreads kept failing and on what defects,
-    // and resolves via the queue instead of blind re-dispatch.
-    if (!err.isTransient && err?.failureCode === FAILURE_CODES.SPREAD_UNRESOLVABLE && !err.needsReview) {
-      const ex = err.exhaustion || {};
-      const spreads = Array.isArray(ex.spreads) ? ex.spreads : [];
-      const defects = [
-        ...(spreads.length ? [`Spread(s) ${spreads.join(', ')} exhausted the repair budget`] : []),
-        ...(Array.isArray(ex.tags) && ex.tags.length ? [`Last failing tags: ${ex.tags.join(', ')}`] : []),
-        ...(Array.isArray(ex.issues) ? ex.issues : []),
-      ];
-      err.needsReview = buildNeedsReviewPayload({
-        stage: 'illustration',
-        reason: 'spread_qa_exhausted',
-        spread: spreads.length ? spreads[0] : null,
-        defects: defects.length ? defects : [msg],
-      });
-    }
-    throw err;
-  }
-  ctx.log('info', `[v3] illustrationDirector: render complete, ${rendered.spreads.length} spreads`);
-  return rendered;
-}
-
 module.exports = {
-  illustrationDirectorActivity,
-  // exported for tests
   buildVisualBible,
   buildSpreadSpecs,
   buildStoryBible,

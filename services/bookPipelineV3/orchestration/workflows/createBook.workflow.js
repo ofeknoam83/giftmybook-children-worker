@@ -35,7 +35,6 @@ const { manuscriptWriterActivity } = require('../activities/manuscriptWriter');
 const { mechanicalGateActivity } = require('../activities/mechanicalGate');
 const { judgePanelActivity } = require('../activities/judgePanel');
 const { manuscriptRevisionActivity, mergeTargets } = require('../activities/manuscriptRevision');
-const { illustrationDirectorActivity } = require('../activities/illustrationDirector');
 const { runNativeIllustrator } = require('../../illustrator');
 const { resolveIllustratorVersion } = require('../../illustrator/config');
 const { buildIdentityKit } = require('../../illustrator/identityKit');
@@ -299,9 +298,8 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   ageProfile.band = ageBand;
   const theme = rawRequest?.theme || 'adventure';
 
-  // Milestone-2 flag: native "Art Studio" vs the legacy v1 quad adapter.
-  // Resolved once per run (checkpoint → request → env → default) and
-  // reported in doc.v3 + pipeline callbacks so A/B stays auditable.
+  // Always native since the cutover — resolution survives for provenance
+  // (doc.v3 + callbacks) and for LOUD handling of pre-cutover 'legacy' state.
   const illustrator = resolveIllustratorVersion({
     requestedVersion: rawRequest?.illustratorVersion || null,
     checkpointVersion: rawRequest?.checkpointIllustratorVersion || null,
@@ -309,12 +307,12 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   });
   ctx.log('info', `[v3] illustrator: ${illustrator.version} (source=${illustrator.source})`);
 
-  // A0 identity kit runs in PARALLEL with the writer (native path only) —
+  // A0 identity kit runs in PARALLEL with the writer —
   // photos → likeness brief → judged character model sheet, GCS-cached.
   // Joined before rendering; a kit failure surfaces there.
   const kitPhotoUrls = rawRequest?.child?.photoUrls || [];
   let identityKitPromise = null;
-  if (illustrator.version === 'native' && kitPhotoUrls.length > 0) {
+  if (kitPhotoUrls.length > 0) {
     ctx.log('info', `[v3] identity kit: starting in parallel with the writer (${kitPhotoUrls.length} photo(s))`);
     identityKitPromise = buildIdentityKit({
       photoUrls: kitPhotoUrls,
@@ -474,13 +472,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   };
   let renderedDoc;
   try {
-    renderedDoc = illustrator.version === 'native'
-      ? await runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger })
-      : await ctx.execute('illustrations', illustrationDirectorActivity, illustrationInput, {
-        retries: 2,
-        baseDelayMs: 4000,
-        isRetryable: (err) => Boolean(err?.isTransient),
-      });
+    renderedDoc = await runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger });
   } catch (err) {
     // QA/art-direction exhaustion is a review item, not a plain failure (D6).
     const payload = err?.needsReview || err?.cause?.needsReview;

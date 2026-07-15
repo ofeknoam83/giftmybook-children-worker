@@ -71,7 +71,6 @@ const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAge
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
 const { resolveBookPipeline } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');
-const { sceneHasFramingHint } = require('./services/shared/text/sceneFramingHint');
 
 // Guard against lorem ipsum / placeholder text leaking into illustration prompts
 const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
@@ -388,86 +387,9 @@ function authenticate(req, res, next) {
   next();
 }
 
-// ── Parallel Pipeline Functions ──
-// NOTE: generateAllText removed in V2 — text comes from the story plan directly.
-
-/**
- * V2: Generate illustrations for all story entries that need them.
- *
- * Processes entries in order. For each entry with an image_prompt or
- * spread_image_prompt, generates an illustration and attaches the URL.
- *
- * @param {Array<object>} entries - V2 entries array
- * @param {object} storyPlan - Full plan (for characterDescription, etc.)
- * @param {object} childDetails
- * @param {string} characterRef
- * @param {string} style
- * @param {object} opts
- * @returns {Promise<Array<object>>} entries with illustration URLs attached
- */
-async function generateAllIllustrations(entries, storyPlan, childDetails, characterRef, style, opts) {
-  const {
-    costTracker, bookId, bookContext,
-    existingIllustrations, detectedSecondaryCharacters,
-    coverForIllustratorBase64,
-    theme,
-  } = opts;
-
-  // Picture-book illustrations route through the minimal illustrator module.
-  // The `style` argument is intentionally ignored — the module is locked to
-  // the frozen 3D Premium Pixar style. Chapter books, graphic novels, covers,
-  // and coloring books continue to use other modules.
-  if (!coverForIllustratorBase64) {
-    throw new Error('Illustrator requires an approved cover (coverForIllustratorBase64) before generating spreads');
-  }
-
-  bookContext.log('info', 'Using minimal illustrator module (3D Premium Pixar, frozen)');
-  const { generateBookIllustrations } = require('./services/illustrator');
-
-  // Bridge the illustrator's onProgress callback into the existing
-  // progressCallbackUrl so the book-generation stage reports per-spread
-  // progress (was silent during illustration in the first pass of the refactor).
-  const progressCallbackUrl = opts.progressCallbackUrl || bookContext?.progressCallbackUrl || null;
-  const onProgress = progressCallbackUrl
-    ? (fraction, message) => {
-      // Map illustration progress (0..1) into the 0.40..0.90 band of overall
-      // book progress, matching the old engine's conventions.
-      const overall = 0.40 + Math.max(0, Math.min(1, fraction)) * 0.50;
-      reportProgress(progressCallbackUrl, {
-        bookId,
-        stage: 'illustration',
-        progress: overall,
-        message,
-        logs: bookContext?.logs,
-      }).catch(() => {});
-    }
-    : null;
-
-  return await generateBookIllustrations({
-    entries,
-    storyPlan,
-    coverBase64: coverForIllustratorBase64,
-    coverMime: 'image/jpeg',
-    theme,
-    coverParentPresent: storyPlan.coverParentPresent === true,
-    additionalCoverCharacters:
-      storyPlan.secondaryCharacterDescription
-      || storyPlan.additionalCoverCharacters
-      || detectedSecondaryCharacters
-      || null,
-    childAppearance: storyPlan.characterDescription || childDetails?.appearance || null,
-    childAge: childDetails?.age ?? childDetails?.childAge ?? storyPlan?.childAge ?? storyPlan?.age ?? null,
-    childPhotoBase64: opts.cachedPhotoBase64 || null,
-    bookId,
-    bookContext,
-    costTracker,
-    existingIllustrations: existingIllustrations || [],
-    onProgress,
-    abortSignal: bookContext?.abortController?.signal || null,
-  });
-}
-
-// Graphic-novel generation helpers deleted (W12) — the format is retired.
+// Legacy pipeline functions deleted: generateAllText (V2), the graphic-novel
+// helpers (W12), and generateAllIllustrations (native-illustrator cutover —
+// interiors render inside bookPipelineV3).
 
 // ── Health Check ──
 const versionInfo = require('./version.json');
@@ -564,14 +486,14 @@ app.post('/generate-book', authenticate, async (req, res) => {
     requestedPipelineVersion = v;
   }
 
-  // Milestone-2 illustrator selection ('native' | 'legacy'), v3-only.
-  // Same contract as pipelineVersion: invalid values 400 before the 202,
-  // and the checkpoint pins the illustrator a book started rendering on.
+  // The native illustrator is the only illustrator (2026-07-15 cutover;
+  // legacy was deleted). Same contract as pipelineVersion: anything but
+  // 'native' 400s before the 202 — there is no other code to run.
   let requestedIllustratorVersion = null;
   if (req.body.illustratorVersion !== undefined && req.body.illustratorVersion !== null && req.body.illustratorVersion !== '') {
     const v = String(req.body.illustratorVersion).toLowerCase().trim();
-    if (!['native', 'legacy'].includes(v)) {
-      return res.status(400).json({ success: false, error: `Unsupported illustratorVersion '${req.body.illustratorVersion}' — expected 'native' or 'legacy'` });
+    if (v !== 'native') {
+      return res.status(400).json({ success: false, error: `Unsupported illustratorVersion '${req.body.illustratorVersion}' — 'native' is the only illustrator` });
     }
     requestedIllustratorVersion = v;
   }
@@ -1184,158 +1106,16 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
           bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, illustratorBytes: coverForIllustrator.length, ms: Date.now() - stage6Start });
 
-          // Detect additional characters on cover (parent, grandparent, sibling, etc.)
-          // Skipped entirely for books generated by the new bookPipeline — it
-          // derives the cast policy internally from the approved cover.
-          if (storyPlan._generatedByNewPipeline) {
-            bookContext.log('info', 'Skipping legacy cover vision analysis (new pipeline handled cast policy)');
-          } else try {
-            const { getNextApiKey } = require('./services/illustrationGenerator');
-            const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
-            const visionResp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ role: 'user', parts: [
-                    { text: `Look at this children's book cover. Are there any characters visible BESIDES the main child?
-
-If yes, for EACH non-child character, write ONE line in this exact format:
-- [relationship if apparent, e.g. grandmother/elderly woman/adult man/teen boy]: gender=[woman|man|boy|girl|unclear]; age=[adult|teen|child|elderly]; [brief appearance — hair, skin, clothing, distinguishing features]
-
-Rules for gender:
-- "woman" = adult female (any age 18+, including elderly).
-- "man" = adult male (any age 18+, including elderly).
-- "boy"/"girl" = a child or young teen.
-- "unclear" = genuinely ambiguous (back view, heavily obscured, androgynous).
-
-If the main child is the ONLY character, respond with exactly: NONE` },
-                    { inline_data: { mime_type: 'image/jpeg', data: coverForIllustratorBase64 } },
-                  ]}],
-                  generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
-                }),
-                signal: bookContext.abortController.signal,
-              }
-            );
-            if (visionResp.ok) {
-              storyPlan.coverHadVisionSecondaries = false;
-              const visionData = await visionResp.json();
-              const addlText = visionData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-              const isNone = !addlText || /^none[.!]?$/i.test(addlText.trim()) || addlText.trim().length <= 5;
-              if (addlText && !isNone) {
-                // Depictions (stick figures, hand-drawn Momma, etc.) are NOT
-                // a usable photoreal cover reference; locking QA to them causes
-                // endless cover_secondary_mismatch. Treat as no secondary.
-                const isDepictionOnly = /\b(stick\s*-?\s*figure|scribble|doodle|(?:hand[- ]?)?drawing|drawn|sketched?|crayon|(?:marker|paint(?:ing|ed)?)\s+(?:of|drawing|on)|\bdrawing[:\s]|illustration of|cartoon character on|kid'?s drawing)\b/i.test(addlText);
-                if (isDepictionOnly) {
-                  bookContext.log('info', 'Cover secondary is a depiction/drawing — treating as no usable reference', { snippet: addlText.slice(0, 200) });
-                  storyPlan.additionalCoverCharacters = null;
-                  storyPlan.coverParentPresent = false;
-                  storyPlan.coverHadVisionSecondaries = false;
-                } else {
-                  storyPlan.additionalCoverCharacters = addlText;
-                  storyPlan.coverHadVisionSecondaries = true;
-                  // Classify detected secondaries by apparent gender so we can tell
-                  // whether the themed parent is actually depicted on the cover.
-                  const hasWoman = /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText);
-                  const hasMan = /gender\s*=\s*man\b/i.test(addlText) || /\badult\s+(?:man|male)\b/i.test(addlText);
-                  if (theme === 'mothers_day') {
-                    storyPlan.coverParentPresent = hasWoman;
-                  } else if (theme === 'fathers_day') {
-                    storyPlan.coverParentPresent = hasMan;
-                  } else {
-                    storyPlan.coverParentPresent = true;
-                  }
-                }
-                bookContext.log('info', 'Additional cover characters detected', {
-                  characters: addlText.slice(0, 300),
-                  hasWoman: /gender\s*=\s*woman\b/i.test(addlText) || /\badult\s+(?:woman|female)\b/i.test(addlText),
-                  hasMan: /gender\s*=\s*man\b/i.test(addlText) || /\badult\s+(?:man|male)\b/i.test(addlText),
-                  coverParentPresent: storyPlan.coverParentPresent,
-                  theme,
-                });
-                if (PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
-                  bookContext.log('info', `Parent theme cover has a secondary character but NOT the ${theme === 'mothers_day' ? 'mother' : 'father'} — treating cover as "parent not depicted" while still locking the secondary's appearance in illustrations.`);
-                }
-              } else {
-                storyPlan.additionalCoverCharacters = null;
-                storyPlan.coverParentPresent = false;
-                storyPlan.coverHadVisionSecondaries = false;
-                bookContext.log('info', 'No additional cover characters detected');
-              }
-            }
-
-            storyPlan.characterAnchor = null;
-          } catch (visionErr) {
-            bookContext.log('warn', 'Failed to detect additional cover characters', { error: visionErr.message });
-          }
+          // Legacy cover vision analysis deleted (native-illustrator cutover) —
+          // the v3 pipeline derives the cast policy internally from the
+          // approved cover.
         } catch (dlErr) {
           bookContext.log('warn', 'Failed to download approved cover for reference, using original photo', { error: dlErr.message });
         }
       }
 
-      // ── Fix: For parent themes, if the cover does NOT contain the parent
-      // (i.e. no woman for mother's day / no man for father's day), ignore
-      // photo-detected secondary characters AND any lingering
-      // secondaryCharacterDescription. The photo scan may have detected an
-      // adult's hand/arm in the child photo, and the cover may show a sibling
-      // or grandparent — but that should NOT override the implied-presence
-      // path when the parent themselves is not on the chosen cover.
-      if (!storyPlan._generatedByNewPipeline && PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
-        if (detectedSecondaryCharacters) {
-          bookContext.log('info', 'Parent theme without parent-on-cover — clearing residual detectedSecondaryCharacters', { was: detectedSecondaryCharacters.slice(0, 100) });
-          detectedSecondaryCharacters = null;
-        }
-        if (storyPlan.secondaryCharacterDescription) {
-          bookContext.log('info', 'Parent theme without parent-on-cover — clearing storyPlan.secondaryCharacterDescription (parent must not be drawn explicitly)', { was: storyPlan.secondaryCharacterDescription.slice(0, 100) });
-          storyPlan.secondaryCharacterDescription = null;
-        }
-      }
-
-      // Merge customer-confirmed cast with cover vision so QA allows the right people (fixes child-only cover + confirmed parents).
-      if (!storyPlan._generatedByNewPipeline && approvedCoverUrl && coverForIllustratorBase64) {
-        const {
-          formatConfirmedCharactersForIllustration,
-          filterConfirmedForCoverPolicy,
-          mergeCoverAndConfirmedSecondaries,
-          buildQaAllowedHumansNote,
-        } = require('./services/shared/illustration/illustrationPolicy');
-        const { applyScenePolicyToEntries } = require('./services/illustrator/scenePolicyGate');
-        const { describeHeroOutfitFromCover } = require('./services/coverHeroOutfit');
-
-        const confirmedRaw = Array.isArray(req.body.confirmedCharacters) ? req.body.confirmedCharacters : null;
-        const visionOnlySecondaries = storyPlan.additionalCoverCharacters;
-        const coverHadVisionSecondaries = storyPlan.coverHadVisionSecondaries === true;
-        const filteredConfirmed = filterConfirmedForCoverPolicy(confirmedRaw, theme);
-        const confirmedBlock = formatConfirmedCharactersForIllustration(filteredConfirmed);
-        storyPlan.additionalCoverCharacters = mergeCoverAndConfirmedSecondaries(visionOnlySecondaries, confirmedBlock);
-        if (confirmedBlock && storyPlan.additionalCoverCharacters) {
-          bookContext.log('info', 'Illustration secondaries after merge', { preview: storyPlan.additionalCoverCharacters.slice(0, 220) });
-        }
-
-        try {
-          const outfitSnap = await describeHeroOutfitFromCover(coverForIllustratorBase64, { abortSignal: bookContext.abortController.signal });
-          if (outfitSnap) {
-            storyPlan.heroOutfitFromCover = outfitSnap;
-            storyPlan.characterOutfit = outfitSnap;
-            bookContext.log('info', 'Hero outfit locked from cover image', { preview: outfitSnap.slice(0, 120) });
-          }
-        } catch (outfitErr) {
-          bookContext.log('warn', 'Cover outfit snapshot failed — using writer outfit lock', { error: outfitErr.message });
-        }
-
-        storyPlan.illustrationPolicy = {
-          qaAllowedHumansNote: buildQaAllowedHumansNote(storyPlan.additionalCoverCharacters || ''),
-        };
-
-        applyScenePolicyToEntries(storyPlan.entries, {
-          theme,
-          coverParentPresent: storyPlan.coverParentPresent === true,
-          coverHadVisionSecondaries,
-          hasConfirmedCast: confirmedBlock.length > 0,
-        });
-      }
+      // Legacy secondary-cast merge + scene policy gate deleted
+      // (native-illustrator cutover) — the v3 pipeline owns cast policy.
 
       // If we still have no characterAnchor but parent provided one, use it
       if (!storyPlan.characterAnchor && parentCharacterAnchor) {
@@ -1369,55 +1149,12 @@ If the main child is the ONLY character, respond with exactly: NONE` },
       let spreadEntries;
       let upsellCoversWithBuffers = []; // default empty; PICTURE_BOOK path overwrites below
 
-      // Chapter-book / graphic-novel illustration arms deleted (W12) —
-      // retired formats never reach this stage.
-      if (storyPlan._generatedByNewPipeline) {
-        // ── Book pipeline v1 already rendered and QA'd every spread ──
-        // The entries are carrying signed URLs produced by the new pipeline;
-        // we just adopt them as entriesWithIllustrations and skip the legacy
-        // generateAllIllustrations path entirely.
-        bookContext.log('info', 'Using illustrations from bookPipeline v1 (skipping legacy illustration stage)');
-        entriesWithIllustrations = storyPlan.entries.slice();
-        spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
-      } else {
-        // ── Standard picture/early reader illustration generation ──
-        bookContext.log('info', 'Starting V2 illustration generation');
-        if (progressCallbackUrl) {
-          reportProgress(progressCallbackUrl, { bookId, stage: 'illustration', progress: 0.40, message: 'Generating illustrations...', logs: bookContext.logs });
-        }
-
-        // Safety: For parent themes, ensure photo-detected characters don't override implied presence.
-        // This catches cases where cover analysis didn't run (no approved cover yet) AND the case
-        // where the cover has a non-parent secondary (e.g. sibling on a mother's-day cover).
-        if (PARENT_THEMES.has(theme) && !storyPlan.coverParentPresent) {
-          if (detectedSecondaryCharacters) {
-            bookContext.log('info', 'Pre-illustration safety: nullifying photo-detected secondary chars for parent theme implied presence');
-            detectedSecondaryCharacters = null;
-          }
-        }
-
-        entriesWithIllustrations = await generateAllIllustrations(storyPlan.entries, storyPlan, childDetails, characterRef, style, {
-          apiKeys, costTracker, bookId, bookContext, progressCallbackUrl,
-          resolvedChildPhotoUrl,
-          cachedPhotoBase64: characterRefBase64,
-          cachedPhotoMime: characterRefMime,
-          existingIllustrations: checkpoint?.illustrationResults || [],
-          checkpointData: { bookId, storyPlan },
-          detectedSecondaryCharacters: detectedSecondaryCharacters || null,
-          characterAnchor: storyPlan.characterAnchor || null,
-          coverForIllustratorBase64: coverForIllustratorBase64 || null,
-          theme,
-        });
-
-        bookContext.log('info', 'All illustrations complete', { entries: entriesWithIllustrations.length });
-
-        spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
-        const illustrationFailures = spreadEntries.filter(e => !e.spreadIllustrationUrl && !e.leftIllustrationUrl).length;
-        if (illustrationFailures > 0) {
-          bookContext.log('warn', `${illustrationFailures}/${spreadEntries.length} spread illustrations failed`);
-          bookWarnings.push(`${illustrationFailures} of ${spreadEntries.length} illustrations failed`);
-        }
-      }
+      // The v3 pipeline (native illustrator) already rendered and QA'd every
+      // spread — the entries carry signed URLs; adopt them directly. The
+      // legacy in-server illustration stage was deleted in the cutover.
+      bookContext.log('info', 'Using illustrations rendered by bookPipelineV3');
+      entriesWithIllustrations = storyPlan.entries.slice();
+      spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
 
       // Note: old illustrations from previous runs are NOT deleted here.
       // They have unique timestamp-based filenames and don't collide with new ones.
@@ -1797,95 +1534,19 @@ If the main child is the ONLY character, respond with exactly: NONE` },
   });
 });
 
-// ── POST /regenerate-illustration ──
-// Regenerate a single picture-book spread.
-// The `artStyle` field in the request body is ignored — picture-book
-// illustrations are locked to 3D Premium Pixar by the new illustrator module.
-app.post('/regenerate-illustration', authenticate, async (req, res) => {
-  const { bookId, spreadIndex, spreadImagePrompt, promptInjection, pageText,
-    additionalCoverCharacters, coverParentPresent, totalSpreads, theme, parentOutfit,
-    coverImageUrl, firstSpreadRefUrl, childAppearance, childPhotoUrl, textSide,
-    characterOutfit, characterDescription, childAge } = req.body;
-
-  if (!bookId || typeof spreadIndex !== 'number') {
-    return res.status(400).json({ success: false, error: 'bookId and spreadIndex are required' });
-  }
-  if (!spreadImagePrompt) {
-    return res.status(400).json({ success: false, error: 'spreadImagePrompt is required' });
-  }
-
-  console.log(`[server] /regenerate-illustration: bookId=${bookId}, spread=${spreadIndex}${promptInjection ? ' [+injection]' : ''}`);
-
-  const costTracker = new CostTracker();
-
-  try {
-    // Download cover (REQUIRED for character + style lock). Accepted sources
-    // (first match wins):
-    //   1. coverImageUrl — canonical, sent by the standalone on new admin actions.
-    //   2. childPhotoUrl — legacy field; standalone admin sets it to
-    //      `book.coverImageUrl || firstChildPhoto` for backward compat.
-    //   3. firstSpreadRefUrl — last-resort fallback (an approved interior spread).
-    const coverSource = coverImageUrl || childPhotoUrl || firstSpreadRefUrl || null;
-    let coverB64 = null;
-    if (coverSource) {
-      try {
-        const cover = await downloadPhotoAsBase64(coverSource);
-        coverB64 = cover.base64;
-      } catch (e) {
-        console.warn(`[regen] Could not download reference image (${coverSource}): ${e.message}`);
-      }
-    }
-    if (!coverB64) {
-      return res.status(400).json({ success: false, error: 'A valid cover reference URL (coverImageUrl, childPhotoUrl, or firstSpreadRefUrl) is required for regeneration' });
-    }
-
-    // The new illustrator renders the ENTIRE spread caption on ONE side only
-    // (never split across left + right). We collapse the full page text to a
-    // single passage; the module decides the side via spreadIndex parity
-    // unless the caller passes an explicit `textSide` override.
-    const text = (pageText || '').replace(/\s+/g, ' ').trim();
-
-    let scenePrompt = spreadImagePrompt;
-    if (promptInjection) {
-      scenePrompt += `\n\nADDITIONAL INSTRUCTIONS: ${promptInjection}`;
-    }
-
-    const { regenerateSpreadIllustration } = require('./services/illustrator');
-    const result = await regenerateSpreadIllustration({
-      scenePrompt,
-      text,
-      textSide: (textSide === 'left' || textSide === 'right') ? textSide : undefined,
-      coverBase64: coverB64,
-      coverMime: 'image/jpeg',
-      theme: theme || null,
-      additionalCoverCharacters: additionalCoverCharacters || null,
-      coverParentPresent: coverParentPresent === true,
-      parentOutfit: parentOutfit || null,
-      childAppearance: childAppearance || null,
-      characterOutfit: typeof characterOutfit === 'string' ? characterOutfit : null,
-      characterDescription: typeof characterDescription === 'string' ? characterDescription : null,
-      childAge: childAge != null ? childAge : null,
-      spreadIndex,
-      totalSpreads: totalSpreads || 13,
-    });
-
-    const gcsPath = `children-jobs/${bookId}/illustrations/spread-${spreadIndex}-${Date.now()}.png`;
-    await uploadBuffer(result.imageBuffer, gcsPath, 'image/png');
-    const newUrl = await getSignedUrl(gcsPath, 30 * 24 * 60 * 60 * 1000);
-
-    console.log(`[server] Illustration regenerated for book ${bookId}, spread ${spreadIndex}`);
-
-    res.json({
-      success: true,
-      bookId,
-      spreadIndex,
-      illustrationUrl: newUrl,
-      costs: costTracker.getSummary(),
-    });
-  } catch (err) {
-    console.error(`[server] Regenerate illustration failed for ${bookId} spread ${spreadIndex}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+// ── POST /regenerate-illustration — 410 GONE (native-illustrator cutover) ──
+// The legacy per-spread regen painted the caption into a wide image anchored
+// on the cover — that renderer was deleted. Native books re-render single
+// spreads through the v3 review flow instead: POST /v3/review/regen-spread
+// (records the resolution; the re-dispatched /generate-book replays every
+// other spread from GCS and re-renders only the target, QA included).
+app.post('/regenerate-illustration', authenticate, (req, res) => {
+  const { bookId, spreadIndex } = req.body || {};
+  console.log(`[server] /regenerate-illustration is retired (bookId=${bookId}, spread=${spreadIndex})`);
+  res.status(410).json({
+    success: false,
+    error: 'Legacy per-spread regeneration was removed with the legacy illustrator. For native books, use POST /v3/review/regen-spread and re-dispatch /generate-book (cached spreads replay from GCS); legacy-rendered books must be regenerated in full.',
+  });
 });
 
 // /generate-spread removed — V2 pipeline generates sequentially, this endpoint was unused.

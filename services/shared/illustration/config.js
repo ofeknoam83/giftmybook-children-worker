@@ -26,11 +26,8 @@ const GEMINI_IMAGE_SAFETY_SETTINGS = [
 ];
 
 // ── OpenAI image model (gpt-image-2) ──
-// The OpenAI Images 2.0 API is stateless — each call re-sends the cover +
-// last N accepted spreads as reference images along with the per-spread
-// prompt. The adapter (services/illustrator/openaiImageSession.js) emulates
-// the Gemini chat-session interface so the orchestrator can swap providers
-// by flipping `MODELS.SPREAD_RENDER` in bookPipeline/constants.js.
+// The OpenAI Images 2.0 API is stateless — each call re-sends reference
+// images along with the prompt.
 const OPENAI_IMAGE_MODEL = 'gpt-image-2';
 /**
  * Reference-image-conditioned generation for `gpt-image-2` lives on the EDIT
@@ -53,8 +50,6 @@ const OPENAI_IMAGES_GENERATIONS_URL = 'https://api.openai.com/v1/images/generati
 // → buildSpreadPagesPair). 1024×1024 is the standard supported size for
 // gpt-image-2; bump to 2048×2048 if validated.
 const OPENAI_IMAGE_SIZE = '1024x1024';
-/** 4:1 ultra-wide for dual-spread batches (Gemini-only — the OpenAI path uses 1:1, no quad). */
-const OPENAI_QUAD_IMAGE_SIZE = '1792x448';
 // Production quality tier for gpt-image-2 on /v1/images/generations. Sent as
 // the `quality` form field by services/illustrator/openaiImagesHttp.js.
 const OPENAI_IMAGE_QUALITY = 'high';
@@ -65,17 +60,10 @@ const OPENAI_IMAGE_QUALITY = 'high';
 // timeout covers both — we size it for the slower path to keep the OpenAI
 // default path from tripping flaky timeouts under load.
 const TURN_TIMEOUT_MS = 300000;          // 5 minutes per image generation turn
-/** 4:1 dual-spread turns are heavier; give the API longer before client abort. */
-const TURN_TIMEOUT_QUAD_MS = 360000;   // 6 minutes
 const QA_TIMEOUT_MS = 45000;             // 45s per vision QA call
 const ESTABLISHMENT_TIMEOUT_MS = 180000; // first turn generates the reference sheet — same budget as a spread turn
 
 // ── Retry budgets ──
-// Higher values improve pass rates on difficult spreads but increase latency and
-// API cost roughly linearly (each correction is another image + QA). Tune down if
-// cost or time becomes an issue after observing production pass rates.
-const MAX_SPREAD_CORRECTIONS = 6;   // per-spread in-session corrections → 1 initial + 6 = 7 attempts per session before rebuild
-const MAX_SESSION_REBUILDS = 2;     // full session rebuilds per spread (safety + QA exhaustion); worst case ≈ 7 × 3 = 21 attempts
 const QA_HTTP_ATTEMPTS = 3;         // retries per vision QA HTTP call before fail-open (infra)
 // Explicit ceiling for QA model output. The consistencyQa schema has ~25 fields
 // with prose `Notes` companions; without an explicit cap the gemini-2.5-flash
@@ -305,15 +293,11 @@ module.exports = {
   OPENAI_IMAGES_EDIT_URL,
   OPENAI_IMAGES_GENERATIONS_URL,
   OPENAI_IMAGE_SIZE,
-  OPENAI_QUAD_IMAGE_SIZE,
   OPENAI_IMAGE_QUALITY,
   TURN_TIMEOUT_MS,
-  TURN_TIMEOUT_QUAD_MS,
   QA_TIMEOUT_MS,
   QA_MAX_OUTPUT_TOKENS,
   ESTABLISHMENT_TIMEOUT_MS,
-  MAX_SPREAD_CORRECTIONS,
-  MAX_SESSION_REBUILDS,
   QA_HTTP_ATTEMPTS,
   SAFETY_STRIKES_BEFORE_SCENE_DEESCAL,
   SLIDING_WINDOW_ACCEPTED_SPREADS,
