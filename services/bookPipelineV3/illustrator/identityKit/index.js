@@ -5,9 +5,17 @@
  *   photos → likeness brief → character model sheet (best-of-N,
  *   cross-family likeness-judged vs the photo) → cached kit
  *
- * The approved cover joins the kit as wardrobe ground truth — it is the
- * one image the parent has blessed. Runs in parallel with the writer
- * (kicked off right after input validation; joined before rendering).
+ * The approved cover joins the kit twice: as wardrobe ground truth AND as
+ * the sheet-generation reference — it is the one ILLUSTRATION of this
+ * child the parent has blessed, so attaching it to generation is
+ * PROHIBITED_CONTENT-safe (the raw photos never are). Runs in parallel
+ * with the writer (kicked off right after input validation; joined before
+ * rendering).
+ *
+ * Admin resolution: a review resolution `{action: 'pick_sheet',
+ * candidateUrl}` (from POST /v3/review/pick-sheet after an
+ * identity_kit_exhausted needs_review) bypasses generation + judging and
+ * uses the admin-picked candidate as the sheet.
  */
 
 const { downloadPhotoAsBase64 } = require('../../../illustrationGenerator');
@@ -26,6 +34,9 @@ const MAX_KIT_PHOTOS = 3;
  * @param {string} opts.ageBand - PB_* band
  * @param {{name?: string, gender?: string}} [opts.childDetails]
  * @param {string} [opts.wardrobeNote] - outfit description from the approved cover
+ * @param {string} [opts.coverImageUrl] - approved cover (sheet-generation anchor; download failure degrades to text-only)
+ * @param {string} [opts.bookId] - for review-candidate uploads on exhaustion
+ * @param {{action?: string, candidateUrl?: string, admin?: string}} [opts.reviewResolution]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ sheetUrl: string, sheetPath: string, brief: object, judgeScores: object, cacheKey: string, styleVersion: string, fromCache: boolean, photos: Array<{base64: string, mimeType: string}> }>}
@@ -35,6 +46,9 @@ async function buildIdentityKit({
   ageBand,
   childDetails = {},
   wardrobeNote = null,
+  coverImageUrl = null,
+  bookId = null,
+  reviewResolution = null,
   abortSignal,
   log = (m) => console.log(`[identityKit] ${m}`),
 }) {
@@ -48,20 +62,51 @@ async function buildIdentityKit({
   const photos = await Promise.all(usableUrls.map((u) => downloadPhotoAsBase64(u)));
 
   const cacheKey = computeKitCacheKey(usableUrls);
-  const cached = await getCachedKit(cacheKey);
-  if (cached) {
-    return { ...cached, cacheKey, fromCache: true, photos };
+  const adminPick = reviewResolution?.action === 'pick_sheet' && reviewResolution.candidateUrl
+    ? reviewResolution
+    : null;
+  if (!adminPick) {
+    const cached = await getCachedKit(cacheKey);
+    if (cached) {
+      return { ...cached, cacheKey, fromCache: true, photos };
+    }
   }
 
-  log(`building identity kit (band=${ageBand}, photos=${photos.length}, style=${STYLE_VERSION})`);
+  log(`building identity kit (band=${ageBand}, photos=${photos.length}, style=${STYLE_VERSION}${adminPick ? ', ADMIN PICK' : ''})`);
   const brief = await buildLikenessBrief({ photos, ageBand, childDetails, abortSignal });
-  const sheet = await generateCharacterSheet({
-    photos,
-    briefText: brief.briefText,
-    wardrobeNote,
-    abortSignal,
-    log,
-  });
+
+  let sheet;
+  if (adminPick) {
+    // Admin reviewed the rejected candidates and picked one — that human
+    // judgment outranks the automated judges. Loud in the logs + scores.
+    log(`review resolution pick_sheet by ${adminPick.admin || 'admin'} — using picked candidate as the model sheet (judges bypassed)`);
+    const picked = await downloadPhotoAsBase64(adminPick.candidateUrl);
+    sheet = {
+      sheetBuffer: Buffer.from(picked.base64, 'base64'),
+      sheetMime: picked.mimeType || 'image/png',
+      judgeScores: { adminPick: true, resolvedBy: adminPick.admin || 'admin' },
+      attemptsUsed: 0,
+    };
+  } else {
+    // The approved cover anchors generation when it can be fetched; a
+    // download failure falls back to the description-only path (non-fatal).
+    let coverReference = null;
+    if (coverImageUrl) {
+      coverReference = await downloadPhotoAsBase64(coverImageUrl).catch((err) => {
+        log(`approved cover download failed (${err.message}) — generating sheet from the likeness brief only`);
+        return null;
+      });
+    }
+    sheet = await generateCharacterSheet({
+      photos,
+      briefText: brief.briefText,
+      wardrobeNote,
+      coverReference,
+      bookId,
+      abortSignal,
+      log,
+    });
+  }
 
   const stored = await setCachedKit(cacheKey, {
     brief,

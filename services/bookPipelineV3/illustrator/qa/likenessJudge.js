@@ -13,12 +13,30 @@
 const { callVisionRole } = require('../../llm/visionClient');
 const { LIKENESS_ROLES } = require('../../llm/modelRouter');
 
+/** Default pass bar (1-5 scale). Env-tunable via BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE. */
 const LIKENESS_PASS_SCORE = 4;
+
+/**
+ * Effective pass score — read at call time so an ops env flip takes effect
+ * without a restart-sensitive module cache. Clamped to [1, 5]; anything
+ * unparsable falls back to the default.
+ * @returns {number}
+ */
+function resolveLikenessPassScore() {
+  const v = Number(process.env.BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE);
+  if (Number.isFinite(v) && v >= 1 && v <= 5) return v;
+  return LIKENESS_PASS_SCORE;
+}
 
 const JUDGE_PROMPT = `You are judging whether an ILLUSTRATED character is a faithful likeness of a REAL child.
 Image 1 is the illustrated candidate. The remaining image(s) are real photos of the child.
 
 Score STRICTLY — a parent bought this book because the character IS their child.
+
+IMPORTANT — stylization is expected, identity is what you grade:
+- The candidate is a stylized children's-book illustration. It will NEVER look photoreal, and it must not be penalized for being painterly, simplified, or cartoon-proportioned.
+- Grade the IDENTITY CUES: hair color and style, skin tone (undertone and depth), eye color, face shape, and every distinguishing feature visible in the photo (glasses, freckles, dimples, birthmarks...).
+- "5 = unmistakably this child in illustrated form" means: if the parent saw this drawing, they would say "that's my kid" — despite the stylized medium.
 
 Return STRICT JSON:
 {
@@ -32,6 +50,7 @@ Return STRICT JSON:
 
 Rules:
 - Judge identity, not art quality. A beautiful image of the wrong child scores 1.
+- Do NOT deduct for the medium: brush style, flat shading, or simplified anatomy are the book's art style, not identity defects.
 - skinToneMatch=false or wrongChild=true are HARD failures regardless of the likeness number.`;
 
 /**
@@ -65,7 +84,7 @@ async function judgeLikenessOnce({ role, candidate, photos, contextNote, abortSi
     hairMatch: json.hairMatch !== false,
     ageMatch: json.ageMatch !== false,
     wrongChild: json.wrongChild === true,
-    pass: !hardFail && likeness >= LIKENESS_PASS_SCORE,
+    pass: !hardFail && likeness >= resolveLikenessPassScore(),
     defects: Array.isArray(json.defects) ? json.defects.map(String) : [],
   };
 }
@@ -92,5 +111,6 @@ module.exports = {
   judgeLikenessOnce,
   judgeLikenessCrossFamily,
   LIKENESS_PASS_SCORE,
+  resolveLikenessPassScore,
   JUDGE_PROMPT,
 };

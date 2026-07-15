@@ -2,20 +2,24 @@
  * Character model sheet (A0 step 2) — ONE canonical image of the child in
  * the signature style: turnaround poses, expressions, full body with
  * age-correct proportions. Generated from the likeness-brief DESCRIPTION
- * (never with the raw photos attached — Part B, PROHIBITED_CONTENT safety);
- * judged cross-family against the real photos
- * inputs; every candidate is judged for likeness AGAINST THE PHOTO by two
- * model families. The winning sheet becomes the identity ground truth
+ * plus (when available) the parent-APPROVED COVER as a reference — the
+ * cover is an illustration the parent already blessed, so attaching it is
+ * PROHIBITED_CONTENT-safe; the raw photos are NEVER attached to generation
+ * (Part B). Every candidate is judged for likeness AGAINST THE PHOTO by
+ * two model families. The winning sheet becomes the identity ground truth
  * every downstream render references — identity is decided once, at
  * maximum scrutiny, instead of 13 times at render time.
  *
- * Budget (plan §5): best-of-SHEET_BEST_OF, +SHEET_EXTRA_WAVES fresh wave,
- * then needs_review — identity is never shipped "close enough".
+ * Budget (plan §5): best-of-SHEET_BEST_OF, +SHEET_EXTRA_WAVES defect-fed
+ * repair wave(s), then needs_review — identity is never SILENTLY shipped
+ * "close enough" (BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION=1 is the loud
+ * ops escape hatch; the admin pick-sheet resolution is the reviewed one).
  */
 
 const { generateImage } = require('../render/imageClient');
 const { judgeLikenessCrossFamily } = require('../qa/likenessJudge');
 const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
+const { uploadBuffer } = require('../../../gcsStorage');
 const { SHEET_RENDERER_MODEL, SHEET_BEST_OF, SHEET_EXTRA_WAVES } = require('../config');
 const { STYLE_BIBLE } = require('../styleBible');
 
@@ -23,9 +27,11 @@ const { STYLE_BIBLE } = require('../styleBible');
  * @param {object} opts
  * @param {string} opts.briefText - likeness brief (likenessBrief.js)
  * @param {string} [opts.wardrobeNote] - outfit ground truth from the approved cover
+ * @param {boolean} [opts.hasCoverReference] - approved cover attached to the call
+ * @param {string[]} [opts.repairNotes] - judge defects from the prior wave (wave >= 1)
  * @returns {string} full sheet render prompt
  */
-function buildSheetPrompt({ briefText, wardrobeNote }) {
+function buildSheetPrompt({ briefText, wardrobeNote, hasCoverReference = false, repairNotes = [] }) {
   return [
     'CHARACTER MODEL SHEET — one single image containing a turnaround study of ONE child character:',
     '- THREE full-body views side by side: front, three-quarter, and profile.',
@@ -35,6 +41,12 @@ function buildSheetPrompt({ briefText, wardrobeNote }) {
     '',
     briefText,
     wardrobeNote ? `\nOUTFIT (ground truth from the approved cover): ${wardrobeNote}` : '',
+    hasCoverReference
+      ? '\nAPPROVED COVER REFERENCE: the attached image is this book\'s parent-approved COVER illustration. The model sheet must depict THE SAME character — identical face, hair color and style, skin tone, eye color, and any distinguishing features (e.g. glasses) — translated into the turnaround layout above.'
+      : '',
+    repairNotes.length
+      ? `\nREPAIR — previous candidates were REJECTED by likeness judges for exactly these defects. Fix every one of them:\n${repairNotes.map((d) => `- ${d}`).join('\n')}`
+      : '',
     '',
     STYLE_BIBLE,
     '',
@@ -47,19 +59,23 @@ function buildSheetPrompt({ briefText, wardrobeNote }) {
  * Generate + judge one wave of sheet candidates.
  * @returns {Promise<{ best: object|null, attempts: object[] }>}
  */
-async function runSheetWave({ prompt, photos, waveTag, count, abortSignal, log }) {
+async function runSheetWave({ prompt, photos, coverReference, waveTag, count, abortSignal, log }) {
   // Part B (PROHIBITED_CONTENT safety): the real photos are NEVER attached
   // to a generation call — "render this exact real child" is what Gemini's
-  // non-configurable child-safety tier blocks. The sheet is generated from
-  // the likeness-brief DESCRIPTION only; the cross-family judge below still
-  // compares every candidate against the real photos (vision analysis is
-  // not blocked), so likeness is enforced by selection, not replication.
+  // non-configurable child-safety tier blocks. The approved COVER is an
+  // illustration, not a photo, so it may anchor generation; the
+  // cross-family judge below still compares every candidate against the
+  // real photos (vision analysis is not blocked), so likeness is enforced
+  // by selection, not replication.
+  const references = coverReference
+    ? [{ base64: coverReference.base64, mimeType: coverReference.mimeType || 'image/jpeg', note: 'APPROVED BOOK COVER (character identity + art style ground truth):' }]
+    : [];
   const candidates = await Promise.all(
     Array.from({ length: count }, (_, i) =>
       generateImage({
         model: SHEET_RENDERER_MODEL,
         prompt,
-        references: [],
+        references,
         aspectRatio: '16:9',
         abortSignal,
         label: `v3.sheet.${waveTag}.${i + 1}`,
@@ -91,42 +107,90 @@ async function runSheetWave({ prompt, photos, waveTag, count, abortSignal, log }
   return { best: passing[0] || null, attempts };
 }
 
+/** Shape one attempt for return/telemetry. */
+function toKitResult(attempt, allAttempts, extra = {}) {
+  return {
+    sheetBuffer: attempt.candidate.buffer,
+    sheetMime: attempt.candidate.mimeType,
+    judgeScores: {
+      minLikeness: attempt.verdict.minLikeness,
+      verdicts: attempt.verdict.verdicts.map((v) => ({ role: v.role, family: v.family, model: v.model, likeness: v.likeness })),
+      ...extra,
+    },
+    attemptsUsed: allAttempts.length,
+  };
+}
+
 /**
- * Generate the model sheet with the bounded best-of/wave budget.
+ * Best-effort upload of the rejected candidates so the review queue can
+ * SHOW the admin what was generated and why it failed. Never throws.
+ *
+ * @returns {Promise<string[]>} public/signed URLs (may be empty)
+ */
+async function uploadRejectedCandidates({ attempts, bookId, log }) {
+  const folder = `children-jobs/${bookId || 'unknown-book'}/identity-kit-review`;
+  const urls = [];
+  for (const a of attempts) {
+    try {
+      const ext = (a.candidate.mimeType || 'image/png').includes('png') ? 'png' : 'jpg';
+      const url = await uploadBuffer(a.candidate.buffer, `${folder}/candidate-${a.tag}.${ext}`, a.candidate.mimeType || 'image/png');
+      if (url) urls.push(url);
+    } catch (err) {
+      log(`candidate ${a.tag} review upload failed (non-fatal): ${err.message}`);
+    }
+  }
+  return urls;
+}
+
+/**
+ * Generate the model sheet with the bounded best-of/wave budget. Wave 2+
+ * feeds the prior wave's judge defects back into the prompt (defect-named
+ * repair, same philosophy as the spread QA repair wave).
  *
  * @param {object} opts
  * @param {Array<{base64: string, mimeType?: string}>} opts.photos
  * @param {string} opts.briefText
  * @param {string} [opts.wardrobeNote]
+ * @param {{base64: string, mimeType?: string}} [opts.coverReference] - approved cover (illustration; policy-safe to attach)
+ * @param {string} [opts.bookId] - for review-candidate uploads on exhaustion
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ sheetBuffer: Buffer, sheetMime: string, judgeScores: object, attemptsUsed: number }>}
  * @throws Error with .needsReview payload (reason identity_kit_exhausted) on budget exhaustion
  */
-async function generateCharacterSheet({ photos, briefText, wardrobeNote, abortSignal, log = (m) => console.log(`[identityKit] ${m}`) }) {
-  const prompt = buildSheetPrompt({ briefText, wardrobeNote });
+async function generateCharacterSheet({ photos, briefText, wardrobeNote, coverReference = null, bookId = null, abortSignal, log = (m) => console.log(`[identityKit] ${m}`) }) {
   const allAttempts = [];
 
   for (let wave = 0; wave <= SHEET_EXTRA_WAVES; wave += 1) {
     const waveTag = `w${wave}`;
+    const repairNotes = wave > 0
+      ? [...new Set(allAttempts.flatMap((a) => a.verdict.defects))].slice(0, 10)
+      : [];
+    const prompt = buildSheetPrompt({
+      briefText,
+      wardrobeNote,
+      hasCoverReference: Boolean(coverReference),
+      repairNotes,
+    });
     const { best, attempts } = await runSheetWave({
-      prompt, photos, waveTag, count: SHEET_BEST_OF, abortSignal, log,
+      prompt, photos, coverReference, waveTag, count: SHEET_BEST_OF, abortSignal, log,
     });
     allAttempts.push(...attempts);
     if (best) {
-      return {
-        sheetBuffer: best.candidate.buffer,
-        sheetMime: best.candidate.mimeType,
-        judgeScores: {
-          minLikeness: best.verdict.minLikeness,
-          verdicts: best.verdict.verdicts.map((v) => ({ role: v.role, family: v.family, model: v.model, likeness: v.likeness })),
-        },
-        attemptsUsed: allAttempts.length,
-      };
+      return toKitResult(best, allAttempts);
     }
-    if (wave < SHEET_EXTRA_WAVES) log(`sheet wave ${waveTag} exhausted (${attempts.length} judged candidates, none passed) — one fresh wave`);
+    if (wave < SHEET_EXTRA_WAVES) log(`sheet wave ${waveTag} exhausted (${attempts.length} judged candidates, none passed) — repair wave with ${repairNotes.length || 'the'} judge defects fed back`);
   }
 
+  // Loud ops escape hatch: ship the best-scoring sheet instead of blocking
+  // the book. NEVER silent — the warning names the score and the flag.
+  if (process.env.BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION === '1' && allAttempts.length > 0) {
+    const best = [...allAttempts].sort((a, b) => b.verdict.minLikeness - a.verdict.minLikeness)[0];
+    log(`WARNING: likeness budget exhausted but BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION=1 — shipping best-scoring sheet ${best.tag} (minLikeness=${best.verdict.minLikeness}, below the pass bar)`);
+    return toKitResult(best, allAttempts, { shippedOnExhaustion: true });
+  }
+
+  const candidateUrls = await uploadRejectedCandidates({ attempts: allAttempts, bookId, log });
   const err = new Error(
     `character model sheet failed cross-family likeness after ${allAttempts.length} judged candidates across ${SHEET_EXTRA_WAVES + 1} waves — identity is never shipped "close enough"`,
   );
@@ -134,8 +198,22 @@ async function generateCharacterSheet({ photos, briefText, wardrobeNote, abortSi
     stage: 'identityKit',
     reason: 'identity_kit_exhausted',
     defects: [...new Set(allAttempts.flatMap((a) => a.verdict.defects))].slice(0, 20),
+    candidateUrls,
     judgeScores: {
-      attempts: allAttempts.map((a) => ({ tag: a.tag, minLikeness: a.verdict.minLikeness, pass: a.verdict.pass })),
+      attempts: allAttempts.map((a) => ({
+        tag: a.tag,
+        minLikeness: a.verdict.minLikeness,
+        pass: a.verdict.pass,
+        judges: a.verdict.verdicts.map((v) => ({
+          role: v.role,
+          family: v.family,
+          likeness: v.likeness,
+          skinToneMatch: v.skinToneMatch,
+          hairMatch: v.hairMatch,
+          wrongChild: v.wrongChild,
+          defects: v.defects.slice(0, 5),
+        })),
+      })),
     },
   });
   throw err;

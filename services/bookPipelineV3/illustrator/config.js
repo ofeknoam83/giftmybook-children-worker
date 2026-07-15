@@ -27,8 +27,12 @@ const SHEET_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SHEET_RENDERER_MODEL |
 const SPREAD_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL || 'gemini-3.1-flash-image';
 
 // ── Bounded budgets (plan §5 — no unbounded loop exists on the native path) ──
-const SHEET_BEST_OF = 3;          // character-sheet candidates per wave
-const SHEET_EXTRA_WAVES = 1;      // one fresh wave, then needs_review
+// Sheet budgets are env-tunable (ops lever after an identity_kit_exhausted
+// wave in production); defaults unchanged.
+const SHEET_BEST_OF = Number(process.env.BOOK_PIPELINE_V3_SHEET_BEST_OF) >= 1
+  ? Number(process.env.BOOK_PIPELINE_V3_SHEET_BEST_OF) : 3; // candidates per wave
+const SHEET_EXTRA_WAVES = Number(process.env.BOOK_PIPELINE_V3_SHEET_EXTRA_WAVES) >= 0
+  ? Number(process.env.BOOK_PIPELINE_V3_SHEET_EXTRA_WAVES) : 1; // defect-fed repair waves, then needs_review
 const CANDIDATES_PER_SPREAD = 2;  // parallel candidates per spread
 const REPAIR_WAVES_PER_SPREAD = 1; // one defect-named repair wave, then needs_review
 const ART_DIRECTION_REASKS = 1;   // one re-ask on shot-budget violation, then deterministic reassignment

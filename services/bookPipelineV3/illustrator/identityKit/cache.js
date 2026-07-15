@@ -13,7 +13,8 @@ const { saveJson, loadJson, uploadBuffer } = require('../../../gcsStorage');
 const { STYLE_VERSION } = require('../styleBible');
 
 /** Bump to invalidate every cached kit (prompt/judging changes). */
-const KIT_PROMPT_VERSION = 'ik-1';
+// ik-2: cover-anchored sheet generation + defect-fed repair wave (2026-07-15)
+const KIT_PROMPT_VERSION = 'ik-2';
 
 const KIT_CACHE_PREFIX = 'identity-kit';
 
