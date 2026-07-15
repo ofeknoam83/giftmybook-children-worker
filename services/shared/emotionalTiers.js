@@ -6,8 +6,10 @@
  * planner module.
  *
  * v3-only cutover: every tier is a PICTURE_BOOK (product decision — emotional
- * books all-ages are picture books; early readers are retired). Tier ids and
- * spread counts are kept so age still shapes pacing/length downstream.
+ * books all-ages are picture books; early readers are retired). Tier ids are
+ * kept so age still shapes tone/pacing downstream, but E3/E4 now ship with
+ * the standard picture-book dimensions (13 spreads / 32 pages) instead of
+ * their former early-reader sizes.
  */
 
 /** Themes that trigger the emotional-book pipeline behavior. */

@@ -7,7 +7,6 @@ const { CANONICAL_BOOK_ART_STYLE } = require('./illustrationGenerator');
 // v3-only cutover (W11): picture books are the only supported format. The
 // retired formats are rejected 400 BEFORE the 202 — a silent default to
 // picture_book would generate a different product than the one requested.
-const VALID_FORMATS = ['picture_book', 'PICTURE_BOOK'];
 const RETIRED_FORMATS = ['early_reader', 'EARLY_READER', 'CHAPTER_BOOK', 'GRAPHIC_NOVEL'];
 // Legacy/alternate keys clients may still send; sanitized `artStyle` is always canonical 3D Pixar.
 const VALID_ART_STYLES = ['pixar_premium', 'watercolor', 'digital_painting', 'gouache', 'pencil_sketch', 'paper_cutout', 'storybook_classic', 'anime', 'pixel_art', 'storybook', 'cinematic_3d'];
@@ -313,7 +312,6 @@ module.exports = {
   validateFinalizeBookRequest,
   sanitizeForPrompt,
   isValidHttpsUrl,
-  VALID_FORMATS,
   VALID_ART_STYLES,
   VALID_THEMES,
   VALID_GENDERS,
