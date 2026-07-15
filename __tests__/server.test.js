@@ -46,9 +46,6 @@ jest.mock('../services/storyPlanner', () => ({
   getEmotionalTier: jest.fn().mockReturnValue(null),
   planChapterBook: jest.fn().mockResolvedValue({}),
 }));
-jest.mock('../services/textGenerator', () => ({
-  generateSpreadText: jest.fn().mockResolvedValue('Generated text.'),
-}));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
   generateIllustrationWithAnchors: jest.fn().mockResolvedValue('https://example.com/illustration.png'),

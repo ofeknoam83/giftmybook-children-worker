@@ -10,12 +10,13 @@ Cloud Run microservice that generates personalized children's books with AI-gene
 
 ## Shared services (`services/shared/`)
 
-Cross-pipeline code extracted from the legacy modules ahead of their deletion (v3-only cutover plan): `shared/llm/openaiClient.js` (unified LLM client), `shared/llm/modelRouter.js` (role routing, used by storyPlanner + v2), `shared/text/sanitize.js` + `shared/text/sceneFramingHint.js`, `shared/illustration/config.js` + `illustrationPolicy.js` (used by games, cover, comics, illustrationGenerator), `shared/emotionalTiers.js`. The v1/v2 pipelines require FROM these locations — never the reverse — so deleting `bookPipeline`/`bookPipelineV2` is a pure directory removal. The v1 document contract (constants, bookDocument schema, toLayoutPayload, toLegacyStoryPlan) now lives in `services/bookPipelineV3/contract/`.
+Cross-pipeline code: `shared/llm/openaiClient.js` (unified LLM client), `shared/llm/modelRouter.js` (role routing, used by storyPlanner + the legacy-illustrator writer files), `shared/text/sanitize.js` + `shared/text/sceneFramingHint.js`, `shared/illustration/config.js` + `illustrationPolicy.js` (used by games, cover, comics, illustrationGenerator), `shared/emotionalTiers.js`. The v1 document contract (constants, bookDocument schema, toLayoutPayload, toLegacyStoryPlan) lives in `services/bookPipelineV3/contract/`.
+
+**W12 deletion status:** `bookPipelineV2`, the v1 pipeline engine (index/planner/schema), Writer V2 (`services/writer/`), textGenerator, and the chapter-book/graphic-novel generation paths are DELETED. `services/bookPipeline/` survives only as the 12-file render-path subset (illustrator/* , qa/checkSpread+planRepair+recentInteriorRefs+checkWriterDraft, writer/draftBookText+rewriteBookText+textPolicies, retryMemory) that the v3 LEGACY illustrator adapter still requires (`bookPipelineV3/orchestration/activities/illustrationDirector.js`). It deletes for real when the native illustrator passes Phase C and becomes the default.
 
 ## Key Services
 
-- `storyPlanner.js` — GPT-5.4 (Gemini fallback) plans complete V2 story with text + illustration prompts in one call
-- `textGenerator.js` — Gemini Flash generates age-appropriate text per spread (legacy, used by /generate-spread)
+- `storyPlanner.js` — survives for `brainstormStorySeed` only (runs before the v3 pipeline; the seed feeds customDetails). The legacy planners inside it (planStory/planChapterBook/planGraphicNovel/critics) are dead code slated for a slimming pass.
 - `illustrationGenerator.js` — Gemini 3.1 Flash image API with child photo reference for face-consistent illustrations
 - `faceEngine.js` — Gemini Vision face validation and appearance description (cached in GCS)
 - `layoutEngine.js` — pdf-lib assembles V2 entries into Lulu-compliant print-ready PDF
@@ -23,8 +24,7 @@ Cross-pipeline code extracted from the legacy modules ahead of their deletion (v
 
 ## Book Formats
 
-- **Picture books** (ages 3-6): 8.5x8.5", 12 spreads (32 pages total), rhyming text
-- **Early readers** (ages 6-9): **8.5×8.5"** interior trim (same as picture books), prose text; pipeline uses 13 spreads like picture books
+- **Picture books ONLY** (v3-only cutover): 8.5x8.5", 13 spreads (32 pages total). Early readers, chapter books, and graphic novels are RETIRED — validation rejects them 400 before the 202. Emotional books are picture books at every age. `/finalize-book` keeps a graphic-novel path for finalizing legacy books already in the system.
 
 ## Environment Variables
 
@@ -40,15 +40,11 @@ Cross-pipeline code extracted from the legacy modules ahead of their deletion (v
 - `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 
-### Book pipeline version routing
+### Book pipeline routing (v3-only since W12)
 
-- **Resolver:** [`services/pipelineRouter.js`](services/pipelineRouter.js) — one place decides v1/v2/v3 for `/generate-book`. Precedence: **env kill-switches → checkpoint → request → default** (v2 for picture books per AA-CW-29, v1 for early readers).
-- **`BOOK_PIPELINE_V2=off`** — emergency revert, everything on v1 (unchanged).
-- **`BOOK_PIPELINE_V3`** — `off` = v3 never runs even if requested; `on` = v3 for picture books when `services/bookPipelineV3` is deployed, else a loud `FALLING BACK` log + v2 (an env var set ahead of a deploy must not brick customer books).
-- **Request override:** `pipelineVersion: 'v2' | 'v3'` on the generate-book payload (sent by the main app's admin test path; stored on the book row there). An explicit `'v3'` on a worker without the module is rejected **400 before the 202** — no silent fallback, so pipeline A/B comparisons stay trustworthy. Invalid values also 400. (The module IS deployed as of milestone 1, so v3 requests route for real.)
-- **Checkpoint:** the resolved version is persisted in the book checkpoint, so retries/resumes finish on the pipeline they started on (checkpoint beats a later request flag).
-- **Reporting:** every completion/failure callback and `reportComplete`/`reportError` payload carries `pipelineVersionUsed`; the main app persists it into `generationProgress`.
-- **V3 contract:** when `services/bookPipelineV3` ships it must export the same `{ generateBook, PipelineError }` and document shape consumed by `toLegacyStoryPlan` (see `docs/PIPELINE_V3_DESIGN.md` §10-11).
+- **Resolver:** [`services/pipelineRouter.js`](services/pipelineRouter.js) — every book routes to `bookPipelineV3`; v1/v2 were deleted. Legacy state maps onto v3 LOUDLY instead of crashing: a retried book with a `'v1'`/`'v2'` checkpoint restarts fresh on v3; the old `BOOK_PIPELINE_V2/V3` kill-switch envs log a warning and are ignored (nothing left to revert to). A missing v3 module throws `PIPELINE_V3_UNAVAILABLE` — with the legacy engines gone the worker cannot generate at all, so failing loudly beats a 202-then-brick.
+- **Request field:** `pipelineVersion` accepts only `'v3'`; anything else is 400 before the 202.
+- **Reporting:** every completion/failure callback carries `pipelineVersionUsed` (always `'v3'` now); the main app persists it into `generationProgress`.
 
 ### Book pipeline — quad dual-spread illustrator (default on)
 
@@ -62,12 +58,6 @@ Cross-pipeline code extracted from the legacy modules ahead of their deletion (v
 ## Illustrator V2 — enforcement tiers
 
 Rules are layered: **session system instruction** and **per-spread prompt** carry the full policy (composition, characters, text, parent themes). **Per-spread QA** (text, anatomy, extra, style) catches repeatable defects and triggers in-session corrections. **Book-wide QA** (`bookWideGate`) is intentionally lenient and overlap-based; it may regen suspect spreads but does not hard-fail the book. Prefer fixing issues at the prompt layer; use QA telemetry (`bookContext.qaTagCounts`, `qaInfraErrors`) to see which tags drive retries.
-
-## Writer V2 (selected picture-book themes)
-
-- **Entry:** `services/writer/engine.js` — `WriterEngine.generate` (plan → write → `QualityGate` → revise loop → full regen waves).
-- **Book id in logs:** pass `bookId` in the generate options (main pipeline does this) so every `[writerV2]` line is filterable in Cloud Logging.
-- **Two planning passes (by design):** the job first brainstorms a **story seed** in `storyPlanner`, then Writer V2 runs its own **`plan()`** (beats, location palette, refrain). The seed is wired as `storySeed` so brainstormed beats are kept when valid. A future simplification is to merge into a single planner call; not required for correct output today.
 
 ## Model routing (`services/shared/llm/modelRouter.js`)
 
@@ -83,7 +73,7 @@ Roles → providers (`DEFAULT_ROUTING`):
 | RHYME_JUDGE | deepseek | `deepseek-v4-flash`|
 | SUMMARIZER  | gemini   | `gemini-2.5-flash` |
 
-WRITER, CRITIC, ADJUDICATOR stay on GPT because manuscript quality drives them. PLANNER / DIRECTOR / RHYME_JUDGE are structured-output tasks where DeepSeek is comparable and meaningfully cheaper.
+Post-W12, this router serves the storyPlanner brainstorm (PLANNER) and the surviving legacy-illustrator writer files; the v3 pipeline has its own router (`services/bookPipelineV3/llm/modelRouter.js`).
 
 **Per-role override:** set `BOOK_PIPELINE_V2_<ROLE>_FAMILY=openai|deepseek|gemini` (and optionally `BOOK_PIPELINE_V2_<ROLE>_TIER=strong|mid`) at the Cloud Run revision env to flip any role without a redeploy — e.g., `BOOK_PIPELINE_V2_PLANNER_FAMILY=openai` rolls PLANNER back to gpt-5.4. The startup `[LLM_CONFIG]` check requires both `OPENAI_API_KEY` and `DEEPSEEK_API_KEY` to be set; a missing key fails the boot guard and the deploy workflow blocks promotion.
 
