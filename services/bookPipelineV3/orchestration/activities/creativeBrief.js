@@ -27,10 +27,18 @@ function fallbackPronouns(gender) {
  * @param {{ rawRequest: object, ageProfile: object }} input
  */
 async function creativeBriefActivity(input, ctx) {
-  const { rawRequest, ageProfile } = input;
+  const { rawRequest, ageProfile, coverImagery } = input;
   const child = rawRequest?.child || {};
 
   const userPrompt = JSON.stringify({
+    // P4: the parent already approved a cover — the story must honor what
+    // it depicts (or at least never contradict it).
+    approvedCoverShows: coverImagery
+      ? {
+        ...coverImagery,
+        note: 'The parent approved a book cover depicting these props, this setting, and this mood BEFORE the story was written. The story you brief must feature this imagery (or gracefully incorporate it) — a cover promising a compass-and-map quest must not front a story where neither appears.',
+      }
+      : null,
     order: {
       childName: child.name || rawRequest?.childName,
       ageYears: child.age ?? rawRequest?.childAge ?? null,

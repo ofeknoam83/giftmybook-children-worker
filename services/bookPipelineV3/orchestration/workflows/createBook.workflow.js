@@ -28,6 +28,7 @@ const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 const { TOTAL_SPREADS } = require('../../contract/constants');
 
 const { creativeBriefActivity } = require('../activities/creativeBrief');
+const { coverImageryActivity } = require('../activities/coverImagery');
 const { conceptRoomActivity, CONCEPT_ANGLES } = require('../activities/conceptRoom');
 const { editorialSelectionActivity } = require('../activities/editorialSelection');
 const { manuscriptWriterActivity } = require('../activities/manuscriptWriter');
@@ -327,12 +328,18 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 
   // ── planning ──
   ctx.reportProgress({ step: 'planning', message: 'Building creative brief' });
-  const brief = await ctx.execute('brief', creativeBriefActivity, { rawRequest, ageProfile }, { retries: 1 });
+  // P4 (audit 2026-07-15): describe what the parent-approved cover depicts
+  // so the writer chain honors its imagery. Non-fatal — degrades to null.
+  // (the activity catches its own errors and returns null — engine-level
+  // errors like aborts still propagate)
+  const coverImagery = await ctx.execute('coverImagery', coverImageryActivity,
+    { coverImageUrl: rawRequest?.cover?.imageUrl || null }, { retries: 1 });
+  const brief = await ctx.execute('brief', creativeBriefActivity, { rawRequest, ageProfile, coverImagery }, { retries: 1 });
   ledger.add('brief', brief);
 
   const concepts = await Promise.all(CONCEPT_ANGLES.map((angle) =>
     ctx.execute(`concept.${angle.id}`, conceptRoomActivity,
-      { brief, ageProfile, theme, spreadCount, angle }, { retries: 1 })));
+      { brief, ageProfile, theme, spreadCount, angle, coverImagery }, { retries: 1 })));
   concepts.forEach((c) => ledger.add(`concept.${c.id}`, c));
 
   const selection = await ctx.execute('selection', editorialSelectionActivity,
@@ -510,6 +517,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   };
   renderedDoc.v3 = {
     illustrator: { version: illustrator.version, source: illustrator.source },
+    coverImagery: coverImagery || null,
     concepts,
     selection,
     manuscriptMeta: {

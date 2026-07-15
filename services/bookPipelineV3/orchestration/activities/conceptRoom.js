@@ -27,10 +27,18 @@ const { angles: CONCEPT_ANGLES } = require('../../llm/conceptAngles.json');
  * @param {{ brief: object, ageProfile: object, theme: string, spreadCount: number, angle: { id, label, directive } }} input
  */
 async function conceptRoomActivity(input, ctx) {
-  const { brief, ageProfile, theme, spreadCount, angle } = input;
+  const { brief, ageProfile, theme, spreadCount, angle, coverImagery } = input;
   if (!angle?.id) throw new Error('conceptRoom: angle required');
 
   const userPrompt = JSON.stringify({
+    // P4: imagery the parent-approved cover promises — every concept must
+    // honor it (or at least never contradict it).
+    approvedCoverShows: coverImagery
+      ? {
+        ...coverImagery,
+        note: 'The book cover the parent approved depicts these props, this setting, and this mood. Your concept must feature this imagery or weave it in naturally — never pitch a story the cover visibly does not belong to.',
+      }
+      : null,
     assigned_angle: angle,
     brief: {
       child_as_character: brief?.child_as_character,

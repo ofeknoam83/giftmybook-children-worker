@@ -241,6 +241,8 @@ function buildOcrPrompt({ expectedText, expectedSide, anyExpected }) {
   "crossesMidline": <true if ANY single text block has a bounding box that spans from x < ${activeMax.toFixed(3)} to x > ${(1 - activeMax).toFixed(3)}, otherwise false>,
   "textBlockOverflow": <true if ANY text block's bounding box extends past the active-side boundary into the central no-text zone — even if it doesn't fully cross to the opposite side. Active side is "${expectedSide.toUpperCase()}". On LEFT-side captions: any portion of any text past x=${activeMax.toFixed(3)} fails (the caption must stay entirely in x ∈ [0, ${activeMax.toFixed(3)}]). On RIGHT-side captions: any portion below x=${(1 - activeMax).toFixed(3)} fails (the caption must stay entirely in x ∈ [${(1 - activeMax).toFixed(3)}, 1]). False otherwise. When uncertain, prefer false.>,
   "textOnBothSides": <true if there is text whose bbox is entirely in x < 0.5 AND text whose bbox is entirely in x > 0.5, otherwise false>,
+  "anyTextTouchesFoldLine": <true if ANY text block or individual word overlaps the exact vertical line x=0.500 — this is the physical page fold; any word there is cut in half in print. Check every text block edge carefully; when a block clearly straddles x=0.5, this is true even if it stays inside the center band.>,
+  "textClippedAtOuterEdge": <true if ANY text is flush against or cut off by an outer image edge: a text bbox that starts at x < 0.030 or ends at x > 0.970, or any glyphs that are visibly truncated/cropped by the image border (e.g. the first letters of lines missing). The outer 3% of the image is trimmed in print.>,
   "fontLooksPlainBookSerif": <true ONLY if the text is rendered in an upright, plain book serif (Georgia / Book Antiqua style). Return false if the text is handwritten, script, cursive, calligraphic, italic, bold display, rounded bubble, decorative, Comic Sans, Papyrus, or any marker/chalk/crayon style.>
 }
 
@@ -274,6 +276,8 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
   const crossesMidline = !!parsed.crossesMidline;
   const textBlockOverflow = !!parsed.textBlockOverflow;
   const textOnBothSides = !!parsed.textOnBothSides;
+  const touchesFoldLine = !!parsed.anyTextTouchesFoldLine;
+  const clippedAtOuterEdge = !!parsed.textClippedAtOuterEdge;
   const fontOk = parsed.fontLooksPlainBookSerif !== false; // missing -> treat as OK (fail-safe on infra)
 
   // ── No-text case ──
@@ -301,6 +305,17 @@ function evaluateOcrResult(parsed, { expectedText, expectedSide, anyExpected }) 
   if (textBlockOverflow) {
     issues.push(`Text block extends past the active-side boundary into the center zone (caption must stay entirely on the ${expectedSide.toUpperCase()} side)`);
     if (!tags.includes('text_crosses_midline')) tags.push('text_crosses_midline');
+  }
+  // Audit 2026-07-15: a shipped book had words split IN HALF at the page
+  // fold ("He pl|ants") and first letters cut off at the trim edge. These
+  // two hard-fails give the judge concrete, checkable criteria for both.
+  if (touchesFoldLine) {
+    issues.push('Text overlaps the exact page-fold line (x=0.5) — words there are cut in half when the spread is split into two printed pages');
+    if (!tags.includes('text_crosses_midline')) tags.push('text_crosses_midline');
+  }
+  if (clippedAtOuterEdge) {
+    issues.push('Text is flush against or clipped by the outer image edge — the outer 3% is trimmed in print, cutting off glyphs');
+    tags.push('text_trim_clipped');
   }
   if (textOnBothSides || oppositeOcr) {
     issues.push(

@@ -24,6 +24,7 @@ const TEXT_QA_TAGS = new Set([
   'text_in_center_band',
   'text_crosses_midline',
   'text_on_both_sides',
+  'text_trim_clipped',
   'wrong_font',
   'spelling_mismatch',
   'missing_word',
@@ -96,6 +97,9 @@ function renderCorrectionNote(issues, tags, options = {}) {
   if (tagArr.includes('extra_word') || tagArr.includes('unexpected_text')) {
     lines.push('Do not paint any extra words, signage, or environmental text. Only the provided caption.');
   }
+  if (tagArr.includes('text_trim_clipped')) {
+    lines.push('The caption touched the OUTER image edge and its glyphs get cut off by the print trim. Move the entire caption block inward: the first character of every line must start at least 7% of the image width away from the outer edge. Nothing readable may sit in the outer 5% of the image.');
+  }
   if (tagArr.includes('text_on_both_sides') || tagArr.includes('text_crosses_midline') || tagArr.includes('text_in_center_band')) {
     lines.push('The caption crossed or approached the spread\'s internal vertical midline. Restating the policy is not enough — physically narrow the caption panel on this attempt: use shorter per-line word counts (split rhyming couplets at natural phrase units, e.g. 2-3 words per line if needed), reduce the apparent type size by one notch if needed, and push the entire block further into the chosen corner. The caption panel as a whole must occupy NO MORE THAN ~25% of this spread\'s width and stay strictly within the chosen half — the central ~30% of this spread\'s width must be completely text-free. Change line breaks and panel width on this regen, do not just re-place the same caption.');
   }
@@ -109,6 +113,9 @@ function renderCorrectionNote(issues, tags, options = {}) {
     );
   if (showHeroOutfitParagraph) {
     lines.push('Match the approved cover for hero face, hair, and outfit. Do not restyle the hero.');
+  }
+  if (tagArr.includes('hero_in_gutter')) {
+    lines.push('The hero is standing on the spread\'s vertical centerline, where the page folds — they get cut in half in print. Recompose with the hero clearly inside ONE half of the spread (their whole head and torso at least 10% of the image width away from the center), with scenery only at the centerline.');
   }
   if (tagArr.includes('body_disconnected') || tagArr.includes('duplicated_hero')) {
     lines.push(

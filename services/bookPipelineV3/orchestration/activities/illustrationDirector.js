@@ -19,6 +19,8 @@
 
 const { renderAllSpreadsQuad } = require('../../../bookPipeline/illustrator/renderAllSpreadsQuad');
 const { createBookDocument } = require('../../contract/bookDocument');
+const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
+const { FAILURE_CODES } = require('../../contract/constants');
 const {
   deriveParentVisibility,
   buildSpreadsForLegacyIllustrator,
@@ -221,6 +223,27 @@ async function illustrationDirectorActivity(input, ctx) {
       /\bUNAVAILABLE\b|\bINTERNAL\b|\bRESOURCE_EXHAUSTED\b/i.test(msg) ||
       /Deadline expired|timed out/i.test(msg);
     if (looksTransient && err && !err.isTransient) err.isTransient = true;
+
+    // P2 (audit 2026-07-15): a spread that exhausts its QA budget is a
+    // REVIEW item, not a bare failure (design D6). Attaching the payload
+    // here routes the error through the workflow's needs_review mapping,
+    // so the admin sees which spreads kept failing and on what defects,
+    // and resolves via the queue instead of blind re-dispatch.
+    if (!err.isTransient && err?.failureCode === FAILURE_CODES.SPREAD_UNRESOLVABLE && !err.needsReview) {
+      const ex = err.exhaustion || {};
+      const spreads = Array.isArray(ex.spreads) ? ex.spreads : [];
+      const defects = [
+        ...(spreads.length ? [`Spread(s) ${spreads.join(', ')} exhausted the repair budget`] : []),
+        ...(Array.isArray(ex.tags) && ex.tags.length ? [`Last failing tags: ${ex.tags.join(', ')}`] : []),
+        ...(Array.isArray(ex.issues) ? ex.issues : []),
+      ];
+      err.needsReview = buildNeedsReviewPayload({
+        stage: 'illustration',
+        reason: 'spread_qa_exhausted',
+        spread: spreads.length ? spreads[0] : null,
+        defects: defects.length ? defects : [msg],
+      });
+    }
     throw err;
   }
   ctx.log('info', `[v3] illustrationDirector: render complete, ${rendered.spreads.length} spreads`);

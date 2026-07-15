@@ -125,7 +125,10 @@ const QA_INFRA_TAGS_SINGLE = new Set([
 const QA_SOFT_FAIL_TAGS_SINGLE = new Set([
   'implied_parent_outfit_drift',
   'hair_continuity_drift',
-  'outfit_continuity_drift',
+  // 'outfit_continuity_drift' was REMOVED from this whitelist (audit
+  // 2026-07-15): a shipped book's hero flipped between blue jeans and brown
+  // pants mid-book — the flip rode in on the fail-open accept. Outfit
+  // continuity is a customer-visible identity signal and must hard-fail.
 ]);
 
 /**
@@ -268,6 +271,7 @@ async function processOneSpread(params) {
   let scene = spec.scene;
   let correctionNote = null;
   let lastTags = [];
+  let lastIssues = [];
   let extraRoundsRemaining = REPAIR_BUDGETS.perSpreadExtraSessionRounds;
 
   for (;;) {
@@ -632,6 +636,7 @@ The cover image is being re-pinned to refresh hero/caregiver identity. Render ex
       pruneLastTurn(currentSession);
 
       lastTags = Array.isArray(qa.tags) ? qa.tags : [];
+      lastIssues = Array.isArray(qa.issues) ? qa.issues : [];
 
       // Phase 4 — prose ↔ image feedback edge. If the QA failure is
       // writer-driven (the text asks for an action the hero can't do, or
@@ -724,6 +729,10 @@ The cover image is being re-pinned to refresh hero/caregiver identity. Render ex
         session: currentSession,
         issues: ['spread exhausted repair budget'],
         tags: ['spread_unresolvable'],
+        // Last rejection details ride to the review queue (P2, audit
+        // 2026-07-15) so the admin sees WHAT kept failing.
+        lastRejectTags: lastTags,
+        lastRejectIssues: lastIssues,
       };
     }
     extraRoundsRemaining -= 1;
@@ -852,6 +861,11 @@ async function renderAllSpreads(doc) {
     if (!result.accepted) {
       const err = new Error(`spread ${spread.spreadNumber}: ${result.issues.join('; ') || 'unaccepted'}`);
       err.failureCode = FAILURE_CODES.SPREAD_UNRESOLVABLE;
+      err.exhaustion = {
+        spreads: [spread.spreadNumber],
+        tags: result.lastRejectTags || result.tags || [],
+        issues: result.lastRejectIssues || result.issues || [],
+      };
       throw err;
     }
 
