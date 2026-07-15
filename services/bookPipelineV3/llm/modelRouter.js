@@ -46,9 +46,14 @@ const MODELS = {
 const DEFAULT_ROUTING = {
   BRIEF:   { family: 'openai',   tier: 'strong' },
   CONCEPT: { family: 'openai',   tier: 'strong' },
-  EDITOR:  { family: 'deepseek', tier: 'strong' }, // cross-family from the openai writer
+  // EDITOR + JUDGE_A run the FAST deepseek tier (2026-07-15 latency fix):
+  // deepseek-v4-pro is a reasoning model that took 60-230s per call, and
+  // the whole panel waits for its slowest judge. Family unchanged (the
+  // panel stays cross-family); flip back per-role via
+  // BOOK_PIPELINE_V3_<ROLE>_TIER=strong if quality regresses.
+  EDITOR:  { family: 'deepseek', tier: 'mid' }, // cross-family from the openai writer
   WRITER:  { family: 'openai',   tier: 'strong' },
-  JUDGE_A: { family: 'deepseek', tier: 'strong' },
+  JUDGE_A: { family: 'deepseek', tier: 'mid' },
   JUDGE_B: { family: 'openai',   tier: 'strong' },
   JUDGE_C: { family: 'gemini',   tier: 'strong' },
   // ── Native illustrator roles (milestone 2 Phase 0) ──

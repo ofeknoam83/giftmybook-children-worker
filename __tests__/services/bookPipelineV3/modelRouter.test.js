@@ -26,7 +26,10 @@ describe('bookPipelineV3 modelRouter', () => {
     expect(modelFor('WRITER')).toEqual({ model: 'gpt-5.4', family: 'openai' });
     expect(modelFor('BRIEF').family).toBe('openai');
     expect(modelFor('CONCEPT').family).toBe('openai');
-    expect(modelFor('EDITOR')).toEqual({ model: 'deepseek-v4-pro', family: 'deepseek' });
+    // EDITOR + JUDGE_A on the FAST deepseek tier (2026-07-15 latency fix):
+    // deepseek-v4-pro is a reasoning model that cost 60-230s per call.
+    expect(modelFor('EDITOR')).toEqual({ model: 'deepseek-v4-flash', family: 'deepseek' });
+    expect(modelFor('JUDGE_A')).toEqual({ model: 'deepseek-v4-flash', family: 'deepseek' });
     // Editor deliberately NOT the writer family.
     expect(modelFor('EDITOR').family).not.toBe(modelFor('WRITER').family);
     const judgeFamilies = JUDGE_ROLES.map((r) => modelFor(r).family);

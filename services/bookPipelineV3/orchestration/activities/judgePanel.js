@@ -83,7 +83,9 @@ async function callOneJudge({ role, brief, ageProfile, blinded, judgeIndex }) {
     userPrompt,
     jsonMode: true,
     temperature: 0.2,
-    maxTokens: 4000,
+    // 8000, not 4000: gemini-2.5-pro truncated at 4000 on every observed
+    // run, burning a ~30s attempt before the retry bumped it here anyway.
+    maxTokens: 8000,
     label: `v3.judge.${role.toLowerCase()}`,
   });
 

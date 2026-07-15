@@ -119,6 +119,22 @@ describe('runArtDirection', () => {
     await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
     expect(callVisionRole.mock.calls[0][1].temperature).toBe(0);
   });
+
+  test('the plan schema requests a paintable MOMENT + poseHint, and finalize carries them per spread', async () => {
+    const planWithMoments = {
+      ...goodPlan,
+      spreads: goodPlan.spreads.map((r) => (r.spread === 2
+        ? { ...r, moment: 'both hands on the closed lid, braced to lift', poseHint: 'whole-hand grip' }
+        : r)),
+    };
+    callVisionRole.mockResolvedValueOnce({ json: planWithMoments, model: 'm', family: 'gemini' });
+    const res = await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
+    expect(callVisionRole.mock.calls[0][1].prompt).toContain('"moment"');
+    expect(callVisionRole.mock.calls[0][1].prompt).toContain('single freeze-frame');
+    expect(res.directionBySpread.get(2).moment).toBe('both hands on the closed lid, braced to lift');
+    expect(res.directionBySpread.get(2).poseHint).toBe('whole-hand grip');
+    expect(res.directionBySpread.get(1).moment).toBeNull();
+  });
 });
 
 describe('book pass', () => {

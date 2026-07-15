@@ -79,6 +79,21 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('WORDLESS PROPS');
     expect(p).toContain('never place names or words');
   });
+
+  test("renders the art director's MOMENT (one freeze-frame) instead of the multi-beat action, with pose + hands guidance", () => {
+    const p = buildSpreadRenderPrompt({
+      spread: SPREAD(3),
+      direction: { moment: 'both hands on the closed chest lid, body braced to lift', poseHint: 'whole-hand grip on the lid edge' },
+      briefText: 'BRIEF',
+    });
+    expect(p).toContain('The child is: both hands on the closed chest lid, body braced to lift');
+    expect(p).not.toContain('watering a tiny sunflower'); // raw hero_action replaced
+    expect(p).toContain('Pose: whole-hand grip on the lid edge');
+    expect(p).toContain('HANDS: every visible hand has exactly five clearly separated fingers');
+    // without a moment, the raw action is used
+    const fallback = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(fallback).toContain('The child is: watering a tiny sunflower');
+  });
 });
 
 describe('renderAllSpreadsNative', () => {

@@ -24,18 +24,19 @@ const SPREAD_QA_TAGS = [
 ];
 
 function buildSpreadJudgePrompt({ sceneContract, direction }) {
-  return `You are quality-judging a children's picture-book illustration against its scene contract.
+  return `You are quality-judging a children's picture-book illustration against its scene contract. You are the PRINT-DEFECT gate: block images a parent would consider broken; do not block images over stylistic or interpretive nitpicks.
 
 SCENE CONTRACT (what the image MUST show):
 - Setting: ${sceneContract.setting || 'unspecified'}
 - Characters present (exactly these, nobody else): ${(sceneContract.characters_present || []).join(', ') || 'the child'}
 - The child's action: ${sceneContract.hero_action || 'unspecified'}
+${direction?.moment ? `- THE DEPICTED MOMENT (judge the action against THIS, not the full action sentence): ${direction.moment}` : ''}
 - Emotion: ${sceneContract.emotion || 'unspecified'}
 - Required objects: ${(sceneContract.key_objects || []).join(', ') || 'none'}
-${direction?.shot ? `- Directed shot: ${direction.shot}` : ''}
+${direction?.shot ? `- Directed shot (ADVISORY — never a scoring failure): ${direction.shot}` : ''}
 ${direction?.textZone ? `- Quiet zone: the ${direction.textZone} area must be visually calm/low-detail` : ''}
 
-Score each dimension 1-5 (5 = flawless) and tag concrete defects.
+Score each dimension 1-5 (4 = good with minor imperfections, 5 = flawless) and tag concrete defects.
 Return STRICT JSON:
 {
   "anatomy": 1-5,          // hands, limbs, faces, object coherence
@@ -46,7 +47,13 @@ Return STRICT JSON:
   "tags": ["choose only from: ${SPREAD_QA_TAGS.join(', ')}"],
   "defects": ["specific, actionable notes with locations"]
 }
-Rules: duplicated hero or a wrong/extra person caps cast at 1. Six fingers, fused hands, or a third arm caps anatomy at 2.`;
+Rules:
+- HARD FAILS (these always block): duplicated hero or a wrong/extra person caps cast at 1. Countable extra fingers, fused hands, or a third arm caps anatomy at 2.
+- ONE-MOMENT RULE: a picture shows ONE instant. If the image plausibly depicts ANY moment within the contracted action ("tries to lift the lid" = hands on a closed lid OR a lid cracked open; "climbs the ladder" = on the ladder OR just arrived at the top), contract is satisfied — never fail for not depicting a sequence of actions in one frame.
+- MINOR-ANATOMY ALLOWANCE: subtle stiffness, a slightly awkward grip, or "somewhat unnatural" posing scores 4, not 3. Only clearly wrong anatomy blocks.
+- OBJECT EQUIVALENCE: a required object is satisfied by a reasonable visual equivalent (judge intent, not the literal phrase).
+- NO IDENTITY OR GENDER JUDGING: you have no reference art. Never assess whether the character matches a name, assumed gender, or appearance — a separate likeness judge owns identity. Cast counts PEOPLE only.
+- The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }
 
 /**

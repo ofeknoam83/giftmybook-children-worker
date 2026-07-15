@@ -52,6 +52,8 @@ Plan the book's visual storytelling. Return STRICT JSON:
       "shot": "one of: ${SHOT_TYPES.join(' | ')}",
       "textZone": "one of: ${ZONES.join(' | ')} — the area kept visually quiet",
       "palette": "palette + lighting for this spread, consistent with its act",
+      "moment": "ONE concrete, paintable instant of the contracted action — a single freeze-frame (e.g. 'both hands on the closed chest lid, body braced to lift'), never a sequence",
+      "poseHint": "when hands interact with objects: a simple, natural grip/pose that is easy to draw correctly — or null",
       "continuityNotes": "recurring props/outfit/cast locks relevant HERE"
     }, ...
   ],
@@ -117,13 +119,18 @@ function finalize(plan, manuscript, shotBudget) {
       shot: normalizeShot(row.shot) || 'medium',
       textZone: ZONES.includes(row.textZone) ? row.textZone : null,
       palette: row.palette || null,
+      // The single paintable instant — renderer paints it, spread judge
+      // judges against it (one shared target instead of two readings of
+      // the writer's multi-beat action sentence).
+      moment: row.moment || null,
+      poseHint: row.poseHint || null,
       continuityNotes: row.continuityNotes || null,
     });
   }
   // Every manuscript spread gets a row, even if the model skipped one.
   for (const s of manuscript.spreads) {
     if (!directionBySpread.has(s.spread)) {
-      directionBySpread.set(s.spread, { shot: 'medium', textZone: null, palette: null, continuityNotes: null });
+      directionBySpread.set(s.spread, { shot: 'medium', textZone: null, palette: null, moment: null, poseHint: null, continuityNotes: null });
     }
   }
   return {
