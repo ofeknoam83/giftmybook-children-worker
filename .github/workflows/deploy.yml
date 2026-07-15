@@ -60,6 +60,12 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          # min-instances=1: book generation runs in the BACKGROUND after the
+          # 202, so instances look idle to Cloud Run — scale-to-zero reclaims
+          # killed in-flight books mid-generation (2 real books, 2026-07-15).
+          # The warm 4CPU/16Gi instance costs ~$250-300/mo — accepted trade.
+          # NOTE: deploys still replace instances; a book running during a
+          # deploy is still killed (checkpoints make the retry cheap).
           gcloud run deploy ${{ env.SERVICE }} \
             --source . \
             --project ${{ env.PROJECT_ID }} \
@@ -69,7 +75,7 @@ jobs:
             --cpu=4 \
             --timeout=3600 \
             --concurrency=1 \
-            --min-instances=0 \
+            --min-instances=1 \
             --max-instances=10 \
             --execution-environment=gen2 \
             --cpu-boost \
