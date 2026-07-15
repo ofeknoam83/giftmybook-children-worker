@@ -1,6 +1,6 @@
 const { resolveBookPipeline, isV3Available } = require('../../services/pipelineRouter');
 
-describe('pipelineRouter.resolveBookPipeline', () => {
+describe('pipelineRouter.resolveBookPipeline (v3-only, post-W12)', () => {
   const ENV_KEYS = ['BOOK_PIPELINE_V2', 'BOOK_PIPELINE_V3'];
   const savedEnv = {};
   const noopLog = () => {};
@@ -19,95 +19,55 @@ describe('pipelineRouter.resolveBookPipeline', () => {
     }
   });
 
-  test('defaults: v3 for picture_book (W11 cutover), v1 safety net otherwise', () => {
+  test('every picture book resolves to v3', () => {
     expect(resolveBookPipeline({ format: 'picture_book', v3Available: true, log: noopLog }))
       .toMatchObject({ version: 'v3', moduleName: 'bookPipelineV3', source: 'default' });
-    // Retired formats are rejected upstream by validation; if one slips
-    // through, it stays on v1 rather than mis-rendering on v3.
-    expect(resolveBookPipeline({ format: 'early_reader', log: noopLog }))
-      .toMatchObject({ version: 'v1', moduleName: 'bookPipeline', source: 'default' });
   });
 
-  test('default falls back LOUDLY to v2 when the v3 module is missing', () => {
-    const messages = [];
-    expect(resolveBookPipeline({ format: 'picture_book', v3Available: false, log: (m) => messages.push(m) }))
-      .toMatchObject({ version: 'v2', moduleName: 'bookPipelineV2', source: 'default' });
-    expect(messages.join(' ')).toContain('FALLING BACK');
-  });
-
-  test('BOOK_PIPELINE_V2=off forces v1 and beats any request', () => {
-    process.env.BOOK_PIPELINE_V2 = 'off';
+  test('source provenance: checkpoint beats request beats default', () => {
+    expect(resolveBookPipeline({ format: 'picture_book', checkpointVersion: 'v3', requestedVersion: 'v3', v3Available: true, log: noopLog }))
+      .toMatchObject({ source: 'checkpoint' });
     expect(resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v3', v3Available: true, log: noopLog }))
-      .toMatchObject({ version: 'v1', source: 'env' });
+      .toMatchObject({ source: 'request' });
   });
 
-  test('BOOK_PIPELINE_V3=off routes an explicit v3 request to v2', () => {
+  test('a legacy v1/v2 checkpoint restarts on v3 with a loud log', () => {
+    for (const legacy of ['v1', 'v2']) {
+      const messages = [];
+      expect(resolveBookPipeline({ format: 'picture_book', checkpointVersion: legacy, v3Available: true, log: (m) => messages.push(m) }))
+        .toMatchObject({ version: 'v3', source: 'default' });
+      expect(messages.join(' ')).toContain('restarting this book on v3');
+    }
+  });
+
+  test('stale kill-switch envs are ignored with a loud log — nothing left to revert to', () => {
     process.env.BOOK_PIPELINE_V3 = 'off';
     const messages = [];
-    expect(resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v3', v3Available: true, log: (m) => messages.push(m) }))
-      .toMatchObject({ version: 'v2', source: 'env' });
-    expect(messages.join(' ')).toContain('BOOK_PIPELINE_V3=off');
+    expect(resolveBookPipeline({ format: 'picture_book', v3Available: true, log: (m) => messages.push(m) }))
+      .toMatchObject({ version: 'v3' });
+    expect(messages.join(' ')).toContain('kill-switch');
   });
 
-  test('BOOK_PIPELINE_V3=off still honors an existing v1 checkpoint', () => {
-    process.env.BOOK_PIPELINE_V3 = 'off';
-    expect(resolveBookPipeline({ format: 'picture_book', checkpointVersion: 'v1', log: noopLog }))
-      .toMatchObject({ version: 'v1', source: 'checkpoint' });
-  });
-
-  test('BOOK_PIPELINE_V3=on uses v3 when the module is deployed', () => {
-    process.env.BOOK_PIPELINE_V3 = 'on';
-    expect(resolveBookPipeline({ format: 'picture_book', v3Available: true, log: noopLog }))
-      .toMatchObject({ version: 'v3', moduleName: 'bookPipelineV3', source: 'env' });
-  });
-
-  test('BOOK_PIPELINE_V3=on with missing module falls back to v2 with a loud log', () => {
-    process.env.BOOK_PIPELINE_V3 = 'on';
-    const messages = [];
-    expect(resolveBookPipeline({ format: 'picture_book', v3Available: false, log: (m) => messages.push(m) }))
-      .toMatchObject({ version: 'v2', source: 'env' });
-    expect(messages.join(' ')).toContain('FALLING BACK');
-  });
-
-  test('explicit v3 request with missing module throws PIPELINE_V3_UNAVAILABLE', () => {
-    expect(() => resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v3', v3Available: false, log: noopLog }))
+  test('missing v3 module throws PIPELINE_V3_UNAVAILABLE instead of 202-then-brick', () => {
+    expect(() => resolveBookPipeline({ format: 'picture_book', v3Available: false, log: noopLog }))
       .toThrow(expect.objectContaining({ code: 'PIPELINE_V3_UNAVAILABLE' }));
   });
 
-  test('explicit v3 request with deployed module routes to v3', () => {
-    expect(resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v3', v3Available: true, log: noopLog }))
-      .toMatchObject({ version: 'v3', source: 'request' });
-  });
-
-  test('explicit v2 request routes to v2 with request provenance', () => {
-    expect(resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v2', log: noopLog }))
-      .toMatchObject({ version: 'v2', source: 'request' });
-  });
-
-  test('checkpoint version beats the request so resumes stay on the same pipeline', () => {
-    expect(resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v2', checkpointVersion: 'v3', v3Available: true, log: noopLog }))
-      .toMatchObject({ version: 'v3', source: 'checkpoint' });
-    expect(resolveBookPipeline({ format: 'picture_book', requestedVersion: 'v3', checkpointVersion: 'v2', v3Available: true, log: noopLog }))
-      .toMatchObject({ version: 'v2', source: 'checkpoint' });
-  });
-
-  test('non-picture_book formats ignore version requests (safety net)', () => {
+  test('retired formats reaching the router still run v3 (defense-in-depth log only)', () => {
     const messages = [];
-    expect(resolveBookPipeline({ format: 'early_reader', requestedVersion: 'v3', v3Available: true, log: (m) => messages.push(m) }))
-      .toMatchObject({ version: 'v1', source: 'default' });
+    expect(resolveBookPipeline({ format: 'early_reader', v3Available: true, log: (m) => messages.push(m) }))
+      .toMatchObject({ version: 'v3' });
     expect(messages.join(' ')).toContain('retired format');
   });
 
-  test('modulePath points at the services directory', () => {
+  test('modulePath points at the v3 services directory', () => {
     const { modulePath } = resolveBookPipeline({ format: 'picture_book', v3Available: true, log: noopLog });
     expect(modulePath).toMatch(/services[/\\]bookPipelineV3$/);
   });
 });
 
 describe('pipelineRouter.isV3Available', () => {
-  test('is true — services/bookPipelineV3 is deployed (milestone 1)', () => {
-    // Flipped when bookPipelineV3 shipped: explicit v3 requests no longer
-    // 400 at /generate-book; the router resolves them to the real module.
+  test('is true — services/bookPipelineV3 is deployed', () => {
     expect(isV3Available()).toBe(true);
   });
 });
