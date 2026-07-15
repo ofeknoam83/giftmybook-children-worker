@@ -98,10 +98,15 @@ async function main() {
         }
       }
 
-      // Hard-fail class 3: wrong child (cross-family likeness)
-      if (entry.labels.wrongChild !== undefined && entry.photoUrls?.length) {
-        const photos = await Promise.all(entry.photoUrls.map((u) => downloadPhotoAsBase64(u)));
-        const res = await judgeLikenessCrossFamily({ candidate: image, photos });
+      // Hard-fail class 3: wrong child (cross-family likeness).
+      // Since the cover-relative QA change, the judge references APPROVED
+      // ART (cover and/or model sheet) — label rows should set
+      // `referenceUrls` to the book's cover/sheet; `photoUrls` is kept as
+      // a legacy fallback for old label files.
+      const refUrls = entry.referenceUrls?.length ? entry.referenceUrls : entry.photoUrls;
+      if (entry.labels.wrongChild !== undefined && refUrls?.length) {
+        const referenceImages = await Promise.all(refUrls.map((u) => downloadPhotoAsBase64(u)));
+        const res = await judgeLikenessCrossFamily({ candidate: image, referenceImages });
         wrongChild.push({ human: entry.labels.wrongChild, judge: res.verdicts.some((v) => v.wrongChild) });
       }
 

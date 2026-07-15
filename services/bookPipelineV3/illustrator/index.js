@@ -210,7 +210,10 @@ async function runNativeIllustrator(input, ctx) {
       direction: direction.directionBySpread.get(entry.spread) || null,
       bookPack,
       plate: platesByLocation.get(spread.scene_contract?.setting) || null,
-      photos: identityKit.photos || [],
+      // Likeness is judged against the APPROVED reference art (model sheet
+      // + cover = the bookPack), NOT the raw photo — the parent approved
+      // the cover character, and that character is the book's ground truth.
+      referenceImages: bookPack,
       briefText,
       qaTagCounts,
       abortSignal,

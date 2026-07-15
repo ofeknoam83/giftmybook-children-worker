@@ -3,7 +3,7 @@
  * per (photos × style × prompt version) and cached in GCS:
  *
  *   photos → likeness brief → character model sheet (best-of-N,
- *   cross-family likeness-judged vs the photo) → cached kit
+ *   cross-family likeness-judged vs the APPROVED COVER character) → cached kit
  *
  * The approved cover joins the kit twice: as wardrobe ground truth AND as
  * the sheet-generation reference — it is the one ILLUSTRATION of this
@@ -56,12 +56,12 @@ async function buildIdentityKit({
     throw new Error('buildIdentityKit: at least one child photo URL is required');
   }
 
-  // Photos are needed by callers even on cache hit (spread renders attach
-  // the best photo beside the sheet), so decode them up front.
+  // Photos are needed by callers even on cache hit (the likeness brief is
+  // photo-derived), so decode them up front.
   const usableUrls = photoUrls.slice(0, MAX_KIT_PHOTOS);
   const photos = await Promise.all(usableUrls.map((u) => downloadPhotoAsBase64(u)));
 
-  const cacheKey = computeKitCacheKey(usableUrls);
+  const cacheKey = computeKitCacheKey(usableUrls, coverImageUrl);
   const adminPick = reviewResolution?.action === 'pick_sheet' && reviewResolution.candidateUrl
     ? reviewResolution
     : null;
@@ -72,8 +72,19 @@ async function buildIdentityKit({
     }
   }
 
-  log(`building identity kit (band=${ageBand}, photos=${photos.length}, style=${STYLE_VERSION}${adminPick ? ', ADMIN PICK' : ''})`);
-  const brief = await buildLikenessBrief({ photos, ageBand, childDetails, abortSignal });
+  // The approved cover is the identity ground truth: generation anchor AND
+  // the likeness-judge reference. A download failure degrades to the
+  // photo-referenced path (non-fatal, loud).
+  let coverReference = null;
+  if (coverImageUrl) {
+    coverReference = await downloadPhotoAsBase64(coverImageUrl).catch((err) => {
+      log(`approved cover download failed (${err.message}) — falling back to description-only generation + photo-referenced judging`);
+      return null;
+    });
+  }
+
+  log(`building identity kit (band=${ageBand}, photos=${photos.length}, cover=${coverReference ? 'yes' : 'NO'}, style=${STYLE_VERSION}${adminPick ? ', ADMIN PICK' : ''})`);
+  const brief = await buildLikenessBrief({ photos, ageBand, childDetails, hasCover: Boolean(coverReference), abortSignal });
 
   let sheet;
   if (adminPick) {
@@ -88,15 +99,6 @@ async function buildIdentityKit({
       attemptsUsed: 0,
     };
   } else {
-    // The approved cover anchors generation when it can be fetched; a
-    // download failure falls back to the description-only path (non-fatal).
-    let coverReference = null;
-    if (coverImageUrl) {
-      coverReference = await downloadPhotoAsBase64(coverImageUrl).catch((err) => {
-        log(`approved cover download failed (${err.message}) — generating sheet from the likeness brief only`);
-        return null;
-      });
-    }
     sheet = await generateCharacterSheet({
       photos,
       briefText: brief.briefText,

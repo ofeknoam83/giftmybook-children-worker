@@ -50,8 +50,10 @@ async function buildBookReferencePack({ identityKit, coverImageUrl = null, log =
   // attached to render calls — asking the image model to match a real,
   // identifiable child is what Gemini's non-configurable safety tier
   // blocks, and it killed real cover generations. Likeness flows through
-  // the model SHEET (an illustration, safe to reference); the photos stay
-  // in the identity kit strictly for the cross-family likeness JUDGES.
+  // the model SHEET (an illustration, safe to reference). Since the
+  // cover-relative QA change (2026-07-15) the likeness JUDGES also
+  // reference the sheet + approved cover, not the photo — the photo's
+  // only remaining consumer is the likeness-brief vision analysis.
 
   // 3. Approved cover — wardrobe + style ground truth (the one image the
   // parent has blessed). Best-effort: a missing cover must not fail renders.

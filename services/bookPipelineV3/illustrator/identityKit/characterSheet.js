@@ -5,10 +5,11 @@
  * plus (when available) the parent-APPROVED COVER as a reference — the
  * cover is an illustration the parent already blessed, so attaching it is
  * PROHIBITED_CONTENT-safe; the raw photos are NEVER attached to generation
- * (Part B). Every candidate is judged for likeness AGAINST THE PHOTO by
- * two model families. The winning sheet becomes the identity ground truth
- * every downstream render references — identity is decided once, at
- * maximum scrutiny, instead of 13 times at render time.
+ * (Part B). Every candidate is judged cross-family AGAINST THE APPROVED
+ * COVER CHARACTER (the parent's likeness decision — photos are only the
+ * judge fallback for coverless books). The winning sheet becomes the
+ * identity ground truth every downstream render references — identity is
+ * decided once, at maximum scrutiny, instead of 13 times at render time.
  *
  * Budget (plan §5): best-of-SHEET_BEST_OF, +SHEET_EXTRA_WAVES defect-fed
  * repair wave(s), then needs_review — identity is never SILENTLY shipped
@@ -85,14 +86,20 @@ async function runSheetWave({ prompt, photos, coverReference, waveTag, count, ab
       })),
   );
 
+  // QA reference contract: the APPROVED COVER character is the identity
+  // ground truth (parent-approved) — photos are only the fallback for
+  // books that somehow have no cover.
+  const referenceImages = coverReference
+    ? [{ base64: coverReference.base64, mimeType: coverReference.mimeType || 'image/jpeg' }]
+    : photos;
   const attempts = [];
   for (const [i, candidate] of candidates.entries()) {
     if (!candidate) continue;
     try {
       const verdict = await judgeLikenessCrossFamily({
         candidate: { base64: candidate.buffer.toString('base64'), mimeType: candidate.mimeType },
-        photos,
-        contextNote: 'The candidate is a character MODEL SHEET containing multiple views/poses of the same child — judge the character design, not the sheet layout.',
+        referenceImages,
+        contextNote: 'The candidate is a character MODEL SHEET containing multiple views/poses of the same character — judge the character design against the approved cover character, not the sheet layout.',
         abortSignal,
       });
       attempts.push({ tag: `${waveTag}.${i + 1}`, candidate, verdict });

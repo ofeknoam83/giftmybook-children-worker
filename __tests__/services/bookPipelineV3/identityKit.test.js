@@ -91,6 +91,18 @@ describe('identity-kit cache', () => {
     expect(computeKitCacheKey(['https://x/3.jpg'])).not.toBe(a);
   });
 
+  test('the approved cover is part of the key; signed-URL query tokens are not', () => {
+    const noCover = computeKitCacheKey(['https://x/1.jpg']);
+    const coverA = computeKitCacheKey(['https://x/1.jpg'], 'https://x/covers/a.png');
+    const coverB = computeKitCacheKey(['https://x/1.jpg'], 'https://x/covers/b.png');
+    expect(coverA).not.toBe(noCover);
+    expect(coverA).not.toBe(coverB); // different cover = different approved character
+    // rotating signed-URL tokens must not bust the cache
+    expect(computeKitCacheKey(['https://x/1.jpg?sig=111'], 'https://x/covers/a.png?sig=222')).toBe(
+      computeKitCacheKey(['https://x/1.jpg?sig=999'], 'https://x/covers/a.png?sig=888'),
+    );
+  });
+
   test('set → get round-trips; stale version misses', async () => {
     const key = computeKitCacheKey(['https://x/1.jpg']);
     await setCachedKit(key, { brief: { briefText: 'B' }, judgeScores: { minLikeness: 5 }, sheetBuffer: Buffer.from('img'), sheetMime: 'image/png' });
@@ -106,7 +118,7 @@ describe('identity-kit cache', () => {
 });
 
 describe('buildLikenessBrief', () => {
-  test('composes an illustrator-grade brief with band proportions', async () => {
+  test('composes an illustrator-grade brief with band proportions (no cover)', async () => {
     mockBriefCall();
     const res = await buildLikenessBrief({ photos: PHOTOS, ageBand: 'PB_INFANT', childDetails: { name: 'Zoe', gender: 'female' } });
     expect(res.fields.skinTone).toMatch(/medium-brown/);
@@ -116,6 +128,14 @@ describe('buildLikenessBrief', () => {
     expect(res.briefText).toContain(PROPORTIONS_BY_BAND.PB_INFANT);
     expect(res.briefText).toContain('She must be recognizable');
     expect(callVisionRole).toHaveBeenCalledWith('QA_VISION', expect.objectContaining({ expectJson: true }));
+  });
+
+  test('with a cover, proportions/age defer to the cover character instead of the band chart', async () => {
+    mockBriefCall();
+    const res = await buildLikenessBrief({ photos: PHOTOS, ageBand: 'PB_PRESCHOOL', childDetails: { name: 'Amit', gender: 'male' }, hasCover: true });
+    expect(res.briefText).toContain('match the approved cover character');
+    expect(res.briefText).not.toContain(PROPORTIONS_BY_BAND.PB_PRESCHOOL);
+    expect(res.briefText).toContain('the cover wins');
   });
 });
 
@@ -199,12 +219,23 @@ describe('generateCharacterSheet', () => {
     // Part B invariant: the real PHOTOS are never in the reference list
     expect(call.references.some((r) => r.base64 === 'photo1')).toBe(false);
 
+    // Cover-relative QA: the likeness JUDGES also reference the COVER, not the photo
+    const judgeCalls = callVisionRole.mock.calls.filter(([, p]) => p.label?.startsWith('v3.likeness.'));
+    expect(judgeCalls.length).toBeGreaterThan(0);
+    for (const [, params] of judgeCalls) {
+      expect(params.images.slice(1).map((img) => img.base64)).toEqual(['cover-b64']);
+      expect(params.images.some((img) => img.base64 === 'photo1')).toBe(false);
+    }
+
     jest.clearAllMocks();
     generateImage.mockResolvedValue(sheetImage('b'));
     mockLikenessVerdicts([{ likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }, { likeness: 5 }]);
     await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', log: () => {} });
     expect(generateImage.mock.calls[0][0].references).toHaveLength(0);
     expect(generateImage.mock.calls[0][0].prompt).not.toContain('APPROVED COVER REFERENCE');
+    // Coverless fallback: judges fall back to the photos
+    const fallbackJudgeCalls = callVisionRole.mock.calls.filter(([, p]) => p.label?.startsWith('v3.likeness.'));
+    expect(fallbackJudgeCalls[0][1].images.slice(1).map((img) => img.base64)).toEqual(['photo1']);
   });
 
   test('exhaustion payload carries candidate URLs + per-judge verdicts for the review queue', async () => {
@@ -252,11 +283,12 @@ describe('generateCharacterSheet', () => {
 });
 
 describe('likeness judge rubric', () => {
-  test('pins the stylization clause (identity cues, not medium)', () => {
+  test('pins the cover-relative contract (same character as the APPROVED reference art, not the photo)', () => {
     const { JUDGE_PROMPT } = require('../../../services/bookPipelineV3/illustrator/qa/likenessJudge');
-    expect(JUDGE_PROMPT).toContain('stylization is expected');
-    expect(JUDGE_PROMPT).toContain('IDENTITY CUES');
-    expect(JUDGE_PROMPT).toContain('Do NOT deduct for the medium');
+    expect(JUDGE_PROMPT).toContain('THE SAME CHARACTER');
+    expect(JUDGE_PROMPT).toContain('APPROVED reference art');
+    expect(JUDGE_PROMPT).toContain('identity ground truth');
+    expect(JUDGE_PROMPT).not.toMatch(/real photos of the child/);
   });
 
   test('resolveLikenessPassScore clamps garbage to the default', () => {
