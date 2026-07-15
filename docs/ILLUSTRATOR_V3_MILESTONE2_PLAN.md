@@ -13,6 +13,17 @@ Scope: picture books, V3 pipeline only. Implements the illustrator half (§5–�
 `docs/PIPELINE_V3_DESIGN.md`; milestone 1 (V3 writer + v1 illustrator adapter) is the
 starting point.
 
+**Notation** (inherited from `PIPELINE_V3_DESIGN.md`):
+- **A0–A4** — illustrator pipeline stages: A0 identity kit, A1 art direction,
+  A2 rendering, A3 spread QA + selection, A4 book pass.
+- **W0–W6** — writer pipeline stages (creative brief → concepts → selection →
+  manuscript → mechanical gate → judge panel → revision).
+- **D1–D11** — the locked product decisions from `PIPELINE_V3_DESIGN.md` §1
+  (e.g. D5 = text never baked into pixels, D6 = human review queue instead of
+  ship-anyway, D11 = one signature art style).
+- **W1–W12 / S1–S7** — work items in the v3-only cutover plan (W = worker
+  repo, S = giftmybook-standalone); the phases below are W3–W10 of that plan.
+
 ---
 
 ## 0. Where we are, and the seam we replace
