@@ -12,6 +12,7 @@ const { generateImage } = require('./imageClient');
 const { withWorldPlate } = require('./referencePack');
 const { SPREAD_RENDERER_MODEL, CANDIDATES_PER_SPREAD } = require('../config');
 const { STYLE_BIBLE } = require('../styleBible');
+const { formatCastList } = require('../promptFormat');
 
 /**
  * 1:1 by design (not a stopgap): the native path lays out books in the
@@ -49,7 +50,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     '',
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
-    `- Characters present: ${(sc.characters_present || []).join(', ') || 'the child'}`,
+    `- Characters present ${formatCastList(sc.characters_present)}`,
     // The art director's `moment` is ONE paintable freeze-frame of the
     // action — using it (over the writer's multi-beat sentence) removes
     // the sequence-vs-frame ambiguity the QA judge then grades against.
@@ -79,7 +80,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     STYLE_BIBLE,
     '',
     'ABSOLUTELY NO TEXT of any kind in the image — no letters, words, numbers, signs with writing, book pages with visible words, or watermarks. The story text is printed separately. Clothing must be letter-free: no name tags, letter badges, real-world logos, or national flags.',
-    'WORDLESS PROPS: if the scene includes any written artifact — a map, note, letter, book, scroll, sign, or label — depict it WITHOUT readable writing. Use abstract wavy squiggle lines, dots, star-glyphs, or symbols that clearly cannot be read as letters or numbers. A map shows paths, landmarks, and constellation marks — never place names or words. A compass or compass rose shows a pointed star and arrows for directions — NEVER the letters N/S/E/W. Clock faces and dials show dots or dashes, never numerals.',
+    'WORDLESS PROPS: if the scene includes any written artifact — a map, note, letter, book, scroll, sign, or label — depict it WITHOUT readable writing. Use abstract wavy squiggle lines, dots, star-glyphs, or symbols that clearly cannot be read as letters or numbers. A map shows paths, landmarks, and constellation marks — never place names or words. A compass or compass rose shows a pointed star and arrows for directions — NEVER the letters N/S/E/W. Clock faces and dials show dots or dashes, never numerals. If the story names map locations, depict them as tiny pictorial symbols (a waterfall drawing, a crescent moon, a mountain icon) — NEVER write their names.',
     'The child is the ORIGINAL ILLUSTRATED CHARACTER from the attached MODEL SHEET — match that character design exactly. It is a storybook character, not a reproduction of any real, identifiable person.',
     'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
     'HANDS: every visible hand has exactly five clearly separated fingers. Prefer simple, natural grips (whole-hand holds, open palms); avoid complex finger-object interlocks and foreshortened finger tangles.',
@@ -109,20 +110,27 @@ async function renderSpreadCandidates({
   const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote });
   const references = withWorldPlate(bookPack, plate);
 
+  const renderOne = (i) => generateImage({
+    model: SPREAD_RENDERER_MODEL,
+    prompt,
+    references,
+    aspectRatio: SPREAD_ASPECT_RATIO,
+    abortSignal,
+    label: `v3.spread.${spread.spread}.c${i + 1}`,
+  }).then((img) => ({ ...img, candidateIndex: i + 1 }));
+
+  // One content-level retry per slot: imageClient already retries transport
+  // errors, but a "no image in response" empty is terminal there — dropping
+  // the slot silently halved spread 2's QA budget (book 5792dc26). A slot is
+  // abandoned only after failing twice.
   const results = await Promise.all(Array.from({ length: count }, (_, i) =>
-    generateImage({
-      model: SPREAD_RENDERER_MODEL,
-      prompt,
-      references,
-      aspectRatio: SPREAD_ASPECT_RATIO,
-      abortSignal,
-      label: `v3.spread.${spread.spread}.c${i + 1}`,
-    })
-      .then((img) => ({ ...img, candidateIndex: i + 1 }))
-      .catch((err) => {
-        log(`spread ${spread.spread} candidate ${i + 1} failed: ${err.message}`);
+    renderOne(i).catch((err) => {
+      log(`spread ${spread.spread} candidate ${i + 1} failed — retrying once (first attempt: ${err.message})`);
+      return renderOne(i).catch((retryErr) => {
+        log(`spread ${spread.spread} candidate ${i + 1} failed on retry too — dropping the slot: ${retryErr.message}`);
         return null;
-      })));
+      });
+    })));
 
   return results.filter(Boolean);
 }

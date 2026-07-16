@@ -82,6 +82,16 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('never place names or words');
     expect(p).toContain('NEVER the letters N/S/E/W'); // compass rule
     expect(p).toContain('dots or dashes, never numerals'); // clocks/dials
+    // 2026-07-16 (book 5792dc26): story-named map locations got painted as
+    // words ("MOON CAVE", "Waterfall", "Summit") — named places must render
+    // as pictorial symbols.
+    expect(p).toContain('depict them as tiny pictorial symbols');
+    expect(p).toContain('NEVER write their names');
+  });
+
+  test('the cast list is numbered and unambiguous — same format the judge reads', () => {
+    const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(p).toContain('Characters present (exactly 1, nobody else): [1] Zoe — the child hero');
   });
 
   test("renders the art director's MOMENT (one freeze-frame) instead of the multi-beat action, with pose + hands guidance", () => {
@@ -157,6 +167,45 @@ describe('renderAllSpreadsNative', () => {
       active -= 1;
     })));
     expect(peak).toBeLessThanOrEqual(2);
+  });
+
+  // 2026-07-16 (book 5792dc26): a "no image in response — model said: no
+  // content" render was silently dropped, so spread 2 fought the whole QA
+  // cascade on HALF its candidate budget. Each slot gets one content-level
+  // retry before being abandoned.
+  describe('renderSpreadCandidates — failed slots retry once', () => {
+    const { renderSpreadCandidates } = require('../../../services/bookPipelineV3/illustrator/render/renderSpread');
+
+    test('a slot that fails once and succeeds on retry keeps the full budget', async () => {
+      generateImage.mockImplementation(async ({ label }) => {
+        if (label.endsWith('.c2') && generateImage.mock.calls.filter((c) => c[0].label.endsWith('.c2')).length === 1) {
+          throw new Error('v3.spread.1.c2: no image in response — model said: no content');
+        }
+        return { buffer: Buffer.from(label), mimeType: 'image/png' };
+      });
+
+      const logs = [];
+      const res = await renderSpreadCandidates({ spread: SPREAD(1), bookPack: PACK, briefText: 'B', log: (m) => logs.push(m) });
+
+      expect(res).toHaveLength(2);
+      expect(res.map((c) => c.candidateIndex).sort()).toEqual([1, 2]);
+      expect(generateImage).toHaveBeenCalledTimes(3); // c1 + c2 + c2 retry
+      expect(logs.some((m) => m.includes('retrying once'))).toBe(true);
+    });
+
+    test('a slot that fails twice is dropped (no infinite retries)', async () => {
+      generateImage.mockImplementation(async ({ label }) => {
+        if (label.endsWith('.c2')) throw new Error('no image in response');
+        return { buffer: Buffer.from(label), mimeType: 'image/png' };
+      });
+
+      const logs = [];
+      const res = await renderSpreadCandidates({ spread: SPREAD(1), bookPack: PACK, briefText: 'B', log: (m) => logs.push(m) });
+
+      expect(res).toHaveLength(1);
+      expect(generateImage).toHaveBeenCalledTimes(3);
+      expect(logs.some((m) => m.includes('failed on retry too — dropping the slot'))).toBe(true);
+    });
   });
 });
 

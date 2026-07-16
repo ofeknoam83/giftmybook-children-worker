@@ -12,6 +12,7 @@
  */
 
 const { callVisionRole } = require('../../llm/visionClient');
+const { formatCastList } = require('../promptFormat');
 
 const SPREAD_PASS_SCORE = 4;
 
@@ -28,7 +29,7 @@ function buildSpreadJudgePrompt({ sceneContract, direction }) {
 
 SCENE CONTRACT (what the image MUST show):
 - Setting: ${sceneContract.setting || 'unspecified'}
-- Characters present (exactly these, nobody else): ${(sceneContract.characters_present || []).join(', ') || 'the child'}
+- Characters present ${formatCastList(sceneContract.characters_present)}
 - The child's action: ${sceneContract.hero_action || 'unspecified'}
 ${direction?.moment ? `- THE DEPICTED MOMENT (judge the action against THIS, not the full action sentence): ${direction.moment}` : ''}
 - Emotion: ${sceneContract.emotion || 'unspecified'}
@@ -54,6 +55,7 @@ Rules:
 - MINOR-ANATOMY ALLOWANCE: subtle stiffness, a slightly awkward grip, or "somewhat unnatural" posing scores 4, not 3. "Stiff", "awkward", or "slightly unnatural" NEVER scores below 4 — only countably wrong anatomy (extra/missing/fused fingers, a third arm) blocks.
 - OBJECT EQUIVALENCE: a required object is satisfied by a reasonable visual equivalent (judge intent, not the literal phrase).
 - OBJECT CRITICALITY: a missing required object blocks ONLY when the action becomes unreadable without it. A small mechanism prop (peg, groove, panel, latch) that is absent while the action still reads clearly is an advisory defect note at contract 4, not a failure.
+- PROP MICRO-GEOMETRY: the exact point a finger touches or traces on a map or prop, which segment of a path is indicated, or which mark is nearest is NEVER a defect — if the child interacts with the right prop in the right general manner, the contract is satisfied.
 - NO IDENTITY OR GENDER JUDGING: you have no reference art. Never assess whether the character matches a name, assumed gender, or appearance — a separate likeness judge owns identity. Cast counts PEOPLE only.
 - The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }

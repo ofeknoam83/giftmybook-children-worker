@@ -82,6 +82,31 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
     expect(p).toContain('caps anatomy at 2');
   });
 
+  // 2026-07-16 (book 5792dc26): ["Amit", "a magical turtle"] joined with ', '
+  // read as an apposition — the judge decided Amit IS the turtle and failed
+  // good candidates for showing "an extra boy". The cast list is numbered
+  // with a count and the hero labeled, identically in render + judge prompts.
+  test('cast list is numbered and unambiguous (no apposition misread)', () => {
+    const { formatCastList } = require('../../../services/bookPipelineV3/illustrator/promptFormat');
+    expect(formatCastList(['Amit', 'a magical turtle']))
+      .toBe('(exactly 2, nobody else): [1] Amit — the child hero; [2] a magical turtle');
+    expect(formatCastList([])).toBe('(exactly 1, nobody else): [1] the child — the child hero');
+    expect(formatCastList(undefined)).toContain('the child — the child hero');
+
+    const p = buildSpreadJudgePrompt({ sceneContract: { characters_present: ['Amit', 'a magical turtle'] }, direction: null });
+    expect(p).toContain('Characters present (exactly 2, nobody else): [1] Amit — the child hero; [2] a magical turtle');
+  });
+
+  // 2026-07-16 (book 5792dc26, spread 2 c3): failed for the finger tracing
+  // "past the moon cave mark" instead of "from the waterfall mark toward" —
+  // pointer position along a prop is unjudgeable pedantry.
+  test('prop micro-geometry is never a defect', () => {
+    const p = buildSpreadJudgePrompt({ sceneContract: { hero_action: 'traces the route on the map' }, direction: null });
+    expect(p).toContain('PROP MICRO-GEOMETRY');
+    expect(p).toContain('NEVER a defect');
+    expect(p).toContain('right prop in the right general manner');
+  });
+
   // 2026-07-16 (book f7191348, spreads 3+8 exhausted): action_mismatch:9 came
   // from grading motion physics a still image can't prove ("boot resting, not
   // mid-tap"); missing_object:7 from treating every small mechanism prop as a
