@@ -64,6 +64,7 @@ Rules:
 - FRAMING ALLOWANCE: story spreads use varied shots. When the character is far away, small, back-turned, seen from above, or partially out of frame, judge ONLY the identity features the framing makes visible (silhouette, hair color/shape, outfit, skin tone where shown) and give full credit for features the shot cannot show. Absence of evidence is NOT a mismatch.
 - wrongChild=true requires POSITIVE evidence of a different character (visibly different hair, face, or skin) — never set it merely because the face is small or hidden.
 - Scene lighting is not a skin-tone mismatch: night, dusk, firelight, or golden-hour grading shifts apparent tone on EVERY character. Judge the underlying undertone/depth in the context of the scene's light; set skinToneMatch=false only when the character's skin genuinely reads as a different tone than the reference under comparable light.
+- The same applies to HAIR: warm scene light makes brown hair glow golden at the highlights — judge the hair's base color under the scene's light, and fail only when the hair genuinely reads a DIFFERENT color (e.g., blonde vs brown across the whole head, added streaks or highlights not in the reference), not when it is warmly lit.
 - skinToneMatch=false or wrongChild=true are HARD failures regardless of the likeness number.`;
 
 /**

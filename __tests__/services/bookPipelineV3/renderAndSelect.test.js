@@ -120,6 +120,31 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain("AGE & BUILD: exactly the model sheet's age, proportions, and build");
     expect(p).toContain('never render the child younger/chubbier or older/slimmer');
   });
+
+  // 2026-07-16 (book f33b4200): a starlight-themed book drifted the child's
+  // hair to blonde/golden on 4 spreads (12 likeness fails) — the palette
+  // direction ("golden starlight") fought the identity block. Base colors
+  // are lighting-invariant, and the palette line says so inline.
+  test('canonical colors are lighting-invariant; the palette line is scene-only', () => {
+    const p = buildSpreadRenderPrompt({
+      spread: SPREAD(3),
+      direction: { palette: 'golden starlight over cool night blues' },
+      briefText: 'BRIEF',
+    });
+    expect(p).toContain('CANONICAL COLORS');
+    expect(p).toContain('never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light');
+    expect(p).toContain('No color streaks or highlights that are not on the sheet');
+    expect(p).toContain("- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles): golden starlight over cool night blues");
+  });
+
+  // 2026-07-16 (book f33b4200, spread 11): a planisphere/star-wheel prop got
+  // month letters + numerals on all 4 candidates — inherently text-bearing
+  // instruments must render as symbol-marked.
+  test('instrument faces (planispheres, star wheels, dials) are wordless', () => {
+    const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(p).toContain('Instrument faces — planispheres, star wheels/charts, dials, calendar wheels');
+    expect(p).toContain('never letters, numerals, or month names');
+  });
 });
 
 describe('renderAllSpreadsNative', () => {
@@ -322,6 +347,36 @@ describe('selectSpreadWinner cascade', () => {
       expect(p).toContain('CRITICAL REPAIR: previous renders contained readable writing');
       expect(p).toContain('handwriting on the map');
       expect(p).toContain('WORDLESS abstract marks');
+    }
+  });
+
+  // 2026-07-16 (book f33b4200): hair drifted blonde/golden across repair
+  // waves too — the repair prompt now names the color fix explicitly, like
+  // the lettering repair does.
+  test('likeness color-drift failures trigger the color-specific CRITICAL REPAIR in repair renders', async () => {
+    runDeterministicChecks.mockResolvedValue({ pass: true, defects: [] });
+    judgeSpreadCandidate.mockResolvedValue(passingSpreadJudge);
+    judgeLikenessCrossFamily.mockResolvedValue({
+      pass: false,
+      minLikeness: 3,
+      verdicts: [],
+      defects: ["Hair color is golden blonde, significantly lighter than the reference character's medium brown."],
+    });
+    const repairPrompts = [];
+    generateImage.mockImplementation(async ({ prompt, label }) => {
+      repairPrompts.push(prompt);
+      return { buffer: Buffer.from(label), mimeType: 'image/png' };
+    });
+
+    const res = await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(6), candidates: CANDS, bookPack: PACK,
+      referenceImages: PACK, briefText: 'B', qaTagCounts: {}, log: () => {},
+    });
+    expect(res.selected).toBeNull(); // likeness fails persist in this mock
+    expect(repairPrompts.length).toBeGreaterThan(0);
+    for (const p of repairPrompts) {
+      expect(p).toContain("CRITICAL REPAIR: previous renders drifted the character's colors");
+      expect(p).toContain('Match the MODEL SHEET\'s hair color, skin tone, and freckles EXACTLY');
     }
   });
 

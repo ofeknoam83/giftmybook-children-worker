@@ -154,6 +154,11 @@ async function selectSpreadWinner({
       // lettering" is too weak when the scene itself contains a map/note
       // the model keeps writing on.
       const letteringDefects = namedDefects.filter((d) => d.includes('lettering detected'));
+      // Likeness color drift (hair→blonde under warm light, fading freckles,
+      // lightened skin) gets the same targeted treatment: name the fix, not
+      // just the defect — the model sheet's colors are lighting-invariant.
+      const colorDriftDefects = namedDefects.filter((d) => /hair|skin|freckle/i.test(d)
+        && /colou?r|tone|blonde|golden|lighter|darker|warmer|paler|streak|missing|less prominent/i.test(d));
       const repairSpread = {
         ...spread,
         scene_contract: {
@@ -162,6 +167,9 @@ async function selectSpreadWinner({
             sceneContract.continuity_notes,
             letteringDefects.length
               ? `CRITICAL REPAIR: previous renders contained readable writing (${letteringDefects.join('; ')}). Depict every written artifact (map, note, sign, book) with WORDLESS abstract marks — wavy squiggles, dots, star-glyphs — never letters or numbers.`
+              : null,
+            colorDriftDefects.length
+              ? `CRITICAL REPAIR: previous renders drifted the character's colors (${colorDriftDefects.join('; ')}). Match the MODEL SHEET's hair color, skin tone, and freckles EXACTLY — base colors never change with scene lighting.`
               : null,
             namedDefects.length ? `AVOID these defects from rejected attempts: ${namedDefects.join('; ')}` : null,
           ].filter(Boolean).join(' | '),
