@@ -52,7 +52,7 @@ Plan the book's visual storytelling. Return STRICT JSON:
       "shot": "one of: ${SHOT_TYPES.join(' | ')}",
       "textZone": "one of: ${ZONES.join(' | ')} — the area kept visually quiet",
       "palette": "palette + lighting for this spread, consistent with its act",
-      "moment": "ONE concrete, paintable instant of the contracted action — a single freeze-frame (e.g. 'both hands on the closed chest lid, body braced to lift'), never a sequence",
+      "moment": "ONE concrete, paintable instant of the contracted action — a single freeze-frame (e.g. 'both hands on the closed chest lid, body braced to lift'), never a sequence. The pose must be HOLDABLE — something the child could hold for a photograph (contact and rest states: 'boot pressed onto the round stone'), NEVER a split-second motion phase ('mid-tap', 'mid-air', 'just leaving the foot', 'mid-bounce'): a still image cannot prove motion and the QA judge compares literally",
       "poseHint": "when hands interact with objects: a simple, natural grip/pose that is easy to draw correctly — or null",
       "continuityNotes": "recurring props/outfit/cast locks relevant HERE"
     }, ...
@@ -67,6 +67,7 @@ RULES:
 - SHOT VARIETY IS A HARD BUDGET: at least 4 distinct shot types across the book; NO two adjacent spreads may share a shot type.
 - The palette arc must move with the story (e.g. darken at the low point, warm at the resolution).
 - worldPlates: only locations visited on 2+ spreads.
+- PROP MECHANISMS: when a contract lists 3+ small interacting props (pegs, grooves, panels, latches), the moment must foreground ONE clear mechanical interaction — the child plus the 1-2 props that carry the action — and fold the rest into the environment via continuityNotes rather than requiring each to read separately. If the action is unreadable without all of them, bounce it as prop soup.
 - bounces: flag a contract ONLY when it truly cannot be staged for ${heroDescriptor} — impossible locomotion, prop soup, unstageable geometry. Judge feasibility and safety against the hero's ACTUAL age above (what is dangerous for a toddler is ordinary for an older child); do not bounce ordinary, age-appropriate adventure.${violations ? `\n\nYOUR PREVIOUS PLAN VIOLATED THE SHOT BUDGET:\n- ${violations.join('\n- ')}\nFix exactly these violations and return the corrected full JSON.` : ''}`;
 }
 
