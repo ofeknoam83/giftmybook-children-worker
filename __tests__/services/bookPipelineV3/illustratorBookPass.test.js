@@ -122,11 +122,21 @@ beforeEach(() => {
   ]);
 });
 
+function bookPassResult({ criticalFlags = [], minorFlags = [], notes = '' } = {}) {
+  return {
+    pass: criticalFlags.length === 0,
+    flags: [...criticalFlags, ...minorFlags],
+    criticalFlags,
+    minorFlags,
+    notes,
+  };
+}
+
 describe('runNativeIllustrator — book-pass targeted regen wave', () => {
   test('a flagged spread regenerates with the SAME likeness references as the main QA pass (no stale photos param)', async () => {
     runBookPass
-      .mockResolvedValueOnce({ pass: false, flags: [{ spread: 2, issue: 'wrong version of the treasure map' }], notes: 'prop break' })
-      .mockResolvedValueOnce({ pass: true, flags: [], notes: 'fixed' });
+      .mockResolvedValueOnce(bookPassResult({ criticalFlags: [{ spread: 2, issue: 'wrong version of the treasure map', severity: 'critical' }], notes: 'prop break' }))
+      .mockResolvedValueOnce(bookPassResult({ notes: 'fixed' }));
 
     const doc = await runNativeIllustrator(makeInput(), ctx);
 
@@ -160,7 +170,7 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
   });
 
   test('a clean book pass never enters the regen path', async () => {
-    runBookPass.mockResolvedValue({ pass: true, flags: [], notes: 'lovely' });
+    runBookPass.mockResolvedValue(bookPassResult({ notes: 'lovely' }));
 
     const doc = await runNativeIllustrator(makeInput(), ctx);
 
@@ -169,10 +179,58 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
     expect(doc.spreads.every((s) => s.illustration)).toBe(true);
   });
 
-  test('flags surviving the regen wave become needs_review (never a crash, never ship-anyway)', async () => {
-    runBookPass.mockResolvedValue({ pass: false, flags: [{ spread: 3, issue: 'style break' }], notes: 'still off' });
+  test('CRITICAL flags surviving the regen wave become needs_review (never a crash, never ship-anyway)', async () => {
+    runBookPass.mockResolvedValue(bookPassResult({ criticalFlags: [{ spread: 3, issue: 'style break', severity: 'critical' }], notes: 'still off' }));
 
     await expect(runNativeIllustrator(makeInput(), ctx))
       .rejects.toThrow(/book pass still flags 1 spread/);
+  });
+
+  // Closed critical gate (2026-07-16): minor flags never regen and never
+  // block — the book SHIPS with the observations recorded as advisories
+  // (doc.qaAdvisories → completion callback → admin can regen-spread later).
+  test('minor-only book-pass flags ship immediately with qaAdvisories on the document', async () => {
+    runBookPass.mockResolvedValue(bookPassResult({
+      minorFlags: [
+        { spread: 3, issue: 'map drawn differently than the cover', severity: 'minor' },
+        { spread: 7, issue: 'simple wavy-line map', severity: 'minor' },
+      ],
+      notes: 'prop nitpicks only',
+    }));
+
+    const doc = await runNativeIllustrator(makeInput(), ctx);
+
+    expect(runBookPass).toHaveBeenCalledTimes(1); // pass on wave 0 — no regen wave
+    expect(renderSpreadCandidates).not.toHaveBeenCalled();
+    expect(doc.qaAdvisories).toEqual([
+      { stage: 'bookPass', spread: 3, note: 'map drawn differently than the cover' },
+      { stage: 'bookPass', spread: 7, note: 'simple wavy-line map' },
+    ]);
+    expect(doc.spreads.every((s) => s.illustration)).toBe(true);
+  });
+
+  test("winners' minor spread-judge defects aggregate into qaAdvisories", async () => {
+    selectSpreadWinner.mockImplementation(async ({ candidates, spread }) => ({
+      selected: {
+        candidateIndex: candidates[0].candidateIndex,
+        path: candidates[0].path,
+        pass: true,
+        stage: 'passed',
+        likeness: 5,
+        defects: [],
+        minorDefects: spread.spread === 2 ? ['hands slightly stiff on the paddle'] : [],
+        spreadScores: null,
+      },
+      evaluations: [],
+      repairWaves: 0,
+      allCandidates: candidates,
+    }));
+    runBookPass.mockResolvedValue(bookPassResult({ notes: 'clean' }));
+
+    const doc = await runNativeIllustrator(makeInput(), ctx);
+
+    expect(doc.qaAdvisories).toEqual([
+      { stage: 'spreadQa', spread: 2, note: 'hands slightly stiff on the paddle' },
+    ]);
   });
 });

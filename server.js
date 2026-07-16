@@ -542,6 +542,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // Which illustrator rendered a v3 book (native|legacy) — reported beside
   // pipelineVersionUsed so illustrator A/B comparisons stay auditable.
   let illustratorVersionUsed = null;
+  // Minor QA observations on the SHIPPED images (closed-gate architecture:
+  // judges block only on critical defects; everything else ships as a
+  // recorded advisory). Carried on completion callbacks + the checkpoint.
+  let qaAdvisories = null;
 
 
   // Auto-derive emotional tier from age for emotional books
@@ -854,6 +858,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         // book resumed from such a checkpoint would otherwise lay out on the
         // legacy wide-split path — square art bisected, story text missing.
         // The manuscript text was always stashed on entry.left.text.
+        // Advisories recorded at illustration time survive the resume.
+        if (Array.isArray(checkpoint.qaAdvisories) && checkpoint.qaAdvisories.length > 0) {
+          qaAdvisories = checkpoint.qaAdvisories;
+        }
         if (checkpoint.illustratorVersion === 'native' && Array.isArray(storyPlan.entries)) {
           const { backfillCaptionModeEntries } = require('./services/bookPipelineV3/contract/toLegacyStoryPlan');
           const backfilled = backfillCaptionModeEntries(storyPlan.entries);
@@ -1030,6 +1038,12 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
 
         illustratorVersionUsed = pipelineResult.document?.v3?.illustrator?.version || null;
+        qaAdvisories = Array.isArray(pipelineResult.document?.qaAdvisories) && pipelineResult.document.qaAdvisories.length > 0
+          ? pipelineResult.document.qaAdvisories
+          : null;
+        if (qaAdvisories) {
+          bookWarnings.push(`QA advisories: ${qaAdvisories.length} minor observation(s) on shipped images (spreads ${[...new Set(qaAdvisories.map(a => a.spread))].join(', ')}) — see qaAdvisories`);
+        }
         const synthesized = toLegacyStoryPlan(pipelineResult.document);
         storyPlan = synthesized.storyPlan;
 
@@ -1079,6 +1093,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           ...(pipelineResult.document?.v3?.illustrator?.version
             ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
             : {}),
+          ...(qaAdvisories ? { qaAdvisories } : {}),
           timestamp: new Date().toISOString(),
           accumulatedCosts: costTracker.getSummary(),
         });
@@ -1429,6 +1444,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 emotionalCategory: emotionalCategory || null,
                 pipelineVersionUsed,
                 ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
+                ...(qaAdvisories ? { qaAdvisories } : {}),
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
               }),
@@ -1455,6 +1471,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           emotionalCategory: emotionalCategory || null,
           pipelineVersionUsed,
           ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
+          ...(qaAdvisories ? { qaAdvisories } : {}),
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
           logs: bookContext.logs,
         });

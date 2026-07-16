@@ -43,11 +43,16 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
   const spread = await judgeSpreadCandidate({ candidate, sceneContract, direction, abortSignal });
   record.spreadScores = spread.scores;
   record.tags = spread.tags;
+  // Minor observations ride the record even when the candidate passes —
+  // the orchestrator aggregates the WINNER's minors into doc.qaAdvisories.
+  record.minorDefects = spread.minorDefects || [];
   for (const t of spread.tags) bump(qaTagCounts, t);
   if (!spread.pass) {
     record.stage = 'spreadJudge';
     record.pass = false;
-    record.defects = spread.defects;
+    // Only critical notes name the failure (minors never block and would
+    // send the repair wave chasing nitpicks).
+    record.defects = spread.criticalDefects?.length ? spread.criticalDefects : spread.defects;
     return record;
   }
 

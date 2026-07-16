@@ -235,8 +235,12 @@ async function runNativeIllustrator(input, ctx) {
   }
 
   // ── A4: book pass + one targeted regen wave ──
+  // Closed-gate architecture (2026-07-16): only CRITICAL flags trigger regen
+  // or needs_review; minor flags become advisories on the document — the
+  // book ships and the admin can regen-spread post-hoc.
   ctx.reportProgress?.({ step: 'illustrating', message: 'Book pass (contact-sheet review)' });
   let residualFlags = [];
+  let bookPassMinors = [];
   for (let wave = 0; wave <= BOOK_PASS_REGEN_WAVES; wave += 1) {
     const winners = [...selections.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -245,13 +249,14 @@ async function runNativeIllustrator(input, ctx) {
         return { spread: spreadNumber, base64: c.base64, mimeType: c.mimeType };
       });
     const pass = await runBookPass({ manuscript, direction, winners, cover: coverImage, abortSignal });
-    log(`book pass${wave ? ` (post-regen)` : ''}: ${pass.pass ? 'PASS' : `flags=[${pass.flags.map((f) => `${f.spread}: ${f.issue}`).join('; ')}]`} — ${pass.notes}`);
+    bookPassMinors = pass.minorFlags; // latest whole-book review wins
+    log(`book pass${wave ? ` (post-regen)` : ''}: ${pass.pass ? 'PASS' : `critical=[${pass.criticalFlags.map((f) => `${f.spread}: ${f.issue}`).join('; ')}]`}${pass.minorFlags.length ? ` advisories=${pass.minorFlags.length}` : ''} — ${pass.notes}`);
     if (pass.pass) { residualFlags = []; break; }
-    residualFlags = pass.flags;
+    residualFlags = pass.criticalFlags;
     if (wave >= BOOK_PASS_REGEN_WAVES) break;
 
-    // Targeted regen: fresh candidates for flagged spreads with the issue named.
-    for (const flag of pass.flags) {
+    // Targeted regen: fresh candidates for CRITICALLY flagged spreads with the issue named.
+    for (const flag of pass.criticalFlags) {
       const spread = manuscriptSpreads.find((s) => s.spread === flag.spread);
       if (!spread) continue;
       const flaggedSpread = {
@@ -340,6 +345,25 @@ async function runNativeIllustrator(input, ctx) {
       likeness: winner.likeness ?? null,
       scores: winner.spreadScores || null,
     });
+  }
+
+  // ── qa advisories: minor observations that never block (closed-gate) ──
+  // Winner-level minors from the spread judge + minor book-pass flags, so
+  // the completion callback and the admin dashboard see exactly what the
+  // judges noticed on the SHIPPED images. Capped — this is a digest, not
+  // a transcript.
+  const qaAdvisories = [];
+  for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
+    for (const note of result.selected?.minorDefects || []) {
+      qaAdvisories.push({ stage: 'spreadQa', spread: spreadNumber, note });
+    }
+  }
+  for (const f of bookPassMinors) {
+    qaAdvisories.push({ stage: 'bookPass', spread: f.spread, note: f.issue });
+  }
+  doc.qaAdvisories = qaAdvisories.slice(0, 40);
+  if (doc.qaAdvisories.length > 0) {
+    log(`qa advisories: ${doc.qaAdvisories.length} (spreads ${[...new Set(doc.qaAdvisories.map((a) => a.spread))].join(', ')}) — shipped, not blocking`);
   }
 
   doc.qaTagCounts = qaTagCounts;
