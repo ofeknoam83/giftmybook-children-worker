@@ -107,6 +107,21 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
     expect(p).toContain('right prop in the right general manner');
   });
 
+  // 2026-07-16 (book 8e6c23e0): "left hand" done by the right hand, "one
+  // hand" done with two, and "compass not just over the side pocket" all
+  // failed candidates; "slightly stiff grip" STILL failed despite the
+  // rules-list anatomy floor — the floor must live inline in the score
+  // definitions, which is what the judge actually follows.
+  test('choreography allowance + binding inline anatomy/contract floors', () => {
+    const p = buildSpreadJudgePrompt({ sceneContract: { hero_action: 'tucks the compass away' }, direction: null });
+    expect(p).toContain('CHOREOGRAPHY ALLOWANCE');
+    expect(p).toContain('left/right are interchangeable');
+    expect(p).toContain('Judge whether the ACTION reads, not its choreography');
+    // inline score anchors
+    expect(p).toContain('stiffness or awkwardness is NEVER below 4; only countably wrong anatomy');
+    expect(p).toContain('choreography (which hand, how many hands, exact prop-relative position) never lowers this score');
+  });
+
   // 2026-07-16 (book f7191348, spreads 3+8 exhausted): action_mismatch:9 came
   // from grading motion physics a still image can't prove ("boot resting, not
   // mid-tap"); missing_object:7 from treating every small mechanism prop as a

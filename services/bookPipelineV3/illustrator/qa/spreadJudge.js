@@ -40,8 +40,8 @@ ${direction?.textZone ? `- Quiet zone: the ${direction.textZone} area must be vi
 Score each dimension 1-5 (4 = good with minor imperfections, 5 = flawless) and tag concrete defects.
 Return STRICT JSON:
 {
-  "anatomy": 1-5,          // hands, limbs, faces, object coherence
-  "contract": 1-5,         // shows the contracted setting + action + objects
+  "anatomy": 1-5,          // hands, limbs, faces, object coherence — stiffness or awkwardness is NEVER below 4; only countably wrong anatomy (extra/missing/fused fingers, a third arm) goes lower
+  "contract": 1-5,         // shows the contracted setting + action + objects — choreography (which hand, how many hands, exact prop-relative position) never lowers this score
   "cast": 1-5,             // exactly the listed characters; 1 if the hero appears twice or strangers appear
   "style": 1-5,            // consistent storybook style, no photoreal/3D drift
   "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
@@ -56,6 +56,7 @@ Rules:
 - OBJECT EQUIVALENCE: a required object is satisfied by a reasonable visual equivalent (judge intent, not the literal phrase).
 - OBJECT CRITICALITY: a missing required object blocks ONLY when the action becomes unreadable without it. A small mechanism prop (peg, groove, panel, latch) that is absent while the action still reads clearly is an advisory defect note at contract 4, not a failure.
 - PROP MICRO-GEOMETRY: the exact point a finger touches or traces on a map or prop, which segment of a path is indicated, or which mark is nearest is NEVER a defect — if the child interacts with the right prop in the right general manner, the contract is satisfied.
+- CHOREOGRAPHY ALLOWANCE: which hand performs an action (left/right are interchangeable — renders mirror freely), how many hands hold an object, and an object's position relative to a small prop feature (over a pocket, near a strap) are NEVER defects. Judge whether the ACTION reads, not its choreography.
 - NO IDENTITY OR GENDER JUDGING: you have no reference art. Never assess whether the character matches a name, assumed gender, or appearance — a separate likeness judge owns identity. Cast counts PEOPLE only.
 - The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }
