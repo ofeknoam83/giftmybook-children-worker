@@ -81,19 +81,27 @@ function buildFrontAndBackMatter(doc) {
  * @returns {{ storyPlan: object, entriesWithIllustrations: object[] }}
  */
 function toLegacyStoryPlan(doc) {
+  // Mirror toLayoutPayload: native-illustrator spreads are 1:1 images with NO
+  // on-image text — assemblePdf must typeset the caption on the verso page and
+  // place the square art full-bleed on the recto. Absent these two fields
+  // assemblePdf falls back to the legacy wide-split path (center-crops the
+  // square image and halves it across the spread, no story text anywhere).
+  // server.js persists THIS output into the book checkpoint, so the fields
+  // survive resume too. (`toLayoutPayload.js` computes the same shape for the
+  // workflow's layout return, which server.js never reads — candidate for a
+  // later fold, kept separate here.)
+  const aspect = doc.v3?.illustrator?.version === 'native' ? 'square' : 'wide';
   const spreadEntries = doc.spreads.map(s => ({
     type: 'spread',
     spread: s.spreadNumber,
-    // Text is painted into the image by the new pipeline. layoutEngine's
-    // assemblePdf ignores left/right text for 'spread' entries (it only
-    // reads spreadIllustrationBuffer), but downstream helpers like
-    // computeCoverPdfMetadata / computeSynopsis use `storyBible.narrativeSpine`
-    // (and related fields) for the back-cover blurb — not raw spread text.
-    // We stash the manuscript text on `left.text` for debugging/audit only.
+    // The manuscript text on `left.text` predates caption mode (debug/audit);
+    // keep it — the server's checkpoint backfill reads it for pre-fix books.
     left: { text: s.manuscript?.text || '' },
     right: { text: '' },
     spreadIllustrationUrl: s.illustration?.imageUrl || null,
     spreadIllustrationStorageKey: s.illustration?.imageStorageKey || null,
+    illustrationAspect: aspect,
+    captionText: aspect === 'square' ? (s.manuscript?.text || '') : undefined,
     // Preserve the scene prompt used by the new pipeline so admin regen /
     // audit flows can reproduce or diff the exact spread brief.
     spread_image_prompt: s.illustration?.scenePrompt || s.spec?.scenePrompt || null,
@@ -144,4 +152,29 @@ function toLegacyStoryPlan(doc) {
   return { storyPlan, entriesWithIllustrations };
 }
 
-module.exports = { toLegacyStoryPlan };
+/**
+ * Backfill caption-mode fields onto spread entries from a checkpoint written
+ * BEFORE toLegacyStoryPlan carried illustrationAspect/captionText (pre
+ * 2026-07-16). Native-rendered spreads are square images with no painted
+ * text; without these fields assemblePdf takes the legacy wide-split path
+ * (bisected art, no story text). The manuscript text was always stashed on
+ * `entry.left.text`, so the caption is recoverable in place.
+ *
+ * Mutates the entries. Only call for checkpoints pinned to the native
+ * illustrator — legacy wide-rendered books must keep the split path.
+ *
+ * @param {object[]} entries - storyPlan.entries from a native checkpoint
+ * @returns {number} how many entries were backfilled
+ */
+function backfillCaptionModeEntries(entries) {
+  let backfilled = 0;
+  for (const entry of entries) {
+    if (!entry || entry.type !== 'spread' || entry.illustrationAspect) continue;
+    entry.illustrationAspect = 'square';
+    entry.captionText = entry.left?.text || '';
+    backfilled += 1;
+  }
+  return backfilled;
+}
+
+module.exports = { toLegacyStoryPlan, backfillCaptionModeEntries };

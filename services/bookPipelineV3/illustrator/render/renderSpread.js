@@ -73,6 +73,8 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     'CHARACTER IDENTITY:',
     briefText,
     wardrobeNote ? `OUTFIT: ${wardrobeNote}` : 'OUTFIT: exactly as on the approved cover reference.',
+    'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
+    "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
     '',
     STYLE_BIBLE,
     '',

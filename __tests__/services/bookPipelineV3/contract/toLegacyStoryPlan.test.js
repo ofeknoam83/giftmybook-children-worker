@@ -1,4 +1,4 @@
-const { toLegacyStoryPlan } = require('../../../../services/bookPipelineV3/contract/toLegacyStoryPlan');
+const { toLegacyStoryPlan, backfillCaptionModeEntries } = require('../../../../services/bookPipelineV3/contract/toLegacyStoryPlan');
 const { computePageCount, computeSynopsis } = require('../../../../services/coverMetadata');
 
 function makeDoc(overrides = {}) {
@@ -89,5 +89,87 @@ describe('toLegacyStoryPlan', () => {
     const synopsis = computeSynopsis(storyPlan, { name: 'Luna' });
     expect(synopsis).toMatch(/magical journey/);
     expect(synopsis).not.toMatch(/Spread 1/);
+  });
+
+  // Caption-mode contract (2026-07-16): the native illustrator renders square
+  // images with NO on-image text — assemblePdf picks the caption-mode layout
+  // (typeset verso + full-bleed recto) per entry via these two fields. Missing
+  // fields silently fall back to the legacy wide-split path (bisected art, no
+  // story text in the printed book), which is exactly the bug this pins.
+  describe('caption-mode fields (native illustrator)', () => {
+    test('native doc: every spread entry is square with the manuscript text as captionText', () => {
+      const doc = makeDoc({ v3: { illustrator: { version: 'native', source: 'default' } } });
+      const { entriesWithIllustrations } = toLegacyStoryPlan(doc);
+      const spreads = entriesWithIllustrations.filter(e => e.type === 'spread');
+      expect(spreads).toHaveLength(13);
+      for (const entry of spreads) {
+        expect(entry.illustrationAspect).toBe('square');
+        expect(entry.captionText).toBe(`Spread ${entry.spread} text content.`);
+      }
+    });
+
+    test('the storyPlan persisted to checkpoints carries the same fields (resume-safe)', () => {
+      const doc = makeDoc({ v3: { illustrator: { version: 'native', source: 'default' } } });
+      const { storyPlan } = toLegacyStoryPlan(doc);
+      const spreads = storyPlan.entries.filter(e => e.type === 'spread');
+      expect(spreads.every(e => e.illustrationAspect === 'square' && e.captionText)).toBe(true);
+    });
+
+    test('non-native / absent illustrator version stays on the wide-split path with no captionText', () => {
+      const { entriesWithIllustrations } = toLegacyStoryPlan(makeDoc());
+      const spreads = entriesWithIllustrations.filter(e => e.type === 'spread');
+      for (const entry of spreads) {
+        expect(entry.illustrationAspect).toBe('wide');
+        expect(entry.captionText).toBeUndefined();
+      }
+    });
+
+    test('structural entries are untouched by aspect/caption fields', () => {
+      const doc = makeDoc({ v3: { illustrator: { version: 'native' } } });
+      const { entriesWithIllustrations } = toLegacyStoryPlan(doc);
+      const structural = entriesWithIllustrations.filter(e => e.type !== 'spread');
+      expect(structural.every(e => e.illustrationAspect === undefined)).toBe(true);
+    });
+  });
+
+  // Backfill for checkpoints written BEFORE the caption-mode fields existed:
+  // native books resumed from such checkpoints must not re-break the layout.
+  describe('backfillCaptionModeEntries', () => {
+    function preFixEntries() {
+      return [
+        { type: 'half_title_page', title: 'T' },
+        { type: 'spread', spread: 1, left: { text: 'One.' }, right: { text: '' } },
+        { type: 'spread', spread: 2, left: { text: 'Two.' }, right: { text: '' } },
+        { type: 'closing_page' },
+      ];
+    }
+
+    test('marks pre-fix native spread entries square and recovers captionText from left.text', () => {
+      const entries = preFixEntries();
+      const count = backfillCaptionModeEntries(entries);
+      expect(count).toBe(2);
+      expect(entries[1]).toMatchObject({ illustrationAspect: 'square', captionText: 'One.' });
+      expect(entries[2]).toMatchObject({ illustrationAspect: 'square', captionText: 'Two.' });
+      expect(entries[0].illustrationAspect).toBeUndefined();
+      expect(entries[3].illustrationAspect).toBeUndefined();
+    });
+
+    test('entries that already carry an aspect are left alone (idempotent, wide stays wide)', () => {
+      const entries = [
+        { type: 'spread', spread: 1, illustrationAspect: 'wide', left: { text: 'Legacy.' } },
+        { type: 'spread', spread: 2, illustrationAspect: 'square', captionText: 'Done.', left: { text: 'Done.' } },
+      ];
+      expect(backfillCaptionModeEntries(entries)).toBe(0);
+      expect(entries[0].illustrationAspect).toBe('wide');
+      expect(entries[0].captionText).toBeUndefined();
+      expect(entries[1].captionText).toBe('Done.');
+    });
+
+    test('missing left.text backfills an empty caption without throwing', () => {
+      const entries = [{ type: 'spread', spread: 1 }];
+      expect(backfillCaptionModeEntries(entries)).toBe(1);
+      expect(entries[0].captionText).toBe('');
+      expect(entries[0].illustrationAspect).toBe('square');
+    });
   });
 });
