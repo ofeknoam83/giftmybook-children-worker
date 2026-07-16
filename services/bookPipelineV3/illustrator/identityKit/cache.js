@@ -20,6 +20,9 @@ const { STYLE_VERSION } = require('../styleBible');
 // ik-4: renderer upgraded to the pro image tier — flash-rendered sheets
 //       must regenerate (the sheet anchors every spread; a flash sheet
 //       under pro spreads reintroduces a quality/style seam).
+//       NOTE: the pro id turned out unprovisioned (404) and defaults
+//       reverted to flash — when the REAL pro model id lands via the env
+//       overrides, bump to ik-5 so sheets regenerate on actual pro.
 const KIT_PROMPT_VERSION = 'ik-4';
 
 const KIT_CACHE_PREFIX = 'identity-kit';
