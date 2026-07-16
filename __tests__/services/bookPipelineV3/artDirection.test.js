@@ -165,6 +165,20 @@ describe('runArtDirection', () => {
     expect(prompt).toContain('never reference map locations, signs, or any written label BY NAME');
     expect(prompt).toContain('lettering is an automatic QA kill');
   });
+
+  // 2026-07-16 (book 8e6c23e0): moments like "his LEFT hand raised, holding
+  // a vine aside" and "ONE hand holding his compass just over the open side
+  // pocket" got enforced literally — renders mirror hands freely, so handed
+  // or counted choreography is an unwinnable QA target.
+  test('moments never specify handedness, hand count, or prop-relative positions', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: goodPlan, model: 'm', family: 'gemini' });
+    await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
+    const prompt = callVisionRole.mock.calls[0][1].prompt;
+    expect(prompt).toContain('NO CHOREOGRAPHY');
+    expect(prompt).toContain('never specify WHICH hand (left/right), how many hands');
+    expect(prompt).toContain('renderers mirror hands freely');
+    expect(prompt).toContain("Describe the action at the level a parent would");
+  });
 });
 
 describe('book pass', () => {
