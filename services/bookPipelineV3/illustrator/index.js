@@ -287,7 +287,11 @@ async function runNativeIllustrator(input, ctx) {
         direction: direction.directionBySpread.get(flag.spread) || null,
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
-        photos: identityKit.photos || [],
+        // Same likeness references as the main QA pass: model sheet + cover
+        // (a stale `photos:` param here — dead since the cover-relative QA
+        // rewiring — left referenceImages undefined and crashed every book
+        // whose book pass flagged a spread).
+        referenceImages: bookPack,
         briefText,
         qaTagCounts,
         abortSignal,
