@@ -133,9 +133,71 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
     expect(p).toContain('a still image cannot depict a motion phase');
     expect(p).toContain('never fail for static-vs-in-motion, resting-vs-tapping, or about-to-vs-just-did');
     expect(p).toContain('OBJECT CRITICALITY');
-    expect(p).toContain('blocks ONLY when the action becomes unreadable without it');
-    expect(p).toContain('advisory defect note at contract 4, not a failure');
+    expect(p).toContain('critical ONLY when the action becomes unreadable without it');
+    expect(p).toContain('is a minor defect');
     expect(p).toContain('NEVER scores below 4 — only countably wrong anatomy');
+  });
+
+  // Closed critical gate (2026-07-16): five calibration rounds proved an
+  // open-ended judge invents a new pedantry class every run. The judge can
+  // now BLOCK only for the closed critical list (THE PARENT TEST); minors
+  // are recorded and shipped as advisories.
+  describe('severity gate', () => {
+    const { judgeSpreadCandidate: judge, HARD_FAIL_TAGS } = require('../../../services/bookPipelineV3/illustrator/qa/spreadJudge');
+
+    function mockVerdict(overrides) {
+      callVisionRole.mockResolvedValueOnce({
+        json: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5, tags: [], defects: [], ...overrides },
+        model: 'm',
+      });
+    }
+
+    test('prompt states THE PARENT TEST, the closed critical list, and the severity schema', () => {
+      const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null });
+      expect(p).toContain('THE PARENT TEST');
+      expect(p).toContain('The complete list of critical classes');
+      expect(p).toContain('EVERYTHING ELSE IS "minor"');
+      expect(p).toContain('"severity": "critical|minor"');
+    });
+
+    test('a critical defect fails the candidate', async () => {
+      mockVerdict({ defects: [{ note: 'a second identical child stands in the doorway', severity: 'critical' }] });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(false);
+      expect(res.criticalDefects).toEqual(['a second identical child stands in the doorway']);
+    });
+
+    test('minor-only defects PASS — recorded, not blocking (even with low scores)', async () => {
+      mockVerdict({
+        contract: 3, // scores rank, they no longer gate
+        defects: [
+          { note: 'the map is drawn differently than on the cover', severity: 'minor' },
+          { note: 'hands slightly stiff', severity: 'minor' },
+        ],
+      });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(true);
+      expect(res.minorDefects).toHaveLength(2);
+      expect(res.criticalDefects).toHaveLength(0);
+    });
+
+    test('hard-tag backstop: a duplicated_hero tag escalates to critical even if the model says minor', async () => {
+      expect(HARD_FAIL_TAGS).toContain('duplicated_hero');
+      mockVerdict({
+        tags: ['duplicated_hero'],
+        defects: [{ note: 'two copies of the hero', severity: 'minor' }],
+      });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(false);
+      expect(res.criticalDefects).toEqual(['two copies of the hero']);
+    });
+
+    test('legacy string defects are tolerated as minors (backstop covers the hard classes)', async () => {
+      mockVerdict({ defects: ['background rooftop reads distant'] });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(true);
+      expect(res.minorDefects).toEqual(['background rooftop reads distant']);
+    });
   });
 
   test('when the art director specified a moment, the judge grades the action against IT', () => {

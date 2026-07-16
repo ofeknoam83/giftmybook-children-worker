@@ -189,22 +189,55 @@ describe('book pass', () => {
     callVisionRole.mockResolvedValueOnce({ json: { pass: true, flags: [], notes: 'lovely' }, model: 'm', family: 'gemini' });
     const res = await runBookPass({ manuscript: MS, direction, winners, log: () => {} });
     expect(res.pass).toBe(true);
+    expect(res.criticalFlags).toEqual([]);
+    expect(res.minorFlags).toEqual([]);
   });
 
-  test('flags parsed and needs_review payload built', async () => {
+  test('critical flags block; needs_review payload built from them', async () => {
     callVisionRole.mockResolvedValueOnce({
-      json: { pass: false, flags: [{ spread: 5, issue: 'outfit color differs from cover' }], notes: 'continuity break' },
+      json: { pass: false, flags: [{ spread: 5, issue: 'outfit color differs from cover', severity: 'critical' }], notes: 'continuity break' },
       model: 'm',
       family: 'gemini',
     });
     const res = await runBookPass({ manuscript: MS, direction, winners, log: () => {} });
     expect(res.pass).toBe(false);
-    expect(res.flags).toEqual([{ spread: 5, issue: 'outfit color differs from cover' }]);
+    expect(res.criticalFlags).toEqual([{ spread: 5, issue: 'outfit color differs from cover', severity: 'critical' }]);
 
-    const payload = buildBookPassNeedsReview(res.flags, ['u1']);
+    const payload = buildBookPassNeedsReview(res.criticalFlags, ['u1']);
     expect(payload.stage).toBe('bookPass');
     expect(payload.reason).toBe('book_pass_exhausted');
     expect(payload.defects[0]).toBe('spread 5: outfit color differs from cover');
+  });
+
+  // Closed critical gate (2026-07-16): the book that triggered this — all 13
+  // spreads passed spread-QA, then prop-continuity flags blocked the whole
+  // book. Minor flags (and legacy flags without a severity) never block:
+  // they ship as advisories.
+  test('minor flags never block — pass=true with the minors surfaced', async () => {
+    callVisionRole.mockResolvedValueOnce({
+      json: {
+        pass: false, // the model's own verdict is not the gate
+        flags: [
+          { spread: 3, issue: 'holding two rolled-up scrolls, not the single map from the cover', severity: 'minor' },
+          { spread: 7, issue: 'map drawn with simple wavy lines' }, // legacy shape, no severity
+        ],
+        notes: 'prop continuity nitpicks',
+      },
+      model: 'm',
+      family: 'gemini',
+    });
+    const res = await runBookPass({ manuscript: MS, direction, winners, log: () => {} });
+    expect(res.pass).toBe(true);
+    expect(res.criticalFlags).toEqual([]);
+    expect(res.minorFlags).toHaveLength(2);
+  });
+
+  test('contact-sheet prompt states THE PARENT TEST with prop continuity explicitly minor', () => {
+    const p = buildContactSheetPrompt({ manuscript: MS, direction });
+    expect(p).toContain('THE PARENT TEST');
+    expect(p).toContain('The complete list of critical classes at book level');
+    expect(p).toContain('including prop versions and prop-detail continuity');
+    expect(p).toContain('"severity": "critical|minor"');
   });
 
   // Book audit 2026-07-16: per-spread QA can't see cross-spread drift — the

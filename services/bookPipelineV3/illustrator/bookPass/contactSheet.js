@@ -21,13 +21,22 @@ Check the BOOK AS A WHOLE (individual image quality was already judged):
 4. CHARACTER DRIFT: the child keeps the SAME apparent age and build on every spread (flag any spread where the child reads clearly younger/chubbier or older/slimmer than the cover), and the SAME facial marks (flag stray moles, beauty marks, or dark facial spots that are not on the cover).
 5. ENDING: the final spread lands visually (warmth/resolution, not an arbitrary stop).
 
+THE PARENT TEST — a flag is "critical" ONLY if a parent flipping through the printed book would consider the page BROKEN or WRONG. The complete list of critical classes at book level:
+1. the character reads as a DIFFERENT child than the cover (or the wrong apparent age/build)
+2. the outfit contradicts the cover
+3. readable words or lettering painted in the artwork
+4. the child duplicated or a stranger present
+5. countably wrong anatomy
+6. a jarring style break
+EVERYTHING ELSE IS "minor" — including prop versions and prop-detail continuity (a differently-drawn map, a changed scroll count), composition, lighting, and variety observations. Minor flags are recorded and shipped as advisories — never mark them critical.
+
 Return STRICT JSON:
 {
   "pass": true|false,
-  "flags": [ { "spread": n, "issue": "specific, actionable — e.g. 'outfit color differs from cover', 'spread 12 breaks style'" } ],
+  "flags": [ { "spread": n, "issue": "specific, actionable — e.g. 'outfit color differs from cover', 'spread 12 breaks style'", "severity": "critical|minor" } ],
   "notes": "one-line overall verdict"
 }
-Only flag spreads that genuinely need re-rendering — style nitpicks that a parent would never notice do not count.`;
+Only flag spreads with something genuinely observable — style nitpicks that a parent would never notice do not count.`;
 }
 
 /**
@@ -37,7 +46,10 @@ Only flag spreads that genuinely need re-rendering — style nitpicks that a par
  * @param {Array<{spread: number, base64: string, mimeType?: string}>} opts.winners - in reading order
  * @param {{base64: string, mimeType?: string}|null} [opts.cover]
  * @param {AbortSignal} [opts.abortSignal]
- * @returns {Promise<{ pass: boolean, flags: Array<{spread: number, issue: string}>, notes: string }>}
+ * @returns {Promise<{ pass: boolean, flags: Array<{spread: number, issue: string, severity: string}>,
+ *   criticalFlags: Array<{spread: number, issue: string}>, minorFlags: Array<{spread: number, issue: string}>, notes: string }>}
+ *   `pass` is computed from CRITICAL flags only (closed-gate architecture,
+ *   2026-07-16) — minor flags ship as advisories, they never block or regen.
  */
 async function runBookPass({ manuscript, direction, winners, cover = null, abortSignal }) {
   const images = winners.map((w) => ({ base64: w.base64, mimeType: w.mimeType || 'image/png' }));
@@ -51,11 +63,25 @@ async function runBookPass({ manuscript, direction, winners, cover = null, abort
     abortSignal,
   });
 
+  const flags = Array.isArray(json.flags)
+    ? json.flags
+      .map((f) => ({
+        spread: Number(f.spread),
+        issue: String(f.issue || 'flagged'),
+        // Tolerate a missing severity (legacy shape) as minor — the spread-level
+        // gates already hard-block every critical class per candidate.
+        severity: f.severity === 'critical' ? 'critical' : 'minor',
+      }))
+      .filter((f) => Number.isFinite(f.spread))
+    : [];
+  const criticalFlags = flags.filter((f) => f.severity === 'critical');
+  const minorFlags = flags.filter((f) => f.severity === 'minor');
+
   return {
-    pass: json.pass === true && (!json.flags || json.flags.length === 0),
-    flags: Array.isArray(json.flags)
-      ? json.flags.map((f) => ({ spread: Number(f.spread), issue: String(f.issue || 'flagged') })).filter((f) => Number.isFinite(f.spread))
-      : [],
+    pass: criticalFlags.length === 0,
+    flags,
+    criticalFlags,
+    minorFlags,
     notes: json.notes || '',
   };
 }
