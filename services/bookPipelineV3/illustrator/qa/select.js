@@ -115,6 +115,14 @@ async function selectSpreadWinner({
   bookId, spread, candidates, direction = null, bookPack, plate = null,
   referenceImages, briefText, wardrobeNote, qaTagCounts, abortSignal, log = () => {},
 }) {
+  // Every caller passes the bookPack (model sheet + cover) as the likeness
+  // references; if a call site drifts and omits referenceImages, degrade
+  // LOUDLY to the bookPack instead of crashing mid-QA after full render
+  // spend (`...referenceImages` in the likeness judge is not iterable).
+  if (!Array.isArray(referenceImages)) {
+    log(`spread ${spread.spread}: referenceImages missing — falling back to bookPack refs`);
+    referenceImages = Array.isArray(bookPack) ? bookPack : [];
+  }
   const sceneContract = spread.scene_contract || {};
   let allCandidates = [...candidates];
   let evaluations = [];

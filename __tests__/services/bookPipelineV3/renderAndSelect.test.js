@@ -165,6 +165,27 @@ describe('selectSpreadWinner cascade', () => {
   ];
   const passingSpreadJudge = { scores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 }, minScore: 5, pass: true, tags: [], defects: [] };
 
+  // Regression (2026-07-16): the book-pass regen call site omitted
+  // referenceImages entirely (stale `photos:` param) — `...referenceImages`
+  // in the likeness judge crashed every book whose book pass flagged a
+  // spread, after full render spend. A drifted call site must degrade
+  // LOUDLY to the bookPack (the refs every caller passes) — never crash.
+  test('missing referenceImages falls back to bookPack refs instead of crashing', async () => {
+    runDeterministicChecks.mockResolvedValue({ pass: true, defects: [] });
+    judgeSpreadCandidate.mockResolvedValue(passingSpreadJudge);
+    judgeLikenessCrossFamily.mockResolvedValue({ pass: true, minLikeness: 5, verdicts: [], defects: [] });
+
+    const logs = [];
+    const res = await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(1), candidates: CANDS, bookPack: PACK,
+      /* referenceImages intentionally omitted */ briefText: 'B', log: (m) => logs.push(m),
+    });
+
+    expect(res.selected).not.toBeNull();
+    expect(judgeLikenessCrossFamily).toHaveBeenCalledWith(expect.objectContaining({ referenceImages: PACK }));
+    expect(logs.some((m) => m.includes('referenceImages missing — falling back to bookPack refs'))).toBe(true);
+  });
+
   test('letterform hard-fail short-circuits (judges never called for that candidate)', async () => {
     runDeterministicChecks
       .mockResolvedValueOnce({ pass: false, defects: ['lettering detected in artwork (sign) — automatic fail (D5: no text in pixels)'] })
