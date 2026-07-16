@@ -152,6 +152,19 @@ describe('runArtDirection', () => {
     expect(prompt).toContain('foreground ONE clear mechanical interaction');
     expect(prompt).toContain('bounce it as prop soup');
   });
+
+  // 2026-07-16 (book 5792dc26): the moment named map locations ("from the
+  // waterfall mark toward the moon cave mark") — the renderer painted the
+  // names ("MOON CAVE", "Waterfall", "Summit") and D5 hard-failed both
+  // candidates. Labels must be referenced by symbol, never by name.
+  test('written labels are never referenced by name in moment/poseHint/continuityNotes', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: goodPlan, model: 'm', family: 'gemini' });
+    await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
+    const prompt = callVisionRole.mock.calls[0][1].prompt;
+    expect(prompt).toContain('WRITTEN LABELS');
+    expect(prompt).toContain('never reference map locations, signs, or any written label BY NAME');
+    expect(prompt).toContain('lettering is an automatic QA kill');
+  });
 });
 
 describe('book pass', () => {
