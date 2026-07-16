@@ -849,6 +849,18 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       if (checkpoint?.storyPlan && (Array.isArray(checkpoint.storyPlan.entries) || Array.isArray(checkpoint.storyPlan.chapters) || Array.isArray(checkpoint.storyPlan.pages))) {
         // checkpoint — resume
         storyPlan = checkpoint.storyPlan;
+        // Caption-mode backfill for checkpoints written BEFORE toLegacyStoryPlan
+        // carried illustrationAspect/captionText (2026-07-16): a native-rendered
+        // book resumed from such a checkpoint would otherwise lay out on the
+        // legacy wide-split path — square art bisected, story text missing.
+        // The manuscript text was always stashed on entry.left.text.
+        if (checkpoint.illustratorVersion === 'native' && Array.isArray(storyPlan.entries)) {
+          const { backfillCaptionModeEntries } = require('./services/bookPipelineV3/contract/toLegacyStoryPlan');
+          const backfilled = backfillCaptionModeEntries(storyPlan.entries);
+          if (backfilled > 0) {
+            bookContext.log('warn', `Caption-mode backfill: ${backfilled} native spread entr${backfilled === 1 ? 'y' : 'ies'} from a pre-caption checkpoint marked square + captionText from stashed manuscript text`);
+          }
+        }
         const itemCount = storyPlan.isGraphicNovel
           ? (storyPlan.pages || []).length
           : storyPlan.isChapterBook

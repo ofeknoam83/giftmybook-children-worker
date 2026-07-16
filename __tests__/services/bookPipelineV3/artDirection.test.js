@@ -15,7 +15,7 @@ const {
   validateShotBudget, reassignShots, normalizeShot, MIN_DISTINCT_SHOTS,
 } = require('../../../services/bookPipelineV3/illustrator/artDirection/shotBudget');
 const { runArtDirection } = require('../../../services/bookPipelineV3/illustrator/artDirection/artDirector');
-const { runBookPass, buildBookPassNeedsReview } = require('../../../services/bookPipelineV3/illustrator/bookPass/contactSheet');
+const { runBookPass, buildContactSheetPrompt, buildBookPassNeedsReview } = require('../../../services/bookPipelineV3/illustrator/bookPass/contactSheet');
 
 const MS = {
   title: 'T',
@@ -161,5 +161,16 @@ describe('book pass', () => {
     expect(payload.stage).toBe('bookPass');
     expect(payload.reason).toBe('book_pass_exhausted');
     expect(payload.defects[0]).toBe('spread 5: outfit color differs from cover');
+  });
+
+  // Book audit 2026-07-16: per-spread QA can't see cross-spread drift — the
+  // whole-book review is the only stage that can, so its checklist must name
+  // age/build drift and stray facial marks explicitly.
+  test('contact-sheet checklist covers character drift (age/build + stray facial marks)', () => {
+    const p = buildContactSheetPrompt({ manuscript: MS, direction });
+    expect(p).toContain('CHARACTER DRIFT');
+    expect(p).toContain('SAME apparent age and build on every spread');
+    expect(p).toContain('younger/chubbier or older/slimmer');
+    expect(p).toContain('stray moles, beauty marks, or dark facial spots');
   });
 });

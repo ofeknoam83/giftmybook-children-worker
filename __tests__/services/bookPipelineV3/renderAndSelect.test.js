@@ -96,6 +96,18 @@ describe('buildSpreadRenderPrompt', () => {
     const fallback = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
     expect(fallback).toContain('The child is: watering a tiny sunflower');
   });
+
+  // Page-to-page consistency (book audit 2026-07-16): individually-passing
+  // spreads still drifted — stray facial moles, apparent age wobbling between
+  // spreads. The prompt pins the model sheet as the ONLY source of marks,
+  // age, and build.
+  test('pins facial marks and age/build to the model sheet on every spread', () => {
+    const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(p).toContain('FACIAL MARKS: only the marks shown on the model sheet');
+    expect(p).toContain('never add moles, beauty marks, or stray dark spots');
+    expect(p).toContain("AGE & BUILD: exactly the model sheet's age, proportions, and build");
+    expect(p).toContain('never render the child younger/chubbier or older/slimmer');
+  });
 });
 
 describe('renderAllSpreadsNative', () => {
