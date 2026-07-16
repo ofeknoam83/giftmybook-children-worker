@@ -56,7 +56,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     `- The child is: ${direction?.moment || sc.hero_action || 'present in the scene'}`,
     direction?.poseHint ? `- Pose: ${direction.poseHint}` : null,
     `- Emotion on the child's face/body: ${sc.emotion || 'engaged'}`,
-    (sc.key_objects || []).length ? `- Must include: ${sc.key_objects.join(', ')}` : null,
+    (sc.key_objects || []).length ? `- Must include, each CLEARLY VISIBLE and recognizable: ${sc.key_objects.join(', ')}` : null,
     sc.time_of_day ? `- Time of day: ${sc.time_of_day}` : null,
     sc.continuity_notes ? `- Continuity: ${sc.continuity_notes}` : null,
     '',

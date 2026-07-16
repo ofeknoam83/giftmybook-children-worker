@@ -50,8 +50,10 @@ Return STRICT JSON:
 Rules:
 - HARD FAILS (these always block): duplicated hero or a wrong/extra person caps cast at 1. Countable extra fingers, fused hands, or a third arm caps anatomy at 2.
 - ONE-MOMENT RULE: a picture shows ONE instant. If the image plausibly depicts ANY moment within the contracted action ("tries to lift the lid" = hands on a closed lid OR a lid cracked open; "climbs the ladder" = on the ladder OR just arrived at the top), contract is satisfied — never fail for not depicting a sequence of actions in one frame.
-- MINOR-ANATOMY ALLOWANCE: subtle stiffness, a slightly awkward grip, or "somewhat unnatural" posing scores 4, not 3. Only clearly wrong anatomy blocks.
+- MOTION-PHASE ALLOWANCE: a still image cannot depict a motion phase. If the pose is consistent with the action at ANY plausible phase (foot ON the stone satisfies "mid-tap, connecting"; the stone AT the foot satisfies "just leaving the foot"), the contract is satisfied — never fail for static-vs-in-motion, resting-vs-tapping, or about-to-vs-just-did.
+- MINOR-ANATOMY ALLOWANCE: subtle stiffness, a slightly awkward grip, or "somewhat unnatural" posing scores 4, not 3. "Stiff", "awkward", or "slightly unnatural" NEVER scores below 4 — only countably wrong anatomy (extra/missing/fused fingers, a third arm) blocks.
 - OBJECT EQUIVALENCE: a required object is satisfied by a reasonable visual equivalent (judge intent, not the literal phrase).
+- OBJECT CRITICALITY: a missing required object blocks ONLY when the action becomes unreadable without it. A small mechanism prop (peg, groove, panel, latch) that is absent while the action still reads clearly is an advisory defect note at contract 4, not a failure.
 - NO IDENTITY OR GENDER JUDGING: you have no reference art. Never assess whether the character matches a name, assumed gender, or appearance — a separate likeness judge owns identity. Cast counts PEOPLE only.
 - The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }

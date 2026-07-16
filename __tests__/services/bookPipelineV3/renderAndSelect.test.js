@@ -68,7 +68,9 @@ describe('buildSpreadRenderPrompt', () => {
     const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
     expect(p).toContain('sunny backyard');
     expect(p).toContain('watering a tiny sunflower');
-    expect(p).toContain('red watering can');
+    // Required objects are demanded visibly — missing_object was the #2 QA
+    // fail class when the prompt merely listed them (book f7191348).
+    expect(p).toContain('Must include, each CLEARLY VISIBLE and recognizable: red watering can');
     expect(p).toContain('BRIEF');
     expect(p).toContain('ABSOLUTELY NO TEXT');
     expect(p).toContain('Exactly ONE instance of the child');

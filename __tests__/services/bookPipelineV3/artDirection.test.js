@@ -135,6 +135,23 @@ describe('runArtDirection', () => {
     expect(res.directionBySpread.get(2).poseHint).toBe('whole-hand grip');
     expect(res.directionBySpread.get(1).moment).toBeNull();
   });
+
+  // 2026-07-16 (book f7191348): moments like "boot in mid-tap, connecting"
+  // and "stone just leaving the foot" are unpaintable motion physics — the
+  // renderer can't hit them and the judge fails literally. The moment must
+  // be a HOLDABLE pose, and 3+-prop mechanisms must be staged down to the
+  // 1-2 props that carry the action (or bounced as prop soup).
+  test('the moment must be HOLDABLE (no split-second motion phases) and prop mechanisms are staged, not enumerated', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: goodPlan, model: 'm', family: 'gemini' });
+    await runArtDirection({ manuscript: MS, ageBand: 'PB_TODDLER', referenceImages: [], log: () => {} });
+    const prompt = callVisionRole.mock.calls[0][1].prompt;
+    expect(prompt).toContain('HOLDABLE — something the child could hold for a photograph');
+    expect(prompt).toContain("NEVER a split-second motion phase ('mid-tap', 'mid-air', 'just leaving the foot', 'mid-bounce')");
+    expect(prompt).toContain('a still image cannot prove motion');
+    expect(prompt).toContain('PROP MECHANISMS');
+    expect(prompt).toContain('foreground ONE clear mechanical interaction');
+    expect(prompt).toContain('bounce it as prop soup');
+  });
 });
 
 describe('book pass', () => {

@@ -82,6 +82,22 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
     expect(p).toContain('caps anatomy at 2');
   });
 
+  // 2026-07-16 (book f7191348, spreads 3+8 exhausted): action_mismatch:9 came
+  // from grading motion physics a still image can't prove ("boot resting, not
+  // mid-tap"); missing_object:7 from treating every small mechanism prop as a
+  // hard requirement; and "slightly stiff" hands still failed despite the
+  // minor-anatomy allowance.
+  test('motion-phase allowance, object criticality, and the hard anatomy floor', () => {
+    const p = buildSpreadJudgePrompt({ sceneContract: { hero_action: 'taps the stone into the groove' }, direction: null });
+    expect(p).toContain('MOTION-PHASE ALLOWANCE');
+    expect(p).toContain('a still image cannot depict a motion phase');
+    expect(p).toContain('never fail for static-vs-in-motion, resting-vs-tapping, or about-to-vs-just-did');
+    expect(p).toContain('OBJECT CRITICALITY');
+    expect(p).toContain('blocks ONLY when the action becomes unreadable without it');
+    expect(p).toContain('advisory defect note at contract 4, not a failure');
+    expect(p).toContain('NEVER scores below 4 — only countably wrong anatomy');
+  });
+
   test('when the art director specified a moment, the judge grades the action against IT', () => {
     const p = buildSpreadJudgePrompt({
       sceneContract: { hero_action: 'searches the porch, then unfolds the map' },
