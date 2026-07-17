@@ -28,6 +28,7 @@ jest.mock('../../../services/bookPipelineV3/illustrator/qa/select', () => ({
 }));
 jest.mock('../../../services/bookPipelineV3/illustrator/artDirection/artDirector', () => ({
   runArtDirection: jest.fn(),
+  restageSpread: jest.fn(),
 }));
 jest.mock('../../../services/bookPipelineV3/illustrator/artDirection/worldPlates', () => ({
   renderWorldPlates: jest.fn(async () => new Map()),
@@ -48,7 +49,7 @@ const { buildBookReferencePack } = require('../../../services/bookPipelineV3/ill
 const { renderAllSpreadsNative } = require('../../../services/bookPipelineV3/illustrator/render/renderAllSpreads');
 const { renderSpreadCandidates } = require('../../../services/bookPipelineV3/illustrator/render/renderSpread');
 const { selectSpreadWinner } = require('../../../services/bookPipelineV3/illustrator/qa/select');
-const { runArtDirection } = require('../../../services/bookPipelineV3/illustrator/artDirection/artDirector');
+const { runArtDirection, restageSpread } = require('../../../services/bookPipelineV3/illustrator/artDirection/artDirector');
 const { runBookPass } = require('../../../services/bookPipelineV3/illustrator/bookPass/contactSheet');
 const { runNativeIllustrator } = require('../../../services/bookPipelineV3/illustrator');
 
@@ -207,6 +208,101 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
       { stage: 'bookPass', spread: 7, note: 'simple wavy-line map' },
     ]);
     expect(doc.spreads.every((s) => s.illustration)).toBe(true);
+  });
+
+  // Spread recovery ladder (2026-07-17): one unlucky page must not kill the
+  // book — an exhausted spread gets a restaged scene + one fresh full round
+  // before needs_review.
+  describe('spread recovery ladder', () => {
+    const failedRound = (spreadNumber, candidates) => ({
+      selected: null,
+      evaluations: [
+        { candidateIndex: 1, path: candidates[0].path, pass: false, stage: 'spreadJudge', defects: ['the contracted action is entirely absent'] },
+        { candidateIndex: 2, path: candidates[1].path, pass: false, stage: 'likeness', defects: ['hair color drifted blonde'] },
+      ],
+      repairWaves: 1,
+      allCandidates: candidates,
+    });
+
+    beforeEach(() => {
+      runBookPass.mockResolvedValue(bookPassResult({ notes: 'clean' }));
+      restageSpread.mockResolvedValue({ moment: 'kneeling beside the pedestal, gem cupped in both hands', poseHint: 'whole-hand cradle', continuityNotes: null });
+    });
+
+    test('an exhausted spread is restaged and recovered on the fresh round', async () => {
+      // Spread 2 fails its first round; every other call (including the
+      // recovery round) picks the first candidate offered.
+      let spread2Rounds = 0;
+      selectSpreadWinner.mockImplementation(async ({ spread, candidates }) => {
+        if (spread.spread === 2 && spread2Rounds === 0) {
+          spread2Rounds += 1;
+          return failedRound(2, candidates);
+        }
+        return {
+          selected: { candidateIndex: candidates[0].candidateIndex, path: candidates[0].path, pass: true, stage: 'passed', likeness: 5, defects: [], spreadScores: null },
+          evaluations: [],
+          repairWaves: 0,
+          allCandidates: candidates,
+        };
+      });
+
+      const doc = await runNativeIllustrator(makeInput(), ctx);
+
+      // Restage got the accumulated defects from the failed round.
+      expect(restageSpread).toHaveBeenCalledTimes(1);
+      const restageArgs = restageSpread.mock.calls[0][0];
+      expect(restageArgs.spread.spread).toBe(2);
+      expect(restageArgs.defects).toEqual(expect.arrayContaining(['the contracted action is entirely absent', 'hair color drifted blonde']));
+
+      // The recovery round rendered fresh candidates and judged them under
+      // the RESTAGED direction with continued candidate indices.
+      expect(renderSpreadCandidates).toHaveBeenCalledTimes(1);
+      const recoveryCall = selectSpreadWinner.mock.calls.find((c) => c[0].spread.spread === 2 && c[0].candidates[0].candidateIndex === 3);
+      expect(recoveryCall).toBeDefined();
+      expect(recoveryCall[0].direction.moment).toBe('kneeling beside the pedestal, gem cupped in both hands');
+      expect(recoveryCall[0].direction.continuityNotes).toContain('RESTAGED after QA exhaustion');
+      expect(recoveryCall[0].referenceImages).toBe(BOOK_PACK);
+
+      // The book completes with every spread illustrated.
+      expect(doc.spreads.every((s) => s.illustration)).toBe(true);
+      expect(doc.spreads.find((s) => s.spreadNumber === 2).illustration.candidateIndex).toBe(3);
+    });
+
+    test('a spread that fails the recovery round too goes to needs_review with MERGED candidates', async () => {
+      selectSpreadWinner.mockImplementation(async ({ spread, candidates }) => {
+        if (spread.spread === 2) return failedRound(2, candidates);
+        return {
+          selected: { candidateIndex: candidates[0].candidateIndex, path: candidates[0].path, pass: true, stage: 'passed', likeness: 5, defects: [], spreadScores: null },
+          evaluations: [],
+          repairWaves: 0,
+          allCandidates: candidates,
+        };
+      });
+
+      await expect(runNativeIllustrator(makeInput(), ctx)).rejects.toThrow(/1 spread\(s\) exhausted the QA budget/);
+      expect(restageSpread).toHaveBeenCalledTimes(1);
+      expect(renderSpreadCandidates).toHaveBeenCalledTimes(1); // recovery round ran before giving up
+    });
+
+    test('a restage failure does not abort recovery — the fresh round still runs', async () => {
+      restageSpread.mockRejectedValue(new Error('art director timeout'));
+      let spread2Rounds = 0;
+      selectSpreadWinner.mockImplementation(async ({ spread, candidates }) => {
+        if (spread.spread === 2 && spread2Rounds === 0) {
+          spread2Rounds += 1;
+          return failedRound(2, candidates);
+        }
+        return {
+          selected: { candidateIndex: candidates[0].candidateIndex, path: candidates[0].path, pass: true, stage: 'passed', likeness: 5, defects: [], spreadScores: null },
+          evaluations: [],
+          repairWaves: 0,
+          allCandidates: candidates,
+        };
+      });
+
+      const doc = await runNativeIllustrator(makeInput(), ctx);
+      expect(doc.spreads.every((s) => s.illustration)).toBe(true);
+    });
   });
 
   test("winners' minor spread-judge defects aggregate into qaAdvisories", async () => {
