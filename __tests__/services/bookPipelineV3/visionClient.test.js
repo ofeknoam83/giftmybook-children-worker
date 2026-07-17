@@ -64,8 +64,11 @@ test('gemini role builds inline_data parts', async () => {
 // 2026-07-17: OpenAI stopped accepting chat/completions image_url parts for
 // gpt-5.x ("image_url is only supported by certain models") — every likeness
 // judgment 400'd and identity kits dead-ended. The openai vision path is now
-// the Responses API with input_text/input_image content items.
+// the Responses API with input_text/input_image content items. Vision roles
+// default to gemini since the all-Gemini decision; these tests exercise the
+// openai path via the per-role family override (kept wired for A/B).
 test('openai role calls the Responses API with input_text/input_image items', async () => {
+  process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY = 'openai';
   fetchWithTimeout.mockResolvedValueOnce(openaiResponsesReply('verdict'));
   const res = await callVisionRole('LIKENESS_JUDGE_B', { prompt: 'compare', images: [IMG] });
   expect(res.family).toBe('openai');
@@ -80,6 +83,7 @@ test('openai role calls the Responses API with input_text/input_image items', as
 });
 
 test('openai output_text shorthand is parsed too', async () => {
+  process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY = 'openai';
   fetchWithTimeout.mockResolvedValueOnce({
     ok: true,
     json: async () => ({ output_text: 'shorthand verdict', usage: { input_tokens: 1, output_tokens: 1 } }),
@@ -89,6 +93,7 @@ test('openai output_text shorthand is parsed too', async () => {
 });
 
 test('a 404 on /v1/responses falls back LOUDLY to legacy chat/completions and memoizes', async () => {
+  process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY = 'openai';
   fetchWithTimeout
     .mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'unknown endpoint' })
     .mockResolvedValueOnce(openaiChatReply('legacy verdict'))
@@ -108,6 +113,7 @@ test('a 404 on /v1/responses falls back LOUDLY to legacy chat/completions and me
 });
 
 test('a non-404 openai error still fails loudly (no silent fallback)', async () => {
+  process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY = 'openai';
   fetchWithTimeout.mockResolvedValue({ ok: false, status: 400, text: async () => 'bad request' });
   await expect(callVisionRole('LIKENESS_JUDGE_B', { prompt: 'compare', images: [IMG] }))
     .rejects.toThrow(/openai vision 400/);
