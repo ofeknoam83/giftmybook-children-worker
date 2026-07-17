@@ -25,6 +25,7 @@ Cross-pipeline code: `shared/llm/openaiClient.js` (unified LLM client), `shared/
 ## Book Formats
 
 - **Picture books ONLY** (v3-only cutover): 8.5x8.5", 13 spreads (32 pages total). Early readers, chapter books, and graphic novels are RETIRED — validation rejects them 400 before the 202. Emotional books are picture books at every age. `/finalize-book` keeps a graphic-novel path for finalizing legacy books already in the system.
+- **Text layout (admin-selectable, request field `textLayout`):** `'caption'` (default — typeset story text on a white verso page + full-bleed 1:1 art recto) or `'embedded'` (one wide 16:9 illustration spanning both facing pages, caption typeset OVER the art in the art director's quiet zone on a translucent scrim). Art is wordless in BOTH modes (D5 — words are PDF type, never pixels). Mode is checkpoint-pinned, persisted at `doc.v3.textLayout`, and rides per-spread entries as `textLayout`+`textZone`.
 
 ## Environment Variables
 

@@ -21,7 +21,21 @@ const { formatCastList } = require('../promptFormat');
  * satisfies D5 (no text in pixels) with the existing layout engine. W9's
  * zone typesetting can widen this via env once wide-art overlay ships.
  */
-const SPREAD_ASPECT_RATIO = process.env.BOOK_PIPELINE_V3_SPREAD_ASPECT_RATIO || '1:1';
+const SPREAD_ASPECT_RATIO = process.env.BOOK_PIPELINE_V3_SPREAD_ASPECT_RATIO || null;
+
+/**
+ * Per-book aspect: 'embedded' text layout renders WIDE (16:9 — the ratio the
+ * identity sheet already uses) so one illustration spans both facing pages
+ * with the caption typeset over the quiet zone; 'caption' (default) renders
+ * square for the verso-caption/recto-art layout. The env override wins.
+ *
+ * @param {string} [textLayout] - 'caption' | 'embedded'
+ * @returns {string} imageConfig.aspectRatio value
+ */
+function resolveSpreadAspect(textLayout) {
+  if (SPREAD_ASPECT_RATIO) return SPREAD_ASPECT_RATIO;
+  return textLayout === 'embedded' ? '16:9' : '1:1';
+}
 
 /** Zone grammar → plain-language quiet-zone instruction. */
 const ZONE_INSTRUCTIONS = {
@@ -41,12 +55,18 @@ const ZONE_INSTRUCTIONS = {
  * @param {string} [opts.wardrobeNote]
  * @returns {string} full render prompt
  */
-function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null }) {
+function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption' }) {
   const sc = spread.scene_contract || {};
   const zone = direction?.textZone && (ZONE_INSTRUCTIONS[direction.textZone] || direction.textZone);
+  const embedded = textLayout === 'embedded';
 
   return [
-    `PICTURE-BOOK ILLUSTRATION (spread ${spread.spread} of a children's book) — one full-page scene:`,
+    embedded
+      ? `PICTURE-BOOK ILLUSTRATION (spread ${spread.spread} of a children's book) — ONE WIDE scene that will span TWO facing printed pages:`
+      : `PICTURE-BOOK ILLUSTRATION (spread ${spread.spread} of a children's book) — one full-page scene:`,
+    embedded
+      ? 'GUTTER: the printed book folds down the exact vertical center of this image — keep the child, faces, and the focal action clearly OFF the center line (left or right third), and let the background flow naturally across it.'
+      : null,
     '',
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
@@ -68,8 +88,8 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
       direction.continuityNotes ? `- Continuity locks: ${direction.continuityNotes}` : null,
     ].filter(Boolean).join('\n') : 'COMPOSITION: one clear focal action; the child off-center (left or right third); background supports but never crowds the subject.',
     zone
-      ? `QUIET ZONE: keep the ${zone} of the image visually QUIET — soft, low-detail, low-contrast (sky, wall, water). Nothing important there.`
-      : 'QUIET ZONE: keep one generous area of soft, low-detail background (sky, wall, or similar) so the composition breathes.',
+      ? `QUIET ZONE: keep the ${zone} of the image visually QUIET — soft, low-detail, low-contrast (sky, wall, water). Nothing important there.${embedded ? ' The story text will be PRINTED over this zone, so it must stay genuinely calm and uncluttered.' : ''}`
+      : `QUIET ZONE: keep one generous area of soft, low-detail background (sky, wall, or similar) so the composition breathes.${embedded ? ' The story text will be PRINTED over that area.' : ''}`,
     '',
     'CHARACTER IDENTITY:',
     briefText,
@@ -106,16 +126,16 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  */
 async function renderSpreadCandidates({
   spread, direction = null, bookPack, plate = null, briefText, wardrobeNote,
-  count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
+  textLayout = 'caption', count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
-  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote });
+  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout });
   const references = withWorldPlate(bookPack, plate);
 
   const renderOne = (i) => generateImage({
     model: SPREAD_RENDERER_MODEL,
     prompt,
     references,
-    aspectRatio: SPREAD_ASPECT_RATIO,
+    aspectRatio: resolveSpreadAspect(textLayout),
     abortSignal,
     label: `v3.spread.${spread.spread}.c${i + 1}`,
   }).then((img) => ({ ...img, candidateIndex: i + 1 }));
@@ -139,6 +159,7 @@ async function renderSpreadCandidates({
 module.exports = {
   buildSpreadRenderPrompt,
   renderSpreadCandidates,
+  resolveSpreadAspect,
   SPREAD_ASPECT_RATIO,
   ZONE_INSTRUCTIONS,
 };

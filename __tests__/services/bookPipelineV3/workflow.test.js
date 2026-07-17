@@ -197,6 +197,37 @@ describe('runCreateBookWorkflow — illustrator resolution (post-cutover)', () =
   });
 });
 
+describe('runCreateBookWorkflow — text layout (admin-selectable, 2026-07-17)', () => {
+  test("defaults to 'caption' and persists on doc.v3", async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const { document } = await runCreateBookWorkflow({ rawRequest: { ...RAW_REQUEST }, signals: {}, log: () => {} });
+    expect(document.v3.textLayout).toBe('caption');
+  });
+
+  test("request 'embedded' persists and reaches the illustrator input", async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const { runNativeIllustrator } = require('../../../services/bookPipelineV3/illustrator');
+    runNativeIllustrator.mockClear();
+    const { document } = await runCreateBookWorkflow({
+      rawRequest: { ...RAW_REQUEST, textLayout: 'embedded' },
+      signals: {},
+      log: () => {},
+    });
+    expect(document.v3.textLayout).toBe('embedded');
+    expect(runNativeIllustrator.mock.calls[0][0].textLayout).toBe('embedded');
+  });
+
+  test('the checkpoint mode wins over the request (books finish on the mode they started)', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const { document } = await runCreateBookWorkflow({
+      rawRequest: { ...RAW_REQUEST, textLayout: 'caption', checkpointTextLayout: 'embedded' },
+      signals: {},
+      log: () => {},
+    });
+    expect(document.v3.textLayout).toBe('embedded');
+  });
+});
+
 describe('runCreateBookWorkflow — art-direction bounce loop', () => {
   const { runNativeIllustrator } = require('../../../services/bookPipelineV3/illustrator');
 

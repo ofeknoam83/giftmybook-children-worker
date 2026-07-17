@@ -145,6 +145,34 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('Instrument faces — planispheres, star wheels/charts, dials, calendar wheels');
     expect(p).toContain('never letters, numerals, or month names');
   });
+
+  // Embedded text layout (2026-07-17): wide renders span two printed pages —
+  // the prompt must keep the hero off the gutter and the quiet zone truly
+  // printable-over.
+  describe('embedded text layout', () => {
+    const { resolveSpreadAspect } = require('../../../services/bookPipelineV3/illustrator/render/renderSpread');
+
+    test('resolveSpreadAspect: 16:9 for embedded, 1:1 for caption, env override wins', () => {
+      expect(resolveSpreadAspect('embedded')).toBe('16:9');
+      expect(resolveSpreadAspect('caption')).toBe('1:1');
+      expect(resolveSpreadAspect(undefined)).toBe('1:1');
+    });
+
+    test('embedded prompt carries the two-page header, GUTTER rule, and printed-text zone note', () => {
+      const p = buildSpreadRenderPrompt({ spread: SPREAD(3), direction: { textZone: 'left-top' }, briefText: 'BRIEF', textLayout: 'embedded' });
+      expect(p).toContain('ONE WIDE scene that will span TWO facing printed pages');
+      expect(p).toContain('GUTTER: the printed book folds down the exact vertical center');
+      expect(p).toContain('clearly OFF the center line');
+      expect(p).toContain('The story text will be PRINTED over this zone');
+    });
+
+    test('caption prompt is unchanged (no gutter/printed-text language)', () => {
+      const p = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+      expect(p).not.toContain('GUTTER');
+      expect(p).not.toContain('PRINTED over');
+      expect(p).toContain('one full-page scene');
+    });
+  });
 });
 
 describe('renderAllSpreadsNative', () => {

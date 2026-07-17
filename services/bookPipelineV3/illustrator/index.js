@@ -66,6 +66,7 @@ async function runNativeIllustrator(input, ctx) {
   const {
     identityKit, rawRequest, brief, ageProfile, concept, manuscript,
     coverImageUrl, coverTitle, operationalContext, allowBounce = true,
+    textLayout = 'caption',
   } = input;
   const log = (m) => ctx.log('info', `[v3-illustrator] ${m}`);
   const abortSignal = operationalContext?.abortSignal;
@@ -139,6 +140,7 @@ async function runNativeIllustrator(input, ctx) {
   const platesByLocation = await renderWorldPlates({
     plates: direction.worldPlates,
     paletteArc: direction.paletteArc,
+    textLayout,
     abortSignal,
     log,
   });
@@ -170,6 +172,7 @@ async function runNativeIllustrator(input, ctx) {
     platesByLocation,
     bookPack,
     briefText,
+    textLayout,
     forceSpreads,
     abortSignal,
     log,
@@ -221,6 +224,7 @@ async function runNativeIllustrator(input, ctx) {
       // the cover character, and that character is the book's ground truth.
       referenceImages: bookPack,
       briefText,
+      textLayout,
       qaTagCounts,
       abortSignal,
       log,
@@ -280,6 +284,7 @@ async function runNativeIllustrator(input, ctx) {
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
         briefText,
+        textLayout,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -300,6 +305,7 @@ async function runNativeIllustrator(input, ctx) {
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
         referenceImages: bookPack,
         briefText,
+        textLayout,
         qaTagCounts,
         abortSignal,
         log,
@@ -363,6 +369,7 @@ async function runNativeIllustrator(input, ctx) {
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
         briefText,
+        textLayout,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -389,6 +396,7 @@ async function runNativeIllustrator(input, ctx) {
         // whose book pass flagged a spread).
         referenceImages: bookPack,
         briefText,
+        textLayout,
         qaTagCounts,
         abortSignal,
         log,
@@ -425,10 +433,15 @@ async function runNativeIllustrator(input, ctx) {
         spread,
         direction: direction.directionBySpread.get(docSpread.spreadNumber) || null,
         briefText,
+        textLayout,
       }),
       candidateIndex: winner.candidateIndex,
       likeness: winner.likeness ?? null,
       repairWaves: result.repairWaves,
+      // The art director's quiet zone — the embedded text layout typesets
+      // the caption over this zone at PDF time, so it must survive on the
+      // document (the in-memory direction map dies with this run).
+      textZone: direction.directionBySpread.get(docSpread.spreadNumber)?.textZone || null,
     };
     docSpread.qa.spreadChecks.push({
       source: 'native-v3',

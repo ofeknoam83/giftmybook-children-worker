@@ -90,7 +90,13 @@ function toLegacyStoryPlan(doc) {
   // survive resume too. (`toLayoutPayload.js` computes the same shape for the
   // workflow's layout return, which server.js never reads — candidate for a
   // later fold, kept separate here.)
-  const aspect = doc.v3?.illustrator?.version === 'native' ? 'square' : 'wide';
+  const isNative = doc.v3?.illustrator?.version === 'native';
+  // Text layout (2026-07-17, admin-selectable): 'caption' → square art +
+  // typeset white verso page; 'embedded' → wide art spanning both pages
+  // with the caption typeset OVER the quiet zone. Non-native docs are
+  // pre-cutover legacy re-finalizes: wide baked-caption split, no fields.
+  const textLayout = isNative ? (doc.v3?.textLayout || 'caption') : null;
+  const aspect = isNative ? (textLayout === 'embedded' ? 'wide' : 'square') : 'wide';
   const spreadEntries = doc.spreads.map(s => ({
     type: 'spread',
     spread: s.spreadNumber,
@@ -101,7 +107,9 @@ function toLegacyStoryPlan(doc) {
     spreadIllustrationUrl: s.illustration?.imageUrl || null,
     spreadIllustrationStorageKey: s.illustration?.imageStorageKey || null,
     illustrationAspect: aspect,
-    captionText: aspect === 'square' ? (s.manuscript?.text || '') : undefined,
+    captionText: isNative ? (s.manuscript?.text || '') : undefined,
+    ...(textLayout ? { textLayout } : {}),
+    ...(textLayout === 'embedded' ? { textZone: s.illustration?.textZone || null } : {}),
     // Preserve the scene prompt used by the new pipeline so admin regen /
     // audit flows can reproduce or diff the exact spread brief.
     spread_image_prompt: s.illustration?.scenePrompt || s.spec?.scenePrompt || null,

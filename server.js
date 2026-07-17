@@ -498,6 +498,19 @@ app.post('/generate-book', authenticate, async (req, res) => {
     requestedIllustratorVersion = v;
   }
 
+  // Text layout (2026-07-17, admin-selectable): 'caption' (typeset white
+  // verso + square art recto, default) or 'embedded' (wide art across both
+  // pages, caption typeset OVER the quiet zone). Same contract as
+  // illustratorVersion: anything else 400s before the 202.
+  let requestedTextLayout = null;
+  if (req.body.textLayout !== undefined && req.body.textLayout !== null && req.body.textLayout !== '') {
+    const t = String(req.body.textLayout).toLowerCase().trim();
+    if (t !== 'caption' && t !== 'embedded') {
+      return res.status(400).json({ success: false, error: `Unsupported textLayout '${req.body.textLayout}' — expected 'caption' or 'embedded'` });
+    }
+    requestedTextLayout = t;
+  }
+
   // When generating from a parent book, always preserve the original title.
   // Derive parentBookTitle from parentStoryContent.title if not explicitly set,
   // and lock approvedTitle so the planner never invents a different one.
@@ -929,6 +942,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           // resolved inside the v3 workflow (checkpoint → request → env → default).
           ...(requestedIllustratorVersion ? { illustratorVersion: requestedIllustratorVersion } : {}),
           ...(checkpoint?.illustratorVersion ? { checkpointIllustratorVersion: checkpoint.illustratorVersion } : {}),
+          ...(requestedTextLayout ? { textLayout: requestedTextLayout } : {}),
+          ...(checkpoint?.textLayout ? { checkpointTextLayout: checkpoint.textLayout } : {}),
         };
 
         let pipelineResult;
@@ -1092,6 +1107,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           // finish on it (native|legacy, milestone-2 flag).
           ...(pipelineResult.document?.v3?.illustrator?.version
             ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
+            : {}),
+          ...(pipelineResult.document?.v3?.textLayout
+            ? { textLayout: pipelineResult.document.v3.textLayout }
             : {}),
           ...(qaAdvisories ? { qaAdvisories } : {}),
           timestamp: new Date().toISOString(),

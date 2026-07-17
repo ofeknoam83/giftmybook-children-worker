@@ -151,7 +151,12 @@ async function splitSpreadImage(buf, pw, ph) {
 // ── Font loader (lazy, cached per pdfDoc) ────────────────────────────────────
 async function loadFonts(pdfDoc) {
   pdfDoc.registerFontkit(fontkit);
-  const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p)) : null;
+  // liga:false — Playfair's 'Th' ligature rendered with a visible gap
+  // ("Th en", "Th e") on every caption page (2026-07-17 book review):
+  // fontkit substitutes the ligature glyph while pdf-lib's advance widths
+  // disagree. Ligatures add nothing at caption sizes; disable them for all
+  // embedded fonts.
+  const load = (p) => fs.existsSync(p) ? pdfDoc.embedFont(fs.readFileSync(p), { features: { liga: false } }) : null;
   const [bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB] = await Promise.all([
     load(FONT_PATHS.bubblegum),
     load(FONT_PATHS.playfair),
@@ -184,13 +189,18 @@ function buildBlankPage(pdfDoc, pw, ph) {
  * @param {string} captionText - manuscript text for this spread (newline-separated)
  * @param {{ pw: number, ph: number }} dims - page dimensions in points
  */
-function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
+/**
+ * Shared caption block computation — used by the white caption page AND the
+ * embedded-mode overlay so both text layouts wrap/size identically.
+ *
+ * @returns {{ font: object, size: number, lines: string[], lineH: number, blockH: number }|null}
+ */
+function computeCaptionBlock(fonts, captionText, maxW) {
   const text = String(captionText || '').trim();
-  if (!text) return;
+  if (!text) return null;
 
   const { bubblegum, playfair, playfairItalic, helv } = fonts;
-  const bodyFont = playfairItalic || playfair || bubblegum || helv;
-  const maxW = pw - SAFE * 2;
+  const font = playfairItalic || playfair || bubblegum || helv;
 
   // Manuscript text is already line-broken on \n (4-line picture-book cadence).
   // Preserve the existing line breaks; only wrap individual lines that exceed
@@ -198,26 +208,28 @@ function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
   const sourceLines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   const SIZE_PRIMARY = 22;
   const SIZE_FALLBACK = 18;
-  let bodySize = SIZE_PRIMARY;
-  let allLines = sourceLines.flatMap(line => wrapText(line, bodyFont, bodySize, maxW));
-  if (allLines.some(l => bodyFont.widthOfTextAtSize(l, bodySize) > maxW * 1.02)) {
-    bodySize = SIZE_FALLBACK;
-    allLines = sourceLines.flatMap(line => wrapText(line, bodyFont, bodySize, maxW));
+  let size = SIZE_PRIMARY;
+  let lines = sourceLines.flatMap(line => wrapText(line, font, size, maxW));
+  if (lines.some(l => font.widthOfTextAtSize(l, size) > maxW * 1.02)) {
+    size = SIZE_FALLBACK;
+    lines = sourceLines.flatMap(line => wrapText(line, font, size, maxW));
   }
+  const lineH = size * 1.55;
+  return { font, size, lines, lineH, blockH: lines.length * lineH };
+}
 
-  const lineH = bodySize * 1.55;
-  const blockH = allLines.length * lineH;
-  // Anchor the caption block in the upper-middle of the page so the verso
-  // reads as "the words" leading the eye into the recto illustration.
+function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
+  const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2);
+  if (!block) return;
+  const { font, size, lines, lineH, blockH } = block;
+
+  // Vertically centre the caption block (2026-07-17 review: the old
+  // upper-anchored block left the bottom half of every text page empty).
   // PDF y-axis: 0 = bottom, ph = top. startY is the baseline of the first
-  // (topmost) line; lines descend by lineH. Clamp so the block stays within
-  // the printable safe area:
-  //   startY <= ph - SAFE  →  first line stays below the top safe boundary
-  //   startY >= SAFE + blockH  →  last line baseline stays at ≥ (SAFE + lineH)
-  //                              above the bottom safe boundary
-  const idealStartY = ph * 0.62 + blockH / 2;
+  // (topmost) line; lines descend by lineH. Clamp to the printable safe area.
+  const idealStartY = ph / 2 + blockH / 2;
   const startY = Math.min(ph - SAFE, Math.max(SAFE + blockH, idealStartY));
-  drawCenteredBlock(page, allLines, bodyFont, bodySize, startY, lineH, C.brownMid);
+  drawCenteredBlock(page, lines, font, size, startY, lineH, C.brownMid);
 
   // A subtle gold rule beneath the block — same visual vocabulary as the
   // dedication page so the typography reads as "from the same book".
@@ -225,6 +237,47 @@ function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
   if (ruleY > BLEED + 30) {
     goldRule(page, ruleY, 80);
   }
+}
+
+/**
+ * Embedded text layout: typeset the caption OVER the illustration inside the
+ * art director's planned quiet zone, on a soft translucent scrim so the type
+ * stays readable on any palette. The art itself remains wordless (D5) — the
+ * words are print-perfect PDF type, never pixels.
+ *
+ * @param {import('pdf-lib').PDFPage} page - the page carrying the art half
+ * @param {object} fonts
+ * @param {string} captionText
+ * @param {string} zone - art-direction textZone (left-top | left-bottom |
+ *   right-top | right-bottom | left | right); only the vertical component
+ *   matters here (the horizontal component chose WHICH page).
+ * @param {{ pw: number, ph: number }} dims
+ */
+function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph }) {
+  const PAD = 22;
+  const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2 - PAD * 2);
+  if (!block) return;
+  const { font, size, lines, lineH, blockH } = block;
+
+  const vertical = String(zone || '').includes('bottom') ? 'bottom' : 'top';
+  // startY = baseline of the topmost line (PDF y grows upward).
+  const startY = vertical === 'top'
+    ? ph - SAFE - PAD
+    : Math.max(SAFE + blockH + PAD, SAFE + blockH);
+
+  // Scrim behind the block: full text width + padding, soft white.
+  const widest = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, size)));
+  const scrimW = Math.min(pw - SAFE * 2, widest + PAD * 2);
+  const scrimH = blockH + PAD * 1.6;
+  page.drawRectangle({
+    x: (pw - scrimW) / 2,
+    y: startY - blockH - PAD * 0.8,
+    width: scrimW,
+    height: scrimH,
+    color: C.white,
+    opacity: 0.78,
+  });
+  drawCenteredBlock(page, lines, font, size, startY - PAD * 0.2, lineH, C.black);
 }
 
 function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
@@ -573,6 +626,32 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       continue;
     }
     if (entry.type !== 'spread') continue;
+
+    if (entry.textLayout === 'embedded' && entry.captionText !== undefined) {
+      // Embedded text layout (2026-07-17): ONE wide wordless illustration
+      // spans both facing pages; the caption is typeset OVER the art (on a
+      // translucent scrim) inside the art director's quiet zone. The words
+      // are PDF type, never pixels — D5 stays intact.
+      const leftPage = pdfDoc.addPage([pw, ph]);
+      const rightPage = pdfDoc.addPage([pw, ph]);
+      if (entry.spreadIllustrationBuffer) {
+        try {
+          const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+          await embedFullBleed(pdfDoc, leftPage, leftBuf);
+          await embedFullBleed(pdfDoc, rightPage, rightBuf);
+        } catch (e) {
+          console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
+        }
+      }
+      const zone = entry.textZone || 'left-top';
+      const textPage = String(zone).startsWith('right') ? rightPage : leftPage;
+      try {
+        drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph });
+      } catch (e) {
+        console.warn(`[LayoutEngine] caption overlay failed: ${e.message}`);
+      }
+      continue;
+    }
 
     if (entry.illustrationAspect === 'square') {
       // 1:1 OpenAI path — verso (left) page is a typeset caption, recto
