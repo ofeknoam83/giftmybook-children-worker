@@ -267,7 +267,7 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph }) {
 
   // Scrim behind the block: full text width + padding, soft white.
   const widest = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, size)));
-  const scrimW = Math.min(pw - SAFE, widest + PAD * 2);
+  const scrimW = Math.min(pw - SAFE * 2, widest + PAD * 2);
   const scrimH = blockH + PAD * 1.6;
   page.drawRectangle({
     x: (pw - scrimW) / 2,

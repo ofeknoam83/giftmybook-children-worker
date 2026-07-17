@@ -139,7 +139,7 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
       .mockResolvedValueOnce(bookPassResult({ criticalFlags: [{ spread: 2, issue: 'wrong version of the treasure map', severity: 'critical' }], notes: 'prop break' }))
       .mockResolvedValueOnce(bookPassResult({ notes: 'fixed' }));
 
-    const doc = await runNativeIllustrator(makeInput(), ctx);
+    const doc = await runNativeIllustrator({ ...makeInput(), textLayout: 'embedded' }, ctx);
 
     // 3 main QA calls + 1 regen call for the flagged spread.
     expect(selectSpreadWinner).toHaveBeenCalledTimes(4);
@@ -153,6 +153,12 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
     expect(regenArgs).not.toHaveProperty('photos');
     const mainArgs = selectSpreadWinner.mock.calls.find((c) => c[0].spread.spread === 2)[0];
     expect(regenArgs.referenceImages).toEqual(mainArgs.referenceImages);
+
+    // The regen rerun keeps the book's text layout — a repair wave inside
+    // selectSpreadWinner must re-render at the embedded (wide) aspect, not
+    // fall back to caption/square.
+    expect(regenArgs.textLayout).toBe('embedded');
+    expect(renderSpreadCandidates.mock.calls[0][0].textLayout).toBe('embedded');
 
     // The flag's issue is fed into the regen render as a fix instruction.
     expect(regenArgs.spread.scene_contract.continuity_notes)
@@ -246,7 +252,7 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
         };
       });
 
-      const doc = await runNativeIllustrator(makeInput(), ctx);
+      const doc = await runNativeIllustrator({ ...makeInput(), textLayout: 'embedded' }, ctx);
 
       // Restage got the accumulated defects from the failed round.
       expect(restageSpread).toHaveBeenCalledTimes(1);
@@ -262,6 +268,10 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
       expect(recoveryCall[0].direction.moment).toBe('kneeling beside the pedestal, gem cupped in both hands');
       expect(recoveryCall[0].direction.continuityNotes).toContain('RESTAGED after QA exhaustion');
       expect(recoveryCall[0].referenceImages).toBe(BOOK_PACK);
+      // The recovery rerun keeps the book's text layout (embedded books
+      // must not fall back to caption/square in a repair wave).
+      expect(recoveryCall[0].textLayout).toBe('embedded');
+      expect(renderSpreadCandidates.mock.calls[0][0].textLayout).toBe('embedded');
 
       // The book completes with every spread illustrated.
       expect(doc.spreads.every((s) => s.illustration)).toBe(true);

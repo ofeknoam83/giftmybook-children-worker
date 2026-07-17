@@ -305,6 +305,7 @@ async function runNativeIllustrator(input, ctx) {
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
         referenceImages: bookPack,
         briefText,
+        textLayout,
         qaTagCounts,
         abortSignal,
         log,
@@ -395,6 +396,7 @@ async function runNativeIllustrator(input, ctx) {
         // whose book pass flagged a spread).
         referenceImages: bookPack,
         briefText,
+        textLayout,
         qaTagCounts,
         abortSignal,
         log,
