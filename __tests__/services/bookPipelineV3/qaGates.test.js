@@ -240,4 +240,14 @@ describe('likeness rubric — spread-level allowances', () => {
   test('scene lighting is not a skin-tone mismatch', () => {
     expect(JUDGE_PROMPT).toContain('Scene lighting is not a skin-tone mismatch');
   });
+
+  // 2026-07-16 (book f33b4200): 12 likeness fails, almost all "hair reads
+  // golden/blonde" in a starlight-themed book — warm light glows on brown
+  // hair. The lighting rule now covers HAIR: fail only a genuinely
+  // different base color, never warm-lit brown.
+  test('warm-lit hair is not a hair-color mismatch — only a genuinely different base color fails', () => {
+    expect(JUDGE_PROMPT).toContain('The same applies to HAIR');
+    expect(JUDGE_PROMPT).toContain("judge the hair's base color under the scene's light");
+    expect(JUDGE_PROMPT).toContain('fail only when the hair genuinely reads a DIFFERENT color');
+  });
 });

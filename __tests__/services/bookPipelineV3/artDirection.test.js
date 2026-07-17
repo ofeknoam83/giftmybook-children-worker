@@ -164,6 +164,11 @@ describe('runArtDirection', () => {
     expect(prompt).toContain('WRITTEN LABELS');
     expect(prompt).toContain('never reference map locations, signs, or any written label BY NAME');
     expect(prompt).toContain('lettering is an automatic QA kill');
+    // 2026-07-16 (book f33b4200, spread 11): a planisphere prop died on
+    // lettering 4/4 — inherently text-bearing props must be staged as
+    // symbol-marked instruments or swapped for a pictorial equivalent.
+    expect(prompt).toContain('Inherently text-bearing props (planispheres, calendar dials, star wheels, clock faces)');
+    expect(prompt).toContain('never rely on their text to read');
   });
 
   // 2026-07-16 (book 8e6c23e0): moments like "his LEFT hand raised, holding
