@@ -24,6 +24,7 @@ const {
 afterEach(() => {
   delete process.env.BOOK_PIPELINE_V3_ILLUSTRATOR;
   delete process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY;
+  delete process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_TIER;
 });
 
 describe('resolveIllustratorVersion', () => {
@@ -78,25 +79,35 @@ describe('resolveIllustratorVersion', () => {
 });
 
 describe('modelRouter illustrator roles', () => {
-  test('new roles resolve to provisioned vendors', () => {
+  // 2026-07-17 product decision: ALL vision roles run on Gemini — the
+  // OpenAI vision wire format broke mid-production and dead-ended every
+  // book. Likeness diversity is now cross-MODEL (flash + pro) instead of
+  // cross-family.
+  test('all vision roles resolve to gemini (no OpenAI vision dependency)', () => {
     expect(modelFor('ART_DIRECTOR')).toEqual({ model: 'gemini-2.5-pro', family: 'gemini' });
     expect(modelFor('QA_VISION')).toEqual({ model: 'gemini-2.5-flash', family: 'gemini' });
-    expect(modelFor('LIKENESS_JUDGE_A').family).toBe('gemini');
-    expect(modelFor('LIKENESS_JUDGE_B').family).toBe('openai');
+    expect(modelFor('LIKENESS_JUDGE_A')).toEqual({ model: 'gemini-2.5-flash', family: 'gemini' });
+    expect(modelFor('LIKENESS_JUDGE_B')).toEqual({ model: 'gemini-2.5-pro', family: 'gemini' });
   });
 
-  test('likeness judges are cross-family by default', () => {
+  test('likeness judges are cross-MODEL by default (flash + pro)', () => {
     const res = validateLikenessFamilies(() => {});
     expect(res.ok).toBe(true);
-    expect(new Set(res.families).size).toBe(LIKENESS_ROLES.length);
+    expect(new Set(res.models).size).toBe(LIKENESS_ROLES.length);
   });
 
-  test('collapsing likeness families warns FAMILY COLLAPSE', () => {
-    process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY = 'gemini';
+  test('collapsing likeness judges onto ONE model warns MODEL COLLAPSE', () => {
+    process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_TIER = 'mid'; // both → gemini-2.5-flash
     const log = jest.fn();
     const res = validateLikenessFamilies(log);
     expect(res.ok).toBe(false);
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(/LIKENESS JUDGE FAMILY COLLAPSE/));
-    expect(resolveRole('LIKENESS_JUDGE_B').family).toBe('gemini');
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/LIKENESS JUDGE MODEL COLLAPSE/));
+  });
+
+  test('a cross-family override (openai judge B) still satisfies the model-diversity rule', () => {
+    process.env.BOOK_PIPELINE_V3_LIKENESS_JUDGE_B_FAMILY = 'openai';
+    const res = validateLikenessFamilies(() => {});
+    expect(res.ok).toBe(true);
+    expect(resolveRole('LIKENESS_JUDGE_B').family).toBe('openai');
   });
 });

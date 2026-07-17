@@ -6,7 +6,13 @@
  * Families:
  *   gemini — generativelanguage generateContent with inline_data parts
  *            (same wire shape faceEngine uses)
- *   openai — chat/completions with image_url data-URI content parts
+ *   openai — Responses API (/v1/responses) with input_text/input_image
+ *            content items. The legacy chat/completions image_url shape
+ *            started 400ing for gpt-5.x on 2026-07-17 ("image_url is only
+ *            supported by certain models") — an OpenAI-side rollout that
+ *            silenced LIKENESS_JUDGE_B and dead-ended every identity kit.
+ *            A loud per-process fallback to the legacy shape remains for
+ *            environments where /v1/responses is unavailable (404).
  *
  * Anthropic/deepseek are not wired for vision — deepseek has no vision
  * API and anthropic stays an A/B option for TEXT roles only. A role
@@ -67,9 +73,25 @@ async function callGeminiVision({ model, prompt, images, timeoutMs, abortSignal,
   return { text, usage };
 }
 
-async function callOpenAiVision({ model, prompt, images, timeoutMs, abortSignal, temperature }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('visionClient: no OPENAI_API_KEY set');
+/**
+ * Per-process memo: set to true when /v1/responses 404s (e.g., a proxy that
+ * only knows chat/completions) — later calls skip straight to the legacy
+ * shape instead of re-discovering the missing endpoint on every judgment.
+ */
+let openaiResponsesUnavailable = false;
+
+/** Extract the reply text from a Responses API payload. */
+function parseResponsesOutput(data) {
+  if (typeof data?.output_text === 'string' && data.output_text) return data.output_text;
+  const message = (data?.output || []).find((o) => o.type === 'message');
+  return (message?.content || [])
+    .filter((c) => c.type === 'output_text')
+    .map((c) => c.text)
+    .join('\n');
+}
+
+/** Legacy chat/completions image_url shape — fallback only (older proxies). */
+async function callOpenAiVisionLegacy({ model, prompt, images, timeoutMs, abortSignal, temperature, apiKey }) {
   const content = [{ type: 'text', text: prompt }];
   for (const img of images) {
     content.push({
@@ -98,6 +120,52 @@ async function callOpenAiVision({ model, prompt, images, timeoutMs, abortSignal,
   const text = data?.choices?.[0]?.message?.content || '';
   const usage = data?.usage
     ? { inputTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0 }
+    : null;
+  return { text, usage };
+}
+
+async function callOpenAiVision({ model, prompt, images, timeoutMs, abortSignal, temperature }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('visionClient: no OPENAI_API_KEY set');
+  if (openaiResponsesUnavailable) {
+    return callOpenAiVisionLegacy({ model, prompt, images, timeoutMs, abortSignal, temperature, apiKey });
+  }
+
+  const content = [{ type: 'input_text', text: prompt }];
+  for (const img of images) {
+    content.push({
+      type: 'input_image',
+      image_url: `data:${img.mimeType || 'image/jpeg'};base64,${img.base64}`,
+    });
+  }
+  const resp = await fetchWithTimeout('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      input: [{ role: 'user', content }],
+      ...(Number.isFinite(temperature) ? { temperature } : {}),
+    }),
+    signal: abortSignal,
+  }, timeoutMs);
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    if (resp.status === 404) {
+      // Endpoint unknown (proxy without Responses support) — degrade LOUDLY
+      // to the legacy shape for the rest of the process.
+      console.warn(`[visionClient] /v1/responses unavailable (404) — falling back to legacy chat/completions image_url for this process: ${body.slice(0, 200)}`);
+      openaiResponsesUnavailable = true;
+      return callOpenAiVisionLegacy({ model, prompt, images, timeoutMs, abortSignal, temperature, apiKey });
+    }
+    const err = isTransientStatus(resp.status)
+      ? new VisionTransientError(`openai vision ${resp.status}: ${body.slice(0, 300)}`)
+      : new Error(`openai vision ${resp.status}: ${body.slice(0, 300)}`);
+    throw err;
+  }
+  const data = await resp.json();
+  const text = parseResponsesOutput(data);
+  const usage = data?.usage
+    ? { inputTokens: data.usage.input_tokens || 0, outputTokens: data.usage.output_tokens || 0 }
     : null;
   return { text, usage };
 }
@@ -174,4 +242,5 @@ module.exports = {
   // exported for tests
   callGeminiVision,
   callOpenAiVision,
+  _resetOpenAiVisionFallback: () => { openaiResponsesUnavailable = false; },
 };

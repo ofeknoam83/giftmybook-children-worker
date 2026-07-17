@@ -22,8 +22,9 @@
  *   - JUDGE_A / JUDGE_B / JUDGE_C — W5 panel, one per family
  *   - ART_DIRECTOR — A1 art direction (multimodal: sees cover + sheet)
  *   - QA_VISION — A3 spread QA (anatomy, contract adherence, zones, style, cast)
- *   - LIKENESS_JUDGE_A / LIKENESS_JUDGE_B — A0/A3 likeness vs the photo,
- *     enforced cross-family (validateLikenessFamilies)
+ *   - LIKENESS_JUDGE_A / LIKENESS_JUDGE_B — A0/A3 likeness vs the approved
+ *     reference art, enforced cross-MODEL (validateLikenessFamilies; both
+ *     on Gemini since 2026-07-17 — flash + pro)
  *
  * Per-deploy override: BOOK_PIPELINE_V3_<ROLE>_FAMILY / _TIER (same
  * mechanism as v2's BOOK_PIPELINE_V2_* overrides).
@@ -59,12 +60,18 @@ const DEFAULT_ROUTING = {
   // ── Native illustrator roles (milestone 2 Phase 0) ──
   // ART_DIRECTOR must SEE the cover + character sheet (multimodal); the
   // vision QA judge is cheap at candidate volume; the two likeness judges
-  // are deliberately cross-family — likeness is the product promise, and a
-  // single family grading its own generator invites self-preference.
+  // are deliberately DISTINCT MODELS (flash + pro) — likeness is the
+  // product promise and must never be graded by a single model.
+  // ALL vision roles run on Gemini (product decision 2026-07-17): the
+  // OpenAI vision wire format broke mid-production and dead-ended every
+  // book, while Gemini vision has been stable — a cross-model panel within
+  // one reliable vendor beats a cross-family panel with a flaky one. The
+  // openai vision path stays wired for per-role A/B via
+  // BOOK_PIPELINE_V3_LIKENESS_JUDGE_*_FAMILY.
   ART_DIRECTOR:     { family: 'gemini', tier: 'strong' },
   QA_VISION:        { family: 'gemini', tier: 'mid' },
   LIKENESS_JUDGE_A: { family: 'gemini', tier: 'mid' },
-  LIKENESS_JUDGE_B: { family: 'openai', tier: 'strong' },
+  LIKENESS_JUDGE_B: { family: 'gemini', tier: 'strong' },
 };
 
 const JUDGE_ROLES = ['JUDGE_A', 'JUDGE_B', 'JUDGE_C'];
@@ -138,24 +145,28 @@ function validatePanelFamilies(log = (msg) => console.warn(msg)) {
 }
 
 /**
- * Likeness judging must stay cross-family (the illustrator plan's hard
- * rule — the core promise is never graded by a single family). Same
- * warn-don't-throw contract as validatePanelFamilies.
+ * Likeness judging must stay cross-MODEL (two DISTINCT models grade the
+ * core promise — never a single model approving itself). Cross-family was
+ * the original rule; since the 2026-07-17 all-Gemini vision decision the
+ * enforced diversity axis is the MODEL (flash + pro), and distinct
+ * families satisfy it trivially. Same warn-don't-throw contract as
+ * validatePanelFamilies.
  *
- * @returns {{ ok: boolean, families: string[] }}
+ * @returns {{ ok: boolean, families: string[], models: string[] }}
  */
 function validateLikenessFamilies(log = (msg) => console.warn(msg)) {
-  const families = LIKENESS_ROLES.map((r) => resolveRole(r).family);
-  const distinct = new Set(families);
-  if (distinct.size < LIKENESS_ROLES.length) {
+  const resolved = LIKENESS_ROLES.map((r) => modelFor(r));
+  const families = resolved.map((r) => r.family);
+  const models = resolved.map((r) => r.model);
+  if (new Set(models).size < LIKENESS_ROLES.length) {
     log(
-      `[bookPipelineV3] LIKENESS JUDGE FAMILY COLLAPSE: judges resolve to [${families.join(', ')}] — ` +
-      'likeness must be scored by two distinct model families; ' +
-      'check BOOK_PIPELINE_V3_LIKENESS_JUDGE_*_FAMILY overrides.',
+      `[bookPipelineV3] LIKENESS JUDGE MODEL COLLAPSE: judges resolve to [${models.join(', ')}] — ` +
+      'likeness must be scored by two DISTINCT models; ' +
+      'check BOOK_PIPELINE_V3_LIKENESS_JUDGE_*_FAMILY/_TIER overrides.',
     );
-    return { ok: false, families };
+    return { ok: false, families, models };
   }
-  return { ok: true, families };
+  return { ok: true, families, models };
 }
 
 /**
