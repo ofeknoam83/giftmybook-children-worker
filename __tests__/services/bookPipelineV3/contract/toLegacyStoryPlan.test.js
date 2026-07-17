@@ -124,6 +124,31 @@ describe('toLegacyStoryPlan', () => {
       }
     });
 
+    // Embedded text layout (2026-07-17): wide art spans both pages, caption
+    // typeset OVER the quiet zone — the adapter flips the aspect and carries
+    // textLayout + textZone so assemblePdf picks the overlay branch.
+    test('embedded native doc: wide aspect + textLayout + per-spread textZone', () => {
+      const doc = makeDoc({ v3: { illustrator: { version: 'native' }, textLayout: 'embedded' } });
+      doc.spreads.forEach((s, i) => { s.illustration.textZone = i % 2 === 0 ? 'left-top' : 'right-bottom'; });
+      const { entriesWithIllustrations } = toLegacyStoryPlan(doc);
+      const spreads = entriesWithIllustrations.filter(e => e.type === 'spread');
+      for (const entry of spreads) {
+        expect(entry.illustrationAspect).toBe('wide');
+        expect(entry.textLayout).toBe('embedded');
+        expect(entry.captionText).toBe(`Spread ${entry.spread} text content.`);
+        expect(['left-top', 'right-bottom']).toContain(entry.textZone);
+      }
+    });
+
+    test('caption native doc carries textLayout caption and no textZone', () => {
+      const doc = makeDoc({ v3: { illustrator: { version: 'native' }, textLayout: 'caption' } });
+      const { entriesWithIllustrations } = toLegacyStoryPlan(doc);
+      const spread = entriesWithIllustrations.find(e => e.type === 'spread');
+      expect(spread.illustrationAspect).toBe('square');
+      expect(spread.textLayout).toBe('caption');
+      expect(spread.textZone).toBeUndefined();
+    });
+
     test('structural entries are untouched by aspect/caption fields', () => {
       const doc = makeDoc({ v3: { illustrator: { version: 'native' } } });
       const { entriesWithIllustrations } = toLegacyStoryPlan(doc);

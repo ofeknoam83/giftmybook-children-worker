@@ -333,6 +333,13 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   });
   ctx.log('info', `[v3] illustrator: ${illustrator.version} (source=${illustrator.source})`);
 
+  // Text layout (2026-07-17, admin-selectable): 'caption' = typeset text on
+  // white verso pages + square art recto (default); 'embedded' = one wide
+  // illustration spanning both pages with the caption typeset OVER the quiet
+  // zone. Checkpoint wins so resumed books finish on the mode they started.
+  const textLayout = rawRequest?.checkpointTextLayout || rawRequest?.textLayout || 'caption';
+  ctx.log('info', `[v3] text layout: ${textLayout}`);
+
   // A0 identity kit runs in PARALLEL with the writer —
   // photos → likeness brief → judged character model sheet, GCS-cached.
   // Joined before rendering; a kit failure surfaces there.
@@ -502,6 +509,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     coverImageUrl: rawRequest?.cover?.imageUrl || null,
     coverTitle: rawRequest?.cover?.title || null,
     operationalContext: signals,
+    textLayout,
   };
   let renderedDoc;
   try {
@@ -542,6 +550,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   };
   renderedDoc.v3 = {
     illustrator: { version: illustrator.version, source: illustrator.source },
+    textLayout,
     coverImagery: coverImagery || null,
     concepts,
     selection,

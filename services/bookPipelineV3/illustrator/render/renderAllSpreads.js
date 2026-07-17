@@ -72,7 +72,7 @@ async function loadExistingCandidates(bookId, spreadNumber) {
  */
 async function renderAllSpreadsNative({
   bookId, spreads, directionBySpread = null, platesByLocation = null,
-  bookPack, briefText, wardrobeNote, forceSpreads = new Set(), abortSignal, log = () => {}, onSpreadDone = () => {},
+  bookPack, briefText, wardrobeNote, textLayout = 'caption', forceSpreads = new Set(), abortSignal, log = () => {}, onSpreadDone = () => {},
 }) {
   if (!bookId) throw new Error('renderAllSpreadsNative: bookId is required');
   const limit = createLimiter(RENDER_CONCURRENCY);
@@ -91,7 +91,7 @@ async function renderAllSpreadsNative({
     const direction = directionBySpread?.get(spread.spread) || null;
     const plate = platesByLocation?.get(spread.scene_contract?.setting) || null;
     const rendered = await renderSpreadCandidates({
-      spread, direction, bookPack, plate, briefText, wardrobeNote, abortSignal, log,
+      spread, direction, bookPack, plate, briefText, wardrobeNote, textLayout, abortSignal, log,
     });
 
     const candidates = [...existing];

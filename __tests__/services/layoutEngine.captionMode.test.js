@@ -45,6 +45,41 @@ describe('assemblePdf caption mode (square entries)', () => {
     expect(doc.getPage(VERSO_INDEX).node.Contents()).toBeUndefined();
   });
 
+  // Embedded text layout (2026-07-17): wide art spans both pages, the caption
+  // is typeset OVER the half containing the art director's quiet zone. These
+  // tests run without image buffers so no sharp native ops are hit — the
+  // overlay is drawn regardless of the image, which is exactly what we pin.
+  describe('embedded overlay', () => {
+    test('caption overlays the LEFT page for a left-* zone', async () => {
+      const doc = await build([
+        spreadEntry({ illustrationAspect: 'wide', textLayout: 'embedded', captionText: 'The fox pads past the hose.', textZone: 'left-top' }),
+      ]);
+      // verso (index 3) carries the overlay; recto (index 4) stays bare.
+      expect(doc.getPage(VERSO_INDEX).node.Contents()).toBeDefined();
+      expect(doc.getPage(VERSO_INDEX + 1).node.Contents()).toBeUndefined();
+    });
+
+    test('caption overlays the RIGHT page for a right-* zone', async () => {
+      const doc = await build([
+        spreadEntry({ illustrationAspect: 'wide', textLayout: 'embedded', captionText: 'Then something darts near the flower bed.', textZone: 'right-bottom' }),
+      ]);
+      expect(doc.getPage(VERSO_INDEX).node.Contents()).toBeUndefined();
+      expect(doc.getPage(VERSO_INDEX + 1).node.Contents()).toBeDefined();
+    });
+
+    test('two pages per embedded spread; legacy wide entries (no textLayout) draw no overlay', async () => {
+      const doc = await build([
+        spreadEntry({ illustrationAspect: 'wide', textLayout: 'embedded', captionText: 'One.', textZone: 'left-top' }),
+        { type: 'spread', spread: 2, illustrationAspect: 'wide' }, // legacy re-finalize entry
+      ], { minPages: 2 });
+      // 3 front matter + 2×2 spread pages + 1 closing = 8
+      expect(doc.getPageCount()).toBe(8);
+      // legacy spread pages (indexes 5,6) have no typeset content
+      expect(doc.getPage(5).node.Contents()).toBeUndefined();
+      expect(doc.getPage(6).node.Contents()).toBeUndefined();
+    });
+  });
+
   test('each square spread contributes exactly two pages (caption verso + art recto)', async () => {
     const two = await build([
       spreadEntry({ illustrationAspect: 'square', captionText: 'One.' }),

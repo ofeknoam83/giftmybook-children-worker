@@ -118,7 +118,7 @@ function minSpread(e) {
  */
 async function selectSpreadWinner({
   bookId, spread, candidates, direction = null, bookPack, plate = null,
-  referenceImages, briefText, wardrobeNote, qaTagCounts, abortSignal, log = () => {},
+  referenceImages, briefText, wardrobeNote, textLayout = 'caption', qaTagCounts, abortSignal, log = () => {},
 }) {
   // Every caller passes the bookPack (model sheet + cover) as the likeness
   // references; if a call site drifts and omits referenceImages, degrade
@@ -176,7 +176,7 @@ async function selectSpreadWinner({
         },
       };
       const rendered = await renderSpreadCandidates({
-        spread: repairSpread, direction, bookPack, plate, briefText, wardrobeNote,
+        spread: repairSpread, direction, bookPack, plate, briefText, wardrobeNote, textLayout,
         count: CANDIDATES_PER_SPREAD, abortSignal, log,
       });
       const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));

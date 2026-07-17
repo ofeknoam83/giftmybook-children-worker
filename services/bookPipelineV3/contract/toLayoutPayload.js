@@ -27,14 +27,18 @@
  * @returns {{ format: string, entries: object[], opts: object, spreadStorageKeys: string[] }}
  */
 function toLayoutPayload(doc) {
-  const aspect = doc.v3?.illustrator?.version === 'native' ? 'square' : 'wide';
+  const isNative = doc.v3?.illustrator?.version === 'native';
+  const textLayout = isNative ? (doc.v3?.textLayout || 'caption') : null;
+  const aspect = isNative ? (textLayout === 'embedded' ? 'wide' : 'square') : 'wide';
   const entries = doc.spreads.map(s => ({
     type: 'spread',
     spread: s.spreadNumber,
     spreadIllustrationUrl: s.illustration?.imageUrl || null,
     spreadIllustrationStorageKey: s.illustration?.imageStorageKey || null,
     illustrationAspect: aspect,
-    captionText: aspect === 'square' ? (s.manuscript?.text || '') : undefined,
+    captionText: isNative ? (s.manuscript?.text || '') : undefined,
+    ...(textLayout ? { textLayout } : {}),
+    ...(textLayout === 'embedded' ? { textZone: s.illustration?.textZone || null } : {}),
   }));
 
   const opts = {

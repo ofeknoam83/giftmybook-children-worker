@@ -8,7 +8,7 @@
 const { generateImage } = require('../render/imageClient');
 const { SPREAD_RENDERER_MODEL } = require('../config');
 const { STYLE_BIBLE } = require('../styleBible');
-const { SPREAD_ASPECT_RATIO } = require('../render/renderSpread');
+const { resolveSpreadAspect } = require('../render/renderSpread');
 
 function buildPlatePrompt(location, palette) {
   return [
@@ -28,7 +28,7 @@ function buildPlatePrompt(location, palette) {
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<Map<string, {base64: string, mimeType: string, location: string}>>} keyed by location string
  */
-async function renderWorldPlates({ plates, paletteArc = null, abortSignal, log = () => {} }) {
+async function renderWorldPlates({ plates, paletteArc = null, textLayout = 'caption', abortSignal, log = () => {} }) {
   const byLocation = new Map();
   const results = await Promise.all((plates || []).map(async (p) => {
     try {
@@ -36,7 +36,9 @@ async function renderWorldPlates({ plates, paletteArc = null, abortSignal, log =
         model: SPREAD_RENDERER_MODEL,
         prompt: buildPlatePrompt(p.location, paletteArc?.act1 || null),
         references: [],
-        aspectRatio: SPREAD_ASPECT_RATIO,
+        // Plates match the spread aspect so they anchor composition, not
+        // just palette (wide books get wide plates).
+        aspectRatio: resolveSpreadAspect(textLayout),
         abortSignal,
         label: `v3.plate.${String(p.location).slice(0, 24)}`,
       });
