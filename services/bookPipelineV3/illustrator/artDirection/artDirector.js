@@ -115,6 +115,62 @@ async function runArtDirection({ manuscript, ageBand, ageYears = null, reference
   return finalize(plan, manuscript, { ok: true, reassigned: true });
 }
 
+/**
+ * Restage ONE spread whose candidates exhausted the QA budget (the spread
+ * recovery ladder, 2026-07-17). A scene that fails 4 straight tries is often
+ * staged wrong rather than unlucky — the director produces a NEW moment that
+ * avoids the judges' named defects before the fresh render round runs.
+ *
+ * @param {object} opts
+ * @param {object} opts.spread - manuscript spread (scene_contract inside)
+ * @param {object|null} opts.direction - the spread's current direction row
+ * @param {string[]} opts.defects - flat defect notes from every rejected candidate
+ * @param {number|null} [opts.ageYears]
+ * @param {string} [opts.ageBand]
+ * @param {AbortSignal} [opts.abortSignal]
+ * @returns {Promise<{ moment: string|null, poseHint: string|null, continuityNotes: string|null }>}
+ */
+async function restageSpread({ spread, direction = null, defects = [], ageYears = null, ageBand = 'PB_PRESCHOOL', abortSignal }) {
+  const sc = spread.scene_contract || {};
+  const heroDescriptor = Number.isFinite(Number(ageYears)) && Number(ageYears) > 0
+    ? `a ${Number(ageYears)}-year-old child`
+    : `an ${ageBand} child`;
+  const prompt = `You are the art director for a children's picture book. ONE spread has failed illustration QA ${Math.max(defects.length, 4)} times and must be RESTAGED (the hero is ${heroDescriptor}).
+
+THE SCENE CONTRACT:
+- Setting: ${sc.setting || 'unspecified'}
+- Action: ${sc.hero_action || 'unspecified'}
+- Emotion: ${sc.emotion || 'unspecified'}
+- Key objects: ${(sc.key_objects || []).join(', ') || 'none'}
+${direction?.moment ? `- The FAILED staging (do not repeat it): ${direction.moment}` : ''}
+
+EVERY REJECTED ATTEMPT WAS KILLED FOR:
+${defects.slice(0, 10).map((d) => `- ${d}`).join('\n') || '- (no named defects)'}
+
+Produce a NEW staging of the SAME action that a renderer can reliably hit and that avoids every defect above:
+- The moment must be HOLDABLE — a pose the child could hold for a photograph; never a split-second motion phase.
+- Foreground at most 2 props; fold the rest into the environment.
+- Every written artifact stays WORDLESS (symbols, ticks, star glyphs — never letters/numerals); never reference labels by name.
+- NO CHOREOGRAPHY: never specify which hand, how many hands, or prop-relative positions.
+
+Return STRICT JSON:
+{ "moment": "the new single paintable instant", "poseHint": "simple natural pose/grip, or null", "continuityNotes": "locks that help this scene land, or null" }`;
+
+  const { json } = await callVisionRole('ART_DIRECTOR', {
+    prompt,
+    images: [],
+    label: `v3.artdirector.restage.s${spread.spread}`,
+    expectJson: true,
+    temperature: 0,
+    abortSignal,
+  });
+  return {
+    moment: json.moment || null,
+    poseHint: json.poseHint || null,
+    continuityNotes: json.continuityNotes || null,
+  };
+}
+
 function finalize(plan, manuscript, shotBudget) {
   const directionBySpread = new Map();
   for (const row of plan.spreads || []) {
@@ -146,4 +202,4 @@ function finalize(plan, manuscript, shotBudget) {
   };
 }
 
-module.exports = { runArtDirection, buildDirectorPrompt, ZONES };
+module.exports = { runArtDirection, restageSpread, buildDirectorPrompt, ZONES };

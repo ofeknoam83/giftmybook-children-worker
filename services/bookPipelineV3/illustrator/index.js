@@ -32,14 +32,14 @@ const { buildBookReferencePack } = require('./render/referencePack');
 const { renderAllSpreadsNative, createLimiter } = require('./render/renderAllSpreads');
 const { renderSpreadCandidates, buildSpreadRenderPrompt } = require('./render/renderSpread');
 const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('./qa/select');
-const { runArtDirection } = require('./artDirection/artDirector');
+const { runArtDirection, restageSpread } = require('./artDirection/artDirector');
 const { renderWorldPlates } = require('./artDirection/worldPlates');
 const { runBookPass, buildBookPassNeedsReview } = require('./bookPass/contactSheet');
 const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
 const { candidatePath } = require('./render/renderAllSpreads');
 const { downloadPhotoAsBase64 } = require('../../illustrationGenerator');
-const { BOOK_PASS_REGEN_WAVES, CANDIDATES_PER_SPREAD } = require('./config');
+const { BOOK_PASS_REGEN_WAVES, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED } = require('./config');
 
 const IMPLEMENTED_PHASES = [
   'identityKit (W4)', 'render (W5)', 'qa+selection (W6)',
@@ -228,6 +228,97 @@ async function runNativeIllustrator(input, ctx) {
     if (result.selected) selections.set(entry.spread, result);
     else failures.push({ spread: entry.spread, evaluations: result.evaluations, allCandidates: result.allCandidates });
   })));
+
+  // ── Spread recovery ladder (2026-07-17) ──
+  // A book needs all 13 spreads to pass AT ONCE — at ~95% per-spread success
+  // one unlucky page still kills ~half of books. Before giving up, each
+  // exhausted spread gets a RESTAGED scene (a 4x-rejected staging is often
+  // wrong, not unlucky) plus one fresh full round. Extra tries cost cents;
+  // a needs_review costs a human.
+  if (failures.length > 0 && SPREAD_RECOVERY_ENABLED) {
+    failures.sort((a, b) => a.spread - b.spread);
+    const remaining = [];
+    for (const failure of failures) {
+      const spreadNumber = failure.spread;
+      const spread = manuscriptSpreads.find((s) => s.spread === spreadNumber);
+      const priorDefects = [...new Set(failure.evaluations.flatMap((e) => e.defects || []))];
+      log(`spread ${spreadNumber} exhausted first budget — entering recovery (restage + fresh round)`);
+
+      try {
+        const row = direction.directionBySpread.get(spreadNumber) || {};
+        const restaged = await restageSpread({
+          spread,
+          direction: row,
+          defects: priorDefects,
+          ageYears: Number(rawRequest?.child?.age) || null,
+          ageBand: ageProfile?.ageBand || ageProfile?.band,
+          abortSignal,
+        });
+        direction.directionBySpread.set(spreadNumber, {
+          ...row,
+          moment: restaged.moment || row.moment || null,
+          poseHint: restaged.poseHint ?? row.poseHint ?? null,
+          continuityNotes: [
+            row.continuityNotes,
+            restaged.continuityNotes,
+            priorDefects.length ? `RESTAGED after QA exhaustion — avoid: ${priorDefects.slice(0, 4).join('; ')}` : 'RESTAGED after QA exhaustion',
+          ].filter(Boolean).join(' | '),
+        });
+        log(`spread ${spreadNumber} restaged${restaged.moment ? `: moment='${String(restaged.moment).slice(0, 90)}'` : ' (no new moment returned)'}`);
+      } catch (restageErr) {
+        // The fresh round still runs — new dice alone recover most spreads.
+        log(`spread ${spreadNumber} restage failed (fresh round proceeds unrestaged): ${restageErr.message}`);
+      }
+
+      // Fresh full round: 2 new candidates + the normal repair wave, with
+      // candidate indices continuing past the first round's (GCS paths and
+      // review payloads stay unambiguous).
+      const baseIndex = Math.max(0, ...failure.allCandidates.map((c) => c.candidateIndex));
+      const freshImgs = await renderSpreadCandidates({
+        spread,
+        direction: direction.directionBySpread.get(spreadNumber) || null,
+        bookPack,
+        plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+        briefText,
+        count: CANDIDATES_PER_SPREAD,
+        abortSignal,
+        log,
+      });
+      const freshCandidates = [];
+      for (const [i, img] of freshImgs.entries()) {
+        const candidateIndex = baseIndex + i + 1;
+        const path = candidatePath(bookId, spreadNumber, candidateIndex);
+        await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
+        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
+      }
+      const rerun = await selectSpreadWinner({
+        bookId,
+        spread,
+        candidates: freshCandidates,
+        direction: direction.directionBySpread.get(spreadNumber) || null,
+        bookPack,
+        plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+        referenceImages: bookPack,
+        briefText,
+        qaTagCounts,
+        abortSignal,
+        log,
+      });
+      if (rerun.selected) {
+        rerun.allCandidates = [...failure.allCandidates, ...rerun.allCandidates];
+        selections.set(spreadNumber, rerun);
+        log(`spread ${spreadNumber} RECOVERED on the fresh round (candidate ${rerun.selected.candidateIndex})`);
+      } else {
+        remaining.push({
+          spread: spreadNumber,
+          evaluations: [...failure.evaluations, ...rerun.evaluations],
+          allCandidates: [...failure.allCandidates, ...rerun.allCandidates],
+        });
+      }
+    }
+    failures.length = 0;
+    failures.push(...remaining);
+  }
 
   if (failures.length > 0) {
     failures.sort((a, b) => a.spread - b.spread); // stable payloads regardless of completion order

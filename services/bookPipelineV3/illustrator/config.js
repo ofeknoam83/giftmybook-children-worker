@@ -39,7 +39,13 @@ const SHEET_BEST_OF = Number(process.env.BOOK_PIPELINE_V3_SHEET_BEST_OF) >= 1
 const SHEET_EXTRA_WAVES = Number(process.env.BOOK_PIPELINE_V3_SHEET_EXTRA_WAVES) >= 0
   ? Number(process.env.BOOK_PIPELINE_V3_SHEET_EXTRA_WAVES) : 1; // defect-fed repair waves, then needs_review
 const CANDIDATES_PER_SPREAD = 2;  // parallel candidates per spread
-const REPAIR_WAVES_PER_SPREAD = 1; // one defect-named repair wave, then needs_review
+const REPAIR_WAVES_PER_SPREAD = 1; // one defect-named repair wave, then the recovery ladder
+// Spread recovery ladder (2026-07-17): a spread that exhausts its first
+// budget gets a RESTAGED scene + one fresh full round before needs_review.
+// A book needs all 13 spreads to pass at once, so ~95% per-spread success
+// still fails ~half of books — extra tries cost cents, a stuck book costs
+// a human. '0' disables (old behavior).
+const SPREAD_RECOVERY_ENABLED = process.env.BOOK_PIPELINE_V3_SPREAD_RECOVERY !== '0';
 const ART_DIRECTION_REASKS = 1;   // one re-ask on shot-budget violation, then deterministic reassignment
 const BOOK_PASS_REGEN_WAVES = 1;  // one targeted regen wave, then needs_review
 const RENDER_CONCURRENCY = Number(process.env.BOOK_PIPELINE_V3_RENDER_CONCURRENCY || 6);
@@ -95,6 +101,7 @@ module.exports = {
   SHEET_EXTRA_WAVES,
   CANDIDATES_PER_SPREAD,
   REPAIR_WAVES_PER_SPREAD,
+  SPREAD_RECOVERY_ENABLED,
   ART_DIRECTION_REASKS,
   BOOK_PASS_REGEN_WAVES,
   RENDER_CONCURRENCY,

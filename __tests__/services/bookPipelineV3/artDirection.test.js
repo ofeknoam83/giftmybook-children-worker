@@ -14,7 +14,7 @@ const { callVisionRole } = require('../../../services/bookPipelineV3/llm/visionC
 const {
   validateShotBudget, reassignShots, normalizeShot, MIN_DISTINCT_SHOTS,
 } = require('../../../services/bookPipelineV3/illustrator/artDirection/shotBudget');
-const { runArtDirection } = require('../../../services/bookPipelineV3/illustrator/artDirection/artDirector');
+const { runArtDirection, restageSpread } = require('../../../services/bookPipelineV3/illustrator/artDirection/artDirector');
 const { runBookPass, buildContactSheetPrompt, buildBookPassNeedsReview } = require('../../../services/bookPipelineV3/illustrator/bookPass/contactSheet');
 
 const MS = {
@@ -183,6 +183,49 @@ describe('runArtDirection', () => {
     expect(prompt).toContain('never specify WHICH hand (left/right), how many hands');
     expect(prompt).toContain('renderers mirror hands freely');
     expect(prompt).toContain("Describe the action at the level a parent would");
+  });
+});
+
+// Spread recovery ladder (2026-07-17): a spread that fails 4 straight tries
+// is often staged wrong, not unlucky — the director restages it with the
+// judges' defects in hand before the fresh render round.
+describe('restageSpread', () => {
+  const FAILED_SPREAD = {
+    spread: 12,
+    scene_contract: { setting: 'crystal cavern', hero_action: 'lifting the gem from its pedestal', emotion: 'awe', key_objects: ['whispering gem', 'pedestal'] },
+  };
+
+  test('feeds the defects + staging rules and returns the new moment', async () => {
+    callVisionRole.mockResolvedValueOnce({
+      json: { moment: 'both hands cupped around the gem on the pedestal', poseHint: 'whole-hand cradle', continuityNotes: 'gem glows softly' },
+      model: 'm', family: 'gemini',
+    });
+    const res = await restageSpread({
+      spread: FAILED_SPREAD,
+      direction: { moment: 'gem in mid-air between pedestal and hands' },
+      defects: ['lettering detected in artwork (runes on the pedestal)', 'the contracted action is entirely absent'],
+      ageYears: 8,
+      log: () => {},
+    });
+
+    expect(res.moment).toBe('both hands cupped around the gem on the pedestal');
+    expect(res.poseHint).toBe('whole-hand cradle');
+    const [, params] = callVisionRole.mock.calls[0];
+    expect(params.temperature).toBe(0);
+    expect(params.prompt).toContain('must be RESTAGED');
+    expect(params.prompt).toContain('a 8-year-old child');
+    expect(params.prompt).toContain('lettering detected in artwork (runes on the pedestal)');
+    expect(params.prompt).toContain('The FAILED staging (do not repeat it): gem in mid-air');
+    expect(params.prompt).toContain('HOLDABLE');
+    expect(params.prompt).toContain('WORDLESS');
+    expect(params.prompt).toContain('NO CHOREOGRAPHY');
+    expect(params.prompt).toContain('Return STRICT JSON');
+  });
+
+  test('missing fields come back null (caller keeps the old row values)', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: { moment: 'seated beside the pedestal' }, model: 'm', family: 'gemini' });
+    const res = await restageSpread({ spread: FAILED_SPREAD, defects: [], log: () => {} });
+    expect(res).toEqual({ moment: 'seated beside the pedestal', poseHint: null, continuityNotes: null });
   });
 });
 
