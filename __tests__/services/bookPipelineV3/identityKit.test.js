@@ -188,6 +188,24 @@ describe('generateCharacterSheet', () => {
     expect(generateImage).toHaveBeenCalledTimes(6);
   });
 
+  // 2026-07-17: an OpenAI wire-shape change 400'd EVERY judgment — the kit
+  // "exhausted" with 0 judged candidates and an empty needs_review payload
+  // nobody could act on. Infrastructure outage ≠ identity rejection: zero
+  // judged candidates + judge errors must throw a plain retryable error.
+  test('all judge calls erroring throws an infrastructure error, NOT an empty needs_review', async () => {
+    for (let i = 0; i < 6; i += 1) generateImage.mockResolvedValueOnce(sheetImage(`x${i}`));
+    callVisionRole.mockRejectedValue(new Error('openai vision 400: Invalid content type. image_url is only supported by certain models.'));
+
+    let thrown;
+    try {
+      await generateCharacterSheet({ photos: PHOTOS, briefText: 'brief', bookId: 'book-x', log: () => {} });
+    } catch (err) { thrown = err; }
+    expect(thrown).toBeDefined();
+    expect(thrown.needsReview).toBeUndefined();
+    expect(thrown.message).toMatch(/identity kit judging infrastructure failure \(0 candidates judged/);
+    expect(thrown.message).toMatch(/image_url is only supported/);
+  });
+
   test('wave 2 feeds the prior wave\'s judge defects back into the prompt (REPAIR block)', async () => {
     for (let i = 0; i < 6; i += 1) generateImage.mockResolvedValueOnce(sheetImage(`x${i}`));
     mockLikenessVerdicts(Array.from({ length: 12 }, () => ({ likeness: 2, defects: ['hair too dark', 'skin lightened vs photo'] })));

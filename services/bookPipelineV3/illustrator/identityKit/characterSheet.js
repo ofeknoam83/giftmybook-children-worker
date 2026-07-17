@@ -93,7 +93,11 @@ async function runSheetWave({ prompt, photos, coverReference, waveTag, count, ab
     ? [{ base64: coverReference.base64, mimeType: coverReference.mimeType || 'image/jpeg' }]
     : photos;
   // Judge the wave's candidates in parallel (the serial loop cost
-  // ~10-15s per candidate of pure wall clock).
+  // ~10-15s per candidate of pure wall clock). Judge ERRORS are tracked
+  // separately from verdicts — an API outage is not an identity rejection
+  // (2026-07-17: an OpenAI wire-shape change 400'd every judgment and the
+  // kit "exhausted" with 0 judged candidates and an empty review payload).
+  const judgeErrors = [];
   const attempts = (await Promise.all(candidates.map(async (candidate, i) => {
     if (!candidate) return null;
     try {
@@ -107,13 +111,14 @@ async function runSheetWave({ prompt, photos, coverReference, waveTag, count, ab
       return { tag: `${waveTag}.${i + 1}`, candidate, verdict };
     } catch (err) {
       log(`sheet ${waveTag}.${i + 1} judging failed: ${err.message}`);
+      judgeErrors.push(err);
       return null;
     }
   }))).filter(Boolean);
 
   const passing = attempts.filter((a) => a.verdict.pass)
     .sort((a, b) => b.verdict.minLikeness - a.verdict.minLikeness);
-  return { best: passing[0] || null, attempts };
+  return { best: passing[0] || null, attempts, judgeErrors };
 }
 
 /** Shape one attempt for return/telemetry. */
@@ -169,6 +174,7 @@ async function uploadRejectedCandidates({ attempts, bookId, log }) {
  */
 async function generateCharacterSheet({ photos, briefText, wardrobeNote, coverReference = null, bookId = null, abortSignal, log = (m) => console.log(`[identityKit] ${m}`) }) {
   const allAttempts = [];
+  const allJudgeErrors = [];
 
   for (let wave = 0; wave <= SHEET_EXTRA_WAVES; wave += 1) {
     const waveTag = `w${wave}`;
@@ -181,14 +187,26 @@ async function generateCharacterSheet({ photos, briefText, wardrobeNote, coverRe
       hasCoverReference: Boolean(coverReference),
       repairNotes,
     });
-    const { best, attempts } = await runSheetWave({
+    const { best, attempts, judgeErrors } = await runSheetWave({
       prompt, photos, coverReference, waveTag, count: SHEET_BEST_OF, abortSignal, log,
     });
     allAttempts.push(...attempts);
+    allJudgeErrors.push(...(judgeErrors || []));
     if (best) {
       return toKitResult(best, allAttempts);
     }
     if (wave < SHEET_EXTRA_WAVES) log(`sheet wave ${waveTag} exhausted (${attempts.length} judged candidates, none passed) — repair wave with ${repairNotes.length || 'the'} judge defects fed back`);
+  }
+
+  // Zero candidates ever JUDGED + judge errors present = the judging
+  // infrastructure is down (API outage / wire-shape change), not an
+  // identity problem. Throw a plain retryable error — a needs_review with
+  // empty defects and no candidates is a dead-end nobody can act on
+  // (2026-07-17: OpenAI's image_url deprecation dead-ended every book here).
+  if (allAttempts.length === 0 && allJudgeErrors.length > 0) {
+    throw new Error(
+      `identity kit judging infrastructure failure (0 candidates judged across ${SHEET_EXTRA_WAVES + 1} waves, ${allJudgeErrors.length} judge errors): ${allJudgeErrors[allJudgeErrors.length - 1].message}`,
+    );
   }
 
   // Loud ops escape hatch: ship the best-scoring sheet instead of blocking
