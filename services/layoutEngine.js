@@ -240,10 +240,48 @@ function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
 }
 
 /**
+ * Overlay tone from the caption band's mean luminance (0–255): light art
+ * (sky, sand, snow) takes dark ink with a warm-white halo; everything else
+ * takes white type with a soft dark halo. Pure — exported for tests, since
+ * the sharp sampling path never runs in the sandbox suite.
+ *
+ * @param {number} luminance - 0 (black) … 255 (white)
+ * @returns {'dark-text'|'light-text'}
+ */
+function pickOverlayTone(luminance) {
+  return luminance >= 140 ? 'dark-text' : 'light-text';
+}
+
+/**
+ * Mean relative luminance (0–255) of the caption band of a page-half art
+ * buffer: full width, top or bottom 38% of rows per the zone's vertical
+ * component — the region the overlay text will occupy.
+ *
+ * @param {Buffer} artBuf - the half-page art (splitSpreadImage output)
+ * @param {string} zone - art-direction textZone; only top/bottom matters
+ * @returns {Promise<number>}
+ */
+async function zoneLuminance(artBuf, zone) {
+  const meta = await sharp(artBuf).metadata();
+  const w = meta.width || 1;
+  const h = meta.height || 1;
+  const band = Math.max(1, Math.round(h * 0.38));
+  const top = String(zone || '').includes('bottom') ? Math.max(0, h - band) : 0;
+  const { channels } = await sharp(artBuf)
+    .extract({ left: 0, top, width: w, height: band })
+    .stats();
+  const [r, g, b] = channels;
+  return 0.2126 * (r?.mean ?? 128) + 0.7152 * (g?.mean ?? 128) + 0.0722 * (b?.mean ?? 128);
+}
+
+/**
  * Embedded text layout: typeset the caption OVER the illustration inside the
- * art director's planned quiet zone, on a soft translucent scrim so the type
- * stays readable on any palette. The art itself remains wordless (D5) — the
- * words are print-perfect PDF type, never pixels.
+ * art director's planned quiet zone — integrated typesetting, no panel. The
+ * type is drawn straight on the art in a tone picked from the zone's own
+ * luminance, with a layered soft halo (and a drop shadow for white type) so
+ * it reads like professionally typeset picture-book text that belongs to the
+ * scene. The art itself remains wordless (D5) — the words are print-perfect
+ * PDF type, never pixels.
  *
  * @param {import('pdf-lib').PDFPage} page - the page carrying the art half
  * @param {object} fonts
@@ -251,9 +289,9 @@ function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
  * @param {string} zone - art-direction textZone (left-top | left-bottom |
  *   right-top | right-bottom | left | right); only the vertical component
  *   matters here (the horizontal component chose WHICH page).
- * @param {{ pw: number, ph: number }} dims
+ * @param {{ pw: number, ph: number, tone?: 'dark-text'|'light-text' }} dims
  */
-function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph }) {
+function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text' }) {
   const PAD = 22;
   const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2 - PAD * 2);
   if (!block) return;
@@ -265,19 +303,26 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph }) {
     ? ph - SAFE - PAD
     : Math.max(SAFE + blockH + PAD, SAFE + blockH);
 
-  // Scrim behind the block: full text width + padding, soft white.
-  const widest = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, size)));
-  const scrimW = Math.min(pw - SAFE * 2, widest + PAD * 2);
-  const scrimH = blockH + PAD * 1.6;
-  page.drawRectangle({
-    x: (pw - scrimW) / 2,
-    y: startY - blockH - PAD * 0.8,
-    width: scrimW,
-    height: scrimH,
-    color: C.white,
-    opacity: 0.78,
-  });
-  drawCenteredBlock(page, lines, font, size, startY - PAD * 0.2, lineH, C.black);
+  const dark = tone === 'dark-text';
+  const fill = dark ? rgb(0.13, 0.11, 0.09) : C.white;
+  const halo = dark ? rgb(1, 1, 0.97) : rgb(0.08, 0.07, 0.06);
+
+  // pdf-lib has no blur, so the halo is layered type: each line drawn 8×
+  // in a ring around the fill, plus a drop shadow under white type.
+  const O = 1.3;
+  const RING = [[-O, 0], [O, 0], [0, -O], [0, O], [-O, -O], [-O, O], [O, -O], [O, O]];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const y = startY - i * lineH;
+    const x = (pw - font.widthOfTextAtSize(line, size)) / 2;
+    for (const [dx, dy] of RING) {
+      page.drawText(line, { x: x + dx, y: y + dy, size, font, color: halo, opacity: 0.55 });
+    }
+    if (!dark) {
+      page.drawText(line, { x: x + 1.1, y: y - 1.1, size, font, color: C.black, opacity: 0.3 });
+    }
+    page.drawText(line, { x, y, size, font, color: fill });
+  }
 }
 
 function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
@@ -629,14 +674,17 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
 
     if (entry.textLayout === 'embedded' && entry.captionText !== undefined) {
       // Embedded text layout (2026-07-17): ONE wide wordless illustration
-      // spans both facing pages; the caption is typeset OVER the art (on a
-      // translucent scrim) inside the art director's quiet zone. The words
-      // are PDF type, never pixels — D5 stays intact.
+      // spans both facing pages; the caption is typeset OVER the art inside
+      // the art director's quiet zone — integrated (no panel), in a tone
+      // sampled from the zone itself. The words are PDF type, never pixels —
+      // D5 stays intact.
       const leftPage = pdfDoc.addPage([pw, ph]);
       const rightPage = pdfDoc.addPage([pw, ph]);
+      let leftBuf = null;
+      let rightBuf = null;
       if (entry.spreadIllustrationBuffer) {
         try {
-          const { leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph);
+          ({ leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
           await embedFullBleed(pdfDoc, leftPage, leftBuf);
           await embedFullBleed(pdfDoc, rightPage, rightBuf);
         } catch (e) {
@@ -644,9 +692,19 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
         }
       }
       const zone = entry.textZone || 'left-top';
-      const textPage = String(zone).startsWith('right') ? rightPage : leftPage;
+      const onRight = String(zone).startsWith('right');
+      const textPage = onRight ? rightPage : leftPage;
+      let tone = 'light-text';
+      const artBuf = onRight ? rightBuf : leftBuf;
+      if (artBuf) {
+        try {
+          tone = pickOverlayTone(await zoneLuminance(artBuf, zone));
+        } catch (e) {
+          console.warn(`[LayoutEngine] zone luminance sampling failed (defaulting to light-text): ${e.message}`);
+        }
+      }
       try {
-        drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph });
+        drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone });
       } catch (e) {
         console.warn(`[LayoutEngine] caption overlay failed: ${e.message}`);
       }
@@ -1716,4 +1774,4 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
   }
 }
 
-module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS, splitSpreadImage };
+module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS, splitSpreadImage, pickOverlayTone };

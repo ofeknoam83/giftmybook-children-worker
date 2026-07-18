@@ -1,7 +1,7 @@
 'use strict';
 
 const { PDFDocument } = require('pdf-lib');
-const { assemblePdf } = require('./../../services/layoutEngine');
+const { assemblePdf, pickOverlayTone } = require('./../../services/layoutEngine');
 
 // Caption-mode layout (native illustrator, 2026-07-16): a 'spread' entry with
 // illustrationAspect: 'square' must produce a TYPESET caption verso page +
@@ -46,9 +46,11 @@ describe('assemblePdf caption mode (square entries)', () => {
   });
 
   // Embedded text layout (2026-07-17): wide art spans both pages, the caption
-  // is typeset OVER the half containing the art director's quiet zone. These
+  // is typeset OVER the half containing the art director's quiet zone —
+  // integrated (no scrim panel), tone picked from the zone's luminance. These
   // tests run without image buffers so no sharp native ops are hit — the
-  // overlay is drawn regardless of the image, which is exactly what we pin.
+  // overlay draws in the fallback light-text tone regardless of the image,
+  // which is exactly what we pin.
   describe('embedded overlay', () => {
     test('caption overlays the LEFT page for a left-* zone', async () => {
       const doc = await build([
@@ -77,6 +79,17 @@ describe('assemblePdf caption mode (square entries)', () => {
       // legacy spread pages (indexes 5,6) have no typeset content
       expect(doc.getPage(5).node.Contents()).toBeUndefined();
       expect(doc.getPage(6).node.Contents()).toBeUndefined();
+    });
+
+    // Integrated typesetting: the overlay tone is picked from the caption
+    // band's mean luminance (0-255). Light zones (sky, sand) take dark ink;
+    // everything else takes white type with a dark halo.
+    test('pickOverlayTone maps zone luminance to text tone', () => {
+      expect(pickOverlayTone(0)).toBe('light-text');     // night scene
+      expect(pickOverlayTone(139)).toBe('light-text');   // just under threshold
+      expect(pickOverlayTone(140)).toBe('dark-text');    // threshold
+      expect(pickOverlayTone(200)).toBe('dark-text');    // bright sky
+      expect(pickOverlayTone(255)).toBe('dark-text');    // white
     });
   });
 
