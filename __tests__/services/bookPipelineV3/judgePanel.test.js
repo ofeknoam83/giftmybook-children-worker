@@ -71,6 +71,28 @@ describe('judgePanelActivity', () => {
     expect(callWithRole.mock.calls[0][1].maxTokens).toBe(8000);
   });
 
+  test('judges receive raw interests + story_world beside the brief ranking', async () => {
+    callWithRole
+      .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })))
+      .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })))
+      .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })));
+    await judgePanelActivity({
+      brief: { ...BRIEF, interests: ['space'], story_world: 'A backyard-astronomy world.' },
+      ageProfile: PRESCHOOL_PROFILE,
+      manuscripts: twoManuscripts(),
+    }, ctx);
+    const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
+    expect(prompt.brief.interests).toEqual(['space']);
+    expect(prompt.brief.story_world).toBe('A backyard-astronomy world.');
+    // Old-shape brief (resumed checkpoint) still judges without throwing.
+    callWithRole
+      .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })))
+      .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })))
+      .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })));
+    const out = await judgePanelActivity({ brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, manuscripts: twoManuscripts() }, ctx);
+    expect(out.perManuscript.A.pass).toBe(true);
+  });
+
   test('any meaning_sanity_fail vetoes the manuscript regardless of scores', async () => {
     callWithRole
       .mockResolvedValueOnce(judgeResp(makeJudgeReportJson(['A'], { score: 5, meaningSanityFail: true })))

@@ -47,6 +47,7 @@ Return ONE JSON object:
 7. **Scene contracts are promises to the illustrator.** One setting per spread; `hero_action` must be physically possible for this age (a lap baby cannot run, climb, or speak); every object named in the text appears in `key_objects`; `characters_present` lists exactly who is visible (the illustrator draws EVERYONE you list — do not list a caregiver unless the picture needs them).
 8. **Page-turn pull.** Each spread's last line should make a listening child want the page turned — a question raised, a sound incoming, a pattern about to repeat or break.
 9. **Refrain placement is data**: set `refrain_here: true` exactly where the refrain (or its evolution variant) appears in the lines.
+10. **Interests on the page** (panel-checked, not machine-checked). The brief's `interests` and `story_world` are the reason this book exists as a gift. The settings in your scene contracts, the key objects, and the climax must make the child's strongest interest visible and load-bearing — a reader flipping only the pictures should be able to guess the child's favorite thing without being told.
 
 # Self-check before emitting
 
