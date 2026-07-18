@@ -413,6 +413,59 @@ describe('selectSpreadWinner cascade', () => {
     }
   });
 
+  // 2026-07-18 (book 6e018c20): a flat/desaturated spread survived spread QA
+  // and died at the book pass. Style-break defects now get the same targeted
+  // CRITICAL REPAIR treatment as lettering and color drift.
+  test('style-break rejections trigger the cover-style CRITICAL REPAIR in repair renders', async () => {
+    runDeterministicChecks.mockResolvedValue({ pass: true, defects: [] });
+    judgeSpreadCandidate.mockResolvedValue({
+      ...passingSpreadJudge,
+      pass: false,
+      minScore: 2,
+      tags: ['style_drift'],
+      defects: ['Jarring style break: flat, desaturated colors and thin lines vs the rest of the book'],
+      criticalDefects: ['Jarring style break: flat, desaturated colors and thin lines vs the rest of the book'],
+    });
+    const repairPrompts = [];
+    generateImage.mockImplementation(async ({ prompt, label }) => {
+      repairPrompts.push(prompt);
+      return { buffer: Buffer.from(label), mimeType: 'image/png' };
+    });
+
+    const res = await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(5), candidates: CANDS, bookPack: PACK,
+      referenceImages: PHOTOS, briefText: 'B', qaTagCounts: {}, log: () => {},
+    });
+    expect(res.selected).toBeNull();
+    expect(repairPrompts.length).toBeGreaterThan(0);
+    for (const p of repairPrompts) {
+      expect(p).toContain("CRITICAL REPAIR: previous renders broke the book's signature style");
+      expect(p).toContain("APPROVED COVER reference's rendering style EXACTLY");
+      expect(p).toContain('NOT flat vector, NOT desaturated, NOT thin-line');
+    }
+  });
+
+  test('the pack cover (kind: cover) is handed to the spread judge as its style reference', async () => {
+    runDeterministicChecks.mockResolvedValue({ pass: true, defects: [] });
+    judgeSpreadCandidate.mockResolvedValue(passingSpreadJudge);
+    judgeLikenessCrossFamily.mockResolvedValue({ pass: true, minLikeness: 5, verdicts: [], defects: [] });
+    const COVER = { base64: 'COVER', mimeType: 'image/jpeg', kind: 'cover' };
+
+    await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(1), candidates: CANDS, bookPack: PACK,
+      referenceImages: [{ base64: 'SHEET', kind: 'sheet' }, COVER], briefText: 'B', log: () => {},
+    });
+    expect(judgeSpreadCandidate).toHaveBeenCalledWith(expect.objectContaining({ coverImage: COVER }));
+
+    // Cover-less packs degrade to the cover-blind judge (coverImage null).
+    judgeSpreadCandidate.mockClear();
+    await selectSpreadWinner({
+      bookId: 'bk', spread: SPREAD(1), candidates: CANDS, bookPack: PACK,
+      referenceImages: PHOTOS, briefText: 'B', log: () => {},
+    });
+    expect(judgeSpreadCandidate).toHaveBeenCalledWith(expect.objectContaining({ coverImage: null }));
+  });
+
   // 2026-07-16 (book f33b4200): hair drifted blonde/golden across repair
   // waves too — the repair prompt now names the color fix explicitly, like
   // the lettering repair does.

@@ -160,9 +160,11 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
     expect(regenArgs.textLayout).toBe('embedded');
     expect(renderSpreadCandidates.mock.calls[0][0].textLayout).toBe('embedded');
 
-    // The flag's issue is fed into the regen render as a fix instruction.
+    // The flag's issue is fed into the regen render as a fix instruction —
+    // and a non-style flag gets no style repair template.
     expect(regenArgs.spread.scene_contract.continuity_notes)
       .toContain('BOOK-PASS FIX REQUIRED: wrong version of the treasure map');
+    expect(regenArgs.spread.scene_contract.continuity_notes).not.toContain('CRITICAL REPAIR');
     expect(renderSpreadCandidates).toHaveBeenCalledTimes(1);
 
     // The regen winner replaces the flagged spread; every spread ships.
@@ -174,6 +176,31 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
     // Fresh candidates continue the index sequence (originals were 1-2).
     const spread2 = doc.spreads.find((s) => s.spreadNumber === 2);
     expect(spread2.illustration.candidateIndex).toBe(3);
+  });
+
+  // 2026-07-18 (book 6e018c20): "Jarring style break" survived the regen wave
+  // because the raw judge prose gave the renderer no concrete target. Style
+  // flags now append the cover-style CRITICAL REPAIR template, and world
+  // plates render anchored on the book pack so a plate can't seed the drift.
+  test('a style-break flag adds the cover-style repair template; plates render style-anchored', async () => {
+    const { renderWorldPlates } = require('../../../services/bookPipelineV3/illustrator/artDirection/worldPlates');
+    runBookPass
+      .mockResolvedValueOnce(bookPassResult({
+        criticalFlags: [{ spread: 2, issue: 'Jarring style break. The rendering style (flat, desaturated colors, thin lines) is inconsistent with the cover.', severity: 'critical' }],
+        notes: 'style break',
+      }))
+      .mockResolvedValueOnce(bookPassResult({ notes: 'fixed' }));
+
+    await runNativeIllustrator(makeInput(), ctx);
+
+    const regenArgs = selectSpreadWinner.mock.calls[3][0];
+    const notes = regenArgs.spread.scene_contract.continuity_notes;
+    expect(notes).toContain('BOOK-PASS FIX REQUIRED: Jarring style break');
+    expect(notes).toContain("CRITICAL REPAIR: match the APPROVED COVER reference's rendering style EXACTLY");
+    expect(notes).toContain('NOT flat vector, NOT desaturated, NOT thin-line');
+
+    // G1: plates are style-anchored on the book pack (sheet + cover).
+    expect(renderWorldPlates).toHaveBeenCalledWith(expect.objectContaining({ styleReferences: BOOK_PACK }));
   });
 
   test('a clean book pass never enters the regen path', async () => {

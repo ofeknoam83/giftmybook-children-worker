@@ -137,10 +137,14 @@ async function runNativeIllustrator(input, ctx) {
   }
 
   // ── A1: world plates ──
+  // Plates are style-anchored on the book pack (sheet + approved cover):
+  // a plate rendered from prose alone can drift flat/desaturated and drag
+  // every spread that shares its location into a book-pass style break.
   const platesByLocation = await renderWorldPlates({
     plates: direction.worldPlates,
     paletteArc: direction.paletteArc,
     textLayout,
+    styleReferences: bookPack,
     abortSignal,
     log,
   });
@@ -356,11 +360,22 @@ async function runNativeIllustrator(input, ctx) {
     for (const flag of pass.criticalFlags) {
       const spread = manuscriptSpreads.find((s) => s.spread === flag.spread);
       if (!spread) continue;
+      // Style-break flags get the concrete repair template on top of the raw
+      // judge prose — "Jarring style break" alone doesn't tell the renderer
+      // WHAT to paint like; naming the cover's style attributes does (same
+      // pattern as the lettering/color-drift templates in the repair wave).
+      const isStyleBreak = /style|flat|desaturat|photoreal|3d render|line[- ]?art|line ?weight|vector/i.test(flag.issue);
       const flaggedSpread = {
         ...spread,
         scene_contract: {
           ...spread.scene_contract,
-          continuity_notes: [spread.scene_contract?.continuity_notes, `BOOK-PASS FIX REQUIRED: ${flag.issue}`].filter(Boolean).join(' | '),
+          continuity_notes: [
+            spread.scene_contract?.continuity_notes,
+            `BOOK-PASS FIX REQUIRED: ${flag.issue}`,
+            isStyleBreak
+              ? 'CRITICAL REPAIR: match the APPROVED COVER reference\'s rendering style EXACTLY — warm painterly brushwork, rich saturated colors, soft rounded shading, consistent line weight. NOT flat vector, NOT desaturated, NOT thin-line.'
+              : null,
+          ].filter(Boolean).join(' | '),
         },
       };
       const freshImgs = await renderSpreadCandidates({

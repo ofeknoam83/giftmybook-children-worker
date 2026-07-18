@@ -40,7 +40,10 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
     return record;
   }
 
-  const spread = await judgeSpreadCandidate({ candidate, sceneContract, direction, abortSignal });
+  // The pack's cover (kind: 'cover') rides along as the judge's rendering-
+  // style reference — cover-less books degrade to the cover-blind judging.
+  const coverImage = (referenceImages || []).find((r) => r.kind === 'cover') || null;
+  const spread = await judgeSpreadCandidate({ candidate, sceneContract, direction, coverImage, abortSignal });
   record.spreadScores = spread.scores;
   record.tags = spread.tags;
   // Minor observations ride the record even when the candidate passes —
@@ -159,6 +162,10 @@ async function selectSpreadWinner({
       // just the defect — the model sheet's colors are lighting-invariant.
       const colorDriftDefects = namedDefects.filter((d) => /hair|skin|freckle/i.test(d)
         && /colou?r|tone|blonde|golden|lighter|darker|warmer|paler|streak|missing|less prominent/i.test(d));
+      // Style breaks (flat/desaturated/line-art drift vs the cover) get the
+      // same targeted treatment — the generic "AVOID" line was too weak to
+      // steer a renderer that had already drifted off the book's style.
+      const styleBreakDefects = namedDefects.filter((d) => /style|flat|desaturat|photoreal|3d render|line[- ]?art|line ?weight|vector/i.test(d));
       const repairSpread = {
         ...spread,
         scene_contract: {
@@ -170,6 +177,9 @@ async function selectSpreadWinner({
               : null,
             colorDriftDefects.length
               ? `CRITICAL REPAIR: previous renders drifted the character's colors (${colorDriftDefects.join('; ')}). Match the MODEL SHEET's hair color, skin tone, and freckles EXACTLY — base colors never change with scene lighting.`
+              : null,
+            styleBreakDefects.length
+              ? `CRITICAL REPAIR: previous renders broke the book's signature style (${styleBreakDefects.join('; ')}). Match the APPROVED COVER reference's rendering style EXACTLY — warm painterly brushwork, rich saturated colors, soft rounded shading, consistent line weight. NOT flat vector, NOT desaturated, NOT thin-line.`
               : null,
             namedDefects.length ? `AVOID these defects from rejected attempts: ${namedDefects.join('; ')}` : null,
           ].filter(Boolean).join(' | '),
