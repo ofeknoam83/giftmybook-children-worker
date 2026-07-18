@@ -5,6 +5,7 @@ jest.mock('../../../services/bookPipelineV3/llm/modelRouter', () => ({
 }));
 
 const { callWithRole } = require('../../../services/bookPipelineV3/llm/modelRouter');
+const { creativeBriefActivity } = require('../../../services/bookPipelineV3/orchestration/activities/creativeBrief');
 const { conceptRoomActivity, CONCEPT_ANGLES } = require('../../../services/bookPipelineV3/orchestration/activities/conceptRoom');
 const { editorialSelectionActivity } = require('../../../services/bookPipelineV3/orchestration/activities/editorialSelection');
 const { manuscriptWriterActivity, DRAFT_VARIANTS } = require('../../../services/bookPipelineV3/orchestration/activities/manuscriptWriter');
@@ -25,6 +26,73 @@ beforeEach(() => {
   ctx.log.mockClear();
 });
 
+describe('creativeBrief — interests carry (the "kid likes space" regression)', () => {
+  // Factory, not a shared const: the activity output is per-call and tests
+  // must not observe each other's fixture state.
+  const briefJson = () => ({
+    child_as_character: [
+      { detail: 'loves her red bucket', story_potential: 'lost and found', load_bearing: true },
+    ],
+    gift_intent: 'A birthday love letter.',
+    constraints: { banned_elements: [], safety_notes: [], pronouns: { subject: 'he', object: 'him', possessive: 'his' } },
+  });
+  const rawRequest = {
+    childName: 'Amit',
+    childAge: 5,
+    childGender: 'male',
+    childInterests: ['space', 'rockets'],
+    customDetails: 'He loves space.',
+    answeredQuestions: [{ id: 'q1', question: 'Interests?', answer: 'space' }],
+  };
+
+  test('interests ride the brief VERBATIM (code-side, not LLM echo) and answeredQuestions reach the prompt', async () => {
+    callWithRole.mockResolvedValueOnce(resp({ ...briefJson(), story_world: 'A cozy backyard-astronomy world of stars and rockets.' }));
+    const brief = await creativeBriefActivity({ rawRequest, ageProfile: PRESCHOOL_PROFILE }, ctx);
+    expect(brief.interests).toEqual(['space', 'rockets']);
+    expect(brief.story_world).toBe('A cozy backyard-astronomy world of stars and rockets.');
+    const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
+    expect(prompt.order.interests).toEqual(['space', 'rockets']);
+    expect(prompt.order.answeredQuestions).toEqual([{ id: 'q1', question: 'Interests?', answer: 'space' }]);
+  });
+
+  test('backstop: an interest the model ranked out is forced back in as load-bearing, loudly', async () => {
+    callWithRole.mockResolvedValueOnce(resp(briefJson()));
+    const brief = await creativeBriefActivity({ rawRequest, ageProfile: PRESCHOOL_PROFILE }, ctx);
+    const backstop = brief.child_as_character.find((d) => d.source === 'interest_backstop');
+    expect(backstop).toBeDefined();
+    expect(backstop.load_bearing).toBe(true);
+    expect(backstop.detail).toContain('space');
+    expect(ctx.log).toHaveBeenCalledWith('warn', expect.stringContaining("dropped stated interest 'space'"));
+  });
+
+  test('no backstop when the model already kept the interest', async () => {
+    callWithRole.mockResolvedValueOnce(resp({
+      ...briefJson(),
+      child_as_character: [
+        { detail: 'dreams about space', story_potential: 'the story world', load_bearing: true },
+      ],
+    }));
+    const brief = await creativeBriefActivity({ rawRequest, ageProfile: PRESCHOOL_PROFILE }, ctx);
+    expect(brief.child_as_character.some((d) => d.source === 'interest_backstop')).toBe(false);
+  });
+
+  test('no interests → interests=[], story_world=null, no backstop', async () => {
+    callWithRole.mockResolvedValueOnce(resp(briefJson()));
+    const brief = await creativeBriefActivity(
+      { rawRequest: { childName: 'Amit', childAge: 5 }, ageProfile: PRESCHOOL_PROFILE }, ctx,
+    );
+    expect(brief.interests).toEqual([]);
+    expect(brief.story_world).toBeNull();
+    expect(brief.child_as_character.some((d) => d.source === 'interest_backstop')).toBe(false);
+  });
+
+  test('story_world is clamped to 300 chars', async () => {
+    callWithRole.mockResolvedValueOnce(resp({ ...briefJson(), story_world: 'w'.repeat(500) }));
+    const brief = await creativeBriefActivity({ rawRequest, ageProfile: PRESCHOOL_PROFILE }, ctx);
+    expect(brief.story_world).toHaveLength(300);
+  });
+});
+
 describe('conceptRoom', () => {
   test('injects the assigned angle and normalizes the concept', async () => {
     callWithRole.mockResolvedValueOnce(resp(makeConceptJson('quiet_observational')));
@@ -42,6 +110,27 @@ describe('conceptRoom', () => {
   test('there are exactly 3 fixed angles', () => {
     expect(CONCEPT_ANGLES).toHaveLength(3);
     expect(new Set(CONCEPT_ANGLES.map((a) => a.id)).size).toBe(3);
+  });
+
+  test('threads interests + story_world from the brief into the pitch prompt', async () => {
+    callWithRole.mockResolvedValueOnce(resp(makeConceptJson('quest_transformation')));
+    await conceptRoomActivity({
+      brief: { ...BRIEF, interests: ['space'], story_world: 'A backyard-astronomy world.' },
+      ageProfile: PRESCHOOL_PROFILE, theme: 'adventure', spreadCount: 13, angle: CONCEPT_ANGLES[0],
+    }, ctx);
+    const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
+    expect(prompt.brief.interests).toEqual(['space']);
+    expect(prompt.brief.story_world).toBe('A backyard-astronomy world.');
+  });
+
+  test('back-compat: an old-shape brief (no interests fields) resolves to []/null', async () => {
+    callWithRole.mockResolvedValueOnce(resp(makeConceptJson('quest_transformation')));
+    await conceptRoomActivity({
+      brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, theme: 'adventure', spreadCount: 13, angle: CONCEPT_ANGLES[0],
+    }, ctx);
+    const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
+    expect(prompt.brief.interests).toEqual([]);
+    expect(prompt.brief.story_world).toBeNull();
   });
 
   test('invalid concept JSON throws with a precise message', async () => {
@@ -94,6 +183,18 @@ describe('manuscriptWriter', () => {
     const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
     expect(prompt.draft_variant).toBe(DRAFT_VARIANTS.B);
     expect(prompt.budget_preamble).toContain('WORD BUDGET');
+  });
+
+  test('threads interests + story_world from the brief into the writer prompt', async () => {
+    callWithRole.mockResolvedValueOnce(resp(makeManuscriptJson(13)));
+    await manuscriptWriterActivity({
+      brief: { ...BRIEF, interests: ['space'], story_world: 'A backyard-astronomy world.' },
+      ageProfile: PRESCHOOL_PROFILE, concept: makeConceptJson('a1'),
+      selection: { grafts: [] }, spreadCount: 13, variant: 'A',
+    }, ctx);
+    const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
+    expect(prompt.brief.interests).toEqual(['space']);
+    expect(prompt.brief.story_world).toBe('A backyard-astronomy world.');
   });
 
   test('wrong spread count throws', async () => {

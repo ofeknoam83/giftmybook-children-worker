@@ -67,6 +67,8 @@ async function manuscriptRevisionActivity(input, ctx) {
       child_as_character: brief?.child_as_character,
       constraints: brief?.constraints,
       child: brief?.child,
+      interests: brief?.interests || [],
+      story_world: brief?.story_world || null,
     },
     ageProfile: {
       band: ageProfile?.ageBand || ageProfile?.band,

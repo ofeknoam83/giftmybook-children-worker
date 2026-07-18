@@ -46,9 +46,15 @@ function normaliseGender(raw) {
 const MAX_BOOK_ID_LENGTH = 100;
 const MAX_NAME_LENGTH = 50;
 const MAX_PHOTO_URLS = 5;
-const MAX_CUSTOM_DETAILS_LENGTH = 500;
+// 2000, not 500: the main app forwards the parent's freeform text verbatim
+// and a 500 cap silently amputated exactly the personalization the book is
+// sold on. sanitizeForPrompt still injection-scrubs the whole string.
+const MAX_CUSTOM_DETAILS_LENGTH = 2000;
 const MAX_INTEREST_LENGTH = 50;
 const MAX_INTERESTS = 10;
+const MAX_ANSWERED_QUESTIONS = 30;
+const MAX_QUESTION_LENGTH = 200;
+const MAX_ANSWER_LENGTH = 500;
 const MIN_AGE = 2;
 const MAX_AGE = 12;
 
@@ -237,6 +243,7 @@ function validateGenerateBookRequest(body) {
     approvedTitle: typeof body.approvedTitle === 'string' ? body.approvedTitle.slice(0, 200) : undefined,
     approvedCoverUrl: isValidHttpsUrl(body.approvedCoverUrl) ? body.approvedCoverUrl : undefined,
     childAnecdotes: sanitizeAnecdotes(body.childAnecdotes),
+    answeredQuestions: sanitizeAnsweredQuestions(body.answeredQuestions),
     emotionalCategory: body.emotionalCategory || null,
     emotionalSituation: sanitizeForPrompt(body.emotionalSituation || '', 2000),
     emotionalParentGoal: body.emotionalParentGoal || null,
@@ -244,6 +251,16 @@ function validateGenerateBookRequest(body) {
     confirmedCharacters: Array.isArray(body.confirmedCharacters) ? body.confirmedCharacters : null,
     coverParentPresent: typeof body.coverParentPresent === 'boolean' ? body.coverParentPresent : undefined,
   };
+
+  // Empty interests is legal but produces a visibly generic story — make it
+  // loud so a payload-shape regression upstream can't silently degrade every
+  // book (the exact failure mode: interests sent under the wrong key/type).
+  if (sanitized.childInterests.length === 0) {
+    console.warn(
+      `[validation] childInterests EMPTY for bookId=${sanitized.bookId} ` +
+      `(raw type: ${Array.isArray(body.childInterests) ? 'array' : typeof body.childInterests}) — personalization will be weak`
+    );
+  }
 
   return { valid: true, errors: [], sanitized };
 }
@@ -298,12 +315,55 @@ function clampAge(age) {
   return Math.max(MIN_AGE, Math.min(MAX_AGE, Math.round(n)));
 }
 
+/**
+ * Sanitize the childInterests input into a bounded string array.
+ *
+ * Accepts an array OR a delimited string ("space, dinosaurs") — a client
+ * sending the raw comma-joined form used to be silently coerced to [],
+ * which erased the personalization the product is sold on.
+ *
+ * @param {unknown} interests
+ * @returns {string[]}
+ */
 function sanitizeInterests(interests) {
-  if (!Array.isArray(interests)) return [];
-  return interests
+  const list = Array.isArray(interests)
+    ? interests
+    : (typeof interests === 'string' ? interests.split(/[,;]/) : []);
+  return list
     .filter(i => typeof i === 'string' && i.trim().length > 0)
     .slice(0, MAX_INTERESTS)
-    .map(i => sanitizeForPrompt(i.trim(), MAX_INTEREST_LENGTH));
+    .map(i => sanitizeForPrompt(i.trim(), MAX_INTEREST_LENGTH))
+    .filter(Boolean);
+}
+
+// answeredQuestions ids whose content already arrives structurally
+// (childName/childGender/childAge/birth date fields) — repeating them as
+// free text just burns prompt budget without adding personalization.
+const IDENTITY_QUESTION_IDS = new Set(['child_name', 'child_gender', 'child_age', 'birth_date']);
+
+/**
+ * Sanitize the raw questionnaire Q/A triples forwarded by the main app.
+ * Non-array input → []. Entries survive only with a non-empty string
+ * answer; each field is injection-scrubbed and length-capped.
+ *
+ * @param {unknown} raw
+ * @returns {Array<{id: string, question: string, answer: string}>}
+ */
+function sanitizeAnsweredQuestions(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const entry of raw) {
+    if (out.length >= MAX_ANSWERED_QUESTIONS) break;
+    if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.answer !== 'string' || entry.answer.trim().length === 0) continue;
+    const id = typeof entry.id === 'string' ? entry.id.trim().slice(0, 60) : '';
+    if (IDENTITY_QUESTION_IDS.has(id)) continue;
+    const question = sanitizeForPrompt(typeof entry.question === 'string' ? entry.question : '', MAX_QUESTION_LENGTH);
+    const answer = sanitizeForPrompt(entry.answer, MAX_ANSWER_LENGTH);
+    if (!answer) continue;
+    out.push({ id, question, answer });
+  }
+  return out;
 }
 
 module.exports = {
@@ -311,6 +371,8 @@ module.exports = {
   validateGenerateSpreadRequest,
   validateFinalizeBookRequest,
   sanitizeForPrompt,
+  sanitizeInterests,
+  sanitizeAnsweredQuestions,
   isValidHttpsUrl,
   VALID_ART_STYLES,
   VALID_THEMES,

@@ -617,6 +617,11 @@ app.post('/generate-book', authenticate, async (req, res) => {
   };
 
   console.log(`[server] /generate-book: bookId=${bookId}, child=${childName}, format=${format}, style=${style}`);
+  console.log(
+    `[server] /generate-book personalization: bookId=${bookId} interests=${childInterests.length} ` +
+    `[${childInterests.join(', ')}] answeredQuestions=${(sanitized.answeredQuestions || []).length} ` +
+    `customDetailsChars=${(customDetails || '').length}`
+  );
 
   // Deduplication guard — reject if this bookId is already being generated
   if (activeBooks.has(bookId)) {

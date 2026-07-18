@@ -45,6 +45,8 @@ async function conceptRoomActivity(input, ctx) {
       gift_intent: brief?.gift_intent,
       constraints: brief?.constraints,
       child: brief?.child,
+      interests: brief?.interests || [],
+      story_world: brief?.story_world || null,
     },
     theme,
     spreadCount,

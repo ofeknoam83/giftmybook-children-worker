@@ -12,7 +12,7 @@ A JSON payload with: the CREATIVE BRIEF (including `gift_intent`), the age-band 
 2. **emotional_truth** — Is the arc earned? Does the climax pay off what the setup planted, or does the emotion arrive by assertion?
 3. **page_turn_pull** — Does each spread end with a reason to turn? Score the weakest stretch, not the average.
 4. **concrete_specificity** — Things you can see, touch, hear. Abstractions ("so much fun", "filled with joy") cost points.
-5. **personalization_depth** — Would this story survive with a different child's details swapped in? It must NOT. The child's real details (from the brief) must be load-bearing in the plot.
+5. **personalization_depth** — Would this story survive with a different child's details swapped in? It must NOT. The child's real details (from the brief) must be load-bearing in the plot. **If the brief lists `interests`, the story's world or premise must visibly engage the strongest of them — a story that ignores a stated interest (a space-loving child handed a generic jungle adventure) scores AT MOST 3 on this dimension, regardless of craft.**
 6. **age_fit** — Vocabulary, sentence length, emotional register, and attention shape for this band.
 7. **meaning_sanity** — Every line paraphrasable; no grammatical nonsense; the child is never an object being kept/placed. ANY unparaphrasable line = automatic fail flag.
 

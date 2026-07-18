@@ -20,6 +20,7 @@ Return ONE JSON object:
     }
   ],
   "gift_intent": "string — 1-3 sentences: what the parent is actually buying emotionally (comfort before a sibling arrives, a birthday love letter, pride in a new skill...). Read between the lines of the anecdotes and note.",
+  "story_world": "string — ONE sentence naming the world/setting territory this book should live in, built from the child's STRONGEST stated interest reconciled with the approved cover. If the cover pins a different setting, the cover wins the setting — then say how the interest still shapes the premise, the goal, or the key objects. Null only when the order lists no interests.",
   "constraints": {
     "banned_elements": ["string — things that must NOT appear, inferred from the order (fears to avoid trivializing, foods/animals the parent flagged, etc.)"],
     "safety_notes": ["string — age-safety considerations (no unsupervised water for a toddler, etc.)"],
@@ -30,8 +31,9 @@ Return ONE JSON object:
 
 # Rules
 
-1. **Rank `child_as_character` by story potential**, best first. Mark exactly 2 or 3 entries `load_bearing: true` — these MUST be capable of driving plot (a choice, an obstacle, a payoff), not just decorating a scene. A favorite stuffed animal that could be lost and found is load-bearing; "likes the color blue" is decoration.
+1. **Rank `child_as_character` by story potential**, best first. Mark exactly 2 or 3 entries `load_bearing: true` — these MUST be capable of driving plot (a choice, an obstacle, a payoff), not just decorating a scene. A favorite stuffed animal that could be lost and found is load-bearing; "likes the color blue" is decoration. **EXCEPTION — stated interests are never decoration:** when the order lists `interests` (e.g. "space", "dinosaurs", "trucks"), the strongest one is a WORLD-LEVEL detail. Include it as a `load_bearing: true` entry whose `story_potential` names the setting or premise it should create — a child who loves space should get a story that is visibly ABOUT space, not a generic adventure with a rocket sticker.
 2. Every detail must come from the order. Never invent facts about the child. You may sharpen a vague detail into a concrete, usable form ("likes animals" → "loves feeding the ducks at the park", ONLY if the order supports it).
 3. `gift_intent` is the emotional target the finished book will be judged against. Be specific and humane, not generic ("celebrate their bond" is too weak; "reassure Maya that being brave doesn't mean not being scared, because her mom wrote about her fear of the dark slide" is right).
 4. Derive pronouns deterministically from the stated gender; use they/them when unstated or neutral.
 5. JSON only. No prose outside the object.
+6. `story_world` must be consistent with `approvedCoverShows` when present: the parent approved that cover, so its setting cannot be contradicted. If the cover's setting and the child's interest disagree, keep the cover's setting and route the interest into the premise, the quest object, or a recurring motif — and say so explicitly in `story_world`.

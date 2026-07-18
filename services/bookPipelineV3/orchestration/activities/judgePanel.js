@@ -70,6 +70,11 @@ async function callOneJudge({ role, brief, ageProfile, blinded, judgeIndex }) {
       gift_intent: brief?.gift_intent,
       child_as_character: brief?.child_as_character,
       constraints: brief?.constraints,
+      // Raw interests + the brief's world sentence go to judges directly —
+      // a brief that under-weighted a stated interest must still be caught
+      // by personalization_depth, not laundered through its own ranking.
+      interests: brief?.interests || [],
+      story_world: brief?.story_world || null,
     },
     ageProfile: {
       band: ageProfile?.ageBand || ageProfile?.band,
