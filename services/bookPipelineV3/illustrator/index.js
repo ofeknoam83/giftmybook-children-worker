@@ -292,7 +292,7 @@ async function runNativeIllustrator(input, ctx) {
       const freshCandidates = [];
       for (const [i, img] of freshImgs.entries()) {
         const candidateIndex = baseIndex + i + 1;
-        const path = candidatePath(bookId, spreadNumber, candidateIndex);
+        const path = candidatePath(bookId, spreadNumber, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
         freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
       }
@@ -379,7 +379,7 @@ async function runNativeIllustrator(input, ctx) {
       const freshCandidates = [];
       for (const [i, img] of freshImgs.entries()) {
         const candidateIndex = baseIndex + i + 1;
-        const path = candidatePath(bookId, flag.spread, candidateIndex);
+        const path = candidatePath(bookId, flag.spread, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
         freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
       }
