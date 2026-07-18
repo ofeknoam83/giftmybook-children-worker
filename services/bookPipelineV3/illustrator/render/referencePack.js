@@ -43,6 +43,7 @@ async function buildBookReferencePack({ identityKit, coverImageUrl = null, log =
   refs.push({
     base64: sheetBase64,
     mimeType: sheetMime,
+    kind: 'sheet',
     note: 'CHARACTER MODEL SHEET (identity ground truth — match this character design exactly in every view):',
   });
 
@@ -63,6 +64,10 @@ async function buildBookReferencePack({ identityKit, coverImageUrl = null, log =
       refs.push({
         base64: cover.base64,
         mimeType: cover.mimeType || 'image/jpeg',
+        // `kind` lets consumers pick a specific reference out of the pack
+        // (the spread judge attaches ONLY the cover as its style reference);
+        // the image clients read just base64/mimeType/note and ignore it.
+        kind: 'cover',
         note: 'APPROVED BOOK COVER (outfit + art style ground truth — same outfit and rendering style):',
       });
     } catch (err) {

@@ -210,6 +210,49 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
   });
 });
 
+// Cover-aware style judging (2026-07-18): a cover-blind judge passed a
+// flat/desaturated spread that the book pass then killed as a style break
+// (book 6e018c20). The judge now receives the parent-approved cover as a
+// RENDERING-STYLE reference only — identity stays the likeness judge's job.
+describe('cover-aware style judging', () => {
+  const { buildSpreadJudgePrompt } = require('../../../services/bookPipelineV3/illustrator/qa/spreadJudge');
+  const COVER = { base64: 'COVER', mimeType: 'image/jpeg', kind: 'cover' };
+  const cleanVerdict = { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5, tags: [], defects: [] };
+
+  test('without a cover the prompt keeps the cover-blind wording', () => {
+    const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null });
+    expect(p).toContain('you have no reference art');
+    expect(p).not.toContain('COVER reference');
+  });
+
+  test('with a cover the style critical class broadens and stays STYLE-ONLY', () => {
+    const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null, hasCover: true });
+    expect(p).toContain('RENDERING-STYLE reference ONLY');
+    expect(p).toContain('rendering style clearly inconsistent with the COVER reference');
+    expect(p).toContain('flat/desaturated');
+    // Identity/likeness judging is still forbidden — the likeness judge owns it.
+    expect(p).toContain('NO IDENTITY OR GENDER JUDGING');
+    expect(p).toContain('RENDERING STYLE comparison ONLY');
+    expect(p).not.toContain('you have no reference art');
+  });
+
+  test('judgeSpreadCandidate attaches the cover as image 2 when provided', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: cleanVerdict, model: 'm' });
+    await judgeSpreadCandidate({ candidate: CANDIDATE, sceneContract: {}, coverImage: COVER });
+    const call = callVisionRole.mock.calls[0][1];
+    expect(call.images).toEqual([CANDIDATE, COVER]);
+    expect(call.prompt).toContain('Image 2 is the parent-approved COVER');
+  });
+
+  test('cover-less judging is byte-for-byte the legacy shape (single image)', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: cleanVerdict, model: 'm' });
+    await judgeSpreadCandidate({ candidate: CANDIDATE, sceneContract: {} });
+    const call = callVisionRole.mock.calls[0][1];
+    expect(call.images).toEqual([CANDIDATE]);
+    expect(call.prompt).toContain('you have no reference art');
+  });
+});
+
 describe('judge determinism (temperature 0)', () => {
   test('spread judge', async () => {
     callVisionRole.mockResolvedValueOnce({
