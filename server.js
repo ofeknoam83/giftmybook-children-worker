@@ -61,7 +61,7 @@ const { generateIllustration, downloadPhotoAsBase64, canonicalBookArtStyle } = r
 // generateIllustration is only used for chapter books and graphic novels.
 // Picture book illustration is handled exclusively by services/illustrator (new minimal module).
 // V3: compositeTextOnIllustration removed (V1 illustration pipeline)
-const { assemblePdf } = require('./services/layoutEngine');
+const { assemblePdf, buildEmbeddedPreviewPdf, OVERLAY } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { computeCoverPdfMetadata } = require('./services/coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
@@ -1047,6 +1047,12 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 pipelineVersion: routed.version,
                 needsReview: pipelineErr.needsReview,
                 request: { theme, format },
+                // Preserve the textLayout pin — the run's effective mode is
+                // checkpoint → request → default; dropping it here made the
+                // review re-dispatch silently fall back to the request value.
+                ...(checkpoint?.textLayout || requestedTextLayout
+                  ? { textLayout: checkpoint?.textLayout || requestedTextLayout }
+                  : {}),
               });
             }
             const wrapped = new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
@@ -1365,6 +1371,9 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
 
         upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
+        // Per-spread embedded-overlay metrics (tone, band luminance, contrast)
+        // — populated by the layout engine only for embedded-mode entries.
+        const overlayReport = [];
         interiorPdf = await assemblePdf(entriesWithBuffers, format, {
           title: bookTitle,
           childName: childDetails.name,
@@ -1374,7 +1383,24 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           bookId,
           upsellCovers: upsellCoversWithBuffers,
           minPages: emotionalTierInfo ? emotionalTierInfo.minPages : 32,
+          overlayReport,
         });
+
+        // Layout-time contrast advisories (embedded mode): a spread shipped
+        // with tone-vs-band contrast below the WCAG-inspired floor is recorded
+        // as a qaAdvisory — same closed-gate pattern as the illustration QA
+        // (never blocking; the admin can /v3/review/regen-spread post-hoc).
+        const lowContrast = overlayReport.filter(r => r.belowContrast);
+        if (lowContrast.length > 0) {
+          const layoutAdvisories = lowContrast.map(r => ({
+            stage: 'layout',
+            spread: r.spread,
+            note: `embedded overlay contrast ${r.contrastRatio}:1 below ${OVERLAY.MIN_CONTRAST}:1 (zone ${r.zone}, tone ${r.tone}${r.busy ? ', busy band — strong halo applied' : ''})`,
+          }));
+          qaAdvisories = [...(qaAdvisories || []), ...layoutAdvisories].slice(0, 40);
+          bookWarnings.push(`Embedded overlay contrast below ${OVERLAY.MIN_CONTRAST}:1 on spread(s) ${lowContrast.map(r => r.spread).join(', ')} — see qaAdvisories`);
+          bookContext.log('warn', `Embedded overlay contrast advisories: ${lowContrast.length} spread(s)`, { spreads: lowContrast.map(r => r.spread) });
+        }
 
         previewImageUrls = entriesWithIllustrations
           .filter(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl)
@@ -1433,7 +1459,21 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       {
         storyContent = {
           title: bookTitle,
-          entries: entriesWithIllustrations.map(e => ({ type: e.type, spread: e.spread, left: e.left, right: e.right, hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl) })),
+          entries: entriesWithIllustrations.map(e => ({
+            type: e.type,
+            spread: e.spread,
+            left: e.left,
+            right: e.right,
+            hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl),
+            // Per-spread layout metadata (2026-07-18): the main app needs
+            // these to drive the embedded-overlay preview and textLayout
+            // flips after the worker checkpoint is cleared on completion.
+            ...(e.type === 'spread' && e.textLayout ? { textLayout: e.textLayout } : {}),
+            ...(e.type === 'spread' && e.textLayout === 'embedded' ? { textZone: e.textZone || null } : {}),
+            ...(e.type === 'spread' && e.captionText !== undefined ? { captionText: e.captionText } : {}),
+            ...(e.type === 'spread' && e.spreadIllustrationUrl ? { spreadIllustrationUrl: e.spreadIllustrationUrl } : {}),
+            ...(e.type === 'spread' && e.spreadIllustrationStorageKey ? { spreadIllustrationStorageKey: e.spreadIllustrationStorageKey } : {}),
+          })),
           characterDescription: storyPlan.characterDescription || null,
           characterOutfit: storyPlan.characterOutfit || null,
           characterAnchor: storyPlan.characterAnchor || null,
@@ -2257,6 +2297,9 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 
   console.log(`[server] /finalize-book: bookId=${bookId}, format=${bookFormat || 'picture_book'}, ${isGraphicNovel ? `pages=${(pages || []).length}` : `spreads=${(spreads || []).length}`}`);
   const bookContext = createBookContext(bookId);
+  // Embedded-overlay metrics from layout (empty for caption/legacy books) —
+  // returned to the caller so re-finalizes surface low-contrast spreads too.
+  const finalizeOverlayReport = [];
 
   try {
     // Download upsell cover buffers if provided
@@ -2366,6 +2409,7 @@ app.post('/finalize-book', authenticate, async (req, res) => {
         year: new Date().getFullYear(),
         bookId,
         upsellCovers: resolvedUpsellCovers,
+        overlayReport: finalizeOverlayReport,
       });
     }
     bookContext.touchActivity();
@@ -2376,7 +2420,12 @@ app.post('/finalize-book', authenticate, async (req, res) => {
     const pdfUrl = await getSignedUrl(pdfPath, 30 * 24 * 60 * 60 * 1000);
 
     removeBookContext(bookId);
-    res.json({ success: true, bookId, interiorPdfUrl: pdfUrl });
+    res.json({
+      success: true,
+      bookId,
+      interiorPdfUrl: pdfUrl,
+      ...(finalizeOverlayReport.length > 0 ? { overlayReport: finalizeOverlayReport, minContrast: OVERLAY.MIN_CONTRAST } : {}),
+    });
   } catch (err) {
     removeBookContext(bookId);
     console.error(`[server] Finalize failed for ${bookId}:`, err);
@@ -2523,6 +2572,115 @@ app.post('/v3/review/pick-sheet', authenticate, async (req, res) => {
     res.json({ success: true, bookId, action: 'pick_sheet', next: 'redispatch_generate_book' });
   } catch (err) {
     console.error('[v3-review] pick-sheet failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /v3/set-text-layout — flip caption ↔ embedded on an EXISTING book ──
+// Records the admin's text-layout change on the book's checkpoint so the
+// next /generate-book dispatch (the main app re-dispatches, same contract as
+// the /v3/review/* endpoints) runs in the new mode. On an already-illustrated
+// checkpoint the stale storyPlan entries are dropped (they pin the OLD
+// aspect + per-spread fields) — the re-dispatch re-runs the pipeline, but
+// the expensive parts replay from cache: the identity kit from its
+// photoHash-keyed GCS cache and every spread render for the TARGET aspect
+// from the aspect-keyed candidate cache (so flipping back to a mode the book
+// was already rendered in re-renders nothing).
+app.post('/v3/set-text-layout', authenticate, async (req, res) => {
+  try {
+    const { bookId } = req.body || {};
+    const t = String(req.body?.textLayout || '').toLowerCase().trim();
+    if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
+      return res.status(400).json({ success: false, error: 'invalid bookId' });
+    }
+    if (t !== 'caption' && t !== 'embedded') {
+      return res.status(400).json({ success: false, error: `Unsupported textLayout '${req.body?.textLayout}' — expected 'caption' or 'embedded'` });
+    }
+    const checkpoint = await loadCheckpoint(bookId);
+    if (!checkpoint) {
+      // Completed books clear their checkpoint; drafts never had one. There
+      // is nothing to pin worker-side — the next dispatch carries the new
+      // textLayout in the request, and target-aspect renders replay from GCS.
+      return res.json({ success: true, bookId, textLayout: t, changed: false, checkpoint: false, rerender: 'dispatch', next: 'redispatch_generate_book' });
+    }
+    const current = checkpoint.textLayout || 'caption';
+    if (current === t) {
+      return res.json({ success: true, bookId, textLayout: t, changed: false, checkpoint: true, rerender: null });
+    }
+    const next = {
+      ...checkpoint,
+      textLayout: t,
+      textLayoutChange: { from: current, to: t, at: new Date().toISOString() },
+    };
+    let rerender = 'resume';
+    if (next.storyPlan || next.illustrationResults) {
+      delete next.storyPlan;
+      delete next.illustrationResults;
+      next.completedStage = 'text_layout_change';
+      rerender = 'illustration';
+    }
+    await saveCheckpoint(bookId, next);
+    console.log(`[v3] ${bookId} textLayout ${current} → ${t} (rerender=${rerender})`);
+    res.json({ success: true, bookId, textLayout: t, changed: true, checkpoint: true, rerender, next: 'redispatch_generate_book' });
+  } catch (err) {
+    console.error('[v3] set-text-layout failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /v3/preview/embedded-overlay — pre-print QA preview (admin) ──
+// Renders the ACTUAL embedded-overlay PDF pages (same layout code path that
+// ships — layoutEmbeddedSpread) for the book's embedded spreads and returns
+// a signed preview URL plus per-spread overlay metrics (tone, band
+// luminance/stdev, WCAG-inspired contrast ratio) so the admin UI can flag
+// low-contrast spreads BEFORE print. Entries come from the request (the main
+// app persists them from the completion callback's storyContent) or, for
+// in-flight books, from the checkpoint.
+app.post('/v3/preview/embedded-overlay', authenticate, async (req, res) => {
+  const { bookId, bookFormat } = req.body || {};
+  if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  try {
+    let entries = Array.isArray(req.body.entries) ? req.body.entries : null;
+    if (!entries) {
+      const checkpoint = await loadCheckpoint(bookId);
+      const cpEntries = checkpoint?.storyPlan?.entries || checkpoint?.illustrationResults || null;
+      entries = Array.isArray(cpEntries) ? cpEntries : [];
+    }
+    const embedded = entries.filter((e) => (!e.type || e.type === 'spread')
+      && e.textLayout === 'embedded'
+      && (e.captionText !== undefined || e.left?.text !== undefined));
+    if (embedded.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'no embedded-mode spread entries found — pass `entries` for completed books (the checkpoint is cleared on completion), or the book is laid out in caption mode',
+      });
+    }
+    const resolved = [];
+    for (const e of embedded) {
+      const src = e.spreadIllustrationStorageKey || e.imageStorageKey || e.spreadIllustrationUrl || e.imageUrl || null;
+      let buffer = null;
+      if (src) {
+        try { buffer = await downloadBuffer(src); }
+        catch (err) { console.warn(`[v3-preview] spread ${e.spread}: art download failed (${err.message}) — previewing overlay geometry only`); }
+      }
+      resolved.push({
+        type: 'spread',
+        spread: e.spread,
+        textLayout: 'embedded',
+        textZone: e.textZone || 'left-top',
+        captionText: e.captionText !== undefined ? e.captionText : (e.left?.text || ''),
+        spreadIllustrationBuffer: buffer,
+      });
+    }
+    const { buffer, report } = await buildEmbeddedPreviewPdf(resolved, bookFormat || 'picture_book');
+    const previewPath = `children-jobs/${bookId}/previews/embedded-overlay-${Date.now()}.pdf`;
+    await uploadBuffer(buffer, previewPath, 'application/pdf');
+    const previewPdfUrl = await getSignedUrl(previewPath, 7 * 24 * 60 * 60 * 1000);
+    res.json({ success: true, bookId, previewPdfUrl, minContrast: OVERLAY.MIN_CONTRAST, spreads: report });
+  } catch (err) {
+    console.error(`[v3-preview] embedded overlay preview failed for ${bookId}:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

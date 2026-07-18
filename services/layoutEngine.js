@@ -195,7 +195,7 @@ function buildBlankPage(pdfDoc, pw, ph) {
  *
  * @returns {{ font: object, size: number, lines: string[], lineH: number, blockH: number }|null}
  */
-function computeCaptionBlock(fonts, captionText, maxW) {
+function computeCaptionBlock(fonts, captionText, maxW, opts = {}) {
   const text = String(captionText || '').trim();
   if (!text) return null;
 
@@ -205,17 +205,21 @@ function computeCaptionBlock(fonts, captionText, maxW) {
   // Manuscript text is already line-broken on \n (4-line picture-book cadence).
   // Preserve the existing line breaks; only wrap individual lines that exceed
   // the body width — which should be rare given the writer's word budget.
+  // The size ladder steps down when a line still overflows the width, or —
+  // embedded overlay only — when the whole block exceeds opts.maxH (long
+  // captions shrink instead of clipping or overflowing toward the bleed).
   const sourceLines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  const SIZE_PRIMARY = 22;
-  const SIZE_FALLBACK = 18;
-  let size = SIZE_PRIMARY;
-  let lines = sourceLines.flatMap(line => wrapText(line, font, size, maxW));
-  if (lines.some(l => font.widthOfTextAtSize(l, size) > maxW * 1.02)) {
-    size = SIZE_FALLBACK;
-    lines = sourceLines.flatMap(line => wrapText(line, font, size, maxW));
+  const SIZES = [22, 18, 16, 14];
+  const maxH = Number.isFinite(opts.maxH) ? opts.maxH : Infinity;
+  let chosen = null;
+  for (const size of SIZES) {
+    const lines = sourceLines.flatMap(line => wrapText(line, font, size, maxW));
+    const lineH = size * 1.55;
+    chosen = { font, size, lines, lineH, blockH: lines.length * lineH };
+    const fitsW = !lines.some(l => font.widthOfTextAtSize(l, size) > maxW * 1.02);
+    if (fitsW && chosen.blockH <= maxH) break;
   }
-  const lineH = size * 1.55;
-  return { font, size, lines, lineH, blockH: lines.length * lineH };
+  return chosen;
 }
 
 function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
@@ -239,6 +243,16 @@ function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
   }
 }
 
+// ── Embedded-overlay analysis constants ─────────────────────────────────────
+const OVERLAY = {
+  SEGMENTS: 4,          // columns sampled across the caption band
+  BAND_FRAC: 0.38,      // caption band height as a fraction of the art height
+  BUSY_STDEV: 45,       // 0–255 luminance stdev above which a band is "busy"
+  GUTTER_FRAC: 0.10,    // no overlay text within 10% of the fold (either page)
+  MAX_BLOCK_FRAC: 0.55, // overlay block may reach at most 55% of page height from its anchor edge
+  MIN_CONTRAST: 4.5,    // WCAG-inspired advisory threshold (tone vs band)
+};
+
 /**
  * Overlay tone from the caption band's mean luminance (0–255): light art
  * (sky, sand, snow) takes dark ink with a warm-white halo; everything else
@@ -253,25 +267,168 @@ function pickOverlayTone(luminance) {
 }
 
 /**
- * Mean relative luminance (0–255) of the caption band of a page-half art
- * buffer: full width, top or bottom 38% of rows per the zone's vertical
- * component — the region the overlay text will occupy.
+ * Per-segment statistics of the caption band of a page-half art buffer: the
+ * top or bottom BAND_FRAC of rows (per the zone's vertical component) split
+ * into OVERLAY.SEGMENTS side-by-side columns, each reduced to mean luminance
+ * and luminance-weighted channel stdev. Feeds analyzeZoneBand — the finer
+ * grain lets tone follow the pixels actually under the text block and lets
+ * high-variance ("busy") bands trigger a stronger halo.
  *
  * @param {Buffer} artBuf - the half-page art (splitSpreadImage output)
  * @param {string} zone - art-direction textZone; only top/bottom matters
- * @returns {Promise<number>}
+ * @param {number} [segmentCount]
+ * @returns {Promise<Array<{luminance: number, stdev: number}>>} left→right
  */
-async function zoneLuminance(artBuf, zone) {
+async function zoneBandStats(artBuf, zone, segmentCount = OVERLAY.SEGMENTS) {
   const meta = await sharp(artBuf).metadata();
   const w = meta.width || 1;
   const h = meta.height || 1;
-  const band = Math.max(1, Math.round(h * 0.38));
+  const band = Math.max(1, Math.round(h * OVERLAY.BAND_FRAC));
   const top = String(zone || '').includes('bottom') ? Math.max(0, h - band) : 0;
-  const { channels } = await sharp(artBuf)
-    .extract({ left: 0, top, width: w, height: band })
-    .stats();
-  const [r, g, b] = channels;
-  return 0.2126 * (r?.mean ?? 128) + 0.7152 * (g?.mean ?? 128) + 0.0722 * (b?.mean ?? 128);
+  const n = Math.max(1, Math.min(segmentCount, w));
+  const segments = [];
+  for (let i = 0; i < n; i += 1) {
+    const left = Math.round((i * w) / n);
+    const width = Math.max(1, Math.round(((i + 1) * w) / n) - left);
+    const { channels } = await sharp(artBuf)
+      .extract({ left, top, width, height: band })
+      .stats();
+    const [r, g, b] = channels;
+    segments.push({
+      luminance: 0.2126 * (r?.mean ?? 128) + 0.7152 * (g?.mean ?? 128) + 0.0722 * (b?.mean ?? 128),
+      stdev: 0.2126 * (r?.stdev ?? 0) + 0.7152 * (g?.stdev ?? 0) + 0.0722 * (b?.stdev ?? 0),
+    });
+  }
+  return segments;
+}
+
+/**
+ * Segment-based overlay decision. Pure — exported for tests (the sharp
+ * sampling path never runs in the sandbox suite, mirroring pickOverlayTone).
+ *
+ * Tone comes from the luminance weighted by each segment's overlap with the
+ * CENTERED text block (textWidthFrac of the band width) — pixels the type
+ * never touches don't get a vote. A band whose max per-segment stdev exceeds
+ * busyStdev is "busy" (high-contrast detail under the type): tone alone
+ * can't rescue readability there, so the halo escalates to 'strong'.
+ *
+ * @param {Array<{luminance: number, stdev: number}>} segments - left→right
+ * @param {object} [opts]
+ * @param {number} [opts.textWidthFrac=1] - final wrapped text width / band width
+ * @param {number} [opts.busyStdev]
+ * @returns {{ tone: 'dark-text'|'light-text', busy: boolean,
+ *             haloStrength: 'normal'|'strong', luminance: number|null, maxStdev: number }}
+ */
+function analyzeZoneBand(segments, opts = {}) {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return { tone: 'light-text', busy: false, haloStrength: 'normal', luminance: null, maxStdev: 0 };
+  }
+  const busyStdev = Number.isFinite(opts.busyStdev) ? opts.busyStdev : OVERLAY.BUSY_STDEV;
+  const frac = Math.min(1, Math.max(0.05, Number.isFinite(opts.textWidthFrac) ? opts.textWidthFrac : 1));
+  const lo = (1 - frac) / 2;
+  const hi = (1 + frac) / 2;
+  const n = segments.length;
+  let weightSum = 0;
+  let lumSum = 0;
+  let maxStdev = 0;
+  segments.forEach((seg, i) => {
+    const overlap = Math.max(0, Math.min(hi, (i + 1) / n) - Math.max(lo, i / n));
+    if (overlap <= 0) return;
+    weightSum += overlap;
+    lumSum += overlap * (seg.luminance ?? 128);
+    maxStdev = Math.max(maxStdev, seg.stdev ?? 0);
+  });
+  const luminance = weightSum > 0
+    ? lumSum / weightSum
+    : segments.reduce((s, seg) => s + (seg.luminance ?? 128), 0) / n;
+  const busy = maxStdev > busyStdev;
+  return { tone: pickOverlayTone(luminance), busy, haloStrength: busy ? 'strong' : 'normal', luminance, maxStdev };
+}
+
+/**
+ * WCAG contrast ratio between two 0–255 luminances (sRGB-linearized).
+ * @param {number} lumA
+ * @param {number} lumB
+ * @returns {number} ratio ≥ 1
+ */
+function contrastRatio(lumA, lumB) {
+  const linear = (v) => {
+    const s = Math.min(255, Math.max(0, v)) / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const a = linear(lumA);
+  const b = linear(lumB);
+  const [high, low] = a >= b ? [a, b] : [b, a];
+  return (high + 0.05) / (low + 0.05);
+}
+
+// Luminance (0–255) of the two overlay ink fills (dark ink rgb(.13,.11,.09) /
+// white). Used for the advisory contrast check only — the halo/shadow layers
+// raise effective readability beyond this floor, so the ratio is a
+// conservative, never-blocking signal.
+const OVERLAY_INK_LUMINANCE = { 'dark-text': 29, 'light-text': 255 };
+
+/**
+ * Advisory contrast ratio of the chosen overlay tone against the sampled
+ * band luminance. Pure — exported for tests.
+ *
+ * @param {'dark-text'|'light-text'} tone
+ * @param {number} bandLuminance - 0–255
+ * @returns {number}
+ */
+function overlayContrastRatio(tone, bandLuminance) {
+  return contrastRatio(OVERLAY_INK_LUMINANCE[tone] ?? 255, bandLuminance);
+}
+
+/**
+ * Horizontal + vertical bounds for the embedded overlay on ONE page half.
+ * Pure — exported for tests.
+ *
+ * The fold (gutter) runs along the right edge of a left-page half and the
+ * left edge of a right-page half; overlay text keeps GUTTER_FRAC of the page
+ * width clear of it (matching the GUTTER instruction the renderer already
+ * receives in buildSpreadRenderPrompt), and MAX_BLOCK_FRAC caps how far a
+ * long caption may grow from its anchor edge toward the page center.
+ *
+ * @param {{ pw: number, ph: number, zone: string, pad: number }} opts
+ * @returns {{ vertical: 'top'|'bottom', gutterSide: 'left'|'right',
+ *             xMin: number, xMax: number, maxTextW: number, maxBlockH: number }}
+ */
+function computeOverlayPlacement({ pw, ph, zone, pad }) {
+  const z = String(zone || '');
+  const vertical = z.includes('bottom') ? 'bottom' : 'top';
+  const gutterSide = z.startsWith('right') ? 'left' : 'right';
+  const gutterInset = Math.max(SAFE + pad, Math.round(pw * OVERLAY.GUTTER_FRAC));
+  const outerInset = SAFE + pad;
+  const xMin = gutterSide === 'left' ? gutterInset : outerInset;
+  const xMax = pw - (gutterSide === 'right' ? gutterInset : outerInset);
+  const maxBlockH = ph * OVERLAY.MAX_BLOCK_FRAC - SAFE - pad;
+  return { vertical, gutterSide, xMin, xMax, maxTextW: xMax - xMin, maxBlockH };
+}
+
+/**
+ * Full overlay layout: adaptive padding (long captions trade frame padding
+ * for type size before the size ladder kicks in), placement bounds, and the
+ * wrapped caption block.
+ *
+ * @param {object} fonts
+ * @param {string} captionText
+ * @param {string} zone
+ * @param {{ pw: number, ph: number }} dims
+ * @returns {{ pad: number, placement: object, block: object, textWidthFrac: number }|null}
+ */
+function computeOverlayLayout(fonts, captionText, zone, { pw, ph }) {
+  let layout = null;
+  for (const pad of [22, 12]) {
+    const placement = computeOverlayPlacement({ pw, ph, zone, pad });
+    const block = computeCaptionBlock(fonts, captionText, placement.maxTextW, { maxH: placement.maxBlockH });
+    if (!block) return null;
+    const widest = Math.max(...block.lines.map(l => block.font.widthOfTextAtSize(l, block.size)));
+    layout = { pad, placement, block, textWidthFrac: Math.min(1, widest / pw) };
+    // Compact captions keep the roomier padding; tall blocks retry tighter.
+    if (block.blockH <= ph * 0.30) break;
+  }
+  return layout;
 }
 
 /**
@@ -283,45 +440,130 @@ async function zoneLuminance(artBuf, zone) {
  * scene. The art itself remains wordless (D5) — the words are print-perfect
  * PDF type, never pixels.
  *
+ * The block centers inside gutter-aware bounds (computeOverlayPlacement):
+ * text never sits within GUTTER_FRAC of the fold, long captions expand
+ * toward the page center (capped at MAX_BLOCK_FRAC of the page height via
+ * the computeCaptionBlock size ladder) instead of clipping near the bleed,
+ * and a 'strong' halo profile (busy band) draws a wider, denser ring.
+ *
  * @param {import('pdf-lib').PDFPage} page - the page carrying the art half
  * @param {object} fonts
  * @param {string} captionText
  * @param {string} zone - art-direction textZone (left-top | left-bottom |
- *   right-top | right-bottom | left | right); only the vertical component
- *   matters here (the horizontal component chose WHICH page).
- * @param {{ pw: number, ph: number, tone?: 'dark-text'|'light-text' }} dims
+ *   right-top | right-bottom | left | right); the horizontal component chose
+ *   WHICH page — here it also fixes which edge is the fold.
+ * @param {{ pw: number, ph: number, tone?: 'dark-text'|'light-text',
+ *           haloStrength?: 'normal'|'strong' }} dims
  */
-function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text' }) {
-  const PAD = 22;
-  const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2 - PAD * 2);
-  if (!block) return;
+function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text', haloStrength = 'normal' }) {
+  const layout = computeOverlayLayout(fonts, captionText, zone, { pw, ph });
+  if (!layout) return;
+  const { pad, placement, block } = layout;
   const { font, size, lines, lineH, blockH } = block;
 
-  const vertical = String(zone || '').includes('bottom') ? 'bottom' : 'top';
-  // startY = baseline of the topmost line (PDF y grows upward).
-  const startY = vertical === 'top'
-    ? ph - SAFE - PAD
-    : Math.max(SAFE + blockH + PAD, SAFE + blockH);
+  // startY = baseline of the topmost line (PDF y grows upward). Both anchors
+  // grow toward the page center; computeCaptionBlock's maxH guarantees the
+  // block never crosses MAX_BLOCK_FRAC of the page height.
+  const startY = placement.vertical === 'top'
+    ? ph - SAFE - pad
+    : SAFE + pad + blockH;
 
   const dark = tone === 'dark-text';
   const fill = dark ? rgb(0.13, 0.11, 0.09) : C.white;
   const halo = dark ? rgb(1, 1, 0.97) : rgb(0.08, 0.07, 0.06);
 
-  // pdf-lib has no blur, so the halo is layered type: each line drawn 8×
-  // in a ring around the fill, plus a drop shadow under white type.
-  const O = 1.3;
-  const RING = [[-O, 0], [O, 0], [0, -O], [0, O], [-O, -O], [-O, O], [O, -O], [O, O]];
+  // pdf-lib has no blur, so the halo is layered type: each line drawn 8× per
+  // ring around the fill, plus a drop shadow under white type. Busy bands
+  // ('strong') get a second, wider ring at higher opacity — tone alone can't
+  // buy readability over high-contrast detail.
+  const HALO_PROFILES = {
+    normal: { rings: [1.3], opacity: 0.55, shadowOffset: 1.1, shadowOpacity: 0.3 },
+    strong: { rings: [2.2, 1.1], opacity: 0.7, shadowOffset: 1.6, shadowOpacity: 0.45 },
+  };
+  const profile = HALO_PROFILES[haloStrength] || HALO_PROFILES.normal;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const y = startY - i * lineH;
-    const x = (pw - font.widthOfTextAtSize(line, size)) / 2;
-    for (const [dx, dy] of RING) {
-      page.drawText(line, { x: x + dx, y: y + dy, size, font, color: halo, opacity: 0.55 });
+    const lineW = font.widthOfTextAtSize(line, size);
+    // Centered within the gutter-aware bounds, never within the fold margin.
+    const x = placement.xMin + Math.max(0, (placement.maxTextW - lineW) / 2);
+    for (const O of profile.rings) {
+      const ring = [[-O, 0], [O, 0], [0, -O], [0, O], [-O, -O], [-O, O], [O, -O], [O, O]];
+      for (const [dx, dy] of ring) {
+        page.drawText(line, { x: x + dx, y: y + dy, size, font, color: halo, opacity: profile.opacity });
+      }
     }
     if (!dark) {
-      page.drawText(line, { x: x + 1.1, y: y - 1.1, size, font, color: C.black, opacity: 0.3 });
+      page.drawText(line, { x: x + profile.shadowOffset, y: y - profile.shadowOffset, size, font, color: C.black, opacity: profile.shadowOpacity });
     }
     page.drawText(line, { x, y, size, font, color: fill });
+  }
+}
+
+/**
+ * Lay out ONE embedded-mode spread: two full-bleed pages from the wide art,
+ * caption typeset over the quiet-zone half in a tone/halo picked from the
+ * band's segment statistics. Shared by assemblePdf and the admin preview
+ * builder so preview pages are bit-identical to shipped pages.
+ *
+ * @param {import('pdf-lib').PDFDocument} pdfDoc
+ * @param {object} fonts
+ * @param {object} entry - spread entry ({ spread, captionText, textZone, spreadIllustrationBuffer })
+ * @param {{ pw: number, ph: number, report?: object[]|null }} opts - when
+ *   report is an array, per-spread overlay metrics are pushed onto it
+ *   ({ spread, zone, tone, haloStrength, busy, luminance, maxStdev,
+ *      contrastRatio, belowContrast }).
+ */
+async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = null }) {
+  const leftPage = pdfDoc.addPage([pw, ph]);
+  const rightPage = pdfDoc.addPage([pw, ph]);
+  let leftBuf = null;
+  let rightBuf = null;
+  if (entry.spreadIllustrationBuffer) {
+    try {
+      ({ leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
+      await embedFullBleed(pdfDoc, leftPage, leftBuf);
+      await embedFullBleed(pdfDoc, rightPage, rightBuf);
+    } catch (e) {
+      console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
+    }
+  }
+  const zone = entry.textZone || 'left-top';
+  const onRight = String(zone).startsWith('right');
+  const textPage = onRight ? rightPage : leftPage;
+  const artBuf = onRight ? rightBuf : leftBuf;
+  let tone = 'light-text';
+  let haloStrength = 'normal';
+  let metrics = null;
+  if (artBuf) {
+    try {
+      const layout = computeOverlayLayout(fonts, entry.captionText || '', zone, { pw, ph });
+      const segments = await zoneBandStats(artBuf, zone);
+      const analysis = analyzeZoneBand(segments, { textWidthFrac: layout ? layout.textWidthFrac : 1 });
+      tone = analysis.tone;
+      haloStrength = analysis.haloStrength;
+      metrics = { ...analysis, contrastRatio: overlayContrastRatio(analysis.tone, analysis.luminance) };
+    } catch (e) {
+      console.warn(`[LayoutEngine] zone band sampling failed (defaulting to light-text): ${e.message}`);
+    }
+  }
+  try {
+    drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone, haloStrength });
+  } catch (e) {
+    console.warn(`[LayoutEngine] caption overlay failed: ${e.message}`);
+  }
+  if (Array.isArray(report)) {
+    report.push({
+      spread: entry.spread ?? null,
+      zone,
+      tone,
+      haloStrength,
+      busy: metrics ? metrics.busy : null,
+      luminance: metrics ? Math.round(metrics.luminance) : null,
+      maxStdev: metrics ? Math.round(metrics.maxStdev) : null,
+      contrastRatio: metrics ? Math.round(metrics.contrastRatio * 100) / 100 : null,
+      belowContrast: metrics ? metrics.contrastRatio < OVERLAY.MIN_CONTRAST : false,
+    });
   }
 }
 
@@ -675,39 +917,10 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
     if (entry.textLayout === 'embedded' && entry.captionText !== undefined) {
       // Embedded text layout (2026-07-17): ONE wide wordless illustration
       // spans both facing pages; the caption is typeset OVER the art inside
-      // the art director's quiet zone — integrated (no panel), in a tone
-      // sampled from the zone itself. The words are PDF type, never pixels —
-      // D5 stays intact.
-      const leftPage = pdfDoc.addPage([pw, ph]);
-      const rightPage = pdfDoc.addPage([pw, ph]);
-      let leftBuf = null;
-      let rightBuf = null;
-      if (entry.spreadIllustrationBuffer) {
-        try {
-          ({ leftBuf, rightBuf } = await splitSpreadImage(entry.spreadIllustrationBuffer, pw, ph));
-          await embedFullBleed(pdfDoc, leftPage, leftBuf);
-          await embedFullBleed(pdfDoc, rightPage, rightBuf);
-        } catch (e) {
-          console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
-        }
-      }
-      const zone = entry.textZone || 'left-top';
-      const onRight = String(zone).startsWith('right');
-      const textPage = onRight ? rightPage : leftPage;
-      let tone = 'light-text';
-      const artBuf = onRight ? rightBuf : leftBuf;
-      if (artBuf) {
-        try {
-          tone = pickOverlayTone(await zoneLuminance(artBuf, zone));
-        } catch (e) {
-          console.warn(`[LayoutEngine] zone luminance sampling failed (defaulting to light-text): ${e.message}`);
-        }
-      }
-      try {
-        drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone });
-      } catch (e) {
-        console.warn(`[LayoutEngine] caption overlay failed: ${e.message}`);
-      }
+      // the art director's quiet zone — integrated (no panel), in a tone and
+      // halo strength decided from the band's segment statistics. The words
+      // are PDF type, never pixels — D5 stays intact.
+      await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report: opts.overlayReport || null });
       continue;
     }
 
@@ -1774,4 +1987,45 @@ async function buildGraphicNovelPdf(_unused, opts = {}) {
   }
 }
 
-module.exports = { assemblePdf, buildChapterBookPdf, buildGraphicNovelPdf, FORMATS, splitSpreadImage, pickOverlayTone };
+/**
+ * Admin pre-print preview: the ACTUAL embedded-overlay pages (same code path
+ * as assemblePdf — layoutEmbeddedSpread) for just the embedded spreads, plus
+ * the per-spread overlay metrics so the UI can flag low-contrast bands.
+ *
+ * @param {Array} entries - spread entries with textLayout==='embedded'
+ *   ({ spread, captionText, textZone, spreadIllustrationBuffer })
+ * @param {string} [bookFormat]
+ * @returns {Promise<{ buffer: Buffer, report: object[] }>}
+ */
+async function buildEmbeddedPreviewPdf(entries, bookFormat = 'picture_book') {
+  const fmt = FORMATS[(bookFormat || '').toUpperCase()] || FORMATS.PICTURE_BOOK;
+  const pw = fmt.width + BLEED * 2;
+  const ph = fmt.height + BLEED * 2;
+  const pdfDoc = await PDFDocument.create();
+  const fonts = await loadFonts(pdfDoc);
+  const report = [];
+  for (const entry of entries) {
+    if (entry.type && entry.type !== 'spread') continue;
+    if (entry.textLayout !== 'embedded' || entry.captionText === undefined) continue;
+    await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report });
+  }
+  return { buffer: Buffer.from(await pdfDoc.save()), report };
+}
+
+module.exports = {
+  assemblePdf,
+  buildChapterBookPdf,
+  buildGraphicNovelPdf,
+  buildEmbeddedPreviewPdf,
+  FORMATS,
+  splitSpreadImage,
+  pickOverlayTone,
+  // Pure embedded-overlay helpers (exported for the sandbox test suite,
+  // which cannot run sharp — mirrors the pickOverlayTone export).
+  analyzeZoneBand,
+  computeOverlayPlacement,
+  computeCaptionBlock,
+  contrastRatio,
+  overlayContrastRatio,
+  OVERLAY,
+};

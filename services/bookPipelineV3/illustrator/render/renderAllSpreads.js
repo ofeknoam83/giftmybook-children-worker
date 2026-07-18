@@ -31,20 +31,39 @@ function createLimiter(max) {
   });
 }
 
-function candidatePath(bookId, spreadNumber, candidateIndex, ext = 'png') {
-  return `children-jobs/${bookId}/v3-renders/spread-${spreadNumber}-c${candidateIndex}.${ext}`;
+/**
+ * Deterministic GCS path for one rendered candidate. The cache key includes
+ * everything that changes the pixels a slot may be REUSED for — so the text
+ * layout (which drives the render aspect: 1:1 caption vs 16:9 embedded)
+ * segments the cache. Caption keeps the legacy suffix-free path (pre-change
+ * caption books resume untouched); embedded renders live beside them under
+ * a `.wide` marker. An admin textLayout flip therefore re-renders only the
+ * aspect that is missing, and flipping BACK replays the original renders
+ * from GCS for free.
+ *
+ * @param {string} bookId
+ * @param {number} spreadNumber
+ * @param {number} candidateIndex
+ * @param {string} [ext]
+ * @param {string} [textLayout] - 'caption' | 'embedded'
+ * @returns {string}
+ */
+function candidatePath(bookId, spreadNumber, candidateIndex, ext = 'png', textLayout = 'caption') {
+  const variant = textLayout === 'embedded' ? '.wide' : '';
+  return `children-jobs/${bookId}/v3-renders/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
 }
 
 /**
  * @param {string} bookId
  * @param {number} spreadNumber
+ * @param {string} [textLayout]
  * @returns {Promise<Array<{path: string, base64: string, mimeType: string, candidateIndex: number, reused: true}>>}
  */
-async function loadExistingCandidates(bookId, spreadNumber) {
+async function loadExistingCandidates(bookId, spreadNumber, textLayout = 'caption') {
   const found = [];
   for (let i = 1; i <= CANDIDATES_PER_SPREAD; i += 1) {
     try {
-      const path = candidatePath(bookId, spreadNumber, i);
+      const path = candidatePath(bookId, spreadNumber, i, 'png', textLayout);
       const buf = await downloadBuffer(path);
       found.push({ path, base64: buf.toString('base64'), mimeType: 'image/png', candidateIndex: i, reused: true });
     } catch {
@@ -80,7 +99,7 @@ async function renderAllSpreadsNative({
 
   const results = await Promise.all(spreads.map((spread) => limit(async () => {
     // regen_spread resolution: ignore cached candidates, render fresh over them.
-    const existing = forceSpreads.has(spread.spread) ? [] : await loadExistingCandidates(bookId, spread.spread);
+    const existing = forceSpreads.has(spread.spread) ? [] : await loadExistingCandidates(bookId, spread.spread, textLayout);
     if (existing.length >= CANDIDATES_PER_SPREAD) {
       log(`spread ${spread.spread}: reusing ${existing.length} rendered candidate(s) from GCS (resume)`);
       done += 1;
@@ -98,7 +117,7 @@ async function renderAllSpreadsNative({
     for (const img of rendered) {
       // Skip indexes that already exist from a previous partial run.
       if (candidates.some((c) => c.candidateIndex === img.candidateIndex)) continue;
-      const path = candidatePath(bookId, spread.spread, img.candidateIndex);
+      const path = candidatePath(bookId, spread.spread, img.candidateIndex, 'png', textLayout);
       await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
       candidates.push({
         path,

@@ -182,7 +182,7 @@ async function selectSpreadWinner({
       const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));
       for (const [i, img] of rendered.entries()) {
         const candidateIndex = baseIndex + i + 1;
-        const path = candidatePath(bookId, spread.spread, candidateIndex);
+        const path = candidatePath(bookId, spread.spread, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
         allCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
       }
