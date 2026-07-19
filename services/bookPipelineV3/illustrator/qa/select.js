@@ -28,7 +28,7 @@ const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
  * Run the full cascade for one candidate.
  * @returns {Promise<object>} evaluation record
  */
-async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts, log = () => {} }) {
+async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, captionText = null, wideSpread = false, abortSignal, qaTagCounts, log = () => {} }) {
   const record = { candidateIndex: candidate.candidateIndex, path: candidate.path, defects: [], tags: [] };
 
   const pre = await runDeterministicChecks(candidate, abortSignal, log);
@@ -43,9 +43,12 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
   // The pack's cover (kind: 'cover') rides along as the judge's rendering-
   // style reference — cover-less books degrade to the cover-blind judging.
   const coverImage = (referenceImages || []).find((r) => r.kind === 'cover') || null;
-  const spread = await judgeSpreadCandidate({ candidate, sceneContract, direction, coverImage, abortSignal });
+  const spread = await judgeSpreadCandidate({ candidate, sceneContract, direction, coverImage, captionText, wideSpread, abortSignal });
   record.spreadScores = spread.scores;
   record.tags = spread.tags;
+  // The judge's hero bounding box rides every record (even failing ones —
+  // the winner's box feeds subject-aware caption placement at layout time).
+  record.heroBox = spread.heroBox || null;
   // Minor observations ride the record even when the candidate passes —
   // the orchestrator aggregates the WINNER's minors into doc.qaAdvisories.
   record.minorDefects = spread.minorDefects || [];
@@ -110,6 +113,7 @@ function minSpread(e) {
  * @param {object|null} [opts.direction]
  * @param {Array} opts.bookPack - reference pack (for the repair wave)
  * @param {object|null} [opts.plate]
+ * @param {object|null} [opts.propPlate] - locked recurring-prop designs plate (repair wave renders)
  * @param {Array} opts.referenceImages - approved reference art for likeness judging
  *   (model sheet + cover — NOT the raw photos; the parent approved the cover character)
  * @param {string} opts.briefText
@@ -120,7 +124,7 @@ function minSpread(e) {
  * @returns {Promise<{ selected: object|null, evaluations: object[], repairWaves: number, allCandidates: object[] }>}
  */
 async function selectSpreadWinner({
-  bookId, spread, candidates, direction = null, bookPack, plate = null,
+  bookId, spread, candidates, direction = null, bookPack, plate = null, propPlate = null,
   referenceImages, briefText, wardrobeNote, textLayout = 'caption', qaTagCounts, abortSignal, log = () => {},
 }) {
   // Every caller passes the bookPack (model sheet + cover) as the likeness
@@ -136,10 +140,15 @@ async function selectSpreadWinner({
   let evaluations = [];
   let repairWaves = 0;
 
+  // Caption text + wide-render flag flow to the judge: the count rule reads
+  // the printed text; the fold classes apply only to embedded wide art.
+  const captionText = spread.text || null;
+  const wideSpread = textLayout === 'embedded';
+
   for (let wave = 0; wave <= REPAIR_WAVES_PER_SPREAD; wave += 1) {
     const fresh = allCandidates.filter((c) => !evaluations.some((e) => e.candidateIndex === c.candidateIndex));
     for (const candidate of fresh) {
-      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, abortSignal, qaTagCounts, log });
+      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, captionText, wideSpread, abortSignal, qaTagCounts, log });
       evaluations.push(record);
       log(`spread ${spread.spread} c${candidate.candidateIndex}: ${record.pass ? 'PASS' : `fail@${record.stage}`}${record.likeness ? ` likeness=${record.likeness}` : ''}${record.defects.length ? ` [${record.defects[0]}]` : ''}`);
     }
@@ -186,7 +195,7 @@ async function selectSpreadWinner({
         },
       };
       const rendered = await renderSpreadCandidates({
-        spread: repairSpread, direction, bookPack, plate, briefText, wardrobeNote, textLayout,
+        spread: repairSpread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout,
         count: CANDIDATES_PER_SPREAD, abortSignal, log,
       });
       const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));

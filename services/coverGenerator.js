@@ -90,6 +90,38 @@ function shouldSkipCoverStyleHarmonize(coverSourceUrl) {
 }
 
 /**
+ * Copy-extend a trim-fit cover image into its bleed/wrap bands, then BLUR
+ * the extended bands so they read as a soft edge fade instead of raw
+ * single-row pixel streaks (2026-07-18 print audit: the hardcover wrap
+ * band showed crude horizontal smearing). Copy (vs mirror) remains the
+ * base strategy — mirror paints a visible symmetric reflection — but the
+ * streaks now dissolve into a gradient-like band. The trim area itself is
+ * untouched: only the extended bands are composited from the blurred copy.
+ *
+ * @param {Buffer} trimFitBuffer - image already resized to exact trim size
+ * @param {{top: number, bottom: number, left: number, right: number}} bands - band widths in px
+ * @returns {Promise<Buffer>} extended image (trim + bands), JPEG
+ */
+async function extendWithSoftWrap(trimFitBuffer, bands) {
+  const extended = await sharp(trimFitBuffer)
+    .extend({ ...bands, extendWith: 'copy' })
+    .toBuffer();
+  const anyBand = bands.top || bands.bottom || bands.left || bands.right;
+  if (!anyBand) return extended;
+  const meta = await sharp(extended).metadata();
+  const blurred = await sharp(extended).blur(15).toBuffer();
+  const overlays = [];
+  const band = async (extract, left, top) => overlays.push({
+    input: await sharp(blurred).extract(extract).toBuffer(), left, top,
+  });
+  if (bands.top) await band({ left: 0, top: 0, width: meta.width, height: bands.top }, 0, 0);
+  if (bands.bottom) await band({ left: 0, top: meta.height - bands.bottom, width: meta.width, height: bands.bottom }, 0, meta.height - bands.bottom);
+  if (bands.left) await band({ left: 0, top: 0, width: bands.left, height: meta.height }, 0, 0);
+  if (bands.right) await band({ left: meta.width - bands.right, top: 0, width: bands.right, height: meta.height }, meta.width - bands.right, 0);
+  return sharp(extended).composite(overlays).toBuffer();
+}
+
+/**
  * Extract dominant color from an image buffer using sharp.
  * Returns {r, g, b} normalized to 0-1.
  */
@@ -387,6 +419,71 @@ function drawBackCoverTypeset(page, geom, fonts, content) {
 }
 
 /**
+ * QA gate for generated back-cover art (2026-07-18 print audit: a customer
+ * book shipped with a 3D BOOK MOCKUP — book on a table, drop shadow, page
+ * edges — printed as its back cover). One cheap Gemini vision call verifies
+ * the image is flat, full-bleed scene artwork. Closed check list — this is
+ * a mockup/photo detector, not an art critic.
+ *
+ * Best-effort: infrastructure failures PASS (a QA outage must not kill
+ * covers); only an explicit "this is a mockup/photo/framed object" verdict
+ * rejects, sending the caller to its next attempt or the typeset fallback
+ * panel.
+ *
+ * @param {Buffer} imageBuffer
+ * @param {string} apiKey
+ * @returns {Promise<{pass: boolean, reason: string|null}>}
+ */
+async function qaBackCoverArtwork(imageBuffer, apiKey) {
+  const prompt = `You are checking artwork that will be printed as the BACK COVER of a children's book. The image must be FLAT, full-bleed scene artwork.
+
+Answer STRICT JSON only:
+{
+  "book_mockup": true|false,   // does the image DEPICT a physical book/product (a book lying on a surface, a 3D book mockup with visible pages/spine/cover shadow)?
+  "framed_object": true|false, // is the artwork shown as an object ON a background (frame, border, tabletop, wall, room) instead of filling the whole image edge to edge?
+  "photo_surface": true|false, // does it contain photographic/real-world surfaces (a real table, real paper texture, a photographed room) rather than artwork?
+  "readable_text": true|false  // any readable words, letters, or numbers painted in the image?
+}`;
+  try {
+    const resp = await fetch(
+      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      console.warn(`[CoverGenerator] back-cover QA HTTP ${resp.status} — passing without QA`);
+      return { pass: true, reason: null };
+    }
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    const failures = [
+      json.book_mockup && 'depicts a book/product mockup',
+      json.framed_object && 'artwork framed as an object instead of full-bleed',
+      json.photo_surface && 'photographic real-world surface',
+      json.readable_text && 'readable text painted in the artwork',
+    ].filter(Boolean);
+    if (failures.length > 0) return { pass: false, reason: failures.join('; ') };
+    return { pass: true, reason: null };
+  } catch (err) {
+    console.warn(`[CoverGenerator] back-cover QA failed to run (passing without QA): ${err.message}`);
+    return { pass: true, reason: null };
+  }
+}
+
+/**
  * Generate back cover illustration using Gemini, matching the front cover style.
  * ARTWORK ONLY — all back-cover text is typeset by drawBackCoverTypeset.
  *
@@ -408,12 +505,14 @@ async function generateBackCoverImage(frontCoverBuffer, opts = {}) {
   // be trusted with letterforms. The prompt therefore reserves a calm
   // upper region for the typeset text instead of asking for any text.
   const layoutBlock = `LAYOUT REQUIREMENTS:
-- This is the BACK COVER of the book — it should feel like a companion to the front cover
+- This is artwork FOR the back cover — paint the SCENE itself, edge to edge
 - Background: Use a softer, calmer version of the front cover's scene/colors — like a continuation of the world
 - The main character should NOT appear on the back cover
 - Include gentle, decorative elements from the story world (stars, clouds, or thematic elements from the front cover)
 - The UPPER TWO-THIRDS must be calm, dark-leaning, and low-detail (open sky, soft gradient, distant scenery) — book text will be printed over it later, so no busy shapes, no high-contrast highlights there
 - Keep richer scenery detail in the lower third only
+
+FLAT PRINT ART ONLY — NEVER A MOCKUP: this image IS the printed surface. Do NOT paint a book, a book cover, or any physical product: no book lying on a table, no 3D book mockup with pages/spine/shadow, no frame or border around the artwork, no tabletop, no wall, no room. The scene fills the ENTIRE image edge to edge as flat artwork (a real customer book shipped with a picture of a book-on-a-table printed as its back cover — audit 2026-07-18).
 
 ABSOLUTELY NO TEXT: do not render any words, letters, numbers, captions, titles, logos, or barcodes anywhere in the image. ALSO no blank labels, plaques, empty rectangles, frames, or barcode-shaped patches (audit: the model painted an empty white barcode-shaped box). The image must be 100% text-free, plaque-free artwork.
 
@@ -421,13 +520,13 @@ FORMAT: ${isSquare ? 'Square image, 1:1 aspect ratio' : 'Portrait image, 2:3 asp
 
 ${buildCoverSafeZoneInstruction(!!isHardcover)}`;
 
-  const withRefBlock = `Create the back cover image for a book, rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
+  const withRefBlock = `Create full-bleed back-cover ARTWORK (a scene, not a picture of a book), rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
 
 STYLE REFERENCE: A small CROP from the front cover (corner/background) is attached ONLY to match color palette, lighting, and 3D rendering look. Do NOT copy or depict any person, child, or face from the reference. The main story character must NOT appear on the back cover.
 
 ${layoutBlock}`;
 
-  const noRefBlock = `Create the back cover image for a book, rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
+  const noRefBlock = `Create full-bleed back-cover ARTWORK (a scene, not a picture of a book), rendered as a cinematic 3D Pixar-style CGI frame (NOT a 2D illustration, NOT a flat painting, NOT a soft storybook illustration).
 
 STYLE: No reference image is attached. Use a warm, premium 3D animated storybook look: cohesive palette, soft lighting, gentle decorative motifs — it should read as a calm companion to a personalized children’s book back cover. No characters in the image.
 
@@ -478,18 +577,29 @@ ${layoutBlock}`;
 
       const data = await resp.json();
       const parts = data.candidates?.[0]?.content?.parts || [];
+      let gotImage = false;
       for (const part of parts) {
         const img = geminiImagePartFromResponsePart(part);
         if (img) {
-          const ms = Date.now() - startTime;
-          console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
+          gotImage = true;
+          const buffer = Buffer.from(img.data, 'base64');
           if (costTracker) {
             costTracker.addImageGeneration('gemini-3.1-flash-image', 1);
           }
-          return Buffer.from(img.data, 'base64');
+          // QA gate: a generated "back cover" that depicts a book mockup or
+          // framed/photographic object must never reach print — reject and
+          // fall through to the next attempt (or the typeset fallback panel).
+          const qa = await qaBackCoverArtwork(buffer, apiKey);
+          if (!qa.pass) {
+            console.warn(`[CoverGenerator] Back cover attempt ${attempt + 1} REJECTED by QA: ${qa.reason}`);
+            break;
+          }
+          const ms = Date.now() - startTime;
+          console.log(`[CoverGenerator] Back cover generated in ${ms}ms (attempt ${attempt + 1})`);
+          return buffer;
         }
       }
-      logGeminiImageResponseDiagnostics(data, `back cover attempt ${attempt + 1} (no image)`);
+      if (!gotImage) logGeminiImageResponseDiagnostics(data, `back cover attempt ${attempt + 1} (no image)`);
       if (refFromCorner && attempt === 0) {
         console.warn('[CoverGenerator] Back cover: no image with corner-crop ref — retrying text-only');
       }
@@ -708,15 +818,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const trimWpx = Math.round(trimWidth / 72 * 300);
       const trimHpx = Math.round(trimHeight / 72 * 300);
       const bleedPx = Math.round(edgeBleed / 72 * 300);
-      const resized = await sharp(backCoverBuffer)
+      const trimFit = await sharp(backCoverBuffer)
         .resize(trimWpx, trimHpx, { fit: 'cover', position: 'center' })
-        .extend({
-          top: bleedPx,
-          bottom: bleedPx,
-          left: bleedPx,
-          right: 0,
-          extendWith: 'copy',
-        })
+        .toBuffer();
+      const resized = await sharp(await extendWithSoftWrap(trimFit, {
+        top: bleedPx,
+        bottom: bleedPx,
+        left: bleedPx,
+        right: 0,
+      }))
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
@@ -797,9 +907,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // Embed front cover illustration at 300 DPI.
   //
   // Print safety: we resize the AI image to EXACTLY fill the trim area, then
-  // copy-extend the edge rows/columns outward to fill the bleed (paperback) or
-  // wrap (hardcover casewrap) area. This keeps composition inside trim; copy
-  // (vs mirror) avoids the visible symmetric reflection in the wrap/bleed zone.
+  // extend the edges outward to fill the bleed (paperback) or wrap (hardcover
+  // casewrap) area via extendWithSoftWrap — copy-extend with the band blurred
+  // into a soft fade (copy avoids mirror's symmetric reflection; the blur
+  // removes copy's raw pixel streaks).
   //
   // Front cover bleed layout: spine-side (left) flush, outer (right), top,
   // bottom all need bleed/wrap.
@@ -808,15 +919,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       const trimWpx = Math.round(trimWidth / 72 * 300);
       const trimHpx = Math.round(trimHeight / 72 * 300);
       const bleedPx = Math.round(edgeBleed / 72 * 300);
-      const resized = await sharp(frontCoverBuffer)
+      const trimFit = await sharp(frontCoverBuffer)
         .resize(trimWpx, trimHpx, { fit: 'cover', position: 'center' })
-        .extend({
-          top: bleedPx,
-          bottom: bleedPx,
-          left: 0,
-          right: bleedPx,
-          extendWith: 'copy',
-        })
+        .toBuffer();
+      const resized = await sharp(await extendWithSoftWrap(trimFit, {
+        top: bleedPx,
+        bottom: bleedPx,
+        left: 0,
+        right: bleedPx,
+      }))
         .toColorspace('srgb')
         .jpeg({ quality: 95 })
         .toBuffer();
@@ -862,11 +973,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
 const UPSELL_STYLES = ['paper_cutout', 'watercolor', 'cinematic_3d', 'scandinavian_minimal'];
 
+// Consumer-facing art-style names — these print INSIDE the gift book on the
+// "choose the next adventure" pages (2026-07-18 print audit: the old values
+// read as internal taxonomy — "PAPER CUTOUT", "SCANDINAVIAN MINIMAL" — on a
+// child's keepsake). Keys are the internal style ids and must not change.
 const UPSELL_STYLE_LABELS = {
-  paper_cutout: 'Paper Cutout',
-  watercolor: 'Watercolor',
-  cinematic_3d: 'Cinematic 3D',
-  scandinavian_minimal: 'Scandinavian Minimal',
+  paper_cutout: 'Paper Magic',
+  watercolor: 'Soft Watercolor',
+  cinematic_3d: 'Movie Magic',
+  scandinavian_minimal: 'Cozy Classic',
 };
 
 /**
@@ -1114,4 +1229,6 @@ module.exports = {
   shouldSkipCoverStyleHarmonize,
   wrapTextToWidth,
   drawBackCoverTypeset,
+  qaBackCoverArtwork,
+  extendWithSoftWrap,
 };

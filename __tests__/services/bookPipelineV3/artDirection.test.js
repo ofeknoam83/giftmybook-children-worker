@@ -280,11 +280,15 @@ describe('book pass', () => {
     expect(res.minorFlags).toHaveLength(2);
   });
 
-  test('contact-sheet prompt states THE PARENT TEST with prop continuity explicitly minor', () => {
+  // 2026-07-18 print audit: a book shipped with its pivotal "lamp" drawn as
+  // four different objects. Prop OBJECT-IDENTITY morphs are now critical
+  // class 7 at book level; prop-DETAIL drift stays minor.
+  test('contact-sheet prompt states THE PARENT TEST with prop identity critical, prop detail minor', () => {
     const p = buildContactSheetPrompt({ manuscript: MS, direction });
     expect(p).toContain('THE PARENT TEST');
     expect(p).toContain('The complete list of critical classes at book level');
-    expect(p).toContain('including prop versions and prop-detail continuity');
+    expect(p).toContain('RECURRING story prop rendered as a fundamentally DIFFERENT OBJECT');
+    expect(p).toContain('including prop-DETAIL continuity');
     expect(p).toContain('"severity": "critical|minor"');
   });
 

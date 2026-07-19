@@ -16,7 +16,7 @@ function buildContactSheetPrompt({ manuscript, direction }) {
 
 Check the BOOK AS A WHOLE (individual image quality was already judged):
 1. VARIETY: do compositions/camera angles actually vary across the book (planned: ${[...new Set([...direction.directionBySpread.values()].map((d) => d.shot))].join(', ')})?
-2. CONTINUITY: same outfit as the cover everywhere; recurring props consistent (${direction.continuityLocks?.props?.map((p) => p.name).join(', ') || 'none listed'}).
+2. CONTINUITY: same outfit as the cover everywhere; recurring props consistent (${direction.continuityLocks?.props?.map((p) => p.design ? `${p.name}: ${p.design}` : p.name).join('; ') || 'none listed'}).
 3. COVER MATCH: interior character reads as the same child, same rendering style, as the cover.
 4. CHARACTER DRIFT: the child keeps the SAME apparent age and build on every spread (flag any spread where the child reads clearly younger/chubbier or older/slimmer than the cover), and the SAME facial marks (flag stray moles, beauty marks, or dark facial spots that are not on the cover).
 5. ENDING: the final spread lands visually (warmth/resolution, not an arbitrary stop).
@@ -28,7 +28,8 @@ THE PARENT TEST — a flag is "critical" ONLY if a parent flipping through the p
 4. the child duplicated or a stranger present
 5. countably wrong anatomy
 6. a jarring style break
-EVERYTHING ELSE IS "minor" — including prop versions and prop-detail continuity (a differently-drawn map, a changed scroll count), composition, lighting, and variety observations. Minor flags are recorded and shipped as advisories — never mark them critical.
+7. a RECURRING story prop rendered as a fundamentally DIFFERENT OBJECT on different spreads (e.g. the hero's "lamp" appearing as a bare crystal on one spread, a pendant on another, and a lantern on a third — a child following the story will notice). Applies only to object-identity changes of the listed recurring props — detail drift (a differently-drawn strap, a shade of color) stays minor.
+EVERYTHING ELSE IS "minor" — including prop-DETAIL continuity (a differently-drawn map, a changed scroll count), composition, lighting, and variety observations. Minor flags are recorded and shipped as advisories — never mark them critical.
 
 Return STRICT JSON:
 {

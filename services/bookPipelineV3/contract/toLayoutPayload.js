@@ -38,7 +38,7 @@ function toLayoutPayload(doc) {
     illustrationAspect: aspect,
     captionText: isNative ? (s.manuscript?.text || '') : undefined,
     ...(textLayout ? { textLayout } : {}),
-    ...(textLayout === 'embedded' ? { textZone: s.illustration?.textZone || null } : {}),
+    ...(textLayout === 'embedded' ? { textZone: s.illustration?.textZone || null, heroBox: s.illustration?.heroBox || null } : {}),
   }));
 
   const opts = {

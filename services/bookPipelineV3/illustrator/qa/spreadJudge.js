@@ -30,6 +30,11 @@ const SPREAD_QA_TAGS = [
   'action_mismatch', 'setting_mismatch', 'missing_object', 'emotion_mismatch',
   'extra_character', 'duplicated_hero', 'missing_character',
   'style_drift', 'zone_busy',
+  // 2026-07-18 print audit additions: an explicitly numbered object rendered
+  // at a countably different number; photographic blur/bokeh drift; and the
+  // wide-spread fold classes (landmark painted once per half, or the focal
+  // subject split by the fold).
+  'object_count_mismatch', 'photo_blur', 'duplicated_landmark', 'fold_collision',
 ];
 
 /**
@@ -38,9 +43,10 @@ const SPREAD_QA_TAGS = [
  */
 const HARD_FAIL_TAGS = ['duplicated_hero', 'extra_character', 'missing_character'];
 
-function buildSpreadJudgePrompt({ sceneContract, direction, hasCover = false }) {
+function buildSpreadJudgePrompt({ sceneContract, direction, hasCover = false, captionText = null, wideSpread = false }) {
   return `You are quality-judging a children's picture-book illustration against its scene contract. You are the PRINT-DEFECT gate: block images a parent would consider broken; do not block images over stylistic or interpretive nitpicks.
 ${hasCover ? 'Image 1 is the CANDIDATE illustration. Image 2 is the parent-approved COVER of this book — a RENDERING-STYLE reference ONLY (brushwork, color saturation, line weight, lighting quality). Never judge identity, likeness, or outfit from it.' : ''}
+${wideSpread ? 'This is a WIDE spread image: the printed book folds it down its exact vertical center into two facing pages.' : ''}
 
 SCENE CONTRACT (what the image MUST show):
 - Setting: ${sceneContract.setting || 'unspecified'}
@@ -51,6 +57,9 @@ ${direction?.moment ? `- THE DEPICTED MOMENT (judge the action against THIS, not
 - Required objects: ${(sceneContract.key_objects || []).join(', ') || 'none'}
 ${direction?.shot ? `- Directed shot (ADVISORY — never a scoring failure): ${direction.shot}` : ''}
 ${direction?.textZone ? `- Quiet zone: the ${direction.textZone} area must be visually calm/low-detail` : ''}
+${captionText ? `
+STORY TEXT printed on this spread (context for the count rule below — the reader sees these words beside this art):
+"${String(captionText).slice(0, 600)}"` : ''}
 
 Score each dimension 1-5 (4 = good with minor imperfections, 5 = flawless) and list every defect you see with a severity.
 
@@ -60,7 +69,9 @@ THE PARENT TEST — a defect is "critical" ONLY if a parent flipping through the
 3. countably wrong anatomy (extra/missing/fused fingers, a third arm)
 4. the contracted action ENTIRELY absent (not merely staged differently)
 5. the wrong setting
-6. a jarring style break — photoreal/3D drift${hasCover ? ', or a rendering style clearly inconsistent with the COVER reference (e.g. flat/desaturated colors or thin line-art where the cover is warm and painterly)' : ''}
+6. a jarring style break — photoreal/3D drift, photographic blur/shallow depth-of-field where the book is crisp flat illustration${hasCover ? ', or a rendering style clearly inconsistent with the COVER reference (e.g. flat/desaturated colors or thin line-art where the cover is warm and painterly)' : ''}
+7. a counted-object mismatch: the contract or the printed story text explicitly NUMBERS an object ("three tunnels", "five stones") and the art shows a clearly countable DIFFERENT number of that object. Applies ONLY to explicitly numbered objects that are easy to count in the image — never estimate crowds, scatter, or background texture${wideSpread ? `
+8. (wide spreads only) the same distinctive landmark painted TWICE as symmetric twins (one per half — e.g. two identical archways mirroring each other), or the child/the focal landmark centered ON the fold line where the binding will swallow it` : ''}
 EVERYTHING ELSE IS "minor": prop versions and details, composition, stiffness, choreography, emotion nuance, zone busyness, micro-positions. Minor defects are recorded and shipped as advisories — never mark them critical.
 
 Return STRICT JSON:
@@ -70,6 +81,7 @@ Return STRICT JSON:
   "cast": 1-5,             // exactly the listed characters; 1 if the hero appears twice or strangers appear
   "style": 1-5,            // consistent storybook style, no photoreal/3D drift${hasCover ? '; must MATCH the cover reference\'s rendering style (no flat/desaturated/line-art drift)' : ''}
   "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
+  "hero_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // tight bounding box of the child's FULL figure (head to feet) as fractions of image width/height from the top-left corner; null if the child is not visible
   "tags": ["choose only from: ${SPREAD_QA_TAGS.join(', ')}"],
   "defects": [ { "note": "specific, actionable, with location", "severity": "critical|minor" } ]
 }
@@ -114,16 +126,23 @@ function normalizeDefects(raw) {
  *   (2026-07-18: a cover-blind judge passed a flat/desaturated spread that
  *   the book pass then killed as a style break — the judge needs the style
  *   ground truth to catch cover-relative drift at candidate volume)
+ * @param {string|null} [opts.captionText] - the spread's printed story text;
+ *   enables the counted-object rule (critical class 7) — the 2026-07-18 print
+ *   audit shipped "three tunnels" text beside art with four tunnels
+ * @param {boolean} [opts.wideSpread] - embedded 16:9 render: enables the
+ *   fold classes (twin landmarks / focal subject on the fold)
  * @param {AbortSignal} [opts.abortSignal]
  * @returns {Promise<{ scores: object, minScore: number, pass: boolean, tags: string[],
- *   defects: string[], criticalDefects: string[], minorDefects: string[], model: string }>}
+ *   defects: string[], criticalDefects: string[], minorDefects: string[],
+ *   heroBox: {x: number, y: number, w: number, h: number}|null, model: string }>}
  *   `pass` is true iff NO critical defects exist (scores rank, they don't gate).
  *   `defects` stays a flat string list (criticals first) for the repair-wave
- *   and needs_review consumers.
+ *   and needs_review consumers. `heroBox` is the judge's normalized bounding
+ *   box of the child (subject-aware caption placement consumes it at layout).
  */
-async function judgeSpreadCandidate({ candidate, sceneContract, direction = null, coverImage = null, abortSignal }) {
+async function judgeSpreadCandidate({ candidate, sceneContract, direction = null, coverImage = null, captionText = null, wideSpread = false, abortSignal }) {
   const { json, model } = await callVisionRole('QA_VISION', {
-    prompt: buildSpreadJudgePrompt({ sceneContract, direction, hasCover: Boolean(coverImage) }),
+    prompt: buildSpreadJudgePrompt({ sceneContract, direction, hasCover: Boolean(coverImage), captionText, wideSpread }),
     images: coverImage ? [candidate, coverImage] : [candidate],
     label: 'v3.qa.spread',
     expectJson: true,
@@ -164,13 +183,36 @@ async function judgeSpreadCandidate({ candidate, sceneContract, direction = null
     defects: [...criticalDefects, ...minorDefects],
     criticalDefects,
     minorDefects,
+    heroBox: normalizeHeroBox(json.hero_box),
     model,
   };
+}
+
+/**
+ * Validate/clamp the judge's hero bounding box to normalized [0,1] space.
+ * Anything malformed degrades to null (layout then keeps the planned zone).
+ * Pure — exported for tests.
+ *
+ * @param {object|null|undefined} raw
+ * @returns {{x: number, y: number, w: number, h: number}|null}
+ */
+function normalizeHeroBox(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = Number(raw.x); const y = Number(raw.y);
+  const w = Number(raw.w); const h = Number(raw.h);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+  const cx = Math.min(1, Math.max(0, x));
+  const cy = Math.min(1, Math.max(0, y));
+  const cw = Math.min(1 - cx, w);
+  const ch = Math.min(1 - cy, h);
+  if (cw <= 0 || ch <= 0) return null;
+  return { x: cx, y: cy, w: cw, h: ch };
 }
 
 module.exports = {
   judgeSpreadCandidate,
   buildSpreadJudgePrompt,
+  normalizeHeroBox,
   SPREAD_PASS_SCORE,
   SPREAD_QA_TAGS,
   HARD_FAIL_TAGS,
