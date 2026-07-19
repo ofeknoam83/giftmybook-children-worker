@@ -973,11 +973,15 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
 const UPSELL_STYLES = ['paper_cutout', 'watercolor', 'cinematic_3d', 'scandinavian_minimal'];
 
+// Consumer-facing art-style names — these print INSIDE the gift book on the
+// "choose the next adventure" pages (2026-07-18 print audit: the old values
+// read as internal taxonomy — "PAPER CUTOUT", "SCANDINAVIAN MINIMAL" — on a
+// child's keepsake). Keys are the internal style ids and must not change.
 const UPSELL_STYLE_LABELS = {
-  paper_cutout: 'Paper Cutout',
-  watercolor: 'Watercolor',
-  cinematic_3d: 'Cinematic 3D',
-  scandinavian_minimal: 'Scandinavian Minimal',
+  paper_cutout: 'Paper Magic',
+  watercolor: 'Soft Watercolor',
+  cinematic_3d: 'Movie Magic',
+  scandinavian_minimal: 'Cozy Classic',
 };
 
 /**
