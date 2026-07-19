@@ -81,24 +81,63 @@ function wrapText(text, font, size, maxW) {
 }
 
 /**
- * Greedy wrap + orphan rebalance: when a source line wraps into multiple
- * lines and the LAST wrapped line is a single word ("gold.", "ship." — the
- * 2026-07-18 print audit found one on ~9 of 13 caption pages), pull the
- * previous line's last word down so the orphan has company. The donor line
- * must keep 2+ words and the merged line must still fit maxW; otherwise the
- * greedy wrap stands. Pure — exported for tests.
+ * Balanced wrap (2026-07-19 print audit #2): greedy wrapping left a short
+ * centered stub under almost every long manuscript line ("and gold." /
+ * "map wide." / "in place.") — the "staircase" that makes caption blocks
+ * read scattered. When a source line must wrap, choose break points that
+ * MINIMIZE RAGGEDNESS (least-squares penalty on every line's leftover
+ * width, classic Knuth-style DP) so the wrapped lines come out near-equal
+ * — "He sits on a flat rock and / spreads the star map wide." instead of
+ * "…spreads the star / map wide." A single-word last line additionally
+ * falls back to the orphan rescue. Pure — exported for tests.
  *
  * @returns {string[]}
  */
 function wrapTextBalanced(text, font, size, maxW) {
-  const lines = wrapText(text, font, size, maxW);
+  const words = String(text).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const greedy = wrapText(text, font, size, maxW);
+  if (greedy.length < 2) return greedy;
+
+  const lineWidth = (i, j) => font.widthOfTextAtSize(words.slice(i, j + 1).join(' '), size);
+  const n = words.length;
+  // best[i] = { cost, next } for the suffix starting at word i.
+  const best = new Array(n + 1);
+  best[n] = { cost: 0, next: -1 };
+  for (let i = n - 1; i >= 0; i -= 1) {
+    best[i] = { cost: Infinity, next: -1 };
+    for (let j = i; j < n; j += 1) {
+      const w = lineWidth(i, j);
+      if (w > maxW && j > i) break; // adding more words only widens the line
+      // A single word wider than maxW must still occupy its own line
+      // (greedy does the same); penalize at zero leftover.
+      const leftover = Math.max(0, maxW - w);
+      const cost = leftover * leftover + best[j + 1].cost;
+      if (cost < best[i].cost) {
+        best[i] = { cost, next: j + 1 };
+      }
+      if (w > maxW) break;
+    }
+  }
+  const lines = [];
+  for (let i = 0; i !== -1 && i < n; i = best[i].next) {
+    lines.push(words.slice(i, best[i].next === -1 ? n : best[i].next).join(' '));
+    if (best[i].next === -1) break;
+  }
+
+  // The DP already discourages stubs, but a stray single-word last line
+  // (very long words, tight measure) still gets the orphan rescue.
   const last = lines[lines.length - 1];
-  if (lines.length < 2 || last.includes(' ')) return lines;
-  const donor = lines[lines.length - 2].split(' ');
-  if (donor.length < 3) return lines;
-  const merged = `${donor.pop()} ${last}`;
-  if (font.widthOfTextAtSize(merged, size) > maxW) return lines;
-  return [...lines.slice(0, -2), donor.join(' '), merged];
+  if (lines.length >= 2 && !last.includes(' ')) {
+    const donor = lines[lines.length - 2].split(' ');
+    if (donor.length >= 3) {
+      const merged = `${donor.pop()} ${last}`;
+      if (font.widthOfTextAtSize(merged, size) <= maxW) {
+        lines.splice(lines.length - 2, 2, donor.join(' '), merged);
+      }
+    }
+  }
+  return lines;
 }
 
 function drawCentered(page, text, font, size, y, color, opts = {}) {
@@ -273,6 +312,7 @@ const OVERLAY = {
   MAX_BLOCK_FRAC: 0.55, // overlay block may reach at most 55% of page height from its anchor edge
   MIN_CONTRAST: 4.5,    // WCAG-inspired advisory threshold (tone vs band)
   HERO_OVERLAP_MAX: 0.15, // planned zone tolerates at most this hero-box coverage before relocating
+  MAX_MEASURE_FRAC: 0.78, // caption measure ≤ 78% of page width — near-full-width lines read unprofessional (audit #2)
 };
 
 /**
@@ -514,7 +554,11 @@ function computeOverlayLayout(fonts, captionText, zone, { pw, ph }) {
   let layout = null;
   for (const pad of [22, 12]) {
     const placement = computeOverlayPlacement({ pw, ph, zone, pad });
-    const block = computeCaptionBlock(fonts, captionText, placement.maxTextW, { maxH: placement.maxBlockH });
+    // Tidy measure: even when the gutter-aware bounds are wide, caption
+    // lines never run past MAX_MEASURE_FRAC of the page (audit #2 T3 —
+    // near-edge-to-edge lines). Lines still center inside the bounds.
+    const measure = Math.min(placement.maxTextW, pw * OVERLAY.MAX_MEASURE_FRAC);
+    const block = computeCaptionBlock(fonts, captionText, measure, { maxH: placement.maxBlockH });
     if (!block) return null;
     const widest = Math.max(...block.lines.map(l => block.font.widthOfTextAtSize(l, block.size)));
     layout = { pad, placement, block, textWidthFrac: Math.min(1, widest / pw) };
@@ -621,12 +665,15 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
     }
   }
-  // Subject-aware relocation: the QA judge's hero box (when present on the
-  // entry) vetoes a planned zone the hero substantially covers.
-  const zonePick = chooseOverlayZone(entry.textZone || 'left-top', entry.heroBox || null);
+  // Subject-aware relocation: the QA judge's figures box (union of EVERY
+  // character — audit #2 typeset a caption across two aliens' faces) vetoes
+  // a planned zone the cast substantially covers; hero box is the fallback
+  // for entries from before the figures box existed.
+  const avoidBox = entry.figuresBox || entry.heroBox || null;
+  const zonePick = chooseOverlayZone(entry.textZone || 'left-top', avoidBox);
   const zone = zonePick.zone;
   if (zonePick.relocated) {
-    console.log(`[LayoutEngine] spread ${entry.spread ?? '?'}: caption zone relocated ${entry.textZone} → ${zone} (hero covered ${(zonePick.plannedOverlap * 100).toFixed(0)}% of the planned band)`);
+    console.log(`[LayoutEngine] spread ${entry.spread ?? '?'}: caption zone relocated ${entry.textZone} → ${zone} (cast covered ${(zonePick.plannedOverlap * 100).toFixed(0)}% of the planned band)`);
   }
   const onRight = String(zone).startsWith('right');
   const textPage = onRight ? rightPage : leftPage;

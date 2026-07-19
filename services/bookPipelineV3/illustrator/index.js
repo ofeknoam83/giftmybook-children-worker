@@ -487,11 +487,13 @@ async function runNativeIllustrator(input, ctx) {
       // the caption over this zone at PDF time, so it must survive on the
       // document (the in-memory direction map dies with this run).
       textZone: direction.directionBySpread.get(docSpread.spreadNumber)?.textZone || null,
-      // The QA judge's hero bounding box on the WINNING render — layout uses
-      // it to relocate the caption when the planned zone contains the child
-      // (2026-07-18 print audit: captions across the hero's face). Null for
-      // admin-picked candidates (they bypass the judge).
+      // The QA judge's boxes on the WINNING render — layout relocates the
+      // caption when the planned zone contains the child (2026-07-18 audit:
+      // captions across the hero's face) or ANY character (2026-07-19 audit
+      // #2: a caption across two aliens' faces). Null for admin-picked
+      // candidates (they bypass the judge).
       heroBox: winner.heroBox || null,
+      figuresBox: winner.figuresBox || null,
     };
     docSpread.qa.spreadChecks.push({
       source: 'native-v3',

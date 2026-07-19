@@ -113,7 +113,7 @@ function withPropPlate(refs, propPlate) {
     {
       base64: propPlate.base64,
       mimeType: propPlate.mimeType || 'image/png',
-      note: `PROP PLATE${propPlate.props?.length ? ` (${propPlate.props.join(', ')})` : ''} (locked prop designs — every recurring prop in the scene matches its plate design EXACTLY: same shape, colors, and material every time):`,
+      note: `PROP PLATE${propPlate.props?.length ? ` (${propPlate.props.join(', ')})` : ''} (locked prop designs — every recurring prop that the SCENE calls for matches its plate design EXACTLY: same shape, colors, and material every time. Props appear only where the story places them — never duplicated, never printed or decal-ed onto vehicles, walls, or clothing):`,
     },
   ];
 }
