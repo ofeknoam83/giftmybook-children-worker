@@ -97,4 +97,25 @@ function withWorldPlate(bookPack, plate) {
   ];
 }
 
-module.exports = { buildBookReferencePack, withWorldPlate };
+/**
+ * Extend the pack with the book's prop plate (A1, optional) — the locked
+ * designs of recurring props (map, lamp, vehicle), so a prop cannot morph
+ * into a different object between spreads.
+ *
+ * @param {Array} refs - reference list (bookPack, possibly + world plate)
+ * @param {{base64: string, mimeType?: string, props?: string[]}|null} propPlate
+ * @returns {Array} references for this spread's render
+ */
+function withPropPlate(refs, propPlate) {
+  if (!propPlate) return refs;
+  return [
+    ...refs,
+    {
+      base64: propPlate.base64,
+      mimeType: propPlate.mimeType || 'image/png',
+      note: `PROP PLATE${propPlate.props?.length ? ` (${propPlate.props.join(', ')})` : ''} (locked prop designs — every recurring prop in the scene matches its plate design EXACTLY: same shape, colors, and material every time):`,
+    },
+  ];
+}
+
+module.exports = { buildBookReferencePack, withWorldPlate, withPropPlate };

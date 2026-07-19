@@ -80,6 +80,27 @@ function wrapText(text, font, size, maxW) {
   return lines;
 }
 
+/**
+ * Greedy wrap + orphan rebalance: when a source line wraps into multiple
+ * lines and the LAST wrapped line is a single word ("gold.", "ship." — the
+ * 2026-07-18 print audit found one on ~9 of 13 caption pages), pull the
+ * previous line's last word down so the orphan has company. The donor line
+ * must keep 2+ words and the merged line must still fit maxW; otherwise the
+ * greedy wrap stands. Pure — exported for tests.
+ *
+ * @returns {string[]}
+ */
+function wrapTextBalanced(text, font, size, maxW) {
+  const lines = wrapText(text, font, size, maxW);
+  const last = lines[lines.length - 1];
+  if (lines.length < 2 || last.includes(' ')) return lines;
+  const donor = lines[lines.length - 2].split(' ');
+  if (donor.length < 3) return lines;
+  const merged = `${donor.pop()} ${last}`;
+  if (font.widthOfTextAtSize(merged, size) > maxW) return lines;
+  return [...lines.slice(0, -2), donor.join(' '), merged];
+}
+
 function drawCentered(page, text, font, size, y, color, opts = {}) {
   const cs = opts.characterSpacing || 0;
   const w = font.widthOfTextAtSize(text, size) + cs * Math.max(0, text.length - 1);
@@ -213,7 +234,7 @@ function computeCaptionBlock(fonts, captionText, maxW, opts = {}) {
   const maxH = Number.isFinite(opts.maxH) ? opts.maxH : Infinity;
   let chosen = null;
   for (const size of SIZES) {
-    const lines = sourceLines.flatMap(line => wrapText(line, font, size, maxW));
+    const lines = sourceLines.flatMap(line => wrapTextBalanced(line, font, size, maxW));
     const lineH = size * 1.55;
     chosen = { font, size, lines, lineH, blockH: lines.length * lineH };
     const fitsW = !lines.some(l => font.widthOfTextAtSize(l, size) > maxW * 1.02);
@@ -251,6 +272,7 @@ const OVERLAY = {
   GUTTER_FRAC: 0.10,    // no overlay text within 10% of the fold (either page)
   MAX_BLOCK_FRAC: 0.55, // overlay block may reach at most 55% of page height from its anchor edge
   MIN_CONTRAST: 4.5,    // WCAG-inspired advisory threshold (tone vs band)
+  HERO_OVERLAP_MAX: 0.15, // planned zone tolerates at most this hero-box coverage before relocating
 };
 
 /**
@@ -407,6 +429,77 @@ function computeOverlayPlacement({ pw, ph, zone, pad }) {
 }
 
 /**
+ * Normalized rect of a zone's caption band on the WIDE spread image
+ * (x: 0 = left edge of the left page, 1 = right edge of the right page).
+ * Bare 'left'/'right' zones behave as their -top variants, matching
+ * layoutEmbeddedSpread's vertical default.
+ *
+ * @param {string} zone
+ * @returns {{x0: number, x1: number, y0: number, y1: number}}
+ */
+function overlayZoneRect(zone) {
+  const z = String(zone || '');
+  const [x0, x1] = z.startsWith('right') ? [0.5, 1] : [0, 0.5];
+  const [y0, y1] = z.includes('bottom') ? [1 - OVERLAY.BAND_FRAC, 1] : [0, OVERLAY.BAND_FRAC];
+  return { x0, x1, y0, y1 };
+}
+
+/**
+ * Fraction of a zone's caption band covered by the hero bounding box
+ * (both in normalized wide-spread coordinates). Pure — exported for tests.
+ *
+ * @param {string} zone
+ * @param {{x: number, y: number, w: number, h: number}} heroBox
+ * @returns {number} 0..1
+ */
+function zoneHeroOverlap(zone, heroBox) {
+  const r = overlayZoneRect(zone);
+  const ix = Math.max(0, Math.min(r.x1, heroBox.x + heroBox.w) - Math.max(r.x0, heroBox.x));
+  const iy = Math.max(0, Math.min(r.y1, heroBox.y + heroBox.h) - Math.max(r.y0, heroBox.y));
+  const zoneArea = (r.x1 - r.x0) * (r.y1 - r.y0);
+  return zoneArea > 0 ? (ix * iy) / zoneArea : 0;
+}
+
+/**
+ * Subject-aware zone selection (2026-07-18 print audit: captions typeset
+ * straight across the hero's face on 3 of 13 spreads — the luminance-only
+ * band heuristic cannot see that a tonally smooth area IS the subject).
+ * When the QA spread judge reported the hero's bounding box, relocate the
+ * caption away from any planned zone the hero substantially covers: keep
+ * the planned zone while its hero coverage is ≤ HERO_OVERLAP_MAX, else
+ * pick the least-covered quadrant, preferring the planned page half, then
+ * the planned vertical. The box is judged on the uncropped render and the
+ * bands are coarse (38% of page height), so the check is deliberately
+ * tolerant — it exists to stop face collisions, not to fine-tune layout.
+ * Pure — exported for tests.
+ *
+ * @param {string} zone - the art director's planned textZone
+ * @param {{x: number, y: number, w: number, h: number}|null|undefined} heroBox -
+ *   normalized (0-1) hero bounds on the wide spread image, from the QA judge
+ * @returns {{ zone: string, relocated: boolean, overlap: number, plannedOverlap: number }}
+ *   `overlap` is the CHOSEN zone's hero coverage; `plannedOverlap` the planned zone's.
+ */
+function chooseOverlayZone(zone, heroBox) {
+  const planned = String(zone || 'left-top');
+  const box = heroBox && ['x', 'y', 'w', 'h'].every((k) => Number.isFinite(heroBox[k]))
+    && heroBox.w > 0 && heroBox.h > 0 ? heroBox : null;
+  if (!box) return { zone: planned, relocated: false, overlap: 0, plannedOverlap: 0 };
+
+  const plannedOverlap = zoneHeroOverlap(planned, box);
+  if (plannedOverlap <= OVERLAY.HERO_OVERLAP_MAX) {
+    return { zone: planned, relocated: false, overlap: plannedOverlap, plannedOverlap };
+  }
+  const samePage = planned.startsWith('right') ? 'right' : 'left';
+  const sameVertical = planned.includes('bottom') ? 'bottom' : 'top';
+  const best = ['left-top', 'left-bottom', 'right-top', 'right-bottom']
+    .map((z) => ({ zone: z, overlap: zoneHeroOverlap(z, box) }))
+    .sort((a, b) => (a.overlap - b.overlap)
+      || (b.zone.startsWith(samePage) - a.zone.startsWith(samePage))
+      || (b.zone.includes(sameVertical) - a.zone.includes(sameVertical)))[0];
+  return { zone: best.zone, relocated: best.zone !== planned, overlap: best.overlap, plannedOverlap };
+}
+
+/**
  * Full overlay layout: adaptive padding (long captions trade frame padding
  * for type size before the size ladder kicks in), placement bounds, and the
  * wrapped caption block.
@@ -528,7 +621,13 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
     }
   }
-  const zone = entry.textZone || 'left-top';
+  // Subject-aware relocation: the QA judge's hero box (when present on the
+  // entry) vetoes a planned zone the hero substantially covers.
+  const zonePick = chooseOverlayZone(entry.textZone || 'left-top', entry.heroBox || null);
+  const zone = zonePick.zone;
+  if (zonePick.relocated) {
+    console.log(`[LayoutEngine] spread ${entry.spread ?? '?'}: caption zone relocated ${entry.textZone} → ${zone} (hero covered ${(zonePick.plannedOverlap * 100).toFixed(0)}% of the planned band)`);
+  }
   const onRight = String(zone).startsWith('right');
   const textPage = onRight ? rightPage : leftPage;
   const artBuf = onRight ? rightBuf : leftBuf;
@@ -556,6 +655,7 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
     report.push({
       spread: entry.spread ?? null,
       zone,
+      zoneRelocated: zonePick.relocated,
       tone,
       haloStrength,
       busy: metrics ? metrics.busy : null,
@@ -2027,5 +2127,8 @@ module.exports = {
   computeCaptionBlock,
   contrastRatio,
   overlayContrastRatio,
+  wrapTextBalanced,
+  zoneHeroOverlap,
+  chooseOverlayZone,
   OVERLAY,
 };

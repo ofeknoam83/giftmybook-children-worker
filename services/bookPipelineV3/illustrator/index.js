@@ -34,6 +34,7 @@ const { renderSpreadCandidates, buildSpreadRenderPrompt } = require('./render/re
 const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('./qa/select');
 const { runArtDirection, restageSpread } = require('./artDirection/artDirector');
 const { renderWorldPlates } = require('./artDirection/worldPlates');
+const { renderPropPlate } = require('./artDirection/propPlate');
 const { runBookPass, buildBookPassNeedsReview } = require('./bookPass/contactSheet');
 const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
@@ -117,6 +118,7 @@ async function runNativeIllustrator(input, ctx) {
     manuscript,
     ageBand: ageProfile?.ageBand || ageProfile?.band,
     ageYears: Number(rawRequest?.child?.age) || null,
+    textLayout,
     referenceImages: directorRefs,
     abortSignal,
     log,
@@ -149,6 +151,17 @@ async function runNativeIllustrator(input, ctx) {
     log,
   });
 
+  // ── A1: prop plate ──
+  // The director's LOCKED prop designs render once and ride every spread's
+  // reference pack, so a recurring prop (the map, the lamp) cannot morph
+  // into a different object between spreads (2026-07-18 print audit).
+  const propPlate = await renderPropPlate({
+    continuityLocks: direction.continuityLocks,
+    styleReferences: bookPack,
+    abortSignal,
+    log,
+  });
+
   // ── W10 regen_spread resolution: force fresh renders for the named spread ──
   const forceSpreads = new Set();
   if (resolution?.action === 'regen_spread' && Number.isFinite(resolution.spread)) {
@@ -174,6 +187,7 @@ async function runNativeIllustrator(input, ctx) {
     spreads: manuscriptSpreads,
     directionBySpread: direction.directionBySpread,
     platesByLocation,
+    propPlate,
     bookPack,
     briefText,
     textLayout,
@@ -223,6 +237,7 @@ async function runNativeIllustrator(input, ctx) {
       direction: direction.directionBySpread.get(entry.spread) || null,
       bookPack,
       plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+      propPlate,
       // Likeness is judged against the APPROVED reference art (model sheet
       // + cover = the bookPack), NOT the raw photo — the parent approved
       // the cover character, and that character is the book's ground truth.
@@ -287,6 +302,7 @@ async function runNativeIllustrator(input, ctx) {
         direction: direction.directionBySpread.get(spreadNumber) || null,
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+        propPlate,
         briefText,
         textLayout,
         count: CANDIDATES_PER_SPREAD,
@@ -307,6 +323,7 @@ async function runNativeIllustrator(input, ctx) {
         direction: direction.directionBySpread.get(spreadNumber) || null,
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+        propPlate,
         referenceImages: bookPack,
         briefText,
         textLayout,
@@ -383,6 +400,7 @@ async function runNativeIllustrator(input, ctx) {
         direction: direction.directionBySpread.get(flag.spread) || null,
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+        propPlate,
         briefText,
         textLayout,
         count: CANDIDATES_PER_SPREAD,
@@ -405,6 +423,7 @@ async function runNativeIllustrator(input, ctx) {
         direction: direction.directionBySpread.get(flag.spread) || null,
         bookPack,
         plate: platesByLocation.get(spread.scene_contract?.setting) || null,
+        propPlate,
         // Same likeness references as the main QA pass: model sheet + cover
         // (a stale `photos:` param here — dead since the cover-relative QA
         // rewiring — left referenceImages undefined and crashed every book
@@ -457,6 +476,11 @@ async function runNativeIllustrator(input, ctx) {
       // the caption over this zone at PDF time, so it must survive on the
       // document (the in-memory direction map dies with this run).
       textZone: direction.directionBySpread.get(docSpread.spreadNumber)?.textZone || null,
+      // The QA judge's hero bounding box on the WINNING render — layout uses
+      // it to relocate the caption when the planned zone contains the child
+      // (2026-07-18 print audit: captions across the hero's face). Null for
+      // admin-picked candidates (they bypass the judge).
+      heroBox: winner.heroBox || null,
     };
     docSpread.qa.spreadChecks.push({
       source: 'native-v3',

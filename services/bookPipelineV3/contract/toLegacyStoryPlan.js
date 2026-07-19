@@ -109,7 +109,7 @@ function toLegacyStoryPlan(doc) {
     illustrationAspect: aspect,
     captionText: isNative ? (s.manuscript?.text || '') : undefined,
     ...(textLayout ? { textLayout } : {}),
-    ...(textLayout === 'embedded' ? { textZone: s.illustration?.textZone || null } : {}),
+    ...(textLayout === 'embedded' ? { textZone: s.illustration?.textZone || null, heroBox: s.illustration?.heroBox || null } : {}),
     // Preserve the scene prompt used by the new pipeline so admin regen /
     // audit flows can reproduce or diff the exact spread brief.
     spread_image_prompt: s.illustration?.scenePrompt || s.spec?.scenePrompt || null,

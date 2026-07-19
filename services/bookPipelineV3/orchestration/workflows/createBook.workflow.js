@@ -115,7 +115,8 @@ async function prepareCandidate({ ctx, manuscript, ageProfile, brief, roundTag, 
   );
 
   if (gate.hardFailureCount > 0) {
-    const targets = mergeTargets([], gate.perSpread);
+    // Soft book lints piggyback the surgical fix — they never trigger one.
+    const targets = mergeTargets([], gate.perSpread, gate.softLints || []);
     ctx.log('warn', `[v3] manuscript ${current.id} has ${gate.hardFailureCount} hard gate failures — one surgical fix on spreads [${targets.map((t) => t.spread).join(',')}]`);
     try {
       current = await ctx.execute(
@@ -177,7 +178,7 @@ async function panelLoop({ ctx, candidates, ageProfile, brief, tag, ledger }) {
 
   for (round = 1; round <= MAX_REVISION_ROUNDS; round += 1) {
     const agg = panel.perManuscript[best.manuscript.id];
-    const targets = mergeTargets(agg?.flaggedSpreads || [], best.gate?.perSpread || []);
+    const targets = mergeTargets(agg?.flaggedSpreads || [], best.gate?.perSpread || [], best.gate?.softLints || []);
     if (targets.length === 0) {
       // Panel failed on book-wide medians with no spread-level flags —
       // revision has nothing to grab onto; further rounds are pointless.

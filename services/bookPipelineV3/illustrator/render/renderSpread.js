@@ -9,7 +9,7 @@
  */
 
 const { generateImage } = require('./imageClient');
-const { withWorldPlate } = require('./referencePack');
+const { withWorldPlate, withPropPlate } = require('./referencePack');
 const { SPREAD_RENDERER_MODEL, CANDIDATES_PER_SPREAD } = require('../config');
 const { STYLE_BIBLE } = require('../styleBible');
 const { formatCastList } = require('../promptFormat');
@@ -67,6 +67,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     embedded
       ? 'GUTTER: the printed book folds down the exact vertical center of this image — keep the child, faces, and the focal action clearly OFF the center line (left or right third), and let the background flow naturally across it.'
       : null,
+    embedded
+      ? 'ONE CONTINUOUS SCENE: the two halves are ONE panorama, never two mirrored panels. Every distinctive landmark (an archway, a rocket, a doorway, a tunnel mouth) appears EXACTLY ONCE in the whole image — never once per half, never as symmetric twins — and no large landmark sits centered on the fold line.'
+      : null,
     '',
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
@@ -116,6 +119,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  * @param {object|null} [opts.direction]
  * @param {Array} opts.bookPack - buildBookReferencePack result
  * @param {object|null} [opts.plate] - world plate for this spread's location
+ * @param {object|null} [opts.propPlate] - locked recurring-prop designs plate
  * @param {string} opts.briefText
  * @param {string} [opts.wardrobeNote]
  * @param {number} [opts.count]
@@ -125,11 +129,11 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  *   Failed candidates are dropped (logged); an empty array means all failed.
  */
 async function renderSpreadCandidates({
-  spread, direction = null, bookPack, plate = null, briefText, wardrobeNote,
+  spread, direction = null, bookPack, plate = null, propPlate = null, briefText, wardrobeNote,
   textLayout = 'caption', count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
   const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout });
-  const references = withWorldPlate(bookPack, plate);
+  const references = withPropPlate(withWorldPlate(bookPack, plate), propPlate);
 
   const renderOne = (i) => generateImage({
     model: SPREAD_RENDERER_MODEL,

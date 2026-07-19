@@ -155,3 +155,71 @@ describe('assemblePdf overlayReport plumbing', () => {
     expect(overlayReport[0].contrastRatio).toBeNull();
   });
 });
+
+describe('wrapTextBalanced (orphan control, 2026-07-18 print audit)', () => {
+  const { wrapTextBalanced } = require('./../../services/layoutEngine');
+  // 1 char = size*0.5 wide → at size 10, maxW 100 fits 20 chars per line.
+  const stubFont = { widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
+
+  test('pulls a companion word down for a one-word orphan line', () => {
+    // Greedy wrap of this at 20 chars/line ends in a single-word line.
+    const lines = wrapTextBalanced('a map that hums green and gold', stubFont, 10, 100);
+    expect(lines.length).toBeGreaterThan(1);
+    const last = lines[lines.length - 1];
+    expect(last.split(' ').length).toBeGreaterThanOrEqual(2);
+    // No words lost or duplicated.
+    expect(lines.join(' ')).toBe('a map that hums green and gold');
+  });
+
+  test('single-line input passes through untouched', () => {
+    expect(wrapTextBalanced('short line', stubFont, 10, 1000)).toEqual(['short line']);
+  });
+
+  test('keeps the greedy wrap when the donor line has only two words', () => {
+    // "aaaaaaaaa bbbbbbbbb" then orphan "cc": donor must keep 2+ words.
+    const lines = wrapTextBalanced('aaaaaaaaa bbbbbbbbb cc', stubFont, 10, 100);
+    expect(lines).toEqual(['aaaaaaaaa bbbbbbbbb', 'cc']);
+  });
+});
+
+describe('chooseOverlayZone (subject-aware caption placement)', () => {
+  const { chooseOverlayZone, zoneHeroOverlap } = require('./../../services/layoutEngine');
+
+  test('no hero box → planned zone stands', () => {
+    expect(chooseOverlayZone('left-top', null)).toMatchObject({ zone: 'left-top', relocated: false });
+    expect(chooseOverlayZone('left-top', { x: NaN, y: 0, w: 0.2, h: 0.4 }).relocated).toBe(false);
+  });
+
+  test('hero clear of the planned band → planned zone stands', () => {
+    // Hero on the right page, bottom half; caption planned left-top.
+    const heroBox = { x: 0.6, y: 0.5, w: 0.2, h: 0.5 };
+    const r = chooseOverlayZone('left-top', heroBox);
+    expect(r.zone).toBe('left-top');
+    expect(r.relocated).toBe(false);
+  });
+
+  test('hero filling the planned band relocates the caption (audit page 4: text across the face)', () => {
+    // Hero centered on the left page, head in the top band.
+    const heroBox = { x: 0.15, y: 0.05, w: 0.25, h: 0.85 };
+    const r = chooseOverlayZone('left-top', heroBox);
+    expect(r.relocated).toBe(true);
+    expect(zoneHeroOverlap(r.zone, heroBox)).toBeLessThanOrEqual(zoneHeroOverlap('left-top', heroBox));
+    // The chosen band must be tolerable, not merely better.
+    expect(zoneHeroOverlap(r.zone, heroBox)).toBeLessThanOrEqual(OVERLAY.HERO_OVERLAP_MAX + 0.35);
+  });
+
+  test('relocation prefers the planned page half on an overlap tie', () => {
+    // Hero occupies the whole TOP band across both pages — both bottom
+    // bands are equally clear; the left (planned) page must win.
+    const heroBox = { x: 0, y: 0, w: 1, h: OVERLAY.BAND_FRAC };
+    const r = chooseOverlayZone('left-top', heroBox);
+    expect(r.relocated).toBe(true);
+    expect(r.zone).toBe('left-bottom');
+  });
+
+  test('bare "left"/"right" zones behave as their -top variants', () => {
+    const heroBox = { x: 0, y: 0, w: 0.5, h: 0.4 }; // fills left-top band
+    const r = chooseOverlayZone('left', heroBox);
+    expect(r.relocated).toBe(true);
+  });
+});

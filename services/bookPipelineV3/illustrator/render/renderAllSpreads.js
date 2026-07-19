@@ -81,6 +81,7 @@ async function loadExistingCandidates(bookId, spreadNumber, textLayout = 'captio
  * @param {object[]} opts.spreads - manuscript spreads (spread number + scene_contract)
  * @param {Map<number, object>|null} [opts.directionBySpread] - art-direction rows keyed by spread (W7)
  * @param {Map<string, object>|null} [opts.platesByLocation] - world plates keyed by setting (W8)
+ * @param {object|null} [opts.propPlate] - locked recurring-prop designs plate
  * @param {Array} opts.bookPack - buildBookReferencePack result
  * @param {string} opts.briefText
  * @param {string} [opts.wardrobeNote]
@@ -90,7 +91,7 @@ async function loadExistingCandidates(bookId, spreadNumber, textLayout = 'captio
  * @returns {Promise<Array<{ spread: number, candidates: Array<{path: string, base64: string, mimeType: string, candidateIndex: number, reused?: boolean}> }>>}
  */
 async function renderAllSpreadsNative({
-  bookId, spreads, directionBySpread = null, platesByLocation = null,
+  bookId, spreads, directionBySpread = null, platesByLocation = null, propPlate = null,
   bookPack, briefText, wardrobeNote, textLayout = 'caption', forceSpreads = new Set(), abortSignal, log = () => {}, onSpreadDone = () => {},
 }) {
   if (!bookId) throw new Error('renderAllSpreadsNative: bookId is required');
@@ -110,7 +111,7 @@ async function renderAllSpreadsNative({
     const direction = directionBySpread?.get(spread.spread) || null;
     const plate = platesByLocation?.get(spread.scene_contract?.setting) || null;
     const rendered = await renderSpreadCandidates({
-      spread, direction, bookPack, plate, briefText, wardrobeNote, textLayout, abortSignal, log,
+      spread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, abortSignal, log,
     });
 
     const candidates = [...existing];

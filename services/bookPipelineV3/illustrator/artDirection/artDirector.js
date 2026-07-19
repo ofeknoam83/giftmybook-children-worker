@@ -19,7 +19,8 @@ const { ART_DIRECTION_REASKS } = require('../config');
 
 const ZONES = ['left-top', 'left-bottom', 'right-top', 'right-bottom', 'left', 'right'];
 
-function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, violations = null }) {
+function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, textLayout = 'caption', violations = null }) {
+  const embedded = textLayout === 'embedded';
   const contracts = manuscript.spreads.map((s) => ({
     spread: s.spread,
     setting: s.scene_contract?.setting,
@@ -58,7 +59,7 @@ Plan the book's visual storytelling. Return STRICT JSON:
     }, ...
   ],
   "paletteArc": { "act1": "...", "act2": "...", "act3": "..." },
-  "continuityLocks": { "outfit": "from the cover", "props": [{ "name": "...", "spreads": [..] }] },
+  "continuityLocks": { "outfit": "from the cover", "props": [{ "name": "...", "spreads": [..], "design": "ONE locked visual design — shape, color, material — in a single sentence (e.g. 'a small brass camping lantern with a curved handle and a warm round glass window'); the prop must look like THIS every single time it appears" }] },
   "worldPlates": [ { "location": "exact setting string as it appears in the contracts", "spreads": [..] } ],
   "bounces": [ { "spread": n, "problem": "why this contract cannot be staged (age-impossible action, prop soup, unstageable)", "suggestion": "targeted prose fix" } ]
 }
@@ -67,6 +68,8 @@ RULES:
 - SHOT VARIETY IS A HARD BUDGET: at least 4 distinct shot types across the book; NO two adjacent spreads may share a shot type.
 - The palette arc must move with the story (e.g. darken at the low point, warm at the resolution).
 - worldPlates: only locations visited on 2+ spreads.
+- PROP LOCKS: every prop that appears on 2+ spreads (a map, a lamp, a vehicle, a toy) gets a continuityLocks.props entry with a LOCKED design — the same object must not morph between spreads (the same "lamp" rendering as a crystal, then a pendant, then a lantern is a book-killing continuity break). Choose designs that are simple to draw consistently.${embedded ? `
+- WIDE SPREADS (this book prints each illustration across TWO facing pages, folded at the exact center): stage every moment with the hero and each named landmark clearly on ONE side of the center line (left or right third) — the binding swallows the middle. Never plan a composition that centers the focal subject, and never one that would read as two mirrored halves.` : ''}
 - NO CHOREOGRAPHY: never specify WHICH hand (left/right), how many hands, finger placement, or a position relative to a small prop feature (a pocket, a strap, a buckle) in moment/poseHint — renderers mirror hands freely and cannot hit prop-relative positions, so any such detail becomes an unwinnable QA target. Describe the action at the level a parent would: 'holding a vine aside', 'tucking the compass into his backpack' — never 'his left hand…', 'one hand just over the open side pocket…'.
 - WRITTEN LABELS: never reference map locations, signs, or any written label BY NAME in moment/poseHint/continuityNotes ('the waterfall symbol', not 'the mark labeled Waterfall'; 'a crescent-moon mark', not 'the Moon Cave mark') — naming a label makes the renderer paint the word, and lettering is an automatic QA kill. Inherently text-bearing props (planispheres, calendar dials, star wheels, clock faces) must be staged as symbol-marked instruments (ticks, dots, star glyphs) or swapped for a pictorial equivalent — never rely on their text to read.
 - PROP MECHANISMS: when a contract lists 3+ small interacting props (pegs, grooves, panels, latches), the moment must foreground ONE clear mechanical interaction — the child plus the 1-2 props that carry the action — and fold the rest into the environment via continuityNotes rather than requiring each to read separately. If the action is unreadable without all of them, bounce it as prop soup.
@@ -78,18 +81,21 @@ RULES:
  * @param {object} opts.manuscript
  * @param {string} opts.ageBand
  * @param {number|null} [opts.ageYears] - the child's real age; sharpens the bounce criteria
+ * @param {string} [opts.textLayout] - 'caption' | 'embedded'; embedded books get
+ *   the wide-spread fold-composition rule (2026-07-18 print audit: a rocket
+ *   split down the fold, twin arches mirrored across it)
  * @param {Array<{base64: string, mimeType?: string}>} opts.referenceImages - [sheet, cover?]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ directionBySpread: Map<number, object>, paletteArc: object, continuityLocks: object, worldPlates: object[], bounces: object[], shotBudget: {ok: boolean, reassigned: boolean} }>}
  */
-async function runArtDirection({ manuscript, ageBand, ageYears = null, referenceImages, abortSignal, log = () => {} }) {
+async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayout = 'caption', referenceImages, abortSignal, log = () => {} }) {
   let plan = null;
   let violations = null;
 
   for (let attempt = 0; attempt <= ART_DIRECTION_REASKS; attempt += 1) {
     const { json } = await callVisionRole('ART_DIRECTOR', {
-      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, violations }),
+      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, textLayout, violations }),
       images: referenceImages,
       label: `v3.artdirector.r${attempt}`,
       expectJson: true,

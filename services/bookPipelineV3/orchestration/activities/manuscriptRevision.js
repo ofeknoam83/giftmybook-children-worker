@@ -22,8 +22,12 @@ const SYSTEM = fs.readFileSync(
  *
  * @param {Array<{spread:number, dimension?:string, issue?:string, suggestion?:string, judge?:string}>} judgeFlags
  * @param {Array<{spread:number, passed:boolean, failures:Array}>} gatePerSpread
+ * @param {Array<{code:string, message:string, targetSpreads:number[]}>} [softLints] -
+ *   book-level lints (gate `softLints`); each rides its targetSpreads as a
+ *   revision note. Lints with no targetSpreads (word overuse) are advisory
+ *   only and never create a target.
  */
-function mergeTargets(judgeFlags = [], gatePerSpread = []) {
+function mergeTargets(judgeFlags = [], gatePerSpread = [], softLints = []) {
   const bySpread = new Map();
   const entry = (spread) => {
     if (!bySpread.has(spread)) bySpread.set(spread, { spread, notes: [] });
@@ -36,6 +40,11 @@ function mergeTargets(judgeFlags = [], gatePerSpread = []) {
     if (g.passed) continue;
     for (const fail of g.failures || []) {
       entry(g.spread).notes.push(`[gate ${fail.code || fail.check}] ${fail.message}`);
+    }
+  }
+  for (const lint of softLints || []) {
+    for (const spread of lint.targetSpreads || []) {
+      entry(spread).notes.push(`[lint ${lint.code}] ${lint.message}`);
     }
   }
   return Array.from(bySpread.values()).sort((a, b) => a.spread - b.spread);

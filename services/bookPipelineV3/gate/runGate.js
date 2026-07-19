@@ -27,6 +27,7 @@ const { pastTenseCheck } = require('./checks/pastTense');
 const { wordBudgetCheck } = require('./checks/wordBudget');
 const { bannedContentCheck } = require('./checks/bannedContent');
 const { nameLockCheck } = require('./checks/nameLock');
+const { runBookLints } = require('./checks/bookLints');
 
 // Codes that must never ship (structural breaks). Everything else the
 // judges weigh; these the machine refuses.
@@ -101,6 +102,10 @@ async function runManuscriptGate(manuscript, ageProfile, ctx = {}) {
     passed: perSpread.every((e) => e.passed),
     perSpread,
     hardFailureCount,
+    // Book-level SOFT lints (duplicate climax, unintroduced prop, word
+    // overuse) — never gate, never count as hard failures; they feed the
+    // editor's revision notes when a revision round runs.
+    softLints: runBookLints(manuscript),
   };
 }
 

@@ -23,6 +23,9 @@ async function mechanicalGateActivity(input, ctx) {
     gate.passed ? 'info' : 'warn',
     `[v3] gate(${manuscript.id}): ${gate.passed ? 'PASS' : `FAIL spreads=[${failedSpreads.map((e) => e.spread).join(',')}] hard=${gate.hardFailureCount}`}`,
   );
+  if (gate.softLints?.length) {
+    ctx.log('info', `[v3] gate(${manuscript.id}): ${gate.softLints.length} soft lint(s) — ${gate.softLints.map((l) => l.code).join(', ')}`);
+  }
   return { manuscriptId: manuscript.id, ...gate };
 }
 
