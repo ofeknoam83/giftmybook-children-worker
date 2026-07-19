@@ -303,3 +303,81 @@ describe('book pass', () => {
     expect(p).toContain('stray moles, beauty marks, or dark facial spots');
   });
 });
+
+// 2026-07-19 (book 37907cf4): the prop-identity class shipped and the very
+// next book needs_review'd at the book pass. Convergence fixes: the prop
+// plate rides the review as the design ground truth, and a critical prop
+// flag must NAME a locked prop or it downgrades to an advisory.
+describe('book pass prop-class convergence (2026-07-19)', () => {
+  const { boundPropFlags } = require('../../../services/bookPipelineV3/illustrator/bookPass/contactSheet');
+  const direction = {
+    directionBySpread: new Map([[1, { shot: 'medium' }]]),
+    continuityLocks: { props: [{ name: 'compass', design: 'a brass star compass' }, { name: 'treasure map', design: 'a rolled parchment map' }] },
+  };
+  const winners = [{ spread: 1, base64: 'w1' }];
+
+  test('boundPropFlags keeps a critical prop flag that names a locked prop', () => {
+    const { flags, downgraded } = boundPropFlags(
+      [{ spread: 4, issue: 'the compass is rendered as a pocket watch', severity: 'critical' }],
+      direction.continuityLocks,
+    );
+    expect(flags[0].severity).toBe('critical');
+    expect(downgraded).toHaveLength(0);
+  });
+
+  test('boundPropFlags downgrades a prop-ish critical flag naming no locked prop', () => {
+    const { flags, downgraded } = boundPropFlags(
+      [{ spread: 6, issue: 'the hero holds a different object than earlier spreads', severity: 'critical' }],
+      direction.continuityLocks,
+    );
+    expect(flags[0].severity).toBe('minor');
+    expect(downgraded).toHaveLength(1);
+  });
+
+  test('boundPropFlags never touches other critical classes', () => {
+    const { flags } = boundPropFlags(
+      [{ spread: 2, issue: 'flat desaturated style break vs the cover', severity: 'critical' }],
+      direction.continuityLocks,
+    );
+    expect(flags[0].severity).toBe('critical');
+  });
+
+  test('runBookPass attaches the prop plate beside the cover and adjusts the prompt', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: { pass: true, flags: [], notes: 'ok' }, model: 'm', family: 'gemini' });
+    await runBookPass({
+      manuscript: MS,
+      direction,
+      winners,
+      cover: { base64: 'cov' },
+      propPlate: { base64: 'plate', props: ['compass', 'treasure map'] },
+      log: () => {},
+    });
+    const call = callVisionRole.mock.calls.at(-1)[1];
+    expect(call.images).toHaveLength(3); // winner + cover + plate
+    expect(call.images[2].base64).toBe('plate');
+    expect(call.prompt).toContain('PROP PLATE showing the locked design');
+  });
+
+  test('runBookPass without a cover never attaches the plate (image indexing stays valid)', async () => {
+    callVisionRole.mockResolvedValueOnce({ json: { pass: true, flags: [], notes: 'ok' }, model: 'm', family: 'gemini' });
+    await runBookPass({ manuscript: MS, direction, winners, propPlate: { base64: 'plate' }, log: () => {} });
+    const call = callVisionRole.mock.calls.at(-1)[1];
+    expect(call.images).toHaveLength(1);
+    expect(call.prompt).toContain('FINAL image is the parent-approved COVER');
+  });
+
+  test('downgraded flags mean the book PASSES instead of needs_review', async () => {
+    callVisionRole.mockResolvedValueOnce({
+      json: {
+        pass: false,
+        flags: [{ spread: 6, issue: 'inconsistent object in hand across spreads', severity: 'critical' }],
+        notes: 'prop uncertainty',
+      },
+      model: 'm',
+      family: 'gemini',
+    });
+    const res = await runBookPass({ manuscript: MS, direction, winners, log: () => {} });
+    expect(res.pass).toBe(true);
+    expect(res.minorFlags).toHaveLength(1);
+  });
+});

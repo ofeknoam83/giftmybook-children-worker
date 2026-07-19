@@ -366,7 +366,10 @@ async function runNativeIllustrator(input, ctx) {
         const c = result.allCandidates.find((x) => x.candidateIndex === result.selected.candidateIndex);
         return { spread: spreadNumber, base64: c.base64, mimeType: c.mimeType };
       });
-    const pass = await runBookPass({ manuscript, direction, winners, cover: coverImage, abortSignal });
+    // The prop plate rides as a reference so prop identity is judged
+    // against the LOCKED designs, not spread-vs-spread impressions
+    // (2026-07-19: spread-vs-spread prop judging could not converge).
+    const pass = await runBookPass({ manuscript, direction, winners, cover: coverImage, propPlate, abortSignal, log });
     bookPassMinors = pass.minorFlags; // latest whole-book review wins
     log(`book pass${wave ? ` (post-regen)` : ''}: ${pass.pass ? 'PASS' : `critical=[${pass.criticalFlags.map((f) => `${f.spread}: ${f.issue}`).join('; ')}]`}${pass.minorFlags.length ? ` advisories=${pass.minorFlags.length}` : ''} — ${pass.notes}`);
     if (pass.pass) { residualFlags = []; break; }
@@ -382,6 +385,11 @@ async function runNativeIllustrator(input, ctx) {
       // WHAT to paint like; naming the cover's style attributes does (same
       // pattern as the lettering/color-drift templates in the repair wave).
       const isStyleBreak = /style|flat|desaturat|photoreal|3d render|line[- ]?art|line ?weight|vector/i.test(flag.issue);
+      // Prop-identity flags get the LOCKED design spelled out — "the compass
+      // looks different" alone sends the renderer guessing; its plate design
+      // is the fix target (2026-07-19 convergence fix).
+      const flaggedProps = (direction.continuityLocks?.props || []).filter((p) => p?.name && p.design
+        && new RegExp(`\\b${String(p.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(flag.issue));
       const flaggedSpread = {
         ...spread,
         scene_contract: {
@@ -391,6 +399,9 @@ async function runNativeIllustrator(input, ctx) {
             `BOOK-PASS FIX REQUIRED: ${flag.issue}`,
             isStyleBreak
               ? 'CRITICAL REPAIR: match the APPROVED COVER reference\'s rendering style EXACTLY — warm painterly brushwork, rich saturated colors, soft rounded shading, consistent line weight. NOT flat vector, NOT desaturated, NOT thin-line.'
+              : null,
+            flaggedProps.length
+              ? `CRITICAL REPAIR: render each prop EXACTLY as its locked design on the PROP PLATE reference — ${flaggedProps.map((p) => `${p.name}: ${p.design}`).join('; ')}. Same kind of object, same shape, same colors, every time.`
               : null,
           ].filter(Boolean).join(' | '),
         },
