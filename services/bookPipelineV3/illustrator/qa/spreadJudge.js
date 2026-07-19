@@ -82,6 +82,7 @@ Return STRICT JSON:
   "style": 1-5,            // consistent storybook style, no photoreal/3D drift${hasCover ? '; must MATCH the cover reference\'s rendering style (no flat/desaturated/line-art drift)' : ''}
   "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
   "hero_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // tight bounding box of the child's FULL figure (head to feet) as fractions of image width/height from the top-left corner; null if the child is not visible
+  "figures_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // ONE box enclosing EVERY character/creature in the scene (the child, companions, aliens, animals — anything with a face); null if no figures
   "tags": ["choose only from: ${SPREAD_QA_TAGS.join(', ')}"],
   "defects": [ { "note": "specific, actionable, with location", "severity": "critical|minor" } ]
 }
@@ -138,7 +139,8 @@ function normalizeDefects(raw) {
  *   `pass` is true iff NO critical defects exist (scores rank, they don't gate).
  *   `defects` stays a flat string list (criticals first) for the repair-wave
  *   and needs_review consumers. `heroBox` is the judge's normalized bounding
- *   box of the child (subject-aware caption placement consumes it at layout).
+ *   box of the child; `figuresBox` the union box of ALL characters (subject-
+ *   aware caption placement consumes them at layout).
  */
 async function judgeSpreadCandidate({ candidate, sceneContract, direction = null, coverImage = null, captionText = null, wideSpread = false, abortSignal }) {
   const { json, model } = await callVisionRole('QA_VISION', {
@@ -184,6 +186,10 @@ async function judgeSpreadCandidate({ candidate, sceneContract, direction = null
     criticalDefects,
     minorDefects,
     heroBox: normalizeHeroBox(json.hero_box),
+    // Union box of ALL characters — caption placement must dodge companions
+    // too (audit #2: a caption typeset across two aliens' faces; the
+    // hero-only box could not see them).
+    figuresBox: normalizeHeroBox(json.figures_box),
     model,
   };
 }

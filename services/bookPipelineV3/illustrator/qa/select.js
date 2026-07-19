@@ -24,6 +24,13 @@ const { candidatePath } = require('../render/renderAllSpreads');
 const { REPAIR_WAVES_PER_SPREAD, CANDIDATES_PER_SPREAD } = require('../config');
 const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 
+// Fold band of a wide embedded render (fractions of image width): a hero
+// whose box center lands here sits on the printed fold. Deterministic
+// backstop — the judge's fold-collision class alone let fold-centered
+// subjects ship (audit #2).
+const FOLD_BAND_MIN = 0.44;
+const FOLD_BAND_MAX = 0.56;
+
 /**
  * Run the full cascade for one candidate.
  * @returns {Promise<object>} evaluation record
@@ -46,9 +53,27 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
   const spread = await judgeSpreadCandidate({ candidate, sceneContract, direction, coverImage, captionText, wideSpread, abortSignal });
   record.spreadScores = spread.scores;
   record.tags = spread.tags;
-  // The judge's hero bounding box rides every record (even failing ones —
-  // the winner's box feeds subject-aware caption placement at layout time).
+  // The judge's boxes ride every record (even failing ones — the winner's
+  // boxes feed subject-aware caption placement at layout time).
   record.heroBox = spread.heroBox || null;
+  record.figuresBox = spread.figuresBox || null;
+
+  // Deterministic fold backstop (audit #2): in a wide embedded render the
+  // printed fold runs down the exact center — a hero whose box CENTER falls
+  // in the fold band gets split by the binding. The judge's own fold class
+  // proved too lenient (a rocket nose and the hero shipped fold-adjacent),
+  // so the geometry is enforced here, from the judge's box, not its prose.
+  if (wideSpread && spread.heroBox) {
+    const heroCenter = spread.heroBox.x + spread.heroBox.w / 2;
+    if (heroCenter >= FOLD_BAND_MIN && heroCenter <= FOLD_BAND_MAX) {
+      record.stage = 'foldCollision';
+      record.pass = false;
+      record.defects = [`fold collision: the child is centered on the spread fold (box center at ${(heroCenter * 100).toFixed(0)}% of the wide image) — the binding will swallow the subject; compose the child clearly in the left or right third`];
+      record.tags = [...record.tags, 'fold_collision'];
+      bump(qaTagCounts, 'fold_collision');
+      return record;
+    }
+  }
   // Minor observations ride the record even when the candidate passes —
   // the orchestrator aggregates the WINNER's minors into doc.qaAdvisories.
   record.minorDefects = spread.minorDefects || [];
@@ -242,4 +267,6 @@ module.exports = {
   evaluateCandidate,
   buildSpreadQaNeedsReview,
   pickWinner,
+  FOLD_BAND_MIN,
+  FOLD_BAND_MAX,
 };

@@ -52,6 +52,7 @@ function buildSheetPrompt({ briefText, wardrobeNote, hasCoverReference = false, 
     STYLE_BIBLE,
     '',
     'CHARACTER DESIGN: create an ORIGINAL illustrated children\'s-book character whose appearance follows the description above precisely — skin tone (undertone and depth), hair, eyes, and every listed feature. This is an illustration inspired by a written description, NOT a reproduction of any real, identifiable person.',
+    'FACIAL MARKS: only the marks the description above explicitly lists (its freckles, if any) — NEVER invent moles, beauty marks, or stray dark facial dots. Every spread copies this sheet, so an invented mole multiplies across the whole book.',
     'ABSOLUTELY NO text, labels, letters, numbers, arrows, or annotations anywhere in the image. The outfit must be letter-free: no name tags, no letter badges, no real-world logos, no national flags.',
   ].filter(Boolean).join('\n');
 }

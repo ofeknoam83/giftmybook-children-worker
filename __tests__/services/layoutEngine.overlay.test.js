@@ -175,10 +175,36 @@ describe('wrapTextBalanced (orphan control, 2026-07-18 print audit)', () => {
     expect(wrapTextBalanced('short line', stubFont, 10, 1000)).toEqual(['short line']);
   });
 
-  test('keeps the greedy wrap when the donor line has only two words', () => {
-    // "aaaaaaaaa bbbbbbbbb" then orphan "cc": donor must keep 2+ words.
+  test('balances instead of stranding an orphan when the donor has only two words', () => {
+    // Greedy would produce ["aaaaaaaaa bbbbbbbbb", "cc"]; the balanced DP
+    // prefers the even split with no orphan at all.
     const lines = wrapTextBalanced('aaaaaaaaa bbbbbbbbb cc', stubFont, 10, 100);
-    expect(lines).toEqual(['aaaaaaaaa bbbbbbbbb', 'cc']);
+    expect(lines).toEqual(['aaaaaaaaa', 'bbbbbbbbb cc']);
+  });
+
+  // Audit #2 T1: greedy wrapping left a short centered stub under nearly
+  // every long line ("…spreads the star / map wide."). The DP must split
+  // wrapped lines into near-equal widths.
+  test('wrapped lines come out near-equal instead of full-then-stub', () => {
+    const text = 'He sits on a flat rock and spreads the star map wide.';
+    // 27 chars per line at size 10 / maxW 135.
+    const lines = wrapTextBalanced(text, stubFont, 10, 135);
+    expect(lines.length).toBeGreaterThan(1);
+    const widths = lines.map((l) => stubFont.widthOfTextAtSize(l, 10));
+    expect(Math.max(...widths)).toBeLessThanOrEqual(135);
+    // No line is less than half the width of the widest line — the
+    // staircase shape is gone.
+    expect(Math.min(...widths)).toBeGreaterThanOrEqual(Math.max(...widths) * 0.5);
+    expect(lines.join(' ')).toBe(text);
+  });
+
+  test('never exceeds maxW and preserves all words', () => {
+    const text = 'On his lap rests a star map with one blank spot ready';
+    for (const maxW of [80, 110, 150, 400]) {
+      const lines = wrapTextBalanced(text, stubFont, 10, maxW);
+      for (const l of lines) expect(stubFont.widthOfTextAtSize(l, 10)).toBeLessThanOrEqual(Math.max(maxW, stubFont.widthOfTextAtSize(l.split(' ')[0], 10)));
+      expect(lines.join(' ')).toBe(text);
+    }
   });
 });
 

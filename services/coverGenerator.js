@@ -221,6 +221,7 @@ async function harmonizeChosenCoverToInteriorStyle(frontCoverBuffer, opts = {}) 
     'PRESERVE: The same overall composition, the child’s placement and pose, the same on-image title and subtitle (character-for-character if visible), the same number of people, and the same story mood. Do not invent a new layout.',
     'TRANSFORM: If the input is 2D, watercolor, painterly, or flat illustrated, restyle it toward true 3D CGI in the same family as the interiors: believable 3D geometry, soft-feature-film character shading, PBR materials, clean volumetric lighting, modeled environment — do NOT increase skin/hair “photorealism” beyond a family-friendly 3D animated film look, and do NOT re-light faces to look like a real photograph.',
     'FORBID: a different book title, extra characters, missing characters, or a new scene. No poster typography that ignores the input text.',
+    'WARDROBE SCRUB (2026-07-19 audit: a flag patch on the approved cover propagated onto every interior spread): while re-creating, REMOVE any national flag, real-world brand logo, or lettering from the child\'s clothing — replace with plain fabric or a generic letter-free emblem (a star patch, a simple rocket motif). Everything else about the outfit stays identical.',
     '',
     'STYLE LOCK (match book interiors):',
     styleBlock,
@@ -479,6 +480,64 @@ Answer STRICT JSON only:
     return { pass: true, reason: null };
   } catch (err) {
     console.warn(`[CoverGenerator] back-cover QA failed to run (passing without QA): ${err.message}`);
+    return { pass: true, reason: null };
+  }
+}
+
+/**
+ * Wardrobe QA for a freshly generated FRONT cover (2026-07-19 audit: a
+ * US-flag patch on the cover suit propagated onto every interior spread —
+ * the cover is the book's outfit ground truth, so a wardrobe violation
+ * here multiplies 13×). Checks ONLY the child's clothing: national flags,
+ * real-world brand logos, readable garment lettering. The cover's title
+ * typography is expected and never flagged. Best-effort: infrastructure
+ * failures PASS.
+ *
+ * @param {Buffer} imageBuffer
+ * @returns {Promise<{pass: boolean, reason: string|null}>}
+ */
+async function qaCoverWardrobe(imageBuffer) {
+  const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey) return { pass: true, reason: null };
+  const prompt = `You are checking a children's book cover. Inspect ONLY the child's CLOTHING/outfit (ignore the book title, background, and any signage).
+
+Answer STRICT JSON only:
+{
+  "flag_on_clothing": true|false,   // any national flag (any country) on the outfit — patch, print, or badge
+  "logo_on_clothing": true|false,   // any real-world brand/agency logo (e.g. NASA) on the outfit
+  "lettering_on_clothing": true|false  // any readable letters/words/numbers printed on the outfit
+}`;
+  try {
+    const resp = await fetchWithTimeout(
+      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+        }),
+      },
+      30000,
+    );
+    if (!resp.ok) return { pass: true, reason: null };
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    const failures = [
+      json.flag_on_clothing && 'a national flag',
+      json.logo_on_clothing && 'a brand logo',
+      json.lettering_on_clothing && 'readable lettering',
+    ].filter(Boolean);
+    return failures.length > 0 ? { pass: false, reason: failures.join(' + ') } : { pass: true, reason: null };
+  } catch (err) {
+    console.warn(`[CoverGenerator] wardrobe QA failed to run (passing without QA): ${err.message}`);
     return { pass: true, reason: null };
   }
 }
@@ -750,6 +809,44 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       }
     } catch (err) {
       console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
+    }
+
+    // Wardrobe QA (2026-07-19 audit: a US-flag patch survived the prompt
+    // rule and, as the outfit ground truth, propagated onto every interior
+    // spread). One vision check + one hardened retry; if the retry still
+    // fails, keep the first cover and warn — never block cover delivery.
+    if (frontCoverBuffer) {
+      const wq = await qaCoverWardrobe(frontCoverBuffer);
+      if (!wq.pass) {
+        console.warn(`[CoverGenerator] front cover wardrobe QA failed (${wq.reason}) — one hardened retry`);
+        try {
+          const retryScene = `${coverScene}\n\nCRITICAL WARDROBE REPAIR: the previous render put ${wq.reason} on the child's clothing. The outfit must carry NO flags, NO logos, NO letters — plain fabric or a generic star/rocket emblem only.`;
+          const retryUrl = await generateIllustration(
+            retryScene, characterRefUrl, artStyle, {
+              costTracker: opts.costTracker,
+              bookId: opts.bookId,
+              childAppearance: childDetails.appearance || childDetails.childAppearance,
+              childName: childDetails.name || childDetails.childName,
+              childPhotoUrl: opts.childPhotoUrl,
+              _cachedPhotoBase64: opts._cachedPhotoBase64,
+              _cachedPhotoMime: opts._cachedPhotoMime,
+            },
+          );
+          if (retryUrl) {
+            const retryBuffer = await downloadBuffer(retryUrl);
+            const wq2 = await qaCoverWardrobe(retryBuffer);
+            if (wq2.pass) {
+              frontCoverImageUrl = retryUrl;
+              frontCoverBuffer = retryBuffer;
+              console.log('[CoverGenerator] wardrobe retry cover accepted');
+            } else {
+              console.warn(`[CoverGenerator] wardrobe retry still fails (${wq2.reason}) — keeping first cover`);
+            }
+          }
+        } catch (retryErr) {
+          console.warn(`[CoverGenerator] wardrobe retry failed (keeping first cover): ${retryErr.message}`);
+        }
+      }
     }
   }
 
@@ -1066,7 +1163,7 @@ function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyl
     parts.push(`PHYSICAL IDENTITY LOCK: ${identity.characterAnchor}`);
   }
 
-  parts.push(`Book cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom.\n\nART STYLE: ${styleBlock}`);
+  parts.push(`Book cover for a book titled "${title}". The main character is ${childName}, a ${childAge}-year-old ${genderWord}. Show ${childName} in a warm, magical scene that feels full of possibility and wonder. Premium, inviting, irresistibly cute. Large bold title at top. "By GiftMyBook" at bottom.\n\nWARDROBE RULE: ${childName}'s clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos, no national flags. Plain fabric or generic letter-free emblems only.\n\nART STYLE: ${styleBlock}`);
 
   return parts.join('\n\n');
 }
@@ -1230,5 +1327,6 @@ module.exports = {
   wrapTextToWidth,
   drawBackCoverTypeset,
   qaBackCoverArtwork,
+  qaCoverWardrobe,
   extendWithSoftWrap,
 };

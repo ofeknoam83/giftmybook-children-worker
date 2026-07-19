@@ -1469,7 +1469,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
             // these to drive the embedded-overlay preview and textLayout
             // flips after the worker checkpoint is cleared on completion.
             ...(e.type === 'spread' && e.textLayout ? { textLayout: e.textLayout } : {}),
-            ...(e.type === 'spread' && e.textLayout === 'embedded' ? { textZone: e.textZone || null, heroBox: e.heroBox || null } : {}),
+            ...(e.type === 'spread' && e.textLayout === 'embedded' ? { textZone: e.textZone || null, heroBox: e.heroBox || null, figuresBox: e.figuresBox || null } : {}),
             ...(e.type === 'spread' && e.captionText !== undefined ? { captionText: e.captionText } : {}),
             ...(e.type === 'spread' && e.spreadIllustrationUrl ? { spreadIllustrationUrl: e.spreadIllustrationUrl } : {}),
             ...(e.type === 'spread' && e.spreadIllustrationStorageKey ? { spreadIllustrationStorageKey: e.spreadIllustrationStorageKey } : {}),
@@ -2671,6 +2671,7 @@ app.post('/v3/preview/embedded-overlay', authenticate, async (req, res) => {
         textLayout: 'embedded',
         textZone: e.textZone || 'left-top',
         heroBox: e.heroBox || null,
+        figuresBox: e.figuresBox || null,
         captionText: e.captionText !== undefined ? e.captionText : (e.left?.text || ''),
         spreadIllustrationBuffer: buffer,
       });

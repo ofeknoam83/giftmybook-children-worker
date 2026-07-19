@@ -509,3 +509,65 @@ describe('selectSpreadWinner cascade', () => {
     expect(judgeLikenessCrossFamily.mock.calls[0][0].contextNote).toContain('"wide-establishing" framing');
   });
 });
+
+// 2026-07-19 audit #2: the judge's fold-collision class alone let a
+// fold-centered hero ship. The geometry is now enforced deterministically
+// from the judge's own hero_box on wide (embedded) renders.
+describe('deterministic fold backstop (embedded renders)', () => {
+  const { evaluateCandidate, FOLD_BAND_MIN, FOLD_BAND_MAX } = require('../../../services/bookPipelineV3/illustrator/qa/select');
+  const CAND = { candidateIndex: 1, path: 'p1', base64: 'img' };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    runDeterministicChecks.mockResolvedValue({ pass: true, defects: [] });
+    judgeLikenessCrossFamily.mockResolvedValue({ pass: true, minLikeness: 5, defects: [] });
+  });
+
+  test('hero centered on the fold of a wide render fails deterministically', async () => {
+    judgeSpreadCandidate.mockResolvedValue({
+      pass: true, scores: {}, tags: [], minorDefects: [], defects: [],
+      heroBox: { x: 0.4, y: 0.2, w: 0.2, h: 0.7 }, // center = 0.5
+      figuresBox: null,
+    });
+    const counts = {};
+    const rec = await evaluateCandidate({
+      candidate: CAND, sceneContract: {}, direction: null, referenceImages: [],
+      wideSpread: true, qaTagCounts: counts,
+    });
+    expect(rec.pass).toBe(false);
+    expect(rec.stage).toBe('foldCollision');
+    expect(rec.tags).toContain('fold_collision');
+    expect(counts.fold_collision).toBe(1);
+    expect(rec.defects[0]).toContain('fold');
+  });
+
+  test('hero clearly on one side passes through to likeness', async () => {
+    judgeSpreadCandidate.mockResolvedValue({
+      pass: true, scores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 }, tags: [], minorDefects: [], defects: [],
+      heroBox: { x: 0.05, y: 0.2, w: 0.3, h: 0.7 }, // center = 0.2
+      figuresBox: { x: 0.05, y: 0.2, w: 0.5, h: 0.7 },
+    });
+    const rec = await evaluateCandidate({
+      candidate: CAND, sceneContract: {}, direction: null, referenceImages: [],
+      wideSpread: true, qaTagCounts: {},
+    });
+    expect(rec.pass).toBe(true);
+    expect(rec.heroBox).toEqual({ x: 0.05, y: 0.2, w: 0.3, h: 0.7 });
+    expect(rec.figuresBox).toEqual({ x: 0.05, y: 0.2, w: 0.5, h: 0.7 });
+  });
+
+  test('square (caption) renders never trigger the fold backstop', async () => {
+    judgeSpreadCandidate.mockResolvedValue({
+      pass: true, scores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 }, tags: [], minorDefects: [], defects: [],
+      heroBox: { x: 0.4, y: 0.2, w: 0.2, h: 0.7 }, // centered — fine on a square page
+      figuresBox: null,
+    });
+    const rec = await evaluateCandidate({
+      candidate: CAND, sceneContract: {}, direction: null, referenceImages: [],
+      wideSpread: false, qaTagCounts: {},
+    });
+    expect(rec.pass).toBe(true);
+    expect(FOLD_BAND_MIN).toBeLessThan(0.5);
+    expect(FOLD_BAND_MAX).toBeGreaterThan(0.5);
+  });
+});

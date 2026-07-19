@@ -53,7 +53,7 @@ function buildPropPlatePrompt(props, { hasStyleReferences = false } = {}) {
       ? 'The attached reference images (character model sheet, approved cover) define this book\'s RENDERING STYLE — match their brushwork, color saturation, line weight, and lighting quality EXACTLY. Do NOT copy their subjects: paint the PROPS ONLY.'
       : null,
     STYLE_BIBLE,
-    'ABSOLUTELY NO TEXT anywhere in the image. Any map, note, book, or label among the props is WORDLESS — abstract squiggles, dots, or star-glyphs that cannot be read as letters or numbers. Compasses show a pointed star and arrows, never N/S/E/W letters; clock faces and dials show dots or dashes, never numerals.',
+    'ABSOLUTELY NO TEXT anywhere in the image. Any map, note, book, or label among the props is WORDLESS — abstract squiggles, dots, or star-glyphs that cannot be read as letters or numbers. NO invented alphabets or alien script. Compasses show a pointed star and arrows, never N/S/E/W letters; clock faces and dials show dots or dashes, never numerals.',
   ].filter(Boolean).join('\n');
 }
 

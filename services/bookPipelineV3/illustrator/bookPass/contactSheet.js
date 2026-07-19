@@ -18,7 +18,7 @@ function buildContactSheetPrompt({ manuscript, direction, hasPropPlate = false }
 
 Check the BOOK AS A WHOLE (individual image quality was already judged):
 1. VARIETY: do compositions/camera angles actually vary across the book (planned: ${[...new Set([...direction.directionBySpread.values()].map((d) => d.shot))].join(', ')})?
-2. CONTINUITY: same outfit as the cover everywhere; recurring props consistent (${direction.continuityLocks?.props?.map((p) => p.design ? `${p.name}: ${p.design}` : p.name).join('; ') || 'none listed'}).
+2. CONTINUITY: same outfit as the cover everywhere; recurring props consistent (${direction.continuityLocks?.props?.map((p) => p.design ? `${p.name}: ${p.design}` : p.name).join('; ') || 'none listed'})${direction.continuityLocks?.gear?.length ? `; gear state follows its rule on every spread (${direction.continuityLocks.gear.map((g) => `${g.item}: ${g.rule}`).join('; ')}) — flag spreads that break it (advisory)` : ''}.
 3. COVER MATCH: interior character reads as the same child, same rendering style, as the cover.
 4. CHARACTER DRIFT: the child keeps the SAME apparent age and build on every spread (flag any spread where the child reads clearly younger/chubbier or older/slimmer than the cover), and the SAME facial marks (flag stray moles, beauty marks, or dark facial spots that are not on the cover).
 5. ENDING: the final spread lands visually (warmth/resolution, not an arbitrary stop).
