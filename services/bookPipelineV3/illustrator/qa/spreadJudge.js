@@ -69,7 +69,7 @@ THE PARENT TEST — a defect is "critical" ONLY if a parent flipping through the
 3. countably wrong anatomy (extra/missing/fused fingers, a third arm)
 4. the contracted action ENTIRELY absent (not merely staged differently)
 5. the wrong setting
-6. a jarring style break — photoreal/3D drift, photographic blur/shallow depth-of-field where the book is crisp flat illustration${hasCover ? ', or a rendering style clearly inconsistent with the COVER reference (e.g. flat/desaturated colors or thin line-art where the cover is warm and painterly)' : ''}
+6. a jarring style break — the book's signature style is a premium 3D CGI animated-film render; flat 2D/painterly/watercolor/line-art/cel-shaded drift is the break${hasCover ? ', as is any rendering style clearly inconsistent with the COVER reference (e.g. a drawn/painted look where the cover is a dimensional 3D render, or desaturated washed-out color where the cover is rich)' : ''}. A live-action PHOTOGRAPH look (real people, real sets) is also a break; cinematic depth-of-field/bokeh within the 3D render is part of the style, never a defect
 7. a counted-object mismatch: the contract or the printed story text explicitly NUMBERS an object ("three tunnels", "five stones") and the art shows a clearly countable DIFFERENT number of that object. Applies ONLY to explicitly numbered objects that are easy to count in the image — never estimate crowds, scatter, or background texture${wideSpread ? `
 8. (wide spreads only) the same distinctive landmark painted TWICE as symmetric twins (one per half — e.g. two identical archways mirroring each other), or the child/the focal landmark centered ON the fold line where the binding will swallow it` : ''}
 EVERYTHING ELSE IS "minor": prop versions and details, composition, stiffness, choreography, emotion nuance, zone busyness, micro-positions. Minor defects are recorded and shipped as advisories — never mark them critical.
@@ -79,7 +79,7 @@ Return STRICT JSON:
   "anatomy": 1-5,          // hands, limbs, faces, object coherence — stiffness or awkwardness is NEVER below 4; only countably wrong anatomy (extra/missing/fused fingers, a third arm) goes lower
   "contract": 1-5,         // shows the contracted setting + action + objects — choreography (which hand, how many hands, exact prop-relative position) never lowers this score
   "cast": 1-5,             // exactly the listed characters; 1 if the hero appears twice or strangers appear
-  "style": 1-5,            // consistent storybook style, no photoreal/3D drift${hasCover ? '; must MATCH the cover reference\'s rendering style (no flat/desaturated/line-art drift)' : ''}
+  "style": 1-5,            // consistent premium 3D CGI animated-film style, no flat-2D/painterly/live-action drift${hasCover ? '; must MATCH the cover reference\'s rendering style (same dimensional 3D medium, lighting quality, and material realism)' : ''}
   "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
   "hero_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // tight bounding box of the child's FULL figure (head to feet) as fractions of image width/height from the top-left corner; null if the child is not visible
   "figures_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // ONE box enclosing EVERY character/creature in the scene (the child, companions, aliens, animals — anything with a face); null if no figures

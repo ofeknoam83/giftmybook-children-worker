@@ -249,3 +249,34 @@ describe('chooseOverlayZone (subject-aware caption placement)', () => {
     expect(r.relocated).toBe(true);
   });
 });
+
+// Book 36e79635 readability round: rounded upright overlay font, larger
+// overlay size ladder, and an auto-scrim on busy/low-contrast bands.
+describe('caption readability treatment (2026-07-20)', () => {
+  const { shouldScrim } = require('./../../services/layoutEngine');
+  const stub = (name) => ({ name, widthOfTextAtSize: (t, s) => t.length * s * 0.5 });
+
+  test('shouldScrim: busy band or sub-floor contrast → scrim; calm band → none', () => {
+    expect(shouldScrim({ busy: true, contrastRatio: 10 })).toBe(true);
+    expect(shouldScrim({ busy: false, contrastRatio: OVERLAY.MIN_CONTRAST - 0.1 })).toBe(true);
+    expect(shouldScrim({ busy: false, contrastRatio: OVERLAY.MIN_CONTRAST + 0.1 })).toBe(false);
+    expect(shouldScrim(null)).toBe(false);
+    expect(shouldScrim({ busy: false })).toBe(false); // no contrast metric, calm band
+  });
+
+  test('overlay font priority prefers the rounded upright face; caption pages keep the serif', () => {
+    const fonts = { bubblegum: stub('bubblegum'), playfair: stub('playfair'), playfairItalic: stub('playfairItalic'), helv: stub('helv') };
+    const overlay = computeCaptionBlock(fonts, 'Hello there.', 400, { fontPriority: 'overlay' });
+    expect(overlay.font.name).toBe('bubblegum');
+    const captionPage = computeCaptionBlock(fonts, 'Hello there.', 400);
+    expect(captionPage.font.name).toBe('playfairItalic');
+  });
+
+  test('sizes opt drives the ladder (overlay runs one notch larger)', () => {
+    const fonts = { helv: stub('helv') };
+    const big = computeCaptionBlock(fonts, 'Short.', 400, { sizes: [24, 20, 18, 16] });
+    expect(big.size).toBe(24);
+    const dflt = computeCaptionBlock(fonts, 'Short.', 400);
+    expect(dflt.size).toBe(22);
+  });
+});

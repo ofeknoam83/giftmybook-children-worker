@@ -385,7 +385,7 @@ async function runNativeIllustrator(input, ctx) {
       // judge prose — "Jarring style break" alone doesn't tell the renderer
       // WHAT to paint like; naming the cover's style attributes does (same
       // pattern as the lettering/color-drift templates in the repair wave).
-      const isStyleBreak = /style|flat|desaturat|photoreal|3d render|line[- ]?art|line ?weight|vector/i.test(flag.issue);
+      const isStyleBreak = /style|flat|desaturat|painterly|watercolor|cel[- ]?shad|hand[- ]?drawn|2d |line[- ]?art|line ?weight|vector|live[- ]?action|photograph/i.test(flag.issue);
       // Prop-identity flags get the LOCKED design spelled out — "the compass
       // looks different" alone sends the renderer guessing; its plate design
       // is the fix target (2026-07-19 convergence fix).
@@ -399,7 +399,7 @@ async function runNativeIllustrator(input, ctx) {
             spread.scene_contract?.continuity_notes,
             `BOOK-PASS FIX REQUIRED: ${flag.issue}`,
             isStyleBreak
-              ? 'CRITICAL REPAIR: match the APPROVED COVER reference\'s rendering style EXACTLY — warm painterly brushwork, rich saturated colors, soft rounded shading, consistent line weight. NOT flat vector, NOT desaturated, NOT thin-line.'
+              ? 'CRITICAL REPAIR: match the APPROVED COVER reference\'s rendering style EXACTLY — the same premium 3D CGI animated-film medium: dimensional character geometry, physically based materials, rich saturated cinematic lighting. NOT a flat 2D illustration, NOT painterly/watercolor/line-art, NOT desaturated.'
               : null,
             flaggedProps.length
               ? `CRITICAL REPAIR: render each prop EXACTLY as its locked design on the PROP PLATE reference — ${flaggedProps.map((p) => `${p.name}: ${p.design}`).join('; ')}. Same kind of object, same shape, same colors, every time.`

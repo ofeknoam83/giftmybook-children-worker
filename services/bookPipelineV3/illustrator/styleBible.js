@@ -1,27 +1,33 @@
 /**
  * Signature style bible (design D11 — "one signature style, perfected").
  *
- * ⚠️ PLACEHOLDER. The real style bible is an authored product artifact
- * (style document + reference images) owned by the product team — it is
- * the blocking external dependency for the identity kit (cutover plan
- * §External dependencies). This placeholder keeps the pipeline code
- * buildable and testable; bump STYLE_VERSION when the authored bible
- * lands so every identity-kit cache entry regenerates.
+ * sb-1 (2026-07-20): the sb-0 placeholder prompted a soft 2D storybook look
+ * ("NOT 3D render") while the cover pipeline is deliberately FROZEN to the
+ * premium 3D Pixar-style CGI (`PIXAR_STYLE` in shared/illustration/config —
+ * `canonicalBookArtStyle()` ignores the request on purpose). Result: 3D
+ * covers stapled to 2D interiors — the mismatch a customer called out on
+ * book 36e79635 ("I don't think the style is pixar premium"). The bible now
+ * derives from the SAME frozen PIXAR_STYLE language the cover uses, so the
+ * whole book reads as one product. The spread judge's style class flips
+ * accordingly (2D/painterly drift is the break — see qa/spreadJudge.js).
  *
  * STYLE_VERSION participates in the identity-kit cache key: photoHash +
  * STYLE_VERSION + PROMPT_VERSION. Never edit the bible text without
  * bumping the version — silent style drift across cached sheets is
- * exactly the class of bug the versioning exists to prevent.
+ * exactly the class of bug the versioning exists to prevent. (Bumping to
+ * sb-1 regenerates every cached sheet once — intended.)
  */
 
-const STYLE_VERSION = 'sb-0-placeholder';
+const { PIXAR_STYLE } = require('../../shared/illustration/config');
 
-const STYLE_BIBLE = `SIGNATURE ART STYLE — GiftMyBook picture books:
-- Warm, painterly digital illustration with soft brushwork and visible texture; NOT flat vector, NOT 3D render, NOT photoreal.
-- Rich cinematic lighting with gentle rim light; colors saturated but never neon.
-- Characters have expressive, slightly oversized eyes and soft rounded features; child proportions must match the stated age exactly.
-- Backgrounds are storybook-lush but readable — one clear focal point, supporting detail recedes.
-- Consistent line weight and rendering quality across every image in a book.
+const STYLE_VERSION = 'sb-1-pixar-premium-3d';
+
+const STYLE_BIBLE = `SIGNATURE ART STYLE — GiftMyBook picture books (premium 3D, matches the book's cover):
+- ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
+- NOT THIS: ${PIXAR_STYLE.antiStyle}.
+- Characters are appealing 3D animated-film characters with expressive faces; child proportions must match the stated age exactly.
+- Backgrounds are fully modeled 3D environments but readable — one clear focal point, supporting detail recedes into gentle depth-of-field.
+- Consistent rendering quality, materials, and lighting language across every image in a book.
 - Absolutely no text, letters, numbers, watermarks, or signatures in the artwork.`;
 
 module.exports = { STYLE_VERSION, STYLE_BIBLE };

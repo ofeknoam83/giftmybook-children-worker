@@ -441,7 +441,7 @@ describe('selectSpreadWinner cascade', () => {
     for (const p of repairPrompts) {
       expect(p).toContain("CRITICAL REPAIR: previous renders broke the book's signature style");
       expect(p).toContain("APPROVED COVER reference's rendering style EXACTLY");
-      expect(p).toContain('NOT flat vector, NOT desaturated, NOT thin-line');
+      expect(p).toContain('NOT a flat 2D illustration, NOT painterly/watercolor/line-art, NOT desaturated');
     }
   });
 

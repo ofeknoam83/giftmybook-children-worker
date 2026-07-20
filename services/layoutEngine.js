@@ -260,7 +260,13 @@ function computeCaptionBlock(fonts, captionText, maxW, opts = {}) {
   if (!text) return null;
 
   const { bubblegum, playfair, playfairItalic, helv } = fonts;
-  const font = playfairItalic || playfair || bubblegum || helv;
+  // Overlay captions (text ON art) use the rounded upright picture-book
+  // face — thick, even strokes survive busy backgrounds where the italic
+  // serif's thin strokes drowned (2026-07-20, book 36e79635). White caption
+  // pages keep the serif.
+  const font = opts.fontPriority === 'overlay'
+    ? (bubblegum || playfair || helv)
+    : (playfairItalic || playfair || bubblegum || helv);
 
   // Manuscript text is already line-broken on \n (4-line picture-book cadence).
   // Preserve the existing line breaks; only wrap individual lines that exceed
@@ -269,7 +275,7 @@ function computeCaptionBlock(fonts, captionText, maxW, opts = {}) {
   // embedded overlay only — when the whole block exceeds opts.maxH (long
   // captions shrink instead of clipping or overflowing toward the bleed).
   const sourceLines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  const SIZES = [22, 18, 16, 14];
+  const SIZES = Array.isArray(opts.sizes) && opts.sizes.length ? opts.sizes : [22, 18, 16, 14];
   const maxH = Number.isFinite(opts.maxH) ? opts.maxH : Infinity;
   let chosen = null;
   for (const size of SIZES) {
@@ -540,6 +546,22 @@ function chooseOverlayZone(zone, heroBox) {
 }
 
 /**
+ * Scrim decision (2026-07-20, book 36e79635): tone + halo alone cannot buy
+ * readability over a busy starfield or a band the advisory contrast check
+ * already flags. When either signal fires, drawCaptionOverlay paints a soft
+ * translucent panel behind the block. Pure — exported for tests.
+ *
+ * @param {{ busy?: boolean, contrastRatio?: number }|null|undefined} metrics -
+ *   layoutEmbeddedSpread's band metrics (analyzeZoneBand + contrastRatio)
+ * @returns {boolean}
+ */
+function shouldScrim(metrics) {
+  if (!metrics) return false;
+  if (metrics.busy) return true;
+  return Number.isFinite(metrics.contrastRatio) && metrics.contrastRatio < OVERLAY.MIN_CONTRAST;
+}
+
+/**
  * Full overlay layout: adaptive padding (long captions trade frame padding
  * for type size before the size ladder kicks in), placement bounds, and the
  * wrapped caption block.
@@ -558,7 +580,13 @@ function computeOverlayLayout(fonts, captionText, zone, { pw, ph }) {
     // lines never run past MAX_MEASURE_FRAC of the page (audit #2 T3 —
     // near-edge-to-edge lines). Lines still center inside the bounds.
     const measure = Math.min(placement.maxTextW, pw * OVERLAY.MAX_MEASURE_FRAC);
-    const block = computeCaptionBlock(fonts, captionText, measure, { maxH: placement.maxBlockH });
+    // Overlay type runs one notch larger than the white caption pages —
+    // text over art needs the extra weight (book 36e79635 readability).
+    const block = computeCaptionBlock(fonts, captionText, measure, {
+      maxH: placement.maxBlockH,
+      sizes: [24, 20, 18, 16],
+      fontPriority: 'overlay',
+    });
     if (!block) return null;
     const widest = Math.max(...block.lines.map(l => block.font.widthOfTextAtSize(l, block.size)));
     layout = { pad, placement, block, textWidthFrac: Math.min(1, widest / pw) };
@@ -592,7 +620,7 @@ function computeOverlayLayout(fonts, captionText, zone, { pw, ph }) {
  * @param {{ pw: number, ph: number, tone?: 'dark-text'|'light-text',
  *           haloStrength?: 'normal'|'strong' }} dims
  */
-function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text', haloStrength = 'normal' }) {
+function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text', haloStrength = 'normal', scrim = false }) {
   const layout = computeOverlayLayout(fonts, captionText, zone, { pw, ph });
   if (!layout) return;
   const { pad, placement, block } = layout;
@@ -609,13 +637,39 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'li
   const fill = dark ? rgb(0.13, 0.11, 0.09) : C.white;
   const halo = dark ? rgb(1, 1, 0.97) : rgb(0.08, 0.07, 0.06);
 
+  // Soft scrim behind the block on busy/low-contrast bands (2026-07-20):
+  // three nested translucent rectangles fake a feathered panel (pdf-lib has
+  // no blur or corner radius) — outermost largest, each ~0.12 opacity, so
+  // the center reads ~0.34 while the edge fades in two 5pt steps. Dark
+  // behind white type; warm white behind dark ink.
+  if (scrim && lines.length > 0) {
+    const widest = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, size)));
+    const SCRIM_PAD = 14;
+    const scrimColor = dark ? rgb(1, 1, 0.97) : rgb(0.04, 0.04, 0.07);
+    const xCenter = placement.xMin + placement.maxTextW / 2;
+    const yTop = startY + size;                                   // above the first line's ascent
+    const yBottom = startY - (lines.length - 1) * lineH - size * 0.4; // below the last line's descent
+    for (const inset of [0, 5, 10]) {
+      const w = widest + 2 * (SCRIM_PAD - inset);
+      const h = (yTop - yBottom) + 2 * (SCRIM_PAD - inset);
+      page.drawRectangle({
+        x: xCenter - w / 2,
+        y: yBottom - (SCRIM_PAD - inset),
+        width: w,
+        height: h,
+        color: scrimColor,
+        opacity: 0.12,
+      });
+    }
+  }
+
   // pdf-lib has no blur, so the halo is layered type: each line drawn 8× per
   // ring around the fill, plus a drop shadow under white type. Busy bands
   // ('strong') get a second, wider ring at higher opacity — tone alone can't
   // buy readability over high-contrast detail.
   const HALO_PROFILES = {
-    normal: { rings: [1.3], opacity: 0.55, shadowOffset: 1.1, shadowOpacity: 0.3 },
-    strong: { rings: [2.2, 1.1], opacity: 0.7, shadowOffset: 1.6, shadowOpacity: 0.45 },
+    normal: { rings: [1.3], opacity: 0.7, shadowOffset: 1.1, shadowOpacity: 0.35 },
+    strong: { rings: [2.2, 1.1], opacity: 0.85, shadowOffset: 1.6, shadowOpacity: 0.5 },
   };
   const profile = HALO_PROFILES[haloStrength] || HALO_PROFILES.normal;
   for (let i = 0; i < lines.length; i++) {
@@ -693,8 +747,9 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       console.warn(`[LayoutEngine] zone band sampling failed (defaulting to light-text): ${e.message}`);
     }
   }
+  const scrim = shouldScrim(metrics);
   try {
-    drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone, haloStrength });
+    drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone, haloStrength, scrim });
   } catch (e) {
     console.warn(`[LayoutEngine] caption overlay failed: ${e.message}`);
   }
@@ -705,6 +760,7 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       zoneRelocated: zonePick.relocated,
       tone,
       haloStrength,
+      scrim,
       busy: metrics ? metrics.busy : null,
       luminance: metrics ? Math.round(metrics.luminance) : null,
       maxStdev: metrics ? Math.round(metrics.maxStdev) : null,
@@ -2177,5 +2233,6 @@ module.exports = {
   wrapTextBalanced,
   zoneHeroOverlap,
   chooseOverlayZone,
+  shouldScrim,
   OVERLAY,
 };
