@@ -197,7 +197,7 @@ describe('runNativeIllustrator — book-pass targeted regen wave', () => {
     const notes = regenArgs.spread.scene_contract.continuity_notes;
     expect(notes).toContain('BOOK-PASS FIX REQUIRED: Jarring style break');
     expect(notes).toContain("CRITICAL REPAIR: match the APPROVED COVER reference's rendering style EXACTLY");
-    expect(notes).toContain('NOT flat vector, NOT desaturated, NOT thin-line');
+    expect(notes).toContain('NOT a flat 2D illustration, NOT painterly/watercolor/line-art, NOT desaturated');
 
     // G1: plates are style-anchored on the book pack (sheet + cover).
     expect(renderWorldPlates).toHaveBeenCalledWith(expect.objectContaining({ styleReferences: BOOK_PACK }));

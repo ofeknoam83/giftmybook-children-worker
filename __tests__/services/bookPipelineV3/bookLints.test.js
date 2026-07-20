@@ -189,8 +189,12 @@ describe('spread judge prompt — 2026-07-18 print-audit classes', () => {
     expect(square).not.toContain('wide spreads only');
   });
 
-  test('photographic blur is a named style-break class', () => {
+  // sb-1 (2026-07-20): the signature style is premium 3D CGI — 2D/painterly
+  // drift is the break, and cinematic bokeh is part of the style.
+  test('style-break class is 3D-relative: 2D drift breaks, bokeh never does', () => {
     const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null });
-    expect(p).toContain('photographic blur/shallow depth-of-field');
+    expect(p).toContain('premium 3D CGI animated-film render');
+    expect(p).toContain('flat 2D/painterly/watercolor/line-art/cel-shaded drift is the break');
+    expect(p).toContain('depth-of-field/bokeh within the 3D render is part of the style, never a defect');
   });
 });

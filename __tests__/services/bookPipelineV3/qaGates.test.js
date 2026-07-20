@@ -229,7 +229,7 @@ describe('cover-aware style judging', () => {
     const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null, hasCover: true });
     expect(p).toContain('RENDERING-STYLE reference ONLY');
     expect(p).toContain('rendering style clearly inconsistent with the COVER reference');
-    expect(p).toContain('flat/desaturated');
+    expect(p).toContain('drawn/painted look where the cover is a dimensional 3D render');
     // Identity/likeness judging is still forbidden — the likeness judge owns it.
     expect(p).toContain('NO IDENTITY OR GENDER JUDGING');
     expect(p).toContain('RENDERING STYLE comparison ONLY');
