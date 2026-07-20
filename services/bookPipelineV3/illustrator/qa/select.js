@@ -247,6 +247,7 @@ async function selectSpreadWinner({
     }
   }
 
+  log(`spread ${spread.spread} exhausted: ${evaluations.map((e) => `c${e.candidateIndex}@${e.stage}${e.defects[0] ? `:${e.defects[0].slice(0, 60)}` : ''}`).join(' | ')}`);
   return { selected: null, evaluations, repairWaves, allCandidates };
 }
 
