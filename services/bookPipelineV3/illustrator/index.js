@@ -275,6 +275,7 @@ async function runNativeIllustrator(input, ctx) {
           defects: priorDefects,
           ageYears: Number(rawRequest?.child?.age) || null,
           ageBand: ageProfile?.ageBand || ageProfile?.band,
+          textLayout,
           abortSignal,
         });
         direction.directionBySpread.set(spreadNumber, {

@@ -513,8 +513,11 @@ describe('selectSpreadWinner cascade', () => {
 // 2026-07-19 audit #2: the judge's fold-collision class alone let a
 // fold-centered hero ship. The geometry is now enforced deterministically
 // from the judge's own hero_box on wide (embedded) renders.
+// 2026-07-20 (book d7625d8f): "swallowed", not "centered" — the box-center
+// form failed every close-up candidate (large boxes center near 0.5 by
+// nature) and deterministically exhausted spread QA into needs_review.
 describe('deterministic fold backstop (embedded renders)', () => {
-  const { evaluateCandidate, FOLD_BAND_MIN, FOLD_BAND_MAX } = require('../../../services/bookPipelineV3/illustrator/qa/select');
+  const { evaluateCandidate, FOLD_BAND_MIN, FOLD_BAND_MAX, FOLD_SWALLOW_FRAC } = require('../../../services/bookPipelineV3/illustrator/qa/select');
   const CAND = { candidateIndex: 1, path: 'p1', base64: 'img' };
 
   beforeEach(() => {
@@ -523,10 +526,10 @@ describe('deterministic fold backstop (embedded renders)', () => {
     judgeLikenessCrossFamily.mockResolvedValue({ pass: true, minLikeness: 5, defects: [] });
   });
 
-  test('hero centered on the fold of a wide render fails deterministically', async () => {
+  test('narrow hero standing on the fold fails deterministically (audit-#2 case)', async () => {
     judgeSpreadCandidate.mockResolvedValue({
       pass: true, scores: {}, tags: [], minorDefects: [], defects: [],
-      heroBox: { x: 0.4, y: 0.2, w: 0.2, h: 0.7 }, // center = 0.5
+      heroBox: { x: 0.42, y: 0.2, w: 0.14, h: 0.7 }, // 86% of the figure inside the band
       figuresBox: null,
     });
     const counts = {};
@@ -539,6 +542,21 @@ describe('deterministic fold backstop (embedded renders)', () => {
     expect(rec.tags).toContain('fold_collision');
     expect(counts.fold_collision).toBe(1);
     expect(rec.defects[0]).toContain('fold');
+  });
+
+  test('close-up hero spanning the frame with center ~0.5 PASSES (book d7625d8f regression)', async () => {
+    judgeSpreadCandidate.mockResolvedValue({
+      pass: true, scores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 }, tags: [], minorDefects: [], defects: [],
+      heroBox: { x: 0.2, y: 0.05, w: 0.6, h: 0.9 }, // center = 0.5, but only 20% of the box sits in the band
+      figuresBox: null,
+    });
+    const rec = await evaluateCandidate({
+      candidate: CAND, sceneContract: {}, direction: null, referenceImages: [],
+      wideSpread: true, qaTagCounts: {},
+    });
+    expect(rec.pass).toBe(true);
+    expect(rec.stage).toBe('passed');
+    expect(FOLD_SWALLOW_FRAC).toBeGreaterThan(0.5);
   });
 
   test('hero clearly on one side passes through to likeness', async () => {

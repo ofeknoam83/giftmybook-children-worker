@@ -134,10 +134,13 @@ async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayou
  * @param {string[]} opts.defects - flat defect notes from every rejected candidate
  * @param {number|null} [opts.ageYears]
  * @param {string} [opts.ageBand]
+ * @param {string} [opts.textLayout] - 'caption' | 'embedded'; embedded books
+ *   get the fold-composition rule (2026-07-20, book d7625d8f: a fold-failed
+ *   spread was restaged into another centered composition and exhausted QA)
  * @param {AbortSignal} [opts.abortSignal]
  * @returns {Promise<{ moment: string|null, poseHint: string|null, continuityNotes: string|null }>}
  */
-async function restageSpread({ spread, direction = null, defects = [], ageYears = null, ageBand = 'PB_PRESCHOOL', abortSignal }) {
+async function restageSpread({ spread, direction = null, defects = [], ageYears = null, ageBand = 'PB_PRESCHOOL', textLayout = 'caption', abortSignal }) {
   const sc = spread.scene_contract || {};
   const heroDescriptor = Number.isFinite(Number(ageYears)) && Number(ageYears) > 0
     ? `a ${Number(ageYears)}-year-old child`
@@ -158,7 +161,8 @@ Produce a NEW staging of the SAME action that a renderer can reliably hit and th
 - The moment must be HOLDABLE — a pose the child could hold for a photograph; never a split-second motion phase.
 - Foreground at most 2 props; fold the rest into the environment.
 - Every written artifact stays WORDLESS (symbols, ticks, star glyphs — never letters/numerals); never reference labels by name.
-- NO CHOREOGRAPHY: never specify which hand, how many hands, or prop-relative positions.
+- NO CHOREOGRAPHY: never specify which hand, how many hands, or prop-relative positions.${textLayout === 'embedded' ? `
+- WIDE SPREAD (this image prints across two facing pages, folded at the exact vertical center): the moment must place the child clearly in the LEFT or RIGHT third of the frame — never centered. The staging itself must make an off-center composition natural (the child at a doorway, beside a landmark, at the edge of a clearing).` : ''}
 
 Return STRICT JSON:
 { "moment": "the new single paintable instant", "poseHint": "simple natural pose/grip, or null", "continuityNotes": "locks that help this scene land, or null" }`;

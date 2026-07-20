@@ -24,12 +24,16 @@ const { candidatePath } = require('../render/renderAllSpreads');
 const { REPAIR_WAVES_PER_SPREAD, CANDIDATES_PER_SPREAD } = require('../config');
 const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 
-// Fold band of a wide embedded render (fractions of image width): a hero
-// whose box center lands here sits on the printed fold. Deterministic
+// Fold band of a wide embedded render (fractions of image width). A hero
+// box with at least FOLD_SWALLOW_FRAC of its width inside the band stands
+// ON the printed fold and gets split by the binding. Deterministic
 // backstop — the judge's fold-collision class alone let fold-centered
-// subjects ship (audit #2).
+// subjects ship (audit #2). The swallowed-fraction form (not box-center)
+// keeps close-up shots legal — a large figure spanning the fold is normal
+// picture-book composition (2026-07-20, book d7625d8f).
 const FOLD_BAND_MIN = 0.44;
 const FOLD_BAND_MAX = 0.56;
+const FOLD_SWALLOW_FRAC = 0.6;
 
 /**
  * Run the full cascade for one candidate.
@@ -59,16 +63,26 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
   record.figuresBox = spread.figuresBox || null;
 
   // Deterministic fold backstop (audit #2): in a wide embedded render the
-  // printed fold runs down the exact center — a hero whose box CENTER falls
-  // in the fold band gets split by the binding. The judge's own fold class
-  // proved too lenient (a rocket nose and the hero shipped fold-adjacent),
-  // so the geometry is enforced here, from the judge's box, not its prose.
+  // printed fold runs down the exact center — a NARROW hero standing on it
+  // gets split by the binding. The judge's own fold class proved too lenient
+  // (a rocket nose and the hero shipped fold-adjacent), so the geometry is
+  // enforced here, from the judge's box, not its prose.
+  //
+  // "Swallowed", not "centered" (2026-07-20, book d7625d8f): the first cut
+  // failed any box whose CENTER fell in the band — but a close-up hero
+  // legitimately spans much of the frame with a ~0.5 center while plenty of
+  // figure shows on both sides, and the shot budget REQUIRES close-ups, so
+  // one spread per book could never pass and deterministically exhausted
+  // spread QA into needs_review. Now a candidate fails only when the
+  // MAJORITY of the hero box lies inside the fold band.
   if (wideSpread && spread.heroBox) {
-    const heroCenter = spread.heroBox.x + spread.heroBox.w / 2;
-    if (heroCenter >= FOLD_BAND_MIN && heroCenter <= FOLD_BAND_MAX) {
+    const box = spread.heroBox;
+    const bandOverlap = Math.max(0, Math.min(box.x + box.w, FOLD_BAND_MAX) - Math.max(box.x, FOLD_BAND_MIN));
+    const swallowedFrac = bandOverlap / box.w;
+    if (swallowedFrac >= FOLD_SWALLOW_FRAC) {
       record.stage = 'foldCollision';
       record.pass = false;
-      record.defects = [`fold collision: the child is centered on the spread fold (box center at ${(heroCenter * 100).toFixed(0)}% of the wide image) — the binding will swallow the subject; compose the child clearly in the left or right third`];
+      record.defects = [`fold collision: the child stands on the spread fold (${(swallowedFrac * 100).toFixed(0)}% of the figure, box width ${(box.w * 100).toFixed(0)}% of the image, sits in the center band) — the binding will swallow the subject; compose the child clearly in the left or right third`];
       record.tags = [...record.tags, 'fold_collision'];
       bump(qaTagCounts, 'fold_collision');
       return record;
@@ -269,4 +283,5 @@ module.exports = {
   pickWinner,
   FOLD_BAND_MIN,
   FOLD_BAND_MAX,
+  FOLD_SWALLOW_FRAC,
 };
