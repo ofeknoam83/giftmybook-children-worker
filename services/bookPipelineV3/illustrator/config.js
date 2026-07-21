@@ -47,7 +47,18 @@ const REPAIR_WAVES_PER_SPREAD = 1; // one defect-named repair wave, then the rec
 // a human. '0' disables (old behavior).
 const SPREAD_RECOVERY_ENABLED = process.env.BOOK_PIPELINE_V3_SPREAD_RECOVERY !== '0';
 const ART_DIRECTION_REASKS = 1;   // one re-ask on shot-budget violation, then deterministic reassignment
-const BOOK_PASS_REGEN_WAVES = 1;  // one targeted regen wave, then needs_review
+// Targeted regen waves after the book pass. Env-tunable ops lever: the book
+// pass re-reviews the whole book each wave and can flag a DIFFERENT spread
+// than the one just regenerated, so a single wave often cannot converge a
+// newly-surfaced flag. Default 2 (was 1) gives that new flag one chance to be
+// regenerated before needs_review. 0 disables regen entirely.
+const BOOK_PASS_REGEN_WAVES = Number(process.env.BOOK_PASS_REGEN_WAVES) >= 0
+  ? Number(process.env.BOOK_PASS_REGEN_WAVES) : 2;
+// Loud escape hatch (mirrors BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION): when
+// set, exhausting the regen waves with residual critical flags ships the book
+// with the residual issues attached as review metadata instead of throwing
+// needs_review. The book still gets flagged for admin review downstream.
+const BOOK_PASS_SHIP_ON_EXHAUSTION = /^(1|true|yes)$/i.test(process.env.BOOK_PASS_SHIP_ON_EXHAUSTION || '');
 const RENDER_CONCURRENCY = Number(process.env.BOOK_PIPELINE_V3_RENDER_CONCURRENCY || 6);
 
 /**
@@ -104,6 +115,7 @@ module.exports = {
   SPREAD_RECOVERY_ENABLED,
   ART_DIRECTION_REASKS,
   BOOK_PASS_REGEN_WAVES,
+  BOOK_PASS_SHIP_ON_EXHAUSTION,
   RENDER_CONCURRENCY,
   resolveIllustratorVersion,
 };
