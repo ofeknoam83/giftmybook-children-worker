@@ -117,8 +117,17 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     'WORDLESS COSTUMES & TECH: any control panels, chest displays, screens, gauges, wrist devices, helmets, HUDs, spacesuit instruments, or dashboards must show ONLY wordless indicators — glowing dots, bars, rings, star-glyphs, abstract icons — NEVER digits, numbers, clock readouts, or letters.',
     'WORDLESS PROPS: if the scene includes any written artifact — a map, note, letter, book, scroll, sign, or label — depict it WITHOUT readable writing. Use abstract wavy squiggle lines, dots, star-glyphs, or symbols that clearly cannot be read as letters or numbers. NO invented alphabets or alien script either — letter-LIKE glyph rows on signs read as "weird writing" in print; signs and shopfronts carry PICTOGRAMS only (a fruit, a star, a wrench). A map shows paths, landmarks, and constellation marks — never place names or words. A compass or compass rose shows a pointed star and arrows for directions — NEVER the letters N/S/E/W. Clock faces and dials show dots or dashes, never numerals. Instrument faces — planispheres, star wheels/charts, dials, calendar wheels — show tick marks, dots, and constellation glyphs ONLY: never letters, numerals, or month names. If the story names map locations, depict them as tiny pictorial symbols (a waterfall drawing, a crescent moon, a mountain icon) — NEVER write their names.',
     'The child is the ORIGINAL ILLUSTRATED CHARACTER from the attached MODEL SHEET — match that character design exactly. It is a storybook character, not a reproduction of any real, identifiable person.',
+    // P1 (2026-07-23 audit: the hero was missing from 12 spreads incl. the
+    // climax). On a required-hero spread the child must clearly star — not be
+    // cropped out, hidden, or reduced to an unrecognizable background speck.
+    direction?.heroPresence === 'required'
+      ? 'THE CHILD IS THE FOCAL SUBJECT of this scene: prominently visible, clearly recognizable, and central to the action — never omitted, never a tiny distant figure, never cropped out of frame. If the composition would leave the child out, restage it so the child is present and clearly the star.'
+      : null,
     'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
-    'HANDS: every visible hand has exactly five clearly separated fingers. Prefer simple, natural grips (whole-hand holds, open palms); avoid complex finger-object interlocks and foreshortened finger tangles.',
+    // P0 negative anatomy anchor (2026-07-23 audit: a three-handed hero shipped
+    // on the front cover). State the limb COUNT explicitly — image models add a
+    // stray extra hand/arm on complex grips unless the count is pinned.
+    'ANATOMY: each character has exactly two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. Prefer simple, natural grips (whole-hand holds, open palms); avoid complex finger-object interlocks and foreshortened finger tangles.',
   ].filter((l) => l !== null).join('\n');
 }
 
