@@ -217,6 +217,10 @@ const PIXAR_STYLE = {
     'NOT a hand-drawn soft storybook look',
     'NOT a digital painting or concept painting',
     'NOT a flat graphic illustration with a blurred background',
+    // P3 explicit anchors (2026-07-23 audit: intra-interior drift — some spreads
+    // rendered as flat 2D with hard outlines, one as a photoreal-bokeh frame).
+    'NOT a flat vector illustration with hard cel outlines or uniform flat color fills',
+    'NOT a photorealistic live-action render (real-skin, real-camera photography) — the cinematic depth-of-field must stay inside the stylized 3D animated-film look and never tip into live-action realism',
     'NOT a photorealistic live-action photograph or a realistic-human CGI render',
     'the characters must read as stylized 3D animated-film models, not as drawings with soft shading and not as real people',
   ].join('; '),
