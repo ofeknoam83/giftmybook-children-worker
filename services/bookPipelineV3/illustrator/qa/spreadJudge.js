@@ -65,7 +65,7 @@ Score each dimension 1-5 (4 = good with minor imperfections, 5 = flawless) and l
 
 THE PARENT TEST — a defect is "critical" ONLY if a parent flipping through the printed book would consider the page BROKEN or WRONG. The complete list of critical classes:
 1. readable words or lettering painted in the artwork
-2. the child duplicated, or a stranger/extra person present
+2. the child duplicated, or a stranger/extra NAMED person present — but a DECLARED GROUP in the cast list (e.g. "a small group of small aliens") is ALLOWED to show several members: a crowd of the declared group is NOT an extra person and is NEVER a defect. Only an individual who is not in the cast list, or the hero appearing twice, counts here
 3. countably wrong anatomy (extra/missing/fused fingers, a third arm)
 4. the contracted action ENTIRELY absent (not merely staged differently)
 5. the wrong setting
@@ -78,7 +78,7 @@ Return STRICT JSON:
 {
   "anatomy": 1-5,          // hands, limbs, faces, object coherence — stiffness or awkwardness is NEVER below 4; only countably wrong anatomy (extra/missing/fused fingers, a third arm) goes lower
   "contract": 1-5,         // shows the contracted setting + action + objects — choreography (which hand, how many hands, exact prop-relative position) never lowers this score
-  "cast": 1-5,             // exactly the listed characters; 1 if the hero appears twice or strangers appear
+  "cast": 1-5,             // the listed NAMED individuals are each present exactly once; a DECLARED GROUP may show any number of members (never lowers this score); 1 only if the hero appears twice or a stranger/extra NAMED individual (not a declared group) appears
   "style": 1-5,            // consistent premium 3D CGI animated-film style, no flat-2D/painterly/live-action drift${hasCover ? '; must MATCH the cover reference\'s rendering style (same dimensional 3D medium, lighting quality, and material realism)' : ''}
   "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
   "hero_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // tight bounding box of the child's FULL figure (head to feet) as fractions of image width/height from the top-left corner; null if the child is not visible
@@ -87,7 +87,8 @@ Return STRICT JSON:
   "defects": [ { "note": "specific, actionable, with location", "severity": "critical|minor" } ]
 }
 Rules:
-- HARD FAILS (these always block): duplicated hero or a wrong/extra person caps cast at 1. Countable extra fingers, fused hands, or a third arm caps anatomy at 2.
+- HARD FAILS (these always block): duplicated hero or a wrong/extra NAMED individual caps cast at 1. Countable extra fingers, fused hands, or a third arm caps anatomy at 2.
+- DECLARED GROUPS: when the cast list marks a member as a group (e.g. "a small group of small aliens (a background cluster, 2-5, exact count not enforced)"), the artwork showing several of that group is CORRECT — never cap cast, never emit the extra_character tag, and never list an "extra character"/"too many" defect for the members of a declared group. Cast compliance counts only the NAMED individuals; the group's exact number is not enforced.
 - ONE-MOMENT RULE: a picture shows ONE instant. If the image plausibly depicts ANY moment within the contracted action ("tries to lift the lid" = hands on a closed lid OR a lid cracked open; "climbs the ladder" = on the ladder OR just arrived at the top), contract is satisfied — never fail for not depicting a sequence of actions in one frame.
 - MOTION-PHASE ALLOWANCE: a still image cannot depict a motion phase. If the pose is consistent with the action at ANY plausible phase (foot ON the stone satisfies "mid-tap, connecting"; the stone AT the foot satisfies "just leaving the foot"), the contract is satisfied — never fail for static-vs-in-motion, resting-vs-tapping, or about-to-vs-just-did.
 - MINOR-ANATOMY ALLOWANCE: subtle stiffness, a slightly awkward grip, or "somewhat unnatural" posing scores 4, not 3. "Stiff", "awkward", or "slightly unnatural" NEVER scores below 4 — only countably wrong anatomy (extra/missing/fused fingers, a third arm) blocks.
@@ -95,7 +96,7 @@ Rules:
 - OBJECT CRITICALITY: a missing required object is critical ONLY when the action becomes unreadable without it. A small mechanism prop (peg, groove, panel, latch) that is absent while the action still reads clearly is a minor defect.
 - PROP MICRO-GEOMETRY: the exact point a finger touches or traces on a map or prop, which segment of a path is indicated, or which mark is nearest is NEVER a defect — if the child interacts with the right prop in the right general manner, the contract is satisfied.
 - CHOREOGRAPHY ALLOWANCE: which hand performs an action (left/right are interchangeable — renders mirror freely), how many hands hold an object, and an object's position relative to a small prop feature (over a pocket, near a strap) are NEVER defects. Judge whether the ACTION reads, not its choreography.
-- NO IDENTITY OR GENDER JUDGING: ${hasCover ? 'the cover reference is for RENDERING STYLE comparison ONLY. ' : 'you have no reference art. '}Never assess whether the character matches a name, assumed gender, appearance, or the cover's child/outfit — a separate likeness judge owns identity. Cast counts PEOPLE only.
+- NO IDENTITY OR GENDER JUDGING: ${hasCover ? 'the cover reference is for RENDERING STYLE comparison ONLY. ' : 'you have no reference art. '}Never assess whether the character matches a name, assumed gender, appearance, or the cover's child/outfit — a separate likeness judge owns identity. Cast counts NAMED individuals only — a declared group is allowed to be many.
 - The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }
 
