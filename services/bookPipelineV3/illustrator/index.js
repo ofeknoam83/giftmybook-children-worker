@@ -31,7 +31,7 @@ const { buildSpreadsForLegacyIllustrator } = require('../orchestration/activitie
 const { buildBookReferencePack } = require('./render/referencePack');
 const { renderAllSpreadsNative, createLimiter } = require('./render/renderAllSpreads');
 const { renderSpreadCandidates, buildSpreadRenderPrompt } = require('./render/renderSpread');
-const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('./qa/select');
+const { selectSpreadWinner, buildSpreadQaNeedsReview, pickLeastBad } = require('./qa/select');
 const { runArtDirection, restageSpread } = require('./artDirection/artDirector');
 const { renderWorldPlates } = require('./artDirection/worldPlates');
 const { renderPropPlate } = require('./artDirection/propPlate');
@@ -362,9 +362,20 @@ async function runNativeIllustrator(input, ctx) {
     failures.push(...remaining);
   }
 
+  // Residual review payload from a spreadQa ship-on-exhaustion (mirrors the
+  // bookPass ship path below; both funnel into doc.bookPassReview downstream).
+  let spreadQaReview = null;
   if (failures.length > 0) {
     failures.sort((a, b) => a.spread - b.spread); // stable payloads regardless of completion order
-    throw await spreadQaFailure(failures);
+    if (!BOOK_PASS_SHIP_ON_EXHAUSTION) {
+      throw await spreadQaFailure(failures);
+    }
+    // Loud escape hatch: instead of dead-ending the whole book on needs_review
+    // because one (or a few) spread(s) never converged, ship the least-bad
+    // candidate for each and flag the book for admin review. The pipeline then
+    // CONTINUES to the book pass + PDF assembly, so the book reaches a
+    // completed-but-flagged state.
+    spreadQaReview = await shipExhaustedSpreads(failures);
   }
 
   // ── A4: book pass + one targeted regen wave ──
@@ -537,7 +548,9 @@ async function runNativeIllustrator(input, ctx) {
     };
     docSpread.qa.spreadChecks.push({
       source: 'native-v3',
-      pass: true,
+      // false for a spread shipped on QA exhaustion (winner.pass === false) —
+      // the residual defects ride doc.qaAdvisories + doc.bookPassReview.
+      pass: winner.pass !== false,
       likeness: winner.likeness ?? null,
       scores: winner.spreadScores || null,
     });
@@ -557,15 +570,36 @@ async function runNativeIllustrator(input, ctx) {
   for (const f of bookPassMinors) {
     qaAdvisories.push({ stage: 'bookPass', spread: f.spread, note: f.issue });
   }
-  // Ship-on-exhaustion residual critical flags: surface them as advisories so
-  // the completion callback + admin dashboard see the unresolved defects, and
-  // attach the full needs_review payload to the doc so downstream can mark the
-  // shipped book for admin review.
+  // Ship-on-exhaustion residual issues (bookPass AND/OR spreadQa): surface them
+  // as advisories so the completion callback + admin dashboard see the
+  // unresolved defects, and attach the needs_review payload(s) to the doc so
+  // downstream marks the shipped book for admin review (mirrors the bookPass
+  // ship path #246 introduced; the spreadQa ship path reuses the same slot).
   if (bookPassReview) {
     for (const f of residualFlags) {
       qaAdvisories.push({ stage: 'bookPass', spread: f.spread, note: `UNRESOLVED (shipped on exhaustion): ${f.issue}` });
     }
-    doc.bookPassReview = bookPassReview;
+  }
+  if (spreadQaReview) {
+    for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
+      if (!result.selected?.shippedWithDefects) continue;
+      const note = (result.selected.defects || [])[0] || `fail@${result.selected.stage}`;
+      qaAdvisories.push({ stage: 'spreadQa', spread: spreadNumber, note: `UNRESOLVED (shipped on spreadQa exhaustion): ${note}` });
+    }
+  }
+  const shipReviews = [spreadQaReview, bookPassReview].filter(Boolean);
+  if (shipReviews.length === 1) {
+    doc.bookPassReview = shipReviews[0];
+  } else if (shipReviews.length > 1) {
+    // Both stages shipped-on-exhaustion — merge into the single doc.bookPassReview
+    // slot server.js reads, so every residual defect + candidate URL survives.
+    // Primary = the earlier stage (spreadQa); `stages` records both.
+    doc.bookPassReview = {
+      ...shipReviews[0],
+      stages: shipReviews.map((r) => r.stage),
+      defects: shipReviews.flatMap((r) => r.defects || []).slice(0, 50),
+      candidateUrls: shipReviews.flatMap((r) => r.candidateUrls || []).slice(0, 20),
+    };
   }
   doc.qaAdvisories = qaAdvisories.slice(0, 40);
   if (doc.qaAdvisories.length > 0) {
@@ -598,6 +632,49 @@ async function runNativeIllustrator(input, ctx) {
     err.needsReview = buildSpreadQaNeedsReview(failedSpreads, (p) => urlByPath.get(p) || p);
     if (err.needsReview.judgeScores) err.needsReview.judgeScores.qaTagCounts = qaTagCounts;
     return err;
+  }
+
+  // Ship-on-exhaustion for the spreadQa stage (BOOK_PASS_SHIP_ON_EXHAUSTION):
+  // keep the least-bad candidate for each exhausted spread as its selection so
+  // the book completes, log a loud WARNING per shipped-with-defects spread, and
+  // return the needs_review payload (same shape spreadQaFailure builds) for the
+  // doc so downstream flags the book for admin review.
+  async function shipExhaustedSpreads(failedSpreads) {
+    log(`WARNING: BOOK_PASS_SHIP_ON_EXHAUSTION set — ${failedSpreads.length} spread(s) exhausted spread QA (${failedSpreads.map((f) => f.spread).join(', ')}); shipping the least-bad candidate each and flagging for admin review. qaTagCounts: ${JSON.stringify(qaTagCounts)}`);
+    for (const failure of failedSpreads) {
+      const best = pickLeastBad(failure.evaluations)
+        || { candidateIndex: failure.allCandidates[failure.allCandidates.length - 1]?.candidateIndex, stage: 'unknown', defects: [], likeness: null };
+      const candidate = failure.allCandidates.find((c) => c.candidateIndex === best.candidateIndex)
+        || failure.allCandidates[failure.allCandidates.length - 1];
+      const residual = [...new Set(failure.evaluations.flatMap((e) => e.defects || []))].slice(0, 6);
+      selections.set(failure.spread, {
+        selected: {
+          candidateIndex: candidate.candidateIndex,
+          path: candidate.path,
+          pass: false,
+          stage: best.stage,
+          likeness: best.likeness ?? null,
+          defects: best.defects || [],
+          minorDefects: best.minorDefects || [],
+          heroBox: best.heroBox || null,
+          figuresBox: best.figuresBox || null,
+          spreadScores: best.spreadScores || null,
+          shippedWithDefects: true,
+        },
+        evaluations: failure.evaluations,
+        repairWaves: 0,
+        allCandidates: failure.allCandidates,
+      });
+      log(`WARNING: spread ${failure.spread} SHIPPED WITH DEFECTS (candidate c${candidate.candidateIndex}, fail@${best.stage}) — residual: ${residual.join('; ') || 'none recorded'}`);
+    }
+    const urls = await Promise.all(
+      failedSpreads.flatMap((f) => f.allCandidates.map(async (c) => [c.path, await getSignedUrl(c.path).catch(() => c.path)])),
+    );
+    const urlByPath = new Map(urls);
+    const review = buildSpreadQaNeedsReview(failedSpreads, (p) => urlByPath.get(p) || p);
+    if (review.judgeScores) review.judgeScores.qaTagCounts = qaTagCounts;
+    review.shipped = true;
+    return review;
   }
 }
 
