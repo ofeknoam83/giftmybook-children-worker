@@ -556,6 +556,69 @@ Answer STRICT JSON only:
 }
 
 /**
+ * Anatomy QA for a freshly generated / chosen FRONT cover (P0, 2026-07-23
+ * audit: a three-handed hero shipped on the front cover because the cover
+ * bypasses the interior spread QA entirely). Checks ONLY countable limb/hand
+ * anatomy on the child — a third arm, an extra/duplicated hand, a stray hand
+ * with no arm, or extra/fused fingers. Stiff or awkward posing is NOT a defect
+ * (mirrors the interior MINOR-ANATOMY allowance). Best-effort: infrastructure
+ * failures PASS — a QA outage must never block cover delivery.
+ *
+ * @param {Buffer} imageBuffer
+ * @returns {Promise<{pass: boolean, reason: string|null}>}
+ */
+async function qaCoverAnatomy(imageBuffer) {
+  const apiKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey) return { pass: true, reason: null };
+  const prompt = `You are checking a children's book cover for COUNTABLE anatomy errors on the child character ONLY. Ignore style, likeness, outfit, pose stiffness, and background.
+
+Count carefully. Answer STRICT JSON only:
+{
+  "hand_count": <integer>,   // total number of hands visible on the child
+  "arm_count": <integer>,    // total number of arms visible on the child
+  "extra_or_fused_fingers": true|false,  // any hand with clearly more/fewer than five fingers, or fused/merged fingers
+  "extra_limb": true|false   // a third arm, an extra/duplicated hand, or a stray hand not attached to an arm
+}
+A normal child has exactly two hands and two arms. Only report what you can clearly and countably see; do not guess from occluded/hidden limbs.`;
+  try {
+    const resp = await fetchWithTimeout(
+      `${GEMINI_IMAGE_API}/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { mimeType: 'image/jpeg', data: imageBuffer.toString('base64') } },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+        }),
+      },
+      30000,
+    );
+    if (!resp.ok) return { pass: true, reason: null };
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    const hands = Number(json.hand_count);
+    const arms = Number(json.arm_count);
+    const failures = [
+      Number.isFinite(hands) && hands > 2 && `${hands} hands (expected 2)`,
+      Number.isFinite(arms) && arms > 2 && `${arms} arms (expected 2)`,
+      json.extra_limb === true && 'an extra/duplicated limb',
+      json.extra_or_fused_fingers === true && 'extra or fused fingers',
+    ].filter(Boolean);
+    return failures.length > 0 ? { pass: false, reason: failures.join(' + ') } : { pass: true, reason: null };
+  } catch (err) {
+    console.warn(`[CoverGenerator] anatomy QA failed to run (passing without QA): ${err.message}`);
+    return { pass: true, reason: null };
+  }
+}
+
+/**
  * Generate back cover illustration using Gemini, matching the front cover style.
  * ARTWORK ONLY — all back-cover text is typeset by drawBackCoverTypeset.
  *
@@ -764,13 +827,24 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   // Honor an explicit `skipCoverStyleHarmonize: true` ONLY when the source is
   // provably 3D; otherwise IGNORE the skip and harmonize (always-3D requirement).
   // An explicit `false` always forces harmonize.
-  const skipCoverStyleHarmonize = opts.skipCoverStyleHarmonize === false
+  // P2 (2026-07-23 audit): when the book pass judged the cover off-style versus
+  // the 3D interiors (opts.forceCoverReharmonize), harmonize even a
+  // provably-3D-MARKED source — the marker was wrong.
+  const skipCoverStyleHarmonize = (opts.skipCoverStyleHarmonize === false || opts.forceCoverReharmonize === true)
     ? false
     : sourceIsKnown3D;
 
   // ── Obtain front cover image ──
   let frontCoverImageUrl = null;
   let frontCoverBuffer = null;
+  // P0 cover anatomy advisory (2026-07-23 audit): the cover bypasses interior
+  // spread QA, so a countable limb defect (a three-handed hero) shipped
+  // unflagged. Any residual anatomy defect that survives the QA + retry budget
+  // is recorded here and surfaced to the caller (server.js routes it into the
+  // same needs_review / bookWarnings channel as spread QA residuals — consistent
+  // with the BOOK_PASS_SHIP_ON_EXHAUSTION ship-and-flag policy). Covers never
+  // hard-block on delivery.
+  let coverAnatomyAdvisory = null;
 
   if (opts.preGeneratedCoverBuffer) {
     if (skipCoverStyleHarmonize) {
@@ -814,6 +888,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
         + `The child is the clear focal point, confident and emotionally expressive, with a strong silhouette and Pixar-quality facial acting. `
         + `Background is a thematic 3D environment with ray-traced volumetric lighting, real depth, and genuine optical bokeh — fully modeled, not painted. `
         + `WARDROBE RULE: the child's clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos (e.g. NASA), no national flags. Use plain fabric or generic letter-free emblems (a star patch, a simple rocket motif). The cover anchors every interior spread, and tiny repainted clothing text garbles into misspellings in print. `
+        // P0 negative anatomy anchor (2026-07-23 audit: a three-handed hero
+        // shipped on the front cover). The cover anchors every spread, so a
+        // limb-count defect here is the worst place to have one.
+        + `ANATOMY RULE: the child has EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. `
         + aspectHint + '\n\n'
         + safeZoneInstruction;
 
@@ -873,6 +951,58 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
           console.warn(`[CoverGenerator] wardrobe retry failed (keeping first cover): ${retryErr.message}`);
         }
       }
+    }
+
+    // P0 anatomy QA + one hardened retry (2026-07-23 audit: three-handed hero
+    // on the front cover). Same shape as wardrobe QA: one vision check, one
+    // regenerated repair attempt; if the retry still fails, keep the first
+    // cover and record the residual advisory (ship-and-flag, never block).
+    if (frontCoverBuffer) {
+      const aq = await qaCoverAnatomy(frontCoverBuffer);
+      if (!aq.pass) {
+        console.warn(`[CoverGenerator] front cover anatomy QA failed (${aq.reason}) — one hardened retry`);
+        try {
+          const retryScene = `${coverScene}\n\nCRITICAL ANATOMY REPAIR: the previous render gave the child ${aq.reason}. The child must have EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no third arm, no extra or duplicated hand, no stray hand, no fused fingers.`;
+          const retryUrl = await generateIllustration(
+            retryScene, characterRefUrl, artStyle, {
+              costTracker: opts.costTracker,
+              bookId: opts.bookId,
+              childAppearance: childDetails.appearance || childDetails.childAppearance,
+              childName: childDetails.name || childDetails.childName,
+              childPhotoUrl: opts.childPhotoUrl,
+              _cachedPhotoBase64: opts._cachedPhotoBase64,
+              _cachedPhotoMime: opts._cachedPhotoMime,
+            },
+          );
+          if (retryUrl) {
+            const retryBuffer = await downloadBuffer(retryUrl);
+            const aq2 = await qaCoverAnatomy(retryBuffer);
+            if (aq2.pass) {
+              frontCoverImageUrl = retryUrl;
+              frontCoverBuffer = retryBuffer;
+              console.log('[CoverGenerator] anatomy retry cover accepted');
+            } else {
+              coverAnatomyAdvisory = `cover hero anatomy: ${aq2.reason} (shipped after 1 retry)`;
+              console.warn(`[CoverGenerator] anatomy retry still fails (${aq2.reason}) — shipping first cover and flagging`);
+            }
+          } else {
+            coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (retry produced no image)`;
+          }
+        } catch (retryErr) {
+          coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (retry errored)`;
+          console.warn(`[CoverGenerator] anatomy retry failed (keeping first cover): ${retryErr.message}`);
+        }
+      }
+    }
+  }
+
+  // P0 anatomy QA for a pre-generated / parent-chosen cover (no regeneration —
+  // the pose is the customer's approved art). Ship-and-flag only.
+  if (opts.preGeneratedCoverBuffer && frontCoverBuffer) {
+    const aq = await qaCoverAnatomy(frontCoverBuffer);
+    if (!aq.pass) {
+      coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (pre-generated cover — flagged, not regenerated)`;
+      console.warn(`[CoverGenerator] pre-generated cover anatomy QA failed (${aq.reason}) — flagging`);
     }
   }
 
@@ -1089,6 +1219,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
     coverPdfBuffer: Buffer.from(pdfBytes),
     frontCoverImageUrl,
     backCoverImageUrl,
+    // P0: null when the cover passed anatomy QA (or QA was unavailable); a
+    // human-readable string when a residual limb-count defect shipped and the
+    // book should be flagged for review.
+    coverAnatomyAdvisory,
   };
 }
 
@@ -1364,5 +1498,6 @@ module.exports = {
   drawBackCoverTypeset,
   qaBackCoverArtwork,
   qaCoverWardrobe,
+  qaCoverAnatomy,
   extendWithSoftWrap,
 };

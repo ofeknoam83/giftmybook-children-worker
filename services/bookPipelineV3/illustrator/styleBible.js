@@ -25,7 +25,12 @@ const { PIXAR_STYLE } = require('../../shared/illustration/config');
 // book 497c8b68 shipped a 2D cover on a 3D interior and drifted between realistic
 // and stylized 3D between spreads. Bumping the version regenerates every cached
 // identity kit once (intended — the bible text changed).
-const STYLE_VERSION = 'sb-2-pixar-premium-3d-stylized';
+// sb-3 (2026-07-23 audit): PIXAR_STYLE.antiStyle gained two explicit negative
+// anchors (NO flat-vector/hard-cel-outline look; NO photoreal live-action
+// look) after "Amit's Star Map Adventure" shipped with intra-interior style
+// drift — some spreads flat 2D, one photoreal-bokeh. The bible text embeds
+// antiStyle, so the version bumps (regenerates every cached identity kit once).
+const STYLE_VERSION = 'sb-3-pixar-premium-3d-stylized';
 
 const STYLE_BIBLE = `SIGNATURE ART STYLE — GiftMyBook picture books (premium 3D, matches the book's cover):
 - ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.

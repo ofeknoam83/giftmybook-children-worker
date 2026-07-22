@@ -191,10 +191,15 @@ describe('spread judge prompt — 2026-07-18 print-audit classes', () => {
 
   // sb-1 (2026-07-20): the signature style is premium 3D CGI — 2D/painterly
   // drift is the break, and cinematic bokeh is part of the style.
+  // P3 (2026-07-23 audit): the class now names flat-vector/hard-cel and
+  // photoreal-live-action drift explicitly ("Amit's Star Map" intra-interior
+  // drift), while keeping stylized-3D bokeh legal.
   test('style-break class is 3D-relative: 2D drift breaks, bokeh never does', () => {
     const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null });
-    expect(p).toContain('premium 3D CGI animated-film render');
+    expect(p).toContain('premium STYLIZED 3D CGI animated-film render');
     expect(p).toContain('flat 2D/painterly/watercolor/line-art/cel-shaded drift is the break');
-    expect(p).toContain('depth-of-field/bokeh within the 3D render is part of the style, never a defect');
+    expect(p).toContain('flat VECTOR look with hard cel outlines or uniform flat color fills');
+    expect(p).toContain('photorealistic real-skin/real-camera CGI render');
+    expect(p).toContain('cinematic depth-of-field/bokeh WITHIN the stylized 3D render is part of the style, never a defect');
   });
 });

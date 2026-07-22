@@ -1448,6 +1448,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
           heartfeltNote, bookFrom, bindingType,
           coverSourceUrl: approvedCoverUrl || '',
+          // P2 (2026-07-23 audit): the book pass judged the cover off-style vs
+          // the 3D interiors — force a re-harmonize even if the source is
+          // marked as already-3D.
+          forceCoverReharmonize: pipelineResult?.document?.coverNeedsReharmonize === true,
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
@@ -1456,6 +1460,16 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
       } catch (coverErr) {
         bookContext.log('error', 'Cover PDF failed (non-blocking)', { error: coverErr.message });
+      }
+
+      // P0 (2026-07-23 audit): a residual cover hero anatomy defect (a
+      // three-handed hero) that survived the cover QA + retry budget ships
+      // flagged — the cover bypasses interior spread QA, so surface it through
+      // the same qaAdvisories / bookWarnings channel as spread QA residuals.
+      if (coverData?.coverAnatomyAdvisory) {
+        qaAdvisories = [...(qaAdvisories || []), { spread: 'cover', note: coverData.coverAnatomyAdvisory, tag: 'anatomy' }].slice(0, 40);
+        bookWarnings.push(`Cover anatomy advisory: ${coverData.coverAnatomyAdvisory} — flagged for admin review (see qaAdvisories).`);
+        bookContext.log('warn', 'Cover anatomy advisory', { note: coverData.coverAnatomyAdvisory });
       }
 
       const totalMs = Date.now() - bookStartTime;
