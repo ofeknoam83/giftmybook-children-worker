@@ -101,6 +101,12 @@ async function runBookPass({ manuscript, direction, winners, cover = null, propP
     images,
     label: 'v3.bookpass',
     expectJson: true,
+    // Deterministic: the book pass re-reviews the WHOLE book each wave, so a
+    // stochastic reviewer flags DIFFERENT spreads on wave 0 vs the post-regen
+    // pass purely by sampling luck — a good regen never sticks. Pin temp 0 so
+    // the bounce list is stable between passes (matches the art-director
+    // determinism note in visionClient.callVisionRole).
+    temperature: 0,
     abortSignal,
   });
 

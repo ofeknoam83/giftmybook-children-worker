@@ -559,6 +559,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // judges block only on critical defects; everything else ships as a
   // recorded advisory). Carried on completion callbacks + the checkpoint.
   let qaAdvisories = null;
+  // Set when the illustrator shipped a book despite residual book-pass flags
+  // (BOOK_PASS_SHIP_ON_EXHAUSTION). The book completes successfully but rides
+  // this payload so downstream can still flag it for admin review.
+  let shipOnExhaustionReview = null;
 
 
   // Auto-derive emotional tier from age for emotional books
@@ -1070,6 +1074,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         if (qaAdvisories) {
           bookWarnings.push(`QA advisories: ${qaAdvisories.length} minor observation(s) on shipped images (spreads ${[...new Set(qaAdvisories.map(a => a.spread))].join(', ')}) — see qaAdvisories`);
         }
+        shipOnExhaustionReview = pipelineResult.document?.bookPassReview || null;
+        if (shipOnExhaustionReview) {
+          bookWarnings.push(`Shipped on book-pass exhaustion: ${(shipOnExhaustionReview.defects || []).join('; ')} — flagged for admin review (see needsReview).`);
+        }
         const synthesized = toLegacyStoryPlan(pipelineResult.document);
         storyPlan = synthesized.storyPlan;
 
@@ -1508,6 +1516,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
                 pipelineVersionUsed,
                 ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
                 ...(qaAdvisories ? { qaAdvisories } : {}),
+                ...(shipOnExhaustionReview ? { needsReview: shipOnExhaustionReview } : {}),
                 warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
                 logs: bookContext.logs,
               }),
@@ -1535,6 +1544,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           pipelineVersionUsed,
           ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
           ...(qaAdvisories ? { qaAdvisories } : {}),
+          ...(shipOnExhaustionReview ? { needsReview: shipOnExhaustionReview } : {}),
           warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
           logs: bookContext.logs,
         });

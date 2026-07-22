@@ -40,7 +40,7 @@ const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
 const { candidatePath } = require('./render/renderAllSpreads');
 const { downloadPhotoAsBase64 } = require('../../illustrationGenerator');
-const { BOOK_PASS_REGEN_WAVES, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED } = require('./config');
+const { BOOK_PASS_REGEN_WAVES, BOOK_PASS_SHIP_ON_EXHAUSTION, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED } = require('./config');
 
 const IMPLEMENTED_PHASES = [
   'identityKit (W4)', 'render (W5)', 'qa+selection (W6)',
@@ -106,6 +106,17 @@ async function runNativeIllustrator(input, ctx) {
   // ── references ──
   const bookPack = await buildBookReferencePack({ identityKit, coverImageUrl, log });
   const briefText = identityKit.brief?.briefText || '';
+  // The identity kit's ranked distinguishing features (freckles, dimples, gap
+  // teeth, glasses…). Restated as a per-spread MUST-INCLUDE line in every
+  // render prompt — the renderer repeatedly drops these (fail@likeness),
+  // exhausting candidate budgets. Derived, never hardcoded: an empty list
+  // omits the line entirely.
+  const mustIncludeFeatures = Array.isArray(identityKit.brief?.fields?.distinguishingFeatures)
+    ? identityKit.brief.fields.distinguishingFeatures.filter(Boolean)
+    : [];
+  if (mustIncludeFeatures.length) {
+    log(`likeness MUST-INCLUDE features on every spread: ${mustIncludeFeatures.join('; ')}`);
+  }
   let coverImage = null;
   if (coverImageUrl) {
     coverImage = await downloadPhotoAsBase64(coverImageUrl).catch(() => null);
@@ -191,6 +202,7 @@ async function runNativeIllustrator(input, ctx) {
     bookPack,
     briefText,
     textLayout,
+    mustIncludeFeatures,
     forceSpreads,
     abortSignal,
     log,
@@ -244,6 +256,7 @@ async function runNativeIllustrator(input, ctx) {
       referenceImages: bookPack,
       briefText,
       textLayout,
+      mustIncludeFeatures,
       qaTagCounts,
       abortSignal,
       log,
@@ -306,6 +319,7 @@ async function runNativeIllustrator(input, ctx) {
         propPlate,
         briefText,
         textLayout,
+        mustIncludeFeatures,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -415,6 +429,7 @@ async function runNativeIllustrator(input, ctx) {
         propPlate,
         briefText,
         textLayout,
+        mustIncludeFeatures,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -450,19 +465,42 @@ async function runNativeIllustrator(input, ctx) {
       if (rerun.selected) {
         rerun.allCandidates = [...prior.allCandidates, ...rerun.allCandidates.filter((c) => c.candidateIndex > baseIndex)];
         selections.set(flag.spread, rerun);
+        log(`book-pass regen spread ${flag.spread}: NEW winner c${rerun.selected.candidateIndex} replaces the flagged image`);
+      } else {
+        // Every fresh candidate failed the spread QA cascade (fold_collision,
+        // wrong prop color, missing likeness marks…). The old FLAGGED image is
+        // kept unchanged, so the next book-pass wave re-reviews the identical
+        // pixels and re-flags it with certainty. Do NOT let this pass silently
+        // — name the spread and each candidate's failure so the true cause
+        // (not a vague "book pass still flags") is visible in the logs.
+        const reasons = rerun.evaluations
+          .filter((e) => e.candidateIndex > baseIndex)
+          .map((e) => `c${e.candidateIndex}@${e.stage}${e.defects?.[0] ? `:${e.defects[0]}` : ''}`)
+          .join(' | ');
+        log(`WARNING: book-pass regen for spread ${flag.spread} produced NO passing candidate — keeping the flagged image. Failures: ${reasons || 'none recorded'}`);
       }
     }
   }
 
+  let bookPassReview = null;
   if (residualFlags.length > 0) {
     const urls = await Promise.all(residualFlags.map(async (f) => {
       const sel = selections.get(f.spread);
       const paths = sel ? sel.allCandidates.map((c) => c.path) : [];
       return Promise.all(paths.map((p) => getSignedUrl(p).catch(() => p)));
     }));
-    const err = new Error(`book pass still flags ${residualFlags.length} spread(s) after the targeted regen wave`);
-    err.needsReview = buildBookPassNeedsReview(residualFlags, urls.flat());
-    throw err;
+    const needsReview = buildBookPassNeedsReview(residualFlags, urls.flat());
+    if (BOOK_PASS_SHIP_ON_EXHAUSTION) {
+      // Loud escape hatch: ship the book with the residual issues attached as
+      // review metadata (surfaced downstream so the book is still flagged for
+      // admin review) instead of dead-ending the whole book on needs_review.
+      log(`WARNING: BOOK_PASS_SHIP_ON_EXHAUSTION set — shipping despite ${residualFlags.length} residual book-pass flag(s): ${residualFlags.map((f) => `spread ${f.spread}: ${f.issue}`).join('; ')}. Book flagged for admin review.`);
+      bookPassReview = needsReview;
+    } else {
+      const err = new Error(`book pass still flags ${residualFlags.length} spread(s) after the targeted regen wave`);
+      err.needsReview = needsReview;
+      throw err;
+    }
   }
 
   // ── fill the document's illustration slots from the winners ──
@@ -480,6 +518,7 @@ async function runNativeIllustrator(input, ctx) {
         direction: direction.directionBySpread.get(docSpread.spreadNumber) || null,
         briefText,
         textLayout,
+        mustIncludeFeatures,
       }),
       candidateIndex: winner.candidateIndex,
       likeness: winner.likeness ?? null,
@@ -517,6 +556,16 @@ async function runNativeIllustrator(input, ctx) {
   }
   for (const f of bookPassMinors) {
     qaAdvisories.push({ stage: 'bookPass', spread: f.spread, note: f.issue });
+  }
+  // Ship-on-exhaustion residual critical flags: surface them as advisories so
+  // the completion callback + admin dashboard see the unresolved defects, and
+  // attach the full needs_review payload to the doc so downstream can mark the
+  // shipped book for admin review.
+  if (bookPassReview) {
+    for (const f of residualFlags) {
+      qaAdvisories.push({ stage: 'bookPass', spread: f.spread, note: `UNRESOLVED (shipped on exhaustion): ${f.issue}` });
+    }
+    doc.bookPassReview = bookPassReview;
   }
   doc.qaAdvisories = qaAdvisories.slice(0, 40);
   if (doc.qaAdvisories.length > 0) {

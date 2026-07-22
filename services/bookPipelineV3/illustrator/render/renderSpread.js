@@ -53,9 +53,13 @@ const ZONE_INSTRUCTIONS = {
  * @param {object|null} [opts.direction] - art-direction row ({ shot, textZone, palette, continuityNotes }) — optional until W7
  * @param {string} opts.briefText - likeness brief text
  * @param {string} [opts.wardrobeNote]
+ * @param {string[]} [opts.mustIncludeFeatures] - the identity kit's ranked
+ *   distinguishing facial features (freckles, dimples, gap teeth, glasses…);
+ *   restated as an explicit per-spread MUST-INCLUDE checklist because the
+ *   renderer repeatedly omits them (fail@likeness), exhausting candidate budgets.
  * @returns {string} full render prompt
  */
-function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption' }) {
+function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption', mustIncludeFeatures = [] }) {
   const sc = spread.scene_contract || {};
   const zone = direction?.textZone && (ZONE_INSTRUCTIONS[direction.textZone] || direction.textZone);
   const embedded = textLayout === 'embedded';
@@ -96,6 +100,12 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     '',
     'CHARACTER IDENTITY:',
     briefText,
+    // The single highest-leverage likeness line: the renderer repeatedly drops
+    // these ranked features (e.g. freckles), so restate them as an explicit,
+    // scene-level MUST-INCLUDE checklist on top of the brief paragraph above.
+    (mustIncludeFeatures || []).length
+      ? `MUST INCLUDE — these distinguishing features are visible on the child's face/body in THIS scene, drawn exactly as on the model sheet (do NOT omit any): ${mustIncludeFeatures.join('; ')}.`
+      : null,
     wardrobeNote ? `OUTFIT: ${wardrobeNote}` : 'OUTFIT: exactly as on the approved cover reference.',
     'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
     "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
@@ -130,9 +140,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  */
 async function renderSpreadCandidates({
   spread, direction = null, bookPack, plate = null, propPlate = null, briefText, wardrobeNote,
-  textLayout = 'caption', count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
+  textLayout = 'caption', mustIncludeFeatures = [], count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
-  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout });
+  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures });
   const references = withPropPlate(withWorldPlate(bookPack, plate), propPlate);
 
   const renderOne = (i) => generateImage({
