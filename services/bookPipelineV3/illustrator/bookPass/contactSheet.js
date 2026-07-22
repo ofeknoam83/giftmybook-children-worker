@@ -19,7 +19,7 @@ function buildContactSheetPrompt({ manuscript, direction, hasPropPlate = false }
 Check the BOOK AS A WHOLE (individual image quality was already judged):
 1. VARIETY: do compositions/camera angles actually vary across the book (planned: ${[...new Set([...direction.directionBySpread.values()].map((d) => d.shot))].join(', ')})?
 2. CONTINUITY: same outfit as the cover everywhere; recurring props consistent (${direction.continuityLocks?.props?.map((p) => p.design ? `${p.name}: ${p.design}` : p.name).join('; ') || 'none listed'})${direction.continuityLocks?.gear?.length ? `; gear state follows its rule on every spread (${direction.continuityLocks.gear.map((g) => `${g.item}: ${g.rule}`).join('; ')}) — flag spreads that break it (advisory)` : ''}.
-3. COVER MATCH: interior character reads as the same child, in the SAME locked stylized-3D Pixar rendering style as the cover — the cover and every interior spread must share one uniform 3D look. Any spread OR the cover drifting toward flat 2D, painterly, watercolor, or photorealistic/live-action rendering is a style break.
+3. COVER↔INTERIOR PARITY: interior character reads as the same child, in the SAME locked stylized-3D Pixar rendering style as the cover — the cover and every interior spread must share one uniform 3D look (dimensional character geometry, physically based materials, soft feature-film shading). Any spread OR the cover drifting toward flat 2D, painterly, watercolor, or photorealistic/live-action rendering is a style break. IMPORTANT — if it is THE COVER ITSELF that is off-style versus the 3D interiors (a 2D/painterly/flat cover on top of 3D interior pages), report it as a flag with "spread": 0 and severity "critical" (spread 0 means the cover). This is the 2026-07-23 audit case: a 2D cover shipped over 3D interiors.
 4. CHARACTER DRIFT: the child keeps the SAME apparent age and build on every spread (flag any spread where the child reads clearly younger/chubbier or older/slimmer than the cover), and the SAME facial marks (flag stray moles, beauty marks, or dark facial spots that are not on the cover).
 5. ENDING: the final spread lands visually (warmth/resolution, not an arbitrary stop).
 
@@ -125,16 +125,52 @@ async function runBookPass({ manuscript, direction, winners, cover = null, propP
   if (downgraded.length) {
     log(`book pass: ${downgraded.length} prop flag(s) downgraded to minor (no locked prop named): ${downgraded.map((f) => `${f.spread}: ${f.issue}`).join('; ')}`);
   }
-  const criticalFlags = flags.filter((f) => f.severity === 'critical');
-  const minorFlags = flags.filter((f) => f.severity === 'minor');
+
+  // P2 (2026-07-23 audit: a 2D cover shipped over 3D interiors). A cover-side
+  // style break is reported as spread 0. It is NOT an interior-spread defect —
+  // the interior regen loop cannot fix the cover — so pull it OUT of the
+  // per-spread flag stream and surface it separately so the caller forces a
+  // cover re-harmonize (the cover is generated in a later step).
+  const coverStyleBreak = detectCoverStyleBreak(flags);
+  const spreadFlags = flags.filter((f) => f.spread !== 0);
+
+  const criticalFlags = spreadFlags.filter((f) => f.severity === 'critical');
+  const minorFlags = spreadFlags.filter((f) => f.severity === 'minor');
+  if (coverStyleBreak.broke) {
+    log(`book pass: cover↔interior parity break — ${coverStyleBreak.reason} (cover flagged for re-harmonize)`);
+  }
 
   return {
     pass: criticalFlags.length === 0,
-    flags,
+    flags: spreadFlags,
     criticalFlags,
     minorFlags,
+    coverStyleBreak,
     notes: json.notes || '',
   };
+}
+
+/**
+ * P2 cover↔interior parity: is the COVER ITSELF flagged as off-style versus the
+ * 3D interiors? True for any spread-0 style flag, or a critical flag whose issue
+ * text names the cover as the thing drifting toward 2D/painterly/flat/etc.
+ * Pure — exported for tests.
+ *
+ * @param {Array<{spread: number, issue: string, severity: string}>} flags
+ * @returns {{ broke: boolean, reason: string|null }}
+ */
+function detectCoverStyleBreak(flags) {
+  const styleRe = /style|flat|2d\b|painterly|watercolor|cel[- ]?shad|hand[- ]?drawn|line[- ]?art|vector|live[- ]?action|photo(real|graph)/i;
+  for (const f of flags || []) {
+    if (f.spread === 0 && (f.severity === 'critical' || styleRe.test(f.issue))) {
+      return { broke: true, reason: f.issue };
+    }
+    // A critical flag on another index that explicitly blames the COVER.
+    if (f.severity === 'critical' && /\bcover\b/i.test(f.issue) && styleRe.test(f.issue)) {
+      return { broke: true, reason: f.issue };
+    }
+  }
+  return { broke: false, reason: null };
 }
 
 /**
@@ -152,4 +188,4 @@ function buildBookPassNeedsReview(residualFlags, candidateUrls = []) {
   });
 }
 
-module.exports = { runBookPass, buildContactSheetPrompt, buildBookPassNeedsReview, boundPropFlags };
+module.exports = { runBookPass, buildContactSheetPrompt, buildBookPassNeedsReview, boundPropFlags, detectCoverStyleBreak };

@@ -15,6 +15,9 @@
 
 const { callVisionRole } = require('../../llm/visionClient');
 const { validateShotBudget, reassignShots, SHOT_TYPES, normalizeShot } = require('./shotBudget');
+const {
+  normalizeHeroPresence, validateHeroPresence, reassignHeroPresence, isActionSpread,
+} = require('./heroPresence');
 const { ART_DIRECTION_REASKS } = require('../config');
 
 const ZONES = ['left-top', 'left-bottom', 'right-top', 'right-bottom', 'left', 'right'];
@@ -51,6 +54,7 @@ Plan the book's visual storytelling. Return STRICT JSON:
     {
       "spread": 1,
       "shot": "one of: ${SHOT_TYPES.join(' | ')}",
+      "heroPresence": "one of: required | optional | absent — see the HERO PRESENCE rule below",
       "textZone": "one of: ${ZONES.join(' | ')} — the area kept visually quiet",
       "palette": "palette + lighting for this spread, consistent with its act",
       "moment": "ONE concrete, paintable instant of the contracted action — a single freeze-frame (e.g. 'both hands on the closed chest lid, body braced to lift'), never a sequence. The pose must be HOLDABLE — something the child could hold for a photograph (contact and rest states: 'boot pressed onto the round stone'), NEVER a split-second motion phase ('mid-tap', 'mid-air', 'just leaving the foot', 'mid-bounce'): a still image cannot prove motion and the QA judge compares literally",
@@ -65,6 +69,7 @@ Plan the book's visual storytelling. Return STRICT JSON:
 }
 
 RULES:
+- HERO PRESENCE (2026-07-23 audit: the hero — the child the book is FOR — was missing from 12 spreads, including the climax; a personalized book must star its child): for EVERY spread set heroPresence by reading the action. "required" when the child is the acting subject of the moment (they do, hold, look, climb, reach, feel something) — this is the DEFAULT and covers almost every spread. "optional" only for a pure scene-setting/establishing beat where the child could appear small or not at all without breaking the story. "absent" ONLY for a deliberate pure-landscape/world-establishing plate with no character action. At most 2-3 spreads in the whole book may be "optional" or "absent" COMBINED — the child must clearly star in the rest, and the emotional climax is ALWAYS "required".
 - SHOT VARIETY IS A HARD BUDGET: at least 4 distinct shot types across the book; NO two adjacent spreads may share a shot type.
 - The palette arc must move with the story (e.g. darken at the low point, warm at the resolution).
 - worldPlates: only locations visited on 2+ spreads.
@@ -107,19 +112,35 @@ async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayou
       abortSignal,
     });
     plan = json;
-    const rows = (plan.spreads || []).map((r) => ({ spread: r.spread, shot: r.shot }));
-    const check = validateShotBudget(rows);
-    if (check.ok) {
+    const scBySpread = new Map((manuscript.spreads || []).map((s) => [Number(s.spread), s.scene_contract || {}]));
+    const shotRows = (plan.spreads || []).map((r) => ({ spread: r.spread, shot: r.shot }));
+    // P1: validate hero presence alongside the shot budget — action spreads
+    // may not be staged hero-absent, and only a small budget of scene plates
+    // may omit the child. Both checks feed the same re-ask.
+    const heroRows = (plan.spreads || []).map((r) => ({
+      spread: r.spread,
+      heroPresence: normalizeHeroPresence(r.heroPresence, scBySpread.get(Number(r.spread))),
+      isAction: isActionSpread(scBySpread.get(Number(r.spread))),
+    }));
+    const shotCheck = validateShotBudget(shotRows);
+    const heroCheck = validateHeroPresence(heroRows);
+    if (shotCheck.ok && heroCheck.ok) {
       return finalize(plan, manuscript, { ok: true, reassigned: false });
     }
-    violations = check.violations;
-    log(`art direction attempt ${attempt}: shot-budget violations — ${violations.join('; ')}`);
+    violations = [...shotCheck.violations, ...heroCheck.violations];
+    log(`art direction attempt ${attempt}: plan violations — ${violations.join('; ')}`);
   }
 
-  // Deterministic repair — guaranteed to satisfy the budget.
-  log('art direction: re-ask exhausted — deterministic shot reassignment');
+  // Deterministic repair — guaranteed to satisfy both budgets.
+  log('art direction: re-ask exhausted — deterministic shot + hero-presence reassignment');
+  const scBySpread = new Map((manuscript.spreads || []).map((s) => [Number(s.spread), s.scene_contract || {}]));
   const repaired = reassignShots((plan.spreads || []).map((r) => ({ ...r, shot: r.shot })));
-  plan.spreads = plan.spreads.map((r, i) => ({ ...r, shot: repaired[i].shot }));
+  const heroRepaired = reassignHeroPresence((plan.spreads || []).map((r) => ({
+    spread: r.spread,
+    heroPresence: normalizeHeroPresence(r.heroPresence, scBySpread.get(Number(r.spread))),
+    isAction: isActionSpread(scBySpread.get(Number(r.spread))),
+  })));
+  plan.spreads = plan.spreads.map((r, i) => ({ ...r, shot: repaired[i].shot, heroPresence: heroRepaired[i].heroPresence }));
   return finalize(plan, manuscript, { ok: true, reassigned: true });
 }
 
@@ -185,9 +206,14 @@ Return STRICT JSON:
 
 function finalize(plan, manuscript, shotBudget) {
   const directionBySpread = new Map();
+  const scBySpread = new Map((manuscript.spreads || []).map((s) => [Number(s.spread), s.scene_contract || {}]));
   for (const row of plan.spreads || []) {
     directionBySpread.set(Number(row.spread), {
       shot: normalizeShot(row.shot) || 'medium',
+      // P1 (2026-07-23 audit): whether the child MUST star in this spread.
+      // Falls back to a deterministic read of the scene contract when the
+      // model omits it (default "required" — a personalized book stars its child).
+      heroPresence: normalizeHeroPresence(row.heroPresence, scBySpread.get(Number(row.spread))),
       textZone: ZONES.includes(row.textZone) ? row.textZone : null,
       palette: row.palette || null,
       // The single paintable instant — renderer paints it, spread judge
@@ -201,7 +227,7 @@ function finalize(plan, manuscript, shotBudget) {
   // Every manuscript spread gets a row, even if the model skipped one.
   for (const s of manuscript.spreads) {
     if (!directionBySpread.has(s.spread)) {
-      directionBySpread.set(s.spread, { shot: 'medium', textZone: null, palette: null, moment: null, poseHint: null, continuityNotes: null });
+      directionBySpread.set(s.spread, { shot: 'medium', heroPresence: normalizeHeroPresence(null, s.scene_contract || {}), textZone: null, palette: null, moment: null, poseHint: null, continuityNotes: null });
     }
   }
   return {

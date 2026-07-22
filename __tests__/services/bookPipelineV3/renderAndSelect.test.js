@@ -103,7 +103,10 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('The child is: both hands on the closed chest lid, body braced to lift');
     expect(p).not.toContain('watering a tiny sunflower'); // raw hero_action replaced
     expect(p).toContain('Pose: whole-hand grip on the lid edge');
-    expect(p).toContain('HANDS: every visible hand has exactly five clearly separated fingers');
+    // P0 (2026-07-23 audit): anatomy guidance now also pins the LIMB COUNT
+    // (two arms / two hands, no third arm/hand) — a three-handed hero shipped.
+    expect(p).toContain('ANATOMY: each character has exactly two arms and two hands, with exactly five clearly separated fingers per hand');
+    expect(p).toContain('no third arm or third hand');
     // without a moment, the raw action is used
     const fallback = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
     expect(fallback).toContain('The child is: watering a tiny sunflower');

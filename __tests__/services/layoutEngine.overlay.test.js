@@ -256,12 +256,15 @@ describe('caption readability treatment (2026-07-20)', () => {
   const { shouldScrim } = require('./../../services/layoutEngine');
   const stub = (name) => ({ name, widthOfTextAtSize: (t, s) => t.length * s * 0.5 });
 
-  test('shouldScrim: busy band or sub-floor contrast → scrim; calm band → none', () => {
+  // P4 (2026-07-23 audit): the scrim is now ALWAYS composited for embedded
+  // captions (opacity auto-strengthens via scrimOpacityFor); shouldScrim is
+  // true for every band, including the calm/unsampled cases.
+  test('shouldScrim: always true (scrim always composited, opacity auto-strengthens)', () => {
     expect(shouldScrim({ busy: true, contrastRatio: 10 })).toBe(true);
     expect(shouldScrim({ busy: false, contrastRatio: OVERLAY.MIN_CONTRAST - 0.1 })).toBe(true);
-    expect(shouldScrim({ busy: false, contrastRatio: OVERLAY.MIN_CONTRAST + 0.1 })).toBe(false);
-    expect(shouldScrim(null)).toBe(false);
-    expect(shouldScrim({ busy: false })).toBe(false); // no contrast metric, calm band
+    expect(shouldScrim({ busy: false, contrastRatio: OVERLAY.MIN_CONTRAST + 0.1 })).toBe(true);
+    expect(shouldScrim(null)).toBe(true);
+    expect(shouldScrim({ busy: false })).toBe(true);
   });
 
   test('overlay font priority prefers the rounded upright face; caption pages keep the serif', () => {
