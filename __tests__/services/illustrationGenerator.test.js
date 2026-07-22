@@ -6,9 +6,42 @@ jest.mock('../../services/gcsStorage', () => ({
   uploadFromUrl: jest.fn().mockResolvedValue('https://storage.example.com/illustration.png'),
 }));
 
-const { generateIllustration, buildCharacterPrompt } = require('../../services/illustrationGenerator');
+const {
+  generateIllustration,
+  buildCharacterPrompt,
+  ART_STYLE_CONFIG,
+  renderStyleBlock,
+} = require('../../services/illustrationGenerator');
+const { PIXAR_STYLE } = require('../../services/shared/illustration/config');
+const { STYLE_BIBLE, STYLE_VERSION } = require('../../services/bookPipelineV3/illustrator/styleBible');
 const { runModel } = require('../../services/replicateClient');
 const { uploadFromUrl } = require('../../services/gcsStorage');
+
+describe('shared 3D style — single source of truth (cover + interiors always 3D)', () => {
+  test('ART_STYLE_CONFIG.pixar_premium IS the shared PIXAR_STYLE object', () => {
+    expect(ART_STYLE_CONFIG.pixar_premium).toBe(PIXAR_STYLE);
+  });
+
+  test('cinematic_3d aliases the same shared PIXAR_STYLE object', () => {
+    expect(ART_STYLE_CONFIG.cinematic_3d).toBe(PIXAR_STYLE);
+  });
+
+  test('renderStyleBlock(pixar_premium) pins STYLIZED-not-photoreal + cross-page/cover consistency', () => {
+    const block = renderStyleBlock(ART_STYLE_CONFIG.pixar_premium);
+    expect(block).toMatch(/stylized 3D CGI render/i);
+    expect(block).toMatch(/NOT a photorealistic live-action render/i);
+    expect(block).toContain(PIXAR_STYLE.consistency);
+    expect(block).toMatch(/every spread and on the cover/i);
+  });
+
+  test('interior styleBible derives from the SAME PIXAR_STYLE (cover ↔ interior parity)', () => {
+    expect(STYLE_BIBLE).toContain(PIXAR_STYLE.suffix);
+    expect(STYLE_BIBLE).toContain(PIXAR_STYLE.consistency);
+    // Style text changed → version must have been bumped past the sb-1 baseline.
+    expect(STYLE_VERSION).not.toBe('sb-1-pixar-premium-3d');
+    expect(STYLE_VERSION).toMatch(/stylized/);
+  });
+});
 
 describe('buildCharacterPrompt', () => {
   test('includes safety anchors', () => {

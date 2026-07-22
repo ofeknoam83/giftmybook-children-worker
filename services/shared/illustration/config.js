@@ -195,10 +195,14 @@ function preferTopCornersOnlyUnderThree(corner, childAge) {
 const PIXAR_STYLE = {
   prefix: 'Cinematic 3D Pixar feature-film CGI still,',
   suffix: [
-    'photorealistic 3D CGI render (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration)',
+    // "stylized 3D" (not "photorealistic 3D"): production book 497c8b68 drifted
+    // between candidates — some spreads rendered as realistic 3D CGI while the
+    // parent-approved cover was stylized illustrative 3D, and the spread judge
+    // flagged the mismatch. Pin the STYLIZED animated-film look on every render.
+    'stylized 3D CGI render in a modern animated-feature look (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration, NOT a photorealistic live-action render)',
     'Disney-Pixar feature-film production quality — reads like a high-resolution frame from a modern Pixar movie',
     'physically based 3D modeling — real three-dimensional character geometry with volume, weight, and rim-lit silhouettes',
-    'photoreal subsurface skin scattering on faces, ears, and hands (warm backlit translucency)',
+    'soft subsurface skin scattering on faces, ears, and hands (warm backlit translucency), stylized — not real human skin',
     'individually rendered hair strands with light passing through, not painted hair shapes',
     'physically based materials — real fabric weave, real wood grain, real foliage geometry',
     'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
@@ -213,8 +217,16 @@ const PIXAR_STYLE = {
     'NOT a hand-drawn soft storybook look',
     'NOT a digital painting or concept painting',
     'NOT a flat graphic illustration with a blurred background',
-    'the characters must read as real 3D models, not as drawings with soft shading',
+    'NOT a photorealistic live-action photograph or a realistic-human CGI render',
+    'the characters must read as stylized 3D animated-film models, not as drawings with soft shading and not as real people',
   ].join('; '),
+  // Single source of truth for the cross-page/cover consistency pin. Appended to
+  // BOTH the native-illustrator interior prompts (via styleBible) and the cover
+  // harmonize / cover-generation prompts (via renderStyleBlock), so every page
+  // and the cover speak one identical 3D language — the drift that shipped a 2D
+  // cover on a 3D interior book (497c8b68) can no longer open up between the two
+  // prompt sites.
+  consistency: 'STYLE CONSISTENCY LOCK (applies to EVERY interior page AND the cover): one uniform stylized 3D Pixar look across the whole book — the SAME consistent line weight / soft outlines, the SAME color saturation, and the SAME lighting language on every spread and on the cover. Stylized animated-film 3D, NOT photorealistic and NOT a real photograph. No page or the cover may drift toward flat 2D, painterly, watercolor, or realistic live-action rendering.',
 };
 
 // Themes where the parent is implied (hands/back-of-head) when they are not on the cover.

@@ -37,7 +37,7 @@ jest.mock('../../services/illustrationGenerator', () => ({
   fetchWithTimeout: jest.fn(),
 }));
 
-const { buildUpsellCoverPrompt, geminiImagePartFromResponsePart, shouldSkipCoverStyleHarmonize } = require('../../services/coverGenerator');
+const { buildUpsellCoverPrompt, geminiImagePartFromResponsePart, shouldSkipCoverStyleHarmonize, UPSELL_STYLES } = require('../../services/coverGenerator');
 
 describe('buildUpsellCoverPrompt', () => {
   const base = {
@@ -137,15 +137,38 @@ describe('geminiImagePartFromResponsePart', () => {
   });
 });
 
-describe('shouldSkipCoverStyleHarmonize', () => {
-  test('true for admin-upload path', () => {
+describe('shouldSkipCoverStyleHarmonize (always-3D lock: skip ONLY for provably-3D sources)', () => {
+  // Regression guard for book 497c8b68: the old heuristic skipped harmonize for
+  // ANY admin-upload or upsell cover, so 2D covers shipped un-harmonized on top
+  // of 3D interiors. These must now HARMONIZE (return false).
+  test('false for admin-upload path (arbitrary art — must harmonize to 3D)', () => {
     expect(shouldSkipCoverStyleHarmonize('https://storage.googleapis.com/b/children-covers/90079/admin-upload-1.png'))
-      .toBe(true);
+      .toBe(false);
   });
 
-  test('true for children-jobs upsell cover', () => {
+  test('false for a plain children-jobs upsell cover (could be 2D — must harmonize)', () => {
     expect(shouldSkipCoverStyleHarmonize('gs://giftmybook-bucket/children-jobs/abc-123/upsell/0/cover.png'))
-      .toBe(true);
+      .toBe(false);
+  });
+
+  test('false for a watercolor-named source (2D — must harmonize)', () => {
+    expect(shouldSkipCoverStyleHarmonize('https://cdn/covers/luna-watercolor.png')).toBe(false);
+  });
+
+  test('false for a paper_cutout-named source (2D — must harmonize)', () => {
+    expect(shouldSkipCoverStyleHarmonize('gs://bucket/x/paper_cutout/cover.jpg')).toBe(false);
+  });
+
+  test('true only for a source explicitly marked pixar_premium', () => {
+    expect(shouldSkipCoverStyleHarmonize('gs://bucket/covers/abc-pixar_premium-cover.png')).toBe(true);
+  });
+
+  test('true for a source explicitly marked cinematic_3d', () => {
+    expect(shouldSkipCoverStyleHarmonize('https://cdn/covers/abc/cinematic-3d/cover.png')).toBe(true);
+  });
+
+  test('true for a 3d-harmonized marker', () => {
+    expect(shouldSkipCoverStyleHarmonize('gs://bucket/x/cover-3d-harmonized.png')).toBe(true);
   });
 
   test('false for unrelated URL', () => {
@@ -154,5 +177,17 @@ describe('shouldSkipCoverStyleHarmonize', () => {
 
   test('false for empty', () => {
     expect(shouldSkipCoverStyleHarmonize('')).toBe(false);
+  });
+});
+
+describe('buildUpsellCoverPrompt — every UPSELL_STYLE resolves to 3D (never 2D)', () => {
+  test.each(UPSELL_STYLES)('style "%s" produces the 3D Pixar block, never a 2D style block', (style) => {
+    const prompt = buildUpsellCoverPrompt('Luna and the Star', 'Luna', 5, 'female', style);
+    expect(prompt).toContain('Cinematic 3D Pixar.');
+    expect(prompt).toContain('PBR materials.');
+    // No 2D style suffix should ever leak into a cover prompt.
+    expect(prompt).not.toContain('Watercolor style.');
+    expect(prompt).not.toContain('Paper cutout style.');
+    expect(prompt).not.toContain('Scandi minimal.');
   });
 });
