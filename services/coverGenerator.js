@@ -68,12 +68,28 @@ function logGeminiImageResponseDiagnostics(data, label) {
 }
 
 /**
- * Heuristic: skip cover "harmonize" img2img for sources that are already on-brand 3D
- * upsell renders or an explicit admin-chosen file — avoids Gemini input blocks on
- * young-child reference faces and unnecessary restyle.
+ * Path/style markers that identify a cover source ALREADY rendered in the locked
+ * 3D pixar_premium / cinematic_3d language. A cover carrying one of these markers
+ * is provably on-brand 3D, so the harmonize-to-3D img2img pass is a redundant
+ * no-op and can be safely skipped.
+ */
+const KNOWN_3D_SOURCE_MARKER = /(pixar[_-]?premium|cinematic[_-]?3d|3d[_-]?harmonized|style-?3d)/i;
+
+/**
+ * Decide whether to SKIP the cover "harmonize" img2img pass.
+ *
+ * IMPORTANT (2026-07-22 always-3D lock): skip ONLY when the source is provably
+ * already on-brand 3D (an explicit marker in the path). The previous heuristic
+ * skipped ANY admin-upload or upsell cover — but upsell covers could be 2D
+ * (watercolor / paper_cutout) and admin uploads are arbitrary art, so those 2D
+ * covers shipped un-harmonized on top of 3D interiors (book 497c8b68). The user
+ * requirement is that cover + interiors are ALWAYS 3D pixar premium, so when in
+ * doubt we FAIL TOWARD harmonizing: any 2D/unknown source returns false here and
+ * gets restyled to 3D. Gemini-input-safety on child faces is handled by the
+ * harmonize prompt itself (it never re-lights faces photo-realistically).
  *
  * @param {string} [coverSourceUrl] - GCS path, https URL, or signed URL
- * @returns {boolean}
+ * @returns {boolean} true ONLY for a provably-3D source
  */
 function shouldSkipCoverStyleHarmonize(coverSourceUrl) {
   if (!coverSourceUrl || typeof coverSourceUrl !== 'string') return false;
@@ -83,10 +99,7 @@ function shouldSkipCoverStyleHarmonize(coverSourceUrl) {
   } catch {
     /* keep raw */
   }
-  if (/admin-upload/i.test(s)) return true;
-  if (/\/children-jobs\/[^/]+\/upsell\//i.test(s)) return true;
-  if (/\/upsell\/\d+\/cover\.(png|jpg|jpeg)/i.test(s)) return true;
-  return false;
+  return KNOWN_3D_SOURCE_MARKER.test(s);
 }
 
 /**
@@ -682,8 +695,12 @@ ${layoutBlock}`;
  * @param {object} opts
  * @param {Buffer} [opts.preGeneratedCoverBuffer] - Customer-chosen cover; is re-rendered through
  *   {@link harmonizeChosenCoverToInteriorStyle} so the wrap PDF matches 3D interior art unless
- *   `skipCoverStyleHarmonize` is set.
- * @param {boolean} [opts.skipCoverStyleHarmonize] - If true, embed the chosen cover buffer as-is (no restyle pass).
+ *   the source is provably already 3D.
+ * @param {boolean} [opts.skipCoverStyleHarmonize] - Honored (skip restyle) ONLY when the source is
+ *   provably already 3D (marker path / `coverSourceStyle` / `coverSourceIs3D`); otherwise ignored and
+ *   the cover IS harmonized to 3D. Pass `false` to force harmonize.
+ * @param {string} [opts.coverSourceStyle] - Known style of the source cover; 'pixar_premium'/'cinematic_3d' skip harmonize.
+ * @param {boolean} [opts.coverSourceIs3D] - Explicit "source is already 3D" flag; allows skipping harmonize.
  * @returns {Promise<{coverPdfBuffer: Buffer, frontCoverImageUrl: string}>}
  */
 async function generateCover(title, childDetails, characterRefUrl, bookFormat, opts = {}) {
@@ -738,9 +755,18 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
   console.log(`[CoverGenerator] Cover canvas: ${(totalWidth/72).toFixed(3)}"x${(totalHeight/72).toFixed(3)}", spine=${(spineWidth/72).toFixed(3)}", edge=${(edgeBleed/72).toFixed(3)}" (${pageCount}pp, ${isHardcover ? 'hardcover' : 'paperback'})`);
 
   const coverSourceUrl = opts.coverSourceUrl || '';
-  const skipCoverStyleHarmonize = typeof opts.skipCoverStyleHarmonize === 'boolean'
-    ? opts.skipCoverStyleHarmonize
-    : shouldSkipCoverStyleHarmonize(coverSourceUrl);
+  // A source is "known 3D" only when it is provably already on-brand: an
+  // explicit 3D marker in the path, or a caller-supplied style/flag.
+  const sourceIsKnown3D = shouldSkipCoverStyleHarmonize(coverSourceUrl)
+    || opts.coverSourceStyle === 'pixar_premium'
+    || opts.coverSourceStyle === 'cinematic_3d'
+    || opts.coverSourceIs3D === true;
+  // Honor an explicit `skipCoverStyleHarmonize: true` ONLY when the source is
+  // provably 3D; otherwise IGNORE the skip and harmonize (always-3D requirement).
+  // An explicit `false` always forces harmonize.
+  const skipCoverStyleHarmonize = opts.skipCoverStyleHarmonize === false
+    ? false
+    : sourceIsKnown3D;
 
   // ── Obtain front cover image ──
   let frontCoverImageUrl = null;
@@ -1068,6 +1094,10 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
 
 // ── Upsell Cover Generation ──
 
+// Consumer-facing "vibe" ids used to vary the 4 upsell covers' titles/labels.
+// NOTE: the actual RENDER style is NOT taken from these — buildUpsellCoverPrompt
+// forces every upsell cover to 3D pixar_premium via canonicalBookArtStyle, so a
+// selected upsell cover always matches the 3D interiors (always-3D lock).
 const UPSELL_STYLES = ['paper_cutout', 'watercolor', 'cinematic_3d', 'scandinavian_minimal'];
 
 // Consumer-facing art-style names — these print INSIDE the gift book on the
@@ -1136,6 +1166,12 @@ Return JSON: { "titles": ["Title 1", "Title 2", "Title 3", "Title 4"] }`;
  * @returns {string}
  */
 function buildUpsellCoverPrompt(title, childName, childAge, childGender, artStyle, identity = {}) {
+  // ALWAYS-3D LOCK: an upsell cover can be SELECTED as a book's real cover, and
+  // interiors are hard-locked to 3D pixar_premium. So the incoming `artStyle`
+  // (paper_cutout / watercolor / scandinavian_minimal — the UPSELL_STYLES labels
+  // are consumer vibes only) is routed through canonicalBookArtStyle, which
+  // ignores it and always returns pixar_premium. A 2D upsell cover can never
+  // become the shipped cover style on a 3D book.
   const resolvedStyle = canonicalBookArtStyle(artStyle);
   const styleConfig = ART_STYLE_CONFIG?.[resolvedStyle] || {};
   const styleBlock = renderStyleBlock(styleConfig);

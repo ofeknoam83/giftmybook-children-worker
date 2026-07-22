@@ -20,11 +20,17 @@
 
 const { PIXAR_STYLE } = require('../../shared/illustration/config');
 
-const STYLE_VERSION = 'sb-1-pixar-premium-3d';
+// sb-2 (2026-07-22): PIXAR_STYLE was tightened to pin STYLIZED animated-film 3D
+// (not photorealistic) and to carry a cross-page/cover `consistency` lock, after
+// book 497c8b68 shipped a 2D cover on a 3D interior and drifted between realistic
+// and stylized 3D between spreads. Bumping the version regenerates every cached
+// identity kit once (intended — the bible text changed).
+const STYLE_VERSION = 'sb-2-pixar-premium-3d-stylized';
 
 const STYLE_BIBLE = `SIGNATURE ART STYLE — GiftMyBook picture books (premium 3D, matches the book's cover):
 - ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
 - NOT THIS: ${PIXAR_STYLE.antiStyle}.
+- ${PIXAR_STYLE.consistency}
 - Characters are appealing 3D animated-film characters with expressive faces; child proportions must match the stated age exactly.
 - Backgrounds are fully modeled 3D environments but readable — one clear focal point, supporting detail recedes into gentle depth-of-field.
 - Consistent rendering quality, materials, and lighting language across every image in a book.

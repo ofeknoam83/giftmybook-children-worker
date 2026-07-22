@@ -8,7 +8,7 @@
 
 const { uploadBuffer } = require('./gcsStorage');
 const { withRetry } = require('./retry');
-const { resolvePictureBookTextRules } = require('./shared/illustration/config');
+const { resolvePictureBookTextRules, PIXAR_STYLE } = require('./shared/illustration/config');
 
 // ── Multi-key round-robin pool for parallel illustration generation ──
 // Keys are spread across multiple GCP projects to avoid per-project backend queuing.
@@ -116,34 +116,16 @@ const TEXT_VERIFY_MODEL = 'gemini-2.5-flash';
 //   - includes an `antiStyle` list that names the 2D / painterly looks the
 //     model must AVOID. Consumers append this to the prompt as a hard-no.
 //
-// Keep this in sync with services/illustrator/config.js PIXAR_STYLE so the
-// cover and interior spreads speak the same visual language.
+// SINGLE SOURCE OF TRUTH: pixar_premium (and its cinematic_3d alias) reference
+// the frozen PIXAR_STYLE object from services/shared/illustration/config.js —
+// the SAME constant the native-illustrator interior styleBible derives from. The
+// cover harmonize pass and cover generation read this config, so cover and
+// interior spreads now provably speak one identical 3D language (no drift can
+// open up between two hand-copied style strings — the class of bug that shipped
+// a 2D cover on a 3D interior book, 497c8b68).
 // ─────────────────────────────────────────────────────────────────────────────
 const ART_STYLE_CONFIG = {
-  pixar_premium: {
-    prefix: 'Cinematic 3D Pixar feature-film CGI still,',
-    suffix: [
-      'photorealistic 3D CGI render (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration)',
-      'Disney-Pixar feature-film production quality — reads like a high-resolution frame from a modern Pixar movie',
-      'physically based 3D modeling — real three-dimensional character geometry with volume, weight, and rim-lit silhouettes',
-      'photoreal subsurface skin scattering on faces, ears, and hands (warm backlit translucency)',
-      'individually rendered hair strands with light passing through, not painted hair shapes',
-      'physically based materials — real fabric weave, real wood grain, real foliage geometry',
-      'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
-      'true optical lens depth-of-field with genuine bokeh (circular highlights from physical lenses), not a painterly blur',
-      'warm saturated color palette, emotionally expressive face and body acting',
-      'magical, cinematic atmosphere',
-    ].join(', '),
-    antiStyle: [
-      'NOT a 2D flat illustration',
-      'NOT a painterly children\'s book illustration',
-      'NOT watercolor, gouache, pencil, pen-and-ink, cel-shaded anime, paper cutout, pixel art, or vector style',
-      'NOT a hand-drawn soft storybook look',
-      'NOT a digital painting or concept painting',
-      'NOT a flat graphic illustration with a blurred background',
-      'the characters must read as real 3D models, not as drawings with soft shading',
-    ].join('; '),
-  },
+  pixar_premium: PIXAR_STYLE,
   watercolor: {
     prefix: 'children\'s book watercolor illustration,',
     suffix: 'soft watercolor textures, gentle colors, hand-painted look, paper texture visible, warm natural lighting',
@@ -184,29 +166,9 @@ const ART_STYLE_CONFIG = {
     prefix: 'Scandinavian minimal children\'s book illustration,',
     suffix: 'clean simple shapes, flat design with subtle texture, muted Nordic color palette (soft sage, dusty rose, warm cream, birch white), generous negative space, cozy hygge atmosphere, elegant simplicity',
   },
-  cinematic_3d: {
-    prefix: 'Cinematic 3D Pixar feature-film CGI still,',
-    suffix: [
-      'photorealistic 3D CGI render (NOT a 2D illustration, NOT a flat painting, NOT a storybook illustration)',
-      'Disney-Pixar feature-film production quality — reads like a high-resolution frame from a modern Pixar movie',
-      'physically based 3D modeling — real three-dimensional character geometry with volume, weight, and rim-lit silhouettes',
-      'photoreal subsurface skin scattering on faces, ears, and hands (warm backlit translucency)',
-      'individually rendered hair strands with light passing through, not painted hair shapes',
-      'physically based materials — real fabric weave, real wood grain, real foliage geometry',
-      'ray-traced volumetric cinematic lighting with soft shadows, ambient occlusion, and studio key-fill-rim setup',
-      'true optical lens depth-of-field with genuine bokeh, not a painterly blur',
-      'warm saturated palette, emotionally expressive face and body acting',
-      'magical, cinematic atmosphere',
-    ].join(', '),
-    antiStyle: [
-      'NOT a 2D flat illustration',
-      'NOT a painterly children\'s book illustration',
-      'NOT watercolor, gouache, pencil, pen-and-ink, cel-shaded anime, paper cutout, pixel art, or vector style',
-      'NOT a hand-drawn soft storybook look',
-      'NOT a digital painting or concept painting',
-      'the characters must read as real 3D models, not as drawings with soft shading',
-    ].join('; '),
-  },
+  // Alias of the canonical 3D style — kept so legacy callers passing
+  // 'cinematic_3d' resolve to the exact same single-source-of-truth block.
+  cinematic_3d: PIXAR_STYLE,
   graphic_novel_cinematic: {
     prefix: 'Cinematic 3D middle-grade graphic novel panel illustration,',
     suffix: 'Pixar-like 3D CGI animation adapted for sequential art, photorealistic subsurface skin scattering, volumetric cinematic lighting with dramatic rim lights, rich saturated color palette, emotionally expressive characters with readable facial acting, clean graphic silhouettes, simplified backgrounds in small panels with full environments in establishing shots, controlled depth of field, Disney-Pixar production quality, print-optimized color contrast, warm golden-hour atmosphere, premium sequential-art storytelling',
@@ -237,10 +199,14 @@ function canonicalBookArtStyle(/* requested ignored */) {
 function renderStyleBlock(styleConfig) {
   if (!styleConfig) return '';
   const positive = `${styleConfig.prefix || ''} ${styleConfig.suffix || ''}`.trim();
-  if (styleConfig.antiStyle) {
-    return `${positive}. AVOID (hard no): ${styleConfig.antiStyle}.`;
-  }
-  return positive;
+  let block = styleConfig.antiStyle
+    ? `${positive}. AVOID (hard no): ${styleConfig.antiStyle}.`
+    : positive;
+  // The cross-page/cover consistency lock (PIXAR_STYLE.consistency) rides every
+  // prompt built from a style that declares it, so the cover harmonize pass and
+  // interior gen emit the SAME "one uniform stylized-3D look" pin.
+  if (styleConfig.consistency) block += ` ${styleConfig.consistency}`;
+  return block;
 }
 
 /** Words that may trigger NSFW filters in children's book contexts */

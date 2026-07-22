@@ -19,7 +19,7 @@ function buildContactSheetPrompt({ manuscript, direction, hasPropPlate = false }
 Check the BOOK AS A WHOLE (individual image quality was already judged):
 1. VARIETY: do compositions/camera angles actually vary across the book (planned: ${[...new Set([...direction.directionBySpread.values()].map((d) => d.shot))].join(', ')})?
 2. CONTINUITY: same outfit as the cover everywhere; recurring props consistent (${direction.continuityLocks?.props?.map((p) => p.design ? `${p.name}: ${p.design}` : p.name).join('; ') || 'none listed'})${direction.continuityLocks?.gear?.length ? `; gear state follows its rule on every spread (${direction.continuityLocks.gear.map((g) => `${g.item}: ${g.rule}`).join('; ')}) — flag spreads that break it (advisory)` : ''}.
-3. COVER MATCH: interior character reads as the same child, same rendering style, as the cover.
+3. COVER MATCH: interior character reads as the same child, in the SAME locked stylized-3D Pixar rendering style as the cover — the cover and every interior spread must share one uniform 3D look. Any spread OR the cover drifting toward flat 2D, painterly, watercolor, or photorealistic/live-action rendering is a style break.
 4. CHARACTER DRIFT: the child keeps the SAME apparent age and build on every spread (flag any spread where the child reads clearly younger/chubbier or older/slimmer than the cover), and the SAME facial marks (flag stray moles, beauty marks, or dark facial spots that are not on the cover).
 5. ENDING: the final spread lands visually (warmth/resolution, not an arbitrary stop).
 
@@ -29,7 +29,7 @@ THE PARENT TEST — a flag is "critical" ONLY if a parent flipping through the p
 3. readable words or lettering painted in the artwork
 4. the child duplicated or a stranger present
 5. countably wrong anatomy
-6. a jarring style break
+6. a jarring style break (the cover or any spread drifting off the locked stylized-3D Pixar look — flat 2D, painterly, watercolor, or photorealistic/live-action)
 7. a RECURRING story prop rendered as a fundamentally DIFFERENT OBJECT on different spreads (e.g. the hero's "lamp" appearing as a bare crystal on one spread, a pendant on another, and a lantern on a third — a child following the story will notice). STRICT SCOPE: applies ONLY to the recurring props listed in CONTINUITY above, ONLY when the object's IDENTITY changes (a different kind of object — not angle, size, level of detail, partial visibility, or color/shade drift, which are ALL minor), and the flag's issue text MUST name the prop. A prop simply absent from a spread is NEVER this class.
 EVERYTHING ELSE IS "minor" — including prop-DETAIL continuity (a differently-drawn map, a changed scroll count), composition, lighting, and variety observations. Minor flags are recorded and shipped as advisories — never mark them critical.
 
