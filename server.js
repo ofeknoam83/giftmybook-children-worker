@@ -1076,7 +1076,8 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
         shipOnExhaustionReview = pipelineResult.document?.bookPassReview || null;
         if (shipOnExhaustionReview) {
-          bookWarnings.push(`Shipped on book-pass exhaustion: ${(shipOnExhaustionReview.defects || []).join('; ')} — flagged for admin review (see needsReview).`);
+          const shipStage = (shipOnExhaustionReview.stages || [shipOnExhaustionReview.stage]).filter(Boolean).join('+') || 'QA';
+          bookWarnings.push(`Shipped on ${shipStage} exhaustion: ${(shipOnExhaustionReview.defects || []).join('; ')} — flagged for admin review (see needsReview).`);
         }
         const synthesized = toLegacyStoryPlan(pipelineResult.document);
         storyPlan = synthesized.storyPlan;

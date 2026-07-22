@@ -21,7 +21,7 @@ const { judgeLikenessCrossFamily } = require('./likenessJudge');
 const { renderSpreadCandidates } = require('../render/renderSpread');
 const { uploadBuffer } = require('../../../gcsStorage');
 const { candidatePath } = require('../render/renderAllSpreads');
-const { REPAIR_WAVES_PER_SPREAD, CANDIDATES_PER_SPREAD } = require('../config');
+const { REPAIR_WAVES_PER_SPREAD, CANDIDATES_PER_SPREAD, BOOK_PASS_SHIP_ON_EXHAUSTION } = require('../config');
 const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 
 // Fold band of a wide embedded render (fractions of image width). A hero
@@ -39,8 +39,12 @@ const FOLD_SWALLOW_FRAC = 0.6;
  * Run the full cascade for one candidate.
  * @returns {Promise<object>} evaluation record
  */
-async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, captionText = null, wideSpread = false, abortSignal, qaTagCounts, log = () => {} }) {
+async function evaluateCandidate({ candidate, sceneContract, direction, referenceImages, captionText = null, wideSpread = false, foldSoften = false, abortSignal, qaTagCounts, log = () => {} }) {
   const record = { candidateIndex: candidate.candidateIndex, path: candidate.path, defects: [], tags: [] };
+  // Set when the fold backstop fires but foldSoften downgrades it to advisory
+  // (see the wide-spread block below); merged into minorDefects once the rest
+  // of the cascade has run.
+  let foldAdvisoryNote = null;
 
   const pre = await runDeterministicChecks(candidate, abortSignal, log);
   if (!pre.pass) {
@@ -80,17 +84,35 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
     const bandOverlap = Math.max(0, Math.min(box.x + box.w, FOLD_BAND_MAX) - Math.max(box.x, FOLD_BAND_MIN));
     const swallowedFrac = bandOverlap / box.w;
     if (swallowedFrac >= FOLD_SWALLOW_FRAC) {
-      record.stage = 'foldCollision';
-      record.pass = false;
-      record.defects = [`fold collision: the child stands on the spread fold (${(swallowedFrac * 100).toFixed(0)}% of the figure, box width ${(box.w * 100).toFixed(0)}% of the image, sits in the center band) — the binding will swallow the subject; compose the child clearly in the left or right third`];
+      const foldDefect = `fold collision: the child stands on the spread fold (${(swallowedFrac * 100).toFixed(0)}% of the figure, box width ${(box.w * 100).toFixed(0)}% of the image, sits in the center band) — the binding will swallow the subject; compose the child clearly in the left or right third`;
       record.tags = [...record.tags, 'fold_collision'];
       bump(qaTagCounts, 'fold_collision');
-      return record;
+      // foldSoften (ship-on-exhaustion enabled): a fold collision is a
+      // composition nit, not a correctness defect. Terminating the cascade
+      // here lets a fold-only candidate consume the whole budget into
+      // needs_review even when its anatomy/cast/likeness are perfect — one
+      // spread per embedded book routinely hard-exhausted this way. When
+      // softened, record it as an advisory + ranking demerit (record.foldAdvisory)
+      // and CONTINUE to the spread judge and likeness; pickWinner still prefers
+      // a clean candidate over a fold-advisory one, so the gate stays a ranking
+      // signal. Never engaged for caption (1:1) layout — wideSpread is false.
+      if (foldSoften) {
+        foldAdvisoryNote = foldDefect;
+      } else {
+        record.stage = 'foldCollision';
+        record.pass = false;
+        record.defects = [foldDefect];
+        return record;
+      }
     }
   }
   // Minor observations ride the record even when the candidate passes —
   // the orchestrator aggregates the WINNER's minors into doc.qaAdvisories.
   record.minorDefects = spread.minorDefects || [];
+  if (foldAdvisoryNote) {
+    record.foldAdvisory = true;
+    record.minorDefects = [...record.minorDefects, foldAdvisoryNote];
+  }
   for (const t of spread.tags) bump(qaTagCounts, t);
   if (!spread.pass) {
     record.stage = 'spreadJudge';
@@ -132,7 +154,11 @@ function bump(counts, tag) {
 function pickWinner(evaluations) {
   return evaluations
     .filter((e) => e.pass)
-    .sort((a, b) => (b.likeness - a.likeness)
+    // A fold-advisory pass (fold backstop softened under ship-on-exhaustion)
+    // is a legal-but-not-ideal composition — rank it BELOW any clean pass so
+    // the fold gate stays a ranking signal even though it no longer blocks.
+    .sort((a, b) => (Number(!!a.foldAdvisory) - Number(!!b.foldAdvisory))
+      || (b.likeness - a.likeness)
       || (minSpread(b) - minSpread(a))
       || (a.candidateIndex - b.candidateIndex))[0] || null;
 }
@@ -140,6 +166,30 @@ function pickWinner(evaluations) {
 function minSpread(e) {
   const s = e.spreadScores;
   return s ? Math.min(s.anatomy, s.contract, s.cast, s.style, s.zone) : 0;
+}
+
+// How far each cascade stage is from passing — higher = closer to acceptable.
+const STAGE_DEPTH = { deterministic: 0, foldCollision: 1, spreadJudge: 2, likeness: 3, passed: 4 };
+
+/**
+ * Ship-on-exhaustion (BOOK_PASS_SHIP_ON_EXHAUSTION) least-bad selection: when a
+ * spread exhausts its QA budget and the escape hatch is on, we ship the
+ * candidate CLOSEST to acceptable rather than dead-ending the whole book on
+ * needs_review. "Closest" = furthest through the cascade (a likeness-only fail
+ * is a complete, correct scene with a slightly-off face; a deterministic fail
+ * is a broken image), then highest likeness, then fewest defects, then the
+ * latest attempt. Returns null only when there are no evaluations at all.
+ *
+ * @param {object[]} evaluations - per-candidate evaluation records
+ * @returns {object|null} the least-bad evaluation
+ */
+function pickLeastBad(evaluations) {
+  if (!Array.isArray(evaluations) || evaluations.length === 0) return null;
+  return [...evaluations].sort((a, b) =>
+    ((STAGE_DEPTH[b.stage] ?? -1) - (STAGE_DEPTH[a.stage] ?? -1))
+    || ((b.likeness || 0) - (a.likeness || 0))
+    || ((a.defects?.length || 0) - (b.defects?.length || 0))
+    || (b.candidateIndex - a.candidateIndex))[0];
 }
 
 /**
@@ -164,7 +214,8 @@ function minSpread(e) {
  */
 async function selectSpreadWinner({
   bookId, spread, candidates, direction = null, bookPack, plate = null, propPlate = null,
-  referenceImages, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [], qaTagCounts, abortSignal, log = () => {},
+  referenceImages, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [],
+  foldSoften = BOOK_PASS_SHIP_ON_EXHAUSTION, qaTagCounts, abortSignal, log = () => {},
 }) {
   // Every caller passes the bookPack (model sheet + cover) as the likeness
   // references; if a call site drifts and omits referenceImages, degrade
@@ -187,7 +238,7 @@ async function selectSpreadWinner({
   for (let wave = 0; wave <= REPAIR_WAVES_PER_SPREAD; wave += 1) {
     const fresh = allCandidates.filter((c) => !evaluations.some((e) => e.candidateIndex === c.candidateIndex));
     for (const candidate of fresh) {
-      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, captionText, wideSpread, abortSignal, qaTagCounts, log });
+      const record = await evaluateCandidate({ candidate, sceneContract, direction, referenceImages, captionText, wideSpread, foldSoften, abortSignal, qaTagCounts, log });
       evaluations.push(record);
       log(`spread ${spread.spread} c${candidate.candidateIndex}: ${record.pass ? 'PASS' : `fail@${record.stage}`}${record.likeness ? ` likeness=${record.likeness}` : ''}${record.defects.length ? ` [${record.defects[0]}]` : ''}`);
     }
@@ -282,6 +333,7 @@ module.exports = {
   evaluateCandidate,
   buildSpreadQaNeedsReview,
   pickWinner,
+  pickLeastBad,
   FOLD_BAND_MIN,
   FOLD_BAND_MAX,
   FOLD_SWALLOW_FRAC,

@@ -588,4 +588,72 @@ describe('deterministic fold backstop (embedded renders)', () => {
     expect(FOLD_BAND_MIN).toBeLessThan(0.5);
     expect(FOLD_BAND_MAX).toBeGreaterThan(0.5);
   });
+
+  // 2026-07-22 (book 497c8b68 embedded rerun): under ship-on-exhaustion the
+  // fold backstop is a ranking-only advisory, not a hard fail — a fold-swallowed
+  // candidate whose anatomy/cast/likeness are all fine can still ship instead of
+  // exhausting the whole budget into needs_review.
+  test('foldSoften downgrades a fold-swallowed candidate to a passing advisory (does NOT hard-fail)', async () => {
+    judgeSpreadCandidate.mockResolvedValue({
+      pass: true, scores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 }, tags: [], minorDefects: [], defects: [],
+      heroBox: { x: 0.42, y: 0.2, w: 0.14, h: 0.7 }, // 86% swallowed by the fold band
+      figuresBox: null,
+    });
+    const counts = {};
+    const rec = await evaluateCandidate({
+      candidate: CAND, sceneContract: {}, direction: null, referenceImages: [],
+      wideSpread: true, foldSoften: true, qaTagCounts: counts,
+    });
+    expect(rec.pass).toBe(true);
+    expect(rec.stage).toBe('passed');
+    expect(rec.foldAdvisory).toBe(true);
+    expect(rec.tags).toContain('fold_collision');
+    expect(counts.fold_collision).toBe(1); // still counted as a ranking signal
+    expect(rec.minorDefects.some((d) => d.includes('fold collision'))).toBe(true);
+  });
+
+  test('foldSoften still hard-fails when a HARDER gate (spread judge) also fails', async () => {
+    judgeSpreadCandidate.mockResolvedValue({
+      pass: false, scores: {}, tags: [], minorDefects: [], defects: ['the contracted action is entirely absent'],
+      criticalDefects: ['the contracted action is entirely absent'],
+      heroBox: { x: 0.42, y: 0.2, w: 0.14, h: 0.7 },
+      figuresBox: null,
+    });
+    const rec = await evaluateCandidate({
+      candidate: CAND, sceneContract: {}, direction: null, referenceImages: [],
+      wideSpread: true, foldSoften: true, qaTagCounts: {},
+    });
+    expect(rec.pass).toBe(false);
+    expect(rec.stage).toBe('spreadJudge');
+  });
+});
+
+describe('pickWinner / pickLeastBad (ship-on-exhaustion helpers)', () => {
+  const { pickWinner, pickLeastBad } = require('../../../services/bookPipelineV3/illustrator/qa/select');
+
+  test('pickWinner ranks a clean pass ABOVE a fold-advisory pass even with lower likeness', () => {
+    const clean = { candidateIndex: 1, pass: true, likeness: 4, spreadScores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 } };
+    const folded = { candidateIndex: 2, pass: true, likeness: 5, foldAdvisory: true, spreadScores: { anatomy: 5, contract: 5, cast: 5, style: 5, zone: 5 } };
+    expect(pickWinner([folded, clean]).candidateIndex).toBe(1);
+  });
+
+  test('pickWinner still returns the fold-advisory pass when it is the only pass', () => {
+    const folded = { candidateIndex: 2, pass: true, likeness: 5, foldAdvisory: true, spreadScores: null };
+    const failed = { candidateIndex: 1, pass: false, likeness: 0 };
+    expect(pickWinner([failed, folded]).candidateIndex).toBe(2);
+  });
+
+  test('pickLeastBad prefers the candidate furthest through the cascade', () => {
+    const evals = [
+      { candidateIndex: 1, stage: 'deterministic', likeness: null, defects: ['blurry'] },
+      { candidateIndex: 2, stage: 'likeness', likeness: 3, defects: ['freckles faint'] },
+      { candidateIndex: 3, stage: 'foldCollision', likeness: null, defects: ['fold'] },
+    ];
+    expect(pickLeastBad(evals).candidateIndex).toBe(2); // likeness is deepest
+  });
+
+  test('pickLeastBad returns null on no evaluations', () => {
+    expect(pickLeastBad([])).toBeNull();
+    expect(pickLeastBad(undefined)).toBeNull();
+  });
 });

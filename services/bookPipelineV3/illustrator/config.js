@@ -54,10 +54,20 @@ const ART_DIRECTION_REASKS = 1;   // one re-ask on shot-budget violation, then d
 // regenerated before needs_review. 0 disables regen entirely.
 const BOOK_PASS_REGEN_WAVES = Number(process.env.BOOK_PASS_REGEN_WAVES) >= 0
   ? Number(process.env.BOOK_PASS_REGEN_WAVES) : 2;
-// Loud escape hatch (mirrors BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION): when
-// set, exhausting the regen waves with residual critical flags ships the book
-// with the residual issues attached as review metadata instead of throwing
-// needs_review. The book still gets flagged for admin review downstream.
+// Loud escape hatch (mirrors BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION). When
+// set, an exhaustion that would otherwise dead-end the book on needs_review
+// instead ships the book with the residual issues attached as review metadata
+// (still flagged for admin review downstream). Covers TWO stages:
+//   • bookPass  — exhausting the regen waves with residual critical flags
+//     ships the whole-book review (the original #246 behavior).
+//   • spreadQa  — a spread that exhausts its per-spread QA budget (incl. the
+//     restage/recovery round) ships its LEAST-BAD candidate instead of failing
+//     the book (see illustrator/index.js shipExhaustedSpreads).
+// It also SOFTENS the embedded (wide-spread / 16:9) foldCollision backstop:
+// while enabled, a fold-swallowed candidate is downgraded to a ranking-only
+// advisory (see qa/select.js) rather than a hard fail, so a fold collision
+// alone can no longer consume a spread's whole budget into needs_review. The
+// 1:1 caption layout is unaffected (the fold backstop never runs there).
 const BOOK_PASS_SHIP_ON_EXHAUSTION = /^(1|true|yes)$/i.test(process.env.BOOK_PASS_SHIP_ON_EXHAUSTION || '');
 const RENDER_CONCURRENCY = Number(process.env.BOOK_PIPELINE_V3_RENDER_CONCURRENCY || 6);
 
