@@ -226,7 +226,46 @@ async function loadFonts(pdfDoc) {
     pdfDoc.embedFont(StandardFonts.Helvetica),
     pdfDoc.embedFont(StandardFonts.HelveticaBold),
   ]);
-  return { bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB };
+  // P5 (2026-07-23 audit): the caption halo used to be layered pdf-lib text
+  // (the same line drawn 8× around the fill + a drop shadow). pdftotext saw
+  // every copy, so each caption word was extracted TWICE in the shipped PDF.
+  // The halo is now drawn as non-text glyph OUTLINES (drawSvgPath) via these
+  // raw fontkit instances, leaving exactly ONE extractable text copy (the
+  // fill). Keyed by the same TTF the overlay font resolves to.
+  const fk = (p) => { try { return fs.existsSync(p) ? fontkit.create(fs.readFileSync(p)) : null; } catch (_) { return null; } };
+  const _fk = { bubblegum: fk(FONT_PATHS.bubblegum), playfair: fk(FONT_PATHS.playfair) };
+  return { bubblegum, playfair, playfairItalic, dancing, kalam, helv, helvB, _fk };
+}
+
+/**
+ * Draw a text string's glyph OUTLINES as vector paths (non-text, so pdftotext
+ * never sees them) at baseline (x, y) in PDF space, advancing exactly as the
+ * embedded pdf-lib font does (ligatures off — matches computeCaptionBlock and
+ * widthOfTextAtSize). Used only for the decorative caption halo/shadow (P5);
+ * the readable fill stays a single real pdf-lib drawText.
+ *
+ * fontkit glyph paths are y-up in em units; scale(s, -s) both scales to the
+ * point size and flips to counter pdf-lib drawSvgPath's SVG (y-down) space.
+ * Pure geometry — exported for tests.
+ *
+ * @param {import('pdf-lib').PDFPage} page
+ * @param {object} fkFont - a fontkit font instance (fontkit.create(ttfBuffer))
+ * @param {string} text
+ * @param {number} x - left edge / pen start
+ * @param {number} y - baseline
+ * @param {number} size - point size
+ * @param {import('pdf-lib').Color} color
+ * @param {number} opacity
+ */
+function drawGlyphOutlineRun(page, fkFont, text, x, y, size, color, opacity) {
+  const s = size / (fkFont.unitsPerEm || 1000);
+  const run = fkFont.layout(String(text), { features: { liga: false } });
+  let pen = x;
+  for (let i = 0; i < run.glyphs.length; i += 1) {
+    const d = run.glyphs[i].path.scale(s, -s).toSVG();
+    if (d && d.trim()) page.drawSvgPath(d, { x: pen, y, color, opacity });
+    pen += (run.positions[i].xAdvance || 0) * s;
+  }
 }
 
 // ── Page builders ─────────────────────────────────────────────────────────────
@@ -548,17 +587,49 @@ function chooseOverlayZone(zone, heroBox) {
 /**
  * Scrim decision (2026-07-20, book 36e79635): tone + halo alone cannot buy
  * readability over a busy starfield or a band the advisory contrast check
- * already flags. When either signal fires, drawCaptionOverlay paints a soft
- * translucent panel behind the block. Pure — exported for tests.
+ * already flags.
  *
- * @param {{ busy?: boolean, contrastRatio?: number }|null|undefined} metrics -
- *   layoutEmbeddedSpread's band metrics (analyzeZoneBand + contrastRatio)
+ * P4 (2026-07-23 audit): the scrim is now ALWAYS on for embedded captions —
+ * "Amit's Star Map Adventure" shipped legible-on-my-monitor captions that
+ * washed out in print because the scrim only fired on the busy/low-contrast
+ * bands the sampler happened to flag. Every embedded caption now sits on a
+ * consistent semi-opaque scrim; scrimOpacityFor auto-strengthens it until the
+ * ink clears OVERLAY.MIN_CONTRAST. Kept as a function (always true) so the
+ * telemetry/report shape and any callers are unchanged. Pure.
+ *
+ * @param {{ busy?: boolean, contrastRatio?: number }|null|undefined} metrics
  * @returns {boolean}
  */
 function shouldScrim(metrics) {
-  if (!metrics) return false;
-  if (metrics.busy) return true;
-  return Number.isFinite(metrics.contrastRatio) && metrics.contrastRatio < OVERLAY.MIN_CONTRAST;
+  return true; // eslint-disable-line no-unused-vars -- always scrim (P4); arg kept for signature/telemetry
+}
+
+/**
+ * P4 (2026-07-23 audit): center opacity of the caption scrim, auto-strengthened
+ * from a fixed FLOOR until the overlay ink clears OVERLAY.MIN_CONTRAST (4.5:1)
+ * against the scrimmed band. The FLOOR preserves the prior look on bands that
+ * were already fine (the old 3-layer panel read ~0.32 in the center); busier /
+ * lower-contrast bands get a denser scrim instead of shipping unreadable type.
+ * Pure — exported for tests.
+ *
+ * @param {'dark-text'|'light-text'} tone - overlay ink tone
+ * @param {number} bandLuminance - sampled band mean luminance (0–255); NaN when
+ *   the art could not be sampled (falls back to the FLOOR).
+ * @returns {number} center opacity in [FLOOR, CEIL]
+ */
+function scrimOpacityFor(tone, bandLuminance) {
+  const FLOOR = 0.32;
+  const CEIL = 0.85;
+  const inkLum = OVERLAY_INK_LUMINANCE[tone] ?? 255;
+  // Dark scrim under light ink (near-black), warm-white scrim under dark ink —
+  // matches the scrimColor drawCaptionOverlay paints.
+  const scrimLum = tone === 'dark-text' ? 250 : 11;
+  const bl = Number.isFinite(bandLuminance) ? bandLuminance : (tone === 'dark-text' ? 255 : 0);
+  for (let a = FLOOR; a <= CEIL + 1e-9; a += 0.02) {
+    const eff = bl * (1 - a) + scrimLum * a;
+    if (contrastRatio(inkLum, eff) >= OVERLAY.MIN_CONTRAST) return Math.round(a * 100) / 100;
+  }
+  return CEIL;
 }
 
 /**
@@ -617,14 +688,27 @@ function computeOverlayLayout(fonts, captionText, zone, { pw, ph }) {
  * @param {string} zone - art-direction textZone (left-top | left-bottom |
  *   right-top | right-bottom | left | right); the horizontal component chose
  *   WHICH page — here it also fixes which edge is the fold.
+ * P5 (2026-07-23 audit): the halo/shadow are non-text glyph OUTLINES
+ * (drawGlyphOutlineRun) — only the readable fill is a real pdf-lib drawText,
+ * so pdftotext extracts each caption line exactly once (the shipped book
+ * doubled every word because the halo copies were selectable text).
+ *
  * @param {{ pw: number, ph: number, tone?: 'dark-text'|'light-text',
- *           haloStrength?: 'normal'|'strong' }} dims
+ *           haloStrength?: 'normal'|'strong', scrimAlpha?: number }} dims -
+ *   scrimAlpha is the P4 center opacity (0 disables); the scrim is otherwise
+ *   always drawn for embedded captions.
  */
-function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text', haloStrength = 'normal', scrim = false }) {
+function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'light-text', haloStrength = 'normal', scrimAlpha = 0 }) {
   const layout = computeOverlayLayout(fonts, captionText, zone, { pw, ph });
   if (!layout) return;
   const { pad, placement, block } = layout;
   const { font, size, lines, lineH, blockH } = block;
+  // P5: the fontkit instance matching the resolved overlay font (bubblegum,
+  // else playfair). Absent only when both TTFs failed to load — then the halo
+  // degrades to the legacy text copies (a doubled-extraction fallback that is
+  // strictly better than no halo, and effectively never hit in production).
+  const fkFont = font === fonts.bubblegum ? fonts._fk?.bubblegum
+    : font === fonts.playfair ? fonts._fk?.playfair : null;
 
   // startY = baseline of the topmost line (PDF y grows upward). Both anchors
   // grow toward the page center; computeCaptionBlock's maxH guarantees the
@@ -637,12 +721,15 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'li
   const fill = dark ? rgb(0.13, 0.11, 0.09) : C.white;
   const halo = dark ? rgb(1, 1, 0.97) : rgb(0.08, 0.07, 0.06);
 
-  // Soft scrim behind the block on busy/low-contrast bands (2026-07-20):
-  // three nested translucent rectangles fake a feathered panel (pdf-lib has
-  // no blur or corner radius) — outermost largest, each ~0.12 opacity, so
-  // the center reads ~0.34 while the edge fades in two 5pt steps. Dark
-  // behind white type; warm white behind dark ink.
-  if (scrim && lines.length > 0) {
+  // Scrim behind the block (2026-07-20; P4 2026-07-23: now always on with an
+  // auto-strengthened opacity). Three nested translucent rectangles fake a
+  // feathered panel (pdf-lib has no blur or corner radius) — outermost
+  // largest, so the center reads at scrimAlpha and the edge fades in two 5pt
+  // steps. Per-layer opacity is derived so the three stacked layers composite
+  // to the requested center alpha: 1-(1-p)^3 = scrimAlpha. Dark behind white
+  // type; warm white behind dark ink.
+  if (scrimAlpha > 0 && lines.length > 0) {
+    const layerOpacity = 1 - Math.pow(1 - Math.min(0.98, scrimAlpha), 1 / 3);
     const widest = Math.max(...lines.map((l) => font.widthOfTextAtSize(l, size)));
     const SCRIM_PAD = 14;
     const scrimColor = dark ? rgb(1, 1, 0.97) : rgb(0.04, 0.04, 0.07);
@@ -658,20 +745,30 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'li
         width: w,
         height: h,
         color: scrimColor,
-        opacity: 0.12,
+        opacity: layerOpacity,
       });
     }
   }
 
-  // pdf-lib has no blur, so the halo is layered type: each line drawn 8× per
-  // ring around the fill, plus a drop shadow under white type. Busy bands
+  // pdf-lib has no blur, so the halo is a layered soft ring: each line drawn
+  // 8× around the fill, plus a drop shadow under white type. Busy bands
   // ('strong') get a second, wider ring at higher opacity — tone alone can't
-  // buy readability over high-contrast detail.
+  // buy readability over high-contrast detail. P5: the ring + shadow are
+  // non-text glyph OUTLINES (drawGlyphOutlineRun) when a fontkit instance is
+  // available, so only the fill below is extractable; otherwise they degrade
+  // to the legacy selectable-text copies.
   const HALO_PROFILES = {
     normal: { rings: [1.3], opacity: 0.7, shadowOffset: 1.1, shadowOpacity: 0.35 },
     strong: { rings: [2.2, 1.1], opacity: 0.85, shadowOffset: 1.6, shadowOpacity: 0.5 },
   };
   const profile = HALO_PROFILES[haloStrength] || HALO_PROFILES.normal;
+  const drawDecoration = (line, dx, dy, color, opacity) => {
+    if (fkFont) {
+      drawGlyphOutlineRun(page, fkFont, line, dx, dy, size, color, opacity);
+    } else {
+      page.drawText(line, { x: dx, y: dy, size, font, color, opacity });
+    }
+  };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const y = startY - i * lineH;
@@ -681,12 +778,13 @@ function drawCaptionOverlay(page, fonts, captionText, zone, { pw, ph, tone = 'li
     for (const O of profile.rings) {
       const ring = [[-O, 0], [O, 0], [0, -O], [0, O], [-O, -O], [-O, O], [O, -O], [O, O]];
       for (const [dx, dy] of ring) {
-        page.drawText(line, { x: x + dx, y: y + dy, size, font, color: halo, opacity: profile.opacity });
+        drawDecoration(line, x + dx, y + dy, halo, profile.opacity);
       }
     }
     if (!dark) {
-      page.drawText(line, { x: x + profile.shadowOffset, y: y - profile.shadowOffset, size, font, color: C.black, opacity: profile.shadowOpacity });
+      drawDecoration(line, x + profile.shadowOffset, y - profile.shadowOffset, C.black, profile.shadowOpacity);
     }
+    // The single extractable copy — the readable fill (P5).
     page.drawText(line, { x, y, size, font, color: fill });
   }
 }
@@ -747,9 +845,13 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       console.warn(`[LayoutEngine] zone band sampling failed (defaulting to light-text): ${e.message}`);
     }
   }
+  // P4: scrim is always on for embedded captions; opacity auto-strengthens to
+  // clear MIN_CONTRAST against the sampled band (falls back to the FLOOR when
+  // the art could not be sampled).
   const scrim = shouldScrim(metrics);
+  const scrimAlpha = scrimOpacityFor(tone, metrics ? metrics.luminance : NaN);
   try {
-    drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone, haloStrength, scrim });
+    drawCaptionOverlay(textPage, fonts, entry.captionText || '', zone, { pw, ph, tone, haloStrength, scrimAlpha });
   } catch (e) {
     console.warn(`[LayoutEngine] caption overlay failed: ${e.message}`);
   }
@@ -761,6 +863,7 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       tone,
       haloStrength,
       scrim,
+      scrimAlpha,
       busy: metrics ? metrics.busy : null,
       luminance: metrics ? Math.round(metrics.luminance) : null,
       maxStdev: metrics ? Math.round(metrics.maxStdev) : null,
@@ -2234,5 +2337,9 @@ module.exports = {
   zoneHeroOverlap,
   chooseOverlayZone,
   shouldScrim,
+  scrimOpacityFor,
+  drawGlyphOutlineRun,
+  drawCaptionOverlay,
+  loadFonts,
   OVERLAY,
 };
