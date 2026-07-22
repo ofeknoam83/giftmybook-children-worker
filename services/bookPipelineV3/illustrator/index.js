@@ -385,6 +385,7 @@ async function runNativeIllustrator(input, ctx) {
   ctx.reportProgress?.({ step: 'illustrating', message: 'Book pass (contact-sheet review)' });
   let residualFlags = [];
   let bookPassMinors = [];
+  let coverNeedsReharmonize = null; // P2: cover↔interior parity break, forces cover re-harmonize downstream
   for (let wave = 0; wave <= BOOK_PASS_REGEN_WAVES; wave += 1) {
     const winners = [...selections.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -397,6 +398,13 @@ async function runNativeIllustrator(input, ctx) {
     // (2026-07-19: spread-vs-spread prop judging could not converge).
     const pass = await runBookPass({ manuscript, direction, winners, cover: coverImage, propPlate, abortSignal, log });
     bookPassMinors = pass.minorFlags; // latest whole-book review wins
+    // P2 (2026-07-23 audit): the cover itself read as 2D over 3D interiors.
+    // The interior pipeline can't re-harmonize the cover (it is generated in a
+    // later step), so record the parity break on the document — server.js forces
+    // a cover re-harmonize from this flag. Latest wave's verdict wins.
+    if (pass.coverStyleBreak?.broke) {
+      coverNeedsReharmonize = pass.coverStyleBreak;
+    }
     log(`book pass${wave ? ` (post-regen)` : ''}: ${pass.pass ? 'PASS' : `critical=[${pass.criticalFlags.map((f) => `${f.spread}: ${f.issue}`).join('; ')}]`}${pass.minorFlags.length ? ` advisories=${pass.minorFlags.length}` : ''} — ${pass.notes}`);
     if (pass.pass) { residualFlags = []; break; }
     residualFlags = pass.criticalFlags;
@@ -600,6 +608,13 @@ async function runNativeIllustrator(input, ctx) {
       defects: shipReviews.flatMap((r) => r.defects || []).slice(0, 50),
       candidateUrls: shipReviews.flatMap((r) => r.candidateUrls || []).slice(0, 20),
     };
+  }
+  // P2: signal a cover re-harmonize when the book pass judged the cover itself
+  // off-style versus the 3D interiors (server.js consumes this before building
+  // the cover PDF).
+  if (coverNeedsReharmonize) {
+    doc.coverNeedsReharmonize = true;
+    qaAdvisories.push({ stage: 'bookPass', spread: 'cover', note: `cover↔interior style parity break: ${coverNeedsReharmonize.reason} — cover re-harmonized to 3D` });
   }
   doc.qaAdvisories = qaAdvisories.slice(0, 40);
   if (doc.qaAdvisories.length > 0) {
