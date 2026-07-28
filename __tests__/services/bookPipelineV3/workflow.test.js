@@ -18,6 +18,12 @@ jest.mock('../../../services/bookPipelineV3/llm/modelRouter', () => ({
   DEFAULT_ROUTING: { WRITER: { family: 'anthropic', tier: 'strong' } },
 }));
 
+// Cover pre-flight touches the network (download + vision) — pass-through
+// mock; its own behavior is unit-tested in coverPreflight.test.js.
+jest.mock('../../../services/bookPipelineV3/illustrator/coverPreflight', () => ({
+  resolveCoverAnchor: jest.fn(async ({ coverImageUrl }) => ({ url: coverImageUrl || null, harmonized: false, advisory: null })),
+}));
+
 // Mock the native illustrator (the only illustrator since the cutover):
 // compose the same v1-shaped doc the real one does, minus the rendering.
 jest.mock('../../../services/bookPipelineV3/illustrator', () => ({

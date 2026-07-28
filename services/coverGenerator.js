@@ -1494,6 +1494,9 @@ module.exports = {
   UPSELL_STYLE_LABELS,
   geminiImagePartFromResponsePart,
   shouldSkipCoverStyleHarmonize,
+  // Exported for the v3 cover pre-flight (illustrator/coverPreflight.js):
+  // harmonize the anchor cover BEFORE interiors render, not only at PDF time.
+  harmonizeChosenCoverToInteriorStyle,
   wrapTextToWidth,
   drawBackCoverTypeset,
   qaBackCoverArtwork,

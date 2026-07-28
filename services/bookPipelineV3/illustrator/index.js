@@ -66,7 +66,7 @@ class ArtDirectionBounceError extends Error {
 async function runNativeIllustrator(input, ctx) {
   const {
     identityKit, rawRequest, brief, ageProfile, concept, manuscript,
-    coverImageUrl, coverTitle, operationalContext, allowBounce = true,
+    coverImageUrl, coverTitle, coverPreflight = null, operationalContext, allowBounce = true,
     textLayout = 'caption',
   } = input;
   const log = (m) => ctx.log('info', `[v3-illustrator] ${m}`);
@@ -156,6 +156,11 @@ async function runNativeIllustrator(input, ctx) {
   // Each plate is also medium-checked (plateStyleQa) — a plate dropped after
   // failing twice surfaces here as an artDirection advisory.
   const plateAdvisories = [];
+  // Cover pre-flight outcome (workflow-resolved): a harmonized or unfixable
+  // anchor is book-visible, never silent.
+  if (coverPreflight?.advisory) {
+    plateAdvisories.push({ stage: 'artDirection', spread: 'cover', note: coverPreflight.advisory });
+  }
   const platesByLocation = await renderWorldPlates({
     plates: direction.worldPlates,
     paletteArc: direction.paletteArc,

@@ -38,6 +38,7 @@ const { manuscriptRevisionActivity, mergeTargets } = require('../activities/manu
 const { runNativeIllustrator } = require('../../illustrator');
 const { resolveIllustratorVersion } = require('../../illustrator/config');
 const { buildIdentityKit } = require('../../illustrator/identityKit');
+const { resolveCoverAnchor } = require('../../illustrator/coverPreflight');
 const { validatePanelFamilies } = require('../../llm/modelRouter');
 
 const MAX_REVISION_ROUNDS = 2;
@@ -341,6 +342,20 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   const textLayout = rawRequest?.checkpointTextLayout || rawRequest?.textLayout || 'caption';
   ctx.log('info', `[v3] text layout: ${textLayout}`);
 
+  // Cover pre-flight (2026-07-28): resolve ONE verified cover anchor before
+  // anything consumes it. The approved cover is the style ground truth for
+  // the sheet, every spread render, the plates AND the spread judge — a 2D
+  // cover inverted every guard, and harmonization used to run only at
+  // cover-PDF time (after the interiors). Never blocks: failure keeps the
+  // original URL with an advisory.
+  const coverAnchor = await resolveCoverAnchor({
+    bookId,
+    coverImageUrl: rawRequest?.cover?.imageUrl || null,
+    abortSignal: signals?.abortSignal,
+    log: (m) => ctx.log('info', `[v3] ${m}`),
+  });
+  const resolvedCoverUrl = coverAnchor.url;
+
   // A0 identity kit runs in PARALLEL with the writer —
   // photos → likeness brief → judged character model sheet, GCS-cached.
   // Joined before rendering; a kit failure surfaces there.
@@ -354,7 +369,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
       childDetails: { name: rawRequest?.child?.name, gender: rawRequest?.child?.gender },
       // The parent-approved cover anchors sheet generation (it's an
       // illustration, so attaching it is PROHIBITED_CONTENT-safe).
-      coverImageUrl: rawRequest?.cover?.imageUrl || null,
+      coverImageUrl: resolvedCoverUrl,
       bookId,
       // pick_sheet resolution (admin picked a rejected candidate) bypasses
       // generation + judging on the re-dispatch.
@@ -372,7 +387,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // (the activity catches its own errors and returns null — engine-level
   // errors like aborts still propagate)
   const coverImagery = await ctx.execute('coverImagery', coverImageryActivity,
-    { coverImageUrl: rawRequest?.cover?.imageUrl || null }, { retries: 1 });
+    { coverImageUrl: resolvedCoverUrl }, { retries: 1 });
   const brief = await ctx.execute('brief', creativeBriefActivity, { rawRequest, ageProfile, coverImagery }, { retries: 1 });
   ledger.add('brief', brief);
 
@@ -556,8 +571,11 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     ageProfile,
     concept: outcome.manuscript.concept_id === runnerUpConcept?.id ? runnerUpConcept : winnerConcept,
     manuscript,
-    coverImageUrl: rawRequest?.cover?.imageUrl || null,
+    coverImageUrl: resolvedCoverUrl,
     coverTitle: rawRequest?.cover?.title || null,
+    // Pre-flight outcome — the illustrator records the advisory (if any) as
+    // an artDirection qaAdvisory so a harmonized/unfixable anchor is visible.
+    coverPreflight: coverAnchor,
     operationalContext: signals,
     textLayout,
   };
