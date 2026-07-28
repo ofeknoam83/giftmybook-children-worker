@@ -127,6 +127,9 @@ function toKitResult(attempt, allAttempts, extra = {}) {
   return {
     sheetBuffer: attempt.candidate.buffer,
     sheetMime: attempt.candidate.mimeType,
+    // The model that ACTUALLY rendered the winning sheet (imageClient reports
+    // the fallback when the configured id 404'd) — renderer-model audit.
+    sheetRendererModel: attempt.candidate.model || null,
     judgeScores: {
       minLikeness: attempt.verdict.minLikeness,
       verdicts: attempt.verdict.verdicts.map((v) => ({ role: v.role, family: v.family, model: v.model, likeness: v.likeness })),

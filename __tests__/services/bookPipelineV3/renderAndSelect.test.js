@@ -43,6 +43,8 @@ const { judgeLikenessCrossFamily } = require('../../../services/bookPipelineV3/i
 const { buildSpreadRenderPrompt } = require('../../../services/bookPipelineV3/illustrator/render/renderSpread');
 const { renderAllSpreadsNative, candidatePath, createLimiter } = require('../../../services/bookPipelineV3/illustrator/render/renderAllSpreads');
 const { STYLE_VERSION } = require('../../../services/bookPipelineV3/illustrator/styleBible');
+const { SPREAD_RENDERER_MODEL } = require('../../../services/bookPipelineV3/illustrator/config');
+const MODEL_SLUG = String(SPREAD_RENDERER_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_');
 const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('../../../services/bookPipelineV3/illustrator/qa/select');
 
 const SPREAD = (n) => ({
@@ -191,8 +193,8 @@ describe('renderAllSpreadsNative', () => {
     });
     expect(res).toHaveLength(2);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/spread-1-c1.png`,
-      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/spread-1-c2.png`,
+      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.png`,
+      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c2.png`,
     ]);
     expect(generateImage).toHaveBeenCalledTimes(4);
   });
@@ -204,9 +206,9 @@ describe('renderAllSpreadsNative', () => {
   // render aspect (1:1 vs 16:9). An admin flip re-renders only the missing
   // aspect and a flip-back replays the original renders.
   test('candidatePath segments the cache by style version and text layout', () => {
-    expect(candidatePath('bk', 4, 2)).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/spread-4-c2.png`);
-    expect(candidatePath('bk', 4, 2, 'png', 'caption')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/spread-4-c2.png`);
-    expect(candidatePath('bk', 4, 2, 'png', 'embedded')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/spread-4-c2.wide.png`);
+    expect(candidatePath('bk', 4, 2)).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-4-c2.png`);
+    expect(candidatePath('bk', 4, 2, 'png', 'caption')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-4-c2.png`);
+    expect(candidatePath('bk', 4, 2, 'png', 'embedded')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-4-c2.wide.png`);
   });
 
   test('candidates cached under an older style version are never reused', async () => {
@@ -227,8 +229,8 @@ describe('renderAllSpreadsNative', () => {
     expect(generateImage).toHaveBeenCalledTimes(2);
     expect(res[0].candidates.every((c) => !c.reused)).toBe(true);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/spread-1-c1.png`,
-      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/spread-1-c2.png`,
+      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.png`,
+      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c2.png`,
     ]);
   });
 
@@ -249,11 +251,11 @@ describe('renderAllSpreadsNative', () => {
     // The square cache did not satisfy the wide render — fresh candidates.
     expect(generateImage).toHaveBeenCalledTimes(2);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/spread-1-c1.wide.png`,
-      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/spread-1-c2.wide.png`,
+      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.wide.png`,
+      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c2.wide.png`,
     ]);
     // The original caption renders survive for a flip-back.
-    expect(mockGcsFiles.has(`children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/spread-1-c1.png`)).toBe(true);
+    expect(mockGcsFiles.has(`children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.png`)).toBe(true);
   });
 
   test('resume: existing GCS candidates are reused, only missing ones render', async () => {

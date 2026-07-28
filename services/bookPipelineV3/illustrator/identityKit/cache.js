@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const { saveJson, loadJson, uploadBuffer } = require('../../../gcsStorage');
 const { STYLE_VERSION } = require('../styleBible');
+const { SHEET_RENDERER_MODEL } = require('../config');
 
 /** Bump to invalidate every cached kit (prompt/judging changes). */
 // ik-2: cover-anchored sheet generation + defect-fed repair wave (2026-07-15)
@@ -20,9 +21,11 @@ const { STYLE_VERSION } = require('../styleBible');
 // ik-4: renderer upgraded to the pro image tier — flash-rendered sheets
 //       must regenerate (the sheet anchors every spread; a flash sheet
 //       under pro spreads reintroduces a quality/style seam).
-//       NOTE: the pro id turned out unprovisioned (404) and defaults
-//       reverted to flash — when the REAL pro model id lands via the env
-//       overrides, bump to ik-5 so sheets regenerate on actual pro.
+// 2026-07-28: the RENDERER MODEL joined the cache key itself, so a model
+//       flip (env override or a future pro default) invalidates cached
+//       sheets automatically — no more "remember to bump to ik-5 when the
+//       real pro id lands" footgun. KIT_PROMPT_VERSION now only tracks
+//       prompt/judging changes.
 const KIT_PROMPT_VERSION = 'ik-4';
 
 const KIT_CACHE_PREFIX = 'identity-kit';
@@ -42,7 +45,8 @@ function computeKitCacheKey(photoUrls, coverImageUrl = null) {
   const coverHash = coverImageUrl
     ? `-c${crypto.createHash('sha256').update(stable(coverImageUrl)).digest('hex').slice(0, 12)}`
     : '';
-  return `${KIT_CACHE_PREFIX}/${photoHash}${coverHash}-${STYLE_VERSION}-${KIT_PROMPT_VERSION}`;
+  const modelSlug = String(SHEET_RENDERER_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_');
+  return `${KIT_CACHE_PREFIX}/${photoHash}${coverHash}-${STYLE_VERSION}-${KIT_PROMPT_VERSION}-${modelSlug}`;
 }
 
 /**

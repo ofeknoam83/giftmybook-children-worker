@@ -40,7 +40,7 @@ const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
 const { candidatePath } = require('./render/renderAllSpreads');
 const { downloadPhotoAsBase64 } = require('../../illustrationGenerator');
-const { BOOK_PASS_REGEN_WAVES, BOOK_PASS_SHIP_ON_EXHAUSTION, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED } = require('./config');
+const { BOOK_PASS_REGEN_WAVES, BOOK_PASS_SHIP_ON_EXHAUSTION, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED, SPREAD_RENDERER_MODEL } = require('./config');
 
 const IMPLEMENTED_PHASES = [
   'identityKit (W4)', 'render (W5)', 'qa+selection (W6)',
@@ -334,7 +334,7 @@ async function runNativeIllustrator(input, ctx) {
         const candidateIndex = baseIndex + i + 1;
         const path = candidatePath(bookId, spreadNumber, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
-        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
+        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex, rendererModel: img.model || null });
       }
       const rerun = await selectSpreadWinner({
         bookId,
@@ -465,7 +465,7 @@ async function runNativeIllustrator(input, ctx) {
         const candidateIndex = baseIndex + i + 1;
         const path = candidatePath(bookId, flag.spread, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
-        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
+        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex, rendererModel: img.model || null });
       }
       const rerun = await selectSpreadWinner({
         bookId,
@@ -620,6 +620,31 @@ async function runNativeIllustrator(input, ctx) {
   if (coverNeedsReharmonize) {
     doc.coverNeedsReharmonize = true;
     qaAdvisories.push({ stage: 'bookPass', spread: 'cover', note: `cover↔interior style parity break: ${coverNeedsReharmonize.reason} — cover re-harmonized to 3D` });
+  }
+  // Renderer-model audit (2026-07-28): imageClient's flash fallback on a
+  // 404'd configured id used to be console-only — a "poisoned" instance
+  // rendered whole books on flash indistinguishably from pro ones. The
+  // winners now carry the model that ACTUALLY rendered them; a mismatch vs
+  // the configured id becomes a book-level advisory + doc.rendererModels.
+  {
+    const usedModels = new Set();
+    const downgradedSpreads = [];
+    for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
+      const winner = result.allCandidates?.find((c) => c.candidateIndex === result.selected?.candidateIndex);
+      const model = winner?.rendererModel;
+      if (!model) continue; // reused-from-GCS candidates carry no live model id
+      usedModels.add(model);
+      if (model !== SPREAD_RENDERER_MODEL) downgradedSpreads.push(spreadNumber);
+    }
+    doc.rendererModels = { configured: SPREAD_RENDERER_MODEL, used: [...usedModels] };
+    if (downgradedSpreads.length > 0) {
+      log(`WARNING: renderer model downgrade — configured '${SPREAD_RENDERER_MODEL}' but spreads [${downgradedSpreads.join(', ')}] rendered on [${[...usedModels].filter((m) => m !== SPREAD_RENDERER_MODEL).join(', ')}] (invalid configured id? see imageClient fallback logs)`);
+      qaAdvisories.push({
+        stage: 'render',
+        spread: null,
+        note: `renderer model downgrade: configured '${SPREAD_RENDERER_MODEL}', spreads [${downgradedSpreads.join(', ')}] rendered on the fallback model — fix BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL to a ListModels-confirmed id`,
+      });
+    }
   }
   doc.qaAdvisories = qaAdvisories.slice(0, 40);
   if (doc.qaAdvisories.length > 0) {

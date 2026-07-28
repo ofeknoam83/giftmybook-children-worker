@@ -13,7 +13,10 @@
 const { uploadBuffer, downloadBuffer } = require('../../../gcsStorage');
 const { renderSpreadCandidates } = require('./renderSpread');
 const { STYLE_VERSION } = require('../styleBible');
-const { CANDIDATES_PER_SPREAD, RENDER_CONCURRENCY } = require('../config');
+const { CANDIDATES_PER_SPREAD, RENDER_CONCURRENCY, SPREAD_RENDERER_MODEL } = require('../config');
+
+/** Path-safe slug of the CONFIGURED spread renderer model (cache segment). */
+const RENDERER_MODEL_SLUG = String(SPREAD_RENDERER_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_');
 
 /** Minimal semaphore — no dependency. */
 function createLimiter(max) {
@@ -45,6 +48,13 @@ function createLimiter(max) {
  *   ones after nine interior revisions. A bump now re-renders every spread
  *   once on the next run (same contract as the identity-kit cache, which has
  *   been keyed by STYLE_VERSION since sb-0).
+ * - the CONFIGURED renderer model (a slug segment) — a model flip (env
+ *   override, or the pro default landing) re-renders instead of replaying
+ *   old-model pixels, and a flip-back replays the originals. Keyed by the
+ *   CONFIGURED id: when imageClient falls back to flash on a 404'd id, the
+ *   flash pixels cache under the configured id's segment — the per-candidate
+ *   `rendererModel` metadata + the book-level downgrade advisory make that
+ *   visible instead of silent.
  * - the text layout (which drives the render aspect: 1:1 caption vs 16:9
  *   embedded). Caption keeps the suffix-free filename; embedded renders live
  *   beside them under a `.wide` marker. An admin textLayout flip therefore
@@ -64,7 +74,7 @@ function createLimiter(max) {
  */
 function candidatePath(bookId, spreadNumber, candidateIndex, ext = 'png', textLayout = 'caption') {
   const variant = textLayout === 'embedded' ? '.wide' : '';
-  return `children-jobs/${bookId}/v3-renders/${STYLE_VERSION}/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
+  return `children-jobs/${bookId}/v3-renders/${STYLE_VERSION}/${RENDERER_MODEL_SLUG}/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
 }
 
 /**
@@ -79,7 +89,9 @@ async function loadExistingCandidates(bookId, spreadNumber, textLayout = 'captio
     try {
       const path = candidatePath(bookId, spreadNumber, i, 'png', textLayout);
       const buf = await downloadBuffer(path);
-      found.push({ path, base64: buf.toString('base64'), mimeType: 'image/png', candidateIndex: i, reused: true });
+      // Reused pixels were rendered under this same configured-model path
+      // segment; the live model id wasn't persisted, so it stays null.
+      found.push({ path, base64: buf.toString('base64'), mimeType: 'image/png', candidateIndex: i, reused: true, rendererModel: null });
     } catch {
       // missing — will render
     }
@@ -139,6 +151,9 @@ async function renderAllSpreadsNative({
         base64: img.buffer.toString('base64'),
         mimeType: img.mimeType || 'image/png',
         candidateIndex: img.candidateIndex,
+        // The model that ACTUALLY rendered (imageClient reports the fallback
+        // when the configured id 404'd) — feeds the downgrade advisory.
+        rendererModel: img.model || null,
       });
     }
     candidates.sort((a, b) => a.candidateIndex - b.candidateIndex);
