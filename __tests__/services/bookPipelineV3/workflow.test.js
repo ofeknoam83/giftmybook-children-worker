@@ -88,7 +88,8 @@ function wireModelLayer({ judgeScore = 4, flagged = [{ spread: 2, dimension: 'ag
       });
     }
     if (label.startsWith('v3.manuscript.')) return resp(makeManuscriptJson(13));
-    if (label === 'v3.revision' || label === 'v3.revision.contractfix') {
+    if (label === 'v3.revision' || label === 'v3.revision.contractfix'
+      || label === 'v3.polish' || label === 'v3.polish.contractfix') {
       // Return every targeted spread rewritten (valid shape). Bounce targets
       // (requireContractChange) get a CHANGED scene_contract, mirroring a
       // compliant writer.
@@ -170,6 +171,43 @@ describe('runCreateBookWorkflow — happy path', () => {
     const labels = callWithRole.mock.calls.map(([, p]) => p.label);
     expect(labels.filter((l) => l === 'v3.revision')).toHaveLength(0);
     expect(labels.filter((l) => l.startsWith('v3.manuscript.'))).toHaveLength(2); // A + B only, no fresh
+  });
+});
+
+// Post-panel polish pass (2026-07-28): an ACCEPTED manuscript's judge flags
+// and soft lints previously evaporated — the fixture manuscript's identical
+// spread openers trip the repetitive_opener lint, giving the pass targets.
+describe('runCreateBookWorkflow — polish pass', () => {
+  afterEach(() => { delete process.env.BOOK_PIPELINE_V3_POLISH_PASS; });
+
+  test('runs on the accept path and persists softLints on writerQa.gate', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const { document } = await runCreateBookWorkflow({ rawRequest: { ...RAW_REQUEST }, signals: {}, log: () => {} });
+    const labels = callWithRole.mock.calls.map(([, p]) => p.label);
+    expect(labels.filter((l) => l === 'v3.polish')).toHaveLength(1);
+    expect(document.writerQa.pass).toBe(true);
+    const lintCodes = (document.writerQa.gate.softLints || []).map((l) => l.code);
+    expect(lintCodes).toContain('repetitive_opener');
+  });
+
+  test('BOOK_PIPELINE_V3_POLISH_PASS=0 disables it', async () => {
+    process.env.BOOK_PIPELINE_V3_POLISH_PASS = '0';
+    wireModelLayer({ judgeScore: 5 });
+    await runCreateBookWorkflow({ rawRequest: { ...RAW_REQUEST }, signals: {}, log: () => {} });
+    const labels = callWithRole.mock.calls.map(([, p]) => p.label);
+    expect(labels.filter((l) => l === 'v3.polish')).toHaveLength(0);
+  });
+
+  test('a failing polish call never breaks the book (pre-polish manuscript ships)', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const base = callWithRole.getMockImplementation();
+    callWithRole.mockImplementation(async (role, params) => {
+      if (params.label === 'v3.polish') throw new Error('polish model down');
+      return base(role, params);
+    });
+    const { document } = await runCreateBookWorkflow({ rawRequest: { ...RAW_REQUEST }, signals: {}, log: () => {} });
+    expect(document.spreads).toHaveLength(13);
+    expect(document.writerQa.pass).toBe(true);
   });
 });
 

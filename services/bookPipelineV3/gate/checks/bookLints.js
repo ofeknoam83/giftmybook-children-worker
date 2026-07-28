@@ -165,9 +165,13 @@ function unintroducedPropLint(manuscript) {
 
 /**
  * word_overuse: a content word used more times than the spread count
- * (e.g. "crystal" ×18 in a 13-spread book). Advisory only — never a
- * revision target on its own (a whole-book synonym pass is editorial,
- * not surgical).
+ * (e.g. "crystal" ×18 in a 13-spread book). Originally advisory with no
+ * targets ("a whole-book synonym pass is editorial, not surgical") —
+ * which meant the finding was detected and then DISCARDED on every book
+ * (the 2026-07-18 audit's #1 rhythm finding). Now the two spreads where
+ * the word is densest become surgical targets: thinning the worst
+ * clusters breaks the drone without a whole-book sweep, and gives the
+ * post-panel polish pass something to grab.
  *
  * @param {object} manuscript
  * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
@@ -175,13 +179,16 @@ function unintroducedPropLint(manuscript) {
 function wordOveruseLint(manuscript) {
   const spreads = manuscript.spreads || [];
   const refrainWords = new Set(normalizeSentence(refrainTextOf(manuscript)).split(' ').filter(Boolean));
-  const counts = new Map();
+  const counts = new Map(); // word → total count
+  const bySpread = new Map(); // word → Map<spread, count>
   for (const s of spreads) {
     const text = normalizeSentence(s.text || (s.lines || []).join('\n'));
     for (const raw of text.split(' ')) {
       const word = raw.replace(/s$/, ''); // crude plural fold (crystals → crystal)
       if (word.length < 4 || FREQUENCY_STOPWORDS.has(raw) || FREQUENCY_STOPWORDS.has(word) || refrainWords.has(raw)) continue;
       counts.set(word, (counts.get(word) || 0) + 1);
+      if (!bySpread.has(word)) bySpread.set(word, new Map());
+      bySpread.get(word).set(s.spread, (bySpread.get(word).get(s.spread) || 0) + 1);
     }
   }
   const threshold = Math.max(8, spreads.length);
@@ -189,12 +196,16 @@ function wordOveruseLint(manuscript) {
     .filter(([, n]) => n > threshold)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([word, n]) => ({
-      code: 'word_overuse',
-      message: `"${word}" appears ~${n} times across ${spreads.length} spreads — vary the wording (synonyms, pronouns, imagery) to keep the read-aloud rhythm fresh`,
-      spreads: [],
-      targetSpreads: [],
-    }));
+    .map(([word, n]) => {
+      const perSpread = [...(bySpread.get(word) || new Map()).entries()].sort((a, b) => b[1] - a[1]);
+      const densest = perSpread.slice(0, 2).map(([spread]) => spread).sort((a, b) => a - b);
+      return {
+        code: 'word_overuse',
+        message: `"${word}" appears ~${n} times across ${spreads.length} spreads — thin it on the densest spreads (${densest.join(', ')}) with synonyms, pronouns, or imagery to keep the read-aloud rhythm fresh`,
+        spreads: perSpread.map(([spread]) => spread).sort((a, b) => a - b),
+        targetSpreads: densest,
+      };
+    });
 }
 
 /** Sorted spreads with normalized text/lines accessors — shared by the lints below. */

@@ -109,13 +109,18 @@ describe('unintroducedPropLint', () => {
 });
 
 describe('wordOveruseLint', () => {
-  test('flags a signature noun used more often than the spread count', () => {
+  test('flags a signature noun used more often than the spread count, targeting the densest spreads', () => {
     const line = 'The crystal path met a crystal arch by the crystal crater.';
     const m = ms(Array.from({ length: 6 }, () => line));
+    // Make spread 3 the densest so the target choice is deterministic.
+    m.spreads[2].text = `${line} A crystal moon over a crystal sea.`;
     const lints = wordOveruseLint(m);
-    expect(lints.some((l) => l.message.includes('"crystal"'))).toBe(true);
-    // Advisory only — no revision targets.
-    expect(lints.every((l) => l.targetSpreads.length === 0)).toBe(true);
+    const crystal = lints.find((l) => l.message.includes('"crystal"'));
+    expect(crystal).toBeTruthy();
+    // 2026-07-28: densest spreads become surgical targets (was advisory-only,
+    // which meant the finding was detected then discarded on every book).
+    expect(crystal.targetSpreads).toHaveLength(2);
+    expect(crystal.targetSpreads).toContain(3);
   });
 
   test('normal prose stays silent', () => {

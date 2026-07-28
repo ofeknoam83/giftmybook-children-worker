@@ -476,8 +476,57 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     }
   }
 
-  const { manuscript, gate, panel } = outcome;
+  let { manuscript, gate } = outcome;
+  const { panel } = outcome;
   const panelSummary = summarizePanel(panel, manuscript.id);
+
+  // ── polish pass (2026-07-28) ──
+  // A PASSING panel still leaves per-spread judge flags and soft lints
+  // behind — previously detected and then discarded, so an accepted-first-try
+  // book shipped its weakest spreads untouched. One craft pass on the 2-3
+  // weakest spreads (flagged by 2+ judges, or lint-targeted: overused words,
+  // formulaic hooks), then a re-gate; if the polish breaks the gate the
+  // pre-polish manuscript ships unchanged. Kill-switch:
+  // BOOK_PIPELINE_V3_POLISH_PASS=0.
+  if (process.env.BOOK_PIPELINE_V3_POLISH_PASS !== '0' && outcome.accepted) {
+    const flaggedSpreads = panel?.perManuscript?.[manuscript.id]?.flaggedSpreads || [];
+    const flagCounts = new Map();
+    for (const f of flaggedSpreads) {
+      if (Number.isFinite(f?.spread)) flagCounts.set(f.spread, (flagCounts.get(f.spread) || 0) + 1);
+    }
+    const lintTargets = new Set((gate?.softLints || []).flatMap((l) => l.targetSpreads || []));
+    const polishSet = new Set([
+      ...[...flagCounts.entries()].filter(([, n]) => n >= 2).map(([s]) => s),
+      ...lintTargets,
+    ]);
+    const targets = mergeTargets(flaggedSpreads, [], gate?.softLints || [])
+      .filter((t) => polishSet.has(t.spread))
+      .sort((a, b) => b.notes.length - a.notes.length)
+      .slice(0, 3)
+      .sort((a, b) => a.spread - b.spread);
+    if (targets.length > 0) {
+      ctx.reportProgress({ step: 'writerQa', message: 'Polish pass on the weakest spreads' });
+      ctx.log('info', `[v3] polish pass: spreads [${targets.map((t) => t.spread).join(',')}] (${flaggedSpreads.length} judge flags, ${lintTargets.size} lint-targeted)`);
+      try {
+        const polished = await ctx.execute(
+          'polish.main',
+          manuscriptRevisionActivity,
+          { brief, ageProfile, manuscript, targets, mode: 'polish' },
+          { retries: 0 },
+        );
+        ledger.add('polish.main', polished);
+        const check = await prepareCandidate({ ctx, manuscript: polished, ageProfile, brief, roundTag: 'polish', ledger });
+        if (check.eligible) {
+          manuscript = check.manuscript;
+          gate = check.gate;
+        } else {
+          ctx.log('warn', `[v3] polish pass broke the gate (${check.gate.hardFailureCount} hard failures after fix) — REVERTING to the pre-polish manuscript`);
+        }
+      } catch (err) {
+        ctx.log('warn', `[v3] polish pass failed (${err.message}) — shipping the pre-polish manuscript`);
+      }
+    }
+  }
 
   // ── illustrating ──
   ctx.checkAbort();
@@ -541,6 +590,9 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
       passed: gate.passed,
       hardFailureCount: gate.hardFailureCount,
       perSpread: gate.perSpread.map((e) => ({ spread: e.spread, passed: e.passed, failureCount: e.failures.length })),
+      // Soft lints were previously logged and lost — persisting them lets the
+      // admin dashboard see the craft observations on the SHIPPED manuscript.
+      softLints: (gate.softLints || []).map((l) => ({ code: l.code, message: l.message, targetSpreads: l.targetSpreads || [] })),
     } : null,
     panel: panelSummary,
   };
