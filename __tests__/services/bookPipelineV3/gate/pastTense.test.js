@@ -49,4 +49,35 @@ describe('pastTenseCheck', () => {
     const r = pastTenseCheck({ text: 'Mama looked up.' }, {}, {});
     expect(r.passed).toBe(true);
   });
+
+  // 2026-07-28 false-positive fixes: participial adjectives and lexical
+  // -ed/-eed words hard-failed infant books ("Mama plants a seed").
+  describe('adjectival/lexical -ed exemptions', () => {
+    test('copula + participial adjective passes ("Baby is tired")', () => {
+      expect(pastTenseCheck({ text: 'Baby is tired. Mama hums.' }, {}, infantBand).passed).toBe(true);
+    });
+
+    test('intensifier + adjective passes ("so excited")', () => {
+      expect(pastTenseCheck({ text: 'Baby claps, so excited.' }, {}, infantBand).passed).toBe(true);
+    });
+
+    test('attributive position passes ("the striped hat", "a curved shell")', () => {
+      expect(pastTenseCheck({ text: 'Mama holds the striped hat.' }, {}, infantBand).passed).toBe(true);
+      expect(pastTenseCheck({ text: 'Baby pats a curved shell.' }, {}, infantBand).passed).toBe(true);
+    });
+
+    test('-eed words pass ("seed", "needs")', () => {
+      expect(pastTenseCheck({ text: 'Mama plants a seed. Baby needs a nap.' }, {}, infantBand).passed).toBe(true);
+    });
+
+    test('lexical -ed words pass ("hundred", "wicked")', () => {
+      expect(pastTenseCheck({ text: 'One hundred stars shine.' }, {}, infantBand).passed).toBe(true);
+    });
+
+    test('subject-position past tense still fails ("Baby jumped")', () => {
+      const r = pastTenseCheck({ text: 'Baby jumped high.' }, {}, infantBand);
+      expect(r.passed).toBe(false);
+      expect(r.detail.verb.toLowerCase()).toBe('jumped');
+    });
+  });
 });

@@ -1,248 +1,34 @@
 /**
- * Shared constants for the new children book generation pipeline.
+ * Shared constants for the children book generation pipeline (v1 document
+ * contract). Slimmed 2026-07-28: this module once carried the full v1/v2
+ * product-default tables (per-line word budgets, rhyme policy, model
+ * routing, repair budgets, per-band writer temperatures). All of those were
+ * dead after the v3 cutover — nothing imported them, several were keyed by
+ * the retired '0-1'/'0-3' band values instead of the live 'PB_INFANT'-style
+ * keys, and the jobs they described moved to their real owners:
  *
- * These values encode the product defaults locked into the rewrite plan:
- * 13 spreads for both formats, two age bands for picture books plus an
- * older early-reader band, premium 3D Pixar style, text-in-image layout,
- * OpenAI-first model strategy, and bounded repair budgets.
+ *   words/lines per spread → ageProfiles/*.json narrativeConstraints
+ *                            (gate/checks/wordBudget.js, lineCount.js)
+ *   form/rhyme choice      → the concept's form_choice (schema/document.js
+ *                            FORM_CHOICES; gate identityRhyme)
+ *   model routing          → llm/modelRouter.js (+ illustrator/config.js)
+ *   repair budgets         → illustrator/config.js
+ *
+ * Only the three live exports remain.
  */
 
 // AA-CW-6: bumped v1 → v2. The v1 → v2 cutover marks a stack of breaking
-// pipeline changes shipped over AA-CW-1 through AA-CW-5b: regex sanitizers
-// removed, planner guard added, writer/QA refactored to a single LLM judge,
-// canonical pronouns persisted on the brief and threaded through every
-// downstream prompt, infant rule consolidated to one source of truth
-// (textPolicies), arcContext block surfaced at the writer prompt boundary.
-// Older books in storage still tagged v1 — layoutEngine and any back-fill
-// workers should not assume v1 == v2.
+// pipeline changes shipped over AA-CW-1 through AA-CW-5b. Older books in
+// storage still tagged v1 — layoutEngine and any back-fill workers should
+// not assume v1 == v2.
 const PIPELINE_VERSION = 'book-pipeline-v2';
-
-const FORMATS = {
-  PICTURE_BOOK: 'picture_book',
-  EARLY_READER: 'early_reader',
-};
-
-const AGE_BANDS = {
-  // Lap-baby band. Under ~18 months. The book is read TO the baby by the
-  // parent, so we write FOR the parent reading aloud — short sensory
-  // observation pairs, no plot, no dialogue, no locomotion verbs. The hero
-  // can sit (supported), be held, reach, smile, look — but cannot stand
-  // unsupported, walk, run, climb, or grab moving objects.
-  PB_INFANT: '0-1',
-  PB_TODDLER: '0-3',
-  PB_PRESCHOOL: '3-6',
-  ER_EARLY: '6-8',
-};
 
 const TOTAL_SPREADS = 13;
 
-const TEXT_LINE_TARGET = {
-  // Picture books (ages 0-6) are locked at exactly 4 lines per spread,
-  // for a musical, read-aloud cadence and consistent page shape. The
-  // infant band (0-1) shares this 4-line shape with the toddler band:
-  // parents reading to babies still want a full musical moment per spread,
-  // and a uniform shape simplifies layout, QA, and downstream rendering.
-  //
-  // Rhyme scheme is band-conditional (AA-CW-17):
-  //   * PB_TODDLER and PB_PRESCHOOL: full AABB rhyming couplets.
-  //   * PB_INFANT: lines 1+2 must rhyme; lines 3+4 may rhyme OR be
-  //     free-verse with parallel rhythm. The relaxation exists because at
-  //     the infant per-line word budget (2-5 words/hardMax 6) the writer's
-  //     search space for the second couplet collapses into identity rhymes,
-  //     forced meaning drift, or invented props (book e3f4e0c0 production
-  //     evidence). Lines 1+2 still rhyme to anchor the board-book sing-song.
-  //
-  // The infant band keeps a tighter per-line word budget (see
-  // WORDS_PER_LINE_TARGET) so the 4 lines stay board-book brief.
-  // Early readers stay at 3-4 prose lines.
-  [AGE_BANDS.PB_INFANT]: { min: 4, max: 4 },
-  [AGE_BANDS.PB_TODDLER]: { min: 4, max: 4 },
-  [AGE_BANDS.PB_PRESCHOOL]: { min: 4, max: 4 },
-  [AGE_BANDS.ER_EARLY]: { min: 3, max: 4 },
-};
-
-// Words-per-line budgets. Picture-book toddler band (0-3) reads much more
-// musically with very short lines (bedtime/board-book cadence), so we hold
-// each of the 4 AABB lines to ~3-7 words. Preschool band (3-6) can carry
-// the slightly longer ~6-12 word phrasing that works for parent-read-aloud.
-// Early readers can run longer but remain sentence-length.
-const WORDS_PER_LINE_TARGET = {
-  // Infants (0-1) get the tightest budget — 2-5 words per line, hardMax 6.
-  // Designed for the parent reading aloud to a baby who is listening for
-  // sound and rhythm rather than meaning. AA-CW-17 relaxes the rhyme rule
-  // for this band (lines 1+2 rhyme; lines 3+4 may be free-verse) precisely
-  // because this tight word budget made the second couplet's search space
-  // unrecoverable under the strict AABB constraint.
-  [AGE_BANDS.PB_INFANT]: { min: 2, max: 5, hardMax: 6 },
-  [AGE_BANDS.PB_TODDLER]: { min: 3, max: 7, hardMax: 8 },
-  [AGE_BANDS.PB_PRESCHOOL]: { min: 6, max: 12, hardMax: 14 },
-  [AGE_BANDS.ER_EARLY]: { min: 6, max: 14, hardMax: 18 },
-};
-
 const VISUAL_STYLE = 'premium-3d-pixar';
-
-const RHYME_POLICY = {
-  [FORMATS.PICTURE_BOOK]: 'default_rhyme',
-  [FORMATS.EARLY_READER]: 'prose',
-};
-
-const TEXT_PLACEMENT = {
-  DEFAULT_SIDE_POLICY: 'usually_one_side',
-  NEVER_CROSS_CENTER: true,
-};
-
-// Model routing — we deliberately split by creativity level. The big model
-// (gpt-5.4) is reserved for stages that MAKE story — the creative story
-// bible and the actual manuscript text. Everything else (visual bible
-// extraction, spread-beat distribution, illustration-spec composition, QA)
-// is structural transformation of already-creative inputs and runs on a
-// fast / cheap model. Cost: gpt-5.4-mini is ~17× cheaper than gpt-5.4.
-const MODELS = {
-  // --- Creative stages (expensive, high-reasoning) ---
-  STORY_BIBLE: 'gpt-5.4',
-  WRITER: 'gpt-5.4',
-
-  // --- Structural stages (fast / cheap) ---
-  VISUAL_BIBLE: 'gpt-5.4-mini',
-  SPREAD_SPECS: 'gpt-5.4-mini',
-  ILLUSTRATION_SPEC: 'gpt-5.4-mini',
-
-  // --- QA models ---
-  // AA-CW-24: same-family self-critique. The judge enumerates only clear,
-  // mechanically falsifiable defects (dropped articles, broken rhymes,
-  // pronoun mistakes, age-inappropriate actions) and biases toward not
-  // flagging. The writer↔judge loop runs up to 3 waves and always returns
-  // the best-seen draft — never fails the book.
-  WRITER_JUDGE: 'gpt-5.4',
-  BOOK_WIDE_QA: 'gemini-2.5-flash',
-  SPREAD_QA_VISION: 'gemini-2.5-flash',
-
-  // --- Image rendering ---
-  // Switchable via services/illustrator/sessionDispatch.js:
-  //   - 'gemini-3.1-flash-image'  → Nano Banana 2 (Gemini chat session, stateful) — default
-  //   - 'gpt-image-2'                     → OpenAI Images 2.0 (stateless), 1:1 + caption-on-verso layout
-  // The Gemini path emits a wide (16:9) per-spread image with the caption baked
-  // in, and the layout engine splits it. The OpenAI path emits 1:1 (1024×1024)
-  // per-spread images; the layout engine places the square illustration on the
-  // recto page and renders the caption as PDF text on the verso.
-  SPREAD_RENDER: 'gemini-3.1-flash-image',
-
-  // Deprecated alias — keep until callers are fully migrated.
-  PLANNER: 'gpt-5.4',
-};
-
-const REPAIR_BUDGETS = {
-  // AA-CW-24: writer↔judge loop runs up to 3 waves. Each wave is one judge
-  // call + one writer rewrite call. After the last wave, one final judge
-  // pass scores the result so best-seen tracking is honest. Worst case:
-  // 3 judge + 3 writer + 1 final judge = 7 LLM calls.
-  writerRewriteWaves: 3,
-  // Per-pair budget = perSpreadInSessionCorrections + perSpreadPromptRepairs.
-  // Bumped 3+2 → 5+3 (May 2026): production logs show pairs frequently
-  // accept on attempts 2-3 after a cover re-anchor, but late-book outfit /
-  // hair continuity drift can still need 4-5 attempts. The extra headroom
-  // also covers the case where attempt 1 burns on a transient style or
-  // outfit issue that the correction turn can fix in-session — cheaper
-  // than rebuilding the whole illustrator session.
-  perSpreadInSessionCorrections: 5,
-  perSpreadPromptRepairs: 3,
-  /** Session rebuilds allowed when illustration hits Gemini safety — extra headroom after re-anchor fallback. */
-  perSpreadEscalations: 3,
-  /** After all in-session attempts fail, rebuild the illustrator session and retry that many full cycles (each cycle = same per-spread attempt budget). */
-  perSpreadExtraSessionRounds: 4,
-  bookWideRepairWaves: 2,
-  /**
-   * Early-abort threshold for the quad illustrator: if a spread pair is
-   * rejected this many times in a row with `age_action_impossible` in the
-   * tags, give up immediately. The illustrator cannot fix age violations
-   * caused by the manuscript text (the writer asked for an action the
-   * hero cannot physically perform), so further attempts only burn GPU
-   * time. The pair fails with `infant_action_text_unrenderable` so the
-   * operator knows the writer is the culprit.
-   */
-  ageActionImpossibleConsecutiveAbort: 3,
-};
-
-/** Max recent accepted interior images passed into spread consistency QA (plus cover + candidate). */
-const QA_RECENT_INTERIOR_REFERENCES = 3;
-
-const FAILURE_CODES = {
-  COVER_MISSING: 'cover_missing',
-  PLAN_UNRESOLVABLE: 'plan_unresolvable',
-  SPREAD_UNRESOLVABLE: 'spread_unresolvable',
-  BOOK_WIDE_UNRESOLVABLE: 'book_wide_unresolvable',
-  SAFETY_BLOCK: 'safety_block',
-  UPSTREAM_UNAVAILABLE: 'upstream_unavailable',
-};
-
-// Quad/legacy renderer selection (GIFTMYBOOK_QUAD_SPREAD_ILLUSTRATOR,
-// getIllustrationRenderer) deleted in the native-illustrator cutover —
-// interiors render per-spread at 1:1 inside bookPipelineV3/illustrator.
-
-// PR J.4 — per-band sampling temperatures for the writer.
-//
-// The PB_INFANT band is a hard-constraint creative task: the manuscript
-// must obey the still-point rule, the safe-action whitelist, the no-
-// dialogue rule, and a tight 4-line / 2-5-words-per-line cadence (two AABB
-// couplets, board-book-brief). At
-// temperature 0.95 the writer samples close to the most diverse part of
-// the conditional distribution, which is exactly where playful
-// locomotion verbs (twirl, dance, bounce) live for a children's book
-// theme. Lowering the temperature for the infant band biases sampling
-// toward the high-probability, on-instruction tokens — the writer can
-// still rhyme and vary imagery, but won't reach for exotic verb choices
-// that violate the band constraints.
-//
-// Toddler and preschool bands keep their original temperatures because
-// their constraint set is much wider (a toddler can absolutely run, hop,
-// climb) and we want the writer's full creative range there.
-const WRITER_TEMPERATURE = {
-  draft: {
-    [AGE_BANDS.PB_INFANT]: 0.6,
-    [AGE_BANDS.PB_TODDLER]: 0.95,
-    [AGE_BANDS.PB_PRESCHOOL]: 0.95,
-    [AGE_BANDS.ER_EARLY]: 0.95,
-  },
-  rewrite: {
-    [AGE_BANDS.PB_INFANT]: 0.4,
-    [AGE_BANDS.PB_TODDLER]: 0.85,
-    [AGE_BANDS.PB_PRESCHOOL]: 0.85,
-    [AGE_BANDS.ER_EARLY]: 0.85,
-  },
-};
-
-/**
- * Resolve the writer sampling temperature for a given stage and age band.
- * Falls back to the toddler default for unknown bands so we never crash
- * on a stage call — the toddler default matches the historical literal.
- *
- * @param {'draft'|'rewrite'} stage
- * @param {string} ageBand
- * @returns {number}
- */
-function getWriterTemperature(stage, ageBand) {
-  const table = WRITER_TEMPERATURE[stage];
-  if (!table) return 0.95;
-  if (ageBand && Object.prototype.hasOwnProperty.call(table, ageBand)) {
-    return table[ageBand];
-  }
-  return table[AGE_BANDS.PB_TODDLER];
-}
 
 module.exports = {
   PIPELINE_VERSION,
-  FORMATS,
-  AGE_BANDS,
   TOTAL_SPREADS,
-  TEXT_LINE_TARGET,
-  WORDS_PER_LINE_TARGET,
   VISUAL_STYLE,
-  RHYME_POLICY,
-  TEXT_PLACEMENT,
-  MODELS,
-  REPAIR_BUDGETS,
-  QA_RECENT_INTERIOR_REFERENCES,
-  FAILURE_CODES,
-  WRITER_TEMPERATURE,
-  getWriterTemperature,
 };

@@ -355,12 +355,51 @@ function refrainNeverEvolvesLint(manuscript) {
 }
 
 /**
+ * word_length: words longer than the band's vocabularyConstraints
+ * .maxWordLengthChars (the ONLY machine-checkable field in that config —
+ * the category labels have no lexicons and stay prompt-only). Advisory
+ * with targets: an 11-letter word in an infant book is a read-aloud
+ * stumble the writer can fix surgically. Exemptions: the child's name and
+ * capitalized tokens (proper nouns).
+ *
+ * @param {object} manuscript
+ * @param {{ageProfile?: object, protagonistName?: string}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function wordLengthLint(manuscript, opts = {}) {
+  const maxLen = Number(opts.ageProfile?.vocabularyConstraints?.maxWordLengthChars);
+  if (!Number.isFinite(maxLen) || maxLen < 4) return [];
+  const nameLower = String(opts.protagonistName || '').toLowerCase();
+  const offenders = new Map(); // word → Set<spread>
+  for (const s of sortedSpreads(manuscript)) {
+    for (const raw of String(s.text || linesOf(s).join(' ')).match(/[A-Za-z']+/g) || []) {
+      if (/^[A-Z]/.test(raw)) continue; // proper nouns / sentence-case names
+      const word = raw.toLowerCase().replace(/'/g, '');
+      if (word.length <= maxLen || word === nameLower) continue;
+      if (!offenders.has(word)) offenders.set(word, new Set());
+      offenders.get(word).add(s.spread);
+    }
+  }
+  if (offenders.size === 0) return [];
+  const words = [...offenders.keys()].sort((a, b) => b.length - a.length).slice(0, 5);
+  const targetSpreads = [...new Set(words.flatMap((w) => [...offenders.get(w)]))].sort((a, b) => a - b).slice(0, 3);
+  return [{
+    code: 'word_length',
+    message: `word(s) over the band's ${maxLen}-character read-aloud budget: ${words.map((w) => `"${w}"`).join(', ')} — swap for shorter words on the targeted spreads`,
+    spreads: targetSpreads,
+    targetSpreads,
+  }];
+}
+
+/**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
  * @param {object} manuscript
+ * @param {{ageProfile?: object, protagonistName?: string}} [opts] - band
+ *   profile + child name for the vocabulary-aware lints
  * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
  */
-function runBookLints(manuscript) {
+function runBookLints(manuscript, opts = {}) {
   const all = [];
   for (const lint of [
     duplicateClimaxLint, unintroducedPropLint, wordOveruseLint,
@@ -371,6 +410,11 @@ function runBookLints(manuscript) {
     } catch (err) {
       console.warn(`[v3] book lint ${lint.name} threw (skipping): ${err.message}`);
     }
+  }
+  try {
+    all.push(...wordLengthLint(manuscript, opts));
+  } catch (err) {
+    console.warn(`[v3] book lint wordLengthLint threw (skipping): ${err.message}`);
   }
   return all;
 }
@@ -384,5 +428,6 @@ module.exports = {
   monotonePageTurnLint,
   repetitiveOpenerLint,
   refrainNeverEvolvesLint,
+  wordLengthLint,
   normalizeSentence,
 };

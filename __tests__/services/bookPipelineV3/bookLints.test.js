@@ -269,6 +269,32 @@ describe('refrain shape handling (object vs legacy string)', () => {
   });
 });
 
+describe('wordLengthLint', () => {
+  const { wordLengthLint } = require('../../../services/bookPipelineV3/gate/checks/bookLints');
+  const infantProfile = { vocabularyConstraints: { maxWordLengthChars: 7 } };
+
+  test('flags over-budget words with targets; name and proper nouns exempt', () => {
+    const m = {
+      spreads: [
+        { spread: 1, text: 'Scarlett sees a wonderful underwater rainbow.' },
+        { spread: 2, text: 'Mama hums soft.' },
+      ],
+    };
+    const lints = wordLengthLint(m, { ageProfile: infantProfile, protagonistName: 'Scarlett' });
+    expect(lints).toHaveLength(1);
+    expect(lints[0].code).toBe('word_length');
+    expect(lints[0].message).toContain('"underwater"');
+    expect(lints[0].message).toContain('"wonderful"');
+    expect(lints[0].message).not.toContain('Scarlett');
+    expect(lints[0].targetSpreads).toEqual([1]);
+  });
+
+  test('silent when the band has no limit or all words fit', () => {
+    expect(wordLengthLint({ spreads: [{ spread: 1, text: 'a very extraordinarily long word' }] }, {})).toEqual([]);
+    expect(wordLengthLint({ spreads: [{ spread: 1, text: 'short words only here' }] }, { ageProfile: infantProfile })).toEqual([]);
+  });
+});
+
 describe('runBookLints', () => {
   test('never throws on malformed manuscripts', () => {
     expect(runBookLints({})).toEqual([]);

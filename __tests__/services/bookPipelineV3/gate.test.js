@@ -88,6 +88,35 @@ describe('nameLock', () => {
     });
     expect(r.passed).toBe(true);
   });
+
+  // 2026-07-28: "Daddy lifts his hat" in a she/her book hard-failed even
+  // though the scene contract listed Dad as visibly present. A cast member
+  // whose gendered role explains the pronouns now justifies them; without
+  // one the lock fails exactly as before.
+  test('opposite-set pronouns pass when a matching cast member is present', () => {
+    const d = {
+      ...draft('Daddy lifts his hat. Zoe giggles.'),
+      scene_contract: { characters_present: ['Zoe', 'Dad'] },
+    };
+    const r = nameLockCheck(d, null, PRESCHOOL, {
+      protagonistName: 'Zoe',
+      pronouns: { subject: 'she', object: 'her' },
+    });
+    expect(r.passed).toBe(true);
+  });
+
+  test('opposite-set pronouns still fail when no cast member explains them', () => {
+    const d = {
+      ...draft('Zoe lifts his bucket high.'),
+      scene_contract: { characters_present: ['Zoe', 'a small turtle'] },
+    };
+    const r = nameLockCheck(d, null, PRESCHOOL, {
+      protagonistName: 'Zoe',
+      pronouns: { subject: 'she', object: 'her' },
+    });
+    expect(r.passed).toBe(false);
+    expect(r.code).toBe('pronoun_lock');
+  });
 });
 
 describe('runManuscriptGate', () => {
