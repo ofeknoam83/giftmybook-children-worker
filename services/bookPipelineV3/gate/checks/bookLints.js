@@ -403,6 +403,46 @@ function wordLengthLint(manuscript, opts = {}) {
 }
 
 /**
+ * Wearable-gear vocabulary the illustrator must reconcile (2026-07-28 audit,
+ * book 4c8daf08: the prose read "behind his visor" and "gloved finger" while
+ * every illustration showed a bare-headed kid in a hoodie with bare hands —
+ * a text-vs-art mismatch parents notice on every read). Conservative list:
+ * words that unambiguously dress the hero in drawable gear.
+ */
+const WEARABLE_GEAR_WORDS = new Set([
+  'visor', 'helmet', 'goggles', 'spacesuit', 'glove', 'gloves', 'gloved',
+]);
+
+/**
+ * Surface story-worn gear so the writer (on a revision round) either commits
+ * to it or drops it — and so the art-direction stage's TEXT-WORN GEAR rule
+ * has a paper trail. Soft lint: never gates.
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function wearableGearLint(manuscript) {
+  const bySpread = new Map(); // spread → Set<word>
+  for (const s of sortedSpreads(manuscript)) {
+    for (const raw of String(s.text || linesOf(s).join(' ')).match(/[A-Za-z']+/g) || []) {
+      const word = raw.toLowerCase();
+      if (!WEARABLE_GEAR_WORDS.has(word)) continue;
+      if (!bySpread.has(s.spread)) bySpread.set(s.spread, new Set());
+      bySpread.get(s.spread).add(word);
+    }
+  }
+  if (bySpread.size === 0) return [];
+  const spreads = [...bySpread.keys()].sort((a, b) => a - b);
+  const detail = spreads.map((n) => `spread ${n}: ${[...bySpread.get(n)].join('/')}`).join('; ');
+  return [{
+    code: 'wearable_gear',
+    message: `the text dresses the hero in wearable gear (${detail}) — the art must show this gear (the art director locks it via continuityLocks.gear) or the prose should drop the gear wording; gear words with no gear in the art read as a mistake on every page`,
+    spreads,
+    targetSpreads: spreads.slice(0, 3),
+  }];
+}
+
+/**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
  * @param {object} manuscript
@@ -415,6 +455,7 @@ function runBookLints(manuscript, opts = {}) {
   for (const lint of [
     duplicateClimaxLint, unintroducedPropLint, wordOveruseLint,
     unintroducedRefrainObjectLint, monotonePageTurnLint, repetitiveOpenerLint, refrainNeverEvolvesLint,
+    wearableGearLint,
   ]) {
     try {
       all.push(...lint(manuscript));
@@ -440,5 +481,6 @@ module.exports = {
   repetitiveOpenerLint,
   refrainNeverEvolvesLint,
   wordLengthLint,
+  wearableGearLint,
   normalizeSentence,
 };

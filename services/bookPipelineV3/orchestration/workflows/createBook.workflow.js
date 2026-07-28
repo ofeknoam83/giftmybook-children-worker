@@ -23,7 +23,7 @@
 const { createWorkflowContext } = require('../workflowEngine');
 const { createArtifactStore } = require('../../artifactStore');
 const { getAgeProfile } = require('../../ageProfiles');
-const { deriveAgeBandFromRequest } = require('../../ageProfiles');
+const { deriveAgeBandFromRequest, applyEmbeddedLayoutBudget } = require('../../ageProfiles');
 const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 const { TOTAL_SPREADS } = require('../../contract/constants');
 
@@ -341,6 +341,11 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // zone. Checkpoint wins so resumed books finish on the mode they started.
   const textLayout = rawRequest?.checkpointTextLayout || rawRequest?.textLayout || 'caption';
   ctx.log('info', `[v3] text layout: ${textLayout}`);
+  // Embedded captions share the page with the art — clamp the band's word
+  // budget ONCE here so the writer prompt, mechanical gate, and every other
+  // consumer of the profile agree (2026-07-28 audit: 55-75-word captions
+  // scrimmed over 30-45% of the art in embedded book 4c8daf08).
+  applyEmbeddedLayoutBudget(ageProfile, textLayout);
 
   // Cover pre-flight (2026-07-28): resolve ONE verified cover anchor before
   // anything consumes it. The approved cover is the style ground truth for

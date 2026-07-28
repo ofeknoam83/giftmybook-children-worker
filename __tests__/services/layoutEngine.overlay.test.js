@@ -206,6 +206,39 @@ describe('wrapTextBalanced (orphan control, 2026-07-18 print audit)', () => {
       expect(lines.join(' ')).toBe(text);
     }
   });
+
+  // 2026-07-28 audit (book 4c8daf08): the evenness-only DP shipped breaks
+  // after articles/possessives — "His / robot rolls", "above the / hills" —
+  // that stumble when read aloud. Real captions from that book: no wrapped
+  // line may end with a function word.
+  describe('function-word break penalty (2026-07-28 audit)', () => {
+    const badEndings = require('./../../services/layoutEngine').BREAK_AVOID_WORDS;
+    const shippedBadBreaks = [
+      'His backpack bumps his shoulders. His robot rolls beside him, map lit green.',
+      'A ringed planet hangs huge above the hills, bright enough to paint shadows.',
+      'Now Amit understands the bridge hum and the leaf that folded shut.',
+      'He does not find one message. He finds many, layered and bright and gentle.',
+    ];
+    for (const text of shippedBadBreaks) {
+      test(`no line ends with a function word: "${text.slice(0, 40)}…"`, () => {
+        for (const maxW of [120, 160, 200]) {
+          const lines = wrapTextBalanced(text, stubFont, 10, maxW);
+          expect(lines.join(' ')).toBe(text);
+          // Every line except the last must not end on a glue word.
+          for (const line of lines.slice(0, -1)) {
+            const lastWord = line.split(' ').pop().toLowerCase().replace(/[^a-z']/g, '');
+            expect(badEndings.has(lastWord)).toBe(false);
+          }
+        }
+      });
+    }
+
+    test('an impossible measure still wraps (penalty is finite)', () => {
+      // Only 4 chars per line: every word must sit alone, including "the".
+      const lines = wrapTextBalanced('to the moon', stubFont, 10, 20);
+      expect(lines.join(' ')).toBe('to the moon');
+    });
+  });
 });
 
 describe('chooseOverlayZone (subject-aware caption placement)', () => {

@@ -88,6 +88,11 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     embedded
       ? 'ONE CONTINUOUS SCENE: the two halves are ONE panorama, never two mirrored panels. Every distinctive landmark (an archway, a rocket, a doorway, a tunnel mouth) appears EXACTLY ONCE in the whole image — never once per half, never as symmetric twins — and no large landmark sits centered on the fold line.'
       : null,
+    // 2026-07-28 audit (book 4c8daf08): three wide spreads rendered as
+    // photographs of an OPEN BOOK — page-stack edges, page curls, and a desk
+    // surface printed into the real pages. "Spread that spans two pages"
+    // invites the book-photo reading, so pin the camera inside the world.
+    'FULL-BLEED SCENE ONLY: the image IS the scene itself, painted edge to edge — the camera is INSIDE the story world. NEVER render a photograph or mockup of a physical book or page: no book pages, page stacks, page curls, paper edges, page margins, borders, frames, fold shadows, desk or table surfaces, or any depiction of the book itself.',
     '',
     // Prompt hygiene (2026-07-28): the bible LEADS the prompt. It used to sit
     // at block 11 of 17, after all the scene/continuity/palette free text —

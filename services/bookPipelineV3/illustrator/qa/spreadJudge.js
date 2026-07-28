@@ -38,6 +38,9 @@ const SPREAD_QA_TAGS = [
   // wide-spread fold classes (landmark painted once per half, or the focal
   // subject split by the fold).
   'object_count_mismatch', 'photo_blur', 'duplicated_landmark', 'fold_collision',
+  // 2026-07-28 audit (book 4c8daf08): wide renders came back as photographs of
+  // an open book — page-stack borders and desk surfaces printed into the pages.
+  'mockup_frame',
 ];
 
 /**
@@ -62,7 +65,12 @@ const ANATOMY_COUNT_TAGS = ['anatomy_hands', 'anatomy_limbs'];
  * way anatomy and cast do. These tags (and a style score <= 2, which the
  * prompt reserves for a medium break) now always escalate to critical.
  */
-const STYLE_BREAK_TAGS = ['style_drift', 'photo_blur'];
+const STYLE_BREAK_TAGS = ['style_drift', 'photo_blur',
+  // A book-mockup frame (the render is a photo of an open book, not the scene)
+  // is a broken render medium the same way photoreal drift is — always
+  // critical. Deterministic pixel backstop: mockupFrameCheck in
+  // deterministicChecks.js catches the white page-stack form before judging.
+  'mockup_frame'];
 
 function buildSpreadJudgePrompt({ sceneContract, direction, hasCover = false, captionText = null, wideSpread = false, heroRequired = false }) {
   return `You are quality-judging a children's picture-book illustration against its scene contract. You are the PRINT-DEFECT gate: block images a parent would consider broken; do not block images over stylistic or interpretive nitpicks.
@@ -90,7 +98,7 @@ THE PARENT TEST — a defect is "critical" ONLY if a parent flipping through the
 3. countably wrong anatomy (extra/missing/fused fingers, a third arm)
 4. the contracted action ENTIRELY absent (not merely staged differently)
 5. the wrong setting
-6. a jarring style break — the book's signature style is a premium STYLIZED 3D CGI animated-film render; flat 2D/painterly/watercolor/line-art/cel-shaded drift is the break, AND SO IS a flat VECTOR look with hard cel outlines or uniform flat color fills${hasCover ? ', as is any rendering style clearly inconsistent with the COVER reference (e.g. a drawn/painted look where the cover is a dimensional 3D render, or desaturated washed-out color where the cover is rich)' : ''}. A live-action PHOTOGRAPH look (real people, real sets) OR a photorealistic real-skin/real-camera CGI render is also a break; but cinematic depth-of-field/bokeh WITHIN the stylized 3D render is part of the style, never a defect (judge the RENDER MEDIUM — stylized 3D vs flat-2D vs photoreal — not the amount of background blur)
+6. a jarring style break — the book's signature style is a premium STYLIZED 3D CGI animated-film render; flat 2D/painterly/watercolor/line-art/cel-shaded drift is the break, AND SO IS a flat VECTOR look with hard cel outlines or uniform flat color fills${hasCover ? ', as is any rendering style clearly inconsistent with the COVER reference (e.g. a drawn/painted look where the cover is a dimensional 3D render, or desaturated washed-out color where the cover is rich)' : ''}. A live-action PHOTOGRAPH look (real people, real sets) OR a photorealistic real-skin/real-camera CGI render is also a break; but cinematic depth-of-field/bokeh WITHIN the stylized 3D render is part of the style, never a defect (judge the RENDER MEDIUM — stylized 3D vs flat-2D vs photoreal — not the amount of background blur). ALSO a medium break: the image depicts a physical BOOK or PAGE instead of the scene itself — painted page stacks, page curls, paper edges, page margins/borders, a fold shadow, or a desk/table surface at the edges (the render is a "book mockup photo"); tag mockup_frame
 7. a counted-object mismatch: the contract or the printed story text explicitly NUMBERS an object ("three tunnels", "five stones") and the art shows a clearly countable DIFFERENT number of that object. Applies ONLY to explicitly numbered objects that are easy to count in the image — never estimate crowds, scatter, or background texture${wideSpread ? `
 8. (wide spreads only) the same distinctive landmark painted TWICE as symmetric twins (one per half — e.g. two identical archways mirroring each other), or the child/the focal landmark centered ON the fold line where the binding will swallow it` : ''}${heroRequired ? `
 9. the CHILD (the hero this book is personalized for) is NOT visible in the artwork. This is a REQUIRED-hero spread: the child must clearly appear. If the child is entirely absent (only scenery, only other characters, or only a background so small the child cannot be recognized), that is critical — set hero_box to null and tag hero_missing.` : ''}
@@ -116,10 +124,11 @@ Rules:
 - MINOR-ANATOMY ALLOWANCE: subtle stiffness, a slightly awkward grip, or "somewhat unnatural" posing scores 4, not 3. "Stiff", "awkward", or "slightly unnatural" NEVER scores below 4 — only countably wrong anatomy (extra/missing/fused fingers, a third arm) blocks.
 - OBJECT EQUIVALENCE: a required object is satisfied by a reasonable visual equivalent (judge intent, not the literal phrase).
 - OBJECT CRITICALITY: a missing required object is critical ONLY when the action becomes unreadable without it. A small mechanism prop (peg, groove, panel, latch) that is absent while the action still reads clearly is a minor defect.
+- TEXT-FOCAL OBJECTS: when the printed STORY TEXT above centers its beat on one named object (a folded leaf the child leans toward, a key being turned), check that object is actually findable in the art — its complete absence is a contract defect (severity per OBJECT CRITICALITY: critical when the text's beat is unreadable without it, minor otherwise).
 - PROP MICRO-GEOMETRY: the exact point a finger touches or traces on a map or prop, which segment of a path is indicated, or which mark is nearest is NEVER a defect — if the child interacts with the right prop in the right general manner, the contract is satisfied.
 - CHOREOGRAPHY ALLOWANCE: which hand performs an action (left/right are interchangeable — renders mirror freely) and an object's position relative to a small prop feature (over a pocket, near a strap) are NEVER defects. Judge whether the ACTION reads, not its choreography. This allowance covers WHICH of the character's two hands acts — it does NOT excuse a limb COUNT error: a single character showing MORE THAN TWO hands or MORE THAN TWO arms (a third hand, a duplicated/extra arm, a stray hand with no arm) is ALWAYS a countable anatomy defect (critical), tag anatomy_hands or anatomy_limbs, cap anatomy at 2. "How many hands touch the object" is only allowed when the total per character stays at two. (2026-07-23 audit: a three-handed hero shipped on the front cover because the choreography allowance was read as excusing hand COUNT.)
 - NO IDENTITY OR GENDER JUDGING: ${hasCover ? 'the cover reference is for RENDERING STYLE comparison ONLY. ' : 'you have no reference art. '}Never assess whether the character matches a name, assumed gender, appearance, or the cover's child/outfit — a separate likeness judge owns identity. Cast counts NAMED individuals only — a declared group is allowed to be many.
-- STYLE TAGS ARE MEDIUM VERDICTS: emit style_drift ONLY for a true critical-class-6 medium break (the image reads as flat 2D, painterly, vector/cel-shaded, or line-art instead of a dimensional 3D render), and photo_blur ONLY for a live-action-photograph or photoreal-real-skin look. Never emit them for palette warmth, lighting mood, or background-blur amount within the stylized 3D medium — those are minor defects without a style tag.
+- STYLE TAGS ARE MEDIUM VERDICTS: emit style_drift ONLY for a true critical-class-6 medium break (the image reads as flat 2D, painterly, vector/cel-shaded, or line-art instead of a dimensional 3D render), photo_blur ONLY for a live-action-photograph or photoreal-real-skin look, and mockup_frame ONLY when the image depicts a physical book/page (page stacks, page curls, paper edges, borders, fold shadow, desk surface) instead of being the full-bleed scene itself. Never emit them for palette warmth, lighting mood, or background-blur amount within the stylized 3D medium — those are minor defects without a style tag.
 - The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }
 

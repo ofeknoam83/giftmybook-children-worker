@@ -563,6 +563,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
   // (BOOK_PASS_SHIP_ON_EXHAUSTION). The book completes successfully but rides
   // this payload so downstream can still flag it for admin review.
   let shipOnExhaustionReview = null;
+  // Whether the book pass judged the approved cover off-style vs the 3D
+  // interiors — captured here (not read off pipelineResult, which is scoped to
+  // the fresh-generation branch) because the Stage-7 cover build runs for
+  // checkpoint resumes too. Referencing pipelineResult from Stage 7 threw
+  // ReferenceError into the non-blocking catch, silently killing every cover
+  // PDF since 2026-07-22.
+  let coverNeedsReharmonize = false;
 
 
   // Auto-derive emotional tier from age for emotional books
@@ -1074,6 +1081,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         if (qaAdvisories) {
           bookWarnings.push(`QA advisories: ${qaAdvisories.length} minor observation(s) on shipped images (spreads ${[...new Set(qaAdvisories.map(a => a.spread))].join(', ')}) — see qaAdvisories`);
         }
+        coverNeedsReharmonize = pipelineResult.document?.coverNeedsReharmonize === true;
         shipOnExhaustionReview = pipelineResult.document?.bookPassReview || null;
         if (shipOnExhaustionReview) {
           const shipStage = (shipOnExhaustionReview.stages || [shipOnExhaustionReview.stage]).filter(Boolean).join('+') || 'QA';
@@ -1451,7 +1459,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           // P2 (2026-07-23 audit): the book pass judged the cover off-style vs
           // the 3D interiors — force a re-harmonize even if the source is
           // marked as already-3D.
-          forceCoverReharmonize: pipelineResult?.document?.coverNeedsReharmonize === true,
+          forceCoverReharmonize: coverNeedsReharmonize,
         });
         if (coverData?.coverPdfBuffer) {
           await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
@@ -1460,6 +1468,14 @@ Be concise. Only describe adults/secondary people, not the main child.` },
         }
       } catch (coverErr) {
         bookContext.log('error', 'Cover PDF failed (non-blocking)', { error: coverErr.message });
+        // A coverless book must never report as a clean success: without
+        // coverPdfUrl the admin UI shows "Not available" and the Lulu send is
+        // blocked, so surface the failure through the same qaAdvisories /
+        // bookWarnings channel as spread QA residuals (2026-07-28 audit,
+        // book 4c8daf08: a ReferenceError here shipped silently-clean
+        // coverless books for six days).
+        qaAdvisories = [...(qaAdvisories || []), { spread: 'cover', note: `Cover PDF generation failed: ${coverErr.message}`, tag: 'cover_pdf_failed' }].slice(0, 40);
+        bookWarnings.push(`Cover PDF failed: ${coverErr.message} — book has no print cover; rebuild via /rebuild-cover-pdf.`);
       }
 
       // P0 (2026-07-23 audit): a residual cover hero anatomy defect (a
