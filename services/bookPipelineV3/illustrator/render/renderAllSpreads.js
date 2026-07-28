@@ -3,13 +3,16 @@
  * concurrently through the key pool, bounded by RENDER_CONCURRENCY.
  *
  * Crash-safe resume WITHOUT sessions: every candidate is uploaded to a
- * deterministic GCS path (children-jobs/{bookId}/v3-renders/...) and the
- * fan-out checks for an existing object before re-rendering — a worker
- * killed mid-wave re-renders only the missing candidates on retry.
+ * deterministic GCS path (children-jobs/{bookId}/v3-renders/{styleVersion}/...)
+ * and the fan-out checks for an existing object before re-rendering — a worker
+ * killed mid-wave re-renders only the missing candidates on retry. The style
+ * version segments the cache so a style-bible bump invalidates it (see
+ * candidatePath below).
  */
 
 const { uploadBuffer, downloadBuffer } = require('../../../gcsStorage');
 const { renderSpreadCandidates } = require('./renderSpread');
+const { STYLE_VERSION } = require('../styleBible');
 const { CANDIDATES_PER_SPREAD, RENDER_CONCURRENCY } = require('../config');
 
 /** Minimal semaphore — no dependency. */
@@ -33,13 +36,24 @@ function createLimiter(max) {
 
 /**
  * Deterministic GCS path for one rendered candidate. The cache key includes
- * everything that changes the pixels a slot may be REUSED for — so the text
- * layout (which drives the render aspect: 1:1 caption vs 16:9 embedded)
- * segments the cache. Caption keeps the legacy suffix-free path (pre-change
- * caption books resume untouched); embedded renders live beside them under
- * a `.wide` marker. An admin textLayout flip therefore re-renders only the
- * aspect that is missing, and flipping BACK replays the original renders
- * from GCS for free.
+ * everything that changes the pixels a slot may be REUSED for:
+ *
+ * - the STYLE BIBLE version (a `{STYLE_VERSION}` path segment). Before this
+ *   segment existed, a book retried/re-dispatched across a style-bible bump
+ *   replayed its pre-bump candidates from GCS forever — book 16758e3c shipped
+ *   with sb-0-era flat-2D spreads sitting beside freshly-rendered premium-3D
+ *   ones after nine interior revisions. A bump now re-renders every spread
+ *   once on the next run (same contract as the identity-kit cache, which has
+ *   been keyed by STYLE_VERSION since sb-0).
+ * - the text layout (which drives the render aspect: 1:1 caption vs 16:9
+ *   embedded). Caption keeps the suffix-free filename; embedded renders live
+ *   beside them under a `.wide` marker. An admin textLayout flip therefore
+ *   re-renders only the aspect that is missing, and flipping BACK replays the
+ *   original renders from GCS for free.
+ *
+ * A pre-bump needs_review pick_candidate resolution whose stored URL no
+ * longer matches any cached candidate falls through to QA loudly
+ * (illustrator/index.js) — the spread re-renders in the current style.
  *
  * @param {string} bookId
  * @param {number} spreadNumber
@@ -50,7 +64,7 @@ function createLimiter(max) {
  */
 function candidatePath(bookId, spreadNumber, candidateIndex, ext = 'png', textLayout = 'caption') {
   const variant = textLayout === 'embedded' ? '.wide' : '';
-  return `children-jobs/${bookId}/v3-renders/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
+  return `children-jobs/${bookId}/v3-renders/${STYLE_VERSION}/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
 }
 
 /**

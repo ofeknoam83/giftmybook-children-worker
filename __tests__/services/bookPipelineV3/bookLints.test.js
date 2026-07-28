@@ -11,6 +11,10 @@ const {
   duplicateClimaxLint,
   unintroducedPropLint,
   wordOveruseLint,
+  unintroducedRefrainObjectLint,
+  monotonePageTurnLint,
+  repetitiveOpenerLint,
+  refrainNeverEvolvesLint,
 } = require('../../../services/bookPipelineV3/gate/checks/bookLints');
 const { selectPlateProps } = require('../../../services/bookPipelineV3/illustrator/artDirection/propPlate');
 const { normalizeHeroBox, buildSpreadJudgePrompt } = require('../../../services/bookPipelineV3/illustrator/qa/spreadJudge');
@@ -117,6 +121,151 @@ describe('wordOveruseLint', () => {
   test('normal prose stays silent', () => {
     const m = ms(['A quiet page.', 'Another calm page.', 'The end nears.']);
     expect(wordOveruseLint(m)).toEqual([]);
+  });
+});
+
+// 2026-07-28 lints (book 16758e3c, "Liv's Great Underwater Discovery"):
+// the refrain chased "the sound" that no line ever introduced, a question
+// ended 11 of 13 spreads, and "Swish, swish—Liv" opened 10 of 13.
+describe('unintroducedRefrainObjectLint', () => {
+  test('flags the Liv case: the refrain asks about "the sound" nobody planted', () => {
+    const m = {
+      title: 'T',
+      refrain: { text: 'Could this be the sound?', evolution: [] },
+      spreads: [
+        { spread: 1, text: 'Liv swims with Bun. A gold chest gleams far ahead.' },
+        { spread: 2, text: 'Liv kicks past berries. Could this be the sound?', refrain_here: true },
+        { spread: 3, text: 'Liv glides through reeds. Could this be the sound?', refrain_here: true },
+      ],
+    };
+    const lints = unintroducedRefrainObjectLint(m);
+    expect(lints).toHaveLength(1);
+    expect(lints[0].code).toBe('unintroduced_refrain_object');
+    expect(lints[0].message).toContain('"the sound"');
+    expect(lints[0].targetSpreads).toEqual([1]); // plant it in the opening spread
+  });
+
+  test('a planted quest object never flags', () => {
+    const m = {
+      title: 'T',
+      refrain: { text: 'Could this be the sound?', evolution: [] },
+      spreads: [
+        { spread: 1, text: 'A far-off sound hums under the waves. Liv listens.' },
+        { spread: 2, text: 'Liv kicks past berries. Could this be the sound?', refrain_here: true },
+        { spread: 3, text: 'Reeds sway. Could this be the sound?', refrain_here: true },
+      ],
+    };
+    expect(unintroducedRefrainObjectLint(m)).toEqual([]);
+  });
+
+  test('a refrain with no definite object (or no refrain) stays silent', () => {
+    expect(unintroducedRefrainObjectLint({ refrain: { text: 'This way? That way!' }, spreads: [{ spread: 1, text: 'Go. This way? That way!' , refrain_here: true }] })).toEqual([]);
+    expect(unintroducedRefrainObjectLint({ refrain: null, spreads: [] })).toEqual([]);
+  });
+});
+
+describe('monotonePageTurnLint', () => {
+  const q = (n, opener = 'Liv swims on.') => ({ spread: n, text: `${opener}\nIs THAT the sound?` });
+
+  test('flags a book where (nearly) every spread ends on a question', () => {
+    const m = { spreads: [q(1), q(2), q(3), q(4), q(5), q(6), q(7), { spread: 8, text: 'Liv rests.\nThe reef glows.' }] };
+    const lints = monotonePageTurnLint(m);
+    expect(lints).toHaveLength(1);
+    expect(lints[0].code).toBe('monotone_page_turn');
+    // Middle offenders targeted so the revision has spreads to vary.
+    expect(lints[0].targetSpreads.length).toBeGreaterThan(0);
+    expect(lints[0].targetSpreads.every((s) => s > 1 && s < 8)).toBe(true);
+  });
+
+  test('a book with varied hooks stays silent', () => {
+    const m = {
+      spreads: [q(1), { spread: 2, text: 'Then — plink!' }, q(3), { spread: 4, text: 'The lid creaks…' },
+        q(5), { spread: 6, text: 'Bun leans in.' }, q(7), { spread: 8, text: 'All wiggle.' }],
+    };
+    expect(monotonePageTurnLint(m)).toEqual([]);
+  });
+
+  test('short books are exempt', () => {
+    expect(monotonePageTurnLint({ spreads: [q(1), q(2), q(3)] })).toEqual([]);
+  });
+});
+
+describe('repetitiveOpenerLint', () => {
+  test('flags the Liv case: "Swish, swish—" opening 10 of 13 spreads', () => {
+    const spreads = Array.from({ length: 13 }, (_, i) => ({
+      spread: i + 1,
+      text: i === 0 || i === 6 || i === 12
+        ? 'The reef hums bright.\nFish zip by.'
+        : 'Swish, swish—Liv swims on.\nBright fish zip by.',
+    }));
+    const lints = repetitiveOpenerLint({ spreads });
+    expect(lints).toHaveLength(1);
+    expect(lints[0].code).toBe('repetitive_opener');
+    expect(lints[0].message).toContain('swish swish');
+    expect(lints[0].spreads).toHaveLength(10);
+    // Bookend uses stay; middle occurrences are targeted.
+    expect(lints[0].targetSpreads.length).toBeGreaterThan(0);
+    expect(lints[0].targetSpreads).not.toContain(2);
+  });
+
+  test('an opener on half the spreads or fewer is a ritual, not a rut', () => {
+    const spreads = Array.from({ length: 13 }, (_, i) => ({
+      spread: i + 1,
+      text: i % 2 === 0 ? 'Swish, swish—Liv swims on.' : 'The reef hums.',
+    }));
+    expect(repetitiveOpenerLint({ spreads })).toEqual([]);
+  });
+});
+
+describe('refrainNeverEvolvesLint', () => {
+  const base = { text: 'Could this be the sound?', evolution: [{ phase: 'climax', variant: 'THAT is the sound!' }] };
+
+  test('flags a declared evolution that never prints', () => {
+    const m = {
+      refrain: base,
+      spreads: [
+        { spread: 1, text: 'Liv listens. Could this be the sound?' },
+        { spread: 2, text: 'Reeds sway. Could this be the sound?' },
+        { spread: 3, text: 'Bun bobs. Could this be the sound?' },
+        { spread: 4, text: 'Liv laughs and laughs.' },
+      ],
+    };
+    const lints = refrainNeverEvolvesLint(m);
+    expect(lints).toHaveLength(1);
+    expect(lints[0].code).toBe('refrain_never_evolves');
+    expect(lints[0].targetSpreads).toEqual([3]); // the last (climax-adjacent) use
+  });
+
+  test('a printed variant satisfies the declaration', () => {
+    const m = {
+      refrain: base,
+      spreads: [
+        { spread: 1, text: 'Could this be the sound?' },
+        { spread: 2, text: 'Could this be the sound?' },
+        { spread: 3, text: 'Could this be the sound?' },
+        { spread: 4, text: 'Liv giggles. THAT is the sound!' },
+      ],
+    };
+    expect(refrainNeverEvolvesLint(m)).toEqual([]);
+  });
+
+  test('string-form refrains and refrains without variants stay silent', () => {
+    expect(refrainNeverEvolvesLint({ refrain: 'plain string', spreads: [] })).toEqual([]);
+    expect(refrainNeverEvolvesLint({ refrain: { text: 'Hey!', evolution: [] }, spreads: [] })).toEqual([]);
+  });
+});
+
+describe('refrain shape handling (object vs legacy string)', () => {
+  test('the {text, evolution} refrain emitted by normalizeManuscript is exempt from duplicate_climax', () => {
+    const m = {
+      refrain: { text: 'This way? That way!', evolution: [] },
+      spreads: [
+        { spread: 1, text: 'He calls, "This way? That way!"' },
+        { spread: 2, text: '"This way? That way!" again.' },
+        { spread: 3, text: 'Onward. "This way? That way!"' },
+      ],
+    };
+    expect(duplicateClimaxLint(m)).toEqual([]);
   });
 });
 

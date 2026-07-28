@@ -42,6 +42,7 @@ const { judgeLikenessCrossFamily } = require('../../../services/bookPipelineV3/i
 
 const { buildSpreadRenderPrompt } = require('../../../services/bookPipelineV3/illustrator/render/renderSpread');
 const { renderAllSpreadsNative, candidatePath, createLimiter } = require('../../../services/bookPipelineV3/illustrator/render/renderAllSpreads');
+const { STYLE_VERSION } = require('../../../services/bookPipelineV3/illustrator/styleBible');
 const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('../../../services/bookPipelineV3/illustrator/qa/select');
 
 const SPREAD = (n) => ({
@@ -190,21 +191,45 @@ describe('renderAllSpreadsNative', () => {
     });
     expect(res).toHaveLength(2);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      'children-jobs/bk1/v3-renders/spread-1-c1.png',
-      'children-jobs/bk1/v3-renders/spread-1-c2.png',
+      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/spread-1-c1.png`,
+      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/spread-1-c2.png`,
     ]);
     expect(generateImage).toHaveBeenCalledTimes(4);
   });
 
-  // Aspect-keyed cache (2026-07-18 textLayout hardening): the candidate path
-  // encodes the text layout because it decides the render aspect (1:1 vs
-  // 16:9). Caption keeps the legacy suffix-free path so pre-change books
-  // resume untouched; an admin flip re-renders only the missing aspect and
-  // a flip-back replays the original renders.
-  test('candidatePath segments the cache by text layout (caption keeps the legacy path)', () => {
-    expect(candidatePath('bk', 4, 2)).toBe('children-jobs/bk/v3-renders/spread-4-c2.png');
-    expect(candidatePath('bk', 4, 2, 'png', 'caption')).toBe('children-jobs/bk/v3-renders/spread-4-c2.png');
-    expect(candidatePath('bk', 4, 2, 'png', 'embedded')).toBe('children-jobs/bk/v3-renders/spread-4-c2.wide.png');
+  // Style+aspect-keyed cache: the candidate path encodes the style-bible
+  // version (a bump re-renders every spread once instead of replaying
+  // pre-bump pixels forever — book 16758e3c shipped mixed 2D/3D interiors
+  // across nine revisions) and the text layout, because it decides the
+  // render aspect (1:1 vs 16:9). An admin flip re-renders only the missing
+  // aspect and a flip-back replays the original renders.
+  test('candidatePath segments the cache by style version and text layout', () => {
+    expect(candidatePath('bk', 4, 2)).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/spread-4-c2.png`);
+    expect(candidatePath('bk', 4, 2, 'png', 'caption')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/spread-4-c2.png`);
+    expect(candidatePath('bk', 4, 2, 'png', 'embedded')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/spread-4-c2.wide.png`);
+  });
+
+  test('candidates cached under an older style version are never reused', async () => {
+    // Seed a fully-cached render for spread 1 under a PRE-BUMP style path.
+    mockGcsFiles.set('children-jobs/bk-bump/v3-renders/spread-1-c1.png', Buffer.from('old-c1'));
+    mockGcsFiles.set('children-jobs/bk-bump/v3-renders/sb-0-placeholder/spread-1-c1.png', Buffer.from('old-c1'));
+    mockGcsFiles.set('children-jobs/bk-bump/v3-renders/sb-0-placeholder/spread-1-c2.png', Buffer.from('old-c2'));
+    generateImage.mockImplementation(async ({ label }) => ({ buffer: Buffer.from(label), mimeType: 'image/png' }));
+
+    const res = await renderAllSpreadsNative({
+      bookId: 'bk-bump',
+      spreads: [SPREAD(1)],
+      bookPack: PACK,
+      briefText: 'B',
+      log: () => {},
+    });
+    // The stale-style cache did not satisfy the render — fresh candidates.
+    expect(generateImage).toHaveBeenCalledTimes(2);
+    expect(res[0].candidates.every((c) => !c.reused)).toBe(true);
+    expect(res[0].candidates.map((c) => c.path)).toEqual([
+      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/spread-1-c1.png`,
+      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/spread-1-c2.png`,
+    ]);
   });
 
   test('embedded renders never reuse caption-aspect candidates (and upload to .wide paths)', async () => {
@@ -224,11 +249,11 @@ describe('renderAllSpreadsNative', () => {
     // The square cache did not satisfy the wide render — fresh candidates.
     expect(generateImage).toHaveBeenCalledTimes(2);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      'children-jobs/bk-flip/v3-renders/spread-1-c1.wide.png',
-      'children-jobs/bk-flip/v3-renders/spread-1-c2.wide.png',
+      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/spread-1-c1.wide.png`,
+      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/spread-1-c2.wide.png`,
     ]);
     // The original caption renders survive for a flip-back.
-    expect(mockGcsFiles.has('children-jobs/bk-flip/v3-renders/spread-1-c1.png')).toBe(true);
+    expect(mockGcsFiles.has(`children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/spread-1-c1.png`)).toBe(true);
   });
 
   test('resume: existing GCS candidates are reused, only missing ones render', async () => {

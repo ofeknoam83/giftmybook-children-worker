@@ -153,11 +153,15 @@ async function runNativeIllustrator(input, ctx) {
   // Plates are style-anchored on the book pack (sheet + approved cover):
   // a plate rendered from prose alone can drift flat/desaturated and drag
   // every spread that shares its location into a book-pass style break.
+  // Each plate is also medium-checked (plateStyleQa) — a plate dropped after
+  // failing twice surfaces here as an artDirection advisory.
+  const plateAdvisories = [];
   const platesByLocation = await renderWorldPlates({
     plates: direction.worldPlates,
     paletteArc: direction.paletteArc,
     textLayout,
     styleReferences: bookPack,
+    onAdvisory: (note) => plateAdvisories.push({ stage: 'artDirection', spread: null, note }),
     abortSignal,
     log,
   });
@@ -169,6 +173,7 @@ async function runNativeIllustrator(input, ctx) {
   const propPlate = await renderPropPlate({
     continuityLocks: direction.continuityLocks,
     styleReferences: bookPack,
+    onAdvisory: (note) => plateAdvisories.push({ stage: 'artDirection', spread: null, note }),
     abortSignal,
     log,
   });
@@ -569,7 +574,7 @@ async function runNativeIllustrator(input, ctx) {
   // the completion callback and the admin dashboard see exactly what the
   // judges noticed on the SHIPPED images. Capped — this is a digest, not
   // a transcript.
-  const qaAdvisories = [];
+  const qaAdvisories = [...plateAdvisories];
   for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
     for (const note of result.selected?.minorDefects || []) {
       qaAdvisories.push({ stage: 'spreadQa', spread: spreadNumber, note });
