@@ -214,7 +214,7 @@ function pickLeastBad(evaluations) {
  */
 async function selectSpreadWinner({
   bookId, spread, candidates, direction = null, bookPack, plate = null, propPlate = null,
-  referenceImages, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [],
+  referenceImages, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null,
   foldSoften = BOOK_PASS_SHIP_ON_EXHAUSTION, qaTagCounts, abortSignal, log = () => {},
 }) {
   // Every caller passes the bookPack (model sheet + cover) as the likeness
@@ -285,7 +285,7 @@ async function selectSpreadWinner({
         },
       };
       const rendered = await renderSpreadCandidates({
-        spread: repairSpread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures,
+        spread: repairSpread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks,
         count: CANDIDATES_PER_SPREAD, abortSignal, log,
       });
       const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));

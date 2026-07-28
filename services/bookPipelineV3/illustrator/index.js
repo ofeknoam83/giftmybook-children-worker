@@ -149,6 +149,10 @@ async function runNativeIllustrator(input, ctx) {
     throw err;
   }
 
+  // Locked supporting-character designs (continuityLocks.cast) ride every
+  // render prompt + the book pass (2026-07-28: Mom/Dad had no ground truth).
+  const castLocks = Array.isArray(direction.continuityLocks?.cast) ? direction.continuityLocks.cast : null;
+
   // ── A1: world plates ──
   // Plates are style-anchored on the book pack (sheet + approved cover):
   // a plate rendered from prose alone can drift flat/desaturated and drag
@@ -213,6 +217,7 @@ async function runNativeIllustrator(input, ctx) {
     briefText,
     textLayout,
     mustIncludeFeatures,
+    castLocks,
     forceSpreads,
     abortSignal,
     log,
@@ -267,6 +272,7 @@ async function runNativeIllustrator(input, ctx) {
       briefText,
       textLayout,
       mustIncludeFeatures,
+      castLocks,
       qaTagCounts,
       abortSignal,
       log,
@@ -330,6 +336,7 @@ async function runNativeIllustrator(input, ctx) {
         briefText,
         textLayout,
         mustIncludeFeatures,
+        castLocks,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -434,6 +441,10 @@ async function runNativeIllustrator(input, ctx) {
       // is the fix target (2026-07-19 convergence fix).
       const flaggedProps = (direction.continuityLocks?.props || []).filter((p) => p?.name && p.design
         && new RegExp(`\\b${String(p.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(flag.issue));
+      // Cast-lock flags (critical class 8) get the same treatment: quote the
+      // flagged character's locked design in the regen prompt.
+      const flaggedCast = (direction.continuityLocks?.cast || []).filter((c) => c?.name && c.design
+        && new RegExp(`\\b${String(c.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(flag.issue));
       const flaggedSpread = {
         ...spread,
         scene_contract: {
@@ -447,6 +458,9 @@ async function runNativeIllustrator(input, ctx) {
             flaggedProps.length
               ? `CRITICAL REPAIR: render each prop EXACTLY as its locked design on the PROP PLATE reference — ${flaggedProps.map((p) => `${p.name}: ${p.design}`).join('; ')}. Same kind of object, same shape, same colors, every time.`
               : null,
+            flaggedCast.length
+              ? `CRITICAL REPAIR: render each supporting character EXACTLY as their locked design — ${flaggedCast.map((c) => `${c.name}: ${c.design}`).join('; ')}. The same person: same hair, same skin tone, same outfit, every time they appear.`
+              : null,
           ].filter(Boolean).join(' | '),
         },
       };
@@ -459,6 +473,7 @@ async function runNativeIllustrator(input, ctx) {
         briefText,
         textLayout,
         mustIncludeFeatures,
+        castLocks,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -548,6 +563,7 @@ async function runNativeIllustrator(input, ctx) {
         briefText,
         textLayout,
         mustIncludeFeatures,
+        castLocks,
       }),
       candidateIndex: winner.candidateIndex,
       likeness: winner.likeness ?? null,

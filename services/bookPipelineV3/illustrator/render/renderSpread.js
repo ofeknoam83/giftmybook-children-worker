@@ -59,10 +59,19 @@ const ZONE_INSTRUCTIONS = {
  *   renderer repeatedly omits them (fail@likeness), exhausting candidate budgets.
  * @returns {string} full render prompt
  */
-function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption', mustIncludeFeatures = [] }) {
+function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null }) {
   const sc = spread.scene_contract || {};
   const zone = direction?.textZone && (ZONE_INSTRUCTIONS[direction.textZone] || direction.textZone);
   const embedded = textLayout === 'embedded';
+  // Cast locks (2026-07-28, book 16758e3c: Mom/Dad changed appearance and
+  // outfits between spreads — supporting characters reached the renderer as
+  // bare name strings). Only the locks whose character is actually IN this
+  // scene ride the prompt.
+  const presentCast = (Array.isArray(castLocks) ? castLocks : [])
+    .filter((c) => c?.name && c?.design && (sc.characters_present || []).some((p) => {
+      const pl = String(p).toLowerCase(); const nl = String(c.name).toLowerCase();
+      return pl.includes(nl) || nl.includes(pl);
+    }));
 
   return [
     embedded
@@ -117,6 +126,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
     "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
     "CANONICAL COLORS: the character's hair color, skin tone, and freckles come from the MODEL SHEET and are IDENTICAL in every scene. Lighting (night, starlight, lantern glow, golden hour) tints the SCENE — it never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light, freckles stay visible, skin keeps its depth. No color streaks or highlights that are not on the sheet.",
+    presentCast.length
+      ? `SUPPORTING CAST (locked designs — each is the SAME person with the SAME hair, skin tone, and outfit every time they appear in this book):\n${presentCast.map((c) => `- ${c.name}: ${c.design}`).join('\n')}`
+      : null,
     '',
     'ABSOLUTELY NO TEXT of any kind in the image — no letters, words, numbers, signs with writing, book pages with visible words, or watermarks. The story text is printed separately. Clothing must be letter-free: no name tags, letter badges, real-world logos, or national flags.',
     'WORDLESS COSTUMES & TECH: any control panels, chest displays, screens, gauges, wrist devices, helmets, HUDs, spacesuit instruments, or dashboards must show ONLY wordless indicators — glowing dots, bars, rings, star-glyphs, abstract icons — NEVER digits, numbers, clock readouts, or letters.',
@@ -156,9 +168,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  */
 async function renderSpreadCandidates({
   spread, direction = null, bookPack, plate = null, propPlate = null, briefText, wardrobeNote,
-  textLayout = 'caption', mustIncludeFeatures = [], count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
+  textLayout = 'caption', mustIncludeFeatures = [], castLocks = null, count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
-  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures });
+  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks });
   const references = withPropPlate(withWorldPlate(bookPack, plate), propPlate);
 
   const renderOne = (i) => generateImage({

@@ -143,6 +143,26 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain("- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles, never changes the render MEDIUM): golden starlight over cool night blues");
   });
 
+  // Cast locks (2026-07-28, book 16758e3c: Mom/Dad changed appearance and
+  // outfits between spreads — supporting characters reached the renderer as
+  // bare name strings).
+  test('cast locks ride the prompt only for characters present in THIS scene', () => {
+    const castLocks = [
+      { name: 'Mom', design: 'shoulder-length brown hair, warm light-tan skin, a sky-blue tunic and cream pants', spreads: [11, 13] },
+      { name: 'Dad', design: 'short dark hair and beard, khaki shirt, olive pants', spreads: [11, 13] },
+    ];
+    const withMom = buildSpreadRenderPrompt({
+      spread: { ...SPREAD(3), scene_contract: { ...SPREAD(3).scene_contract, characters_present: ['Zoe', 'Mom'] } },
+      briefText: 'BRIEF',
+      castLocks,
+    });
+    expect(withMom).toContain('SUPPORTING CAST (locked designs');
+    expect(withMom).toContain('Mom: shoulder-length brown hair');
+    expect(withMom).not.toContain('Dad:'); // not in this scene
+    const heroOnly = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF', castLocks });
+    expect(heroOnly).not.toContain('SUPPORTING CAST');
+  });
+
   // Prompt hygiene (2026-07-28): the style bible used to sit at block 11 of
   // 17, AFTER the scene/continuity/palette free text; the last thing the
   // model read was a finger-count rule. The bible now LEADS and a one-line
