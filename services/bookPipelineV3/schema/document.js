@@ -142,8 +142,18 @@ function normalizeJudgeReport(raw, { judge, family, model, expectedLabels }) {
   }
   const byLabel = new Map();
   for (const m of raw.manuscripts) {
-    const label = String(m.label || '').trim();
-    if (!expectedLabels.includes(label)) fail(`judge ${judge}`, `unexpected manuscript label '${label}'`);
+    let label = String(m.label || '').trim();
+    if (!expectedLabels.includes(label)) {
+      // Single-manuscript backstop: with exactly one expected manuscript and
+      // exactly one report, a mislabel is unambiguous — coerce instead of
+      // dropping the judge (book fff0c611: judges echoed the prompt's 'A'
+      // example against a 'fresh'-labeled manuscript and degraded the panel).
+      if (expectedLabels.length === 1 && raw.manuscripts.length === 1) {
+        label = expectedLabels[0];
+      } else {
+        fail(`judge ${judge}`, `unexpected manuscript label '${label}'`);
+      }
+    }
     const scores = {};
     for (const dim of JUDGE_DIMENSIONS) {
       const entry = m.scores?.[dim];

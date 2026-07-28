@@ -129,6 +129,25 @@ describe('judgePanelActivity', () => {
     ).rejects.toThrow(/only 1\/3 judges/);
   });
 
+  test("a 'fresh' manuscript is judged under a neutral blind label and remapped (book fff0c611)", async () => {
+    // Judges see label 'A' (never the provenance-leaking id 'fresh') and
+    // answer with 'A' — exactly what production judges did when they were
+    // being dropped for it. The activity must accept that and key its
+    // output by the real id.
+    callWithRole.mockImplementation(async () => judgeResp(makeJudgeReportJson(['A'], { score: 4 })));
+    const fresh = normalizeManuscript(makeManuscriptJson(3), { id: 'fresh', expectedSpreads: 3 });
+    const out = await judgePanelActivity({ brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, manuscripts: [fresh] }, ctx);
+    for (const [, params] of callWithRole.mock.calls) {
+      const prompt = JSON.parse(params.userPrompt);
+      expect(prompt.manuscripts.map((m) => m.label)).toEqual(['A']);
+    }
+    expect(out.degraded).toBe(false);
+    expect(out.failedJudges).toEqual([]);
+    expect(out.winnerId).toBe('fresh');
+    expect(out.perManuscript.fresh.pass).toBe(true);
+    expect(Object.keys(out.reports[0].manuscripts)).toEqual(['fresh']);
+  });
+
   test('judges receive blinded manuscripts with rotated order', async () => {
     callWithRole.mockImplementation(async () => judgeResp(makeJudgeReportJson(['A', 'B'], { score: 4 })));
     await judgePanelActivity({ brief: BRIEF, ageProfile: PRESCHOOL_PROFILE, manuscripts: twoManuscripts() }, ctx);
@@ -141,6 +160,21 @@ describe('judgePanelActivity', () => {
     }
     const orders = prompts.map((p) => p.manuscripts.map((m) => m.label).join(''));
     expect(new Set(orders).size).toBeGreaterThan(1); // at least one judge saw a different order
+  });
+});
+
+describe('normalizeJudgeReport label backstop', () => {
+  const meta = (expectedLabels) => ({ judge: 'JUDGE_C', family: 'gemini', model: 'gemini-2.5-pro', expectedLabels });
+
+  test('single expected manuscript: a mislabeled single report is coerced, not dropped', () => {
+    const report = normalizeJudgeReport(makeJudgeReportJson(['A'], { score: 4 }), meta(['fresh']));
+    expect(report.manuscripts.has('fresh')).toBe(true);
+    expect(report.manuscripts.get('fresh').scores.age_fit.score).toBe(4);
+  });
+
+  test('two expected manuscripts: an unexpected label still fails validation', () => {
+    expect(() => normalizeJudgeReport(makeJudgeReportJson(['A', 'X'], { score: 4 }), meta(['A', 'B'])))
+      .toThrow(/unexpected manuscript label 'X'/);
   });
 });
 
