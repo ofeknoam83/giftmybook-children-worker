@@ -12,7 +12,7 @@ const { generateImage } = require('./imageClient');
 const { withWorldPlate, withPropPlate } = require('./referencePack');
 const { SPREAD_RENDERER_MODEL, CANDIDATES_PER_SPREAD } = require('../config');
 const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
-const { formatCastList } = require('../promptFormat');
+const { formatCastList, isReflectionScene } = require('../promptFormat');
 
 /**
  * 1:1 by design (not a stopgap): the native path lays out books in the
@@ -140,7 +140,12 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     direction?.heroPresence === 'required'
       ? 'THE CHILD IS THE FOCAL SUBJECT of this scene: prominently visible, clearly recognizable, and central to the action — never omitted, never a tiny distant figure, never cropped out of frame. If the composition would leave the child out, restage it so the child is present and clearly the star.'
       : null,
-    'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
+    isReflectionScene(sc, direction)
+      // The one-instance rule + a reflection moment are contradictory unless
+      // the reflection is explicitly staged ON the surface (book 16758e3c
+      // p21: "sees her reflection" rendered a second child INSIDE the chest).
+      ? 'Exactly ONE physical instance of the child in the scene. This moment includes the child\'s REFLECTION: paint it clearly ON the reflective surface (mirror, water, polished lid) — slightly distorted or softened by the surface, framed by it, never as a second free-standing child. No other duplicated characters. No extra people beyond those listed.'
+      : 'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
     // P0 negative anatomy anchor (2026-07-23 audit: a three-handed hero shipped
     // on the front cover). State the limb COUNT explicitly — image models add a
     // stray extra hand/arm on complex grips unless the count is pinned.

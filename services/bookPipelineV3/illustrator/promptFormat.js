@@ -104,4 +104,28 @@ function formatCastList(characters) {
   return `(named cast enforced exactly; a declared group is allowed to be many): ${indStr}. Plus ${groupStr}. No OTHER named individuals.`;
 }
 
-module.exports = { formatCastList, isGroupMember, memberLabel, GROUP_NOUNS };
+/**
+ * Reflection-scene detector (2026-07-28, book 16758e3c p21: "Liv sees Liv"
+ * in a chest lid rendered as a SECOND child inside the chest). A reflection
+ * moment needs coordinated handling in three places — the art director's
+ * staging, the render prompt's "exactly ONE instance" rule, and the spread
+ * judge's duplicated-hero class — but the carve-out must be CONDITIONAL on
+ * the contract actually calling for a reflection, or it would weaken the
+ * duplicated-hero gate on every ordinary scene. Deterministic and shared so
+ * renderer + judge agree. Pure — exported for tests.
+ *
+ * @param {object|null} sceneContract
+ * @param {object|null} [direction] - art-direction row (moment/poseHint)
+ * @returns {boolean}
+ */
+function isReflectionScene(sceneContract, direction = null) {
+  const text = [
+    sceneContract?.hero_action,
+    direction?.moment,
+    direction?.poseHint,
+    ...(Array.isArray(sceneContract?.key_objects) ? sceneContract.key_objects : []),
+  ].filter(Boolean).join(' ');
+  return /\breflect(?:ion|ed|s)?\b|\bmirror(?:ed|s)?\b|sees? (?:her|him|them)sel(?:f|ves)|own reflection/i.test(text);
+}
+
+module.exports = { formatCastList, isGroupMember, memberLabel, GROUP_NOUNS, isReflectionScene };

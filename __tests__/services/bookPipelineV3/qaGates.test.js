@@ -240,6 +240,19 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
       expect(p).toContain('a score of 2 or below is reserved EXCLUSIVELY for a broken render MEDIUM');
       expect(p).toContain('STYLE TAGS ARE MEDIUM VERDICTS');
     });
+
+    // Reflection carve-out (2026-07-28): CONDITIONAL on the contract calling
+    // for a reflection, so the duplicated-hero gate stays strict elsewhere.
+    test('the duplicated-hero class gains the reflection exception ONLY on reflection contracts', () => {
+      const withReflection = buildSpreadJudgePrompt({
+        sceneContract: { hero_action: 'sees her reflection in the chest lid' },
+        direction: null,
+      });
+      expect(withReflection).toContain('REFLECTION EXCEPTION');
+      expect(withReflection).toContain('TWO free-standing children in the scene is still critical');
+      const normal = buildSpreadJudgePrompt({ sceneContract: { hero_action: 'waters a sunflower' }, direction: null });
+      expect(normal).not.toContain('REFLECTION EXCEPTION');
+    });
   });
 
   test('when the art director specified a moment, the judge grades the action against IT', () => {

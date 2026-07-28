@@ -1376,7 +1376,15 @@ async function generateUpsellCoverImage(title, childName, childAge, childGender,
         { text: prompt },
         { inline_data: { mimeType: 'image/jpeg', data: refBase64 } },
       ]}],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'], maxOutputTokens: 8192 },
+      generationConfig: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        maxOutputTokens: 8192,
+        // Pin the card aspect (2026-07-28, book 16758e3c upsell page): with no
+        // aspect the model returns near-square covers that pillarboxed into a
+        // small image floating on a cream card (layoutEngine used fit:'contain').
+        // The upsell card is 1792:2400 ≈ 3:4 portrait.
+        imageConfig: { aspectRatio: '3:4' },
+      },
     }),
   }, 3 * 60 * 1000); // 3-min timeout
 

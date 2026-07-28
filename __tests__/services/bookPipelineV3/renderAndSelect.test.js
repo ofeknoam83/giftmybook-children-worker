@@ -163,6 +163,29 @@ describe('buildSpreadRenderPrompt', () => {
     expect(heroOnly).not.toContain('SUPPORTING CAST');
   });
 
+  // Reflection scenes (2026-07-28, book 16758e3c p21: "Liv sees Liv" in a
+  // chest lid rendered a SECOND child inside the chest — the one-instance
+  // rule and a reflection moment are contradictory unless staged ON the
+  // surface). Carve-out is CONDITIONAL so ordinary scenes keep the strict rule.
+  test('a reflection contract swaps the one-instance rule for the on-surface staging', () => {
+    const { isReflectionScene } = require('../../../services/bookPipelineV3/illustrator/promptFormat');
+    const reflectSpread = {
+      ...SPREAD(10),
+      scene_contract: { ...SPREAD(10).scene_contract, hero_action: 'leans close and sees her reflection in the polished chest lid' },
+    };
+    expect(isReflectionScene(reflectSpread.scene_contract)).toBe(true);
+    expect(isReflectionScene(SPREAD(3).scene_contract)).toBe(false);
+
+    const p = buildSpreadRenderPrompt({ spread: reflectSpread, briefText: 'BRIEF' });
+    expect(p).toContain('REFLECTION');
+    expect(p).toContain('never as a second free-standing child');
+    expect(p).toContain('Exactly ONE physical instance of the child');
+
+    const normal = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(normal).toContain('Exactly ONE instance of the child in the scene.');
+    expect(normal).not.toContain('REFLECTION');
+  });
+
   // Prompt hygiene (2026-07-28): the style bible used to sit at block 11 of
   // 17, AFTER the scene/continuity/palette free text; the last thing the
   // model read was a finger-count rule. The bible now LEADS and a one-line

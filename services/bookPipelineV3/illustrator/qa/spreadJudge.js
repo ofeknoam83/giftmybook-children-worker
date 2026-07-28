@@ -20,7 +20,7 @@
  */
 
 const { callVisionRole } = require('../../llm/visionClient');
-const { formatCastList } = require('../promptFormat');
+const { formatCastList, isReflectionScene } = require('../promptFormat');
 
 const SPREAD_PASS_SCORE = 4; // ranking threshold only (see pickWinner) — the GATE is critical defects
 
@@ -86,7 +86,7 @@ Score each dimension 1-5 (4 = good with minor imperfections, 5 = flawless) and l
 
 THE PARENT TEST — a defect is "critical" ONLY if a parent flipping through the printed book would consider the page BROKEN or WRONG. The complete list of critical classes:
 1. readable words or lettering painted in the artwork
-2. the child duplicated, or a stranger/extra NAMED person present — but a DECLARED GROUP in the cast list (e.g. "a small group of small aliens") is ALLOWED to show several members: a crowd of the declared group is NOT an extra person and is NEVER a defect. Only an individual who is not in the cast list, or the hero appearing twice, counts here
+2. the child duplicated, or a stranger/extra NAMED person present — but a DECLARED GROUP in the cast list (e.g. "a small group of small aliens") is ALLOWED to show several members: a crowd of the declared group is NOT an extra person and is NEVER a defect. Only an individual who is not in the cast list, or the hero appearing twice, counts here${isReflectionScene(sceneContract, direction) ? '. REFLECTION EXCEPTION (this contract\'s action calls for the child seeing their reflection): the child\'s reflected image clearly ON a reflective surface (mirror, water, polished lid) — framed by the surface, softened/distorted by it — is the CONTRACTED reflection, not a duplicate. TWO free-standing children in the scene is still critical' : ''}
 3. countably wrong anatomy (extra/missing/fused fingers, a third arm)
 4. the contracted action ENTIRELY absent (not merely staged differently)
 5. the wrong setting
