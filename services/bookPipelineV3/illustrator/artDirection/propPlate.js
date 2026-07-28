@@ -14,7 +14,8 @@
 
 const { generateImage } = require('../render/imageClient');
 const { SPREAD_RENDERER_MODEL } = require('../config');
-const { STYLE_BIBLE } = require('../styleBible');
+const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
+const { qaPlateStyle, PLATE_STYLE_REPAIR } = require('./plateStyleQa');
 
 /** Props appearing on this many spreads (or more) earn a plate slot. */
 const PROP_PLATE_MIN_SPREADS = 2;
@@ -43,17 +44,21 @@ function selectPlateProps(continuityLocks) {
     .slice(0, PROP_PLATE_MAX_PROPS);
 }
 
-function buildPropPlatePrompt(props, { hasStyleReferences = false } = {}) {
+function buildPropPlatePrompt(props, { hasStyleReferences = false, repairNote = null } = {}) {
   return [
     `PROP REFERENCE PLATE — the recurring props of a children's picture book, laid out side by side like a museum display on a plain, softly lit neutral background.`,
     'No people, no animals, no characters of any kind, no scene — the props ONLY, each fully visible and separated from the others.',
+    // Prompt hygiene (2026-07-28): the bible leads (before the free-text
+    // prop designs); the pin closes.
+    STYLE_BIBLE,
     `THE PROPS (exactly ${props.length}, nothing else):`,
     ...props.map((p, i) => `[${i + 1}] ${p.name}${p.design ? ` — ${p.design}` : ''}`),
     hasStyleReferences
       ? 'The attached reference images (character model sheet, approved cover) define this book\'s RENDERING STYLE — match their brushwork, color saturation, line weight, and lighting quality EXACTLY. Do NOT copy their subjects: paint the PROPS ONLY.'
       : null,
-    STYLE_BIBLE,
+    repairNote,
     'ABSOLUTELY NO TEXT anywhere in the image. Any map, note, book, or label among the props is WORDLESS — abstract squiggles, dots, or star-glyphs that cannot be read as letters or numbers. NO invented alphabets or alien script. Compasses show a pointed star and arrows, never N/S/E/W letters; clock faces and dials show dots or dashes, never numerals.',
+    STYLE_PIN,
   ].filter(Boolean).join('\n');
 }
 
@@ -64,17 +69,19 @@ function buildPropPlatePrompt(props, { hasStyleReferences = false } = {}) {
  * @param {object} opts
  * @param {object|null} opts.continuityLocks - art director's continuityLocks
  * @param {Array} [opts.styleReferences] - book reference pack (sheet + cover)
+ * @param {(note: string) => void} [opts.onAdvisory] - receives a note when the
+ *   plate is dropped after failing the style-medium QA twice
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{base64: string, mimeType: string, props: string[]}|null>}
  */
-async function renderPropPlate({ continuityLocks, styleReferences = [], abortSignal, log = () => {} }) {
+async function renderPropPlate({ continuityLocks, styleReferences = [], onAdvisory = () => {}, abortSignal, log = () => {} }) {
   const props = selectPlateProps(continuityLocks);
   if (props.length === 0) return null;
   try {
-    const img = await generateImage({
+    const render = (repairNote) => generateImage({
       model: SPREAD_RENDERER_MODEL,
-      prompt: buildPropPlatePrompt(props, { hasStyleReferences: styleReferences.length > 0 }),
+      prompt: buildPropPlatePrompt(props, { hasStyleReferences: styleReferences.length > 0, repairNote }),
       references: styleReferences,
       // Square regardless of book aspect — the plate anchors object design,
       // not composition.
@@ -82,8 +89,26 @@ async function renderPropPlate({ continuityLocks, styleReferences = [], abortSig
       abortSignal,
       label: 'v3.propplate',
     });
+    let img = await render(null);
+    // Style-medium QA — same one-check-one-repair-then-drop contract as
+    // world plates (see plateStyleQa.js): a 2D prop plate rides every
+    // spread's reference pack and seeds a book-wide style break.
+    let plate = { base64: img.buffer.toString('base64'), mimeType: img.mimeType };
+    let verdict = await qaPlateStyle({ plate, styleReferences, subject: 'props', label: 'v3.propplate.styleqa', abortSignal });
+    if (verdict.reason && verdict.ok) log(`prop plate: ${verdict.reason}`);
+    if (!verdict.ok) {
+      log(`prop plate FAILED the style-medium QA (${verdict.reason}) — one repair render`);
+      img = await render(PLATE_STYLE_REPAIR);
+      plate = { base64: img.buffer.toString('base64'), mimeType: img.mimeType };
+      verdict = await qaPlateStyle({ plate, styleReferences, subject: 'props', label: 'v3.propplate.styleqa', abortSignal });
+      if (!verdict.ok) {
+        log(`WARNING: prop plate failed the style-medium QA twice (${verdict.reason}) — DROPPED (prop continuity degrades to prompt-only)`);
+        onAdvisory(`prop plate dropped after failing the style-medium QA twice: ${verdict.reason}`);
+        return null;
+      }
+    }
     log(`prop plate rendered (${props.map((p) => p.name).join(', ')})`);
-    return { base64: img.buffer.toString('base64'), mimeType: img.mimeType, props: props.map((p) => p.name) };
+    return { ...plate, props: props.map((p) => p.name) };
   } catch (err) {
     log(`prop plate failed (continuing without): ${err.message}`);
     return null;

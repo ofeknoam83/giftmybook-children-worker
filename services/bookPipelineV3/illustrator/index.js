@@ -40,7 +40,7 @@ const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
 const { candidatePath } = require('./render/renderAllSpreads');
 const { downloadPhotoAsBase64 } = require('../../illustrationGenerator');
-const { BOOK_PASS_REGEN_WAVES, BOOK_PASS_SHIP_ON_EXHAUSTION, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED } = require('./config');
+const { BOOK_PASS_REGEN_WAVES, BOOK_PASS_SHIP_ON_EXHAUSTION, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED, SPREAD_RENDERER_MODEL } = require('./config');
 
 const IMPLEMENTED_PHASES = [
   'identityKit (W4)', 'render (W5)', 'qa+selection (W6)',
@@ -66,7 +66,7 @@ class ArtDirectionBounceError extends Error {
 async function runNativeIllustrator(input, ctx) {
   const {
     identityKit, rawRequest, brief, ageProfile, concept, manuscript,
-    coverImageUrl, coverTitle, operationalContext, allowBounce = true,
+    coverImageUrl, coverTitle, coverPreflight = null, operationalContext, allowBounce = true,
     textLayout = 'caption',
   } = input;
   const log = (m) => ctx.log('info', `[v3-illustrator] ${m}`);
@@ -149,15 +149,28 @@ async function runNativeIllustrator(input, ctx) {
     throw err;
   }
 
+  // Locked supporting-character designs (continuityLocks.cast) ride every
+  // render prompt + the book pass (2026-07-28: Mom/Dad had no ground truth).
+  const castLocks = Array.isArray(direction.continuityLocks?.cast) ? direction.continuityLocks.cast : null;
+
   // ── A1: world plates ──
   // Plates are style-anchored on the book pack (sheet + approved cover):
   // a plate rendered from prose alone can drift flat/desaturated and drag
   // every spread that shares its location into a book-pass style break.
+  // Each plate is also medium-checked (plateStyleQa) — a plate dropped after
+  // failing twice surfaces here as an artDirection advisory.
+  const plateAdvisories = [];
+  // Cover pre-flight outcome (workflow-resolved): a harmonized or unfixable
+  // anchor is book-visible, never silent.
+  if (coverPreflight?.advisory) {
+    plateAdvisories.push({ stage: 'artDirection', spread: 'cover', note: coverPreflight.advisory });
+  }
   const platesByLocation = await renderWorldPlates({
     plates: direction.worldPlates,
     paletteArc: direction.paletteArc,
     textLayout,
     styleReferences: bookPack,
+    onAdvisory: (note) => plateAdvisories.push({ stage: 'artDirection', spread: null, note }),
     abortSignal,
     log,
   });
@@ -169,6 +182,7 @@ async function runNativeIllustrator(input, ctx) {
   const propPlate = await renderPropPlate({
     continuityLocks: direction.continuityLocks,
     styleReferences: bookPack,
+    onAdvisory: (note) => plateAdvisories.push({ stage: 'artDirection', spread: null, note }),
     abortSignal,
     log,
   });
@@ -185,7 +199,7 @@ async function runNativeIllustrator(input, ctx) {
       ...s,
       scene_contract: {
         ...s.scene_contract,
-        continuity_notes: [s.scene_contract?.continuity_notes, `ADMIN NOTE: ${resolution.note}`].filter(Boolean).join(' | '),
+        continuity_notes: [s.scene_contract?.continuity_notes, `ADMIN NOTE (apply within the locked premium-3D signature style): ${resolution.note}`].filter(Boolean).join(' | '),
       },
     };
   });
@@ -203,6 +217,7 @@ async function runNativeIllustrator(input, ctx) {
     briefText,
     textLayout,
     mustIncludeFeatures,
+    castLocks,
     forceSpreads,
     abortSignal,
     log,
@@ -257,6 +272,7 @@ async function runNativeIllustrator(input, ctx) {
       briefText,
       textLayout,
       mustIncludeFeatures,
+      castLocks,
       qaTagCounts,
       abortSignal,
       log,
@@ -320,6 +336,7 @@ async function runNativeIllustrator(input, ctx) {
         briefText,
         textLayout,
         mustIncludeFeatures,
+        castLocks,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -329,7 +346,7 @@ async function runNativeIllustrator(input, ctx) {
         const candidateIndex = baseIndex + i + 1;
         const path = candidatePath(bookId, spreadNumber, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
-        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
+        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex, rendererModel: img.model || null });
       }
       const rerun = await selectSpreadWinner({
         bookId,
@@ -424,6 +441,10 @@ async function runNativeIllustrator(input, ctx) {
       // is the fix target (2026-07-19 convergence fix).
       const flaggedProps = (direction.continuityLocks?.props || []).filter((p) => p?.name && p.design
         && new RegExp(`\\b${String(p.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(flag.issue));
+      // Cast-lock flags (critical class 8) get the same treatment: quote the
+      // flagged character's locked design in the regen prompt.
+      const flaggedCast = (direction.continuityLocks?.cast || []).filter((c) => c?.name && c.design
+        && new RegExp(`\\b${String(c.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(flag.issue));
       const flaggedSpread = {
         ...spread,
         scene_contract: {
@@ -437,6 +458,9 @@ async function runNativeIllustrator(input, ctx) {
             flaggedProps.length
               ? `CRITICAL REPAIR: render each prop EXACTLY as its locked design on the PROP PLATE reference — ${flaggedProps.map((p) => `${p.name}: ${p.design}`).join('; ')}. Same kind of object, same shape, same colors, every time.`
               : null,
+            flaggedCast.length
+              ? `CRITICAL REPAIR: render each supporting character EXACTLY as their locked design — ${flaggedCast.map((c) => `${c.name}: ${c.design}`).join('; ')}. The same person: same hair, same skin tone, same outfit, every time they appear.`
+              : null,
           ].filter(Boolean).join(' | '),
         },
       };
@@ -449,6 +473,7 @@ async function runNativeIllustrator(input, ctx) {
         briefText,
         textLayout,
         mustIncludeFeatures,
+        castLocks,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -460,7 +485,7 @@ async function runNativeIllustrator(input, ctx) {
         const candidateIndex = baseIndex + i + 1;
         const path = candidatePath(bookId, flag.spread, candidateIndex, 'png', textLayout);
         await uploadBuffer(img.buffer, path, img.mimeType || 'image/png');
-        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex });
+        freshCandidates.push({ path, base64: img.buffer.toString('base64'), mimeType: img.mimeType || 'image/png', candidateIndex, rendererModel: img.model || null });
       }
       const rerun = await selectSpreadWinner({
         bookId,
@@ -538,6 +563,7 @@ async function runNativeIllustrator(input, ctx) {
         briefText,
         textLayout,
         mustIncludeFeatures,
+        castLocks,
       }),
       candidateIndex: winner.candidateIndex,
       likeness: winner.likeness ?? null,
@@ -569,7 +595,7 @@ async function runNativeIllustrator(input, ctx) {
   // the completion callback and the admin dashboard see exactly what the
   // judges noticed on the SHIPPED images. Capped — this is a digest, not
   // a transcript.
-  const qaAdvisories = [];
+  const qaAdvisories = [...plateAdvisories];
   for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
     for (const note of result.selected?.minorDefects || []) {
       qaAdvisories.push({ stage: 'spreadQa', spread: spreadNumber, note });
@@ -615,6 +641,31 @@ async function runNativeIllustrator(input, ctx) {
   if (coverNeedsReharmonize) {
     doc.coverNeedsReharmonize = true;
     qaAdvisories.push({ stage: 'bookPass', spread: 'cover', note: `cover↔interior style parity break: ${coverNeedsReharmonize.reason} — cover re-harmonized to 3D` });
+  }
+  // Renderer-model audit (2026-07-28): imageClient's flash fallback on a
+  // 404'd configured id used to be console-only — a "poisoned" instance
+  // rendered whole books on flash indistinguishably from pro ones. The
+  // winners now carry the model that ACTUALLY rendered them; a mismatch vs
+  // the configured id becomes a book-level advisory + doc.rendererModels.
+  {
+    const usedModels = new Set();
+    const downgradedSpreads = [];
+    for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
+      const winner = result.allCandidates?.find((c) => c.candidateIndex === result.selected?.candidateIndex);
+      const model = winner?.rendererModel;
+      if (!model) continue; // reused-from-GCS candidates carry no live model id
+      usedModels.add(model);
+      if (model !== SPREAD_RENDERER_MODEL) downgradedSpreads.push(spreadNumber);
+    }
+    doc.rendererModels = { configured: SPREAD_RENDERER_MODEL, used: [...usedModels] };
+    if (downgradedSpreads.length > 0) {
+      log(`WARNING: renderer model downgrade — configured '${SPREAD_RENDERER_MODEL}' but spreads [${downgradedSpreads.join(', ')}] rendered on [${[...usedModels].filter((m) => m !== SPREAD_RENDERER_MODEL).join(', ')}] (invalid configured id? see imageClient fallback logs)`);
+      qaAdvisories.push({
+        stage: 'render',
+        spread: null,
+        note: `renderer model downgrade: configured '${SPREAD_RENDERER_MODEL}', spreads [${downgradedSpreads.join(', ')}] rendered on the fallback model — fix BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL to a ListModels-confirmed id`,
+      });
+    }
   }
   doc.qaAdvisories = qaAdvisories.slice(0, 40);
   if (doc.qaAdvisories.length > 0) {

@@ -71,10 +71,13 @@ describe('resolveIllustratorVersion', () => {
     expect(ILLUSTRATOR_STEPS).toEqual(['identity_kit', 'art_direction', 'rendering', 'spread_qa', 'book_pass']);
   });
 
-  test('renderers default to the VERIFIED-available model (the guessed pro id 404d in production)', () => {
+  // 2026-07-28: defaults flipped to the DOCUMENTED pro id (the 2026-07-15
+  // guess 'gemini-3.1-pro-image' never existed). A non-provisioned key falls
+  // back to flash LOUDLY (doc.rendererModels + render qaAdvisory).
+  test('renderers default to the documented pro image id, with flash as the loud fallback', () => {
     const { SHEET_RENDERER_MODEL, SPREAD_RENDERER_MODEL } = require('../../../services/bookPipelineV3/illustrator/config');
-    expect(SHEET_RENDERER_MODEL).toBe('gemini-3.1-flash-image');
-    expect(SPREAD_RENDERER_MODEL).toBe('gemini-3.1-flash-image');
+    expect(SHEET_RENDERER_MODEL).toBe('gemini-3-pro-image-preview');
+    expect(SPREAD_RENDERER_MODEL).toBe('gemini-3-pro-image-preview');
   });
 });
 

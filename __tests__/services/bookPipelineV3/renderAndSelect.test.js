@@ -42,6 +42,9 @@ const { judgeLikenessCrossFamily } = require('../../../services/bookPipelineV3/i
 
 const { buildSpreadRenderPrompt } = require('../../../services/bookPipelineV3/illustrator/render/renderSpread');
 const { renderAllSpreadsNative, candidatePath, createLimiter } = require('../../../services/bookPipelineV3/illustrator/render/renderAllSpreads');
+const { STYLE_VERSION } = require('../../../services/bookPipelineV3/illustrator/styleBible');
+const { SPREAD_RENDERER_MODEL } = require('../../../services/bookPipelineV3/illustrator/config');
+const MODEL_SLUG = String(SPREAD_RENDERER_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_');
 const { selectSpreadWinner, buildSpreadQaNeedsReview } = require('../../../services/bookPipelineV3/illustrator/qa/select');
 
 const SPREAD = (n) => ({
@@ -137,7 +140,68 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('CANONICAL COLORS');
     expect(p).toContain('never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light');
     expect(p).toContain('No color streaks or highlights that are not on the sheet');
-    expect(p).toContain("- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles): golden starlight over cool night blues");
+    expect(p).toContain("- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles, never changes the render MEDIUM): golden starlight over cool night blues");
+  });
+
+  // Cast locks (2026-07-28, book 16758e3c: Mom/Dad changed appearance and
+  // outfits between spreads — supporting characters reached the renderer as
+  // bare name strings).
+  test('cast locks ride the prompt only for characters present in THIS scene', () => {
+    const castLocks = [
+      { name: 'Mom', design: 'shoulder-length brown hair, warm light-tan skin, a sky-blue tunic and cream pants', spreads: [11, 13] },
+      { name: 'Dad', design: 'short dark hair and beard, khaki shirt, olive pants', spreads: [11, 13] },
+    ];
+    const withMom = buildSpreadRenderPrompt({
+      spread: { ...SPREAD(3), scene_contract: { ...SPREAD(3).scene_contract, characters_present: ['Zoe', 'Mom'] } },
+      briefText: 'BRIEF',
+      castLocks,
+    });
+    expect(withMom).toContain('SUPPORTING CAST (locked designs');
+    expect(withMom).toContain('Mom: shoulder-length brown hair');
+    expect(withMom).not.toContain('Dad:'); // not in this scene
+    const heroOnly = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF', castLocks });
+    expect(heroOnly).not.toContain('SUPPORTING CAST');
+  });
+
+  // Reflection scenes (2026-07-28, book 16758e3c p21: "Liv sees Liv" in a
+  // chest lid rendered a SECOND child inside the chest — the one-instance
+  // rule and a reflection moment are contradictory unless staged ON the
+  // surface). Carve-out is CONDITIONAL so ordinary scenes keep the strict rule.
+  test('a reflection contract swaps the one-instance rule for the on-surface staging', () => {
+    const { isReflectionScene } = require('../../../services/bookPipelineV3/illustrator/promptFormat');
+    const reflectSpread = {
+      ...SPREAD(10),
+      scene_contract: { ...SPREAD(10).scene_contract, hero_action: 'leans close and sees her reflection in the polished chest lid' },
+    };
+    expect(isReflectionScene(reflectSpread.scene_contract)).toBe(true);
+    expect(isReflectionScene(SPREAD(3).scene_contract)).toBe(false);
+
+    const p = buildSpreadRenderPrompt({ spread: reflectSpread, briefText: 'BRIEF' });
+    expect(p).toContain('REFLECTION');
+    expect(p).toContain('never as a second free-standing child');
+    expect(p).toContain('Exactly ONE physical instance of the child');
+
+    const normal = buildSpreadRenderPrompt({ spread: SPREAD(3), briefText: 'BRIEF' });
+    expect(normal).toContain('Exactly ONE instance of the child in the scene.');
+    expect(normal).not.toContain('REFLECTION');
+  });
+
+  // Prompt hygiene (2026-07-28): the style bible used to sit at block 11 of
+  // 17, AFTER the scene/continuity/palette free text; the last thing the
+  // model read was a finger-count rule. The bible now LEADS and a one-line
+  // STYLE PIN closes, so free-text notes can never soften the medium lock.
+  test('the style bible leads the prompt and the style pin closes it', () => {
+    const { STYLE_PIN } = require('../../../services/bookPipelineV3/illustrator/styleBible');
+    const p = buildSpreadRenderPrompt({
+      spread: { ...SPREAD(3), scene_contract: { ...SPREAD(3).scene_contract, continuity_notes: 'soft watercolor mood please' } },
+      briefText: 'BRIEF',
+    });
+    const bibleAt = p.indexOf('SIGNATURE ART STYLE');
+    expect(bibleAt).toBeGreaterThan(-1);
+    expect(bibleAt).toBeLessThan(p.indexOf('SCENE (from the manuscript'));
+    expect(p.trim().endsWith(STYLE_PIN)).toBe(true);
+    // Free-text continuity is scoped so it cannot override the lock.
+    expect(p).toContain('the SIGNATURE ART STYLE above always wins over any wording here): soft watercolor mood please');
   });
 
   // 2026-07-16 (book f33b4200, spread 11): a planisphere/star-wheel prop got
@@ -190,21 +254,45 @@ describe('renderAllSpreadsNative', () => {
     });
     expect(res).toHaveLength(2);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      'children-jobs/bk1/v3-renders/spread-1-c1.png',
-      'children-jobs/bk1/v3-renders/spread-1-c2.png',
+      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.png`,
+      `children-jobs/bk1/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c2.png`,
     ]);
     expect(generateImage).toHaveBeenCalledTimes(4);
   });
 
-  // Aspect-keyed cache (2026-07-18 textLayout hardening): the candidate path
-  // encodes the text layout because it decides the render aspect (1:1 vs
-  // 16:9). Caption keeps the legacy suffix-free path so pre-change books
-  // resume untouched; an admin flip re-renders only the missing aspect and
-  // a flip-back replays the original renders.
-  test('candidatePath segments the cache by text layout (caption keeps the legacy path)', () => {
-    expect(candidatePath('bk', 4, 2)).toBe('children-jobs/bk/v3-renders/spread-4-c2.png');
-    expect(candidatePath('bk', 4, 2, 'png', 'caption')).toBe('children-jobs/bk/v3-renders/spread-4-c2.png');
-    expect(candidatePath('bk', 4, 2, 'png', 'embedded')).toBe('children-jobs/bk/v3-renders/spread-4-c2.wide.png');
+  // Style+aspect-keyed cache: the candidate path encodes the style-bible
+  // version (a bump re-renders every spread once instead of replaying
+  // pre-bump pixels forever — book 16758e3c shipped mixed 2D/3D interiors
+  // across nine revisions) and the text layout, because it decides the
+  // render aspect (1:1 vs 16:9). An admin flip re-renders only the missing
+  // aspect and a flip-back replays the original renders.
+  test('candidatePath segments the cache by style version and text layout', () => {
+    expect(candidatePath('bk', 4, 2)).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-4-c2.png`);
+    expect(candidatePath('bk', 4, 2, 'png', 'caption')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-4-c2.png`);
+    expect(candidatePath('bk', 4, 2, 'png', 'embedded')).toBe(`children-jobs/bk/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-4-c2.wide.png`);
+  });
+
+  test('candidates cached under an older style version are never reused', async () => {
+    // Seed a fully-cached render for spread 1 under a PRE-BUMP style path.
+    mockGcsFiles.set('children-jobs/bk-bump/v3-renders/spread-1-c1.png', Buffer.from('old-c1'));
+    mockGcsFiles.set('children-jobs/bk-bump/v3-renders/sb-0-placeholder/spread-1-c1.png', Buffer.from('old-c1'));
+    mockGcsFiles.set('children-jobs/bk-bump/v3-renders/sb-0-placeholder/spread-1-c2.png', Buffer.from('old-c2'));
+    generateImage.mockImplementation(async ({ label }) => ({ buffer: Buffer.from(label), mimeType: 'image/png' }));
+
+    const res = await renderAllSpreadsNative({
+      bookId: 'bk-bump',
+      spreads: [SPREAD(1)],
+      bookPack: PACK,
+      briefText: 'B',
+      log: () => {},
+    });
+    // The stale-style cache did not satisfy the render — fresh candidates.
+    expect(generateImage).toHaveBeenCalledTimes(2);
+    expect(res[0].candidates.every((c) => !c.reused)).toBe(true);
+    expect(res[0].candidates.map((c) => c.path)).toEqual([
+      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.png`,
+      `children-jobs/bk-bump/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c2.png`,
+    ]);
   });
 
   test('embedded renders never reuse caption-aspect candidates (and upload to .wide paths)', async () => {
@@ -224,11 +312,11 @@ describe('renderAllSpreadsNative', () => {
     // The square cache did not satisfy the wide render — fresh candidates.
     expect(generateImage).toHaveBeenCalledTimes(2);
     expect(res[0].candidates.map((c) => c.path)).toEqual([
-      'children-jobs/bk-flip/v3-renders/spread-1-c1.wide.png',
-      'children-jobs/bk-flip/v3-renders/spread-1-c2.wide.png',
+      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.wide.png`,
+      `children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c2.wide.png`,
     ]);
     // The original caption renders survive for a flip-back.
-    expect(mockGcsFiles.has('children-jobs/bk-flip/v3-renders/spread-1-c1.png')).toBe(true);
+    expect(mockGcsFiles.has(`children-jobs/bk-flip/v3-renders/${STYLE_VERSION}/${MODEL_SLUG}/spread-1-c1.png`)).toBe(true);
   });
 
   test('resume: existing GCS candidates are reused, only missing ones render', async () => {

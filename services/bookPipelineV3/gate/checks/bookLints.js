@@ -12,6 +12,20 @@
  *   word_overuse     — a signature noun leaned on so often it deadens
  *                      read-aloud rhythm ("crystal" ×18 in 13 spreads)
  *
+ * 2026-07-28 additions (book 16758e3c, "Liv's Great Underwater Discovery"):
+ *
+ *   unintroduced_refrain_object — the refrain chases a definite object
+ *                      ("Could this be the sound?") that no line ever
+ *                      introduced before the refrain's first use — the
+ *                      book's central question arrived from nowhere
+ *   monotone_page_turn — (nearly) every spread ends on a question; the
+ *                      page-turn hook has become formulaic (flagged in the
+ *                      2026-07-19 Rocket-Ride audit, unaddressed since)
+ *   repetitive_opener — the same words open well over half the spreads
+ *                      ("Swish, swish—Liv..." ×10 of 13)
+ *   refrain_never_evolves — the manuscript declares refrain evolution
+ *                      variants but only ever prints the base refrain
+ *
  * These are SOFT lints: they never hard-fail the gate and never block a
  * book. They ride the gate result as `softLints`, are logged, and feed
  * the editor's targeted revision notes when a revision round runs.
@@ -39,6 +53,19 @@ const FREQUENCY_STOPWORDS = new Set([
   'across', 'toward', 'still', 'even', 'just', 'more', 'most', 'some', 'what',
   'will', 'wide', 'long', 'little', 'small', 'ahead', 'behind', 'about', 'both',
 ]);
+
+/**
+ * The manuscript's declared refrain as plain text. `normalizeManuscript`
+ * emits `refrain` as `{text, evolution}|null`; the original lints coerced
+ * the object with String() ("[object Object]") which silently broke the
+ * refrain exemptions. Tolerates the legacy plain-string form.
+ */
+function refrainTextOf(manuscript) {
+  const r = manuscript?.refrain;
+  if (!r) return '';
+  if (typeof r === 'string') return r;
+  return String(r.text || '');
+}
 
 /** Normalize a sentence for duplicate comparison. */
 function normalizeSentence(s) {
@@ -71,7 +98,7 @@ function sentencesOf(text) {
  * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
  */
 function duplicateClimaxLint(manuscript) {
-  const refrain = normalizeSentence(manuscript.refrain || '');
+  const refrain = normalizeSentence(refrainTextOf(manuscript));
   const seen = new Map(); // normalized sentence → Set<spread>
   for (const s of manuscript.spreads || []) {
     for (const sentence of sentencesOf(s.text || (s.lines || []).join('\n'))) {
@@ -138,23 +165,30 @@ function unintroducedPropLint(manuscript) {
 
 /**
  * word_overuse: a content word used more times than the spread count
- * (e.g. "crystal" ×18 in a 13-spread book). Advisory only — never a
- * revision target on its own (a whole-book synonym pass is editorial,
- * not surgical).
+ * (e.g. "crystal" ×18 in a 13-spread book). Originally advisory with no
+ * targets ("a whole-book synonym pass is editorial, not surgical") —
+ * which meant the finding was detected and then DISCARDED on every book
+ * (the 2026-07-18 audit's #1 rhythm finding). Now the two spreads where
+ * the word is densest become surgical targets: thinning the worst
+ * clusters breaks the drone without a whole-book sweep, and gives the
+ * post-panel polish pass something to grab.
  *
  * @param {object} manuscript
  * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
  */
 function wordOveruseLint(manuscript) {
   const spreads = manuscript.spreads || [];
-  const refrainWords = new Set(normalizeSentence(manuscript.refrain || '').split(' ').filter(Boolean));
-  const counts = new Map();
+  const refrainWords = new Set(normalizeSentence(refrainTextOf(manuscript)).split(' ').filter(Boolean));
+  const counts = new Map(); // word → total count
+  const bySpread = new Map(); // word → Map<spread, count>
   for (const s of spreads) {
     const text = normalizeSentence(s.text || (s.lines || []).join('\n'));
     for (const raw of text.split(' ')) {
       const word = raw.replace(/s$/, ''); // crude plural fold (crystals → crystal)
       if (word.length < 4 || FREQUENCY_STOPWORDS.has(raw) || FREQUENCY_STOPWORDS.has(word) || refrainWords.has(raw)) continue;
       counts.set(word, (counts.get(word) || 0) + 1);
+      if (!bySpread.has(word)) bySpread.set(word, new Map());
+      bySpread.get(word).set(s.spread, (bySpread.get(word).get(s.spread) || 0) + 1);
     }
   }
   const threshold = Math.max(8, spreads.length);
@@ -162,28 +196,236 @@ function wordOveruseLint(manuscript) {
     .filter(([, n]) => n > threshold)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([word, n]) => ({
-      code: 'word_overuse',
-      message: `"${word}" appears ~${n} times across ${spreads.length} spreads — vary the wording (synonyms, pronouns, imagery) to keep the read-aloud rhythm fresh`,
-      spreads: [],
-      targetSpreads: [],
-    }));
+    .map(([word, n]) => {
+      const perSpread = [...(bySpread.get(word) || new Map()).entries()].sort((a, b) => b[1] - a[1]);
+      const densest = perSpread.slice(0, 2).map(([spread]) => spread).sort((a, b) => a - b);
+      return {
+        code: 'word_overuse',
+        message: `"${word}" appears ~${n} times across ${spreads.length} spreads — thin it on the densest spreads (${densest.join(', ')}) with synonyms, pronouns, or imagery to keep the read-aloud rhythm fresh`,
+        spreads: perSpread.map(([spread]) => spread).sort((a, b) => a - b),
+        targetSpreads: densest,
+      };
+    });
+}
+
+/** Sorted spreads with normalized text/lines accessors — shared by the lints below. */
+function sortedSpreads(manuscript) {
+  return (manuscript.spreads || []).slice().sort((a, b) => a.spread - b.spread);
+}
+function linesOf(s) {
+  if (Array.isArray(s.lines) && s.lines.length) return s.lines.map(String);
+  return String(s.text || '').split('\n').filter((l) => l.trim());
+}
+
+/**
+ * unintroduced_refrain_object: the refrain chases a DEFINITE object
+ * ("Could this be the sound?", "Where is the light?") that no non-refrain
+ * line introduced before — or on — the spread where the refrain first
+ * appears. Book 16758e3c asked "Could this be the sound?" from spread 2
+ * onward without any line ever planting a sound to chase; the resolution
+ * (the sound is the child's laugh) landed unearned. A quest the reader was
+ * never told about cannot pull a page-turn.
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function unintroducedRefrainObjectLint(manuscript) {
+  const refrainRaw = refrainTextOf(manuscript);
+  const refrain = normalizeSentence(refrainRaw);
+  if (!refrain) return [];
+  // Definite noun phrases in the refrain: "the (magic) sound" → "sound".
+  const nouns = [...refrain.matchAll(/\bthe\s+(?:\w+\s+)?(\w{3,})\b/g)]
+    .map((m) => m[1])
+    .filter((n) => !POSSESSIVE_STOPWORDS.has(n) && !FREQUENCY_STOPWORDS.has(n));
+  if (nouns.length === 0) return [];
+
+  const spreads = sortedSpreads(manuscript);
+  const firstRefrainSpread = spreads.find((s) => s.refrain_here === true
+    || normalizeSentence(s.text || linesOf(s).join(' ')).includes(refrain))?.spread;
+  if (!Number.isFinite(firstRefrainSpread)) return [];
+
+  const lints = [];
+  for (const noun of [...new Set(nouns)]) {
+    // Introduced = the noun appears in a sentence that is NOT the refrain,
+    // on any spread up to and including the refrain's first use.
+    const introduced = spreads
+      .filter((s) => s.spread <= firstRefrainSpread)
+      .some((s) => sentencesOf(s.text || linesOf(s).join('\n')).some((sentence) => {
+        const norm = normalizeSentence(sentence);
+        if (norm.includes(refrain) || refrain.includes(norm)) return false;
+        return new RegExp(`\\b${noun}s?\\b`).test(norm);
+      }));
+    if (introduced) continue;
+    lints.push({
+      code: 'unintroduced_refrain_object',
+      message: `the refrain asks about "the ${noun}" but no line introduces a ${noun} before its first use on spread ${firstRefrainSpread} — plant the quest object in the opening spread(s) (let the child hear/see/name it) so the refrain's question is about something the reader knows`,
+      spreads: [firstRefrainSpread],
+      targetSpreads: [spreads[0]?.spread ?? 1],
+    });
+  }
+  return lints;
+}
+
+/**
+ * monotone_page_turn: (nearly) every spread's last line ends on a question
+ * mark. Writer rule 8 and the page_turn_pull judge dimension both push
+ * toward hooks; with no counterweight the question-hook wins every spread
+ * and reads formulaic by mid-book (Rocket-Ride audit W3, book 16758e3c:
+ * a question ends 11 of 13 spreads). Targets a couple of MIDDLE offenders
+ * so the revision has concrete spreads to vary.
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function monotonePageTurnLint(manuscript) {
+  const spreads = sortedSpreads(manuscript);
+  if (spreads.length < 6) return [];
+  const questionEnders = spreads.filter((s) => {
+    const lines = linesOf(s);
+    return /\?\s*$/.test(String(lines[lines.length - 1] || '').trim());
+  });
+  if (questionEnders.length < spreads.length - 2) return [];
+  const targets = [...new Set([
+    questionEnders[Math.floor(questionEnders.length / 3)]?.spread,
+    questionEnders[Math.floor((2 * questionEnders.length) / 3)]?.spread,
+  ].filter(Number.isFinite))];
+  return [{
+    code: 'monotone_page_turn',
+    message: `${questionEnders.length} of ${spreads.length} spreads end on a question — the page-turn hook has become formulaic. On the targeted spreads, swap the closing question for a different hook type: a sound incoming ("Then — plink!"), a pattern about to break, or a cliff-clause ("Liv leans closer, and…")`,
+    spreads: questionEnders.map((s) => s.spread),
+    targetSpreads: targets,
+  }];
+}
+
+/**
+ * repetitive_opener: the same opening words start well over half the
+ * spreads ("Swish, swish—Liv…" opened 10 of 13 in book 16758e3c). Even a
+ * deliberate refrain-opener needs breathing room — the lint targets middle
+ * occurrences (the bookend uses are usually intentional).
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function repetitiveOpenerLint(manuscript) {
+  const spreads = sortedSpreads(manuscript);
+  if (spreads.length < 6) return [];
+  const prefixOf = (s) => normalizeSentence(linesOf(s)[0] || '').split(' ').slice(0, 2).join(' ');
+  const byPrefix = new Map();
+  for (const s of spreads) {
+    const p = prefixOf(s);
+    if (p.split(' ').length < 2) continue;
+    if (!byPrefix.has(p)) byPrefix.set(p, []);
+    byPrefix.get(p).push(s.spread);
+  }
+  const lints = [];
+  for (const [prefix, list] of byPrefix) {
+    if (list.length <= Math.ceil(spreads.length * 0.6)) continue;
+    const middle = list.slice(1, -1);
+    lints.push({
+      code: 'repetitive_opener',
+      message: `"${prefix}…" opens ${list.length} of ${spreads.length} spreads — vary the opening on the targeted spreads (start mid-action, start with another character or a sound, or move the repeated phrase deeper into the spread) so the repetition reads as a ritual, not a rut`,
+      spreads: list,
+      targetSpreads: middle.filter((_, i) => i % 2 === 1).slice(0, 3),
+    });
+  }
+  return lints;
+}
+
+/**
+ * refrain_never_evolves: the manuscript DECLARES refrain evolution variants
+ * (refrain.evolution) but only the base refrain ever prints — the promised
+ * deepen/transform beats never happen, so the repetition flattens instead
+ * of building. Fires only when the base refrain lands 3+ times (a refrain
+ * used twice has no room to evolve).
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function refrainNeverEvolvesLint(manuscript) {
+  const r = manuscript?.refrain;
+  if (!r || typeof r !== 'object') return [];
+  const base = normalizeSentence(String(r.text || ''));
+  if (!base) return [];
+  const variants = (Array.isArray(r.evolution) ? r.evolution : [])
+    .map((e) => normalizeSentence(String(e?.variant || '')))
+    .filter((v) => v && v !== base);
+  if (variants.length === 0) return [];
+
+  const spreads = sortedSpreads(manuscript);
+  const textOf = (s) => normalizeSentence(s.text || linesOf(s).join(' '));
+  const baseSpreads = spreads.filter((s) => textOf(s).includes(base)).map((s) => s.spread);
+  const anyVariantPrinted = variants.some((v) => spreads.some((s) => textOf(s).includes(v)));
+  if (baseSpreads.length < 3 || anyVariantPrinted) return [];
+  return [{
+    code: 'refrain_never_evolves',
+    message: `the refrain "${String(r.text)}" repeats unchanged on spreads ${baseSpreads.join(', ')} while its declared evolution variants never appear — use the variants at their phases (the climax-phase variant must actually differ) so the repetition builds instead of flattening`,
+    spreads: baseSpreads,
+    // The evolution is most missed at the last (climax-adjacent) use.
+    targetSpreads: baseSpreads.slice(-1),
+  }];
+}
+
+/**
+ * word_length: words longer than the band's vocabularyConstraints
+ * .maxWordLengthChars (the ONLY machine-checkable field in that config —
+ * the category labels have no lexicons and stay prompt-only). Advisory
+ * with targets: an 11-letter word in an infant book is a read-aloud
+ * stumble the writer can fix surgically. Exemptions: the child's name and
+ * capitalized tokens (proper nouns).
+ *
+ * @param {object} manuscript
+ * @param {{ageProfile?: object, protagonistName?: string}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function wordLengthLint(manuscript, opts = {}) {
+  const maxLen = Number(opts.ageProfile?.vocabularyConstraints?.maxWordLengthChars);
+  if (!Number.isFinite(maxLen) || maxLen < 4) return [];
+  const nameLower = String(opts.protagonistName || '').toLowerCase();
+  const offenders = new Map(); // word → Set<spread>
+  for (const s of sortedSpreads(manuscript)) {
+    for (const raw of String(s.text || linesOf(s).join(' ')).match(/[A-Za-z']+/g) || []) {
+      if (/^[A-Z]/.test(raw)) continue; // proper nouns / sentence-case names
+      const word = raw.toLowerCase().replace(/'/g, '');
+      if (word.length <= maxLen || word === nameLower) continue;
+      if (!offenders.has(word)) offenders.set(word, new Set());
+      offenders.get(word).add(s.spread);
+    }
+  }
+  if (offenders.size === 0) return [];
+  const words = [...offenders.keys()].sort((a, b) => b.length - a.length).slice(0, 5);
+  const targetSpreads = [...new Set(words.flatMap((w) => [...offenders.get(w)]))].sort((a, b) => a - b).slice(0, 3);
+  return [{
+    code: 'word_length',
+    message: `word(s) over the band's ${maxLen}-character read-aloud budget: ${words.map((w) => `"${w}"`).join(', ')} — swap for shorter words on the targeted spreads`,
+    spreads: targetSpreads,
+    targetSpreads,
+  }];
 }
 
 /**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
  * @param {object} manuscript
+ * @param {{ageProfile?: object, protagonistName?: string}} [opts] - band
+ *   profile + child name for the vocabulary-aware lints
  * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
  */
-function runBookLints(manuscript) {
+function runBookLints(manuscript, opts = {}) {
   const all = [];
-  for (const lint of [duplicateClimaxLint, unintroducedPropLint, wordOveruseLint]) {
+  for (const lint of [
+    duplicateClimaxLint, unintroducedPropLint, wordOveruseLint,
+    unintroducedRefrainObjectLint, monotonePageTurnLint, repetitiveOpenerLint, refrainNeverEvolvesLint,
+  ]) {
     try {
       all.push(...lint(manuscript));
     } catch (err) {
       console.warn(`[v3] book lint ${lint.name} threw (skipping): ${err.message}`);
     }
+  }
+  try {
+    all.push(...wordLengthLint(manuscript, opts));
+  } catch (err) {
+    console.warn(`[v3] book lint wordLengthLint threw (skipping): ${err.message}`);
   }
   return all;
 }
@@ -193,5 +435,10 @@ module.exports = {
   duplicateClimaxLint,
   unintroducedPropLint,
   wordOveruseLint,
+  unintroducedRefrainObjectLint,
+  monotonePageTurnLint,
+  repetitiveOpenerLint,
+  refrainNeverEvolvesLint,
+  wordLengthLint,
   normalizeSentence,
 };

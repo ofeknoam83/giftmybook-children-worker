@@ -103,9 +103,10 @@ async function runManuscriptGate(manuscript, ageProfile, ctx = {}) {
     perSpread,
     hardFailureCount,
     // Book-level SOFT lints (duplicate climax, unintroduced prop, word
-    // overuse) — never gate, never count as hard failures; they feed the
-    // editor's revision notes when a revision round runs.
-    softLints: runBookLints(manuscript),
+    // overuse, refrain/hook variety, word length) — never gate, never count
+    // as hard failures; they feed the editor's revision notes when a
+    // revision round runs (and the post-panel polish pass).
+    softLints: runBookLints(manuscript, { ageProfile, protagonistName: ctx.protagonistName }),
   };
 }
 

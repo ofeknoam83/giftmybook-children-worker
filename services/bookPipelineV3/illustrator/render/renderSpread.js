@@ -11,8 +11,8 @@
 const { generateImage } = require('./imageClient');
 const { withWorldPlate, withPropPlate } = require('./referencePack');
 const { SPREAD_RENDERER_MODEL, CANDIDATES_PER_SPREAD } = require('../config');
-const { STYLE_BIBLE } = require('../styleBible');
-const { formatCastList } = require('../promptFormat');
+const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
+const { formatCastList, isReflectionScene } = require('../promptFormat');
 
 /**
  * 1:1 by design (not a stopgap): the native path lays out books in the
@@ -59,10 +59,24 @@ const ZONE_INSTRUCTIONS = {
  *   renderer repeatedly omits them (fail@likeness), exhausting candidate budgets.
  * @returns {string} full render prompt
  */
-function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption', mustIncludeFeatures = [] }) {
+function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null }) {
   const sc = spread.scene_contract || {};
   const zone = direction?.textZone && (ZONE_INSTRUCTIONS[direction.textZone] || direction.textZone);
   const embedded = textLayout === 'embedded';
+  // Cast locks (2026-07-28, book 16758e3c: Mom/Dad changed appearance and
+  // outfits between spreads — supporting characters reached the renderer as
+  // bare name strings). Only the locks whose character is actually IN this
+  // scene ride the prompt. Matching is exact OR whole-word containment —
+  // never bare substring (a lock named "Al" must not match "small aliens"
+  // and drag the wrong locked design into the prompt): the art director is
+  // told to use characters_present names verbatim, and the word-boundary
+  // check only absorbs harmless decoration ("Mom" vs "Mom, holding a jar").
+  const wordMatch = (needle, haystack) => new RegExp(`\\b${String(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(String(haystack));
+  const presentCast = (Array.isArray(castLocks) ? castLocks : [])
+    .filter((c) => c?.name && c?.design && (sc.characters_present || []).some((p) => {
+      const member = String(p); const name = String(c.name);
+      return member.toLowerCase() === name.toLowerCase() || wordMatch(name, member) || wordMatch(member, name);
+    }));
 
   return [
     embedded
@@ -75,6 +89,11 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
       ? 'ONE CONTINUOUS SCENE: the two halves are ONE panorama, never two mirrored panels. Every distinctive landmark (an archway, a rocket, a doorway, a tunnel mouth) appears EXACTLY ONCE in the whole image — never once per half, never as symmetric twins — and no large landmark sits centered on the fold line.'
       : null,
     '',
+    // Prompt hygiene (2026-07-28): the bible LEADS the prompt. It used to sit
+    // at block 11 of 17, after all the scene/continuity/palette free text —
+    // any drifty phrasing in those channels was read before the style lock.
+    STYLE_BIBLE,
+    '',
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
     `- Characters present ${formatCastList(sc.characters_present)}`,
@@ -86,12 +105,14 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     `- Emotion on the child's face/body: ${sc.emotion || 'engaged'}`,
     (sc.key_objects || []).length ? `- Must include, each CLEARLY VISIBLE and recognizable: ${sc.key_objects.join(', ')}` : null,
     sc.time_of_day ? `- Time of day: ${sc.time_of_day}` : null,
-    sc.continuity_notes ? `- Continuity: ${sc.continuity_notes}` : null,
+    // Free-text channel (writer notes + spliced admin/repair notes) — scoped
+    // so no note phrasing can soften the style lock above.
+    sc.continuity_notes ? `- Continuity (scene facts only — the SIGNATURE ART STYLE above always wins over any wording here): ${sc.continuity_notes}` : null,
     '',
     direction ? [
       'ART DIRECTION:',
       direction.shot ? `- Shot: ${direction.shot}` : null,
-      direction.palette ? `- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles): ${direction.palette}` : null,
+      direction.palette ? `- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles, never changes the render MEDIUM): ${direction.palette}` : null,
       direction.continuityNotes ? `- Continuity locks: ${direction.continuityNotes}` : null,
     ].filter(Boolean).join('\n') : 'COMPOSITION: one clear focal action; the child off-center (left or right third); background supports but never crowds the subject.',
     zone
@@ -110,8 +131,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
     "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
     "CANONICAL COLORS: the character's hair color, skin tone, and freckles come from the MODEL SHEET and are IDENTICAL in every scene. Lighting (night, starlight, lantern glow, golden hour) tints the SCENE — it never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light, freckles stay visible, skin keeps its depth. No color streaks or highlights that are not on the sheet.",
-    '',
-    STYLE_BIBLE,
+    presentCast.length
+      ? `SUPPORTING CAST (locked designs — each is the SAME person with the SAME hair, skin tone, and outfit every time they appear in this book):\n${presentCast.map((c) => `- ${c.name}: ${c.design}`).join('\n')}`
+      : null,
     '',
     'ABSOLUTELY NO TEXT of any kind in the image — no letters, words, numbers, signs with writing, book pages with visible words, or watermarks. The story text is printed separately. Clothing must be letter-free: no name tags, letter badges, real-world logos, or national flags.',
     'WORDLESS COSTUMES & TECH: any control panels, chest displays, screens, gauges, wrist devices, helmets, HUDs, spacesuit instruments, or dashboards must show ONLY wordless indicators — glowing dots, bars, rings, star-glyphs, abstract icons — NEVER digits, numbers, clock readouts, or letters.',
@@ -123,11 +145,17 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     direction?.heroPresence === 'required'
       ? 'THE CHILD IS THE FOCAL SUBJECT of this scene: prominently visible, clearly recognizable, and central to the action — never omitted, never a tiny distant figure, never cropped out of frame. If the composition would leave the child out, restage it so the child is present and clearly the star.'
       : null,
-    'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
+    isReflectionScene(sc, direction)
+      // The one-instance rule + a reflection moment are contradictory unless
+      // the reflection is explicitly staged ON the surface (book 16758e3c
+      // p21: "sees her reflection" rendered a second child INSIDE the chest).
+      ? 'Exactly ONE physical instance of the child in the scene. This moment includes the child\'s REFLECTION: paint it clearly ON the reflective surface (mirror, water, polished lid) — slightly distorted or softened by the surface, framed by it, never as a second free-standing child. No other duplicated characters. No extra people beyond those listed.'
+      : 'Exactly ONE instance of the child in the scene. No duplicated characters. No extra people beyond those listed.',
     // P0 negative anatomy anchor (2026-07-23 audit: a three-handed hero shipped
     // on the front cover). State the limb COUNT explicitly — image models add a
     // stray extra hand/arm on complex grips unless the count is pinned.
     'ANATOMY: each character has exactly two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. Prefer simple, natural grips (whole-hand holds, open palms); avoid complex finger-object interlocks and foreshortened finger tangles.',
+    STYLE_PIN,
   ].filter((l) => l !== null).join('\n');
 }
 
@@ -150,9 +178,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  */
 async function renderSpreadCandidates({
   spread, direction = null, bookPack, plate = null, propPlate = null, briefText, wardrobeNote,
-  textLayout = 'caption', mustIncludeFeatures = [], count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
+  textLayout = 'caption', mustIncludeFeatures = [], castLocks = null, count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
-  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures });
+  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks });
   const references = withPropPlate(withWorldPlate(bookPack, plate), propPlate);
 
   const renderOne = (i) => generateImage({

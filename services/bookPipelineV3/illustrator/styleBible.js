@@ -32,6 +32,13 @@ const { PIXAR_STYLE } = require('../../shared/illustration/config');
 // antiStyle, so the version bumps (regenerates every cached identity kit once).
 const STYLE_VERSION = 'sb-3-pixar-premium-3d-stylized';
 
+// One-line closing pin (2026-07-28 prompt-hygiene pass): the full bible now
+// leads the render prompts, but ~2-3KB of scene/no-text/anatomy rules follow
+// it — the pin restates the medium lock as the LAST thing the model reads.
+// Derived summary of the bible, not new style content — editing the bible
+// still requires the STYLE_VERSION bump; the pin follows automatically.
+const STYLE_PIN = 'STYLE PIN (final word): render this image in the SIGNATURE ART STYLE defined above — the premium STYLIZED 3D CGI animated-film medium. Never flat 2D, painterly, watercolor, cel-shaded, vector, line-art, and never a live-action/photoreal look.';
+
 const STYLE_BIBLE = `SIGNATURE ART STYLE — GiftMyBook picture books (premium 3D, matches the book's cover):
 - ${PIXAR_STYLE.prefix} ${PIXAR_STYLE.suffix}.
 - NOT THIS: ${PIXAR_STYLE.antiStyle}.
@@ -41,4 +48,4 @@ const STYLE_BIBLE = `SIGNATURE ART STYLE — GiftMyBook picture books (premium 3
 - Consistent rendering quality, materials, and lighting language across every image in a book.
 - Absolutely no text, letters, numbers, watermarks, or signatures in the artwork.`;
 
-module.exports = { STYLE_VERSION, STYLE_BIBLE };
+module.exports = { STYLE_VERSION, STYLE_BIBLE, STYLE_PIN };

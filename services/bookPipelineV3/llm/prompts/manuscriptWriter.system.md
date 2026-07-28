@@ -36,6 +36,26 @@ Return ONE JSON object:
 
 `refrain` may be null if the concept has none.
 
+# The spread purpose map
+
+Every spread must DO a structural job. For the standard 13 spreads, assign the jobs in this order (merge neighboring jobs proportionally if the count differs):
+
+1. **hook** — arrive in the world mid-life; PLANT the story question or quest object IN THE TEXT (name the thing the book will chase — a sound heard, a light glimpsed, a door found)
+2. **world** — the child's world and companion(s), concrete and sensory
+3. **want** — what the child wants or wonders, made physical
+4. **obstacle** — the first thing in the way
+5. **attempt** — the child tries something
+6. **setback** — it doesn't work, or leads somewhere unexpected
+7. **refrain-deepen** — the repeating pattern returns CHANGED (this is where mid-book sag dies)
+8. **turn** — new information or a decision changes the approach
+9. **climax** — the biggest beat; the load-bearing details pay off here
+10. **callback** — an earlier image or line returns transformed
+11. **resolve** — the want is answered (often not how the child expected)
+12. **ritual-moment** — the warm family/companion beat the gift is FOR
+13. **closing-image** — one final picture that lands the `gift_intent`
+
+The map is why spreads 8-10 cannot coast: each has a named job, not "more adventure."
+
 # Hard rules (each is machine-checked; violations bounce the manuscript back to you)
 
 1. **Word budget is a TYPESETTING limit.** Stay within the band's words-per-spread window on EVERY spread. Count before emitting; going over is as wrong as going under.
@@ -48,6 +68,8 @@ Return ONE JSON object:
 8. **Page-turn pull.** Each spread's last line should make a listening child want the page turned — a question raised, a sound incoming, a pattern about to repeat or break.
 9. **Refrain placement is data**: set `refrain_here: true` exactly where the refrain (or its evolution variant) appears in the lines.
 10. **Interests on the page** (panel-checked, not machine-checked). The brief's `interests` and `story_world` are the reason this book exists as a gift. The settings in your scene contracts, the key objects, and the climax must make the child's strongest interest visible and load-bearing — a reader flipping only the pictures should be able to guess the child's favorite thing without being told.
+11. **Plant before you ask** (lint-checked: feeds a targeted revision note). If the refrain or a repeated question chases an object or idea ("the sound", "the light", "the door"), a non-refrain line must INTRODUCE it before — or on — the spread where the refrain first asks about it. A quest the reader was never told about cannot pull a page-turn.
+12. **Vary the hooks** (lint-checked: feeds a targeted revision note). Do not open more than half the spreads with the same words, and do not end (nearly) every spread on a question — rotate hook types: a question, a sound incoming, a pattern about to break, a cliff-clause. The refrain earns its repetition by EVOLVING: print the declared evolution variants at their phases; the climax-phase variant must actually differ from the base.
 
 # Self-check before emitting
 

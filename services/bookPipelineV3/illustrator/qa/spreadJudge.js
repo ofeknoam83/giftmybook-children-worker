@@ -20,7 +20,7 @@
  */
 
 const { callVisionRole } = require('../../llm/visionClient');
-const { formatCastList } = require('../promptFormat');
+const { formatCastList, isReflectionScene } = require('../promptFormat');
 
 const SPREAD_PASS_SCORE = 4; // ranking threshold only (see pickWinner) — the GATE is critical defects
 
@@ -54,6 +54,16 @@ const HARD_FAIL_TAGS = ['duplicated_hero', 'extra_character', 'missing_character
  */
 const ANATOMY_COUNT_TAGS = ['anatomy_hands', 'anatomy_limbs'];
 
+/**
+ * Style tags that mark a render-MEDIUM break (flat-2D/painterly/vector drift,
+ * or a live-action-photograph look). Book 16758e3c shipped flat cel-shaded
+ * spreads beside premium-3D ones because the model tagged the drift and then
+ * labeled the defect "minor" — style class 6 had no deterministic rail the
+ * way anatomy and cast do. These tags (and a style score <= 2, which the
+ * prompt reserves for a medium break) now always escalate to critical.
+ */
+const STYLE_BREAK_TAGS = ['style_drift', 'photo_blur'];
+
 function buildSpreadJudgePrompt({ sceneContract, direction, hasCover = false, captionText = null, wideSpread = false, heroRequired = false }) {
   return `You are quality-judging a children's picture-book illustration against its scene contract. You are the PRINT-DEFECT gate: block images a parent would consider broken; do not block images over stylistic or interpretive nitpicks.
 ${hasCover ? 'Image 1 is the CANDIDATE illustration. Image 2 is the parent-approved COVER of this book — a RENDERING-STYLE reference ONLY (brushwork, color saturation, line weight, lighting quality). Never judge identity, likeness, or outfit from it.' : ''}
@@ -76,7 +86,7 @@ Score each dimension 1-5 (4 = good with minor imperfections, 5 = flawless) and l
 
 THE PARENT TEST — a defect is "critical" ONLY if a parent flipping through the printed book would consider the page BROKEN or WRONG. The complete list of critical classes:
 1. readable words or lettering painted in the artwork
-2. the child duplicated, or a stranger/extra NAMED person present — but a DECLARED GROUP in the cast list (e.g. "a small group of small aliens") is ALLOWED to show several members: a crowd of the declared group is NOT an extra person and is NEVER a defect. Only an individual who is not in the cast list, or the hero appearing twice, counts here
+2. the child duplicated, or a stranger/extra NAMED person present — but a DECLARED GROUP in the cast list (e.g. "a small group of small aliens") is ALLOWED to show several members: a crowd of the declared group is NOT an extra person and is NEVER a defect. Only an individual who is not in the cast list, or the hero appearing twice, counts here${isReflectionScene(sceneContract, direction) ? '. REFLECTION EXCEPTION (this contract\'s action calls for the child seeing their reflection): the child\'s reflected image clearly ON a reflective surface (mirror, water, polished lid) — framed by the surface, softened/distorted by it — is the CONTRACTED reflection, not a duplicate. TWO free-standing children in the scene is still critical' : ''}
 3. countably wrong anatomy (extra/missing/fused fingers, a third arm)
 4. the contracted action ENTIRELY absent (not merely staged differently)
 5. the wrong setting
@@ -91,7 +101,7 @@ Return STRICT JSON:
   "anatomy": 1-5,          // hands, limbs, faces, object coherence — stiffness or awkwardness is NEVER below 4; only countably wrong anatomy (extra/missing/fused fingers, a third arm) goes lower
   "contract": 1-5,         // shows the contracted setting + action + objects — choreography (which hand, how many hands, exact prop-relative position) never lowers this score
   "cast": 1-5,             // the listed NAMED individuals are each present exactly once; a DECLARED GROUP may show any number of members (never lowers this score); 1 only if the hero appears twice or a stranger/extra NAMED individual (not a declared group) appears
-  "style": 1-5,            // consistent premium 3D CGI animated-film style, no flat-2D/painterly/live-action drift${hasCover ? '; must MATCH the cover reference\'s rendering style (same dimensional 3D medium, lighting quality, and material realism)' : ''}
+  "style": 1-5,            // consistent premium 3D CGI animated-film style, no flat-2D/painterly/live-action drift${hasCover ? '; must MATCH the cover reference\'s rendering style (same dimensional 3D medium, lighting quality, and material realism)' : ''} — a score of 2 or below is reserved EXCLUSIVELY for a broken render MEDIUM (critical class 6: flat-2D/painterly/vector/cel-shaded look, or live-action/photoreal look); tonal or palette nuances WITHIN the stylized-3D medium score 3+
   "zone": 1-5,             // quiet zone actually quiet (5 if no zone directed)
   "hero_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // tight bounding box of the child's FULL figure (head to feet) as fractions of image width/height from the top-left corner; null if the child is not visible
   "figures_box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },  // ONE box enclosing EVERY character/creature in the scene (the child, companions, aliens, animals — anything with a face); null if no figures
@@ -109,6 +119,7 @@ Rules:
 - PROP MICRO-GEOMETRY: the exact point a finger touches or traces on a map or prop, which segment of a path is indicated, or which mark is nearest is NEVER a defect — if the child interacts with the right prop in the right general manner, the contract is satisfied.
 - CHOREOGRAPHY ALLOWANCE: which hand performs an action (left/right are interchangeable — renders mirror freely) and an object's position relative to a small prop feature (over a pocket, near a strap) are NEVER defects. Judge whether the ACTION reads, not its choreography. This allowance covers WHICH of the character's two hands acts — it does NOT excuse a limb COUNT error: a single character showing MORE THAN TWO hands or MORE THAN TWO arms (a third hand, a duplicated/extra arm, a stray hand with no arm) is ALWAYS a countable anatomy defect (critical), tag anatomy_hands or anatomy_limbs, cap anatomy at 2. "How many hands touch the object" is only allowed when the total per character stays at two. (2026-07-23 audit: a three-handed hero shipped on the front cover because the choreography allowance was read as excusing hand COUNT.)
 - NO IDENTITY OR GENDER JUDGING: ${hasCover ? 'the cover reference is for RENDERING STYLE comparison ONLY. ' : 'you have no reference art. '}Never assess whether the character matches a name, assumed gender, appearance, or the cover's child/outfit — a separate likeness judge owns identity. Cast counts NAMED individuals only — a declared group is allowed to be many.
+- STYLE TAGS ARE MEDIUM VERDICTS: emit style_drift ONLY for a true critical-class-6 medium break (the image reads as flat 2D, painterly, vector/cel-shaded, or line-art instead of a dimensional 3D render), and photo_blur ONLY for a live-action-photograph or photoreal-real-skin look. Never emit them for palette warmth, lighting mood, or background-blur amount within the stylized 3D medium — those are minor defects without a style tag.
 - The directed shot is advisory context: a different framing is never a defect or score reduction.`;
 }
 
@@ -204,12 +215,19 @@ async function judgeSpreadCandidate({ candidate, sceneContract, direction = null
   const anatomyCountTags = tags.filter((t) => ANATOMY_COUNT_TAGS.includes(t));
   const anatomyCountFail = anatomyCountTags.length > 0 || scores.anatomy <= 2;
   const hardTagged = tags.some((t) => HARD_FAIL_TAGS.includes(t));
-  if (hardTagged || anatomyCountFail) {
+  // Style-medium gate (book 16758e3c — flat-2D spreads shipped as "minor"):
+  // the prompt reserves the style tags and a style score <= 2 for a broken
+  // render medium (critical class 6), so either signal escalates
+  // deterministically — the model's severity prose no longer decides.
+  const styleBreakTags = tags.filter((t) => STYLE_BREAK_TAGS.includes(t));
+  const styleBreakFail = styleBreakTags.length > 0 || scores.style <= 2;
+  if (hardTagged || anatomyCountFail || styleBreakFail) {
     normalized = normalized.map((d) => ({ ...d, severity: 'critical' }));
     if (normalized.length === 0) {
       const reasons = [];
       if (hardTagged) reasons.push(`hard-fail tag present (${tags.filter((t) => HARD_FAIL_TAGS.includes(t)).join(', ')})`);
       if (anatomyCountFail) reasons.push(anatomyCountTags.length ? `countable anatomy defect (${anatomyCountTags.join(', ')})` : `anatomy score ${scores.anatomy} <= 2 (countable anatomy defect)`);
+      if (styleBreakFail) reasons.push(styleBreakTags.length ? `style-medium break (${styleBreakTags.join(', ')})` : `style score ${scores.style} <= 2 (render-medium break)`);
       normalized.push({ note: reasons.join('; '), severity: 'critical' });
     }
   }
@@ -263,4 +281,5 @@ module.exports = {
   SPREAD_QA_TAGS,
   HARD_FAIL_TAGS,
   ANATOMY_COUNT_TAGS,
+  STYLE_BREAK_TAGS,
 };

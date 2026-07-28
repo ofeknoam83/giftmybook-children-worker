@@ -16,6 +16,15 @@ const SYSTEM = fs.readFileSync(
   'utf8',
 );
 
+// Polish mode (2026-07-28): same surgical machinery, different framing —
+// nothing is broken, make the targeted spreads sing. Used by the post-panel
+// polish pass on ACCEPTED manuscripts, where the defect-framed revision
+// prompt ("the judge panel flagged YOUR manuscript") is the wrong voice.
+const SYSTEM_POLISH = fs.readFileSync(
+  path.join(__dirname, '../../llm/prompts/manuscriptPolish.system.md'),
+  'utf8',
+);
+
 /**
  * Merge judge flagged_spreads + gate perSpread failures into one
  * targeted-revision list.
@@ -24,8 +33,8 @@ const SYSTEM = fs.readFileSync(
  * @param {Array<{spread:number, passed:boolean, failures:Array}>} gatePerSpread
  * @param {Array<{code:string, message:string, targetSpreads:number[]}>} [softLints] -
  *   book-level lints (gate `softLints`); each rides its targetSpreads as a
- *   revision note. Lints with no targetSpreads (word overuse) are advisory
- *   only and never create a target.
+ *   revision note. A lint with no targetSpreads is advisory only and never
+ *   creates a target.
  */
 function mergeTargets(judgeFlags = [], gatePerSpread = [], softLints = []) {
   const bySpread = new Map();
@@ -62,13 +71,19 @@ function contractFingerprint(sceneContract) {
  * @param {{
  *   brief: object, ageProfile: object, manuscript: object,
  *   targets: Array<{spread:number, notes:string[], requireContractChange?:boolean}>,
- * }} input
+ *   mode?: 'revision'|'polish',
+ * }} input - mode 'polish' swaps the defect-framed system prompt for the
+ *   craft-framed one (post-panel polish of an accepted manuscript);
+ *   everything else — surgical targeting, off-target discard, contract
+ *   re-ask, normalization — is identical.
  */
 async function manuscriptRevisionActivity(input, ctx) {
-  const { brief, ageProfile, manuscript, targets } = input;
+  const { brief, ageProfile, manuscript, targets, mode = 'revision' } = input;
   if (!Array.isArray(targets) || targets.length === 0) {
     throw new Error('manuscriptRevision: no targets');
   }
+  const systemPrompt = mode === 'polish' ? SYSTEM_POLISH : SYSTEM;
+  const labelBase = mode === 'polish' ? 'v3.polish' : 'v3.revision';
 
   const buildUserPrompt = (revisionTargets) => JSON.stringify({
     brief: {
@@ -108,11 +123,11 @@ async function manuscriptRevisionActivity(input, ctx) {
   };
 
   const resp = await callWithRole('WRITER', {
-    systemPrompt: SYSTEM,
+    systemPrompt,
     userPrompt: buildUserPrompt(targets),
     jsonMode: true,
     maxTokens: 4000,
-    label: 'v3.revision',
+    label: labelBase,
   });
 
   const out = resp.json;
@@ -148,11 +163,11 @@ async function manuscriptRevisionActivity(input, ctx) {
       ],
     }));
     const reask = await callWithRole('WRITER', {
-      systemPrompt: SYSTEM,
+      systemPrompt,
       userPrompt: buildUserPrompt(reaskTargets),
       jsonMode: true,
       maxTokens: 4000,
-      label: 'v3.revision.contractfix',
+      label: `${labelBase}.contractfix`,
     });
     if (reask.json && Array.isArray(reask.json.spreads)) {
       for (const [spread, patch] of collectPatches(reask.json)) patches.set(spread, patch);
@@ -177,7 +192,7 @@ async function manuscriptRevisionActivity(input, ctx) {
   revised.concept_id = manuscript.concept_id;
   revised._usage = resp.usage;
 
-  ctx.log('info', `[v3] revision(${manuscript.id}): rewrote spreads [${Array.from(patches.keys()).sort((a, b) => a - b).join(',')}] of targets [${Array.from(targetSet).join(',')}]`);
+  ctx.log('info', `[v3] ${mode}(${manuscript.id}): rewrote spreads [${Array.from(patches.keys()).sort((a, b) => a - b).join(',')}] of targets [${Array.from(targetSet).join(',')}]`);
   return revised;
 }
 

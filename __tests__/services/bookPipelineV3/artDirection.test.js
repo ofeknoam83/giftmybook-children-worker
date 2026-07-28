@@ -342,6 +342,57 @@ describe('book pass prop-class convergence (2026-07-19)', () => {
     expect(flags[0].severity).toBe('critical');
   });
 
+  // Cast locks (2026-07-28, book 16758e3c: Mom/Dad rendered as different
+  // people in different outfits between consecutive spreads). Critical class
+  // 8 is bounded from day one — same name-binding contract as the prop class.
+  const { boundCastFlags, buildContactSheetPrompt: buildPrompt } = require('../../../services/bookPipelineV3/illustrator/bookPass/contactSheet');
+  const castLocks = { cast: [{ name: 'Mom', design: 'shoulder-length brown hair, sky-blue tunic', spreads: [11, 13] }] };
+
+  test('the contact-sheet prompt lists cast locks + critical class 8 only when locks exist', () => {
+    const withCast = buildPrompt({
+      manuscript: MS,
+      direction: { directionBySpread: new Map([[1, { shot: 'medium' }]]), continuityLocks: castLocks },
+    });
+    expect(withCast).toContain('recurring SUPPORTING CHARACTERS consistent with their locked designs');
+    expect(withCast).toContain('Mom: shoulder-length brown hair');
+    expect(withCast).toContain('LOCKED recurring supporting character rendered as a clearly DIFFERENT PERSON');
+    const without = buildPrompt({
+      manuscript: MS,
+      direction: { directionBySpread: new Map([[1, { shot: 'medium' }]]), continuityLocks: { props: [] } },
+    });
+    expect(without).not.toContain('DIFFERENT PERSON');
+  });
+
+  test('boundCastFlags keeps a critical cast flag naming a locked member', () => {
+    const { flags, downgraded } = boundCastFlags(
+      [{ spread: 13, issue: 'Mom looks like a different person than on spread 11', severity: 'critical' }],
+      castLocks,
+    );
+    expect(flags[0].severity).toBe('critical');
+    expect(downgraded).toHaveLength(0);
+  });
+
+  test('boundCastFlags downgrades a cast-ish critical flag naming no locked member', () => {
+    const { flags, downgraded } = boundCastFlags(
+      [{ spread: 13, issue: 'the dad appears changed into another outfit', severity: 'critical' }],
+      castLocks,
+    );
+    expect(flags[0].severity).toBe('minor');
+    expect(downgraded).toHaveLength(1);
+  });
+
+  test('boundCastFlags never touches hero/stranger/style critical classes', () => {
+    const { flags } = boundCastFlags(
+      [
+        { spread: 2, issue: 'the character reads as a different child than the cover', severity: 'critical' },
+        { spread: 5, issue: 'flat desaturated style break vs the cover', severity: 'critical' },
+        { spread: 7, issue: 'a stranger is present beside the hero', severity: 'critical' },
+      ],
+      castLocks,
+    );
+    expect(flags.every((f) => f.severity === 'critical')).toBe(true);
+  });
+
   test('runBookPass attaches the prop plate beside the cover and adjusts the prompt', async () => {
     callVisionRole.mockResolvedValueOnce({ json: { pass: true, flags: [], notes: 'ok' }, model: 'm', family: 'gemini' });
     await runBookPass({

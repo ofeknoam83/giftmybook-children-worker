@@ -88,6 +88,10 @@ describe('identity-kit cache', () => {
     expect(a).toBe(b);
     expect(a).toContain(STYLE_VERSION);
     expect(a).toContain(KIT_PROMPT_VERSION);
+    // 2026-07-28: the renderer model joined the key — a model flip
+    // invalidates cached sheets without a manual ik-N bump.
+    const { SHEET_RENDERER_MODEL } = require('../../../services/bookPipelineV3/illustrator/config');
+    expect(a).toContain(String(SHEET_RENDERER_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_'));
     expect(computeKitCacheKey(['https://x/3.jpg'])).not.toBe(a);
   });
 

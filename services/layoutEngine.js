@@ -1061,8 +1061,12 @@ async function buildUpsellSpread(pdfDoc, pw, ph, fonts, opts) {
         try {
           const wp = Math.round(CARD_W / PTS_PER_INCH * 200);
           const hp = Math.round(COVER_H / PTS_PER_INCH * 200);
+          // fit:'cover' fills the card edge-to-edge like every other image
+          // embed in this file (2026-07-28, book 16758e3c: 'contain' on the
+          // cream background letterboxed any off-aspect cover into a small
+          // image floating inside the gold card frame).
           const resized = await sharp(buf)
-            .resize(wp, hp, { fit: 'contain', background: { r: 247, g: 242, b: 234, alpha: 1 } })
+            .resize(wp, hp, { fit: 'cover' })
             .toColorspace('srgb').jpeg({ quality: 90 }).toBuffer();
           const img = await pdfDoc.embedJpg(resized);
           p.drawImage(img, { x: cardX, y: coverY, width: CARD_W, height: COVER_H });

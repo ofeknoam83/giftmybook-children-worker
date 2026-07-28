@@ -38,6 +38,7 @@ const { manuscriptRevisionActivity, mergeTargets } = require('../activities/manu
 const { runNativeIllustrator } = require('../../illustrator');
 const { resolveIllustratorVersion } = require('../../illustrator/config');
 const { buildIdentityKit } = require('../../illustrator/identityKit');
+const { resolveCoverAnchor } = require('../../illustrator/coverPreflight');
 const { validatePanelFamilies } = require('../../llm/modelRouter');
 
 const MAX_REVISION_ROUNDS = 2;
@@ -341,6 +342,20 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   const textLayout = rawRequest?.checkpointTextLayout || rawRequest?.textLayout || 'caption';
   ctx.log('info', `[v3] text layout: ${textLayout}`);
 
+  // Cover pre-flight (2026-07-28): resolve ONE verified cover anchor before
+  // anything consumes it. The approved cover is the style ground truth for
+  // the sheet, every spread render, the plates AND the spread judge — a 2D
+  // cover inverted every guard, and harmonization used to run only at
+  // cover-PDF time (after the interiors). Never blocks: failure keeps the
+  // original URL with an advisory.
+  const coverAnchor = await resolveCoverAnchor({
+    bookId,
+    coverImageUrl: rawRequest?.cover?.imageUrl || null,
+    abortSignal: signals?.abortSignal,
+    log: (m) => ctx.log('info', `[v3] ${m}`),
+  });
+  const resolvedCoverUrl = coverAnchor.url;
+
   // A0 identity kit runs in PARALLEL with the writer —
   // photos → likeness brief → judged character model sheet, GCS-cached.
   // Joined before rendering; a kit failure surfaces there.
@@ -354,7 +369,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
       childDetails: { name: rawRequest?.child?.name, gender: rawRequest?.child?.gender },
       // The parent-approved cover anchors sheet generation (it's an
       // illustration, so attaching it is PROHIBITED_CONTENT-safe).
-      coverImageUrl: rawRequest?.cover?.imageUrl || null,
+      coverImageUrl: resolvedCoverUrl,
       bookId,
       // pick_sheet resolution (admin picked a rejected candidate) bypasses
       // generation + judging on the re-dispatch.
@@ -372,7 +387,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // (the activity catches its own errors and returns null — engine-level
   // errors like aborts still propagate)
   const coverImagery = await ctx.execute('coverImagery', coverImageryActivity,
-    { coverImageUrl: rawRequest?.cover?.imageUrl || null }, { retries: 1 });
+    { coverImageUrl: resolvedCoverUrl }, { retries: 1 });
   const brief = await ctx.execute('brief', creativeBriefActivity, { rawRequest, ageProfile, coverImagery }, { retries: 1 });
   ledger.add('brief', brief);
 
@@ -476,8 +491,57 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     }
   }
 
-  const { manuscript, gate, panel } = outcome;
+  let { manuscript, gate } = outcome;
+  const { panel } = outcome;
   const panelSummary = summarizePanel(panel, manuscript.id);
+
+  // ── polish pass (2026-07-28) ──
+  // A PASSING panel still leaves per-spread judge flags and soft lints
+  // behind — previously detected and then discarded, so an accepted-first-try
+  // book shipped its weakest spreads untouched. One craft pass on the 2-3
+  // weakest spreads (flagged by 2+ judges, or lint-targeted: overused words,
+  // formulaic hooks), then a re-gate; if the polish breaks the gate the
+  // pre-polish manuscript ships unchanged. Kill-switch:
+  // BOOK_PIPELINE_V3_POLISH_PASS=0.
+  if (process.env.BOOK_PIPELINE_V3_POLISH_PASS !== '0' && outcome.accepted) {
+    const flaggedSpreads = panel?.perManuscript?.[manuscript.id]?.flaggedSpreads || [];
+    const flagCounts = new Map();
+    for (const f of flaggedSpreads) {
+      if (Number.isFinite(f?.spread)) flagCounts.set(f.spread, (flagCounts.get(f.spread) || 0) + 1);
+    }
+    const lintTargets = new Set((gate?.softLints || []).flatMap((l) => l.targetSpreads || []));
+    const polishSet = new Set([
+      ...[...flagCounts.entries()].filter(([, n]) => n >= 2).map(([s]) => s),
+      ...lintTargets,
+    ]);
+    const targets = mergeTargets(flaggedSpreads, [], gate?.softLints || [])
+      .filter((t) => polishSet.has(t.spread))
+      .sort((a, b) => b.notes.length - a.notes.length)
+      .slice(0, 3)
+      .sort((a, b) => a.spread - b.spread);
+    if (targets.length > 0) {
+      ctx.reportProgress({ step: 'writerQa', message: 'Polish pass on the weakest spreads' });
+      ctx.log('info', `[v3] polish pass: spreads [${targets.map((t) => t.spread).join(',')}] (${flaggedSpreads.length} judge flags, ${lintTargets.size} lint-targeted)`);
+      try {
+        const polished = await ctx.execute(
+          'polish.main',
+          manuscriptRevisionActivity,
+          { brief, ageProfile, manuscript, targets, mode: 'polish' },
+          { retries: 0 },
+        );
+        ledger.add('polish.main', polished);
+        const check = await prepareCandidate({ ctx, manuscript: polished, ageProfile, brief, roundTag: 'polish', ledger });
+        if (check.eligible) {
+          manuscript = check.manuscript;
+          gate = check.gate;
+        } else {
+          ctx.log('warn', `[v3] polish pass broke the gate (${check.gate.hardFailureCount} hard failures after fix) — REVERTING to the pre-polish manuscript`);
+        }
+      } catch (err) {
+        ctx.log('warn', `[v3] polish pass failed (${err.message}) — shipping the pre-polish manuscript`);
+      }
+    }
+  }
 
   // ── illustrating ──
   ctx.checkAbort();
@@ -507,8 +571,11 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
     ageProfile,
     concept: outcome.manuscript.concept_id === runnerUpConcept?.id ? runnerUpConcept : winnerConcept,
     manuscript,
-    coverImageUrl: rawRequest?.cover?.imageUrl || null,
+    coverImageUrl: resolvedCoverUrl,
     coverTitle: rawRequest?.cover?.title || null,
+    // Pre-flight outcome — the illustrator records the advisory (if any) as
+    // an artDirection qaAdvisory so a harmonized/unfixable anchor is visible.
+    coverPreflight: coverAnchor,
     operationalContext: signals,
     textLayout,
   };
@@ -541,6 +608,9 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
       passed: gate.passed,
       hardFailureCount: gate.hardFailureCount,
       perSpread: gate.perSpread.map((e) => ({ spread: e.spread, passed: e.passed, failureCount: e.failures.length })),
+      // Soft lints were previously logged and lost — persisting them lets the
+      // admin dashboard see the craft observations on the SHIPPED manuscript.
+      softLints: (gate.softLints || []).map((l) => ({ code: l.code, message: l.message, targetSpreads: l.targetSpreads || [] })),
     } : null,
     panel: panelSummary,
   };

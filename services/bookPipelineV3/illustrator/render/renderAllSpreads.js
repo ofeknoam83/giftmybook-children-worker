@@ -3,14 +3,20 @@
  * concurrently through the key pool, bounded by RENDER_CONCURRENCY.
  *
  * Crash-safe resume WITHOUT sessions: every candidate is uploaded to a
- * deterministic GCS path (children-jobs/{bookId}/v3-renders/...) and the
- * fan-out checks for an existing object before re-rendering — a worker
- * killed mid-wave re-renders only the missing candidates on retry.
+ * deterministic GCS path (children-jobs/{bookId}/v3-renders/{styleVersion}/...)
+ * and the fan-out checks for an existing object before re-rendering — a worker
+ * killed mid-wave re-renders only the missing candidates on retry. The style
+ * version segments the cache so a style-bible bump invalidates it (see
+ * candidatePath below).
  */
 
 const { uploadBuffer, downloadBuffer } = require('../../../gcsStorage');
 const { renderSpreadCandidates } = require('./renderSpread');
-const { CANDIDATES_PER_SPREAD, RENDER_CONCURRENCY } = require('../config');
+const { STYLE_VERSION } = require('../styleBible');
+const { CANDIDATES_PER_SPREAD, RENDER_CONCURRENCY, SPREAD_RENDERER_MODEL } = require('../config');
+
+/** Path-safe slug of the CONFIGURED spread renderer model (cache segment). */
+const RENDERER_MODEL_SLUG = String(SPREAD_RENDERER_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_');
 
 /** Minimal semaphore — no dependency. */
 function createLimiter(max) {
@@ -33,13 +39,31 @@ function createLimiter(max) {
 
 /**
  * Deterministic GCS path for one rendered candidate. The cache key includes
- * everything that changes the pixels a slot may be REUSED for — so the text
- * layout (which drives the render aspect: 1:1 caption vs 16:9 embedded)
- * segments the cache. Caption keeps the legacy suffix-free path (pre-change
- * caption books resume untouched); embedded renders live beside them under
- * a `.wide` marker. An admin textLayout flip therefore re-renders only the
- * aspect that is missing, and flipping BACK replays the original renders
- * from GCS for free.
+ * everything that changes the pixels a slot may be REUSED for:
+ *
+ * - the STYLE BIBLE version (a `{STYLE_VERSION}` path segment). Before this
+ *   segment existed, a book retried/re-dispatched across a style-bible bump
+ *   replayed its pre-bump candidates from GCS forever — book 16758e3c shipped
+ *   with sb-0-era flat-2D spreads sitting beside freshly-rendered premium-3D
+ *   ones after nine interior revisions. A bump now re-renders every spread
+ *   once on the next run (same contract as the identity-kit cache, which has
+ *   been keyed by STYLE_VERSION since sb-0).
+ * - the CONFIGURED renderer model (a slug segment) — a model flip (env
+ *   override, or the pro default landing) re-renders instead of replaying
+ *   old-model pixels, and a flip-back replays the originals. Keyed by the
+ *   CONFIGURED id: when imageClient falls back to flash on a 404'd id, the
+ *   flash pixels cache under the configured id's segment — the per-candidate
+ *   `rendererModel` metadata + the book-level downgrade advisory make that
+ *   visible instead of silent.
+ * - the text layout (which drives the render aspect: 1:1 caption vs 16:9
+ *   embedded). Caption keeps the suffix-free filename; embedded renders live
+ *   beside them under a `.wide` marker. An admin textLayout flip therefore
+ *   re-renders only the aspect that is missing, and flipping BACK replays the
+ *   original renders from GCS for free.
+ *
+ * A pre-bump needs_review pick_candidate resolution whose stored URL no
+ * longer matches any cached candidate falls through to QA loudly
+ * (illustrator/index.js) — the spread re-renders in the current style.
  *
  * @param {string} bookId
  * @param {number} spreadNumber
@@ -50,7 +74,7 @@ function createLimiter(max) {
  */
 function candidatePath(bookId, spreadNumber, candidateIndex, ext = 'png', textLayout = 'caption') {
   const variant = textLayout === 'embedded' ? '.wide' : '';
-  return `children-jobs/${bookId}/v3-renders/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
+  return `children-jobs/${bookId}/v3-renders/${STYLE_VERSION}/${RENDERER_MODEL_SLUG}/spread-${spreadNumber}-c${candidateIndex}${variant}.${ext}`;
 }
 
 /**
@@ -65,7 +89,9 @@ async function loadExistingCandidates(bookId, spreadNumber, textLayout = 'captio
     try {
       const path = candidatePath(bookId, spreadNumber, i, 'png', textLayout);
       const buf = await downloadBuffer(path);
-      found.push({ path, base64: buf.toString('base64'), mimeType: 'image/png', candidateIndex: i, reused: true });
+      // Reused pixels were rendered under this same configured-model path
+      // segment; the live model id wasn't persisted, so it stays null.
+      found.push({ path, base64: buf.toString('base64'), mimeType: 'image/png', candidateIndex: i, reused: true, rendererModel: null });
     } catch {
       // missing — will render
     }
@@ -92,7 +118,7 @@ async function loadExistingCandidates(bookId, spreadNumber, textLayout = 'captio
  */
 async function renderAllSpreadsNative({
   bookId, spreads, directionBySpread = null, platesByLocation = null, propPlate = null,
-  bookPack, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [], forceSpreads = new Set(), abortSignal, log = () => {}, onSpreadDone = () => {},
+  bookPack, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null, forceSpreads = new Set(), abortSignal, log = () => {}, onSpreadDone = () => {},
 }) {
   if (!bookId) throw new Error('renderAllSpreadsNative: bookId is required');
   const limit = createLimiter(RENDER_CONCURRENCY);
@@ -111,7 +137,7 @@ async function renderAllSpreadsNative({
     const direction = directionBySpread?.get(spread.spread) || null;
     const plate = platesByLocation?.get(spread.scene_contract?.setting) || null;
     const rendered = await renderSpreadCandidates({
-      spread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, abortSignal, log,
+      spread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks, abortSignal, log,
     });
 
     const candidates = [...existing];
@@ -125,6 +151,9 @@ async function renderAllSpreadsNative({
         base64: img.buffer.toString('base64'),
         mimeType: img.mimeType || 'image/png',
         candidateIndex: img.candidateIndex,
+        // The model that ACTUALLY rendered (imageClient reports the fallback
+        // when the configured id 404'd) — feeds the downgrade advisory.
+        rendererModel: img.model || null,
       });
     }
     candidates.sort((a, b) => a.candidateIndex - b.candidateIndex);

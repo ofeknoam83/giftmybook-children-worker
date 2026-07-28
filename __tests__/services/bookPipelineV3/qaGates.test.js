@@ -198,6 +198,61 @@ describe('spread judge rubric — non-critical failure allowances (2026-07-15)',
       expect(res.pass).toBe(true);
       expect(res.minorDefects).toEqual(['background rooftop reads distant']);
     });
+
+    // Style-medium backstop (book 16758e3c): flat cel-shaded spreads shipped
+    // beside premium-3D ones because the model tagged style_drift but labeled
+    // the defect "minor". The style tags and a style score <= 2 (reserved by
+    // the prompt for a broken render medium) now escalate deterministically.
+    test('style backstop: a style_drift tag escalates to critical even if the model says minor', async () => {
+      mockVerdict({
+        tags: ['style_drift'],
+        defects: [{ note: 'flat cel-shaded 2D look instead of a 3D render', severity: 'minor' }],
+      });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(false);
+      expect(res.criticalDefects).toEqual(['flat cel-shaded 2D look instead of a 3D render']);
+    });
+
+    test('style backstop: style score <= 2 escalates even with no tag and no defect notes', async () => {
+      mockVerdict({ style: 2 });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(false);
+      expect(res.criticalDefects[0]).toContain('render-medium break');
+    });
+
+    test('style backstop: a photo_blur tag (live-action look) escalates', async () => {
+      mockVerdict({
+        tags: ['photo_blur'],
+        defects: [{ note: 'reads as a real photograph with shallow DOF', severity: 'minor' }],
+      });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(false);
+    });
+
+    test('style backstop: style 3 without a style tag stays PASSING (nuance within the medium)', async () => {
+      mockVerdict({ style: 3, defects: [{ note: 'palette slightly cooler than neighbors', severity: 'minor' }] });
+      const res = await judge({ candidate: CANDIDATE, sceneContract: {} });
+      expect(res.pass).toBe(true);
+    });
+
+    test('prompt reserves the style score floor and the style tags for medium breaks', () => {
+      const p = buildSpreadJudgePrompt({ sceneContract: {}, direction: null });
+      expect(p).toContain('a score of 2 or below is reserved EXCLUSIVELY for a broken render MEDIUM');
+      expect(p).toContain('STYLE TAGS ARE MEDIUM VERDICTS');
+    });
+
+    // Reflection carve-out (2026-07-28): CONDITIONAL on the contract calling
+    // for a reflection, so the duplicated-hero gate stays strict elsewhere.
+    test('the duplicated-hero class gains the reflection exception ONLY on reflection contracts', () => {
+      const withReflection = buildSpreadJudgePrompt({
+        sceneContract: { hero_action: 'sees her reflection in the chest lid' },
+        direction: null,
+      });
+      expect(withReflection).toContain('REFLECTION EXCEPTION');
+      expect(withReflection).toContain('TWO free-standing children in the scene is still critical');
+      const normal = buildSpreadJudgePrompt({ sceneContract: { hero_action: 'waters a sunflower' }, direction: null });
+      expect(normal).not.toContain('REFLECTION EXCEPTION');
+    });
   });
 
   test('when the art director specified a moment, the judge grades the action against IT', () => {
