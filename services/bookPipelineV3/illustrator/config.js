@@ -21,15 +21,21 @@ const ILLUSTRATOR_STEPS = ['identity_kit', 'art_direction', 'rendering', 'spread
 
 // ── Image renderer models ──
 // Image generation is not a text-LLM role, so renderer models resolve here
-// (not in llm/modelRouter). Defaults MUST be a model verified available on
-// the public Generative Language API for the worker's keys ('gemini-3.1-
-// pro-image' was not — every render 404'd on 2026-07-15 and books
-// dead-ended). The pro-tier upgrade (still wanted: better hands, no-text
-// compliance, consistency) flips in via the env overrides once the real
-// provisioned id is confirmed from ListModels; imageClient also falls back
-// to FALLBACK_IMAGE_MODEL loudly if a configured id turns out invalid.
-const SHEET_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SHEET_RENDERER_MODEL || 'gemini-3.1-flash-image';
-const SPREAD_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL || 'gemini-3.1-flash-image';
+// (not in llm/modelRouter).
+//
+// 2026-07-28: defaults flipped to the PRO image tier, 'gemini-3-pro-image-
+// preview' — the id DOCUMENTED for the public Generative Language API
+// (ai.google.dev/gemini-api/docs/image-generation; note it is Gemini 3 Pro
+// Image — the 2026-07-15 guess 'gemini-3.1-pro-image' never existed and
+// 404'd on every render). If a key is not provisioned for the pro id,
+// imageClient falls back to FALLBACK_IMAGE_MODEL loudly AND the book now
+// carries doc.rendererModels + a stage:'render' qaAdvisory (no more silent
+// flash books) — watch the first post-deploy book for that advisory, and
+// confirm/adjust the id with scripts/listImageModels.js. Both caches
+// (candidates + identity kit) are keyed by these ids, so the flip
+// re-renders cleanly and a rollback replays the old flash renders.
+const SHEET_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SHEET_RENDERER_MODEL || 'gemini-3-pro-image-preview';
+const SPREAD_RENDERER_MODEL = process.env.BOOK_PIPELINE_V3_SPREAD_RENDERER_MODEL || 'gemini-3-pro-image-preview';
 
 // ── Bounded budgets (plan §5 — no unbounded loop exists on the native path) ──
 // Sheet budgets are env-tunable (ops lever after an identity_kit_exhausted
