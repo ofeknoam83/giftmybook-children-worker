@@ -46,12 +46,13 @@ async function evaluateCandidate({ candidate, sceneContract, direction, referenc
   // of the cascade has run.
   let foldAdvisoryNote = null;
 
-  const pre = await runDeterministicChecks(candidate, abortSignal, log);
+  const pre = await runDeterministicChecks(candidate, abortSignal, log, { wideSpread });
   if (!pre.pass) {
     record.stage = 'deterministic';
     record.pass = false;
     record.defects = pre.defects;
-    if (pre.defects.some((d) => d.includes('lettering'))) bump(qaTagCounts, 'text_in_art');
+    if (pre.defects.some((d) => d.includes('lettering') || d.includes('pseudo-script'))) bump(qaTagCounts, 'text_in_art');
+    if (pre.defects.some((d) => d.includes('book-mockup'))) bump(qaTagCounts, 'mockup_frame');
     return record;
   }
 
@@ -255,7 +256,7 @@ async function selectSpreadWinner({
       // Lettering rejections get a SPECIFIC fix instruction — "avoid
       // lettering" is too weak when the scene itself contains a map/note
       // the model keeps writing on.
-      const letteringDefects = namedDefects.filter((d) => d.includes('lettering detected'));
+      const letteringDefects = namedDefects.filter((d) => d.includes('lettering detected') || d.includes('pseudo-script detected'));
       // Likeness color drift (hair→blonde under warm light, fading freckles,
       // lightened skin) gets the same targeted treatment: name the fix, not
       // just the defect — the model sheet's colors are lighting-invariant.
@@ -265,6 +266,10 @@ async function selectSpreadWinner({
       // same targeted treatment — the generic "AVOID" line was too weak to
       // steer a renderer that had already drifted off the book's style.
       const styleBreakDefects = namedDefects.filter((d) => /style|flat|desaturat|painterly|watercolor|cel[- ]?shad|hand[- ]?drawn|2d |line[- ]?art|line ?weight|vector|live[- ]?action|photograph/i.test(d));
+      // Mockup frames (2026-07-28 audit, book 4c8daf08: wide renders came back
+      // as photographs of an open book — page-stack edges printed into the
+      // real pages) also need the fix named, not just the defect.
+      const mockupDefects = namedDefects.filter((d) => /mockup|page[- ]stack|page curl|open book/i.test(d));
       const repairSpread = {
         ...spread,
         scene_contract: {
@@ -279,6 +284,9 @@ async function selectSpreadWinner({
               : null,
             styleBreakDefects.length
               ? `CRITICAL REPAIR: previous renders broke the book's signature style (${styleBreakDefects.join('; ')}). Match the APPROVED COVER reference's rendering style EXACTLY — the same premium 3D CGI animated-film medium: dimensional character geometry, physically based materials, rich saturated cinematic lighting. NOT a flat 2D illustration, NOT painterly/watercolor/line-art, NOT desaturated.`
+              : null,
+            mockupDefects.length
+              ? `CRITICAL REPAIR: previous renders were photographs of an open BOOK instead of the scene itself (${mockupDefects.join('; ')}). Render the SCENE full-bleed, edge to edge — the camera is INSIDE the story world. Absolutely no book pages, page stacks, page curls, paper edges, borders, frames, desk surfaces, or fold shadows anywhere in the image.`
               : null,
             namedDefects.length ? `AVOID these defects from rejected attempts: ${namedDefects.join('; ')}` : null,
           ].filter(Boolean).join(' | '),

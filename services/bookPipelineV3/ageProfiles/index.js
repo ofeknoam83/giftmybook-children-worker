@@ -27,6 +27,35 @@ function listAgeBands() {
   return Object.keys(PROFILES);
 }
 
+// Embedded-layout caption budget (2026-07-28 audit, book 4c8daf08): in
+// embedded mode the caption is typeset OVER the art, and the band budget
+// that suits a white caption page smothers a painting — 55-75-word captions
+// forced scrim boxes across 30-45% of every spread. Cap what the writer may
+// spend when the words share the page with the picture.
+const EMBEDDED_MAX_WORDS_PER_SPREAD = 50;
+const EMBEDDED_TARGET_WORDS_PER_SPREAD = 40;
+
+/**
+ * Clamp a profile's words-per-spread budget for the embedded text layout.
+ * Mutates the given profile clone in place (getAgeProfile returns a deep
+ * clone) and returns it; a no-op for caption layout or bands already under
+ * the cap. Called once at workflow start so the writer prompt, the
+ * mechanical gate, and every downstream consumer see the same numbers.
+ *
+ * @param {object} profile - deep-cloned age profile
+ * @param {string} textLayout - 'caption' | 'embedded'
+ * @returns {object} the same profile
+ */
+function applyEmbeddedLayoutBudget(profile, textLayout) {
+  if (textLayout !== 'embedded') return profile;
+  const wps = profile?.narrativeConstraints?.wordsPerSpread;
+  if (!wps) return profile;
+  wps.max = Math.min(wps.max, EMBEDDED_MAX_WORDS_PER_SPREAD);
+  wps.target = Math.min(wps.target, EMBEDDED_TARGET_WORDS_PER_SPREAD);
+  wps.min = Math.min(wps.min, wps.max); // keep the window well-formed for low caps
+  return profile;
+}
+
 function isPictureBookBand(ageBand) {
   return Object.prototype.hasOwnProperty.call(PROFILES, ageBand);
 }
@@ -73,5 +102,8 @@ module.exports = {
   isPictureBookBand,
   deriveAgeBandFromAge,
   deriveAgeBandFromRequest,
+  applyEmbeddedLayoutBudget,
+  EMBEDDED_MAX_WORDS_PER_SPREAD,
+  EMBEDDED_TARGET_WORDS_PER_SPREAD,
   PROFILES,
 };

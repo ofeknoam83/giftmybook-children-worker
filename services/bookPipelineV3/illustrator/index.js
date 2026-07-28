@@ -36,6 +36,7 @@ const { runArtDirection, restageSpread } = require('./artDirection/artDirector')
 const { renderWorldPlates } = require('./artDirection/worldPlates');
 const { renderPropPlate } = require('./artDirection/propPlate');
 const { runBookPass, buildBookPassNeedsReview } = require('./bookPass/contactSheet');
+const { computePaletteStats, findPaletteIslands } = require('./bookPass/paletteCheck');
 const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
 const { candidatePath } = require('./render/renderAllSpreads');
@@ -603,6 +604,23 @@ async function runNativeIllustrator(input, ctx) {
   }
   for (const f of bookPassMinors) {
     qaAdvisories.push({ stage: 'bookPass', spread: f.spread, note: f.issue });
+  }
+  // Deterministic palette-island advisory (2026-07-28 audit, book 4c8daf08:
+  // a warm-tan temple spread inside a cool blue-purple night book — neither
+  // the per-spread judge nor the contact-sheet reviewer flagged it). Pure
+  // pixel math on the SHIPPED winners; advisory only, never blocking.
+  try {
+    const paletteRows = [];
+    for (const [spreadNumber, result] of [...selections.entries()].sort((a, b) => a[0] - b[0])) {
+      const c = result.allCandidates.find((x) => x.candidateIndex === result.selected?.candidateIndex);
+      paletteRows.push({ spread: spreadNumber, stats: c ? await computePaletteStats(c.base64) : null });
+    }
+    for (const adv of findPaletteIslands(paletteRows)) {
+      qaAdvisories.push({ stage: 'bookPass', spread: adv.spread, note: adv.note });
+      log(`palette island advisory on spread ${adv.spread}`);
+    }
+  } catch (err) {
+    log(`palette-island check skipped: ${err.message}`); // advisory tooling must never fail the book
   }
   // Ship-on-exhaustion residual issues (bookPass AND/OR spreadQa): surface them
   // as advisories so the completion callback + admin dashboard see the

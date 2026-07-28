@@ -81,6 +81,33 @@ function wrapText(text, font, size, maxW) {
 }
 
 /**
+ * Words a wrapped line must not END with (2026-07-28 audit, book 4c8daf08:
+ * the least-squares wrap broke "His / robot rolls", "above the / hills",
+ * "the bridge / hum" — evenness alone ignores syntax, and a line ending on
+ * an article/possessive/preposition reads as a stumble when a parent reads
+ * aloud). Breaking after one of these carries a heavy (not infinite) DP
+ * penalty: raggedness may increase slightly to avoid them, but an
+ * impossible measure still wraps.
+ */
+const BREAK_AVOID_WORDS = new Set([
+  // articles + demonstratives
+  'a', 'an', 'the', 'this', 'that', 'these', 'those',
+  // possessives + pronouns that glue to the next noun
+  'his', 'her', 'their', 'my', 'your', 'its', 'our',
+  // conjunctions
+  'and', 'or', 'but', 'nor', 'so', 'yet',
+  // common prepositions
+  'of', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'as',
+  'into', 'onto', 'over', 'under', 'above', 'below', 'across', 'around',
+  'behind', 'beside', 'between', 'through', 'toward', 'towards', 'upon', 'near',
+]);
+
+/** Is `word` (with punctuation attached) one a line must not end with? */
+function isBadBreakWord(word) {
+  return BREAK_AVOID_WORDS.has(String(word).toLowerCase().replace(/[^a-z']/g, ''));
+}
+
+/**
  * Balanced wrap (2026-07-19 print audit #2): greedy wrapping left a short
  * centered stub under almost every long manuscript line ("and gold." /
  * "map wide." / "in place.") — the "staircase" that makes caption blocks
@@ -88,8 +115,11 @@ function wrapText(text, font, size, maxW) {
  * MINIMIZE RAGGEDNESS (least-squares penalty on every line's leftover
  * width, classic Knuth-style DP) so the wrapped lines come out near-equal
  * — "He sits on a flat rock and / spreads the star map wide." instead of
- * "…spreads the star / map wide." A single-word last line additionally
- * falls back to the orphan rescue. Pure — exported for tests.
+ * "…spreads the star / map wide." Breaks after function words (articles,
+ * possessives, prepositions — see BREAK_AVOID_WORDS) carry an extra
+ * penalty so syntax survives the evenness optimization. A single-word
+ * last line additionally falls back to the orphan rescue. Pure — exported
+ * for tests.
  *
  * @returns {string[]}
  */
@@ -101,6 +131,11 @@ function wrapTextBalanced(text, font, size, maxW) {
 
   const lineWidth = (i, j) => font.widthOfTextAtSize(words.slice(i, j + 1).join(' '), size);
   const n = words.length;
+  // Heavier than a whole extra maximally-ragged line (maxW² of squared cost),
+  // so the DP always prefers adding a line — or any feasible clean split —
+  // over ending a line on a glue word. Finite, so a measure where every
+  // split is bad (e.g. one word per line) still wraps.
+  const badBreakPenalty = 2 * maxW * maxW;
   // best[i] = { cost, next } for the suffix starting at word i.
   const best = new Array(n + 1);
   best[n] = { cost: 0, next: -1 };
@@ -112,7 +147,9 @@ function wrapTextBalanced(text, font, size, maxW) {
       // A single word wider than maxW must still occupy its own line
       // (greedy does the same); penalize at zero leftover.
       const leftover = Math.max(0, maxW - w);
-      const cost = leftover * leftover + best[j + 1].cost;
+      // A real break (not the final line) after a function word costs extra.
+      const breakCost = (j + 1 < n && isBadBreakWord(words[j])) ? badBreakPenalty : 0;
+      const cost = leftover * leftover + breakCost + best[j + 1].cost;
       if (cost < best[i].cost) {
         best[i] = { cost, next: j + 1 };
       }
@@ -2338,6 +2375,7 @@ module.exports = {
   contrastRatio,
   overlayContrastRatio,
   wrapTextBalanced,
+  BREAK_AVOID_WORDS,
   zoneHeroOverlap,
   chooseOverlayZone,
   shouldScrim,
