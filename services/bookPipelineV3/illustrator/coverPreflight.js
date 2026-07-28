@@ -76,25 +76,55 @@ async function resolveCoverAnchor({ bookId, coverImageUrl, abortSignal, log = ()
     log(`cover pre-flight: anchor cover FAILED the medium check (${verdict.reason}) — harmonizing to 3D BEFORE interiors`);
     const originalBuffer = Buffer.from(cover.base64, 'base64');
     const harmonizedBuffer = await harmonizeChosenCoverToInteriorStyle(originalBuffer, {});
-    const recheck = await check({ base64: harmonizedBuffer.toString('base64'), mimeType: 'image/png' });
-    if (!recheck.ok || harmonizedBuffer === originalBuffer) {
-      const advisory = `cover anchor reads as a non-3D medium (${verdict.reason}) and the pre-flight harmonize did not fix it — interiors anchored on the ORIGINAL cover; expect the book pass to flag cover parity`;
+    // Harmonize silently degrades to the ORIGINAL buffer on its own infra
+    // failures — re-checking the same pixels would just replay verdict #1
+    // (or, worse, contradict it and mint a false known-3D marker for an
+    // image that failed the first check). Treat a no-op as unfixed.
+    if (harmonizedBuffer === originalBuffer) {
+      const advisory = `cover anchor reads as a non-3D medium (${verdict.reason}) and the pre-flight harmonize was a NO-OP (harmonize infra/key issue?) — interiors anchored on the ORIGINAL cover; expect the book pass to flag cover parity`;
+      log(`WARNING: ${advisory}`);
+      return { url: coverImageUrl, harmonized: false, advisory };
+    }
+    const harmonizedMime = sniffImageMime(harmonizedBuffer);
+    const recheck = await check({ base64: harmonizedBuffer.toString('base64'), mimeType: harmonizedMime });
+    if (!recheck.ok) {
+      const advisory = `cover anchor reads as a non-3D medium (${verdict.reason}) and the pre-flight harmonize did not fix it (${recheck.reason}) — interiors anchored on the ORIGINAL cover; expect the book pass to flag cover parity`;
       log(`WARNING: ${advisory}`);
       return { url: coverImageUrl, harmonized: false, advisory };
     }
 
     // The path carries the KNOWN_3D_SOURCE_MARKER ("3d-harmonized") so the
-    // cover-PDF step later skips its own harmonize for this source.
-    const path = `children-jobs/${bookId}/cover-3d-harmonized.png`;
-    const url = await uploadBuffer(harmonizedBuffer, path, 'image/png');
+    // cover-PDF step later skips its own harmonize for this source. The
+    // extension/content-type follow the ACTUAL bytes (Gemini image parts
+    // commonly come back as JPEG regardless of what was sent).
+    const ext = harmonizedMime === 'image/jpeg' ? 'jpg' : 'png';
+    const path = `children-jobs/${bookId}/cover-3d-harmonized.${ext}`;
+    const url = await uploadBuffer(harmonizedBuffer, path, harmonizedMime);
     const advisory = `cover anchor was ${verdict.reason || 'non-3D'} — harmonized to premium 3D before the interiors rendered (anchor: ${path})`;
     log(`cover pre-flight: harmonized cover uploaded (${path}) — the book anchors on it`);
     return { url, harmonized: true, advisory };
   } catch (err) {
-    // Unverified beats blocked — the original anchor proceeds.
-    log(`cover pre-flight unavailable (${err.message}) — anchoring on the original cover unverified`);
-    return { url: coverImageUrl, harmonized: false, advisory: null };
+    // Unverified beats blocked — the original anchor proceeds, but LOUDLY:
+    // the advisory rides doc.qaAdvisories so a book whose anchor was never
+    // medium-verified is visible to the admin, not just in Cloud Logging.
+    const advisory = `cover pre-flight unavailable (${err.message}) — interiors anchored on the UNVERIFIED original cover`;
+    log(advisory);
+    return { url: coverImageUrl, harmonized: false, advisory };
   }
 }
 
-module.exports = { resolveCoverAnchor, buildCoverPreflightPrompt };
+/**
+ * Detect the actual image format from magic bytes (PNG signature / JPEG SOI).
+ * Defaults to PNG for unrecognized buffers. Pure — exported for tests.
+ *
+ * @param {Buffer} buf
+ * @returns {'image/png'|'image/jpeg'}
+ */
+function sniffImageMime(buf) {
+  if (Buffer.isBuffer(buf) && buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  return 'image/png';
+}
+
+module.exports = { resolveCoverAnchor, buildCoverPreflightPrompt, sniffImageMime };

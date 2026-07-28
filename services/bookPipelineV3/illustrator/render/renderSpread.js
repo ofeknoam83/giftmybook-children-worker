@@ -66,11 +66,16 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
   // Cast locks (2026-07-28, book 16758e3c: Mom/Dad changed appearance and
   // outfits between spreads — supporting characters reached the renderer as
   // bare name strings). Only the locks whose character is actually IN this
-  // scene ride the prompt.
+  // scene ride the prompt. Matching is exact OR whole-word containment —
+  // never bare substring (a lock named "Al" must not match "small aliens"
+  // and drag the wrong locked design into the prompt): the art director is
+  // told to use characters_present names verbatim, and the word-boundary
+  // check only absorbs harmless decoration ("Mom" vs "Mom, holding a jar").
+  const wordMatch = (needle, haystack) => new RegExp(`\\b${String(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(String(haystack));
   const presentCast = (Array.isArray(castLocks) ? castLocks : [])
     .filter((c) => c?.name && c?.design && (sc.characters_present || []).some((p) => {
-      const pl = String(p).toLowerCase(); const nl = String(c.name).toLowerCase();
-      return pl.includes(nl) || nl.includes(pl);
+      const member = String(p); const name = String(c.name);
+      return member.toLowerCase() === name.toLowerCase() || wordMatch(name, member) || wordMatch(member, name);
     }));
 
   return [

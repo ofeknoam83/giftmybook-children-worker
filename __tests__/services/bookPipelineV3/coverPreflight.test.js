@@ -68,13 +68,41 @@ test('a 2D cover is harmonized, re-checked, uploaded under the 3d-harmonized mar
   expect(uploadBuffer).toHaveBeenCalledTimes(1);
 });
 
-test('harmonize silently returning the original buffer → keep the original URL with a loud advisory', async () => {
+// Copilot review on #252: harmonize returns raw Gemini bytes with no
+// guaranteed format — the upload's extension/content-type must follow the
+// ACTUAL bytes, not assume PNG.
+test('a JPEG harmonized buffer uploads as .jpg with image/jpeg content type', async () => {
+  callVisionRole
+    .mockResolvedValueOnce({ json: { medium_ok: false, reason: 'flat 2D look' }, model: 'm' })
+    .mockResolvedValueOnce({ json: { medium_ok: true }, model: 'm' });
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from('jpeg-body')]);
+  harmonizeChosenCoverToInteriorStyle.mockResolvedValue(jpeg);
+  const r = await resolveCoverAnchor({ bookId: 'b1', coverImageUrl: URL_2D, log: () => {} });
+  expect(r.harmonized).toBe(true);
+  expect(r.url).toContain('cover-3d-harmonized.jpg'); // marker survives either extension
+  expect(uploadBuffer).toHaveBeenCalledWith(jpeg, 'children-jobs/b1/cover-3d-harmonized.jpg', 'image/jpeg');
+});
+
+test('harmonize NO-OP (returns the original buffer) → keep the original URL, skip the re-check, loud advisory', async () => {
   const original = Buffer.from('cover');
+  callVisionRole.mockResolvedValueOnce({ json: { medium_ok: false, reason: 'flat 2D look' }, model: 'm' });
+  harmonizeChosenCoverToInteriorStyle.mockImplementation(async (buf) => buf);
+  downloadPhotoAsBase64.mockResolvedValue({ base64: original.toString('base64'), mimeType: 'image/png' });
+  const r = await resolveCoverAnchor({ bookId: 'b1', coverImageUrl: URL_2D, log: () => {} });
+  expect(r.url).toBe(URL_2D);
+  expect(r.harmonized).toBe(false);
+  expect(r.advisory).toContain('NO-OP');
+  // Re-checking the SAME pixels could contradict verdict #1 and mint a false
+  // known-3D marker — the no-op path never makes a second vision call.
+  expect(callVisionRole).toHaveBeenCalledTimes(1);
+  expect(uploadBuffer).not.toHaveBeenCalled();
+});
+
+test('a changed buffer that still fails the re-check → keep the original URL with a loud advisory', async () => {
   callVisionRole
     .mockResolvedValueOnce({ json: { medium_ok: false, reason: 'flat 2D look' }, model: 'm' })
     .mockResolvedValueOnce({ json: { medium_ok: false, reason: 'still flat' }, model: 'm' });
-  harmonizeChosenCoverToInteriorStyle.mockImplementation(async (buf) => buf);
-  downloadPhotoAsBase64.mockResolvedValue({ base64: original.toString('base64'), mimeType: 'image/png' });
+  harmonizeChosenCoverToInteriorStyle.mockResolvedValue(Buffer.from('different-but-still-flat'));
   const r = await resolveCoverAnchor({ bookId: 'b1', coverImageUrl: URL_2D, log: () => {} });
   expect(r.url).toBe(URL_2D);
   expect(r.harmonized).toBe(false);
@@ -82,8 +110,12 @@ test('harmonize silently returning the original buffer → keep the original URL
   expect(uploadBuffer).not.toHaveBeenCalled();
 });
 
-test('any infrastructure failure keeps the original anchor, unverified (never blocks)', async () => {
+// Copilot review on #252: infra failures used to return advisory:null — the
+// book anchored on an unverified cover with only a Cloud Logging trace.
+test('any infrastructure failure keeps the original anchor with an UNVERIFIED advisory (never blocks)', async () => {
   downloadPhotoAsBase64.mockRejectedValue(new Error('403'));
   const r = await resolveCoverAnchor({ bookId: 'b1', coverImageUrl: URL_2D, log: () => {} });
-  expect(r).toEqual({ url: URL_2D, harmonized: false, advisory: null });
+  expect(r.url).toBe(URL_2D);
+  expect(r.harmonized).toBe(false);
+  expect(r.advisory).toContain('UNVERIFIED');
 });
