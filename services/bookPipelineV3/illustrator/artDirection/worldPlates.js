@@ -7,7 +7,7 @@
 
 const { generateImage } = require('../render/imageClient');
 const { SPREAD_RENDERER_MODEL } = require('../config');
-const { STYLE_BIBLE } = require('../styleBible');
+const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
 const { resolveSpreadAspect } = require('../render/renderSpread');
 const { qaPlateStyle, PLATE_STYLE_REPAIR } = require('./plateStyleQa');
 
@@ -15,6 +15,8 @@ function buildPlatePrompt(location, palette, { hasStyleReferences = false, repai
   return [
     `LOCATION REFERENCE PLATE — the EMPTY setting "${location}" for a children's picture book.`,
     'No people, no animals, no characters of any kind. The location only, fully dressed with its furniture/props/vegetation.',
+    // Prompt hygiene (2026-07-28): the bible leads; the pin closes.
+    STYLE_BIBLE,
     // Style anchoring (2026-07-18): a plate rendered from prose alone can
     // drift flat/desaturated, and every spread sharing its location is then
     // told to "match this setting's colors and lighting" — one drifted plate
@@ -23,10 +25,10 @@ function buildPlatePrompt(location, palette, { hasStyleReferences = false, repai
     hasStyleReferences
       ? 'The attached reference images (character model sheet, approved cover) define this book\'s RENDERING STYLE — match their brushwork, color saturation, line weight, and lighting quality EXACTLY. Do NOT copy their subjects: paint the LOCATION ONLY, with no characters from the references.'
       : null,
-    palette ? `Palette/lighting: ${palette}` : null,
+    palette ? `Palette/lighting (scene mood only — never changes the render MEDIUM): ${palette}` : null,
     repairNote,
-    STYLE_BIBLE,
     'ABSOLUTELY NO TEXT anywhere in the image. Any signs, maps, books, or labels in the location are WORDLESS — abstract squiggles or symbols that cannot be read as letters or numbers. NO invented alphabets or alien script — signs carry pictograms only. Compasses show a pointed star and arrows, never N/S/E/W letters; clock faces show dots or dashes, never numerals.',
+    STYLE_PIN,
   ].filter(Boolean).join('\n');
 }
 

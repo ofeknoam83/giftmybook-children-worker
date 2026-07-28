@@ -51,7 +51,7 @@ describe('renderWorldPlates style anchoring', () => {
     expect(p).toContain('No people, no animals, no characters of any kind');
     expect(p).toContain('match their brushwork, color saturation, line weight, and lighting quality EXACTLY');
     expect(p).toContain('no characters from the references');
-    expect(p).toContain('Palette/lighting: warm dawn light');
+    expect(p).toContain('Palette/lighting (scene mood only — never changes the render MEDIUM): warm dawn light');
   });
 
   test('reference-less plates keep the legacy prompt (no style-reference paragraph)', () => {

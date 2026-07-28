@@ -22,7 +22,7 @@ const { judgeLikenessCrossFamily } = require('../qa/likenessJudge');
 const { buildNeedsReviewPayload } = require('../../reviewQueue/payload');
 const { uploadBuffer } = require('../../../gcsStorage');
 const { SHEET_RENDERER_MODEL, SHEET_BEST_OF, SHEET_EXTRA_WAVES } = require('../config');
-const { STYLE_BIBLE } = require('../styleBible');
+const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
 
 /**
  * @param {object} opts
@@ -40,6 +40,10 @@ function buildSheetPrompt({ briefText, wardrobeNote, hasCoverReference = false, 
     '- Clean, plain light background (no scene, no props beyond the outfit).',
     '- Same child, identical features and proportions, in every view.',
     '',
+    // Prompt hygiene (2026-07-28): the bible leads (before the free-text
+    // brief/wardrobe/repair notes); the pin closes.
+    STYLE_BIBLE,
+    '',
     briefText,
     wardrobeNote ? `\nOUTFIT (ground truth from the approved cover): ${wardrobeNote}` : '',
     hasCoverReference
@@ -49,11 +53,10 @@ function buildSheetPrompt({ briefText, wardrobeNote, hasCoverReference = false, 
       ? `\nREPAIR — previous candidates were REJECTED by likeness judges for exactly these defects. Fix every one of them:\n${repairNotes.map((d) => `- ${d}`).join('\n')}`
       : '',
     '',
-    STYLE_BIBLE,
-    '',
     'CHARACTER DESIGN: create an ORIGINAL illustrated children\'s-book character whose appearance follows the description above precisely — skin tone (undertone and depth), hair, eyes, and every listed feature. This is an illustration inspired by a written description, NOT a reproduction of any real, identifiable person.',
     'FACIAL MARKS: only the marks the description above explicitly lists (its freckles, if any) — NEVER invent moles, beauty marks, or stray dark facial dots. Every spread copies this sheet, so an invented mole multiplies across the whole book.',
     'ABSOLUTELY NO text, labels, letters, numbers, arrows, or annotations anywhere in the image. The outfit must be letter-free: no name tags, no letter badges, no real-world logos, no national flags.',
+    STYLE_PIN,
   ].filter(Boolean).join('\n');
 }
 

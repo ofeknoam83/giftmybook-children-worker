@@ -11,7 +11,7 @@
 const { generateImage } = require('./imageClient');
 const { withWorldPlate, withPropPlate } = require('./referencePack');
 const { SPREAD_RENDERER_MODEL, CANDIDATES_PER_SPREAD } = require('../config');
-const { STYLE_BIBLE } = require('../styleBible');
+const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
 const { formatCastList } = require('../promptFormat');
 
 /**
@@ -75,6 +75,11 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
       ? 'ONE CONTINUOUS SCENE: the two halves are ONE panorama, never two mirrored panels. Every distinctive landmark (an archway, a rocket, a doorway, a tunnel mouth) appears EXACTLY ONCE in the whole image — never once per half, never as symmetric twins — and no large landmark sits centered on the fold line.'
       : null,
     '',
+    // Prompt hygiene (2026-07-28): the bible LEADS the prompt. It used to sit
+    // at block 11 of 17, after all the scene/continuity/palette free text —
+    // any drifty phrasing in those channels was read before the style lock.
+    STYLE_BIBLE,
+    '',
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
     `- Characters present ${formatCastList(sc.characters_present)}`,
@@ -86,12 +91,14 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     `- Emotion on the child's face/body: ${sc.emotion || 'engaged'}`,
     (sc.key_objects || []).length ? `- Must include, each CLEARLY VISIBLE and recognizable: ${sc.key_objects.join(', ')}` : null,
     sc.time_of_day ? `- Time of day: ${sc.time_of_day}` : null,
-    sc.continuity_notes ? `- Continuity: ${sc.continuity_notes}` : null,
+    // Free-text channel (writer notes + spliced admin/repair notes) — scoped
+    // so no note phrasing can soften the style lock above.
+    sc.continuity_notes ? `- Continuity (scene facts only — the SIGNATURE ART STYLE above always wins over any wording here): ${sc.continuity_notes}` : null,
     '',
     direction ? [
       'ART DIRECTION:',
       direction.shot ? `- Shot: ${direction.shot}` : null,
-      direction.palette ? `- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles): ${direction.palette}` : null,
+      direction.palette ? `- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles, never changes the render MEDIUM): ${direction.palette}` : null,
       direction.continuityNotes ? `- Continuity locks: ${direction.continuityNotes}` : null,
     ].filter(Boolean).join('\n') : 'COMPOSITION: one clear focal action; the child off-center (left or right third); background supports but never crowds the subject.',
     zone
@@ -111,8 +118,6 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
     "CANONICAL COLORS: the character's hair color, skin tone, and freckles come from the MODEL SHEET and are IDENTICAL in every scene. Lighting (night, starlight, lantern glow, golden hour) tints the SCENE — it never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light, freckles stay visible, skin keeps its depth. No color streaks or highlights that are not on the sheet.",
     '',
-    STYLE_BIBLE,
-    '',
     'ABSOLUTELY NO TEXT of any kind in the image — no letters, words, numbers, signs with writing, book pages with visible words, or watermarks. The story text is printed separately. Clothing must be letter-free: no name tags, letter badges, real-world logos, or national flags.',
     'WORDLESS COSTUMES & TECH: any control panels, chest displays, screens, gauges, wrist devices, helmets, HUDs, spacesuit instruments, or dashboards must show ONLY wordless indicators — glowing dots, bars, rings, star-glyphs, abstract icons — NEVER digits, numbers, clock readouts, or letters.',
     'WORDLESS PROPS: if the scene includes any written artifact — a map, note, letter, book, scroll, sign, or label — depict it WITHOUT readable writing. Use abstract wavy squiggle lines, dots, star-glyphs, or symbols that clearly cannot be read as letters or numbers. NO invented alphabets or alien script either — letter-LIKE glyph rows on signs read as "weird writing" in print; signs and shopfronts carry PICTOGRAMS only (a fruit, a star, a wrench). A map shows paths, landmarks, and constellation marks — never place names or words. A compass or compass rose shows a pointed star and arrows for directions — NEVER the letters N/S/E/W. Clock faces and dials show dots or dashes, never numerals. Instrument faces — planispheres, star wheels/charts, dials, calendar wheels — show tick marks, dots, and constellation glyphs ONLY: never letters, numerals, or month names. If the story names map locations, depict them as tiny pictorial symbols (a waterfall drawing, a crescent moon, a mountain icon) — NEVER write their names.',
@@ -128,6 +133,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     // on the front cover). State the limb COUNT explicitly — image models add a
     // stray extra hand/arm on complex grips unless the count is pinned.
     'ANATOMY: each character has exactly two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. Prefer simple, natural grips (whole-hand holds, open palms); avoid complex finger-object interlocks and foreshortened finger tangles.',
+    STYLE_PIN,
   ].filter((l) => l !== null).join('\n');
 }
 

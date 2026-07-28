@@ -140,7 +140,25 @@ describe('buildSpreadRenderPrompt', () => {
     expect(p).toContain('CANONICAL COLORS');
     expect(p).toContain('never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light');
     expect(p).toContain('No color streaks or highlights that are not on the sheet');
-    expect(p).toContain("- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles): golden starlight over cool night blues");
+    expect(p).toContain("- Palette/lighting (scene only — never re-colors the character's hair/skin/freckles, never changes the render MEDIUM): golden starlight over cool night blues");
+  });
+
+  // Prompt hygiene (2026-07-28): the style bible used to sit at block 11 of
+  // 17, AFTER the scene/continuity/palette free text; the last thing the
+  // model read was a finger-count rule. The bible now LEADS and a one-line
+  // STYLE PIN closes, so free-text notes can never soften the medium lock.
+  test('the style bible leads the prompt and the style pin closes it', () => {
+    const { STYLE_PIN } = require('../../../services/bookPipelineV3/illustrator/styleBible');
+    const p = buildSpreadRenderPrompt({
+      spread: { ...SPREAD(3), scene_contract: { ...SPREAD(3).scene_contract, continuity_notes: 'soft watercolor mood please' } },
+      briefText: 'BRIEF',
+    });
+    const bibleAt = p.indexOf('SIGNATURE ART STYLE');
+    expect(bibleAt).toBeGreaterThan(-1);
+    expect(bibleAt).toBeLessThan(p.indexOf('SCENE (from the manuscript'));
+    expect(p.trim().endsWith(STYLE_PIN)).toBe(true);
+    // Free-text continuity is scoped so it cannot override the lock.
+    expect(p).toContain('the SIGNATURE ART STYLE above always wins over any wording here): soft watercolor mood please');
   });
 
   // 2026-07-16 (book f33b4200, spread 11): a planisphere/star-wheel prop got

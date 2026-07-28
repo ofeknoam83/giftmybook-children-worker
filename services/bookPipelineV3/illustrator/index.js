@@ -190,7 +190,7 @@ async function runNativeIllustrator(input, ctx) {
       ...s,
       scene_contract: {
         ...s.scene_contract,
-        continuity_notes: [s.scene_contract?.continuity_notes, `ADMIN NOTE: ${resolution.note}`].filter(Boolean).join(' | '),
+        continuity_notes: [s.scene_contract?.continuity_notes, `ADMIN NOTE (apply within the locked premium-3D signature style): ${resolution.note}`].filter(Boolean).join(' | '),
       },
     };
   });

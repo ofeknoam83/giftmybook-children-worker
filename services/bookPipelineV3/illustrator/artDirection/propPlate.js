@@ -14,7 +14,7 @@
 
 const { generateImage } = require('../render/imageClient');
 const { SPREAD_RENDERER_MODEL } = require('../config');
-const { STYLE_BIBLE } = require('../styleBible');
+const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
 const { qaPlateStyle, PLATE_STYLE_REPAIR } = require('./plateStyleQa');
 
 /** Props appearing on this many spreads (or more) earn a plate slot. */
@@ -48,14 +48,17 @@ function buildPropPlatePrompt(props, { hasStyleReferences = false, repairNote = 
   return [
     `PROP REFERENCE PLATE — the recurring props of a children's picture book, laid out side by side like a museum display on a plain, softly lit neutral background.`,
     'No people, no animals, no characters of any kind, no scene — the props ONLY, each fully visible and separated from the others.',
+    // Prompt hygiene (2026-07-28): the bible leads (before the free-text
+    // prop designs); the pin closes.
+    STYLE_BIBLE,
     `THE PROPS (exactly ${props.length}, nothing else):`,
     ...props.map((p, i) => `[${i + 1}] ${p.name}${p.design ? ` — ${p.design}` : ''}`),
     hasStyleReferences
       ? 'The attached reference images (character model sheet, approved cover) define this book\'s RENDERING STYLE — match their brushwork, color saturation, line weight, and lighting quality EXACTLY. Do NOT copy their subjects: paint the PROPS ONLY.'
       : null,
     repairNote,
-    STYLE_BIBLE,
     'ABSOLUTELY NO TEXT anywhere in the image. Any map, note, book, or label among the props is WORDLESS — abstract squiggles, dots, or star-glyphs that cannot be read as letters or numbers. NO invented alphabets or alien script. Compasses show a pointed star and arrows, never N/S/E/W letters; clock faces and dials show dots or dashes, never numerals.',
+    STYLE_PIN,
   ].filter(Boolean).join('\n');
 }
 
