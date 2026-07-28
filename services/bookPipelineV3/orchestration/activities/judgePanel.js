@@ -37,6 +37,15 @@ const SYSTEM = fs.readFileSync(
 // the tuning knob.
 const PANEL_PASS_MEDIAN = 4;
 
+// Judge-facing labels are ALWAYS these neutral positional letters, never the
+// manuscript ids. Two reasons (book fff0c611, 2026-07-28): (1) blindness —
+// ids like 'fresh' leak provenance ("this is a regenerated attempt") to a
+// panel that must not know it; (2) robustness — the judge prompt's schema
+// example anchors hard on "A"/"B", so a manuscript labeled 'fresh' made
+// judges echo label 'A', fail schema validation twice, and get DROPPED —
+// every fresh-branch panel ran degraded (both survivors must clear the bar).
+const BLIND_LABELS = ['A', 'B'];
+
 function median(values) {
   const sorted = values.slice().sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -141,8 +150,9 @@ async function judgePanelActivity(input, ctx) {
   if (!Array.isArray(manuscripts) || manuscripts.length < 1 || manuscripts.length > 2) {
     throw new Error(`judgePanel: expected 1-2 manuscripts, got ${manuscripts?.length || 0}`);
   }
-  const labels = manuscripts.map((m) => m.id);
-  const blinded = manuscripts.map((m) => blindManuscript(m, m.id));
+  const labels = manuscripts.map((_, i) => BLIND_LABELS[i]);
+  const idByLabel = new Map(manuscripts.map((m, i) => [labels[i], m.id]));
+  const blinded = manuscripts.map((m, i) => blindManuscript(m, labels[i]));
 
   const reports = [];
   const failedJudges = [];
@@ -175,9 +185,14 @@ async function judgePanelActivity(input, ctx) {
 
   const { perManuscript, winnerId } = aggregateReports(reports, labels);
 
+  // Un-blind for callers: everything downstream (panelLoop, review payloads,
+  // checkpoints) is keyed by the real manuscript ids, not the blind labels.
+  const perManuscriptById = {};
   for (const label of labels) {
+    const id = idByLabel.get(label);
     const agg = perManuscript[label];
-    ctx.log('info', `[v3] panel ${label}: pass=${agg.pass} sumMedians=${agg.sumMedians.toFixed(1)} failing=[${agg.failingDimensions.join(',')}] sanityVetoes=[${agg.meaningSanityVetoes.join(',')}] flags=${agg.flaggedSpreads.length}`);
+    perManuscriptById[id] = agg;
+    ctx.log('info', `[v3] panel ${id}: pass=${agg.pass} sumMedians=${agg.sumMedians.toFixed(1)} failing=[${agg.failingDimensions.join(',')}] sanityVetoes=[${agg.meaningSanityVetoes.join(',')}] flags=${agg.flaggedSpreads.length}`);
   }
 
   return {
@@ -185,10 +200,12 @@ async function judgePanelActivity(input, ctx) {
       judge: r.judge,
       family: r.family,
       model: r.model,
-      manuscripts: Object.fromEntries(r.manuscripts),
+      manuscripts: Object.fromEntries(
+        [...r.manuscripts].map(([label, m]) => [idByLabel.get(label), m]),
+      ),
     })),
-    perManuscript,
-    winnerId,
+    perManuscript: perManuscriptById,
+    winnerId: idByLabel.get(winnerId),
     degraded,
     failedJudges,
     usageByJudge,
