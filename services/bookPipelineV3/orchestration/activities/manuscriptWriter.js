@@ -67,6 +67,7 @@ async function manuscriptWriterActivity(input, ctx) {
       interests: brief?.interests || [],
       story_world: brief?.story_world || null,
       themes: brief?.themes || null,
+      storyRoles: brief?.storyRoles || null,
     },
     concept,
     editor_grafts: selection?.grafts || [],

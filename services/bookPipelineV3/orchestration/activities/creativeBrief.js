@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { callWithRole } = require('../../llm/modelRouter');
 const { resolveThemeAxes, buildThemeDirective } = require('../../../shared/themes');
+const { buildStoryRoles, roleTokens, summarizeRolesForLog } = require('../../storyRoles');
 
 const SYSTEM = fs.readFileSync(
   path.join(__dirname, '../../llm/prompts/creativeBrief.system.md'),
@@ -59,6 +60,11 @@ async function creativeBriefActivity(input, ctx) {
       gender: child.gender || rawRequest?.childGender || null,
       interests: child.interests || rawRequest?.childInterests || [],
       customDetails: rawRequest?.customDetails || '',
+      // Structured anecdotes (2026-07-29 QA review): beside the flattened
+      // customDetails so the brief model can rank them into
+      // child_as_character. The binding input-to-role mapping is attached
+      // code-side below (brief.storyRoles) — never trusted to the LLM.
+      childAnecdotes: rawRequest?.childAnecdotes || null,
       // Raw questionnaire Q/A triples (sanitized at the API boundary) — the
       // richest personalization signal the parent gives us; forwarded
       // verbatim so the brief can mine anecdotes the structured fields miss.
@@ -133,6 +139,15 @@ async function creativeBriefActivity(input, ctx) {
       storyTheme: themeAxes.storyTheme,
       directive: themeDirective,
     },
+    // Input-to-role casting sheet (2026-07-29 QA review rule 3):
+    // deterministic, code-side — same rationale as `themes` above. Each
+    // role is a plot mechanic the writer must honor; the gate's
+    // parent_name_missing check and the role-usage lints read it too.
+    storyRoles: buildStoryRoles({
+      childAnecdotes: rawRequest?.childAnecdotes,
+      interests,
+      childName: child.name || rawRequest?.childName,
+    }),
     _usage: resp.usage,
     _model: resp.model,
   };
@@ -157,8 +172,28 @@ async function creativeBriefActivity(input, ctx) {
     }
   }
 
+  // Roles backstop warning (same philosophy as the interests backstop): a
+  // cast role whose tokens never surface in child_as_character means the
+  // model ranked a bought-and-paid-for personalization input out of the
+  // brief. The code-side attachment above means downstream stages get the
+  // role regardless — this is the loud paper trail.
+  if (brief.storyRoles) {
+    const detailText = brief.child_as_character
+      .map((d) => `${d.detail || ''} ${d.story_potential || ''}`)
+      .join(' ')
+      .toLowerCase();
+    for (const key of ['tool', 'turningPoint', 'worldObject']) {
+      const role = brief.storyRoles[key];
+      if (!role) continue;
+      const tokens = roleTokens(role.value);
+      if (tokens.length && !tokens.some((t) => detailText.includes(t))) {
+        ctx.log('warn', `[v3] creativeBrief: story role '${key}' ('${role.value.slice(0, 40)}') absent from child_as_character — the code-side storyRoles attachment still carries it downstream`);
+      }
+    }
+  }
+
   const loadBearing = brief.child_as_character.filter((d) => d.load_bearing === true).length;
-  ctx.log('info', `[v3] creativeBrief: ${brief.child_as_character.length} details (${loadBearing} load-bearing), interests=[${interests.join(', ')}], occasion=${themeAxes.occasion || 'none'}, storyTheme=${themeAxes.storyTheme || 'none'}, story_world='${(brief.story_world || 'none').slice(0, 80)}', gift_intent='${brief.gift_intent.slice(0, 80)}...'`);
+  ctx.log('info', `[v3] creativeBrief: ${brief.child_as_character.length} details (${loadBearing} load-bearing), interests=[${interests.join(', ')}], occasion=${themeAxes.occasion || 'none'}, storyTheme=${themeAxes.storyTheme || 'none'}, storyRoles={${summarizeRolesForLog(brief.storyRoles)}}, story_world='${(brief.story_world || 'none').slice(0, 80)}', gift_intent='${brief.gift_intent.slice(0, 80)}...'`);
   return brief;
 }
 

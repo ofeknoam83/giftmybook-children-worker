@@ -72,6 +72,7 @@ const {
   normalizeSentence, sentencesOf, sortedSpreads, linesOf, wordsOf, isDialogue, inflectionSet,
 } = require('./textUtils');
 const { containsName } = require('./bookChecks');
+const { roleTokens } = require('../../storyRoles');
 const COMMON_VERBS = require('../lexicons/commonVerbs.json');
 
 /**
@@ -658,6 +659,117 @@ function nameScarcityLint(manuscript, opts = {}) {
   }];
 }
 
+/** Where each story role is expected to do its work (13-spread map). */
+const ROLE_HOME_SPREADS = { tool: [5], turningPoint: [8, 9], worldObject: [6] };
+
+/**
+ * Whether any of a role's tokens appears in the given lowercase text.
+ * Plural tokens also match their singular ("bananas" hits "banana boat") —
+ * crude on purpose; every consumer is a SOFT lint.
+ */
+function roleTokenHit(text, tokens) {
+  return tokens.some((t) => text.includes(t)
+    || (t.length > 4 && t.endsWith('s') && text.includes(t.slice(0, -1))));
+}
+
+/**
+ * role_unused (2026-07-29 QA review rule 3's deterministic teeth): a cast
+ * story role — hobby-tool, funny-trait turning point, food world-object —
+ * whose tokens appear NOWHERE in the manuscript was collected and
+ * discarded, the Liv book's root failure. SOFT (token matching is fuzzy by
+ * nature); targets the role's home beat so the revision knows where the
+ * mechanic belongs. Gated on opts.storyRoles.
+ *
+ * @param {object} manuscript
+ * @param {{storyRoles?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function roleUnusedLint(manuscript, opts = {}) {
+  const roles = opts.storyRoles;
+  if (!roles) return [];
+  const allText = sortedSpreads(manuscript)
+    .map((s) => normalizeSentence(s.text || linesOf(s).join(' ')))
+    .join(' ');
+  const lints = [];
+  for (const [key, home] of Object.entries(ROLE_HOME_SPREADS)) {
+    const role = roles[key];
+    if (!role || !role.value) continue;
+    const tokens = roleTokens(role.value);
+    if (!tokens.length || roleTokenHit(allText, tokens)) continue;
+    lints.push({
+      code: 'role_unused',
+      message: `story role '${key}' is never used: ${role.directive}`,
+      spreads: home,
+      targetSpreads: home,
+    });
+  }
+  return lints;
+}
+
+/**
+ * food_role_misplaced (2026-07-29 QA review): the favorite food appearing
+ * only in the opening or ending spreads is scenery/reward, not a world
+ * object — "a plate of red berries appears in passing, then vanishes". The
+ * review requires it MID-STORY. Gated on opts.storyRoles.worldObject.
+ *
+ * @param {object} manuscript
+ * @param {{storyRoles?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function foodRoleMisplacedLint(manuscript, opts = {}) {
+  const role = opts.storyRoles?.worldObject;
+  if (!role || !role.value) return [];
+  const tokens = roleTokens(role.value);
+  if (!tokens.length) return [];
+  const spreads = sortedSpreads(manuscript);
+  if (spreads.length < 8) return [];
+  const hitSpreads = spreads
+    .filter((s) => roleTokenHit(normalizeSentence(s.text || linesOf(s).join(' ')), tokens))
+    .map((s) => s.spread);
+  if (hitSpreads.length === 0) return []; // roleUnusedLint owns the fully-absent case
+  const midStart = 4;
+  const midEnd = spreads.length - 3; // 13 spreads → mid-story = 4-10
+  if (hitSpreads.some((n) => n >= midStart && n <= midEnd)) return [];
+  return [{
+    code: 'food_role_misplaced',
+    message: `the favorite food (${role.value}) appears only on spreads ${hitSpreads.join(', ')} — as scenery/reward, not a world object. ${role.directive}`,
+    spreads: hitSpreads,
+    targetSpreads: [6],
+  }];
+}
+
+/**
+ * opening_beat_loves (2026-07-29 QA review rule 1, the fuzzy half): the
+ * opening spreads should show what the child loves — beyond the name
+ * (opening_beat_name, HARD), at least one role/interest token should
+ * surface in spreads 1-2. SOFT: an interest phrased as world imagery won't
+ * string-match, and that must never hard-bounce a book.
+ *
+ * @param {object} manuscript
+ * @param {{storyRoles?: object, interests?: string[]}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function openingBeatLovesLint(manuscript, opts = {}) {
+  const roles = opts.storyRoles;
+  const interests = Array.isArray(opts.interests) ? opts.interests : [];
+  const sources = [
+    roles?.tool?.value, roles?.turningPoint?.value, roles?.worldObject?.value, ...interests,
+  ].filter(Boolean);
+  if (!sources.length) return [];
+  const tokens = [...new Set(sources.flatMap((v) => roleTokens(v)))];
+  if (!tokens.length) return [];
+  const opening = sortedSpreads(manuscript).slice(0, 2);
+  if (!opening.length) return [];
+  const text = opening.map((s) => normalizeSentence(s.text || linesOf(s).join(' '))).join(' ');
+  if (roleTokenHit(text, tokens)) return [];
+  return [{
+    code: 'opening_beat_loves',
+    message: 'the opening spreads never show what the child loves — the first spread should introduce the child in her own world, doing or surrounded by her favorite things (the loves, the funny thing), so the parent gets the "that\'s my kid" moment in the first page-turn',
+    spreads: opening.map((s) => s.spread),
+    targetSpreads: [opening[0].spread],
+  }];
+}
+
 /**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
@@ -679,7 +791,10 @@ function runBookLints(manuscript, opts = {}) {
       console.warn(`[v3] book lint ${lint.name} threw (skipping): ${err.message}`);
     }
   }
-  for (const lint of [wordLengthLint, sentenceLengthLint, nameScarcityLint]) {
+  for (const lint of [
+    wordLengthLint, sentenceLengthLint, nameScarcityLint,
+    roleUnusedLint, foodRoleMisplacedLint, openingBeatLovesLint,
+  ]) {
     try {
       all.push(...lint(manuscript, opts));
     } catch (err) {
@@ -705,5 +820,8 @@ module.exports = {
   sentenceLengthLint,
   conceptOverloadLint,
   nameScarcityLint,
+  roleUnusedLint,
+  foodRoleMisplacedLint,
+  openingBeatLovesLint,
   normalizeSentence,
 };

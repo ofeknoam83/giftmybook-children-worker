@@ -48,6 +48,7 @@ async function conceptRoomActivity(input, ctx) {
       interests: brief?.interests || [],
       story_world: brief?.story_world || null,
       themes: brief?.themes || null,
+      storyRoles: brief?.storyRoles || null,
     },
     theme,
     spreadCount,

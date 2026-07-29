@@ -12,8 +12,12 @@ const {
   sentenceLengthLint,
   conceptOverloadLint,
   nameScarcityLint,
+  roleUnusedLint,
+  foodRoleMisplacedLint,
+  openingBeatLovesLint,
   runBookLints,
 } = require('../../../services/bookPipelineV3/gate/checks/bookLints');
+const { buildStoryRoles } = require('../../../services/bookPipelineV3/storyRoles');
 
 const ms = (spreads, extra = {}) => ({
   title: 'T',
@@ -167,6 +171,85 @@ describe('nameScarcityLint', () => {
   test('self-disables without a name or on short books', () => {
     expect(nameScarcityLint(ms(['a', 'b', 'c']), { protagonistName: 'Liv' })).toEqual([]);
     expect(nameScarcityLint(ms(Array(13).fill('text')), {})).toEqual([]);
+  });
+});
+
+describe('role-usage lints', () => {
+  const roles = buildStoryRoles({
+    childAnecdotes: {
+      favorite_activities: 'swimming',
+      calls_mom: 'calls everything mama',
+      favorite_food: 'strawberries and bananas',
+      mom_name: 'Alex',
+      dad_name: 'Daniel',
+    },
+    childName: 'Liv',
+  });
+  const thirteen = (overrides = {}) => {
+    const texts = Array.from({ length: 13 }, () => 'The lagoon glitters at night.');
+    for (const [idx, text] of Object.entries(overrides)) texts[idx] = text;
+    return ms(texts);
+  };
+
+  describe('roleUnusedLint', () => {
+    test('the Liv failure: every cast role absent → one lint per role at its home beat', () => {
+      const lints = roleUnusedLint(thirteen(), { storyRoles: roles });
+      expect(lints).toHaveLength(3);
+      const byMsg = (frag) => lints.find((l) => l.message.includes(frag));
+      expect(byMsg('tool').targetSpreads).toEqual([5]);
+      expect(byMsg('turningPoint').targetSpreads).toEqual([8, 9]);
+      expect(byMsg('worldObject').targetSpreads).toEqual([6]);
+    });
+
+    test('a role whose tokens appear anywhere is satisfied', () => {
+      const m = thirteen({
+        4: 'Liv goes swimming to reach the toy.',
+        8: 'Liv points at the boat and says mama, and the boat lights up.',
+        5: 'A banana boat floats by and Liv climbs on.',
+      });
+      expect(roleUnusedLint(m, { storyRoles: roles })).toEqual([]);
+    });
+
+    test('self-disables without storyRoles', () => {
+      expect(roleUnusedLint(thirteen(), {})).toEqual([]);
+    });
+  });
+
+  describe('foodRoleMisplacedLint', () => {
+    test('food only in the opening/ending is scenery — targets the mid-story beat', () => {
+      const m = thirteen({ 0: 'A plate of strawberries sits by the pool.', 12: 'Bananas for a snack at last.' });
+      const lints = foodRoleMisplacedLint(m, { storyRoles: roles });
+      expect(lints).toHaveLength(1);
+      expect(lints[0].code).toBe('food_role_misplaced');
+      expect(lints[0].targetSpreads).toEqual([6]);
+    });
+
+    test('food appearing mid-story passes', () => {
+      const m = thirteen({ 5: 'Liv paddles her banana boat across the pool.' });
+      expect(foodRoleMisplacedLint(m, { storyRoles: roles })).toEqual([]);
+    });
+
+    test('fully absent food belongs to roleUnusedLint, not this lint', () => {
+      expect(foodRoleMisplacedLint(thirteen(), { storyRoles: roles })).toEqual([]);
+    });
+  });
+
+  describe('openingBeatLovesLint', () => {
+    test('an opening with no loved thing fires, targeting spread 1', () => {
+      const lints = openingBeatLovesLint(thirteen(), { storyRoles: roles, interests: ['swimming'] });
+      expect(lints).toHaveLength(1);
+      expect(lints[0].code).toBe('opening_beat_loves');
+      expect(lints[0].targetSpreads).toEqual([1]);
+    });
+
+    test('a loved thing on spread 1-2 satisfies it', () => {
+      const m = thirteen({ 1: 'Liv loves swimming with her yellow duck.' });
+      expect(openingBeatLovesLint(m, { storyRoles: roles, interests: ['swimming'] })).toEqual([]);
+    });
+
+    test('self-disables with nothing to look for', () => {
+      expect(openingBeatLovesLint(thirteen(), {})).toEqual([]);
+    });
   });
 });
 

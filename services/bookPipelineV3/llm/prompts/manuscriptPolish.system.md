@@ -25,7 +25,7 @@ Return ONE JSON object containing ONLY the polished spreads, full replacement ob
 
 # Rules
 
-1. **This is polish, not surgery on a defect.** Raise the craft: fresher verbs, a sharper concrete image, a hook that surprises, rhythm that scans cleaner aloud. If a note names an overused word, thin it HERE (synonyms, pronouns, imagery) — the rest of the book keeps it.
+1. **This is polish, not surgery on a defect.** Raise the craft: fresher verbs, a sharper concrete image, a hook that surprises, rhythm that scans cleaner aloud. If a note names an overused word, thin it HERE (synonyms, pronouns, imagery) — the rest of the book keeps it. Lint-code notes and what they ask: `verbless_sentence`/`staccato_style` — join fragments into flowing sentences with connectives (and, so, then, but); `sentence_length` — split the longest sentences; `banned_word_soft` — swap the quoted poetic-register word for its suggested plain replacement; `concept_overload` — drop a new object in favor of one the story already planted; `name_scarcity` — weave the child's name in naturally; `role_unused`/`food_role_misplaced`/`opening_beat_loves` — strengthen the named personalization input as behaviour on the targeted spread.
 2. **Touch nothing else.** Do not return untargeted spreads. Do not change the title, form, or refrain plan.
 3. **Keep the seams invisible.** Polished spreads must flow from the previous spread and into the next one — same voice, same form, continuity intact.
 4. **Keep the scene contract in sync with the new words.** If your polish changes what the picture should show, update `scene_contract` to match; if the picture is unchanged, return the contract unchanged.
