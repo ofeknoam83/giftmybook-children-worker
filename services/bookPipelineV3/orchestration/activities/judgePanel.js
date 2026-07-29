@@ -84,6 +84,7 @@ async function callOneJudge({ role, brief, ageProfile, blinded, judgeIndex }) {
       // by personalization_depth, not laundered through its own ranking.
       interests: brief?.interests || [],
       story_world: brief?.story_world || null,
+      themes: brief?.themes || null,
     },
     ageProfile: {
       band: ageProfile?.ageBand || ageProfile?.band,

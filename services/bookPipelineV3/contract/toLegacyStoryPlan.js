@@ -34,7 +34,17 @@ function resolveChildName(doc) {
 function buildFrontAndBackMatter(doc) {
   const title = doc?.cover?.title || 'My Story';
   const childName = resolveChildName(doc);
-  const theme = doc?.request?.theme || null;
+  // Story theme (the world axis, 2026-07-29) describes the book better than
+  // the occasion when both are present ("A space adventure" beats "A birthday
+  // story" for a birthday-in-space order) — except parent-day occasions,
+  // whose love subtitle is the point of the gift. Legacy single-`theme`
+  // books fall through unchanged.
+  const request = doc?.request || {};
+  const isParentDay = ['mothers_day', 'fathers_day'].includes(request.occasion)
+    || ['mothers_day', 'fathers_day'].includes(request.theme);
+  const theme = isParentDay
+    ? (request.theme || request.occasion)
+    : (request.storyTheme || request.theme || null);
 
   const THEME_SUBS = {
     mothers_day: 'A story about love',

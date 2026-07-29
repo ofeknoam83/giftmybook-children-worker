@@ -68,7 +68,7 @@ const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
 const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
-const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest } = require('./services/validation');
+const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest, sanitizeForPrompt } = require('./services/validation');
 const { resolveBookPipeline } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');
 
@@ -456,12 +456,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const {
     bookId, childName, childAge, childGender, childAppearance,
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
+    occasion, storyTheme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
     approvedCoverUrl, childAnecdotes,
   } = sanitized;
   let { approvedTitle } = sanitized;
-  const heartfeltNote = req.body.heartfeltNote || null;
-  const bookFrom = req.body.bookFrom || null;
+  const heartfeltNote = sanitizeForPrompt(req.body.heartfeltNote || '', 500) || null;
+  const bookFrom = sanitizeForPrompt(req.body.bookFrom || '', 200) || null;
   const bindingType = req.body.bindingType || '';
   const emotionalCategory = sanitized.emotionalCategory || null;
   const emotionalSituation = sanitized.emotionalSituation || null;
@@ -537,6 +538,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     if (childAnecdotes.dad_name) anecdoteParts.push(`Dad's name: ${childAnecdotes.dad_name}`);
     if (childAnecdotes.meaningful_moment) anecdoteParts.push(`Meaningful moment: ${childAnecdotes.meaningful_moment}`);
     if (childAnecdotes.moms_favorite_moment) anecdoteParts.push(`Mom's favorite moment: ${childAnecdotes.moms_favorite_moment}`);
+    if (childAnecdotes.dads_favorite_moment) anecdoteParts.push(`Dad's favorite moment: ${childAnecdotes.dads_favorite_moment}`);
     if (childAnecdotes.favorite_cake_flavor) anecdoteParts.push(`Favorite cake flavor: ${childAnecdotes.favorite_cake_flavor}`);
     if (childAnecdotes.favorite_toys) anecdoteParts.push(`Favorite toys: ${childAnecdotes.favorite_toys}`);
     if (childAnecdotes.birth_date) anecdoteParts.push(`Birth date: ${childAnecdotes.birth_date}`);
@@ -627,7 +629,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     photoUrls: childPhotoUrls,
   };
 
-  console.log(`[server] /generate-book: bookId=${bookId}, child=${childName}, format=${format}, style=${style}`);
+  console.log(`[server] /generate-book: bookId=${bookId}, child=${childName}, format=${format}, style=${style}, theme=${theme}, occasion=${occasion || 'none'}, storyTheme=${storyTheme || 'none'}`);
   console.log(
     `[server] /generate-book personalization: bookId=${bookId} interests=${childInterests.length} ` +
     `[${childInterests.join(', ')}] answeredQuestions=${(sanitized.answeredQuestions || []).length} ` +
@@ -823,7 +825,7 @@ Be concise. Only describe adults/secondary people, not the main child.` },
       let storySeed;
       try {
         storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, {
-          apiKeys, costTracker, theme,
+          apiKeys, costTracker, theme, occasion, storyTheme,
           emotionalSituation,
           copingResourceHint,
           additionalCoverCharacters: detectedSecondaryCharacters || null,
@@ -945,6 +947,11 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           theme,
           pipelineVersion: routed.version,
           child: childDetails,
+          // The dedication-only locals used to stop here — creativeBrief read
+          // rawRequest.heartfeltNote/bookFrom but always got null (2026-07-29
+          // audit: a broken personalization channel on every book).
+          heartfeltNote,
+          bookFrom,
           customDetails: plannerCustomDetails || sanitized.customDetails || {},
           cover: {
             title: approvedTitle || sanitized.approvedTitle || 'My Story',

@@ -41,6 +41,7 @@ const { buildNeedsReviewPayload } = require('../reviewQueue/payload');
 const { getSignedUrl, uploadBuffer } = require('../../gcsStorage');
 const { candidatePath } = require('./render/renderAllSpreads');
 const { downloadPhotoAsBase64 } = require('../../illustrationGenerator');
+const { resolveThemeAxes, buildThemeArtNote } = require('../../shared/themes');
 const { BOOK_PASS_REGEN_WAVES, BOOK_PASS_SHIP_ON_EXHAUSTION, CANDIDATES_PER_SPREAD, SPREAD_RECOVERY_ENABLED, SPREAD_RENDERER_MODEL } = require('./config');
 
 const IMPLEMENTED_PHASES = [
@@ -126,11 +127,20 @@ async function runNativeIllustrator(input, ctx) {
   // ── A1: art direction (sees sheet + cover) ──
   ctx.reportProgress?.({ step: 'illustrating', message: 'Art direction (shots, zones, palette, plates)' });
   const directorRefs = [bookPack[0], ...(coverImage ? [coverImage] : [])];
+  // Ordered occasion/story-theme mood for the art director (2026-07-29):
+  // palette/light/motif guidance only — the style bible owns the medium.
+  const themeArtNote = buildThemeArtNote(resolveThemeAxes({
+    occasion: rawRequest?.occasion,
+    storyTheme: rawRequest?.storyTheme,
+    theme: rawRequest?.theme,
+  }));
+  if (themeArtNote) log(`art direction theme mood: ${themeArtNote}`);
   const direction = await runArtDirection({
     manuscript,
     ageBand: ageProfile?.ageBand || ageProfile?.band,
     ageYears: Number(rawRequest?.child?.age) || null,
     textLayout,
+    themeArtNote,
     referenceImages: directorRefs,
     abortSignal,
     log,
