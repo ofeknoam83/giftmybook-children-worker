@@ -1,15 +1,35 @@
 {
   "version": "1.0",
   "ageBand": "PB_PRESCHOOL",
-  "ageMonthsRange": [36, 72],
+  "ageMonthsRange": [
+    36,
+    72
+  ],
   "label": "preschool (3-6 years)",
   "narrativeConstraints": {
     "spreadCount": 13,
-    "wordsPerSpread": { "min": 20, "max": 50, "target": 32 },
-    "linesPerSpread": { "min": 2, "max": 4, "target": 4 },
-    "syllablesPerLine": { "min": 6, "max": 12, "target": 9 },
+    "wordsPerSpread": {
+      "min": 20,
+      "max": 50,
+      "target": 32
+    },
+    "linesPerSpread": {
+      "min": 2,
+      "max": 4,
+      "target": 4
+    },
+    "syllablesPerLine": {
+      "min": 6,
+      "max": 12,
+      "target": 9
+    },
     "rhymeScheme": "AABB",
     "rhymeStrictness": "perfect_rhyme_required_imperfect_eye_rhymes_banned",
+    "allowedForms": [
+      "rhymed_verse",
+      "rhythmic_prose",
+      "sparse_lyric"
+    ],
     "dialogueDensity": "low",
     "conflictIntensityMax": 0.4,
     "repetitionDensity": "moderate_refrain_ok",
@@ -21,8 +41,14 @@
   },
   "vocabularyConstraints": {
     "maxWordLengthChars": 10,
-    "bannedWordCategories": ["compound_metaphors_excessive"],
-    "bannedPhrasesCategories": ["filler_meter_phrases", "moralizing_phrases"],
+    "maxAvgSentenceWords": 11,
+    "bannedWordCategories": [
+      "compound_metaphors_excessive"
+    ],
+    "bannedPhrasesCategories": [
+      "filler_meter_phrases",
+      "moralizing_phrases"
+    ],
     "preferredRegister": "warm_concrete_with_emotion_words"
   },
   "illustrationConstraints": {

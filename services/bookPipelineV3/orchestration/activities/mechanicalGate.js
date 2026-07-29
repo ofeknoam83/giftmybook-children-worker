@@ -17,6 +17,8 @@ async function mechanicalGateActivity(input, ctx) {
     protagonistName: brief?.child?.name,
     pronouns: brief?.constraints?.pronouns,
     bannedElements: brief?.constraints?.banned_elements,
+    storyRoles: brief?.storyRoles,
+    interests: brief?.interests,
   });
   const failedSpreads = gate.perSpread.filter((e) => !e.passed);
   ctx.log(

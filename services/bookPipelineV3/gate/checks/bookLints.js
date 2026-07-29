@@ -26,6 +26,20 @@
  *   refrain_never_evolves — the manuscript declares refrain evolution
  *                      variants but only ever prints the base refrain
  *
+ * 2026-07-29 additions (Liv birthday book QA review, "AI Writer Feedback
+ * & Word List"):
+ *
+ *   verbless_sentence — sentences with no verb read as image fragments
+ *                      ("Moonlight silver on sand."), not story
+ *   staccato_style   — over half the book's sentences are ≤3 words
+ *                      ("Balloons bop. Confetti skips.") — disconnected
+ *                      images with no causal chain
+ *   sentence_length  — book-average words/sentence above the band's
+ *                      read-aloud budget (maxAvgSentenceWords)
+ *   concept_overload — a spread introduces 3+ never-seen objects ("a chest
+ *                      and a map and confetti in one spread is too much")
+ *   name_scarcity    — the child's name anchors too few spreads
+ *
  * These are SOFT lints: they never hard-fail the gate and never block a
  * book. They ride the gate result as `softLints`, are logged, and feed
  * the editor's targeted revision notes when a revision round runs.
@@ -54,6 +68,13 @@ const FREQUENCY_STOPWORDS = new Set([
   'will', 'wide', 'long', 'little', 'small', 'ahead', 'behind', 'about', 'both',
 ]);
 
+const {
+  normalizeSentence, sentencesOf, sortedSpreads, linesOf, wordsOf, isDialogue, inflectionSet,
+} = require('./textUtils');
+const { containsName } = require('./bookChecks');
+const { roleTokens } = require('../../storyRoles');
+const COMMON_VERBS = require('../lexicons/commonVerbs.json');
+
 /**
  * The manuscript's declared refrain as plain text. `normalizeManuscript`
  * emits `refrain` as `{text, evolution}|null`; the original lints coerced
@@ -65,24 +86,6 @@ function refrainTextOf(manuscript) {
   if (!r) return '';
   if (typeof r === 'string') return r;
   return String(r.text || '');
-}
-
-/** Normalize a sentence for duplicate comparison. */
-function normalizeSentence(s) {
-  return String(s)
-    .toLowerCase()
-    .replace(/[“”"'‘’…—–-]/g, ' ')
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Split spread text into sentences (., !, ? boundaries). */
-function sentencesOf(text) {
-  return String(text || '')
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 /**
@@ -208,15 +211,6 @@ function wordOveruseLint(manuscript) {
     });
 }
 
-/** Sorted spreads with normalized text/lines accessors — shared by the lints below. */
-function sortedSpreads(manuscript) {
-  return (manuscript.spreads || []).slice().sort((a, b) => a.spread - b.spread);
-}
-function linesOf(s) {
-  if (Array.isArray(s.lines) && s.lines.length) return s.lines.map(String);
-  return String(s.text || '').split('\n').filter((l) => l.trim());
-}
-
 /**
  * unintroduced_refrain_object: the refrain chases a DEFINITE object
  * ("Could this be the sound?", "Where is the light?") that no non-refrain
@@ -291,7 +285,7 @@ function monotonePageTurnLint(manuscript) {
   ].filter(Number.isFinite))];
   return [{
     code: 'monotone_page_turn',
-    message: `${questionEnders.length} of ${spreads.length} spreads end on a question — the page-turn hook has become formulaic. On the targeted spreads, swap the closing question for a different hook type: a sound incoming ("Then — plink!"), a pattern about to break, or a cliff-clause ("Liv leans closer, and…")`,
+    message: `${questionEnders.length} of ${spreads.length} spreads end on a question — the page-turn hook has become formulaic. On the targeted spreads, swap the closing question for a different hook type: a sound incoming ("Then, plink!"), a pattern about to break, or a cliff-clause ("Liv leans closer, and…")`,
     spreads: questionEnders.map((s) => s.spread),
     targetSpreads: targets,
   }];
@@ -443,6 +437,340 @@ function wearableGearLint(manuscript) {
 }
 
 /**
+ * Verb surface forms for the fragment lint — every inflection of the
+ * common-verbs lexicon plus its verbatim auxiliary/irregular forms.
+ */
+const VERB_FORMS = (() => {
+  const set = inflectionSet(COMMON_VERBS.base || []);
+  for (const f of COMMON_VERBS.forms || []) set.add(String(f).toLowerCase());
+  return set;
+})();
+
+/** Contraction suffixes that carry a verb ("it's", "we're", "don't"). */
+const VERB_CONTRACTION_RE = /[’'](s|re|m|ll|ve|d)\b|n[’']t\b/i;
+
+/** Interjection/exclamative openers that legitimately head a verbless line. */
+const INTERJECTION_OPENERS = new Set([
+  'what', 'how', 'oh', 'wow', 'hello', 'goodbye', 'goodnight', 'yay',
+  'hooray', 'uh', 'ah', 'ooh', 'aah', 'mmm', 'shh', 'wheee', 'whee',
+]);
+
+/**
+ * Whether a sentence should be exempt from fragment analysis: dialogue,
+ * exclamations, the declared refrain, interjection openers.
+ */
+function fragmentExempt(sentence, refrainNorm) {
+  const s = String(sentence);
+  if (isDialogue(s)) return true;
+  if (/!\s*$/.test(s.trim())) return true;
+  const norm = normalizeSentence(s);
+  if (refrainNorm && (norm.includes(refrainNorm) || refrainNorm.includes(norm))) return true;
+  const first = norm.split(' ')[0];
+  return INTERJECTION_OPENERS.has(first);
+}
+
+/**
+ * verbless_sentence (2026-07-29 QA review, Liv book): "No sentence without
+ * a verb. This is what catches fragments programmatically." A sentence of
+ * 3+ words with no token in the verb lexicon and no verb-carrying
+ * contraction is fragment-suspect ("Moonlight silver on sand."). SOFT by
+ * design — a verb allow-list is inherently incomplete, and a rare verb
+ * ("Liv toddles") must never hard-bounce a good book.
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function verblessSentenceLint(manuscript) {
+  const refrainNorm = normalizeSentence(refrainTextOf(manuscript));
+  const bySpread = new Map(); // spread → offending sentences
+  for (const s of sortedSpreads(manuscript)) {
+    for (const sentence of sentencesOf(s.text || linesOf(s).join('\n'))) {
+      const words = wordsOf(sentence);
+      if (words.length < 3) continue;
+      if (fragmentExempt(sentence, refrainNorm)) continue;
+      if (VERB_CONTRACTION_RE.test(sentence)) continue;
+      const hasVerb = words.some((w) => VERB_FORMS.has(w.toLowerCase().replace(/[’']/g, '')));
+      if (hasVerb) continue;
+      if (!bySpread.has(s.spread)) bySpread.set(s.spread, []);
+      bySpread.get(s.spread).push(sentence);
+    }
+  }
+  if (bySpread.size === 0) return [];
+  const spreads = [...bySpread.keys()].sort((a, b) => a - b);
+  const examples = spreads.slice(0, 3).map((n) => `"${bySpread.get(n)[0]}" (spread ${n})`).join(', ');
+  return [{
+    code: 'verbless_sentence',
+    message: `sentence(s) with no verb read as image fragments, not story: ${examples} — rewrite each as a full sentence where something HAPPENS (subject + action), joining fragments with connectives (and, so, then, but)`,
+    spreads,
+    targetSpreads: spreads.slice(0, 3),
+  }];
+}
+
+/**
+ * staccato_style (2026-07-29 QA review): the Liv book's signature failure —
+ * "Balloons bop. Confetti skips." Grammatically complete, stylistically
+ * fragmented: disconnected images with no causal link. Fires when over half
+ * the book's sentences are 3 words or fewer (refrain sentences exempt —
+ * high intentional repetition is a feature per repetitionDensity) across a
+ * meaningful sample (15+ sentences).
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function staccatoStyleLint(manuscript) {
+  const refrainNorm = normalizeSentence(refrainTextOf(manuscript));
+  let total = 0;
+  let short = 0;
+  const shortBySpread = new Map();
+  for (const s of sortedSpreads(manuscript)) {
+    for (const sentence of sentencesOf(s.text || linesOf(s).join('\n'))) {
+      const norm = normalizeSentence(sentence);
+      if (refrainNorm && (norm.includes(refrainNorm) || refrainNorm.includes(norm))) continue;
+      total += 1;
+      if (wordsOf(sentence).length <= 3) {
+        short += 1;
+        shortBySpread.set(s.spread, (shortBySpread.get(s.spread) || 0) + 1);
+      }
+    }
+  }
+  if (total < 15 || short / total <= 0.5) return [];
+  const densest = [...shortBySpread.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+    .map(([spread]) => spread).sort((a, b) => a - b);
+  return [{
+    code: 'staccato_style',
+    message: `${short} of ${total} sentences are 3 words or fewer — the book reads as disconnected staccato images ("Balloons bop. Confetti skips."), not a story. Write full sentences with connective words (and, so, then, but) and make every spread connect causally to the one before: this happened, SO THEN this happened`,
+    spreads: [...shortBySpread.keys()].sort((a, b) => a - b),
+    targetSpreads: densest,
+  }];
+}
+
+/**
+ * sentence_length (2026-07-29 QA review): "Average sentence length under 12
+ * words. Longer gets hard to read aloud." Checked against the band's
+ * vocabularyConstraints.maxAvgSentenceWords (INFANT 8 / TODDLER 9 /
+ * PRESCHOOL 11 / EARLY_READER 12); self-disables when the profile lacks the
+ * field. Book-average metric → SOFT (not spread-surgical enough to spend
+ * the one gatefix on); targets the longest-winded spreads.
+ *
+ * @param {object} manuscript
+ * @param {{ageProfile?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function sentenceLengthLint(manuscript, opts = {}) {
+  const maxAvg = Number(opts.ageProfile?.vocabularyConstraints?.maxAvgSentenceWords);
+  if (!Number.isFinite(maxAvg) || maxAvg < 4) return [];
+  let totalWords = 0;
+  let totalSentences = 0;
+  const perSpread = [];
+  for (const s of sortedSpreads(manuscript)) {
+    const sentences = sentencesOf(s.text || linesOf(s).join('\n'));
+    if (sentences.length === 0) continue;
+    const words = sentences.reduce((acc, sent) => acc + wordsOf(sent).length, 0);
+    totalWords += words;
+    totalSentences += sentences.length;
+    perSpread.push({ spread: s.spread, avg: words / sentences.length });
+  }
+  if (totalSentences === 0) return [];
+  const avg = totalWords / totalSentences;
+  if (avg <= maxAvg) return [];
+  const targets = perSpread.sort((a, b) => b.avg - a.avg).slice(0, 3)
+    .map((e) => e.spread).sort((a, b) => a - b);
+  return [{
+    code: 'sentence_length',
+    message: `average sentence length is ${avg.toFixed(1)} words against the band's read-aloud budget of ${maxAvg} — split long sentences on the targeted spreads into short plain ones a parent can read without tripping`,
+    spreads: targets,
+    targetSpreads: targets,
+  }];
+}
+
+/**
+ * concept_overload (2026-07-29 QA review): "Max one new concept per spread.
+ * A chest and a map and confetti in one spread is too much." Computed from
+ * scene_contract.key_objects head-noun first appearances; spreads 3+ that
+ * introduce 3+ never-before-seen objects get linted (spreads 1-2 exempt —
+ * world setup; threshold 3 not 2 because object-naming drift across
+ * contracts, "red bucket" vs "bucket", creates false positives).
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function conceptOverloadLint(manuscript) {
+  const headOf = (obj) => String(obj || '').toLowerCase().trim().split(/\s+/).pop()?.replace(/s$/, '') || '';
+  const seen = new Set();
+  const offenders = [];
+  for (const s of sortedSpreads(manuscript)) {
+    const heads = new Set(
+      (s.scene_contract?.key_objects || []).map(headOf).filter((h) => h.length >= 3),
+    );
+    const fresh = [...heads].filter((h) => !seen.has(h));
+    fresh.forEach((h) => seen.add(h));
+    if (s.spread >= 3 && fresh.length >= 3) offenders.push({ spread: s.spread, fresh });
+  }
+  if (offenders.length === 0) return [];
+  const detail = offenders.map((o) => `spread ${o.spread}: ${o.fresh.join(', ')}`).join('; ');
+  const targets = offenders.map((o) => o.spread).slice(0, 3);
+  return [{
+    code: 'concept_overload',
+    message: `too many new objects introduced at once (${detail}) — a young listener holds one new thing per page-turn; keep ONE new concept per spread and reuse objects the story already planted`,
+    spreads: offenders.map((o) => o.spread),
+    targetSpreads: targets,
+  }];
+}
+
+/**
+ * name_scarcity (2026-07-29 QA review): the child's name should anchor the
+ * story ("used at least once every 3-4 sentences" in the guidelines; at
+ * spread scale: on well over a third of spreads). Fires when the name
+ * appears on fewer than 40% of spreads; targets the middle of the longest
+ * nameless run.
+ *
+ * @param {object} manuscript
+ * @param {{protagonistName?: string}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function nameScarcityLint(manuscript, opts = {}) {
+  const name = String(opts.protagonistName || '').trim();
+  if (!name) return [];
+  const spreads = sortedSpreads(manuscript);
+  if (spreads.length < 6) return [];
+  const withName = spreads.filter((s) => containsName(s.text || linesOf(s).join('\n'), name));
+  if (withName.length / spreads.length >= 0.4) return [];
+  // Longest consecutive run of spreads without the name.
+  const named = new Set(withName.map((s) => s.spread));
+  let run = [];
+  let longest = [];
+  for (const s of spreads) {
+    if (named.has(s.spread)) {
+      if (run.length > longest.length) longest = run;
+      run = [];
+    } else {
+      run.push(s.spread);
+    }
+  }
+  if (run.length > longest.length) longest = run;
+  const mid = longest.length
+    ? [...new Set([longest[Math.floor(longest.length / 3)], longest[Math.floor((2 * longest.length) / 3)]])]
+    : [];
+  return [{
+    code: 'name_scarcity',
+    message: `${name} is named on only ${withName.length} of ${spreads.length} spreads — this is ${name}'s book; use the name often (roughly every few sentences) so the child hears themselves as the hero, starting with the targeted spreads`,
+    spreads: spreads.filter((s) => !named.has(s.spread)).map((s) => s.spread),
+    targetSpreads: mid,
+  }];
+}
+
+/** Where each story role is expected to do its work (13-spread map). */
+const ROLE_HOME_SPREADS = { tool: [5], turningPoint: [8, 9], worldObject: [6] };
+
+/**
+ * Whether any of a role's tokens appears in the given lowercase text.
+ * Plural tokens also match their singular ("bananas" hits "banana boat") —
+ * crude on purpose; every consumer is a SOFT lint.
+ */
+function roleTokenHit(text, tokens) {
+  return tokens.some((t) => text.includes(t)
+    || (t.length > 4 && t.endsWith('s') && text.includes(t.slice(0, -1))));
+}
+
+/**
+ * role_unused (2026-07-29 QA review rule 3's deterministic teeth): a cast
+ * story role — hobby-tool, funny-trait turning point, food world-object —
+ * whose tokens appear NOWHERE in the manuscript was collected and
+ * discarded, the Liv book's root failure. SOFT (token matching is fuzzy by
+ * nature); targets the role's home beat so the revision knows where the
+ * mechanic belongs. Gated on opts.storyRoles.
+ *
+ * @param {object} manuscript
+ * @param {{storyRoles?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function roleUnusedLint(manuscript, opts = {}) {
+  const roles = opts.storyRoles;
+  if (!roles) return [];
+  const allText = sortedSpreads(manuscript)
+    .map((s) => normalizeSentence(s.text || linesOf(s).join(' ')))
+    .join(' ');
+  const lints = [];
+  for (const [key, home] of Object.entries(ROLE_HOME_SPREADS)) {
+    const role = roles[key];
+    if (!role || !role.value) continue;
+    const tokens = roleTokens(role.value);
+    if (!tokens.length || roleTokenHit(allText, tokens)) continue;
+    lints.push({
+      code: 'role_unused',
+      message: `story role '${key}' is never used: ${role.directive}`,
+      spreads: home,
+      targetSpreads: home,
+    });
+  }
+  return lints;
+}
+
+/**
+ * food_role_misplaced (2026-07-29 QA review): the favorite food appearing
+ * only in the opening or ending spreads is scenery/reward, not a world
+ * object — "a plate of red berries appears in passing, then vanishes". The
+ * review requires it MID-STORY. Gated on opts.storyRoles.worldObject.
+ *
+ * @param {object} manuscript
+ * @param {{storyRoles?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function foodRoleMisplacedLint(manuscript, opts = {}) {
+  const role = opts.storyRoles?.worldObject;
+  if (!role || !role.value) return [];
+  const tokens = roleTokens(role.value);
+  if (!tokens.length) return [];
+  const spreads = sortedSpreads(manuscript);
+  if (spreads.length < 8) return [];
+  const hitSpreads = spreads
+    .filter((s) => roleTokenHit(normalizeSentence(s.text || linesOf(s).join(' ')), tokens))
+    .map((s) => s.spread);
+  if (hitSpreads.length === 0) return []; // roleUnusedLint owns the fully-absent case
+  const midStart = 4;
+  const midEnd = spreads.length - 3; // 13 spreads → mid-story = 4-10
+  if (hitSpreads.some((n) => n >= midStart && n <= midEnd)) return [];
+  return [{
+    code: 'food_role_misplaced',
+    message: `the favorite food (${role.value}) appears only on spreads ${hitSpreads.join(', ')} — as scenery/reward, not a world object. ${role.directive}`,
+    spreads: hitSpreads,
+    targetSpreads: [6],
+  }];
+}
+
+/**
+ * opening_beat_loves (2026-07-29 QA review rule 1, the fuzzy half): the
+ * opening spreads should show what the child loves — beyond the name
+ * (opening_beat_name, HARD), at least one role/interest token should
+ * surface in spreads 1-2. SOFT: an interest phrased as world imagery won't
+ * string-match, and that must never hard-bounce a book.
+ *
+ * @param {object} manuscript
+ * @param {{storyRoles?: object, interests?: string[]}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function openingBeatLovesLint(manuscript, opts = {}) {
+  const roles = opts.storyRoles;
+  const interests = Array.isArray(opts.interests) ? opts.interests : [];
+  const sources = [
+    roles?.tool?.value, roles?.turningPoint?.value, roles?.worldObject?.value, ...interests,
+  ].filter(Boolean);
+  if (!sources.length) return [];
+  const tokens = [...new Set(sources.flatMap((v) => roleTokens(v)))];
+  if (!tokens.length) return [];
+  const opening = sortedSpreads(manuscript).slice(0, 2);
+  if (!opening.length) return [];
+  const text = opening.map((s) => normalizeSentence(s.text || linesOf(s).join(' '))).join(' ');
+  if (roleTokenHit(text, tokens)) return [];
+  return [{
+    code: 'opening_beat_loves',
+    message: 'the opening spreads never show what the child loves — the first spread should introduce the child in her own world, doing or surrounded by her favorite things (the loves, the funny thing), so the parent gets the "that\'s my kid" moment in the first page-turn',
+    spreads: opening.map((s) => s.spread),
+    targetSpreads: [opening[0].spread],
+  }];
+}
+
+/**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
  * @param {object} manuscript
@@ -455,7 +783,7 @@ function runBookLints(manuscript, opts = {}) {
   for (const lint of [
     duplicateClimaxLint, unintroducedPropLint, wordOveruseLint,
     unintroducedRefrainObjectLint, monotonePageTurnLint, repetitiveOpenerLint, refrainNeverEvolvesLint,
-    wearableGearLint,
+    wearableGearLint, verblessSentenceLint, staccatoStyleLint, conceptOverloadLint,
   ]) {
     try {
       all.push(...lint(manuscript));
@@ -463,10 +791,15 @@ function runBookLints(manuscript, opts = {}) {
       console.warn(`[v3] book lint ${lint.name} threw (skipping): ${err.message}`);
     }
   }
-  try {
-    all.push(...wordLengthLint(manuscript, opts));
-  } catch (err) {
-    console.warn(`[v3] book lint wordLengthLint threw (skipping): ${err.message}`);
+  for (const lint of [
+    wordLengthLint, sentenceLengthLint, nameScarcityLint,
+    roleUnusedLint, foodRoleMisplacedLint, openingBeatLovesLint,
+  ]) {
+    try {
+      all.push(...lint(manuscript, opts));
+    } catch (err) {
+      console.warn(`[v3] book lint ${lint.name} threw (skipping): ${err.message}`);
+    }
   }
   return all;
 }
@@ -482,5 +815,13 @@ module.exports = {
   refrainNeverEvolvesLint,
   wordLengthLint,
   wearableGearLint,
+  verblessSentenceLint,
+  staccatoStyleLint,
+  sentenceLengthLint,
+  conceptOverloadLint,
+  nameScarcityLint,
+  roleUnusedLint,
+  foodRoleMisplacedLint,
+  openingBeatLovesLint,
   normalizeSentence,
 };

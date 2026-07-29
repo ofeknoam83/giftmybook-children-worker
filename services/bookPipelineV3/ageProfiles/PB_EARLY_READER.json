@@ -1,15 +1,35 @@
 {
   "version": "1.0",
   "ageBand": "PB_EARLY_READER",
-  "ageMonthsRange": [60, 96],
+  "ageMonthsRange": [
+    60,
+    96
+  ],
   "label": "early reader (5-8 years)",
   "narrativeConstraints": {
     "spreadCount": 13,
-    "wordsPerSpread": { "min": 40, "max": 90, "target": 60 },
-    "linesPerSpread": { "min": 4, "max": 8, "target": 6 },
-    "syllablesPerLine": { "min": 6, "max": 14, "target": 10 },
+    "wordsPerSpread": {
+      "min": 40,
+      "max": 90,
+      "target": 60
+    },
+    "linesPerSpread": {
+      "min": 4,
+      "max": 8,
+      "target": 6
+    },
+    "syllablesPerLine": {
+      "min": 6,
+      "max": 14,
+      "target": 10
+    },
     "rhymeScheme": "free_or_AABB_per_book",
     "rhymeStrictness": "if_rhymed_perfect_required_else_prose",
+    "allowedForms": [
+      "rhymed_verse",
+      "rhythmic_prose",
+      "sparse_lyric"
+    ],
     "dialogueDensity": "medium",
     "conflictIntensityMax": 0.6,
     "repetitionDensity": "low",
@@ -21,8 +41,12 @@
   },
   "vocabularyConstraints": {
     "maxWordLengthChars": 12,
+    "maxAvgSentenceWords": 12,
     "bannedWordCategories": [],
-    "bannedPhrasesCategories": ["filler_meter_phrases", "moralizing_phrases"],
+    "bannedPhrasesCategories": [
+      "filler_meter_phrases",
+      "moralizing_phrases"
+    ],
     "preferredRegister": "warm_with_full_emotion_vocabulary"
   },
   "illustrationConstraints": {

@@ -530,6 +530,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     if (childAnecdotes.favorite_activities) anecdoteParts.push(`Favorite activities: ${childAnecdotes.favorite_activities}`);
     if (childAnecdotes.funny_thing) anecdoteParts.push(`Funny thing they do: ${childAnecdotes.funny_thing}`);
     if (childAnecdotes.favorite_food) anecdoteParts.push(`Favorite food: ${childAnecdotes.favorite_food}`);
+    if (childAnecdotes.favorite_place) anecdoteParts.push(`Favorite place: ${childAnecdotes.favorite_place}`);
     if (childAnecdotes.other_detail) anecdoteParts.push(`Other detail: ${childAnecdotes.other_detail}`);
     // Theme-specific fields
     if (childAnecdotes.calls_mom) anecdoteParts.push(`Child calls mom: ${childAnecdotes.calls_mom}`);

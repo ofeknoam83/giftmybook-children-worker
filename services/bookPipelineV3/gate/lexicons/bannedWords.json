@@ -1,0 +1,69 @@
+{
+  "version": "1.0",
+  "_doc": "2026-07-29 QA review (Liv birthday book, 'AI Writer Feedback & Word List'): poetic register that reads as mood, not story, to a young listener. Tier rule: `hard` holds only words with no plausible early-reader use AND a drop-in replacement (so the single surgical gatefix trivially clears them); any word found in real board books stays `soft` (advisory — feeds revision notes, never blocks). Words the review listed but that are dual-use for children (flutter, bob, hum, sway, tangle-as-verb, vanish) were deliberately tiered soft per that rule. Replacements ride the failure message — they are the surgical-fix fuel. `safeRegister` is the review's positive guidance list, printed into the writer prompt. Band routing lives in checks/bannedWords.js (hard for PB_INFANT/PB_TODDLER, everything soft for PB_PRESCHOOL, exempt for PB_EARLY_READER).",
+  "hard": {
+    "atmospheric_verbs": {
+      "skim": "slide",
+      "waft": "float",
+      "shimmer": "sparkle",
+      "glimmer": "shine",
+      "linger": "stay",
+      "glide": "slide",
+      "skitter": "scurry"
+    },
+    "abstract_nouns": {
+      "isle": "island",
+      "strand": "beach",
+      "expanse": "space",
+      "hush": "quiet",
+      "veil": "cover",
+      "dusk": "night-time"
+    },
+    "poetic_adjectives": {
+      "wispy": "soft",
+      "radiant": "bright",
+      "weary": "sleepy",
+      "faint": "little"
+    },
+    "formal_words": {
+      "amid": "in",
+      "gaze": "look",
+      "peer": "look",
+      "murmur": "whisper",
+      "emerge": "come out",
+      "descend": "go down",
+      "obscure": "hide"
+    }
+  },
+  "soft": {
+    "contextual": {
+      "hum": "buzz",
+      "drift": "float",
+      "bob": "bounce",
+      "flutter": "flap",
+      "sway": "rock",
+      "ripple": "splash",
+      "trail": "follow",
+      "tangle": "knot",
+      "glow": "light",
+      "golden": "yellow",
+      "gentle": "soft",
+      "distant": "far away",
+      "beneath": "under",
+      "toward": "to",
+      "gather": "come together",
+      "vanish": "disappear",
+      "shade": "shadow"
+    },
+    "phrases": {
+      "light rests": "light shines",
+      "moonlight silver": "bright moonlight",
+      "silver light": "white light"
+    }
+  },
+  "safeRegister": [
+    "laugh", "giggle", "hug", "splash", "jump", "run", "smile", "happy",
+    "warm", "big", "little", "soft", "sweet", "mom", "dad", "home", "play",
+    "find", "help", "love", "sing", "dance", "clap", "cuddle", "sunny", "bright"
+  ]
+}
