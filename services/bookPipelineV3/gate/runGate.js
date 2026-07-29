@@ -27,6 +27,9 @@ const { pastTenseCheck } = require('./checks/pastTense');
 const { wordBudgetCheck } = require('./checks/wordBudget');
 const { bannedContentCheck } = require('./checks/bannedContent');
 const { nameLockCheck } = require('./checks/nameLock');
+const { bannedWordsCheck } = require('./checks/bannedWords');
+const { midlinePunctuationCheck } = require('./checks/sentenceQuality');
+const { runBookChecks } = require('./checks/bookChecks');
 const { runBookLints } = require('./checks/bookLints');
 
 // Codes that must never ship (structural breaks). Everything else the
@@ -42,7 +45,31 @@ const HARD_GATE_CODES = new Set([
   'identity_rhyme',
   'past_tense_regular',
   'past_tense_irregular',
+  // 2026-07-29 QA-review codes (Liv book) — see QA_REVIEW_HARD_CODES.
+  'banned_word',
+  'midline_punctuation',
+  'opening_beat_name',
+  'parent_name_missing',
 ]);
+
+// The 2026-07-29 additions, individually demotable: with
+// BOOK_PIPELINE_V3_QA_HARD=0 they still run and still feed revision notes
+// (a non-hard per-spread failure rides mergeTargets) but never count toward
+// hardFailureCount — the safe first-deploy posture while the panel
+// exhaustion rate is being watched.
+const QA_REVIEW_HARD_CODES = new Set([
+  'banned_word',
+  'midline_punctuation',
+  'opening_beat_name',
+  'parent_name_missing',
+]);
+
+/** Whether a failure code hard-blocks, honoring the QA-review rollback env. */
+function isHardCode(code) {
+  if (!HARD_GATE_CODES.has(code)) return false;
+  if (QA_REVIEW_HARD_CODES.has(code) && process.env.BOOK_PIPELINE_V3_QA_HARD === '0') return false;
+  return true;
+}
 
 function buildChecks(form) {
   const checks = [
@@ -52,6 +79,8 @@ function buildChecks(form) {
     { name: 'nameLock', fn: nameLockCheck },
     { name: 'protagonistAntiVerb', fn: protagonistAntiVerbCheck },
     { name: 'pastTense', fn: pastTenseCheck },
+    { name: 'bannedWords', fn: bannedWordsCheck },
+    { name: 'midlinePunctuation', fn: midlinePunctuationCheck },
   ];
   if (form === 'rhymed_verse') {
     checks.push({ name: 'identityRhyme', fn: identityRhymeCheck });
@@ -94,8 +123,28 @@ async function runManuscriptGate(manuscript, ageProfile, ctx = {}) {
     const { passed, failures } = await runSpreadGate(spread, ageProfile, { ...ctx, form: manuscript.form });
     perSpread.push({ spread: spread.spread, passed, failures });
   }
+
+  // Book-level HARD checks (opening_beat_name, parent_name_missing) —
+  // each failure is attributed to a spread and merged into that spread's
+  // entry, so hardFailureCount / mergeTargets / the surgical gatefix all
+  // see it like any per-spread failure.
+  try {
+    for (const failure of runBookChecks(manuscript, ageProfile, ctx)) {
+      const entry = perSpread.find((e) => e.spread === failure.spread);
+      const { spread, ...rest } = failure;
+      if (entry) {
+        entry.failures.push(rest);
+        entry.passed = false;
+      } else {
+        perSpread.push({ spread, passed: false, failures: [rest] });
+      }
+    }
+  } catch (err) {
+    console.warn(`[v3] book checks threw (skipping): ${err.message}`);
+  }
+
   const hardFailureCount = perSpread.reduce(
-    (acc, e) => acc + e.failures.filter((f) => HARD_GATE_CODES.has(f.code)).length,
+    (acc, e) => acc + e.failures.filter((f) => isHardCode(f.code)).length,
     0,
   );
   return {
@@ -103,16 +152,23 @@ async function runManuscriptGate(manuscript, ageProfile, ctx = {}) {
     perSpread,
     hardFailureCount,
     // Book-level SOFT lints (duplicate climax, unintroduced prop, word
-    // overuse, refrain/hook variety, word length) — never gate, never count
-    // as hard failures; they feed the editor's revision notes when a
-    // revision round runs (and the post-panel polish pass).
-    softLints: runBookLints(manuscript, { ageProfile, protagonistName: ctx.protagonistName }),
+    // overuse, refrain/hook variety, word length, fragment/staccato style,
+    // sentence length, concept overload, name scarcity, story-role usage)
+    // — never gate, never count as hard failures; they feed the editor's
+    // revision notes when a revision round runs (and the post-panel polish
+    // pass).
+    softLints: runBookLints(manuscript, {
+      ageProfile,
+      protagonistName: ctx.protagonistName,
+      storyRoles: ctx.storyRoles,
+      interests: ctx.interests,
+    }),
   };
 }
 
 function hardFailures(failures) {
   if (!Array.isArray(failures)) return [];
-  return failures.filter((f) => HARD_GATE_CODES.has(f.code));
+  return failures.filter((f) => isHardCode(f.code));
 }
 
 module.exports = {
@@ -120,5 +176,7 @@ module.exports = {
   runManuscriptGate,
   buildChecks,
   hardFailures,
+  isHardCode,
   HARD_GATE_CODES,
+  QA_REVIEW_HARD_CODES,
 };
