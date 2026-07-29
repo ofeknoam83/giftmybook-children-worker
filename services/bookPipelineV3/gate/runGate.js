@@ -127,20 +127,29 @@ async function runManuscriptGate(manuscript, ageProfile, ctx = {}) {
   // Book-level HARD checks (opening_beat_name, parent_name_missing) —
   // each failure is attributed to a spread and merged into that spread's
   // entry, so hardFailureCount / mergeTargets / the surgical gatefix all
-  // see it like any per-spread failure.
+  // see it like any per-spread failure. A throwing implementation becomes
+  // a failure entry (same contract as per-spread `${name}_threw`): the
+  // gate fails loudly instead of silently skipping its hard checks.
+  let bookCheckFailures;
   try {
-    for (const failure of runBookChecks(manuscript, ageProfile, ctx)) {
-      const entry = perSpread.find((e) => e.spread === failure.spread);
-      const { spread, ...rest } = failure;
-      if (entry) {
-        entry.failures.push(rest);
-        entry.passed = false;
-      } else {
-        perSpread.push({ spread, passed: false, failures: [rest] });
-      }
-    }
+    bookCheckFailures = runBookChecks(manuscript, ageProfile, ctx);
   } catch (err) {
-    console.warn(`[v3] book checks threw (skipping): ${err.message}`);
+    bookCheckFailures = [{
+      spread: perSpread[0]?.spread ?? 1,
+      check: 'bookChecks',
+      code: 'book_checks_threw',
+      message: `Book checks threw: ${err.message}`,
+    }];
+  }
+  for (const failure of bookCheckFailures) {
+    const entry = perSpread.find((e) => e.spread === failure.spread);
+    const { spread, ...rest } = failure;
+    if (entry) {
+      entry.failures.push(rest);
+      entry.passed = false;
+    } else {
+      perSpread.push({ spread, passed: false, failures: [rest] });
+    }
   }
 
   const hardFailureCount = perSpread.reduce(

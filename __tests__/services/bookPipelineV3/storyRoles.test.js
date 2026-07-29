@@ -42,13 +42,23 @@ describe('buildStoryRoles', () => {
     expect(roles.finalScene.callsMom).toBe('Mama');
   });
 
-  test('interests back the tool role when favorite_activities is empty', () => {
+  test('interests back the tool role when favorite_activities is empty (source says so)', () => {
     const roles = buildStoryRoles({
       childAnecdotes: { favorite_activities: '' },
       interests: ['race cars', 'football'],
       childName: 'Marcos',
     });
     expect(roles.tool.value).toBe('race cars, football');
+    expect(roles.tool.source).toBe('interests');
+  });
+
+  test('favorite_activities keeps its own source label', () => {
+    const roles = buildStoryRoles({
+      childAnecdotes: { favorite_activities: 'padel' },
+      interests: ['race cars'],
+      childName: 'Marcos',
+    });
+    expect(roles.tool.source).toBe('favorite_activities');
   });
 
   test('empty strings mean "not provided" (sanitizeAnecdotes emits every key)', () => {

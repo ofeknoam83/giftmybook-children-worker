@@ -64,7 +64,8 @@ function buildStoryRoles({ childAnecdotes, interests, childName } = {}) {
   const a = childAnecdotes || {};
   const name = val(childName) || 'the child';
 
-  const hobby = val(a.favorite_activities)
+  const hobbyFromAnecdote = val(a.favorite_activities);
+  const hobby = hobbyFromAnecdote
     || (Array.isArray(interests) && interests.length ? interests.join(', ') : null);
   const funny = val(a.funny_thing);
   const callsMom = val(a.calls_mom);
@@ -78,7 +79,7 @@ function buildStoryRoles({ childAnecdotes, interests, childName } = {}) {
 
   roles.tool = hobby
     ? {
-      source: 'favorite_activities',
+      source: hobbyFromAnecdote ? 'favorite_activities' : 'interests',
       value: hobby,
       directive: `${name}'s hobby (${hobby}) is the TOOL that solves the story problem — it must be USED at the attempt/turn beats to make real progress, not mentioned as decoration`,
     }
