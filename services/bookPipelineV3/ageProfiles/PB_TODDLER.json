@@ -25,6 +25,10 @@
     },
     "rhymeScheme": "AABB",
     "rhymeStrictness": "perfect_rhyme_required_imperfect_eye_rhymes_banned",
+    "allowedForms": [
+      "rhymed_verse",
+      "rhythmic_prose"
+    ],
     "dialogueDensity": "very_low",
     "conflictIntensityMax": 0.2,
     "repetitionDensity": "high_intentional_refrain_ok",

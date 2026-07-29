@@ -99,6 +99,15 @@ async function manuscriptWriterActivity(input, ctx) {
     expectedSpreads: spreadCount,
     model: resp.model,
   });
+  // Band form restriction (2026-07-29 QA review): a manuscript written in
+  // a band-disallowed form (sparse_lyric for INFANT/TODDLER) cannot be
+  // silently relabeled — the text IS the form. Throw so the activity retry
+  // regenerates it (the concept stage already coerced form_choice, so this
+  // only fires when the writer drifted on its own).
+  const allowedForms = ageProfile?.narrativeConstraints?.allowedForms;
+  if (Array.isArray(allowedForms) && allowedForms.length && !allowedForms.includes(manuscript.form)) {
+    throw new Error(`manuscriptWriter: form '${manuscript.form}' is not allowed for band ${ageProfile?.ageBand || ageProfile?.band} (allowed: ${allowedForms.join('|')})`);
+  }
   manuscript.concept_id = concept.id;
   manuscript._usage = resp.usage;
 

@@ -25,6 +25,11 @@
     },
     "rhymeScheme": "free_or_AABB_per_book",
     "rhymeStrictness": "if_rhymed_perfect_required_else_prose",
+    "allowedForms": [
+      "rhymed_verse",
+      "rhythmic_prose",
+      "sparse_lyric"
+    ],
     "dialogueDensity": "medium",
     "conflictIntensityMax": 0.6,
     "repetitionDensity": "low",
