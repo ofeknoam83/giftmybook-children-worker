@@ -3,7 +3,7 @@
  */
 
 const { CANONICAL_BOOK_ART_STYLE } = require('./illustrationGenerator');
-const { resolveThemeAxes, LEGACY_THEME_FOR_OCCASION } = require('./shared/themes');
+const { resolveThemeAxes, normalizeOccasion, normalizeStoryTheme, LEGACY_THEME_FOR_OCCASION } = require('./shared/themes');
 
 // v3-only cutover (W11): picture books are the only supported format. The
 // retired formats are rejected 400 BEFORE the 202 — a silent default to
@@ -239,6 +239,16 @@ function validateGenerateBookRequest(body) {
     storyTheme: body.storyTheme,
     theme: body.theme,
   });
+  // An explicit axis field that fails normalization is DROPPED (the axes
+  // may still resolve from the legacy `theme`) — same loud-not-silent rule
+  // as the legacy fallback below: a payload-shape regression upstream must
+  // not quietly erase the ordered theme.
+  if (body.occasion && !normalizeOccasion(body.occasion)) {
+    console.warn(`[validation] occasion '${body.occasion}' unrecognized for bookId=${body.bookId} — dropped (resolved occasion=${occasion || 'none'})`);
+  }
+  if (body.storyTheme && !normalizeStoryTheme(body.storyTheme)) {
+    console.warn(`[validation] storyTheme '${body.storyTheme}' unrecognized for bookId=${body.bookId} — dropped (resolved storyTheme=${storyTheme || 'none'})`);
+  }
   let theme;
   if (VALID_THEMES.includes(body.theme)) {
     theme = body.theme;

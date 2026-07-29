@@ -354,6 +354,26 @@ describe('validateGenerateBookRequest', () => {
     }
   });
 
+  test('warns loudly when an explicit axis field is unrecognized and dropped', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = validateGenerateBookRequest({
+        ...validBody,
+        occasion: 'graduation',
+        storyTheme: 'horror',
+      });
+      expect(result.sanitized.occasion).toBeNull();
+      // The dropped explicit value does not erase the legacy signal — the
+      // axes still resolve from validBody's theme: 'adventure'.
+      expect(result.sanitized.storyTheme).toBe('adventure');
+      const warnings = warnSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(warnings).toContain("occasion 'graduation' unrecognized");
+      expect(warnings).toContain("storyTheme 'horror' unrecognized");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   test('emotional themes pass through the whitelist untouched', () => {
     const result = validateGenerateBookRequest({ ...validBody, theme: 'anxiety' });
     expect(result.sanitized.theme).toBe('anxiety');

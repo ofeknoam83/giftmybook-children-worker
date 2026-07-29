@@ -836,7 +836,7 @@ You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, s
   const genderLabel = gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : (gender && gender !== 'neutral' && gender !== 'not specified' ? gender : '');
   const pronounPair = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
 
-  let userPrompt = `THEME: ${theme || 'adventure'}${storyThemeGuide ? `\nSTORY THEME: ${storyThemeGuide.label} — the story's world` : ''}
+  let userPrompt = `THEME: ${theme || 'adventure'}${occasionGuide ? `\nOCCASION: ${occasionGuide.label} — why this book exists` : ''}${storyThemeGuide ? `\nSTORY THEME: ${storyThemeGuide.label} — the story's world` : ''}
 Child: ${name}, age ${age}${genderLabel ? `, ${genderLabel}` : ''} (${pronounPair} pronouns)
 Interests: ${interests.length ? interests.join(', ') : 'not specified'}
 ${gender && gender !== 'neutral' && gender !== 'not specified' ? `CRITICAL: ${name} uses ${pronounPair} pronouns. Always use the correct pronouns throughout the story.` : ''}`;
