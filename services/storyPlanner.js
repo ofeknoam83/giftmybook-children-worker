@@ -659,7 +659,13 @@ function getThemeBeatStructure(theme, age) {
 }
 
 async function brainstormStorySeed(childDetails, customDetails, approvedTitle, opts = {}) {
-  const { costTracker, apiKeys, theme, additionalCoverCharacters } = opts;
+  const { costTracker, apiKeys, theme, storyTheme, occasion, additionalCoverCharacters } = opts;
+  const { STORY_THEME_GUIDES, OCCASION_GUIDES } = require('./shared/themes');
+  // The world axis from the order's Story theme picker (space, underwater,
+  // fantasy…). Distinct from `theme`, which carries the occasion/legacy value
+  // that drives the beat structures and parent-day machinery below.
+  const storyThemeGuide = storyTheme ? STORY_THEME_GUIDES[storyTheme] : null;
+  const occasionGuide = occasion ? OCCASION_GUIDES[occasion] : null;
   const openaiKey = apiKeys?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
   const name = childDetails.name || childDetails.childName || 'the child';
@@ -697,7 +703,8 @@ FIELD DISTINCTNESS (avoid repeating the same idea in every string):
 
 You will receive details about a child and a THEME. The theme is NOT optional context — it is the backbone of the celebration or adventure. Every field you return must serve the theme.
 
-THEME: ${theme || 'adventure'}
+THEME: ${theme || 'adventure'}${occasionGuide ? `\nOCCASION (why this book exists): ${occasionGuide.label} — ${occasionGuide.story}` : ''}${storyThemeGuide ? `\nSTORY THEME (the world this book lives in): ${storyThemeGuide.label} — ${storyThemeGuide.world} ${storyThemeGuide.energy}
+The setting, every beat's location, and the imagery MUST visibly live in this world. The theme/occasion above says WHY the book exists; the story theme says WHERE it happens — fuse them (a birthday celebrated in space is a space birthday among the stars, not a kitchen party with a rocket sticker).` : ''}
 
 Return a JSON object with these fields:
 
@@ -829,7 +836,7 @@ You MUST return ONLY a valid JSON object with: favorite_object, fear, setting, s
   const genderLabel = gender === 'male' ? 'boy' : gender === 'female' ? 'girl' : (gender && gender !== 'neutral' && gender !== 'not specified' ? gender : '');
   const pronounPair = gender === 'female' ? 'she/her' : gender === 'male' ? 'he/him' : 'they/them';
 
-  let userPrompt = `THEME: ${theme || 'adventure'}
+  let userPrompt = `THEME: ${theme || 'adventure'}${occasionGuide ? `\nOCCASION: ${occasionGuide.label} — why this book exists` : ''}${storyThemeGuide ? `\nSTORY THEME: ${storyThemeGuide.label} — the story's world` : ''}
 Child: ${name}, age ${age}${genderLabel ? `, ${genderLabel}` : ''} (${pronounPair} pronouns)
 Interests: ${interests.length ? interests.join(', ') : 'not specified'}
 ${gender && gender !== 'neutral' && gender !== 'not specified' ? `CRITICAL: ${name} uses ${pronounPair} pronouns. Always use the correct pronouns throughout the story.` : ''}`;

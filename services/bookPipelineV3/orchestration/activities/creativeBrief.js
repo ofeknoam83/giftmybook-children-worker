@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { callWithRole } = require('../../llm/modelRouter');
+const { resolveThemeAxes, buildThemeDirective } = require('../../../shared/themes');
 
 const SYSTEM = fs.readFileSync(
   path.join(__dirname, '../../llm/prompts/creativeBrief.system.md'),
@@ -29,6 +30,18 @@ function fallbackPronouns(gender) {
 async function creativeBriefActivity(input, ctx) {
   const { rawRequest, ageProfile, coverImagery } = input;
   const child = rawRequest?.child || {};
+
+  // Theme axes (2026-07-29): occasion = WHY the book exists, storyTheme =
+  // WHERE it lives. Resolved here (from the new explicit fields or the
+  // legacy single `theme`) and attached to the returned brief so every
+  // downstream stage — concept, writer, revision, judges — rides them
+  // without new plumbing. The composed directive is the operative text.
+  const themeAxes = resolveThemeAxes({
+    occasion: rawRequest?.occasion,
+    storyTheme: rawRequest?.storyTheme,
+    theme: rawRequest?.theme,
+  });
+  const themeDirective = buildThemeDirective(themeAxes);
 
   const userPrompt = JSON.stringify({
     // P4: the parent already approved a cover — the story must honor what
@@ -51,6 +64,9 @@ async function creativeBriefActivity(input, ctx) {
       // verbatim so the brief can mine anecdotes the structured fields miss.
       answeredQuestions: rawRequest?.answeredQuestions || [],
       theme: rawRequest?.theme || 'adventure',
+      occasion: themeAxes.occasion,
+      storyTheme: themeAxes.storyTheme,
+      themeDirective,
       heartfeltNote: rawRequest?.heartfeltNote || null,
       bookFrom: rawRequest?.bookFrom || null,
       emotional: rawRequest?.emotionalCategory
@@ -110,6 +126,13 @@ async function creativeBriefActivity(input, ctx) {
     story_world: typeof out.story_world === 'string' && out.story_world.trim()
       ? out.story_world.trim().slice(0, 300)
       : null,
+    // Deterministic, code-side (same rationale as `interests` above): the
+    // ordered occasion + story theme must survive to every later prompt.
+    themes: {
+      occasion: themeAxes.occasion,
+      storyTheme: themeAxes.storyTheme,
+      directive: themeDirective,
+    },
     _usage: resp.usage,
     _model: resp.model,
   };
@@ -135,7 +158,7 @@ async function creativeBriefActivity(input, ctx) {
   }
 
   const loadBearing = brief.child_as_character.filter((d) => d.load_bearing === true).length;
-  ctx.log('info', `[v3] creativeBrief: ${brief.child_as_character.length} details (${loadBearing} load-bearing), interests=[${interests.join(', ')}], story_world='${(brief.story_world || 'none').slice(0, 80)}', gift_intent='${brief.gift_intent.slice(0, 80)}...'`);
+  ctx.log('info', `[v3] creativeBrief: ${brief.child_as_character.length} details (${loadBearing} load-bearing), interests=[${interests.join(', ')}], occasion=${themeAxes.occasion || 'none'}, storyTheme=${themeAxes.storyTheme || 'none'}, story_world='${(brief.story_world || 'none').slice(0, 80)}', gift_intent='${brief.gift_intent.slice(0, 80)}...'`);
   return brief;
 }
 

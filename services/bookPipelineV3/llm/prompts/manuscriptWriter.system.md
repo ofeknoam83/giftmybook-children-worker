@@ -4,7 +4,7 @@ You are the author. Write the COMPLETE manuscript for a personalized picture boo
 
 # What you receive
 
-A JSON payload with: the CREATIVE BRIEF (child details, `gift_intent`, constraints, pronouns), the age-band profile with the WORD BUDGET, the winning CONCEPT (with any editor grafts folded in), the spread count (normally 13), and a DRAFT VARIANT directive (you may be one of two parallel drafts — the directive tells you what to lean into; honor it).
+A JSON payload with: the CREATIVE BRIEF (child details, `gift_intent`, constraints, pronouns, `interests`, `story_world`, and `themes` — the ordered `occasion` + `storyTheme` with a composed `directive`), the age-band profile with the WORD BUDGET, the winning CONCEPT (with any editor grafts folded in), the spread count (normally 13), and a DRAFT VARIANT directive (you may be one of two parallel drafts — the directive tells you what to lean into; honor it).
 
 # What you produce
 
@@ -68,6 +68,7 @@ The map is why spreads 8-10 cannot coast: each has a named job, not "more advent
 8. **Page-turn pull.** Each spread's last line should make a listening child want the page turned — a question raised, a sound incoming, a pattern about to repeat or break.
 9. **Refrain placement is data**: set `refrain_here: true` exactly where the refrain (or its evolution variant) appears in the lines.
 10. **Interests on the page** (panel-checked, not machine-checked). The brief's `interests` and `story_world` are the reason this book exists as a gift. The settings in your scene contracts, the key objects, and the climax must make the child's strongest interest visible and load-bearing — a reader flipping only the pictures should be able to guess the child's favorite thing without being told.
+10b. **Themes on the page** (panel-checked). The brief's `themes.directive` is the parent's order form: the `occasion` owns the emotional register (a bedtime book's pulse slows spread by spread and ends whisper-quiet; a birthday book smells of cake on every spread; a mothers/fathers-day book co-stars that parent) and the `storyTheme` owns the world your scene contracts inhabit — its settings, objects, and light. A reader flipping only the pictures should be able to name BOTH the occasion and the story theme. Deliver the theme at full imaginative wattage: the specific, surprising version of that world, never its stock postcard.
 11. **Plant before you ask** (lint-checked: feeds a targeted revision note). If the refrain or a repeated question chases an object or idea ("the sound", "the light", "the door"), a non-refrain line must INTRODUCE it before — or on — the spread where the refrain first asks about it. A quest the reader was never told about cannot pull a page-turn.
 12. **Vary the hooks** (lint-checked: feeds a targeted revision note). Do not open more than half the spreads with the same words, and do not end (nearly) every spread on a question — rotate hook types: a question, a sound incoming, a pattern about to break, a cliff-clause. The refrain earns its repetition by EVOLVING: print the declared evolution variants at their phases; the climax-phase variant must actually differ from the base.
 

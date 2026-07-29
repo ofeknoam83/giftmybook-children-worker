@@ -22,7 +22,7 @@ const { ART_DIRECTION_REASKS } = require('../config');
 
 const ZONES = ['left-top', 'left-bottom', 'right-top', 'right-bottom', 'left', 'right'];
 
-function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, textLayout = 'caption', violations = null }) {
+function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, textLayout = 'caption', themeArtNote = null, violations = null }) {
   const embedded = textLayout === 'embedded';
   const contracts = manuscript.spreads.map((s) => ({
     spread: s.spread,
@@ -76,7 +76,8 @@ Plan the book's visual storytelling. Return STRICT JSON:
 RULES:
 - HERO PRESENCE (2026-07-23 audit: the hero — the child the book is FOR — was missing from 12 spreads, including the climax; a personalized book must star its child): for EVERY spread set heroPresence by reading the action. "required" when the child is the acting subject of the moment (they do, hold, look, climb, reach, feel something) — this is the DEFAULT and covers almost every spread. "optional" only for a pure scene-setting/establishing beat where the child could appear small or not at all without breaking the story. "absent" ONLY for a deliberate pure-landscape/world-establishing plate with no character action. At most 2-3 spreads in the whole book may be "optional" or "absent" COMBINED — the child must clearly star in the rest, and the emotional climax is ALWAYS "required".
 - SHOT VARIETY IS A HARD BUDGET: at least 4 distinct shot types across the book; NO two adjacent spreads may share a shot type.
-- The palette arc must move with the story (e.g. darken at the low point, warm at the resolution).
+- The palette arc must move with the story (e.g. darken at the low point, warm at the resolution).${themeArtNote ? `
+- ORDERED THEME MOOD: the parent ordered this book with a specific occasion/story theme — ${themeArtNote}. Fold this into paletteArc and the per-spread palettes as COLOR, LIGHT, and MOTIF guidance only; it never changes the rendering medium or overrides a scene contract's setting.` : ''}
 - worldPlates: only locations visited on 2+ spreads.
 - PROP LOCKS: every prop that appears on 2+ spreads (a map, a lamp, a vehicle, a toy) gets a continuityLocks.props entry with a LOCKED design — the same object must not morph between spreads (the same "lamp" rendering as a crystal, then a pendant, then a lantern is a book-killing continuity break). Choose designs that are simple to draw consistently.
 - CAST LOCKS: every INDIVIDUAL supporting character who appears on 2+ spreads gets a continuityLocks.cast entry with a LOCKED design. That means (a) every NAMED person (Mom, Dad, Grandma, a named friend) — hair color+style, skin tone, one specific outfit (2026-07-28 audit, book 16758e3c: Mom and Dad swam in swimwear on one spread and sat fully dressed as different-looking people two pages later; the hero was locked to the cover but the family had NO ground truth) — AND (b) every recurring UNNAMED companion — a robot, a pet, a dragon, a sidekick creature — locked under the role name used in characters_present (e.g. "the robot") with its full physical design: body shape, colors, and countable features like antenna/limb/eye count (2026-07-28 audit, book 4c8daf08: "his robot" rode 10 spreads as a bare name string and rendered as a completely different robot mid-book — round two-antenna bot became an EVE-style pod). Never lock the child hero (the model sheet owns them) and never lock declared GROUPS. Keep designs simple to draw consistently, letter-free, logo-free.
@@ -99,18 +100,21 @@ RULES:
  * @param {string} [opts.textLayout] - 'caption' | 'embedded'; embedded books get
  *   the wide-spread fold-composition rule (2026-07-18 print audit: a rocket
  *   split down the fold, twin arches mirrored across it)
+ * @param {string|null} [opts.themeArtNote] - ordered occasion/story-theme mood
+ *   (shared/themes buildThemeArtNote) — palette/light/motif guidance only,
+ *   never medium
  * @param {Array<{base64: string, mimeType?: string}>} opts.referenceImages - [sheet, cover?]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ directionBySpread: Map<number, object>, paletteArc: object, continuityLocks: object, worldPlates: object[], bounces: object[], shotBudget: {ok: boolean, reassigned: boolean} }>}
  */
-async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayout = 'caption', referenceImages, abortSignal, log = () => {} }) {
+async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayout = 'caption', themeArtNote = null, referenceImages, abortSignal, log = () => {} }) {
   let plan = null;
   let violations = null;
 
   for (let attempt = 0; attempt <= ART_DIRECTION_REASKS; attempt += 1) {
     const { json } = await callVisionRole('ART_DIRECTOR', {
-      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, textLayout, violations }),
+      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, textLayout, themeArtNote, violations }),
       images: referenceImages,
       label: `v3.artdirector.r${attempt}`,
       expectJson: true,

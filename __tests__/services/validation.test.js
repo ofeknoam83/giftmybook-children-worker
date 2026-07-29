@@ -310,6 +310,77 @@ describe('validateGenerateBookRequest', () => {
     expect(result.sanitized.theme).toBe('adventure');
   });
 
+  test('resolves explicit occasion + storyTheme fields (2026-07-29 theme axes)', () => {
+    const result = validateGenerateBookRequest({
+      ...validBody,
+      occasion: 'birthday_magic',
+      storyTheme: 'space',
+      theme: 'birthday_magic',
+    });
+    expect(result.sanitized.occasion).toBe('birthday_magic');
+    expect(result.sanitized.storyTheme).toBe('space');
+    expect(result.sanitized.theme).toBe('birthday_magic');
+  });
+
+  test('classifies a legacy occasion-shaped theme onto the occasion axis', () => {
+    const result = validateGenerateBookRequest({ ...validBody, theme: 'mothers_day' });
+    expect(result.sanitized.theme).toBe('mothers_day');
+    expect(result.sanitized.occasion).toBe('mothers_day');
+    expect(result.sanitized.storyTheme).toBeNull();
+  });
+
+  test('bedtime_wonder no longer silently becomes adventure', () => {
+    // Regression: bedtime_wonder / adventure_play (real occasionTheme values
+    // the main app sends under `theme`) failed the VALID_THEMES whitelist and
+    // silently fell back to 'adventure', disabling all bedtime machinery.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = validateGenerateBookRequest({ ...validBody, theme: 'bedtime_wonder' });
+      expect(result.sanitized.theme).toBe('bedtime');
+      expect(result.sanitized.occasion).toBe('bedtime_wonder');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test('a lone storyTheme backfills the legacy theme field', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = validateGenerateBookRequest({ ...validBody, theme: undefined, storyTheme: 'underwater' });
+      expect(result.sanitized.storyTheme).toBe('underwater');
+      expect(result.sanitized.theme).toBe('underwater');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test('warns loudly when an explicit axis field is unrecognized and dropped', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = validateGenerateBookRequest({
+        ...validBody,
+        occasion: 'graduation',
+        storyTheme: 'horror',
+      });
+      expect(result.sanitized.occasion).toBeNull();
+      // The dropped explicit value does not erase the legacy signal — the
+      // axes still resolve from validBody's theme: 'adventure'.
+      expect(result.sanitized.storyTheme).toBe('adventure');
+      const warnings = warnSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(warnings).toContain("occasion 'graduation' unrecognized");
+      expect(warnings).toContain("storyTheme 'horror' unrecognized");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test('emotional themes pass through the whitelist untouched', () => {
+    const result = validateGenerateBookRequest({ ...validBody, theme: 'anxiety' });
+    expect(result.sanitized.theme).toBe('anxiety');
+    expect(result.sanitized.occasion).toBeNull();
+    expect(result.sanitized.storyTheme).toBeNull();
+  });
+
   test('sanitizes childName for prompt injection', () => {
     const result = validateGenerateBookRequest({
       ...validBody,

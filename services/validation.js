@@ -3,6 +3,7 @@
  */
 
 const { CANONICAL_BOOK_ART_STYLE } = require('./illustrationGenerator');
+const { resolveThemeAxes, normalizeOccasion, normalizeStoryTheme, LEGACY_THEME_FOR_OCCASION } = require('./shared/themes');
 
 // v3-only cutover (W11): picture books are the only supported format. The
 // retired formats are rejected 400 BEFORE the 202 — a silent default to
@@ -224,6 +225,43 @@ function validateGenerateBookRequest(body) {
     return { valid: false, errors, sanitized: null };
   }
 
+  // Theme axes (2026-07-29): the main app sends TWO distinct fields —
+  // `occasion` (why the book exists) and `storyTheme` (the world it lives
+  // in). Legacy payloads funneled both through `theme` (occasion shadowing
+  // story theme), so resolveThemeAxes also classifies a lone `theme` value.
+  // The single legacy `theme` keeps its old semantics for the machinery
+  // keyed on it (emotional tiers, effective age, parent guards, beat
+  // structures) — but the fallback is no longer a silent 'adventure':
+  // occasion/storyTheme-derived values win before the default, and any
+  // unrecognized value logs loudly.
+  const { occasion, storyTheme } = resolveThemeAxes({
+    occasion: body.occasion,
+    storyTheme: body.storyTheme,
+    theme: body.theme,
+  });
+  // An explicit axis field that fails normalization is DROPPED (the axes
+  // may still resolve from the legacy `theme`) — same loud-not-silent rule
+  // as the legacy fallback below: a payload-shape regression upstream must
+  // not quietly erase the ordered theme.
+  if (body.occasion && !normalizeOccasion(body.occasion)) {
+    console.warn(`[validation] occasion '${body.occasion}' unrecognized for bookId=${body.bookId} — dropped (resolved occasion=${occasion || 'none'})`);
+  }
+  if (body.storyTheme && !normalizeStoryTheme(body.storyTheme)) {
+    console.warn(`[validation] storyTheme '${body.storyTheme}' unrecognized for bookId=${body.bookId} — dropped (resolved storyTheme=${storyTheme || 'none'})`);
+  }
+  let theme;
+  if (VALID_THEMES.includes(body.theme)) {
+    theme = body.theme;
+  } else {
+    theme = (occasion && LEGACY_THEME_FOR_OCCASION[occasion]) || storyTheme || 'adventure';
+    if (body.theme) {
+      console.warn(
+        `[validation] theme '${body.theme}' not in VALID_THEMES for bookId=${body.bookId} — `
+        + `resolved to '${theme}' (occasion=${occasion || 'none'}, storyTheme=${storyTheme || 'none'})`
+      );
+    }
+  }
+
   // Build sanitized object with defaults
   const sanitized = {
     bookId: body.bookId.trim(),
@@ -235,7 +273,9 @@ function validateGenerateBookRequest(body) {
     childInterests: sanitizeInterests(body.childInterests),
     bookFormat: 'picture_book',
     artStyle: CANONICAL_BOOK_ART_STYLE,
-    theme: VALID_THEMES.includes(body.theme) ? body.theme : 'adventure',
+    theme,
+    occasion,
+    storyTheme,
     customDetails: sanitizeForPrompt(body.customDetails || '', MAX_CUSTOM_DETAILS_LENGTH),
     callbackUrl: isValidCallbackUrl(body.callbackUrl) ? body.callbackUrl : null,
     progressCallbackUrl: isValidCallbackUrl(body.progressCallbackUrl) ? body.progressCallbackUrl : null,
