@@ -437,6 +437,7 @@ describe('validateGenerateBookRequest', () => {
       favorite_activities: '',
       funny_thing: '',
       favorite_food: '',
+      favorite_place: '',
       favorite_toys: '',
       other_detail: '',
       anything_else: '',
