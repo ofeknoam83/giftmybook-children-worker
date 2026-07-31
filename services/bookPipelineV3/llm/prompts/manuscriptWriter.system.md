@@ -56,7 +56,7 @@ Return ONE JSON object:
 
 Every spread has a fixed structural job. For the standard 13 spreads, assign the jobs in this order (merge neighboring jobs proportionally if the count differs):
 
-1. **opener** — the format-specific first line (follow `storyFormat.directive`); NAME THE CHILD IN THE FIRST LINE-GROUP (machine-checked) in her own world, doing a thing she loves. The parent's first page-turn must deliver the "that's my kid" moment.
+1. **opener** — the format-specific first line (follow `brief.storyFormat.directive`); NAME THE CHILD IN THE FIRST LINE-GROUP (machine-checked) in her own world, doing a thing she loves. The parent's first page-turn must deliver the "that's my kid" moment.
 2. **intro** — front-load the loves as PLANTS: two or three favorite things, the funny trait, the favorite place — shown as behaviour the reader can watch, not a list. Everything planted here pays off later; nothing planted here may be decoration.
 3. **normal-day** — the child mid-hobby (the `tool` role) in their ordinary world; a second interest as texture if one exists.
 4. **trigger** — something unexpected disrupts the favorite thing or place. The story problem begins here, concretely.
