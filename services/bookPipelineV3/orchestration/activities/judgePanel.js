@@ -86,6 +86,7 @@ async function callOneJudge({ role, brief, ageProfile, blinded, judgeIndex }) {
       story_world: brief?.story_world || null,
       themes: brief?.themes || null,
       storyRoles: brief?.storyRoles || null,
+      storyFormat: brief?.storyFormat || null,
     },
     ageProfile: {
       band: ageProfile?.ageBand || ageProfile?.band,

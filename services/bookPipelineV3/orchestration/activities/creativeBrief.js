@@ -12,6 +12,7 @@ const path = require('path');
 const { callWithRole } = require('../../llm/modelRouter');
 const { resolveThemeAxes, buildThemeDirective } = require('../../../shared/themes');
 const { buildStoryRoles, roleTokens, summarizeRolesForLog } = require('../../storyRoles');
+const { resolveStoryFormat, buildFormatDirective } = require('../../../shared/storyFormats');
 
 const SYSTEM = fs.readFileSync(
   path.join(__dirname, '../../llm/prompts/creativeBrief.system.md'),
@@ -44,6 +45,23 @@ async function creativeBriefActivity(input, ctx) {
   });
   const themeDirective = buildThemeDirective(themeAxes);
 
+  // Story format (AI Writer Guidelines Step 4): buyer-selected register,
+  // resolved here where the occasion and real age are both known. Same
+  // skeleton + same role casting for every format — only tone/framing move.
+  const resolvedFormat = resolveStoryFormat({
+    requested: rawRequest?.storyFormat,
+    occasion: themeAxes.occasion,
+    ageYears: child.age ?? rawRequest?.childAge ?? null,
+  });
+  const hasNamedParent = Boolean(
+    (rawRequest?.childAnecdotes?.mom_name || '').trim()
+    || (rawRequest?.childAnecdotes?.dad_name || '').trim(),
+  );
+  const formatDirective = buildFormatDirective(resolvedFormat.format, {
+    storyTheme: themeAxes.storyTheme,
+    hasSidekick: hasNamedParent,
+  });
+
   const userPrompt = JSON.stringify({
     // P4: the parent already approved a cover — the story must honor what
     // it depicts (or at least never contradict it).
@@ -73,6 +91,8 @@ async function creativeBriefActivity(input, ctx) {
       occasion: themeAxes.occasion,
       storyTheme: themeAxes.storyTheme,
       themeDirective,
+      storyFormat: resolvedFormat.format,
+      formatDirective,
       heartfeltNote: rawRequest?.heartfeltNote || null,
       bookFrom: rawRequest?.bookFrom || null,
       emotional: rawRequest?.emotionalCategory
@@ -148,6 +168,14 @@ async function creativeBriefActivity(input, ctx) {
       interests,
       childName: child.name || rawRequest?.childName,
     }),
+    // Buyer-selected story format (deterministic, code-side — same
+    // rationale as `themes`/`storyRoles`): tone/framing register only; the
+    // skeleton and role casting are fixed across all four formats.
+    storyFormat: {
+      format: resolvedFormat.format,
+      source: resolvedFormat.source,
+      directive: formatDirective,
+    },
     _usage: resp.usage,
     _model: resp.model,
   };
@@ -193,7 +221,7 @@ async function creativeBriefActivity(input, ctx) {
   }
 
   const loadBearing = brief.child_as_character.filter((d) => d.load_bearing === true).length;
-  ctx.log('info', `[v3] creativeBrief: ${brief.child_as_character.length} details (${loadBearing} load-bearing), interests=[${interests.join(', ')}], occasion=${themeAxes.occasion || 'none'}, storyTheme=${themeAxes.storyTheme || 'none'}, storyRoles={${summarizeRolesForLog(brief.storyRoles)}}, story_world='${(brief.story_world || 'none').slice(0, 80)}', gift_intent='${brief.gift_intent.slice(0, 80)}...'`);
+  ctx.log('info', `[v3] creativeBrief: ${brief.child_as_character.length} details (${loadBearing} load-bearing), interests=[${interests.join(', ')}], occasion=${themeAxes.occasion || 'none'}, storyTheme=${themeAxes.storyTheme || 'none'}, format=${resolvedFormat.format} (${resolvedFormat.source}), storyRoles={${summarizeRolesForLog(brief.storyRoles)}}, story_world='${(brief.story_world || 'none').slice(0, 80)}', gift_intent='${brief.gift_intent.slice(0, 80)}...'`);
   return brief;
 }
 

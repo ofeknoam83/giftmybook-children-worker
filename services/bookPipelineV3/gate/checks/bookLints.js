@@ -659,8 +659,9 @@ function nameScarcityLint(manuscript, opts = {}) {
   }];
 }
 
-/** Where each story role is expected to do its work (13-spread map). */
-const ROLE_HOME_SPREADS = { tool: [5], turningPoint: [8, 9], worldObject: [6] };
+/** Where each story role is expected to do its work (13-spread skeleton:
+ * tool at first-attempt, trait at turning-point, food at world-entry). */
+const ROLE_HOME_SPREADS = { tool: [7], turningPoint: [9], worldObject: [5] };
 
 /**
  * Whether any of a role's tokens appears in the given lowercase text.
@@ -734,7 +735,7 @@ function foodRoleMisplacedLint(manuscript, opts = {}) {
     code: 'food_role_misplaced',
     message: `the favorite food (${role.value}) appears only on spreads ${hitSpreads.join(', ')} — as scenery/reward, not a world object. ${role.directive}`,
     spreads: hitSpreads,
-    targetSpreads: [6],
+    targetSpreads: [5],
   }];
 }
 

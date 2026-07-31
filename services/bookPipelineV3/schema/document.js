@@ -70,6 +70,11 @@ function normalizeConcept(raw, { angleId } = {}) {
     refrain: raw.refrain && typeof raw.refrain === 'object' && raw.refrain.text
       ? { text: String(raw.refrain.text), evolution: Array.isArray(raw.refrain.evolution) ? raw.refrain.evolution : [] }
       : null,
+    // Coined fantasy-world name (AI Writer Guidelines Step 3 — Giggleopolis,
+    // Bambaland). Optional; STORY TEXT only, never painted (D5).
+    world_name: typeof raw.world_name === 'string' && raw.world_name.trim()
+      ? raw.world_name.trim().slice(0, 40)
+      : null,
     climax_image: String(raw.climax_image || ''),
     final_page_note: String(raw.final_page_note || ''),
     sample_lines: raw.sample_lines.map(String).slice(0, 5),

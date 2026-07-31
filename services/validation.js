@@ -4,6 +4,7 @@
 
 const { CANONICAL_BOOK_ART_STYLE } = require('./illustrationGenerator');
 const { resolveThemeAxes, normalizeOccasion, normalizeStoryTheme, LEGACY_THEME_FOR_OCCASION } = require('./shared/themes');
+const { normalizeStoryFormat } = require('./shared/storyFormats');
 
 // v3-only cutover (W11): picture books are the only supported format. The
 // retired formats are rejected 400 BEFORE the 202 — a silent default to
@@ -250,6 +251,14 @@ function validateGenerateBookRequest(body) {
   if (body.storyTheme && !normalizeStoryTheme(body.storyTheme)) {
     console.warn(`[validation] storyTheme '${body.storyTheme}' unrecognized for bookId=${body.bookId} — dropped (resolved storyTheme=${storyTheme || 'none'})`);
   }
+  // Story format (AI Writer Guidelines): buyer-selected register — classic /
+  // superhero / adventure / love_story. Normalized here; the smart default
+  // (parent-day → love_story, youngest → classic, else adventure) resolves
+  // in creativeBrief where the occasion and real age are both known.
+  const storyFormat = normalizeStoryFormat(body.storyFormat);
+  if (body.storyFormat && !storyFormat) {
+    console.warn(`[validation] storyFormat '${body.storyFormat}' unrecognized for bookId=${body.bookId} — dropped (will smart-default downstream)`);
+  }
   let theme;
   if (VALID_THEMES.includes(body.theme)) {
     theme = body.theme;
@@ -277,6 +286,7 @@ function validateGenerateBookRequest(body) {
     theme,
     occasion,
     storyTheme,
+    storyFormat,
     customDetails: sanitizeForPrompt(body.customDetails || '', MAX_CUSTOM_DETAILS_LENGTH),
     callbackUrl: isValidCallbackUrl(body.callbackUrl) ? body.callbackUrl : null,
     progressCallbackUrl: isValidCallbackUrl(body.progressCallbackUrl) ? body.progressCallbackUrl : null,
