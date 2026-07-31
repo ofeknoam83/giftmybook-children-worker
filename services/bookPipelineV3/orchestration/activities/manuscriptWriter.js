@@ -68,6 +68,7 @@ async function manuscriptWriterActivity(input, ctx) {
       story_world: brief?.story_world || null,
       themes: brief?.themes || null,
       storyRoles: brief?.storyRoles || null,
+      storyFormat: brief?.storyFormat || null,
     },
     concept,
     editor_grafts: selection?.grafts || [],

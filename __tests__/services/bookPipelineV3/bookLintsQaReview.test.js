@@ -196,9 +196,11 @@ describe('role-usage lints', () => {
       const lints = roleUnusedLint(thirteen(), { storyRoles: roles });
       expect(lints).toHaveLength(3);
       const byMsg = (frag) => lints.find((l) => l.message.includes(frag));
-      expect(byMsg('tool').targetSpreads).toEqual([5]);
-      expect(byMsg('turningPoint').targetSpreads).toEqual([8, 9]);
-      expect(byMsg('worldObject').targetSpreads).toEqual([6]);
+      // Home beats follow the 13-spread skeleton: tool at first-attempt (7),
+      // trait at turning-point (9), food at world-entry (5).
+      expect(byMsg('tool').targetSpreads).toEqual([7]);
+      expect(byMsg('turningPoint').targetSpreads).toEqual([9]);
+      expect(byMsg('worldObject').targetSpreads).toEqual([5]);
     });
 
     test('a role whose tokens appear anywhere is satisfied', () => {
@@ -221,7 +223,7 @@ describe('role-usage lints', () => {
       const lints = foodRoleMisplacedLint(m, { storyRoles: roles });
       expect(lints).toHaveLength(1);
       expect(lints[0].code).toBe('food_role_misplaced');
-      expect(lints[0].targetSpreads).toEqual([6]);
+      expect(lints[0].targetSpreads).toEqual([5]);
     });
 
     test('food appearing mid-story passes', () => {

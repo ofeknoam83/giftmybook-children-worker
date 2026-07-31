@@ -374,6 +374,21 @@ describe('validateGenerateBookRequest', () => {
     }
   });
 
+  test('storyFormat is normalized; unknown values warn and drop to null', () => {
+    expect(validateGenerateBookRequest({ ...validBody, storyFormat: 'superhero' }).sanitized.storyFormat).toBe('superhero');
+    expect(validateGenerateBookRequest({ ...validBody, storyFormat: 'Love Story' }).sanitized.storyFormat).toBe('love_story');
+    expect(validateGenerateBookRequest(validBody).sanitized.storyFormat).toBeNull();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = validateGenerateBookRequest({ ...validBody, storyFormat: 'horror' });
+      expect(result.sanitized.storyFormat).toBeNull();
+      const warnings = warnSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(warnings).toContain("storyFormat 'horror' unrecognized");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   test('emotional themes pass through the whitelist untouched', () => {
     const result = validateGenerateBookRequest({ ...validBody, theme: 'anxiety' });
     expect(result.sanitized.theme).toBe('anxiety');

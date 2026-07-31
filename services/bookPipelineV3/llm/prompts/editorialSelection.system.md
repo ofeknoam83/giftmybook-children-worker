@@ -10,6 +10,8 @@ A JSON payload with: the CREATIVE BRIEF (including `gift_intent` — the emotion
 
 Score each concept against the bookstore standard — "a parent would believe this was a published book" — using these dimensions: read-aloud musicality potential, emotional truth of the arc, page-turn pull, concrete specificity, personalization depth (would this story survive with a different child's details? it must not), age fit, and how squarely it hits `gift_intent`. Weigh the `sample_lines` heavily: they are the only evidence of actual voice.
 
+The book's spread skeleton and input-to-role casting are FIXED constraints, identical across the pitches — judge only what varies: the world's texture, the coined `world_name`, the refrain, the imagery, the voice. A pitch that redesigned the structure (no trigger, no turning point caused by the funny trait, no return-to-comfort) is disqualified regardless of craft.
+
 # What you produce
 
 Return ONE JSON object:

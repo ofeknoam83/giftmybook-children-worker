@@ -72,4 +72,32 @@ describe('creativeBrief storyRoles attachment', () => {
     expect(brief.storyRoles.tool.value).toBe('swimming');
     expect(brief.storyRoles.finalScene).toBeNull();
   });
+
+  test('storyFormat attaches deterministically: requested value wins and rides the prompt', async () => {
+    callWithRole.mockResolvedValueOnce({ json: briefJson(), usage: {}, model: 'm' });
+    const brief = await creativeBriefActivity(
+      { rawRequest: { ...rawRequest, storyFormat: 'superhero', storyTheme: 'space' }, ageProfile: PRESCHOOL_PROFILE },
+      ctx,
+    );
+    expect(brief.storyFormat.format).toBe('superhero');
+    expect(brief.storyFormat.source).toBe('requested');
+    expect(brief.storyFormat.directive).toContain('In the city of');
+    const prompt = JSON.parse(callWithRole.mock.calls[0][1].userPrompt);
+    expect(prompt.order.storyFormat).toBe('superhero');
+    expect(prompt.order.formatDirective).toContain('bold, theatrical');
+  });
+
+  test('storyFormat smart defaults: parent-day occasion → love_story; young age → classic', async () => {
+    callWithRole.mockResolvedValue({ json: briefJson(), usage: {}, model: 'm' });
+    const parentDay = await creativeBriefActivity(
+      { rawRequest: { ...rawRequest, occasion: 'mothers_day' }, ageProfile: PRESCHOOL_PROFILE },
+      ctx,
+    );
+    expect(parentDay.storyFormat).toEqual(expect.objectContaining({ format: 'love_story', source: 'occasion_default' }));
+    const young = await creativeBriefActivity(
+      { rawRequest: { childName: 'Liv', childAge: 2 }, ageProfile: PRESCHOOL_PROFILE },
+      ctx,
+    );
+    expect(young.storyFormat).toEqual(expect.objectContaining({ format: 'classic', source: 'age_default' }));
+  });
 });
