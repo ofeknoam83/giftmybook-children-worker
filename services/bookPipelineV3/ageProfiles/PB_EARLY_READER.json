@@ -8,6 +8,7 @@
   "label": "early reader (5-8 years)",
   "narrativeConstraints": {
     "spreadCount": 13,
+    "narrativeTense": "past",
     "wordsPerSpread": {
       "min": 40,
       "max": 90,

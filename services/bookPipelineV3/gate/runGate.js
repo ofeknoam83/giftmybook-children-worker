@@ -13,7 +13,11 @@
  *   - nameLock            (new)          child-name spelling + pronoun lock
  *   - protagonistAntiVerb (from v2)      objectified child / age-impossible verbs
  *   - identityRhyme       (from v2)      ONLY when the manuscript's form is rhymed_verse
- *   - pastTense           (from v2)      self-gates to PB_INFANT/PB_TODDLER bands
+ *   - pastTense           (from v2)      self-gates to present-tense books (narrativeTenseFor —
+ *                                        the lap-baby bands; past-tense books get the soft
+ *                                        tense_drift book lint instead)
+ *   - onomatopoeia        (2026-08-02)   sound-effect usage ("tap tap", "Whoosh!") — reduplication
+ *                                        is HARD for INFANT/TODDLER/PRESCHOOL
  *
  * All checks share v2's signature: (draft, beat, ageProfile, ctx) →
  * { passed, code?, message?, detail? }. `beat` is unused in V3 (no beat
@@ -28,6 +32,7 @@ const { wordBudgetCheck } = require('./checks/wordBudget');
 const { bannedContentCheck } = require('./checks/bannedContent');
 const { nameLockCheck } = require('./checks/nameLock');
 const { bannedWordsCheck } = require('./checks/bannedWords');
+const { onomatopoeiaCheck } = require('./checks/onomatopoeia');
 const { midlinePunctuationCheck } = require('./checks/sentenceQuality');
 const { runBookChecks } = require('./checks/bookChecks');
 const { runBookLints } = require('./checks/bookLints');
@@ -50,6 +55,8 @@ const HARD_GATE_CODES = new Set([
   'midline_punctuation',
   'opening_beat_name',
   'parent_name_missing',
+  // 2026-08-02 customer feedback ("tap tap" everywhere) — also demotable.
+  'onomatopoeia',
 ]);
 
 // The 2026-07-29 additions, individually demotable: with
@@ -62,6 +69,7 @@ const QA_REVIEW_HARD_CODES = new Set([
   'midline_punctuation',
   'opening_beat_name',
   'parent_name_missing',
+  'onomatopoeia',
 ]);
 
 /** Whether a failure code hard-blocks, honoring the QA-review rollback env. */
@@ -80,6 +88,7 @@ function buildChecks(form) {
     { name: 'protagonistAntiVerb', fn: protagonistAntiVerbCheck },
     { name: 'pastTense', fn: pastTenseCheck },
     { name: 'bannedWords', fn: bannedWordsCheck },
+    { name: 'onomatopoeia', fn: onomatopoeiaCheck },
     { name: 'midlinePunctuation', fn: midlinePunctuationCheck },
   ];
   if (form === 'rhymed_verse') {

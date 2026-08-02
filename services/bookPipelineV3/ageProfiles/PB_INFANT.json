@@ -8,6 +8,7 @@
   "label": "lap baby (0-17 months)",
   "narrativeConstraints": {
     "spreadCount": 13,
+    "narrativeTense": "present",
     "wordsPerSpread": {
       "min": 8,
       "max": 22,
@@ -30,7 +31,7 @@
       "rhythmic_prose"
     ],
     "dialogueDensity": "none",
-    "conflictIntensityMax": 0.0,
+    "conflictIntensityMax": 0,
     "repetitionDensity": "high_intentional_refrain_ok",
     "pageTurnHookStyle": "sensory_anticipation",
     "abstractionLevel": "concrete_sensory_only",

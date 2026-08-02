@@ -72,6 +72,9 @@ const {
   normalizeSentence, sentencesOf, sortedSpreads, linesOf, wordsOf, isDialogue, inflectionSet,
 } = require('./textUtils');
 const { containsName } = require('./bookChecks');
+const { findOnomatopoeiaEvents } = require('./onomatopoeia');
+const { textHasPastTenseMarker } = require('./pastTense');
+const { narrativeTenseFor } = require('../../ageProfiles');
 const { roleTokens } = require('../../storyRoles');
 const COMMON_VERBS = require('../lexicons/commonVerbs.json');
 
@@ -772,6 +775,62 @@ function openingBeatLovesLint(manuscript, opts = {}) {
 }
 
 /**
+ * onomatopoeia_overuse (2026-08-02 customer feedback: "the onomatopoeias
+ * everywhere are not good"): the per-spread gate already kills reduplicated
+ * sound words; this book-level lint enforces the BUDGET — at most ONE
+ * sound-word moment (of any kind: reduplication, pair, "Whoosh!", "BOOM")
+ * in the whole book. Two or more spreads carrying events → lint.
+ *
+ * @param {object} manuscript
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function onomatopoeiaOveruseLint(manuscript) {
+  const hits = [];
+  for (const s of sortedSpreads(manuscript)) {
+    const events = findOnomatopoeiaEvents(s.text || linesOf(s).join(' '));
+    if (events.length) hits.push({ spread: s.spread, events });
+  }
+  const total = hits.reduce((acc, h) => acc + h.events.length, 0);
+  if (total <= 1) return [];
+  const listed = hits.map((h) => `spread ${h.spread}: ${h.events.map((e) => `"${e.match}"`).join(', ')}`).join('; ');
+  return [{
+    code: 'onomatopoeia_overuse',
+    message: `${total} sound-word moments across the book (${listed}) — keep at most ONE, at the single most pivotal beat, and write every other sound as a real action sentence ("Maya tapped twice on the little door"), never as an effect`,
+    spreads: hits.map((h) => h.spread),
+    targetSpreads: hits.map((h) => h.spread).slice(1),
+  }];
+}
+
+/**
+ * tense_drift (2026-08-02 customer feedback: "the story should be in the
+ * past tense"): a book whose resolved narrative tense is 'past' but whose
+ * spreads mostly carry NO past-tense marker (irregular past form or -ed
+ * token) is being narrated in present tense. Threshold, not per-spread:
+ * a genuinely past-tense book has was/were/said/-ed on nearly every
+ * spread, while dialogue-heavy spreads legitimately lack them — so we
+ * flag only when fewer than 60% of spreads show past evidence. SOFT on
+ * purpose (deterministic present-tense detection is not reliable enough
+ * to hard-gate); feeds the revision/polish notes.
+ *
+ * @param {object} manuscript
+ * @param {{ageProfile?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function tenseDriftLint(manuscript, opts = {}) {
+  if (narrativeTenseFor(opts.ageProfile) !== 'past') return [];
+  const spreads = sortedSpreads(manuscript);
+  if (spreads.length < 4) return [];
+  const noPast = spreads.filter((s) => !textHasPastTenseMarker(s.text || linesOf(s).join(' ')));
+  if (spreads.length - noPast.length >= Math.ceil(spreads.length * 0.6)) return [];
+  return [{
+    code: 'tense_drift',
+    message: `this book must be narrated in PAST TENSE (classic storybook voice — "Maya raced", never "Maya races") but ${noPast.length} of ${spreads.length} spreads show no past-tense narration; rewrite the narration into past tense on every spread, leaving only quoted dialogue in its natural spoken tense`,
+    spreads: noPast.map((s) => s.spread),
+    targetSpreads: noPast.map((s) => s.spread).slice(0, 3),
+  }];
+}
+
+/**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
  * @param {object} manuscript
@@ -785,6 +844,7 @@ function runBookLints(manuscript, opts = {}) {
     duplicateClimaxLint, unintroducedPropLint, wordOveruseLint,
     unintroducedRefrainObjectLint, monotonePageTurnLint, repetitiveOpenerLint, refrainNeverEvolvesLint,
     wearableGearLint, verblessSentenceLint, staccatoStyleLint, conceptOverloadLint,
+    onomatopoeiaOveruseLint,
   ]) {
     try {
       all.push(...lint(manuscript));
@@ -794,7 +854,7 @@ function runBookLints(manuscript, opts = {}) {
   }
   for (const lint of [
     wordLengthLint, sentenceLengthLint, nameScarcityLint,
-    roleUnusedLint, foodRoleMisplacedLint, openingBeatLovesLint,
+    roleUnusedLint, foodRoleMisplacedLint, openingBeatLovesLint, tenseDriftLint,
   ]) {
     try {
       all.push(...lint(manuscript, opts));
@@ -824,5 +884,7 @@ module.exports = {
   roleUnusedLint,
   foodRoleMisplacedLint,
   openingBeatLovesLint,
+  tenseDriftLint,
+  onomatopoeiaOveruseLint,
   normalizeSentence,
 };

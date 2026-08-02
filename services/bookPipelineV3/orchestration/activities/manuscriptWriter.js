@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { callWithRole } = require('../../llm/modelRouter');
 const { normalizeManuscript } = require('../../schema/document');
+const { narrativeTenseFor } = require('../../ageProfiles');
 
 const SYSTEM = fs.readFileSync(
   path.join(__dirname, '../../llm/prompts/manuscriptWriter.system.md'),
@@ -38,9 +39,11 @@ function buildBudgetPreamble(ageProfile, spreadCount) {
     `Age band: ${bandName}. Total spreads: ${spreadCount}.`,
     `WORD BUDGET (typesetting limit, machine-checked): between ${wps.min} and ${wps.max} words per spread (target ~${wps.target}). Over is as wrong as under.`,
     `Lines per spread: between ${lps.min} and ${lps.max} (target ${lps.target}).`,
-    (bandName === 'PB_INFANT' || bandName === 'PB_TODDLER')
+    // 2026-08-02 customer feedback: past tense is the narrative standard
+    // (classic storybook voice); the lap-baby bands stay present tense.
+    narrativeTenseFor(ageProfile) === 'present'
       ? 'TENSE: present tense ONLY — every verb (machine-checked).'
-      : null,
+      : 'TENSE: PAST TENSE narration — the story already happened ("Maya raced", never "Maya races"). Every narration verb is past tense; only dialogue inside quotation marks stays in its natural spoken tense.',
     nc.dialogueDensity ? `Dialogue density for this band: ${nc.dialogueDensity}.` : null,
   ].filter(Boolean).join('\n');
 }

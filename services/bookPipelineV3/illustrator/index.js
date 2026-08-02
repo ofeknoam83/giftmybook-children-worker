@@ -33,6 +33,7 @@ const { renderAllSpreadsNative, createLimiter } = require('./render/renderAllSpr
 const { renderSpreadCandidates, buildSpreadRenderPrompt } = require('./render/renderSpread');
 const { selectSpreadWinner, buildSpreadQaNeedsReview, pickLeastBad } = require('./qa/select');
 const { runArtDirection, restageSpread } = require('./artDirection/artDirector');
+const { buildFamilyFacts, buildFamilyFactsNote, applyFamilyFacts } = require('./artDirection/familyFacts');
 const { renderWorldPlates } = require('./artDirection/worldPlates');
 const { renderPropPlate } = require('./artDirection/propPlate');
 const { runBookPass, buildBookPassNeedsReview } = require('./bookPass/contactSheet');
@@ -135,12 +136,23 @@ async function runNativeIllustrator(input, ctx) {
     theme: rawRequest?.theme,
   }));
   if (themeArtNote) log(`art direction theme mood: ${themeArtNote}`);
+  // Declared parent roles (2026-08-02 feedback: mother + father rendered as
+  // two men of invented ethnicities). Genders come from the questionnaire's
+  // mom/dad fields, NEVER from the names; skin tone anchors to the hero.
+  const familyFacts = buildFamilyFacts({
+    storyRoles: brief?.storyRoles,
+    childAnecdotes: rawRequest?.childAnecdotes,
+  });
+  if (familyFacts.length) {
+    log(`family cast facts: ${familyFacts.map((f) => `${f.role}=${f.name || f.callName}`).join(', ')}`);
+  }
   const direction = await runArtDirection({
     manuscript,
     ageBand: ageProfile?.ageBand || ageProfile?.band,
     ageYears: Number(rawRequest?.child?.age) || null,
     textLayout,
     themeArtNote,
+    familyFactsNote: buildFamilyFactsNote(familyFacts),
     referenceImages: directorRefs,
     abortSignal,
     log,
@@ -162,7 +174,20 @@ async function runNativeIllustrator(input, ctx) {
 
   // Locked supporting-character designs (continuityLocks.cast) ride every
   // render prompt + the book pass (2026-07-28: Mom/Dad had no ground truth).
-  const castLocks = Array.isArray(direction.continuityLocks?.cast) ? direction.continuityLocks.cast : null;
+  // Family post-pass (2026-08-02): every parent lock gets the declared
+  // role/gender/family-look stated FIRST (model promises are never the
+  // contract), and a parent present in the manuscript without a lock gets
+  // one synthesized — single-scene parents used to reach the renderer as
+  // bare name strings, which is how "Mom" became a second dad.
+  const familyLockPass = applyFamilyFacts({
+    castLocks: Array.isArray(direction.continuityLocks?.cast) ? direction.continuityLocks.cast : null,
+    facts: familyFacts,
+    manuscript,
+  });
+  const castLocks = familyLockPass.castLocks;
+  if (familyLockPass.patched.length || familyLockPass.synthesized.length) {
+    log(`family cast locks: patched=[${familyLockPass.patched.join(', ')}] synthesized=[${familyLockPass.synthesized.join(', ')}]`);
+  }
 
   // ── A1: world plates ──
   // Plates are style-anchored on the book pack (sheet + approved cover):
