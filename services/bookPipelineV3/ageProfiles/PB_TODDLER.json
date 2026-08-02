@@ -8,6 +8,7 @@
   "label": "toddler (1-3 years)",
   "narrativeConstraints": {
     "spreadCount": 13,
+    "narrativeTense": "present",
     "wordsPerSpread": {
       "min": 12,
       "max": 28,

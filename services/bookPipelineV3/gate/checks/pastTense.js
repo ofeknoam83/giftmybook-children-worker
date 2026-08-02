@@ -16,10 +16,14 @@
  *     "tired", "bored" can be adjectives but in lap-baby books they're
  *     usually verbs — we still flag, the writer can revise).
  *
- * Skipped when the band's narrative tense isn't pinned to present — for
- * tonight that means we only enforce in PB_INFANT and PB_TODDLER. We
- * detect those by `ageProfile.ageBand`.
+ * Runs ONLY when the book's resolved narrative tense is 'present'
+ * (2026-08-02: past tense became the standard for PRESCHOOL/EARLY_READER —
+ * see ageProfiles narrativeTenseFor; the pre-verbal bands keep present
+ * tense and this check). Past-tense books get the soft `tense_drift` book
+ * lint instead (bookLints).
  */
+
+const { narrativeTenseFor } = require('../../ageProfiles');
 
 const PRESENT_TENSE_BANDS = new Set(['PB_INFANT', 'PB_TODDLER']);
 
@@ -81,9 +85,25 @@ function tokenIsPastTense(tok) {
   return true;
 }
 
+/**
+ * Loose evidence that a text is narrated in past tense — an irregular past
+ * form or any -ed token (participial adjectives count as noise here, which
+ * is fine: the consumer is the SOFT tense_drift book lint, thresholded over
+ * all spreads, never a hard gate).
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function textHasPastTenseMarker(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  if (IRREGULAR_RE.test(t)) return true;
+  return (t.match(/[A-Za-z'-]+/g) || []).some(tokenIsPastTense);
+}
+
 function pastTenseCheck(draft, beat, ageProfile) {
   const band = ageProfile?.ageBand;
-  if (!band || !PRESENT_TENSE_BANDS.has(band)) return { passed: true };
+  if (!band || narrativeTenseFor(ageProfile) !== 'present') return { passed: true };
 
   const text = String(draft?.text || '');
   if (!text) return { passed: true };
@@ -120,4 +140,4 @@ function pastTenseCheck(draft, beat, ageProfile) {
   return { passed: true };
 }
 
-module.exports = { pastTenseCheck, PRESENT_TENSE_BANDS };
+module.exports = { pastTenseCheck, textHasPastTenseMarker, PRESENT_TENSE_BANDS };

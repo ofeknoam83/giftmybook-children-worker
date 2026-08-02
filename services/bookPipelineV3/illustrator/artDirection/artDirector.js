@@ -22,7 +22,7 @@ const { ART_DIRECTION_REASKS } = require('../config');
 
 const ZONES = ['left-top', 'left-bottom', 'right-top', 'right-bottom', 'left', 'right'];
 
-function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, textLayout = 'caption', themeArtNote = null, violations = null }) {
+function buildDirectorPrompt({ manuscript, ageBand, ageYears = null, textLayout = 'caption', themeArtNote = null, familyFactsNote = null, violations = null }) {
   const embedded = textLayout === 'embedded';
   const contracts = manuscript.spreads.map((s) => ({
     spread: s.spread,
@@ -81,7 +81,8 @@ RULES:
 - worldPlates: only locations visited on 2+ spreads.
 - PROP LOCKS: every prop that appears on 2+ spreads (a map, a lamp, a vehicle, a toy) gets a continuityLocks.props entry with a LOCKED design — the same object must not morph between spreads (the same "lamp" rendering as a crystal, then a pendant, then a lantern is a book-killing continuity break). Choose designs that are simple to draw consistently.
 - CAST LOCKS: every INDIVIDUAL supporting character who appears on 2+ spreads gets a continuityLocks.cast entry with a LOCKED design. That means (a) every NAMED person (Mom, Dad, Grandma, a named friend) — hair color+style, skin tone, one specific outfit (2026-07-28 audit, book 16758e3c: Mom and Dad swam in swimwear on one spread and sat fully dressed as different-looking people two pages later; the hero was locked to the cover but the family had NO ground truth) — AND (b) every recurring UNNAMED companion — a robot, a pet, a dragon, a sidekick creature — locked under the role name used in characters_present (e.g. "the robot") with its full physical design: body shape, colors, and countable features like antenna/limb/eye count (2026-07-28 audit, book 4c8daf08: "his robot" rode 10 spreads as a bare name string and rendered as a completely different robot mid-book — round two-antenna bot became an EVE-style pod). Never lock the child hero (the model sheet owns them) and never lock declared GROUPS. Keep designs simple to draw consistently, letter-free, logo-free.
-- GEAR STATE: if the hero wears removable gear (a helmet, goggles, a backpack), define a continuityLocks.gear rule tied to settings (2026-07-19 audit: a space helmet appeared and vanished at random across outdoor Mars scenes — vacuum logic that parents notice) AND state the gear state explicitly in EVERY spread's continuityNotes (e.g. "helmet dome ON — outdoors"). TEXT-WORN GEAR: when a spread's STORY TEXT dresses the hero in wearable gear ("behind his visor", "gloved finger", "pulls on her goggles"), that gear MUST exist in the art — add a continuityLocks.gear rule and reflect it in that spread's continuityNotes; if the gear genuinely cannot be drawn consistently, bounce the spread asking the writer to drop the gear wording (2026-07-28 audit, book 4c8daf08: the text mentioned a visor and gloves the art never showed — parents read the mismatch).
+${familyFactsNote ? `- FAMILY CAST FACTS (2026-08-02 feedback: a book's mother and father were rendered as two men of invented, contrasting ethnicities — parent roles are questionnaire data the model never saw): ${familyFactsNote}
+` : ''}- GEAR STATE: if the hero wears removable gear (a helmet, goggles, a backpack), define a continuityLocks.gear rule tied to settings (2026-07-19 audit: a space helmet appeared and vanished at random across outdoor Mars scenes — vacuum logic that parents notice) AND state the gear state explicitly in EVERY spread's continuityNotes (e.g. "helmet dome ON — outdoors"). TEXT-WORN GEAR: when a spread's STORY TEXT dresses the hero in wearable gear ("behind his visor", "gloved finger", "pulls on her goggles"), that gear MUST exist in the art — add a continuityLocks.gear rule and reflect it in that spread's continuityNotes; if the gear genuinely cannot be drawn consistently, bounce the spread asking the writer to drop the gear wording (2026-07-28 audit, book 4c8daf08: the text mentioned a visor and gloves the art never showed — parents read the mismatch).
 - TEXT-NAMED FOCAL OBJECTS: when a spread's STORY TEXT centers on a specific object or beat ("the folded blue leaf", "the leaf slowly opens behind him"), the moment MUST stage that object visibly — the emotional beat a parent reads beside the art must be findable in the art (2026-07-28 audit: a spread's whole text was about a folded leaf reopening; the art showed a maze entrance with no leaf).${embedded ? `
 - WIDE SPREADS (this book prints each illustration across TWO facing pages, folded at the exact center): stage every moment with the hero and each named landmark clearly on ONE side of the center line (left or right third) — the binding swallows the middle. Never plan a composition that centers the focal subject, and never one that would read as two mirrored halves.` : ''}
 - NO CHOREOGRAPHY: never specify WHICH hand (left/right), how many hands, finger placement, or a position relative to a small prop feature (a pocket, a strap, a buckle) in moment/poseHint — renderers mirror hands freely and cannot hit prop-relative positions, so any such detail becomes an unwinnable QA target. Describe the action at the level a parent would: 'holding a vine aside', 'tucking the compass into his backpack' — never 'his left hand…', 'one hand just over the open side pocket…'.
@@ -103,18 +104,21 @@ RULES:
  * @param {string|null} [opts.themeArtNote] - ordered occasion/story-theme mood
  *   (shared/themes buildThemeArtNote) — palette/light/motif guidance only,
  *   never medium
+ * @param {string|null} [opts.familyFactsNote] - declared parent roles
+ *   (familyFacts buildFamilyFactsNote) — mother/father gender + family-look
+ *   rules for cast locks; customer data, never inferred from names
  * @param {Array<{base64: string, mimeType?: string}>} opts.referenceImages - [sheet, cover?]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ directionBySpread: Map<number, object>, paletteArc: object, continuityLocks: object, worldPlates: object[], bounces: object[], shotBudget: {ok: boolean, reassigned: boolean} }>}
  */
-async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayout = 'caption', themeArtNote = null, referenceImages, abortSignal, log = () => {} }) {
+async function runArtDirection({ manuscript, ageBand, ageYears = null, textLayout = 'caption', themeArtNote = null, familyFactsNote = null, referenceImages, abortSignal, log = () => {} }) {
   let plan = null;
   let violations = null;
 
   for (let attempt = 0; attempt <= ART_DIRECTION_REASKS; attempt += 1) {
     const { json } = await callVisionRole('ART_DIRECTOR', {
-      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, textLayout, themeArtNote, violations }),
+      prompt: buildDirectorPrompt({ manuscript, ageBand, ageYears, textLayout, themeArtNote, familyFactsNote, violations }),
       images: referenceImages,
       label: `v3.artdirector.r${attempt}`,
       expectJson: true,

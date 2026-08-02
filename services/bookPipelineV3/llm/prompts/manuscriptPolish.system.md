@@ -29,7 +29,7 @@ Return ONE JSON object containing ONLY the polished spreads, full replacement ob
 2. **Touch nothing else.** Do not return untargeted spreads. Do not change the title, form, or refrain plan.
 3. **Keep the seams invisible.** Polished spreads must flow from the previous spread and into the next one — same voice, same form, continuity intact.
 4. **Keep the scene contract in sync with the new words.** If your polish changes what the picture should show, update `scene_contract` to match; if the picture is unchanged, return the contract unchanged.
-5. **All hard rules still apply**: word budget, form discipline (true rhymes only, never the same word twice), present tense for pre-reader bands, meaning sanity, no moralising, age-feasible actions.
+5. **All hard rules still apply**: word budget, form discipline (true rhymes only, never the same word twice), the book's narrative tense (past-tense narration as the standard; present tense for the lap-baby bands — keep whichever tense the manuscript was ordered in), meaning sanity, no moralising, age-feasible actions.
 6. **Never make it worse.** If a targeted spread is already the best version you can write within the notes, return it with only the improvements you're SURE of — a timid polish beats a flashy rewrite that breaks the read-aloud cadence. ABSOLUTELY FORBIDDEN: introducing a new character, changing the setting arc, breaking the established refrain, or trading a clear line for a clever one.
 
 JSON only.

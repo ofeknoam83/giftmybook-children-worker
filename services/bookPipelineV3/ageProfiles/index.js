@@ -56,6 +56,33 @@ function applyEmbeddedLayoutBudget(profile, textLayout) {
   return profile;
 }
 
+/**
+ * Narrative tense for a book (2026-08-02 customer feedback: "the story
+ * should be in the past tense"). Past tense is the classic storybook
+ * register and what the story-format openers already imply ("Once upon a
+ * time…", "It started like any normal day…"); the two pre-verbal lap-baby
+ * bands stay present tense ("Baby claps" — happening NOW is the point at
+ * that age, and the pastTense gate check machine-enforces it).
+ *
+ * Resolution: BOOK_PIPELINE_V3_NARRATIVE_TENSE env (ops flip, loud-warn on
+ * unknown values) → profile narrativeConstraints.narrativeTense → band
+ * fallback (INFANT/TODDLER present, everything else past).
+ *
+ * @param {object} ageProfile
+ * @returns {'past'|'present'}
+ */
+function narrativeTenseFor(ageProfile) {
+  const env = String(process.env.BOOK_PIPELINE_V3_NARRATIVE_TENSE || '').trim().toLowerCase();
+  if (env === 'past' || env === 'present') return env;
+  if (env) {
+    console.warn(`[bookPipelineV3] BOOK_PIPELINE_V3_NARRATIVE_TENSE='${env}' is not 'past'|'present' — ignored`);
+  }
+  const declared = String(ageProfile?.narrativeConstraints?.narrativeTense || '').toLowerCase();
+  if (declared === 'past' || declared === 'present') return declared;
+  const band = ageProfile?.ageBand || ageProfile?.band;
+  return (band === 'PB_INFANT' || band === 'PB_TODDLER') ? 'present' : 'past';
+}
+
 function isPictureBookBand(ageBand) {
   return Object.prototype.hasOwnProperty.call(PROFILES, ageBand);
 }
@@ -100,6 +127,7 @@ module.exports = {
   getAgeProfile,
   listAgeBands,
   isPictureBookBand,
+  narrativeTenseFor,
   deriveAgeBandFromAge,
   deriveAgeBandFromRequest,
   applyEmbeddedLayoutBudget,
