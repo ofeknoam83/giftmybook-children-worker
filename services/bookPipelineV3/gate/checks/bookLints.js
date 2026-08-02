@@ -779,7 +779,8 @@ function openingBeatLovesLint(manuscript, opts = {}) {
  * everywhere are not good"): the per-spread gate already kills reduplicated
  * sound words; this book-level lint enforces the BUDGET — at most ONE
  * sound-word moment (of any kind: reduplication, pair, "Whoosh!", "BOOM")
- * in the whole book. Two or more spreads carrying events → lint.
+ * in the whole book. More than one total sound-word event across the book
+ * (even if all on a single spread) → lint.
  *
  * @param {object} manuscript
  * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}

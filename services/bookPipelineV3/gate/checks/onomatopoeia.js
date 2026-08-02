@@ -71,8 +71,11 @@ function findOnomatopoeiaEvents(text) {
     if (isSoundWord(m[1])) push('exclamation', `${m[1]}!`);
   }
 
-  // Shouted caps: "BOOM" (3+ chars, whole word).
+  // Shouted caps: "BOOM" (3+ chars, whole word). Skip tokens immediately
+  // followed by ! — those are already captured by the exclamation detector
+  // above, and counting them twice would incorrectly inflate the overuse tally.
   for (const m of t.matchAll(/\b([A-Z]{3,})\b/g)) {
+    if (t[m.index + m[1].length] === '!') continue;
     if (isSoundWord(m[1])) push('caps', m[1]);
   }
 
