@@ -57,17 +57,16 @@ const { v4: uuidv4 } = require('uuid');
 
 const { brainstormStorySeed } = require('./services/storyPlanner');
 const { EMOTIONAL_THEMES, getEmotionalTier } = require('./services/shared/emotionalTiers');
-const { generateIllustration, downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
-// generateIllustration is only used for chapter books and graphic novels.
-// Picture book illustration is handled exclusively by services/illustrator (new minimal module).
-// V3: compositeTextOnIllustration removed (V1 illustration pipeline)
+// Picture-book rendering is the native v3 illustrator; covers call
+// generateIllustration inside coverGenerator. server.js only needs the
+// utility exports here.
+const { downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
 const { assemblePdf, buildEmbeddedPreviewPdf, OVERLAY } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { computeCoverPdfMetadata } = require('./services/coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
-const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest, sanitizeForPrompt } = require('./services/validation');
 const { resolveBookPipeline } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');

@@ -269,7 +269,7 @@ describe('validateGenerateBookRequest', () => {
     expect(result1.sanitized.childAge).toBe(2);
 
     const result2 = validateGenerateBookRequest({ ...validBody, childAge: 99 });
-    expect(result2.sanitized.childAge).toBe(12);
+    expect(result2.sanitized.childAge).toBe(8); // product ceiling — picture books only, ages 1-8
 
     const result3 = validateGenerateBookRequest({ ...validBody, childAge: 'not-a-number' });
     expect(result3.sanitized.childAge).toBe(5); // default

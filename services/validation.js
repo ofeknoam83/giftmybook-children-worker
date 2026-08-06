@@ -58,7 +58,7 @@ const MAX_ANSWERED_QUESTIONS = 30;
 const MAX_QUESTION_LENGTH = 200;
 const MAX_ANSWER_LENGTH = 500;
 const MIN_AGE = 2;
-const MAX_AGE = 12;
+const MAX_AGE = 8; // product ceiling — picture books only, ages 1-8
 
 /**
  * Patterns that could be used for prompt injection in LLM inputs.

@@ -3,9 +3,9 @@
   "ageBand": "PB_PRESCHOOL",
   "ageMonthsRange": [
     36,
-    72
+    60
   ],
-  "label": "preschool (3-6 years)",
+  "label": "preschool (3-4 years)",
   "narrativeConstraints": {
     "spreadCount": 13,
     "narrativeTense": "past",

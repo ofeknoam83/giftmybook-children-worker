@@ -89,8 +89,11 @@ function isPictureBookBand(ageBand) {
 
 /**
  * Map a child's age in months (or years if months unavailable) to a
- * picture-book age band. Mirrors v1's normalizeRequest.js logic so the
- * cutover doesn't shift any child between bands.
+ * picture-book age band. The band split at 60 months is a product decision
+ * (2026-08-06): ages 1-4 get the no-antagonist/small-budget bands, ages 5-8
+ * get the full picture-book budget with a mild antagonist allowed. Ages
+ * above 8 exceed the product ceiling (picture books only, ages 1-8) and
+ * clamp LOUDLY onto the oldest band.
  */
 function deriveAgeBandFromAge({ ageMonths, ageYears }) {
   let months = ageMonths;
@@ -98,7 +101,9 @@ function deriveAgeBandFromAge({ ageMonths, ageYears }) {
   if (months == null) return 'PB_PRESCHOOL';
   if (months < 18) return 'PB_INFANT';
   if (months <= 36) return 'PB_TODDLER';
-  if (months <= 72) return 'PB_PRESCHOOL';
+  if (months < 60) return 'PB_PRESCHOOL';
+  if (months <= 96) return 'PB_EARLY_READER';
+  console.warn(`[bookPipelineV3] age ${months}mo exceeds the 8-year product ceiling (picture books only) — clamping to PB_EARLY_READER`);
   return 'PB_EARLY_READER';
 }
 

@@ -33,10 +33,9 @@ function getEmotionalTier(age) {
   const a = Number(age) || 5;
   if (a <= 3) return { tier: 'E1', bookFormat: 'PICTURE_BOOK', spreads: 8, minPages: 32 };
   if (a <= 6) return { tier: 'E2', bookFormat: 'PICTURE_BOOK', spreads: 13, minPages: 32 };
-  // E3/E4 keep their tier ids (age still shapes tone/vocabulary downstream)
-  // but ship as standard 32-page picture books — early readers are retired.
-  if (a <= 9) return { tier: 'E3', bookFormat: 'PICTURE_BOOK', spreads: 13, minPages: 32 };
-  return { tier: 'E4', bookFormat: 'PICTURE_BOOK', spreads: 13, minPages: 32 };
+  // E3 is the top tier (age ceiling is 8 — E4 was retired with the 9-12
+  // band; picture books only, ages 1-8). Everything above 6 lands here.
+  return { tier: 'E3', bookFormat: 'PICTURE_BOOK', spreads: 13, minPages: 32 };
 }
 
 module.exports = { EMOTIONAL_THEMES, getEmotionalTier };
