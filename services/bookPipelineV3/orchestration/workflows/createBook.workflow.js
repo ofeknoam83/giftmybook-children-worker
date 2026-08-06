@@ -341,6 +341,13 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // zone. Checkpoint wins so resumed books finish on the mode they started.
   const textLayout = rawRequest?.checkpointTextLayout || rawRequest?.textLayout || 'caption';
   ctx.log('info', `[v3] text layout: ${textLayout}`);
+  // Text-only (admin writing test, 2026-08-06): run the full WRITING chain —
+  // brief → concepts → drafts → gate → judge panel → polish — then return the
+  // accepted manuscript as the document, with NO identity kit, NO cover
+  // pre-flight vision calls, NO art direction, and NO renders. Per-dispatch
+  // (never checkpoint-pinned): a later full dispatch regenerates fresh.
+  const textOnly = rawRequest?.textOnly === true;
+  if (textOnly) ctx.log('info', '[v3] TEXT-ONLY run — illustration stages will be skipped');
   // Embedded captions share the page with the art — clamp the band's word
   // budget ONCE here so the writer prompt, mechanical gate, and every other
   // consumer of the profile agree (2026-07-28 audit: 55-75-word captions
@@ -353,20 +360,25 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   // cover inverted every guard, and harmonization used to run only at
   // cover-PDF time (after the interiors). Never blocks: failure keeps the
   // original URL with an advisory.
-  const coverAnchor = await resolveCoverAnchor({
-    bookId,
-    coverImageUrl: rawRequest?.cover?.imageUrl || null,
-    abortSignal: signals?.abortSignal,
-    log: (m) => ctx.log('info', `[v3] ${m}`),
-  });
+  const coverAnchor = textOnly
+    // No pixels will be anchored on the cover — skip the pre-flight vision
+    // check/harmonization entirely (the URL may also be absent).
+    ? { url: rawRequest?.cover?.imageUrl || null, harmonized: false, advisory: null }
+    : await resolveCoverAnchor({
+      bookId,
+      coverImageUrl: rawRequest?.cover?.imageUrl || null,
+      abortSignal: signals?.abortSignal,
+      log: (m) => ctx.log('info', `[v3] ${m}`),
+    });
   const resolvedCoverUrl = coverAnchor.url;
 
   // A0 identity kit runs in PARALLEL with the writer —
   // photos → likeness brief → judged character model sheet, GCS-cached.
-  // Joined before rendering; a kit failure surfaces there.
+  // Joined before rendering; a kit failure surfaces there. Text-only runs
+  // never render, so the kit (and its vision/image spend) is skipped.
   const kitPhotoUrls = rawRequest?.child?.photoUrls || [];
   let identityKitPromise = null;
-  if (kitPhotoUrls.length > 0) {
+  if (!textOnly && kitPhotoUrls.length > 0) {
     ctx.log('info', `[v3] identity kit: starting in parallel with the writer (${kitPhotoUrls.length} photo(s))`);
     identityKitPromise = buildIdentityKit({
       photoUrls: kitPhotoUrls,
@@ -550,54 +562,85 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
 
   // ── illustrating ──
   ctx.checkAbort();
-  // Join the identity kit (native path): exhaustion becomes a stage-tagged
-  // needs_review, infra errors propagate as ordinary failures.
-  let identityKit = null;
-  if (identityKitPromise) {
+  const acceptedConcept = outcome.manuscript.concept_id === runnerUpConcept?.id ? runnerUpConcept : winnerConcept;
+  let renderedDoc;
+  if (textOnly) {
+    // Build the same v1-shape document skeleton the illustrator would —
+    // spreads carry the manuscript text with `illustration: null`
+    // (toLegacyStoryPlan and toLayoutPayload are null-safe on it) — so
+    // server.js's document consumption works unchanged.
+    ctx.log('info', '[v3] TEXT-ONLY — skipping identity kit join, art direction, and rendering');
+    const { createBookDocument } = require('../../contract/bookDocument');
+    const { buildVisualBible, buildSpreadSpecs, buildStoryBible } = require('../activities/illustrationDirector');
+    const { buildSpreadsForLegacyIllustrator } = require('../activities/illustrationAdapterHelpers');
+    const visualBible = buildVisualBible({ rawRequest, brief, concept: acceptedConcept, manuscript });
+    visualBible.textRendering = { policy: 'typeset-by-layout-engine' }; // D5
+    const spreadSpecs = buildSpreadSpecs({ manuscript, ageProfile });
+    const draftBySpread = new Map(manuscript.spreads.map((s) => [s.spread, { text: s.text, lines: s.lines }]));
+    renderedDoc = createBookDocument({
+      request: { ...rawRequest, bookId, ageBand },
+      brief: rawRequest || {},
+      cover: {
+        title: manuscript.title || rawRequest?.cover?.title || 'My Story',
+        imageUrl: resolvedCoverUrl || null,
+        characterLocks: {},
+        outfitLocks: {},
+      },
+    });
+    renderedDoc.storyBible = buildStoryBible({ concept: acceptedConcept, manuscript });
+    renderedDoc.visualBible = visualBible;
+    renderedDoc.spreadSpecs = spreadSpecs;
+    renderedDoc.spreads = buildSpreadsForLegacyIllustrator({ spreadSpecs, draftBySpread });
+    renderedDoc.textOnly = true;
+  } else {
+    // Join the identity kit (native path): exhaustion becomes a stage-tagged
+    // needs_review, infra errors propagate as ordinary failures.
+    let identityKit = null;
+    if (identityKitPromise) {
+      try {
+        identityKit = await identityKitPromise;
+        ctx.log('info', `[v3] identity kit ready (fromCache=${identityKit.fromCache}, minLikeness=${identityKit.judgeScores?.minLikeness ?? 'n/a'})`);
+      } catch (err) {
+        if (err?.needsReview) {
+          throw new V3ExhaustionError(err.message, {
+            issues: err.needsReview.defects || [],
+            needsReview: err.needsReview,
+            stage: 'identityKit',
+          });
+        }
+        throw err;
+      }
+    }
+
+    const illustrationInput = {
+      identityKit,
+      rawRequest,
+      brief,
+      ageProfile,
+      concept: acceptedConcept,
+      manuscript,
+      coverImageUrl: resolvedCoverUrl,
+      coverTitle: rawRequest?.cover?.title || null,
+      // Pre-flight outcome — the illustrator records the advisory (if any) as
+      // an artDirection qaAdvisory so a harmonized/unfixable anchor is visible.
+      coverPreflight: coverAnchor,
+      operationalContext: signals,
+      textLayout,
+    };
     try {
-      identityKit = await identityKitPromise;
-      ctx.log('info', `[v3] identity kit ready (fromCache=${identityKit.fromCache}, minLikeness=${identityKit.judgeScores?.minLikeness ?? 'n/a'})`);
+      renderedDoc = await runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger });
     } catch (err) {
-      if (err?.needsReview) {
-        throw new V3ExhaustionError(err.message, {
-          issues: err.needsReview.defects || [],
-          needsReview: err.needsReview,
-          stage: 'identityKit',
+      // QA/art-direction exhaustion is a review item, not a plain failure (D6).
+      const payload = err?.needsReview || err?.cause?.needsReview;
+      if (payload) {
+        throw new V3ExhaustionError(err.cause?.message || err.message, {
+          issues: payload.defects || [],
+          needsReview: payload,
+          stage: payload.stage || 'spreadQa',
         });
       }
       throw err;
     }
-  }
-
-  const illustrationInput = {
-    identityKit,
-    rawRequest,
-    brief,
-    ageProfile,
-    concept: outcome.manuscript.concept_id === runnerUpConcept?.id ? runnerUpConcept : winnerConcept,
-    manuscript,
-    coverImageUrl: resolvedCoverUrl,
-    coverTitle: rawRequest?.cover?.title || null,
-    // Pre-flight outcome — the illustrator records the advisory (if any) as
-    // an artDirection qaAdvisory so a harmonized/unfixable anchor is visible.
-    coverPreflight: coverAnchor,
-    operationalContext: signals,
-    textLayout,
-  };
-  let renderedDoc;
-  try {
-    renderedDoc = await runNativeWithBounce({ ctx, illustrationInput, brief, ageProfile, ledger });
-  } catch (err) {
-    // QA/art-direction exhaustion is a review item, not a plain failure (D6).
-    const payload = err?.needsReview || err?.cause?.needsReview;
-    if (payload) {
-      throw new V3ExhaustionError(err.cause?.message || err.message, {
-        issues: payload.defects || [],
-        needsReview: payload,
-        stage: payload.stage || 'spreadQa',
-      });
-    }
-    throw err;
   }
   // ── bookWideQa / layout ──
   ctx.reportProgress({ step: 'bookWideQa', message: 'Attaching quality report' });
@@ -627,6 +670,7 @@ async function runCreateBookWorkflow({ rawRequest, signals = {}, log }) {
   renderedDoc.v3 = {
     illustrator: { version: illustrator.version, source: illustrator.source },
     textLayout,
+    ...(textOnly ? { textOnly: true } : {}),
     coverImagery: coverImagery || null,
     concepts,
     selection,

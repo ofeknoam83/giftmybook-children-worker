@@ -264,6 +264,25 @@ describe('validateGenerateBookRequest', () => {
     expect(result.valid).toBe(false);
   });
 
+  test('textOnly waives the photo requirement and sanitizes the flag', () => {
+    const noPhotos = { ...validBody };
+    delete noPhotos.childPhotoUrls;
+
+    // Without textOnly: photos are still required.
+    expect(validateGenerateBookRequest(noPhotos).valid).toBe(false);
+
+    // With textOnly: valid, photos default to [], flag survives sanitization.
+    const result = validateGenerateBookRequest({ ...noPhotos, textOnly: true });
+    expect(result.valid).toBe(true);
+    expect(result.sanitized.textOnly).toBe(true);
+    expect(result.sanitized.childPhotoUrls).toEqual([]);
+
+    // Non-boolean truthy values do NOT enable the mode.
+    expect(validateGenerateBookRequest({ ...noPhotos, textOnly: 'yes' }).valid).toBe(false);
+    const normal = validateGenerateBookRequest(validBody);
+    expect(normal.sanitized.textOnly).toBe(false);
+  });
+
   test('clamps childAge to valid range', () => {
     const result1 = validateGenerateBookRequest({ ...validBody, childAge: 0 });
     expect(result1.sanitized.childAge).toBe(2);

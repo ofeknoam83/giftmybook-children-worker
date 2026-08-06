@@ -212,8 +212,12 @@ function validateGenerateBookRequest(body) {
     errors.push(`bookFormat '${body.bookFormat}' is retired — only picture books are supported`);
   }
 
+  // textOnly (admin writing test): no illustrations are generated, so no
+  // photos are needed — the non-empty requirement is waived.
   if (!Array.isArray(body.childPhotoUrls) || body.childPhotoUrls.length === 0) {
-    errors.push('childPhotoUrls is required and must be a non-empty array');
+    if (body.textOnly !== true) {
+      errors.push('childPhotoUrls is required and must be a non-empty array');
+    }
   } else if (body.childPhotoUrls.length > MAX_PHOTO_URLS) {
     errors.push(`childPhotoUrls must have at most ${MAX_PHOTO_URLS} items`);
   } else {
@@ -276,7 +280,11 @@ function validateGenerateBookRequest(body) {
   const sanitized = {
     bookId: body.bookId.trim(),
     childName: sanitizeForPrompt(body.childName.trim(), MAX_NAME_LENGTH),
-    childPhotoUrls: body.childPhotoUrls,
+    childPhotoUrls: Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls : [],
+    // Admin writing test: stop after the accepted manuscript — no identity
+    // kit, no art direction, no renders, no PDFs. Completion carries the
+    // story text only.
+    textOnly: body.textOnly === true,
     childAge: clampAge(body.childAge),
     childGender: normaliseGender(body.childGender),
     childAppearance: sanitizeForPrompt(body.childAppearance || '', 300),
