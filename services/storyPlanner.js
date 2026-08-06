@@ -455,15 +455,15 @@ function getEmotionalBeatStructure(emotion, age, situation) {
 }
 
 /**
- * SCOPE: This file feeds `brainstormStorySeed`, `planChapterBook`, and
- * `planGraphicNovel`. The CUSTOMER PICTURE-BOOK pipeline goes through
- * `services/bookPipeline/*` and DOES NOT consume the output of
- * brainstormStorySeed (server.js:1108 computes storySeed but does not pass it
- * to generateBook at server.js:1270). The parent-theme directives the
- * production picture-book planner actually reads live in
- * `services/bookPipeline/planner/themeDirectives.js`. The mothers_day /
- * fathers_day quality-bar blocks below therefore affect chapter books and
- * graphic novels (and the legacy QA streaming endpoint), not picture books.
+ * SCOPE: the only LIVE consumer of this file is `brainstormStorySeed` — it
+ * runs BEFORE the v3 pipeline on every picture book, and its one-sentence
+ * `storySeed` DOES reach production: server.js appends it to
+ * `customDetails` ("STORY SEED (use as creative direction): …"), which the
+ * v3 creative brief reads. The theme beat structures below therefore shape
+ * real picture books through that seed sentence. Everything else in this
+ * file (planStory / planChapterBook / planGraphicNovel / critics) is dead
+ * code slated for the slimming pass (see CLAUDE.md) — the legacy pipelines
+ * that consumed them were deleted in W12.
  */
 function getThemeBeatStructure(theme, age) {
   const candleText = age ? `exactly ${age} candles` : 'the correct number of candles matching the child\'s age';

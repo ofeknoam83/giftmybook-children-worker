@@ -27,12 +27,11 @@ const { STYLE_BIBLE, STYLE_PIN } = require('../styleBible');
 /**
  * @param {object} opts
  * @param {string} opts.briefText - likeness brief (likenessBrief.js)
- * @param {string} [opts.wardrobeNote] - outfit ground truth from the approved cover
  * @param {boolean} [opts.hasCoverReference] - approved cover attached to the call
  * @param {string[]} [opts.repairNotes] - judge defects from the prior wave (wave >= 1)
  * @returns {string} full sheet render prompt
  */
-function buildSheetPrompt({ briefText, wardrobeNote, hasCoverReference = false, repairNotes = [] }) {
+function buildSheetPrompt({ briefText, hasCoverReference = false, repairNotes = [] }) {
   return [
     'CHARACTER MODEL SHEET — one single image containing a turnaround study of ONE child character:',
     '- THREE full-body views side by side: front, three-quarter, and profile.',
@@ -45,7 +44,6 @@ function buildSheetPrompt({ briefText, wardrobeNote, hasCoverReference = false, 
     STYLE_BIBLE,
     '',
     briefText,
-    wardrobeNote ? `\nOUTFIT (ground truth from the approved cover): ${wardrobeNote}` : '',
     hasCoverReference
       ? '\nAPPROVED COVER REFERENCE: the attached image is this book\'s parent-approved COVER illustration. The model sheet must depict THE SAME character — identical face, hair color and style, skin tone, eye color, and any distinguishing features (e.g. glasses) — translated into the turnaround layout above.'
       : '',
@@ -171,7 +169,6 @@ async function uploadRejectedCandidates({ attempts, bookId, log }) {
  * @param {object} opts
  * @param {Array<{base64: string, mimeType?: string}>} opts.photos
  * @param {string} opts.briefText
- * @param {string} [opts.wardrobeNote]
  * @param {{base64: string, mimeType?: string}} [opts.coverReference] - approved cover (illustration; policy-safe to attach)
  * @param {string} [opts.bookId] - for review-candidate uploads on exhaustion
  * @param {AbortSignal} [opts.abortSignal]
@@ -179,7 +176,7 @@ async function uploadRejectedCandidates({ attempts, bookId, log }) {
  * @returns {Promise<{ sheetBuffer: Buffer, sheetMime: string, judgeScores: object, attemptsUsed: number }>}
  * @throws Error with .needsReview payload (reason identity_kit_exhausted) on budget exhaustion
  */
-async function generateCharacterSheet({ photos, briefText, wardrobeNote, coverReference = null, bookId = null, abortSignal, log = (m) => console.log(`[identityKit] ${m}`) }) {
+async function generateCharacterSheet({ photos, briefText, coverReference = null, bookId = null, abortSignal, log = (m) => console.log(`[identityKit] ${m}`) }) {
   const allAttempts = [];
   const allJudgeErrors = [];
 
@@ -190,7 +187,6 @@ async function generateCharacterSheet({ photos, briefText, wardrobeNote, coverRe
       : [];
     const prompt = buildSheetPrompt({
       briefText,
-      wardrobeNote,
       hasCoverReference: Boolean(coverReference),
       repairNotes,
     });

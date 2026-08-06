@@ -1,9 +1,11 @@
 /**
- * Top-level V3 workflow (milestone 1 — writer + v1 illustrator adapter).
+ * Top-level V3 workflow (writer + NATIVE illustrator — the only pipeline
+ * since the 2026-07-15 cutover; the legacy illustrator adapter is deleted).
  *
  * Stages (docs/PIPELINE_V3_DESIGN.md §4):
  *   input    — age band + profile (reuses v2's derivation incl. the age=0 fix)
  *   planning — W0 creativeBrief → W1 conceptRoom ×3 (parallel) → W2 editorialSelection
+ *              (A0 identity kit runs in PARALLEL with the whole writing chain)
  *   writing  — W3 two manuscripts in parallel (prompt-variant diversity — the
  *              anthropic family rejects temperature)
  *   writerQa — W4 mechanical gate per manuscript (hard fails → one surgical
@@ -11,13 +13,16 @@
  *              W6 ≤2 targeted revision rounds → exhaustion ladder:
  *              other draft → fresh manuscript from runner-up concept →
  *              V3ExhaustionError (mapped to PipelineError judge_panel_exhausted)
- *   illustrating / bookWideQa / layout — v1 illustrator via the adapter,
- *              panel scores attached, toLayoutPayload
+ *              → post-panel polish pass on the accepted manuscript
+ *   illustrating — native illustrator A1–A4 (art direction with unstageable
+ *              bounces back to the writer, parallel renders, spread QA
+ *              cascade, book pass), see illustrator/index.js
+ *   bookWideQa / layout — panel scores attached, toLayoutPayload
  *
- * No ship-anyway: a manuscript that cannot pass the panel fails the book
- * with the judge history attached (admin-only traffic in milestone 1 —
- * design decision D6 interim). Escape hatch for smoke tests that need a
- * completed book regardless: BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1.
+ * No ship-anyway (design decision D6): a manuscript that cannot pass the
+ * panel fails the book with the judge history attached as needs_review.
+ * Escape hatch for smoke tests that need a completed book regardless:
+ * BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1.
  */
 
 const { createWorkflowContext } = require('../workflowEngine');

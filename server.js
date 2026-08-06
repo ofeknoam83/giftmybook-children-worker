@@ -1109,13 +1109,13 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         bookContext.touchActivity();
         const stage3Ms = Date.now() - stage3Start;
-        bookContext.log('info', 'bookPipeline v1 complete', {
+        bookContext.log('info', 'book pipeline complete', {
           spreads: pipelineResult.document.spreads.length,
           writerQaPass: pipelineResult.document.writerQa?.pass,
           bookWideQaPass: pipelineResult.document.bookWideQa?.pass,
           ms: stage3Ms,
         });
-        console.log(`[server] Stage timing: bookPipelineV1=${stage3Ms}ms (book ${bookId})`);
+        console.log(`[server] Stage timing: bookPipeline=${stage3Ms}ms (book ${bookId})`);
 
         if (progressCallbackUrl) {
           const storyContentForDb = {

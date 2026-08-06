@@ -207,7 +207,6 @@ function pickLeastBad(evaluations) {
  * @param {Array} opts.referenceImages - approved reference art for likeness judging
  *   (model sheet + cover — NOT the raw photos; the parent approved the cover character)
  * @param {string} opts.briefText
- * @param {string} [opts.wardrobeNote]
  * @param {object} [opts.qaTagCounts] - mutable telemetry counters
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
@@ -215,7 +214,7 @@ function pickLeastBad(evaluations) {
  */
 async function selectSpreadWinner({
   bookId, spread, candidates, direction = null, bookPack, plate = null, propPlate = null,
-  referenceImages, briefText, wardrobeNote, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null,
+  referenceImages, briefText, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null,
   foldSoften = BOOK_PASS_SHIP_ON_EXHAUSTION, qaTagCounts, abortSignal, log = () => {},
 }) {
   // Every caller passes the bookPack (model sheet + cover) as the likeness
@@ -294,7 +293,7 @@ async function selectSpreadWinner({
       };
       const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));
       const rendered = await renderSpreadCandidates({
-        spread: repairSpread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks,
+        spread: repairSpread, direction, bookPack, plate, propPlate, briefText, textLayout, mustIncludeFeatures, castLocks,
         bookId, seedOffset: baseIndex,
         count: CANDIDATES_PER_SPREAD, abortSignal, log,
       });
