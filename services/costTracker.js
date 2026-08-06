@@ -19,7 +19,25 @@ const RATES = {
   'gemini-image': { perImage: 0.02 },
   'gemini-3.1-flash-image': { perImage: 0.02 },
   'gemini-2.5-flash-image': { perImage: 0.02 },
+  // The v3 illustrator's default renderer (sheet + spread renders). Placeholder
+  // rate pending published pro-tier image pricing — confirm before invoicing
+  // (previously this id fell through to the silent unknown-model default).
+  'gemini-3-pro-image-preview': { perImage: 0.05 },
 };
+
+// Unknown models bill at a plausible default, which silently hides a missing
+// RATES entry (a new renderer id shows a plausible-but-wrong number). Warn
+// once per model per process so the gap is visible in Cloud Logging.
+const warnedUnknownModels = new Set();
+function rateFor(model, fallback, kind) {
+  const rate = RATES[model];
+  if (rate) return rate;
+  if (!warnedUnknownModels.has(model)) {
+    warnedUnknownModels.add(model);
+    console.warn(`[costTracker] no RATES entry for ${kind} model '${model}' — billing at the default (${JSON.stringify(fallback)}); add it to RATES for accurate cost reporting`);
+  }
+  return fallback;
+}
 
 class CostTracker {
   constructor() {
@@ -45,7 +63,7 @@ class CostTracker {
 
     // Text costs
     for (const [model, usage] of Object.entries(this.textUsage)) {
-      const rate = RATES[model] || { input: 1.0, output: 3.0 };
+      const rate = rateFor(model, { input: 1.0, output: 3.0 }, 'text');
       const inputCost = (usage.inputTokens / 1_000_000) * rate.input;
       const outputCost = (usage.outputTokens / 1_000_000) * rate.output;
       const cost = inputCost + outputCost;
@@ -59,7 +77,7 @@ class CostTracker {
 
     // Image costs
     for (const [model, count] of Object.entries(this.imageUsage)) {
-      const rate = RATES[model] || { perImage: 0.05 };
+      const rate = rateFor(model, { perImage: 0.05 }, 'image');
       const cost = count * rate.perImage;
       totalCost += cost;
       breakdown[model] = {

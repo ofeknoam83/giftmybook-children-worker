@@ -52,14 +52,13 @@ const ZONE_INSTRUCTIONS = {
  * @param {object} opts.spread - manuscript spread ({ spread, scene_contract, text })
  * @param {object|null} [opts.direction] - art-direction row ({ shot, textZone, palette, continuityNotes }) — optional until W7
  * @param {string} opts.briefText - likeness brief text
- * @param {string} [opts.wardrobeNote]
  * @param {string[]} [opts.mustIncludeFeatures] - the identity kit's ranked
  *   distinguishing facial features (freckles, dimples, gap teeth, glasses…);
  *   restated as an explicit per-spread MUST-INCLUDE checklist because the
  *   renderer repeatedly omits them (fail@likeness), exhausting candidate budgets.
  * @returns {string} full render prompt
  */
-function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobeNote = null, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null }) {
+function buildSpreadRenderPrompt({ spread, direction = null, briefText, textLayout = 'caption', mustIncludeFeatures = [], castLocks = null }) {
   const sc = spread.scene_contract || {};
   const zone = direction?.textZone && (ZONE_INSTRUCTIONS[direction.textZone] || direction.textZone);
   const embedded = textLayout === 'embedded';
@@ -112,7 +111,7 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     (mustIncludeFeatures || []).length
       ? `MUST INCLUDE — these distinguishing features are visible on the child's face/body in THIS scene, drawn exactly as on the model sheet (do NOT omit any): ${mustIncludeFeatures.join('; ')}.`
       : null,
-    wardrobeNote ? `OUTFIT: ${wardrobeNote}` : 'OUTFIT: exactly as on the approved cover reference.',
+    'OUTFIT: exactly as on the approved cover reference.',
     'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
     "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
     "CANONICAL COLORS: the character's hair color, skin tone, and freckles come from the MODEL SHEET and are IDENTICAL in every scene. Lighting (night, starlight, lantern glow, golden hour) tints the SCENE — it never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light, freckles stay visible, skin keeps its depth. No color streaks or highlights that are not on the sheet. Never re-derive the character's facial structure, features, or colors from the scene description below — the MODEL SHEET is the only source of the character's appearance.",
@@ -190,7 +189,6 @@ function fnv1a(str) {
  * @param {object|null} [opts.plate] - world plate for this spread's location
  * @param {object|null} [opts.propPlate] - locked recurring-prop designs plate
  * @param {string} opts.briefText
- * @param {string} [opts.wardrobeNote]
  * @param {string|null} [opts.bookId] - enables the optional deterministic seed
  *   (env-gated in imageClient; OFF by default). Seed = fnv1a(bookId) +
  *   spread×1000 + seedOffset + candidate — ×1000 because repair/recovery
@@ -206,11 +204,11 @@ function fnv1a(str) {
  *   Failed candidates are dropped (logged); an empty array means all failed.
  */
 async function renderSpreadCandidates({
-  spread, direction = null, bookPack, plate = null, propPlate = null, briefText, wardrobeNote,
+  spread, direction = null, bookPack, plate = null, propPlate = null, briefText,
   textLayout = 'caption', mustIncludeFeatures = [], castLocks = null, bookId = null, seedOffset = 0,
   count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
-  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks });
+  const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, textLayout, mustIncludeFeatures, castLocks });
   const references = withPropPlate(withWorldPlate(bookPack, plate), propPlate);
 
   const renderOne = (i) => generateImage({

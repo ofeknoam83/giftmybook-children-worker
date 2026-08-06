@@ -756,7 +756,6 @@ describe('pickWinner / pickLeastBad (ship-on-exhaustion helpers)', () => {
 describe('character identity block ordering + byte-identity', () => {
   const identityOpts = {
     briefText: 'BRIEF: curly brown hair, freckles',
-    wardrobeNote: 'yellow raincoat',
     mustIncludeFeatures: ['freckles'],
   };
   const identitySection = (p) => p.slice(p.indexOf('CHARACTER IDENTITY:'), p.indexOf('SCENE (from the manuscript'));

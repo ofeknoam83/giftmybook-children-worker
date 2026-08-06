@@ -1,14 +1,17 @@
 /**
  * Layout Engine V3 — Composes story entries into interior PDF.
  *
- * Pages (no blank page 2):
+ * Pages (front matter, in order):
  *   p1: blank
- *   p2: title page
- *   p3: copyright
- *   p4: dedication
- *   p5–p(4+spreads*2): story spreads
+ *   p2: dedication
+ *   p3: title page
+ *   p4–p(3+spreads*2): story spreads
  *   closing page
  *   upsell spread (2 pages: 2 covers each, full portrait)
+ * There is no copyright page (a buildCopyrightPage helper existed but was
+ * never wired into assemblePdf and was removed 2026-08-06 — add it back
+ * deliberately, with the page-count/spine implications considered, if the
+ * product ever wants one).
  *
  * Picture book & early reader: 8.5" × 8.5" (612 × 612 pts)
  * All pages include 0.125" (9pt) bleed on all sides.
@@ -937,27 +940,6 @@ function buildTitlePage(pdfDoc, pw, ph, fonts, opts) {
   const by = 'Created by GiftMyBook';
   const byW = helv.widthOfTextAtSize(by, 10);
   p.drawText(by, { x: (pw - byW) / 2, y: BLEED + 22, size: 10, font: helv, color: C.grayLight });
-}
-
-function buildCopyrightPage(pdfDoc, pw, ph, fonts, opts) {
-  const { helv } = fonts;
-  const { year, childName } = opts;
-  const p = pdfDoc.addPage([pw, ph]);
-  const yr = year || new Date().getFullYear();
-  const lines = [
-    `\u00A9 ${yr} GiftMyBook`,
-    'Made with love at GiftMyBook.com',
-    'All rights reserved.',
-    '',
-    childName ? `Personalized for ${childName}` : '',
-  ].filter(l => l !== undefined);
-  let y = ph * 0.38;
-  for (const l of lines) {
-    if (!l) { y -= 12; continue; }
-    const lw = helv.widthOfTextAtSize(l, 10);
-    p.drawText(l, { x: (pw - lw) / 2, y, size: 10, font: helv, color: C.grayLight });
-    y -= 18;
-  }
 }
 
 function buildDedicationPage(pdfDoc, pw, ph, fonts, opts) {

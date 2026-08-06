@@ -1,10 +1,10 @@
 /**
  * W2 — Editorial Selection.
  *
- * A cross-family editor (openai by default — deliberately NOT the writer
- * family) scores the three concepts against gift_intent + the rubric,
- * picks a winner, grafts the best elements from the losers, and names
- * the runner-up (retained as the exhaustion-ladder fallback).
+ * A cross-family editor (deepseek by default — deliberately NOT the writer
+ * family, which is openai) scores the three concepts against gift_intent +
+ * the rubric, picks a winner, grafts the best elements from the losers, and
+ * names the runner-up (retained as the exhaustion-ladder fallback).
  */
 
 const fs = require('fs');
@@ -30,6 +30,15 @@ async function editorialSelectionActivity(input, ctx) {
       gift_intent: brief?.gift_intent,
       child_as_character: brief?.child_as_character,
       constraints: brief?.constraints,
+      // The editor's rubric weighs personalization depth and disqualifies
+      // pitches that ignore the fixed casting — it needs the same code-attached
+      // personalization fields every other writing stage receives (these were
+      // omitted when the fields were introduced, leaving the editor to judge
+      // personalization blind).
+      interests: brief?.interests,
+      themes: brief?.themes,
+      storyRoles: brief?.storyRoles,
+      storyFormat: brief?.storyFormat,
     },
     ageProfile: {
       band: ageProfile?.ageBand || ageProfile?.band,

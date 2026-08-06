@@ -33,7 +33,6 @@ const MAX_KIT_PHOTOS = 3;
  * @param {string[]} opts.photoUrls - child photo URLs (validated upstream)
  * @param {string} opts.ageBand - PB_* band
  * @param {{name?: string, gender?: string}} [opts.childDetails]
- * @param {string} [opts.wardrobeNote] - outfit description from the approved cover
  * @param {string} [opts.coverImageUrl] - approved cover (sheet-generation anchor; download failure degrades to text-only)
  * @param {string} [opts.bookId] - for review-candidate uploads on exhaustion
  * @param {{action?: string, candidateUrl?: string, admin?: string}} [opts.reviewResolution]
@@ -45,7 +44,6 @@ async function buildIdentityKit({
   photoUrls,
   ageBand,
   childDetails = {},
-  wardrobeNote = null,
   coverImageUrl = null,
   bookId = null,
   reviewResolution = null,
@@ -102,7 +100,6 @@ async function buildIdentityKit({
     sheet = await generateCharacterSheet({
       photos,
       briefText: brief.briefText,
-      wardrobeNote,
       coverReference,
       bookId,
       abortSignal,
