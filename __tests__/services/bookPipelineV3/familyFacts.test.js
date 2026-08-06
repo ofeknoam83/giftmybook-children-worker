@@ -119,3 +119,67 @@ describe('director prompt family facts', () => {
     expect(note).toContain('the character the child calls "Aba" is the child\'s FATHER — an adult man');
   });
 });
+
+describe('filterFamilyFromCast (family-in-art doctrine)', () => {
+  const {
+    filterFamilyFromCast, filterFamilyFromManuscript,
+  } = require('../../../services/bookPipelineV3/illustrator/artDirection/familyFacts');
+  const facts = buildFamilyFacts({ childAnecdotes: anecdotes }); // Noam=mother, Daniel=father
+
+  test('parents are stripped from the visual cast in a non-parent-day book', () => {
+    const { filtered, removed } = filterFamilyFromCast(['Liv', 'Noam', 'Daniel'], facts, { occasion: 'birthday_magic' });
+    expect(filtered).toEqual(['Liv']);
+    expect(removed).toEqual(['Noam', 'Daniel']);
+  });
+
+  test('mothers_day keeps Mom but still strips Dad and grandparents', () => {
+    const { filtered, removed } = filterFamilyFromCast(
+      ['Liv', 'Noam', 'Daniel', 'Grandma Rosie'], facts, { occasion: 'mothers_day' },
+    );
+    expect(filtered).toEqual(['Liv', 'Noam']);
+    expect(removed).toEqual(['Daniel', 'Grandma Rosie']);
+  });
+
+  test('fathers_day keeps Dad (by call-name too) but strips Mom', () => {
+    const { filtered } = filterFamilyFromCast(['Liv', 'Mama', 'Daniel'], facts, { occasion: 'fathers_day' });
+    expect(filtered).toEqual(['Liv', 'Daniel']);
+  });
+
+  test('generic role words are caught without declared names', () => {
+    const { filtered, removed } = filterFamilyFromCast(
+      ['Maya', 'her big brother Tom', 'Grandpa', 'Auntie Sara', 'Mommy'], [], { occasion: null },
+    );
+    expect(filtered).toEqual(['Maya']);
+    expect(removed).toEqual(['her big brother Tom', 'Grandpa', 'Auntie Sara', 'Mommy']);
+  });
+
+  test('whole-word matching: pets and fictional characters survive', () => {
+    const { filtered, removed } = filterFamilyFromCast(
+      ['Liv', 'Momo the cat', 'a magical turtle', 'small aliens', 'the robot'], facts, {},
+    );
+    expect(filtered).toEqual(['Liv', 'Momo the cat', 'a magical turtle', 'small aliens', 'the robot']);
+    expect(removed).toEqual([]);
+  });
+
+  test('filterFamilyFromManuscript filters every contract and reports removals per spread', () => {
+    const manuscript = {
+      title: 'T',
+      spreads: [
+        { spread: 1, text: 'a', scene_contract: { characters_present: ['Liv'] } },
+        { spread: 12, text: 'b', scene_contract: { characters_present: ['Liv', 'Noam', 'Daniel'] } },
+      ],
+    };
+    const res = filterFamilyFromManuscript(manuscript, facts, { occasion: 'birthday_magic' });
+    expect(res.removed).toEqual([{ spread: 12, members: ['Noam', 'Daniel'] }]);
+    expect(res.manuscript.spreads[1].scene_contract.characters_present).toEqual(['Liv']);
+    // the original manuscript is untouched (text/gate side keeps the writer's view)
+    expect(manuscript.spreads[1].scene_contract.characters_present).toEqual(['Liv', 'Noam', 'Daniel']);
+    // untouched spreads keep object identity (cheap shallow clone)
+    expect(res.manuscript.spreads[0]).toBe(manuscript.spreads[0]);
+  });
+
+  test('an emptied cast is legal (formatCastList falls back to hero-only)', () => {
+    const { filtered } = filterFamilyFromCast(['Mama'], facts, { occasion: null });
+    expect(filtered).toEqual([]);
+  });
+});
