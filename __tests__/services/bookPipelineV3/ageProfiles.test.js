@@ -28,6 +28,37 @@ describe('ageProfiles', () => {
     expect(isPictureBookBand(null)).toBe(false);
   });
 
+  test('every band stays inside the picture-book length standard (ages 1-8, <1000 words)', () => {
+    for (const band of listAgeBands()) {
+      const nc = getAgeProfile(band).narrativeConstraints;
+      const { wordsPerSpread: wps, totalBookWords: tb, spreadCount } = nc;
+      // whole-book window exists, is coherent, and never exceeds ~1000 words
+      expect(tb).toBeDefined();
+      expect(tb.min).toBeLessThanOrEqual(tb.target);
+      expect(tb.target).toBeLessThanOrEqual(tb.max);
+      expect(tb.max).toBeLessThanOrEqual(1000);
+      // the per-spread window can arithmetically reach the book window
+      expect(wps.min * spreadCount).toBeLessThanOrEqual(tb.max);
+      expect(wps.max * spreadCount).toBeGreaterThanOrEqual(tb.min);
+      // no band covers ages above 8 (96 months)
+      expect(getAgeProfile(band).ageMonthsRange[1]).toBeLessThanOrEqual(96);
+    }
+  });
+
+  test('every band declares an antagonist policy; only EARLY_READER allows one', () => {
+    for (const band of listAgeBands()) {
+      const policy = getAgeProfile(band).narrativeConstraints.antagonistPolicy;
+      expect(typeof policy).toBe('string');
+      expect(policy.length).toBeGreaterThan(0);
+      if (band === 'PB_EARLY_READER') {
+        expect(policy).toMatch(/IS allowed/);
+        expect(policy).toMatch(/outwitted or befriended/);
+      } else {
+        expect(policy).toMatch(/NO antagonist/);
+      }
+    }
+  });
+
   test('returned profile is a deep clone (mutation-safe)', () => {
     const a = getAgeProfile('PB_INFANT');
     a.narrativeConstraints.spreadCount = 999;
@@ -44,18 +75,27 @@ describe('ageProfiles', () => {
       expect(deriveAgeBandFromAge({ ageMonths: 18 })).toBe('PB_TODDLER');
       expect(deriveAgeBandFromAge({ ageMonths: 36 })).toBe('PB_TODDLER');
     });
-    test('37–72 months → PB_PRESCHOOL', () => {
+    test('37–59 months → PB_PRESCHOOL (band split at age 5)', () => {
       expect(deriveAgeBandFromAge({ ageMonths: 37 })).toBe('PB_PRESCHOOL');
-      expect(deriveAgeBandFromAge({ ageMonths: 72 })).toBe('PB_PRESCHOOL');
+      expect(deriveAgeBandFromAge({ ageMonths: 59 })).toBe('PB_PRESCHOOL');
     });
-    test('> 72 months → PB_EARLY_READER', () => {
-      expect(deriveAgeBandFromAge({ ageMonths: 73 })).toBe('PB_EARLY_READER');
+    test('60–96 months → PB_EARLY_READER (ages 5-8)', () => {
+      expect(deriveAgeBandFromAge({ ageMonths: 60 })).toBe('PB_EARLY_READER');
+      expect(deriveAgeBandFromAge({ ageMonths: 72 })).toBe('PB_EARLY_READER');
       expect(deriveAgeBandFromAge({ ageMonths: 96 })).toBe('PB_EARLY_READER');
+    });
+    test('> 96 months clamps to PB_EARLY_READER with a loud warn (age ceiling 8)', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(deriveAgeBandFromAge({ ageMonths: 144 })).toBe('PB_EARLY_READER');
+      expect(deriveAgeBandFromAge({ ageYears: 12 })).toBe('PB_EARLY_READER');
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('8-year product ceiling'));
+      warnSpy.mockRestore();
     });
     test('falls back to ageYears when months absent', () => {
       expect(deriveAgeBandFromAge({ ageYears: 1 })).toBe('PB_INFANT');     // 12 mo
       expect(deriveAgeBandFromAge({ ageYears: 2 })).toBe('PB_TODDLER');    // 24 mo
       expect(deriveAgeBandFromAge({ ageYears: 4 })).toBe('PB_PRESCHOOL');  // 48 mo
+      expect(deriveAgeBandFromAge({ ageYears: 5 })).toBe('PB_EARLY_READER'); // 60 mo
       expect(deriveAgeBandFromAge({ ageYears: 7 })).toBe('PB_EARLY_READER'); // 84 mo
     });
     test('defaults to PB_PRESCHOOL when nothing usable provided', () => {

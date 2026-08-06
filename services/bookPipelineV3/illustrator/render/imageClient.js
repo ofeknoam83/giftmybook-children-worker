@@ -120,12 +120,16 @@ async function generateWithModel({ model, parts, generationConfig, abortSignal, 
  *   Reference images in priority order; a `note` becomes a text part
  *   immediately before its image so the model knows what each reference is.
  * @param {string} [opts.aspectRatio] - imageConfig.aspectRatio (e.g. '16:9', '1:1')
+ * @param {number|null} [opts.seed] - optional deterministic seed. Applied ONLY
+ *   when BOOK_PIPELINE_V3_RENDER_SEED=1 (default OFF — behavior is byte-
+ *   identical without the env). Seed support varies by model: a 400 that
+ *   mentions the seed field retries once without it, loudly.
  * @param {AbortSignal} [opts.abortSignal]
  * @param {string} [opts.label] - logging tag
  * @returns {Promise<{ buffer: Buffer, mimeType: string, model: string }>}
  *   `model` is the model ACTUALLY used (the fallback when the configured id was invalid).
  */
-async function generateImage({ model, prompt, references = [], aspectRatio, abortSignal, label = 'v3.render' }) {
+async function generateImage({ model, prompt, references = [], aspectRatio, seed = null, abortSignal, label = 'v3.render' }) {
   if (!model) throw new Error('imageClient.generateImage: model is required');
   if (!prompt) throw new Error('imageClient.generateImage: prompt is required');
 
@@ -137,6 +141,8 @@ async function generateImage({ model, prompt, references = [], aspectRatio, abor
 
   const generationConfig = { responseModalities: ['TEXT', 'IMAGE'] };
   if (aspectRatio) generationConfig.imageConfig = { aspectRatio };
+  const seedEnabled = seed != null && process.env.BOOK_PIPELINE_V3_RENDER_SEED === '1';
+  if (seedEnabled) generationConfig.seed = seed;
 
   // Known-dead model id from earlier in this process: don't re-404, go
   // straight to the fallback (still logged so misconfiguration stays loud).
@@ -149,6 +155,13 @@ async function generateImage({ model, prompt, references = [], aspectRatio, abor
   try {
     return await generateWithModel({ model: effectiveModel, parts, generationConfig, abortSignal, label });
   } catch (err) {
+    // A model that rejects generationConfig.seed must not cost the render:
+    // strip the seed and retry once, loudly (support varies by model).
+    if (seedEnabled && /seed/i.test(err?.message || '') && !(err instanceof ModelNotFoundError)) {
+      console.warn(`[imageClient] ${label}: model rejected generationConfig.seed — retrying once without it: ${String(err.message).slice(0, 150)}`);
+      const { seed: _dropped, ...cfg } = generationConfig;
+      return generateWithModel({ model: effectiveModel, parts, generationConfig: cfg, abortSignal, label });
+    }
     if (err instanceof ModelNotFoundError && effectiveModel !== FALLBACK_IMAGE_MODEL) {
       invalidModels.add(effectiveModel);
       console.error(`[imageClient] ${label}: ${err.message} — FALLING BACK to '${FALLBACK_IMAGE_MODEL}'. Fix BOOK_PIPELINE_V3_SHEET/SPREAD_RENDERER_MODEL to a model from ListModels.`);

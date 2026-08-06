@@ -33,7 +33,9 @@ const { renderAllSpreadsNative, createLimiter } = require('./render/renderAllSpr
 const { renderSpreadCandidates, buildSpreadRenderPrompt } = require('./render/renderSpread');
 const { selectSpreadWinner, buildSpreadQaNeedsReview, pickLeastBad } = require('./qa/select');
 const { runArtDirection, restageSpread } = require('./artDirection/artDirector');
-const { buildFamilyFacts, buildFamilyFactsNote, applyFamilyFacts } = require('./artDirection/familyFacts');
+const {
+  buildFamilyFacts, buildFamilyFactsNote, applyFamilyFacts, filterFamilyFromManuscript,
+} = require('./artDirection/familyFacts');
 const { renderWorldPlates } = require('./artDirection/worldPlates');
 const { renderPropPlate } = require('./artDirection/propPlate');
 const { runBookPass, buildBookPassNeedsReview } = require('./bookPass/contactSheet');
@@ -83,12 +85,42 @@ async function runNativeIllustrator(input, ctx) {
     throw err;
   }
 
+  // ── family-in-art filter (2026-08-06, restores the legacy doctrine) ──
+  // Family members stay in the story TEXT but are stripped from the visual
+  // cast BEFORE anything art-side derives from the manuscript — renderer,
+  // spread judge, art director, book pass, and the visual bible all see the
+  // same filtered view, so the QA cascade can never flag a stripped member
+  // as missing_character. The text/gate side (parent_name_missing checks
+  // TEXT only) keeps the writer's original manuscript. Exception: the
+  // celebrated parent of a parent-day occasion stays renderable.
+  const themeAxes = resolveThemeAxes({
+    occasion: rawRequest?.occasion,
+    storyTheme: rawRequest?.storyTheme,
+    theme: rawRequest?.theme,
+  });
+  const occasion = brief?.themes?.occasion || themeAxes.occasion || null;
+  // Declared parent roles (2026-08-02 feedback: mother + father rendered as
+  // two men of invented ethnicities). Genders come from the questionnaire's
+  // mom/dad fields, NEVER from the names; skin tone anchors to the hero.
+  const familyFacts = buildFamilyFacts({
+    storyRoles: brief?.storyRoles,
+    childAnecdotes: rawRequest?.childAnecdotes,
+  });
+  if (familyFacts.length) {
+    log(`family cast facts: ${familyFacts.map((f) => `${f.role}=${f.name || f.callName}`).join(', ')}`);
+  }
+  const familyFilter = filterFamilyFromManuscript(manuscript, familyFacts, { occasion });
+  const artManuscript = familyFilter.manuscript;
+  for (const r of familyFilter.removed) {
+    log(`FAMILY-IN-ART FILTER: spread ${r.spread} — removed [${r.members.join(', ')}] from the visual cast (family stays in text; occasion=${occasion || 'none'})`);
+  }
+
   // ── document skeleton (same builders as the legacy adapter) ──
-  const visualBible = buildVisualBible({ rawRequest, brief, concept, manuscript });
+  const visualBible = buildVisualBible({ rawRequest, brief, concept, manuscript: artManuscript });
   visualBible.textRendering = { policy: 'typeset-by-layout-engine' }; // D5
-  const spreadSpecs = buildSpreadSpecs({ manuscript, ageProfile });
-  const storyBible = buildStoryBible({ concept, manuscript });
-  const draftBySpread = new Map(manuscript.spreads.map((s) => [s.spread, { text: s.text, lines: s.lines }]));
+  const spreadSpecs = buildSpreadSpecs({ manuscript: artManuscript, ageProfile });
+  const storyBible = buildStoryBible({ concept, manuscript: artManuscript });
+  const draftBySpread = new Map(artManuscript.spreads.map((s) => [s.spread, { text: s.text, lines: s.lines }]));
 
   const doc = createBookDocument({
     request: { ...rawRequest, bookId, ageBand: ageProfile?.ageBand || ageProfile?.band },
@@ -130,24 +162,10 @@ async function runNativeIllustrator(input, ctx) {
   const directorRefs = [bookPack[0], ...(coverImage ? [coverImage] : [])];
   // Ordered occasion/story-theme mood for the art director (2026-07-29):
   // palette/light/motif guidance only — the style bible owns the medium.
-  const themeArtNote = buildThemeArtNote(resolveThemeAxes({
-    occasion: rawRequest?.occasion,
-    storyTheme: rawRequest?.storyTheme,
-    theme: rawRequest?.theme,
-  }));
+  const themeArtNote = buildThemeArtNote(themeAxes);
   if (themeArtNote) log(`art direction theme mood: ${themeArtNote}`);
-  // Declared parent roles (2026-08-02 feedback: mother + father rendered as
-  // two men of invented ethnicities). Genders come from the questionnaire's
-  // mom/dad fields, NEVER from the names; skin tone anchors to the hero.
-  const familyFacts = buildFamilyFacts({
-    storyRoles: brief?.storyRoles,
-    childAnecdotes: rawRequest?.childAnecdotes,
-  });
-  if (familyFacts.length) {
-    log(`family cast facts: ${familyFacts.map((f) => `${f.role}=${f.name || f.callName}`).join(', ')}`);
-  }
   const direction = await runArtDirection({
-    manuscript,
+    manuscript: artManuscript,
     ageBand: ageProfile?.ageBand || ageProfile?.band,
     ageYears: Number(rawRequest?.child?.age) || null,
     textLayout,
@@ -182,7 +200,9 @@ async function runNativeIllustrator(input, ctx) {
   const familyLockPass = applyFamilyFacts({
     castLocks: Array.isArray(direction.continuityLocks?.cast) ? direction.continuityLocks.cast : null,
     facts: familyFacts,
-    manuscript,
+    // The FILTERED manuscript: locks are never patched/synthesized for
+    // family members the art filter already stripped from the cast.
+    manuscript: artManuscript,
   });
   const castLocks = familyLockPass.castLocks;
   if (familyLockPass.patched.length || familyLockPass.synthesized.length) {
@@ -229,7 +249,7 @@ async function runNativeIllustrator(input, ctx) {
     forceSpreads.add(resolution.spread);
     log(`review resolution: regen spread ${resolution.spread}${resolution.note ? ` (note: ${resolution.note})` : ''}`);
   }
-  const manuscriptSpreads = manuscript.spreads.map((s) => {
+  const manuscriptSpreads = artManuscript.spreads.map((s) => {
     if (!forceSpreads.has(s.spread) || !resolution?.note) return s;
     return {
       ...s,
@@ -373,6 +393,8 @@ async function runNativeIllustrator(input, ctx) {
         textLayout,
         mustIncludeFeatures,
         castLocks,
+        bookId,
+        seedOffset: baseIndex,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -449,7 +471,7 @@ async function runNativeIllustrator(input, ctx) {
     // The prop plate rides as a reference so prop identity is judged
     // against the LOCKED designs, not spread-vs-spread impressions
     // (2026-07-19: spread-vs-spread prop judging could not converge).
-    const pass = await runBookPass({ manuscript, direction, winners, cover: coverImage, propPlate, abortSignal, log });
+    const pass = await runBookPass({ manuscript: artManuscript, direction, winners, cover: coverImage, propPlate, abortSignal, log });
     bookPassMinors = pass.minorFlags; // latest whole-book review wins
     // P2 (2026-07-23 audit): the cover itself read as 2D over 3D interiors.
     // The interior pipeline can't re-harmonize the cover (it is generated in a
@@ -500,6 +522,8 @@ async function runNativeIllustrator(input, ctx) {
           ].filter(Boolean).join(' | '),
         },
       };
+      const prior = selections.get(flag.spread);
+      const baseIndex = Math.max(0, ...prior.allCandidates.map((c) => c.candidateIndex));
       const freshImgs = await renderSpreadCandidates({
         spread: flaggedSpread,
         direction: direction.directionBySpread.get(flag.spread) || null,
@@ -510,12 +534,12 @@ async function runNativeIllustrator(input, ctx) {
         textLayout,
         mustIncludeFeatures,
         castLocks,
+        bookId,
+        seedOffset: baseIndex,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
       });
-      const prior = selections.get(flag.spread);
-      const baseIndex = Math.max(0, ...prior.allCandidates.map((c) => c.candidateIndex));
       const freshCandidates = [];
       for (const [i, img] of freshImgs.entries()) {
         const candidateIndex = baseIndex + i + 1;

@@ -7,8 +7,9 @@ const PRESCHOOL_PROFILE = {
   ageBand: 'PB_PRESCHOOL',
   band: 'PB_PRESCHOOL',
   narrativeConstraints: {
-    wordsPerSpread: { min: 20, max: 50, target: 32 },
-    linesPerSpread: { min: 2, max: 4, target: 4 },
+    wordsPerSpread: { min: 8, max: 15, target: 12 },
+    totalBookWords: { min: 105, max: 195, target: 155 },
+    linesPerSpread: { min: 2, max: 4, target: 3 },
     dialogueDensity: 'low',
   },
   vocabularyConstraints: {},
@@ -46,12 +47,14 @@ function makeConceptJson(id) {
 }
 
 function makeSpread(n) {
+  // 14 words/spread — inside the PB_PRESCHOOL 8-15 window (13 spreads → 182
+  // total, inside the 105-195 book window); identical openers on purpose so
+  // the repetitive_opener soft lint keeps firing for the polish-pass tests.
   return {
     spread: n,
     lines: [
-      `Zoe carries her red bucket down the quiet shore near stone number ${n}.`,
-      'She scoops the cool wet sand and pats it into a little tower.',
-      'A small wave slides up close and tickles her bare toes.',
+      `Zoe carried her red bucket to stone number ${n}.`,
+      'She patted the wet sand.',
     ],
     refrain_here: n === 1,
     scene_contract: {

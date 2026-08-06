@@ -17,7 +17,7 @@ const AGE_TIERS = {
     label: 'Lap-Baby Board Book',
     range: [0, 1.5],
     vocabulary: 'words a baby hears every day. Mama, Dada, hand, light, soft, warm, smile, hug, see, look, up, down, big, little, sky, moon, sun, song, grass, cup. Max ~40 unique words across the entire book. The book is read TO the baby by the parent — write FOR the parent reading aloud, in a tiny musical voice. Simple does NOT mean broken: every line is a complete, graceful sentence with a clear, gentle rhythm.',
-    maxWordsPerSpread: 20,
+    maxWordsPerSpread: 15,
     sentencesPerSpread: '4',
     sentenceStyle: 'EXACTLY 4 short, complete sentences per spread — two rhyming couplets in AABB form. 2-5 words per line, never more than 6. Every line is a complete sensory observation. The four lines together form one tiny sing-song moment a parent can read in a single breath. ("Mama holds the cup. / Little hand reaches up. / The morning sun is bright. / Baby fingers grip tight.")',
     conflict: 'NONE. Sensory observation only. No problem, no chase, no resolution arc — just little warm moments.',
@@ -36,6 +36,7 @@ const AGE_TIERS = {
     label: 'Board Book',
     range: [1.5, 2],
     vocabulary: 'simple words a baby or toddler hears every day. One- and two-syllable words freely ("sleeping", "quiet", "little", "tumble", "morning", "blanket"). Max 60 unique words total. The language should be simple but BEAUTIFUL — lyrical, warm, with a gentle rhythm that sings when read aloud. Think "Goodnight Moon" or "Guess How Much I Love You" — not a vocabulary flashcard. Simple does NOT mean broken. Complete, musical sentences always.',
+    maxWordsPerSpread: 15,
     sentencesPerSpread: '1-2',
     sentenceStyle: 'Short, complete, graceful sentences. ("The little bear curls into sleep." not just "Bear. Sleep.")',
     conflict: 'none. Sensory observation only.',
@@ -51,12 +52,12 @@ const AGE_TIERS = {
   2: {
     tier: 2,
     label: 'Classic Picture Book',
-    range: [3, 5],
+    range: [3, 4],
     vocabulary: 'common words a 3-5 year old hears and understands. Two-syllable words freely; three-syllable words welcome when they sound natural read aloud ("adventure", "beautiful", "tomorrow", "butterfly", "discovery"). The language should be SIMPLE but BEAUTIFUL and COHERENT — complete, flowing sentences that a parent enjoys reading aloud. Think Julia Donaldson, Oliver Jeffers, or Margaret Wise Brown — not a reading primer. Vivid verbs are encouraged: whispered, tumbled, wandered, crept, wobbled, tiptoed. No adjective stacking. One rich metaphor per story is fine if grounded in something a child knows ("the moon was a nightlight").',
-    maxWordsPerSpread: 30,
+    maxWordsPerSpread: 15,
     sentencesPerSpread: '1-2',
     sentenceStyle: 'distributed across left and right pages.',
-    conflict: 'present but never scary. Stakes are emotional, not physical.',
+    conflict: 'present but never scary. Stakes are emotional, not physical. NO antagonist character — obstacles come from nature, weather, time, distance, or uncertainty only, never from a character who opposes the child.',
     dialogue: '2 exchanges required. Rules: (1) Child\'s voice must sound like a real 3-5 year old — short sentences, concrete words, more questions than statements; (2) Dialogue must advance the plot or reveal character; (3) The child\'s voice must sound different from the narrator\'s voice; (4) All dialogue MUST be grammatically correct and complete — never broken grammar, baby talk, or sentence fragments. Write "Can I help?" not "me help?". Write "I found it!" not "Found it!".',
     imagePromptStyle: 'wide establishing shots mixed with close emotional moments.',
     fearHandling: 'use as written.',
@@ -69,12 +70,12 @@ const AGE_TIERS = {
   3: {
     tier: 3,
     label: 'Early Reader / Illustrated Story',
-    range: [6, 8],
+    range: [5, 8],
     vocabulary: 'up to 3-syllable words. May introduce one new word per story.',
-    maxWordsPerSpread: 40,
+    maxWordsPerSpread: 55,
     sentencesPerSpread: '2-4',
     sentenceStyle: 'Compound sentences allowed.',
-    conflict: 'mild physical stakes allowed (lost, stuck, alone in the dark).',
+    conflict: 'mild physical stakes allowed (lost, stuck, alone in the dark). A mild antagonist, rival, or obstacle-character IS allowed (Gruffalo-style — never violent or genuinely scary) and it MUST be resolved by the story\'s end by being outwitted or befriended, never defeated by force.',
     dialogue: '3 exchanges required. May include subtext.',
     imagePromptStyle: 'layered scenes with background detail permitted.',
     fearHandling: 'use as written. May be specific and named.',
@@ -84,28 +85,12 @@ const AGE_TIERS = {
     rhymeLevel: 'strong — use rhyming couplets or AABB rhyme schemes in MOST spreads (at least 9 of 13). The story should have a clear rhythmic pulse. Prose bridges are allowed for 2-3 dramatic moments, but the default mode is rhyming couplets. Think Julia Donaldson\'s early readers — prose with a strong lyrical backbone. Rhymes must feel natural and beautiful — never forced. A parent reading aloud should feel the rhythm.',
     soundWordsRule: 'LIMIT onomatopoeia: maximum 1 across the entire story, and only if it serves a specific scene purpose. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than sound effects. Avoid excessive references to sounds — show, don\'t tell through noise. If in doubt, use zero.',
   },
-  4: {
-    tier: 4,
-    label: 'Illustrated Chapter / Bedtime Story',
-    range: [9, 12],
-    vocabulary: 'no restriction. Metaphor and irony permitted.',
-    maxWordsPerSpread: 60,
-    sentencesPerSpread: 'up to 6',
-    sentenceStyle: 'Varied rhythm intentional.',
-    conflict: 'emotional complexity allowed (embarrassment, grief, longing).',
-    dialogue: '3-4 exchanges. Subtext expected. Characters may be unreliable.',
-    imagePromptStyle: 'cinematic framing, shadow/light contrast, symbolic detail.',
-    fearHandling: 'may be treated as an internal state, not just external obstacle.',
-    pacing: 'Phase 1 (spreads 1-9): Fuller sentences. Richer texture. Phase 2 (spreads 11-13): emotional resolution — energy matches the theme. Adventure ends triumphant. Friendship/nature ends with quiet joy. Bedtime only ends with calm settling.',
-    arc: 'arc may include a secondary character with their own want.',
-    phaseTwo: 10,
-    rhymeLevel: 'light rhythmic prose — weave in occasional rhyming couplets, internal rhymes, and near-rhymes for musicality. Slant rhymes and internal echoes add rhythm without forcing a pattern. Include at least 2-3 rhyming passages across the story. The prose should have a rhythmic quality that rewards reading aloud. Prioritize natural-sounding rhymes over forced ones.',
-    soundWordsRule: 'ZERO onomatopoeia. No sound words whatsoever — no bang, crash, whoosh, splash, creak. At this age they feel juvenile and break the literary voice. Describe sounds with prose: "the door groaned open" not "CREEEAK." This rule has no exceptions.',
-  },
 };
 
 /**
- * Return the tier number (1-4) and tier config for a given age.
+ * Return the tier number (0-3) and tier config for a given age.
+ * The product ceiling is age 8 (picture books only) — tier 4 (9-12) was
+ * removed 2026-08-06; ages above 8 clamp loudly onto tier 3.
  * @param {number|string} age
  * @returns {{ tier: number, config: object }}
  */
@@ -116,7 +101,7 @@ function getAgeTier(age) {
     a = n;
   } else {
     a = 5;
-    console.warn(`[writerBrief] getAgeTier called with non-finite age=${JSON.stringify(age)} — defaulting to 5 (tier 2). Caller should pass a numeric age or a DOB-derived age.`);
+    console.warn(`[writerBrief] getAgeTier called with non-finite age=${JSON.stringify(age)} — defaulting to 5 (tier 3). Caller should pass a numeric age or a DOB-derived age.`);
   }
   // Tier 0 = lap-baby board book (under ~18 months). The hero cannot stand,
   // walk, run, climb, or grab moving objects, and the book has no plot or
@@ -126,9 +111,11 @@ function getAgeTier(age) {
   // budget and a stricter no-locomotion action whitelist.
   if (a < 1.5) return { tier: 0, config: AGE_TIERS[0] };
   if (a <= 2) return { tier: 1, config: AGE_TIERS[1] };
-  if (a <= 5) return { tier: 2, config: AGE_TIERS[2] };
-  if (a <= 8) return { tier: 3, config: AGE_TIERS[3] };
-  return { tier: 4, config: AGE_TIERS[4] };
+  if (a <= 4) return { tier: 2, config: AGE_TIERS[2] };
+  if (a > 8) {
+    console.warn(`[writerBrief] age ${a} exceeds the 8-year product ceiling (picture books only) — clamping to tier 3`);
+  }
+  return { tier: 3, config: AGE_TIERS[3] };
 }
 
 // ── Emotional Age Tier Configuration ──
@@ -183,28 +170,12 @@ const EMOTIONAL_AGE_TIERS = {
     coachingNote: 'Spread 18 ends with 3 reflection questions for the reader. Coping strategy is named and practiced across 2-3 spreads.',
     reflectionPage: true,
   },
-  E4: {
-    tier: 'E4',
-    label: 'Story + Reflection Emotional',
-    range: [10, 14],
-    vocabulary: 'no restriction. Metaphor, irony, ambiguity all permitted. Interior monologue extended.',
-    maxWordsPerSpread: 90,
-    sentencesPerSpread: '4-7',
-    sentenceStyle: 'full literary prose. Varying rhythm intentional. Unreliable narrator possible.',
-    conflict: 'emotional complexity fully expressed. The emotion may not be fully resolved by the end.',
-    dialogue: '4-5 exchanges. Characters may be unreliable narrators. Subtext and silence used.',
-    imagePromptStyle: 'cinematic, symbolic, mood-driven. Less literal — metaphor in image. Shadow/light contrast.',
-    fearHandling: 'internal state. Child understands their own emotional patterns. May reflect on them.',
-    arc: '6-act arc across 20 spreads. Spreads 18-19: Adult note to parent + Reflection section with writing prompts.',
-    rhymeLevel: 'none. Literary prose only.',
-    coachingNote: 'Last 2 spreads are structured differently: spread 19 = "For You" reflection with prompts + space to write. Spread 20 = "For the Adult Reading This" — a note about the emotional approach used in this book.',
-    reflectionPage: true,
-    adultNote: true,
-  },
 };
 
 /**
  * Return the emotional tier and config for a given age.
+ * E3 is the top tier — the product ceiling is age 8 (picture books only);
+ * E4 (10-14) was retired with the 9-12 band (2026-08-06).
  * @param {number|string} age
  * @returns {{ tier: string, config: object }}
  */
@@ -212,8 +183,7 @@ function getEmotionalAgeTier(age) {
   const a = Number(age) || 5;
   if (a <= 3)  return { tier: 'E1', config: EMOTIONAL_AGE_TIERS.E1 };
   if (a <= 6)  return { tier: 'E2', config: EMOTIONAL_AGE_TIERS.E2 };
-  if (a <= 9)  return { tier: 'E3', config: EMOTIONAL_AGE_TIERS.E3 };
-  return       { tier: 'E4', config: EMOTIONAL_AGE_TIERS.E4 };
+  return       { tier: 'E3', config: EMOTIONAL_AGE_TIERS.E3 };
 }
 
 // ── Style Modes ──
@@ -1853,19 +1823,21 @@ function buildStructureBrief(vars) {
 
 // ── Legacy Compatibility ──
 
+// Aligned to the live bookPipelineV3 age-profile budgets (13 spreads,
+// picture books only, age ceiling 8 — the 9-12 'olderKid' row was removed
+// 2026-08-06).
 const AGE_PROFILES = {
-  toddler: { range: '0-2', wordsPerSpread: '4-10', totalWords: '32-80' },
-  preschool: { range: '3-5', wordsPerSpread: '8-18', totalWords: '64-144' },
-  earlyKid: { range: '6-8', wordsPerSpread: '12-25', totalWords: '96-200' },
-  olderKid: { range: '9-12', wordsPerSpread: '20-40', totalWords: '160-320' },
+  toddler: { range: '0-2', wordsPerSpread: '5-15', totalWords: '65-195' },
+  preschool: { range: '3-4', wordsPerSpread: '8-15', totalWords: '105-195' },
+  earlyKid: { range: '5-8', wordsPerSpread: '40-70', totalWords: '600-900' },
 };
 
 function getAgeProfile(age) {
-  const a = Math.max(3, Number(age) || 5); // Minimum age 3
+  const a = Number(age);
+  if (!Number.isFinite(a)) return AGE_PROFILES.preschool;
   if (a <= 2) return AGE_PROFILES.toddler;
-  if (a <= 5) return AGE_PROFILES.preschool;
-  if (a <= 8) return AGE_PROFILES.earlyKid;
-  return AGE_PROFILES.olderKid;
+  if (a <= 4) return AGE_PROFILES.preschool;
+  return AGE_PROFILES.earlyKid;
 }
 
 function buildWriterBrief(age) {

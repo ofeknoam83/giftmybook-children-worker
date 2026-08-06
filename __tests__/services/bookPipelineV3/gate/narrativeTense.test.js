@@ -80,3 +80,32 @@ describe('buildBudgetPreamble tense line', () => {
     expect(preamble).not.toContain('present tense ONLY');
   });
 });
+
+describe('buildBudgetPreamble whole-book budget + conflict policy', () => {
+  test('states the whole-book word window when the profile declares one', () => {
+    const preamble = buildBudgetPreamble(getAgeProfile('PB_EARLY_READER'), 13);
+    expect(preamble).toContain('WHOLE-BOOK BUDGET');
+    expect(preamble).toContain('600-900 words');
+  });
+
+  test('states the band conflict policy for forbidding and allowing bands', () => {
+    expect(buildBudgetPreamble(getAgeProfile('PB_PRESCHOOL'), 13))
+      .toContain('CONFLICT POLICY for this band: NO antagonist');
+    expect(buildBudgetPreamble(getAgeProfile('PB_EARLY_READER'), 13))
+      .toMatch(/CONFLICT POLICY for this band: A mild antagonist/);
+  });
+
+  test('old pinned profiles without the new fields render no dangling lines', () => {
+    const legacyProfile = {
+      ageBand: 'PB_PRESCHOOL',
+      narrativeConstraints: {
+        wordsPerSpread: { min: 20, max: 50, target: 32 },
+        linesPerSpread: { min: 2, max: 4, target: 4 },
+        narrativeTense: 'past',
+      },
+    };
+    const preamble = buildBudgetPreamble(legacyProfile, 13);
+    expect(preamble).not.toContain('WHOLE-BOOK BUDGET');
+    expect(preamble).not.toContain('CONFLICT POLICY');
+  });
+});

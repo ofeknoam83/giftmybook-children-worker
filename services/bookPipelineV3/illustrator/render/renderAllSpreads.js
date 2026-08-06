@@ -137,7 +137,7 @@ async function renderAllSpreadsNative({
     const direction = directionBySpread?.get(spread.spread) || null;
     const plate = platesByLocation?.get(spread.scene_contract?.setting) || null;
     const rendered = await renderSpreadCandidates({
-      spread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks, abortSignal, log,
+      spread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks, bookId, abortSignal, log,
     });
 
     const candidates = [...existing];

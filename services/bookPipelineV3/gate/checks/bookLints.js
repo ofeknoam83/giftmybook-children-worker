@@ -71,6 +71,7 @@ const FREQUENCY_STOPWORDS = new Set([
 const {
   normalizeSentence, sentencesOf, sortedSpreads, linesOf, wordsOf, isDialogue, inflectionSet,
 } = require('./textUtils');
+const { countWords } = require('./wordBudget');
 const { containsName } = require('./bookChecks');
 const { findOnomatopoeiaEvents } = require('./onomatopoeia');
 const { textHasPastTenseMarker } = require('./pastTense');
@@ -832,6 +833,49 @@ function tenseDriftLint(manuscript, opts = {}) {
 }
 
 /**
+ * book_word_total (2026-08-06 picture-book length standard) — the summed
+ * manuscript word count sits outside the band's whole-book window
+ * (`narrativeConstraints.totalBookWords`). The per-spread `word_budget`
+ * HARD gate bounds each spread; this lint polices the SUM — a book whose
+ * spreads all ride the per-spread floor (or ceiling) can still miss
+ * picture-book length. The declared window is clamped into what the
+ * per-spread window makes arithmetically reachable so the lint can never
+ * demand the impossible (the embedded-layout clamp narrows both). Soft by
+ * design: it feeds targeted revision notes, never blocks.
+ *
+ * @param {object} manuscript
+ * @param {{ageProfile?: object}} [opts]
+ * @returns {Array<{code: string, message: string, spreads: number[], targetSpreads: number[]}>}
+ */
+function bookWordTotalLint(manuscript, opts = {}) {
+  const nc = opts.ageProfile?.narrativeConstraints;
+  const tb = nc?.totalBookWords;
+  if (!tb) return []; // old checkpoint-pinned profiles predate the field
+  const spreads = sortedSpreads(manuscript);
+  if (!spreads.length) return [];
+  const counts = spreads.map((s) => ({
+    spread: s.spread,
+    words: countWords(s.text || linesOf(s).join(' ')),
+  }));
+  const total = counts.reduce((sum, c) => sum + c.words, 0);
+  const wps = nc.wordsPerSpread;
+  let { min, max } = tb;
+  if (wps) {
+    max = Math.min(max, wps.max * spreads.length);
+    min = Math.min(min, max);
+  }
+  if (total >= min && total <= max) return [];
+  const over = total > max;
+  const ranked = [...counts].sort((a, b) => (over ? b.words - a.words : a.words - b.words));
+  return [{
+    code: 'book_word_total',
+    message: `the whole manuscript totals ${total} words; this band's picture-book budget is ${min}-${max} words (target ~${tb.target}) — ${over ? 'trim the wordiest spreads' : 'grow the thinnest spreads'} toward the book target without leaving the per-spread window`,
+    spreads: counts.map((c) => c.spread),
+    targetSpreads: ranked.slice(0, 3).map((c) => c.spread),
+  }];
+}
+
+/**
  * Run every book-level lint. Never throws — a lint bug must not gate a book.
  *
  * @param {object} manuscript
@@ -856,6 +900,7 @@ function runBookLints(manuscript, opts = {}) {
   for (const lint of [
     wordLengthLint, sentenceLengthLint, nameScarcityLint,
     roleUnusedLint, foodRoleMisplacedLint, openingBeatLovesLint, tenseDriftLint,
+    bookWordTotalLint,
   ]) {
     try {
       all.push(...lint(manuscript, opts));
@@ -887,5 +932,6 @@ module.exports = {
   openingBeatLovesLint,
   tenseDriftLint,
   onomatopoeiaOveruseLint,
+  bookWordTotalLint,
   normalizeSentence,
 };

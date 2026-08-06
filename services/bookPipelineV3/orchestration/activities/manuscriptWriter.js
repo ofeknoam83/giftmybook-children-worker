@@ -34,11 +34,16 @@ function buildBudgetPreamble(ageProfile, spreadCount) {
   const nc = ageProfile?.narrativeConstraints || {};
   const wps = nc.wordsPerSpread || {};
   const lps = nc.linesPerSpread || {};
+  const tb = nc.totalBookWords; // may be absent on old checkpoint-pinned profiles
   const bandName = ageProfile?.ageBand || ageProfile?.band || 'unknown';
   return [
     `Age band: ${bandName}. Total spreads: ${spreadCount}.`,
     `WORD BUDGET (typesetting limit, machine-checked): between ${wps.min} and ${wps.max} words per spread (target ~${wps.target}). Over is as wrong as under.`,
+    tb
+      ? `WHOLE-BOOK BUDGET: the full ${spreadCount}-spread manuscript totals ${tb.min}-${tb.max} words (target ~${tb.target}) — the standard picture-book length for this band. Per-spread budgets must add up to this, not just satisfy each spread in isolation.`
+      : null,
     `Lines per spread: between ${lps.min} and ${lps.max} (target ${lps.target}).`,
+    nc.antagonistPolicy ? `CONFLICT POLICY for this band: ${nc.antagonistPolicy}` : null,
     // 2026-08-02 customer feedback: past tense is the narrative standard
     // (classic storybook voice); the lap-baby bands stay present tense.
     narrativeTenseFor(ageProfile) === 'present'

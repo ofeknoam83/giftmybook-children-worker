@@ -11,9 +11,15 @@
     "narrativeTense": "past",
     "wordsPerSpread": {
       "min": 40,
-      "max": 90,
-      "target": 60
+      "max": 70,
+      "target": 55
     },
+    "totalBookWords": {
+      "min": 600,
+      "max": 900,
+      "target": 750
+    },
+    "antagonistPolicy": "A mild antagonist, rival, or obstacle-character IS allowed (Gruffalo-style — never violent or genuinely scary) and it MUST be resolved by the story's end by being outwitted or befriended, never defeated by force. The antagonist inhabits the existing challenge beats (spreads 6-9); it never adds beats.",
     "linesPerSpread": {
       "min": 4,
       "max": 8,

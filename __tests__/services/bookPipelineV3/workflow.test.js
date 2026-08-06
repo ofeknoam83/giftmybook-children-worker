@@ -396,3 +396,49 @@ describe('index.js error mapping', () => {
     }
   });
 });
+
+// Text-only (admin writing test, 2026-08-06): the full writing chain runs —
+// brief → concepts → drafts → gate → panel → polish — and the workflow
+// returns the accepted manuscript as the document. No cover pre-flight
+// vision calls, no identity kit, no illustrator.
+describe('runCreateBookWorkflow — text-only (admin writing test)', () => {
+  test('completes with the manuscript; illustrator and cover pre-flight never run', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const { runNativeIllustrator } = require('../../../services/bookPipelineV3/illustrator');
+    const { resolveCoverAnchor } = require('../../../services/bookPipelineV3/illustrator/coverPreflight');
+    runNativeIllustrator.mockClear();
+    resolveCoverAnchor.mockClear();
+
+    const { document } = await runCreateBookWorkflow({
+      rawRequest: { ...RAW_REQUEST, textOnly: true },
+      signals: {},
+      log: () => {},
+    });
+
+    expect(runNativeIllustrator).not.toHaveBeenCalled();
+    expect(resolveCoverAnchor).not.toHaveBeenCalled();
+    expect(document.textOnly).toBe(true);
+    expect(document.v3.textOnly).toBe(true);
+    expect(document.writerQa.pass).toBe(true);
+    expect(document.spreads).toHaveLength(13);
+    expect(document.spreads.every((s) => s.illustration === null)).toBe(true);
+    expect(document.spreads[0].manuscript.text).toBeTruthy();
+
+    // toLegacyStoryPlan (server.js's consumption path) tolerates the
+    // imageless spreads and still carries the story text per entry.
+    const { storyPlan } = toLegacyStoryPlan(document);
+    const spreads = storyPlan.entries.filter((e) => e.type === 'spread');
+    expect(spreads).toHaveLength(13);
+    expect(spreads.every((e) => e.spreadIllustrationUrl === null)).toBe(true);
+    expect(spreads.every((e) => (e.left?.text || '').length > 0)).toBe(true);
+  });
+
+  test('a text-only run works with no photos and no cover at all', async () => {
+    wireModelLayer({ judgeScore: 5 });
+    const noMedia = { ...RAW_REQUEST, textOnly: true, cover: undefined };
+    noMedia.child = { ...RAW_REQUEST.child, photoUrls: [] };
+    const { document } = await runCreateBookWorkflow({ rawRequest: noMedia, signals: {}, log: () => {} });
+    expect(document.spreads).toHaveLength(13);
+    expect(document.cover?.imageUrl || null).toBeNull();
+  });
+});

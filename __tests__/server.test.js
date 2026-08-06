@@ -48,7 +48,6 @@ jest.mock('../services/storyPlanner', () => ({
 }));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
-  generateIllustrationWithAnchors: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
   downloadPhotoAsBase64: jest.fn().mockResolvedValue({ base64: 'fake-base64', mimeType: 'image/jpeg' }),
   getNextApiKey: jest.fn().mockReturnValue('test-key'),
   fetchWithTimeout: jest.fn(),
@@ -59,30 +58,6 @@ jest.mock('../services/illustrationGenerator', () => ({
   // matching the production no-op behavior.
   canonicalBookArtStyle: jest.fn(() => 'watercolor'),
   PARENT_THEMES: new Set(['mothers_day', 'fathers_day']),
-}));
-jest.mock('../services/chatSessionManager', () => ({
-  ChatSessionManager: jest.fn().mockImplementation(() => ({
-    startBookSession: jest.fn().mockResolvedValue(true),
-    generateSpread: jest.fn().mockResolvedValue({
-      imageBuffer: Buffer.from('fake-image'),
-      imageBase64: 'ZmFrZS1pbWFnZQ==',
-    }),
-    retrySpread: jest.fn().mockResolvedValue({
-      imageBuffer: Buffer.from('fake-image'),
-      imageBase64: 'ZmFrZS1pbWFnZQ==',
-    }),
-    retryTextOnly: jest.fn().mockResolvedValue({
-      imageBuffer: Buffer.from('fake-image'),
-      imageBase64: 'ZmFrZS1pbWFnZQ==',
-    }),
-    getSessionInfo: jest.fn().mockReturnValue({ turnsUsed: 1, model: 'test', startedAt: Date.now() }),
-  })),
-}));
-jest.mock('../services/faceEngine', () => ({
-  extractFaceEmbedding: jest.fn().mockResolvedValue({ embedding: null, faceCount: 1, primaryPhotoUrl: 'https://example.com/photo.jpg' }),
-  generateCharacterReference: jest.fn().mockResolvedValue('https://example.com/ref.png'),
-  verifyFaceConsistency: jest.fn().mockResolvedValue(0.8),
-  describeChildAppearance: jest.fn().mockResolvedValue('A young child with brown hair.'),
 }));
 jest.mock('../services/layoutEngine', () => ({
   assemblePdf: jest.fn().mockResolvedValue(Buffer.from('fake-pdf')),

@@ -53,6 +53,17 @@ function applyEmbeddedLayoutBudget(profile, textLayout) {
   wps.max = Math.min(wps.max, EMBEDDED_MAX_WORDS_PER_SPREAD);
   wps.target = Math.min(wps.target, EMBEDDED_TARGET_WORDS_PER_SPREAD);
   wps.min = Math.min(wps.min, wps.max); // keep the window well-formed for low caps
+  // Keep the whole-book window arithmetically reachable under the clamped
+  // per-spread budget (embedded EARLY_READER: 50 wds/spread × 13 = 650 book
+  // cap, so the caption-mode 600-900 window narrows to 600-650 — tight, but
+  // this only feeds the soft book_word_total lint, never a hard gate).
+  const tb = profile.narrativeConstraints.totalBookWords;
+  const spreads = profile.narrativeConstraints.spreadCount;
+  if (tb && spreads) {
+    tb.max = Math.min(tb.max, wps.max * spreads);
+    tb.min = Math.min(tb.min, tb.max);
+    tb.target = Math.min(tb.target, tb.max);
+  }
   return profile;
 }
 
@@ -89,8 +100,11 @@ function isPictureBookBand(ageBand) {
 
 /**
  * Map a child's age in months (or years if months unavailable) to a
- * picture-book age band. Mirrors v1's normalizeRequest.js logic so the
- * cutover doesn't shift any child between bands.
+ * picture-book age band. The band split at 60 months is a product decision
+ * (2026-08-06): ages 1-4 get the no-antagonist/small-budget bands, ages 5-8
+ * get the full picture-book budget with a mild antagonist allowed. Ages
+ * above 8 exceed the product ceiling (picture books only, ages 1-8) and
+ * clamp LOUDLY onto the oldest band.
  */
 function deriveAgeBandFromAge({ ageMonths, ageYears }) {
   let months = ageMonths;
@@ -98,7 +112,9 @@ function deriveAgeBandFromAge({ ageMonths, ageYears }) {
   if (months == null) return 'PB_PRESCHOOL';
   if (months < 18) return 'PB_INFANT';
   if (months <= 36) return 'PB_TODDLER';
-  if (months <= 72) return 'PB_PRESCHOOL';
+  if (months < 60) return 'PB_PRESCHOOL';
+  if (months <= 96) return 'PB_EARLY_READER';
+  console.warn(`[bookPipelineV3] age ${months}mo exceeds the 8-year product ceiling (picture books only) — clamping to PB_EARLY_READER`);
   return 'PB_EARLY_READER';
 }
 

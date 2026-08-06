@@ -91,3 +91,33 @@ describe('imageClient model fallback', () => {
     expect(urlOf(fetchWithTimeout.mock.calls[1])).toContain('/models/good-model:');
   }, 15000);
 });
+
+describe('imageClient optional deterministic seed (BOOK_PIPELINE_V3_RENDER_SEED)', () => {
+  const bodyOf = (call) => JSON.parse(call[1].body);
+
+  afterEach(() => { delete process.env.BOOK_PIPELINE_V3_RENDER_SEED; });
+
+  test('seed rides generationConfig only when the env flag is set', async () => {
+    process.env.BOOK_PIPELINE_V3_RENDER_SEED = '1';
+    fetchWithTimeout.mockResolvedValueOnce(okImageResponse());
+    await generateImage({ model: FALLBACK_IMAGE_MODEL, prompt: 'p', seed: 12345, label: 'seed-on' });
+    expect(bodyOf(fetchWithTimeout.mock.calls[0]).generationConfig.seed).toBe(12345);
+  });
+
+  test('without the env flag the seed is never sent (byte-identical default behavior)', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(okImageResponse());
+    await generateImage({ model: FALLBACK_IMAGE_MODEL, prompt: 'p', seed: 12345, label: 'seed-off' });
+    expect(bodyOf(fetchWithTimeout.mock.calls[0]).generationConfig.seed).toBeUndefined();
+  });
+
+  test('a model that rejects the seed field gets one loud retry without it', async () => {
+    process.env.BOOK_PIPELINE_V3_RENDER_SEED = '1';
+    fetchWithTimeout
+      .mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Invalid JSON payload received. Unknown name "seed" at generation_config' })
+      .mockResolvedValueOnce(okImageResponse());
+    const res = await generateImage({ model: FALLBACK_IMAGE_MODEL, prompt: 'p', seed: 7, label: 'seed-strip' });
+    expect(res.buffer.toString()).toBe('img');
+    expect(bodyOf(fetchWithTimeout.mock.calls[0]).generationConfig.seed).toBe(7);
+    expect(bodyOf(fetchWithTimeout.mock.calls[1]).generationConfig.seed).toBeUndefined();
+  });
+});

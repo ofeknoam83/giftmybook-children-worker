@@ -10,9 +10,14 @@
     "spreadCount": 13,
     "narrativeTense": "present",
     "wordsPerSpread": {
-      "min": 12,
-      "max": 28,
-      "target": 20
+      "min": 5,
+      "max": 15,
+      "target": 10
+    },
+    "totalBookWords": {
+      "min": 65,
+      "max": 195,
+      "target": 130
     },
     "linesPerSpread": {
       "min": 2,
@@ -20,10 +25,11 @@
       "target": 4
     },
     "syllablesPerLine": {
-      "min": 5,
-      "max": 9,
-      "target": 7
+      "min": 3,
+      "max": 7,
+      "target": 5
     },
+    "antagonistPolicy": "NO antagonist — obstacles come from nature, weather, time, distance, or uncertainty only. Never a character who opposes the child.",
     "rhymeScheme": "AABB",
     "rhymeStrictness": "perfect_rhyme_required_imperfect_eye_rhymes_banned",
     "allowedForms": [

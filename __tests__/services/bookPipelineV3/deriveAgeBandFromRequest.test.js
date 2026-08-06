@@ -62,6 +62,7 @@ describe('deriveAgeBandFromRequest', () => {
 
   test('ageYears alias accepted', () => {
     expect(deriveAgeBandFromRequest({ child: { ageYears: 0 } })).toBe('PB_INFANT');
-    expect(deriveAgeBandFromRequest({ child: { ageYears: 5 } })).toBe('PB_PRESCHOOL');
+    expect(deriveAgeBandFromRequest({ child: { ageYears: 4 } })).toBe('PB_PRESCHOOL');
+    expect(deriveAgeBandFromRequest({ child: { ageYears: 5 } })).toBe('PB_EARLY_READER'); // band split at 5
   });
 });

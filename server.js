@@ -57,17 +57,16 @@ const { v4: uuidv4 } = require('uuid');
 
 const { brainstormStorySeed } = require('./services/storyPlanner');
 const { EMOTIONAL_THEMES, getEmotionalTier } = require('./services/shared/emotionalTiers');
-const { generateIllustration, downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
-// generateIllustration is only used for chapter books and graphic novels.
-// Picture book illustration is handled exclusively by services/illustrator (new minimal module).
-// V3: compositeTextOnIllustration removed (V1 illustration pipeline)
+// Picture-book rendering is the native v3 illustrator; covers call
+// generateIllustration inside coverGenerator. server.js only needs the
+// utility exports here.
+const { downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
 const { assemblePdf, buildEmbeddedPreviewPdf, OVERLAY } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { computeCoverPdfMetadata } = require('./services/coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
-const { buildWriterBrief, buildV2Brief, buildChildContext, getAgeProfile, getAgeTier } = require('./prompts/writerBrief');
 const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest, sanitizeForPrompt } = require('./services/validation');
 const { resolveBookPipeline } = require('./services/pipelineRouter');
 const { withRetry } = require('./services/retry');
@@ -458,7 +457,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
     childInterests, childPhotoUrls, bookFormat, artStyle, theme,
     occasion, storyTheme,
     customDetails, callbackUrl, progressCallbackUrl, childId,
-    approvedCoverUrl, childAnecdotes,
+    approvedCoverUrl, childAnecdotes, textOnly,
   } = sanitized;
   let { approvedTitle } = sanitized;
   const heartfeltNote = sanitizeForPrompt(req.body.heartfeltNote || '', 500) || null;
@@ -686,7 +685,13 @@ app.post('/generate-book', authenticate, async (req, res) => {
       // If forceNew, wipe all GCS data and checkpoints for a truly fresh start
       const forceNew = req.body.forceNew === true;
       let checkpoint = null;
-      if (forceNew) {
+      if (textOnly) {
+        // Text-only runs are STATELESS: never resume an existing checkpoint
+        // (a real book's illustrated checkpoint must not be replayed as an
+        // imageless completion), never write one, never clear one — the
+        // writing test leaves any real generation state untouched.
+        bookContext.log('info', 'Text-only run — checkpoints ignored (stateless writing test)');
+      } else if (forceNew) {
         bookContext.log('info', 'Full regeneration requested — clearing checkpoint');
         // Clear checkpoint immediately so we don't resume from old state.
         // Old illustrations are cleaned up AFTER new ones are generated (see post-illustration cleanup).
@@ -968,6 +973,10 @@ Be concise. Only describe adults/secondary people, not the main child.` },
           ...(checkpoint?.illustratorVersion ? { checkpointIllustratorVersion: checkpoint.illustratorVersion } : {}),
           ...(requestedTextLayout ? { textLayout: requestedTextLayout } : {}),
           ...(checkpoint?.textLayout ? { checkpointTextLayout: checkpoint.textLayout } : {}),
+          // Admin writing test: the workflow returns right after the accepted
+          // manuscript (gate + judge panel + polish) — no identity kit, no
+          // art direction, no renders.
+          ...(textOnly ? { textOnly: true } : {}),
         };
 
         let pipelineResult;
@@ -1133,24 +1142,100 @@ Be concise. Only describe adults/secondary people, not the main child.` },
 
         // New pipeline has already rendered + QA'd all spreads and uploaded
         // them to GCS, so we mark the checkpoint as 'illustration' complete.
-        await saveCheckpoint(bookId, {
+        // Text-only runs write NO checkpoint: an imageless storyPlan here
+        // would be replayed by a later full dispatch (the :storyPlan resume
+        // branch skips the whole v3 pipeline) and assemble a blank-page PDF.
+        if (!textOnly) {
+          await saveCheckpoint(bookId, {
+            bookId,
+            completedStage: 'illustration',
+            storyPlan,
+            illustrationResults: storyPlan.entries,
+            pipelineVersion: routed.version,
+            // Pin the illustrator a v3 book rendered on so retries/resumes
+            // finish on it (native|legacy, milestone-2 flag).
+            ...(pipelineResult.document?.v3?.illustrator?.version
+              ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
+              : {}),
+            ...(pipelineResult.document?.v3?.textLayout
+              ? { textLayout: pipelineResult.document.v3.textLayout }
+              : {}),
+            ...(qaAdvisories ? { qaAdvisories } : {}),
+            timestamp: new Date().toISOString(),
+            accumulatedCosts: costTracker.getSummary(),
+          });
+        }
+      }
+
+      // ── TEXT-ONLY completion (admin writing test) ──
+      // The manuscript is accepted (gate + judge panel + polish); stop here.
+      // No cover prep, no PDF assembly, no uploads — complete with the story
+      // text so the admin Content tab can render it immediately.
+      if (textOnly) {
+        const totalMs = Date.now() - bookStartTime;
+        const costSummary = costTracker.getSummary();
+        const textEntries = Array.isArray(storyPlan.entries) ? storyPlan.entries : [];
+        const textSpreadCount = textEntries.filter(e => e.type === 'spread').length;
+        const bookTitle = storyPlan.title || approvedTitle || 'My Story';
+        const storyContent = {
+          title: bookTitle,
+          entries: textEntries.map(e => ({
+            type: e.type,
+            spread: e.spread,
+            left: e.left,
+            right: e.right,
+            hasImage: false,
+            ...(e.type === 'spread' && e.captionText !== undefined ? { captionText: e.captionText } : {}),
+          })),
+          characterDescription: storyPlan.characterDescription || null,
+          characterOutfit: storyPlan.characterOutfit || null,
+          additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
+          synopsis: storyPlan.synopsis || null,
+          plotSynopsis: storyPlan.plotSynopsis || null,
+          tagline: storyPlan.tagline || null,
+          storyBible: storyPlan.storyBible || null,
+          textOnly: true,
+        };
+        bookContext.log('info', 'Text-only book complete', { totalMs, spreads: textSpreadCount, cost: `$${costSummary.totalCost.toFixed(4)}` });
+
+        const textOnlyPayload = {
           bookId,
-          completedStage: 'illustration',
-          storyPlan,
-          illustrationResults: storyPlan.entries,
-          pipelineVersion: routed.version,
-          // Pin the illustrator a v3 book rendered on so retries/resumes
-          // finish on it (native|legacy, milestone-2 flag).
-          ...(pipelineResult.document?.v3?.illustrator?.version
-            ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
-            : {}),
-          ...(pipelineResult.document?.v3?.textLayout
-            ? { textLayout: pipelineResult.document.v3.textLayout }
-            : {}),
-          ...(qaAdvisories ? { qaAdvisories } : {}),
-          timestamp: new Date().toISOString(),
-          accumulatedCosts: costTracker.getSummary(),
-        });
+          interiorPdfUrl: null,
+          coverPdfUrl: null,
+          previewImageUrls: [],
+          title: bookTitle,
+          spreadCount: textSpreadCount,
+          storyContent,
+          upsellCovers: [],
+          costs: costSummary,
+          emotionalCategory: emotionalCategory || null,
+          pipelineVersionUsed,
+          textOnly: true,
+          warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
+          logs: bookContext.logs,
+        };
+        if (callbackUrl) {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await fetch(callbackUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+                body: JSON.stringify({ success: true, backCoverImageUrl: null, ...textOnlyPayload }),
+              });
+              break;
+            } catch (cbErr) {
+              console.error(`[server] Text-only completion callback attempt ${attempt + 1}/3 failed:`, cbErr.message);
+              if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+            }
+          }
+        }
+        if (progressCallbackUrl) {
+          reportComplete(progressCallbackUrl, textOnlyPayload);
+        }
+        // No clearCheckpoint: text-only runs never own checkpoint state, and
+        // clearing here could destroy a real book's resumable checkpoint.
+        console.log(`[server] Book ${bookId} complete (TEXT-ONLY): ${textSpreadCount} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
+        return;
       }
 
       // V2: Text is already in the story plan — no separate text generation needed.

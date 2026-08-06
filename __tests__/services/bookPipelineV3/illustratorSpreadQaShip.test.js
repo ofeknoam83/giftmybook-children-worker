@@ -96,7 +96,7 @@ function makeInput() {
     identityKit: { brief: { briefText: 'LIKENESS BRIEF' }, fromCache: true, photos: [] },
     rawRequest: { bookId: 'bk-1', child: { name: 'Amit', age: 8 } },
     brief: { child: { name: 'Amit', age: 8 } },
-    ageProfile: { ageBand: 'PB_EARLY_ELEM' },
+    ageProfile: { ageBand: 'PB_EARLY_READER' },
     concept: { logline: 'A river quest.' },
     manuscript: MANUSCRIPT,
     coverImageUrl: 'https://cover.test/c.png',

@@ -35,7 +35,23 @@
 
 /** Generic role words a manuscript may use instead of (or beside) names. */
 const MOTHER_ALIASES = ['mom', 'mommy', 'mama', 'momma', 'mum', 'mummy', 'mother', 'ima'];
+// 'papa' stays father-only (it is also a grandfather word in some families,
+// but the questionnaire's dad field is the only declared source we have).
 const FATHER_ALIASES = ['dad', 'daddy', 'papa', 'dada', 'pa', 'pop', 'father', 'abba'];
+/**
+ * Non-parent relatives (2026-08-06 family-in-art doctrine): we only have
+ * the child's photo, so any depicted relative is a fabricated face. These
+ * role words identify siblings/grandparents/extended family in a cast list
+ * so the code-level filter can strip them from the ART cast (text keeps
+ * them freely). Whole-word matching only — "Momo the cat" never matches.
+ */
+const SIBLING_ALIASES = ['brother', 'brothers', 'sister', 'sisters', 'bro', 'sis', 'sibling', 'siblings'];
+const GRANDPARENT_ALIASES = [
+  'grandma', 'grandmother', 'granny', 'gran', 'nana', 'nan', 'oma', 'savta', 'abuela', 'bubbe',
+  'grandpa', 'grandfather', 'granddad', 'grandad', 'gramps', 'opa', 'saba', 'abuelo', 'zayde',
+  'grandparents', 'grandparent',
+];
+const EXTENDED_FAMILY_ALIASES = ['uncle', 'aunt', 'auntie', 'cousin', 'cousins'];
 
 /**
  * Non-empty trimmed string or null. Newlines collapse and length caps at 60
@@ -108,6 +124,80 @@ function matchFamilyRole(character, facts = []) {
     return facts.find((f) => f.role === 'father') || { role: 'father', noun: 'man', name: null, callName: null };
   }
   return null;
+}
+
+/** Plain-text label for a characters_present entry (strings or {name} objects). */
+function memberLabelOf(member) {
+  return typeof member === 'string' ? member : String(member?.name || member?.label || '');
+}
+
+/**
+ * Family-in-art filter (2026-08-06, restores the legacy doctrine as CODE):
+ * family members may be named in the story TEXT freely, but they are
+ * stripped from the visual cast — we only have the child's photo, and any
+ * depicted relative is a fabricated face. EXCEPTION: the celebrated parent
+ * of a parent-day book (mothers_day → Mom, fathers_day → Dad) stays, and
+ * keeps the full familyFacts rendering machinery.
+ *
+ * Matching is exact/whole-word by role: declared parent names + call-names
+ * via matchFamilyRole, generic role words via the alias lexicons. A sibling
+ * named only in free text (no structured sibling-name field exists in the
+ * request schema) is caught only when the cast entry carries a role word
+ * ("her big brother Tom") — the writer-prompt ban is the first line of
+ * defense for bare invented names.
+ *
+ * @param {Array} charactersPresent - scene_contract.characters_present
+ * @param {Array} facts - buildFamilyFacts output
+ * @param {{ occasion?: string|null }} [opts]
+ * @returns {{ filtered: Array, removed: string[] }}
+ */
+function filterFamilyFromCast(charactersPresent, facts = [], { occasion = null } = {}) {
+  const list = Array.isArray(charactersPresent) ? charactersPresent : [];
+  const allowedRole = occasion === 'mothers_day' ? 'mother'
+    : occasion === 'fathers_day' ? 'father' : null;
+  const filtered = [];
+  const removed = [];
+  for (const member of list) {
+    const label = memberLabelOf(member);
+    const parent = matchFamilyRole(label, facts);
+    if (parent) {
+      if (parent.role === allowedRole) filtered.push(member);
+      else removed.push(label);
+      continue;
+    }
+    const relative = [SIBLING_ALIASES, GRANDPARENT_ALIASES, EXTENDED_FAMILY_ALIASES]
+      .some((aliases) => aliases.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(label)));
+    if (relative) removed.push(label);
+    else filtered.push(member);
+  }
+  return { filtered, removed };
+}
+
+/**
+ * Apply filterFamilyFromCast to every spread's scene contract. Returns a
+ * shallow-cloned manuscript (only touched spreads/contracts are copied) so
+ * the caller can hand the ART side a filtered view while the text/gate
+ * side keeps the writer's original. An emptied cast is fine — the render
+ * prompt's formatCastList falls back to hero-only, which IS the doctrine.
+ *
+ * @param {object} manuscript
+ * @param {Array} facts - buildFamilyFacts output
+ * @param {{ occasion?: string|null }} [opts]
+ * @returns {{ manuscript: object, removed: Array<{spread: number, members: string[]}> }}
+ */
+function filterFamilyFromManuscript(manuscript, facts = [], { occasion = null } = {}) {
+  if (!manuscript || !Array.isArray(manuscript.spreads)) return { manuscript, removed: [] };
+  const removed = [];
+  const spreads = manuscript.spreads.map((s) => {
+    const cast = s.scene_contract?.characters_present;
+    if (!Array.isArray(cast) || !cast.length) return s;
+    const res = filterFamilyFromCast(cast, facts, { occasion });
+    if (!res.removed.length) return s;
+    removed.push({ spread: Number(s.spread), members: res.removed });
+    return { ...s, scene_contract: { ...s.scene_contract, characters_present: res.filtered } };
+  });
+  if (!removed.length) return { manuscript, removed };
+  return { manuscript: { ...manuscript, spreads }, removed };
 }
 
 /** One sentence pinning a parent's role, gender, and family look. */
@@ -202,6 +292,11 @@ module.exports = {
   buildFamilyFactsNote,
   matchFamilyRole,
   applyFamilyFacts,
+  filterFamilyFromCast,
+  filterFamilyFromManuscript,
   MOTHER_ALIASES,
   FATHER_ALIASES,
+  SIBLING_ALIASES,
+  GRANDPARENT_ALIASES,
+  EXTENDED_FAMILY_ALIASES,
 };

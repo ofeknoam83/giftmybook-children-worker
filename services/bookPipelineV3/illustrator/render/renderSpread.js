@@ -99,6 +99,24 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     // any drifty phrasing in those channels was read before the style lock.
     STYLE_BIBLE,
     '',
+    // CHARACTER IDENTITY comes right after the style lock and BEFORE the
+    // scene (industry ordering: who is in frame first, then where/what).
+    // Every line here is BOOK-CONSTANT — byte-identical on all spreads
+    // (verified by test) — so the identity anchor never varies with scene
+    // phrasing; the spread-varying SUPPORTING CAST block lives in SCENE.
+    'CHARACTER IDENTITY:',
+    briefText,
+    // The single highest-leverage likeness line: the renderer repeatedly drops
+    // these ranked features (e.g. freckles), so restate them as an explicit,
+    // scene-level MUST-INCLUDE checklist on top of the brief paragraph above.
+    (mustIncludeFeatures || []).length
+      ? `MUST INCLUDE — these distinguishing features are visible on the child's face/body in THIS scene, drawn exactly as on the model sheet (do NOT omit any): ${mustIncludeFeatures.join('; ')}.`
+      : null,
+    wardrobeNote ? `OUTFIT: ${wardrobeNote}` : 'OUTFIT: exactly as on the approved cover reference.',
+    'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
+    "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
+    "CANONICAL COLORS: the character's hair color, skin tone, and freckles come from the MODEL SHEET and are IDENTICAL in every scene. Lighting (night, starlight, lantern glow, golden hour) tints the SCENE — it never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light, freckles stay visible, skin keeps its depth. No color streaks or highlights that are not on the sheet. Never re-derive the character's facial structure, features, or colors from the scene description below — the MODEL SHEET is the only source of the character's appearance.",
+    '',
     'SCENE (from the manuscript — depict exactly this):',
     `- Setting: ${sc.setting || 'as implied by the action'}`,
     `- Characters present ${formatCastList(sc.characters_present)}`,
@@ -113,6 +131,9 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     // Free-text channel (writer notes + spliced admin/repair notes) — scoped
     // so no note phrasing can soften the style lock above.
     sc.continuity_notes ? `- Continuity (scene facts only — the SIGNATURE ART STYLE above always wins over any wording here): ${sc.continuity_notes}` : null,
+    presentCast.length
+      ? `SUPPORTING CAST (locked designs — each is the SAME person with the SAME hair, skin tone, and outfit every time they appear in this book):\n${presentCast.map((c) => `- ${c.name}: ${c.design}`).join('\n')}`
+      : null,
     '',
     direction ? [
       'ART DIRECTION:',
@@ -123,22 +144,6 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
     zone
       ? `QUIET ZONE: keep the ${zone} of the image visually QUIET — soft, low-detail, low-contrast (sky, wall, water). Nothing important there.${embedded ? ' The story text will be PRINTED over this zone, so it must stay genuinely calm and uncluttered.' : ''}`
       : `QUIET ZONE: keep one generous area of soft, low-detail background (sky, wall, or similar) so the composition breathes.${embedded ? ' The story text will be PRINTED over that area.' : ''}`,
-    '',
-    'CHARACTER IDENTITY:',
-    briefText,
-    // The single highest-leverage likeness line: the renderer repeatedly drops
-    // these ranked features (e.g. freckles), so restate them as an explicit,
-    // scene-level MUST-INCLUDE checklist on top of the brief paragraph above.
-    (mustIncludeFeatures || []).length
-      ? `MUST INCLUDE — these distinguishing features are visible on the child's face/body in THIS scene, drawn exactly as on the model sheet (do NOT omit any): ${mustIncludeFeatures.join('; ')}.`
-      : null,
-    wardrobeNote ? `OUTFIT: ${wardrobeNote}` : 'OUTFIT: exactly as on the approved cover reference.',
-    'FACIAL MARKS: only the marks shown on the model sheet (e.g. its freckles, if any) — never add moles, beauty marks, or stray dark spots that are not on the sheet.',
-    "AGE & BUILD: exactly the model sheet's age, proportions, and build on every spread — never render the child younger/chubbier or older/slimmer than the sheet.",
-    "CANONICAL COLORS: the character's hair color, skin tone, and freckles come from the MODEL SHEET and are IDENTICAL in every scene. Lighting (night, starlight, lantern glow, golden hour) tints the SCENE — it never re-colors the character: brown hair must still read brown (never blonde/golden) under warm light, freckles stay visible, skin keeps its depth. No color streaks or highlights that are not on the sheet.",
-    presentCast.length
-      ? `SUPPORTING CAST (locked designs — each is the SAME person with the SAME hair, skin tone, and outfit every time they appear in this book):\n${presentCast.map((c) => `- ${c.name}: ${c.design}`).join('\n')}`
-      : null,
     '',
     'ABSOLUTELY NO TEXT of any kind in the image — no letters, words, numbers, signs with writing, book pages with visible words, or watermarks. The story text is printed separately. Clothing must be letter-free: no name tags, letter badges, real-world logos, or national flags.',
     'WORDLESS COSTUMES & TECH: any control panels, chest displays, screens, gauges, wrist devices, helmets, HUDs, spacesuit instruments, or dashboards must show ONLY wordless indicators — glowing dots, bars, rings, star-glyphs, abstract icons — NEVER digits, numbers, clock readouts, or letters.',
@@ -164,6 +169,17 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
   ].filter((l) => l !== null).join('\n');
 }
 
+/** FNV-1a 32-bit — a stable per-book seed base for deterministic renders. */
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  const s = String(str);
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
 /**
  * Render the candidates for one spread, in parallel.
  *
@@ -175,6 +191,14 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  * @param {object|null} [opts.propPlate] - locked recurring-prop designs plate
  * @param {string} opts.briefText
  * @param {string} [opts.wardrobeNote]
+ * @param {string|null} [opts.bookId] - enables the optional deterministic seed
+ *   (env-gated in imageClient; OFF by default). Seed = fnv1a(bookId) +
+ *   spread×1000 + seedOffset + candidate — ×1000 because repair/recovery
+ *   waves push candidate indices well past 10, and per-candidate distinct
+ *   seeds are required (identical seeds would collapse the 2-candidate
+ *   diversity the QA cascade selects from).
+ * @param {number} [opts.seedOffset] - highest candidateIndex already used for
+ *   this spread (repair/recovery waves), keeping wave seeds distinct
  * @param {number} [opts.count]
  * @param {AbortSignal} [opts.abortSignal]
  * @param {(msg: string) => void} [opts.log]
@@ -183,7 +207,8 @@ function buildSpreadRenderPrompt({ spread, direction = null, briefText, wardrobe
  */
 async function renderSpreadCandidates({
   spread, direction = null, bookPack, plate = null, propPlate = null, briefText, wardrobeNote,
-  textLayout = 'caption', mustIncludeFeatures = [], castLocks = null, count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
+  textLayout = 'caption', mustIncludeFeatures = [], castLocks = null, bookId = null, seedOffset = 0,
+  count = CANDIDATES_PER_SPREAD, abortSignal, log = () => {},
 }) {
   const prompt = buildSpreadRenderPrompt({ spread, direction, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks });
   const references = withPropPlate(withWorldPlate(bookPack, plate), propPlate);
@@ -193,6 +218,9 @@ async function renderSpreadCandidates({
     prompt,
     references,
     aspectRatio: resolveSpreadAspect(textLayout),
+    seed: bookId != null
+      ? (fnv1a(bookId) + Number(spread.spread) * 1000 + seedOffset + i + 1) >>> 0
+      : null,
     abortSignal,
     label: `v3.spread.${spread.spread}.c${i + 1}`,
   }).then((img) => ({ ...img, candidateIndex: i + 1 }));
