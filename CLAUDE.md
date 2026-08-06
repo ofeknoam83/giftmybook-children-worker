@@ -17,8 +17,7 @@ Cross-pipeline code: `shared/llm/openaiClient.js` (unified LLM client), `shared/
 ## Key Services
 
 - `storyPlanner.js` — survives for `brainstormStorySeed` only (runs before the v3 pipeline; the seed feeds customDetails). The legacy planners inside it (planStory/planChapterBook/planGraphicNovel/critics) are dead code slated for a slimming pass.
-- `illustrationGenerator.js` — Gemini 3.1 Flash image API with child photo reference for face-consistent illustrations
-- `faceEngine.js` — Gemini Vision face validation and appearance description (cached in GCS)
+- `illustrationGenerator.js` — Gemini image API + shared utilities (key pool, fetchWithTimeout, downloadPhotoAsBase64, ART_STYLE_CONFIG). `generateIllustration`'s only production caller is cover generation (`coverGenerator.js`); interior spreads render ONLY via the native v3 illustrator. The comic builders, previous-spread style-reference chaining, `generateIllustrationWithAnchors`, and the dead `check*` QA helpers were deleted 2026-08-06 — along with `illustrationChatSession.js`, `chatSessionManager.js`, and `faceEngine.js` (all zero-importer dead code). The NSFW ladder's `buildGenericSafePrompt` fallback now keeps the character identity anchor (name/outfit/appearance, pre-sanitized).
 - `layoutEngine.js` — pdf-lib assembles V2 entries into Lulu-compliant print-ready PDF
 - `coverGenerator.js` — Generates Lulu wrap-around cover PDF (back + spine + front)
 
@@ -42,6 +41,7 @@ Cross-pipeline code: `shared/llm/openaiClient.js` (unified LLM client), `shared/
 - `GEMINI_API_KEY_1` through `GEMINI_API_KEY_10` — Round-robin pool for parallel illustration generation
 - `GOOGLE_AI_STUDIO_KEY` — Fallback Gemini key
 - `GEMINI_PROXY_URL`, `GEMINI_PROXY_API_KEY` — Optional proxy endpoint for illustration fallback
+- `BOOK_PIPELINE_V3_RENDER_SEED` — Set to `1` to send a deterministic per-candidate `generationConfig.seed` on image renders (fnv1a(bookId) + spread×1000 + candidateIndex — candidates stay distinct). Default OFF (byte-identical behavior). Experimental: seed support varies by Gemini image model; a seed-rejecting 400 retries once without it, loudly.
 - `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
 - `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
 

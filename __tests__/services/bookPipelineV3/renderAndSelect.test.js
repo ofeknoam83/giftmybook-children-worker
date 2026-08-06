@@ -748,3 +748,44 @@ describe('pickWinner / pickLeastBad (ship-on-exhaustion helpers)', () => {
     expect(pickLeastBad(undefined)).toBeNull();
   });
 });
+
+// 2026-08-06 consistency hardening: the CHARACTER IDENTITY block sits right
+// after the style bible (character first, then scene) and is BOOK-CONSTANT —
+// byte-identical across spreads — so the identity anchor never varies with
+// scene phrasing. The spread-varying SUPPORTING CAST block lives in SCENE.
+describe('character identity block ordering + byte-identity', () => {
+  const identityOpts = {
+    briefText: 'BRIEF: curly brown hair, freckles',
+    wardrobeNote: 'yellow raincoat',
+    mustIncludeFeatures: ['freckles'],
+  };
+  const identitySection = (p) => p.slice(p.indexOf('CHARACTER IDENTITY:'), p.indexOf('SCENE (from the manuscript'));
+
+  test('CHARACTER IDENTITY comes after the style bible and before SCENE', () => {
+    const p = buildSpreadRenderPrompt({ spread: SPREAD(3), ...identityOpts });
+    const idAt = p.indexOf('CHARACTER IDENTITY:');
+    expect(idAt).toBeGreaterThan(p.indexOf('SIGNATURE ART STYLE'));
+    expect(idAt).toBeLessThan(p.indexOf('SCENE (from the manuscript'));
+    expect(p).toContain("Never re-derive the character's facial structure");
+  });
+
+  test('the identity section is byte-identical across spreads of one book', () => {
+    const a = buildSpreadRenderPrompt({ spread: SPREAD(2), ...identityOpts });
+    const b = buildSpreadRenderPrompt({ spread: SPREAD(9), ...identityOpts });
+    expect(identitySection(a)).toBe(identitySection(b));
+  });
+
+  test('spread-varying cast locks render inside SCENE, not the identity section', () => {
+    const spread = SPREAD(4);
+    spread.scene_contract.characters_present = ['Zoe', 'the robot'];
+    const p = buildSpreadRenderPrompt({
+      spread,
+      ...identityOpts,
+      castLocks: [{ name: 'the robot', design: 'round silver bot' }],
+    });
+    expect(identitySection(p)).not.toContain('SUPPORTING CAST');
+    const scene = p.slice(p.indexOf('SCENE (from the manuscript'), p.indexOf('ART DIRECTION:'));
+    expect(scene).toContain('SUPPORTING CAST');
+    expect(scene).toContain('round silver bot');
+  });
+});

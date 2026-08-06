@@ -222,252 +222,31 @@ function sanitizePrompt(prompt) {
 }
 
 /**
- * Build a very generic safe fallback prompt for when sanitization isn't enough.
+ * Build a very generic safe fallback prompt for when sanitization isn't
+ * enough. The scene is dropped on purpose (it is what tripped the safety
+ * filter), but the CHARACTER IDENTITY must survive — without it a
+ * twice-retried image ships with a random child (no name, outfit, or
+ * appearance lock). The identity fields are themselves run through
+ * sanitizePrompt so the anchor can never re-trigger the filter.
+ *
+ * @param {string} artStyle
+ * @param {{ childName?: string, characterOutfit?: string, characterDescription?: string }} [identity]
  */
-function buildGenericSafePrompt(artStyle) {
+function buildGenericSafePrompt(artStyle, identity = {}) {
   const styleConfig = ART_STYLE_CONFIG[canonicalBookArtStyle(artStyle)];
   const avoid = styleConfig.antiStyle ? `. AVOID (hard no): ${styleConfig.antiStyle}.` : '';
-  return `${styleConfig.prefix} children's book illustration of a happy child in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}${avoid}`;
-}
-
-function buildComicPanelPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
-  artStyle = canonicalBookArtStyle(artStyle);
-  const requestedStyle = artStyle === 'cinematic_3d' || artStyle === 'pixar_premium'
-    ? 'graphic_novel_cinematic'
-    : artStyle;
-  const styleConfig = ART_STYLE_CONFIG[requestedStyle] || ART_STYLE_CONFIG.graphic_novel_cinematic;
-  const parts = [];
-  const textFreeZone = opts.textFreeZone || 'top-right';
-  const balloons = Array.isArray(opts.balloons) ? opts.balloons.filter((item) => item && item.text) : [];
-  const captions = Array.isArray(opts.captions) ? opts.captions.filter((item) => item && item.text) : [];
-  const sfx = Array.isArray(opts.sfx) ? opts.sfx.filter((item) => item && item.text) : [];
-  const layoutHint = opts.layoutTemplate || opts.pageLayout || 'conversationGrid';
-
-  parts.push('Create one premium middle-grade graphic novel panel.');
-  parts.push('This is sequential art, not a picture-book spread and not a collage.');
-  parts.push('The art must feel like a first-class designed graphic novel for ages 9-12.');
-  parts.push('No text may appear inside the image. All dialogue, captions, and SFX will be added later in vector lettering.');
-  parts.push('');
-
-  if (childName) {
-    parts.push(`PRIMARY HERO: ${childName}.`);
-  }
-  if (characterDescription) {
-    parts.push(`LOCKED HERO APPEARANCE: ${characterDescription}`);
-  }
-  if (opts.characterAnchor) {
-    parts.push(`CHARACTER ANCHOR LOCK: ${opts.characterAnchor}`);
-  }
-  if (characterOutfit) {
-    parts.push(`OUTFIT LOCK: ${characterOutfit}`);
-  }
-  if (opts.additionalCoverCharacters) {
-    parts.push(`ALLOWED SUPPORTING CHARACTERS ONLY: ${opts.additionalCoverCharacters}`);
-    parts.push('SECONDARY CHARACTER CONSISTENCY: Same hair, skin tone, build, and features on every panel. Match the uploaded reference photo exactly.');
-  } else {
-    parts.push('NO FAMILY MEMBERS: Do NOT draw the child\'s parents, siblings, or grandparents. Only fictional characters (aliens, creatures, villains, etc.) may interact with the child.');
-  }
-  if (recurringElement) {
-    parts.push(`RECURRING MOTIF: ${recurringElement}`);
-  }
-  if (keyObjects) {
-    parts.push(`LOCKED RECURRING PROPS: ${keyObjects}`);
-  }
-
-  parts.push('');
-  parts.push(`COMIC STAGING: ${sceneDescription}`);
-  if (opts.panelType) parts.push(`PANEL TYPE: ${opts.panelType}`);
-  if (opts.shot) parts.push(`SHOT SIZE: ${opts.shot}`);
-  if (opts.cameraAngle) parts.push(`CAMERA ANGLE: ${opts.cameraAngle}`);
-  if (opts.actingNotes) parts.push(`ACTING NOTES: ${opts.actingNotes}`);
-  if (opts.backgroundComplexity) parts.push(`BACKGROUND COMPLEXITY: ${opts.backgroundComplexity}`);
-  if (opts.colorScript) {
-    parts.push(`COLOR SCRIPT: ${typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript)}`);
-  }
-  parts.push(`LAYOUT CONTEXT: This panel belongs to the "${layoutHint}" page template. Compose for clear reading order and leave intentional open space for lettering.`);
-  parts.push(`TEXT SAFE SPACE: preserve clean negative space in the ${textFreeZone} zone. Do not place faces, mouths, or the main action there.`);
-  parts.push('CRITICAL TEXT WIDTH RULE: When text is overlaid later, it MUST occupy no more than 35% of the page width. This is a hard limit. Ensure the reserved text zone is narrow (no wider than 35% of the image width).');
-
-  if (balloons.length) {
-    parts.push(`LETTERING PLAN: ${balloons.length} speech balloons will be overlaid later. Keep the ${textFreeZone} zone uncluttered for them.`);
-  }
-  if (captions.length) {
-    parts.push(`CAPTION PLAN: ${captions.length} caption box(es) will be overlaid later. Maintain a clean band for them.`);
-  }
-  if (sfx.length) {
-    parts.push(`SFX PLAN: Reserve visual room for sound effects: ${sfx.map((item) => item.text).join(', ')}.`);
-  }
-
-  parts.push('');
-  parts.push('COMIC ART DIRECTION RULES:');
-  parts.push('- prioritize silhouette clarity and facial readability');
-  parts.push('- simplify backgrounds in small or dialogue-heavy panels');
-  parts.push('- use dramatic 3D cinematic lighting with volumetric light shafts and rim lights for depth');
-  parts.push('- render characters with Pixar-quality subsurface skin scattering and expressive eyes');
-  parts.push('- use rich saturated colors with clear value separation for print readability');
-  parts.push('- avoid heavy bokeh, clutter, muddy shadows, or film-frame noise');
-  parts.push('- keep one clear focal point');
-  parts.push('- preserve continuity with previous panels and references');
-  parts.push('- no split-screen, no multi-panel collage, no caption boxes, no speech bubbles, no letters, no words');
-  parts.push('');
-  parts.push(`STYLE: ${renderStyleBlock(styleConfig)}`);
-  if (opts.aspectRatioHint) parts.push(`ASPECT RATIO INTENT: ${opts.aspectRatioHint}`);
-  parts.push('Wholesome, family-friendly, emotionally expressive, premium sequential art.');
-
-  if (pageText && !opts.skipTextEmbed) {
-    parts.push('Do not render this text in the image. It is reference-only for performance and tone:');
-    parts.push(pageText);
-  }
-
-  return parts.join('\n');
-}
-
-/**
- * Build a full-page comic prompt for graphic novels.
- * Instead of generating individual panels, this creates a prompt for the ENTIRE page
- * including panels, borders, speech bubbles with text, captions, and sound effects.
- * The AI image model renders everything in one shot.
- *
- * @param {string} fullPagePrompt - LLM-written page composition description (from story planner)
- * @param {string} artStyle - Art style key
- * @param {string} childName - Protagonist name
- * @param {object} opts - Character/world details and art direction
- * @returns {string} Complete prompt for full-page generation
- */
-function buildComicPagePrompt(fullPagePrompt, artStyle, childName, opts = {}) {
-  artStyle = canonicalBookArtStyle(artStyle);
-  // Use the same Pixar/cinematic style as regular children's books — premium 3D, not a flat comic look
-  const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
-  const parts = [];
-
-  // ── PRIORITY 1: What this image IS (comic page, not a single illustration) ──
-  parts.push('⚠️ OUTPUT FORMAT — THIS IS A COMIC BOOK PAGE, NOT A SINGLE ILLUSTRATION:');
-  parts.push('Render a complete COMIC BOOK PAGE with multiple PANELS arranged in a grid layout.');
-  parts.push('The output must look like a page ripped from a premium Pixar-style graphic novel:');
-  parts.push('- Multiple panels separated by dark ink borders and white gutters');
-  parts.push('- White speech bubbles with dark outlines and pointed tails toward speakers');
-  parts.push('- Caption boxes with text inside them');
-  parts.push('- Sound effects as bold stylized lettering');
-  parts.push('- White margins around the outer page edges');
-  parts.push('This is NOT a single scene. It is a MULTI-PANEL COMIC PAGE with SEQUENTIAL STORYTELLING.');
-  parts.push('');
-
-  // ── PRIORITY 2: The page composition (what to draw) ──
-  parts.push('=== PAGE COMPOSITION (follow this exactly) ===');
-  parts.push(fullPagePrompt);
-  parts.push('');
-
-  // ── PRIORITY 3: Text rendering (CRITICAL) ──
-  parts.push('=== TEXT & LETTERING (MANDATORY — pages without text will be REJECTED) ===');
-  parts.push('You MUST render ALL text described above as visible, legible text in the image:');
-  parts.push('• SPEECH BUBBLES: White oval/round bubbles with 1-2pt dark outline and a pointed tail toward the speaker. The EXACT dialogue text must be written inside in clean, readable black lettering.');
-  parts.push('• THOUGHT BUBBLES: Cloud/puffy shape with small circles trailing to the thinker. Thought text inside.');
-  parts.push('• SHOUT BUBBLES: Jagged/starburst spiky shape. Bold uppercase text inside.');
-  parts.push('• CAPTION BOXES: Rectangular boxes. Narration = dark navy background with white text. Location = cream background with dark text.');
-  parts.push('• SOUND EFFECTS: LIMIT to at most 1-2 per page. Use large bold stylized comic lettering only for genuinely impactful moments. Do NOT overuse sound words (BANG, WHOOSH, CRASH, SPLAT, etc.). Describe actions through vivid imagery and movement rather than excessive sound effects.');
-  parts.push('• Text must be LARGE ENOUGH to read when printed at 6×9 inches. Minimum apparent font size: 8pt equivalent.');
-  parts.push('• Reading order: top-to-bottom, left-to-right within each panel.');
-  parts.push('• Every speech bubble, caption, and SFX mentioned in the page composition MUST appear as rendered text.');
-  parts.push('');
-
-  // ── PRIORITY 4: Art style (same premium Pixar 3D as children's books) ──
-  parts.push('=== ART STYLE ===');
-  parts.push(`${renderStyleBlock(styleConfig)}`);
-  parts.push('The art in each panel must be PREMIUM 3D CINEMATIC PIXAR QUALITY — the same lush, photorealistic 3D CGI render style used in Pixar and DreamWorks animated films.');
-  parts.push('Volumetric cinematic lighting with warm golden tones, subsurface skin scattering, rich saturated colors, dreamy depth-of-field bokeh backgrounds.');
-  parts.push('Characters must be emotionally expressive with soft, appealing Pixar-style faces.');
-  if (opts.colorScript) {
-    const cs = typeof opts.colorScript === 'string' ? opts.colorScript : JSON.stringify(opts.colorScript);
-    parts.push(`Color direction: ${cs}`);
-  }
-  parts.push('');
-
-  // ── PRIORITY 5: Character identity (condensed) ──
-  const charParts = [];
-  if (childName) charParts.push(`Hero: ${childName}.`);
-  if (opts.characterDescription) charParts.push(`Appearance: ${opts.characterDescription}`);
-  if (opts.characterAnchor) charParts.push(`Anchor lock: ${opts.characterAnchor}`);
-  if (opts.recurringElement) charParts.push(`Recurring motif: ${opts.recurringElement}`);
-  if (opts.keyObjects) charParts.push(`Recurring props: ${opts.keyObjects}`);
-  if (opts.characterDescription) {
-    const negatives = buildHairNegatives(opts.characterDescription);
-    if (negatives) charParts.push(negatives);
-  }
-  if (charParts.length > 0) {
-    parts.push('=== CHARACTER IDENTITY (maintain consistency) ===');
-    parts.push(charParts.join('\n'));
-    parts.push('');
-  }
-
-  // ── OUTFIT LOCK (ported from buildCharacterPrompt for full consistency) ──
-  if (opts.characterOutfit) {
-    parts.push('=== OUTFIT LOCK (CRITICAL) ===');
-    parts.push(`The child MUST wear EXACTLY this outfit on EVERY panel of EVERY page — no exceptions: ${opts.characterOutfit}`);
-    parts.push('COLOR VERIFICATION: Before finishing, verify EACH garment\'s color matches the outfit description. A red shirt must be RED, not maroon, not pink, not orange.');
-    parts.push('FORBIDDEN OUTFIT CHANGES: Do NOT add, remove, or swap ANY clothing item — not for swimming, sleeping, rain, sports, or any activity.');
-    parts.push('Do NOT add accessories, hats, capes, helmets, or costumes that are not in the outfit description.');
-    parts.push('The outfit must be pixel-for-pixel identical across all panels.');
-    parts.push('');
-  }
-
-  // ── TEXT CONSISTENCY RULES ──
-  parts.push('=== TEXT CONSISTENCY ===');
-  parts.push('Font style and size must be consistent across all pages.');
-  parts.push('CRITICAL TEXT WIDTH RULE: All text MUST occupy no more than 35% of the page width. This is a hard limit — text that exceeds 35% width will cause the page to be REJECTED. Use shorter lines and more line breaks rather than wide text blocks. Verify text width before finalizing.');
-  parts.push('Use only embedded text — no overlays.');
-  parts.push('');
-
-  // ── PRIORITY 6: Family member rules ──
-  if (opts.additionalCoverCharacters) {
-    parts.push('=== ALLOWED SECONDARY CHARACTERS ===');
-    parts.push(`The following characters appear on the book cover and MAY appear in panels. Draw them as described — do NOT invent new relatives or characters not listed here:`);
-    parts.push(opts.additionalCoverCharacters);
-    parts.push(`IMPORTANT: Only the characters listed above are allowed. Do NOT add any other family members, parents, siblings, or relatives beyond what is listed.`);
-    parts.push('SECONDARY CHARACTER CONSISTENCY LOCK:');
-    parts.push('- Same hair color, style, and length on every page');
-    parts.push('- Same skin tone and facial features on every page');
-    parts.push('- Same approximate age and build on every page');
-    parts.push('- Do NOT change their ethnicity, hair, or skin tone between pages');
-    parts.push('- Match their appearance to the uploaded reference photo');
-    parts.push('');
-  } else if (opts.theme && PARENT_THEMES.has(opts.theme)) {
-    const isMother = opts.theme === 'mothers_day';
-    const parentLabel = isMother ? 'MOTHER (female woman)' : 'FATHER (male man)';
-    parts.push(`=== PARENT CHARACTER — ${parentLabel} (NO FACE) ===`);
-    parts.push(`The ${isMother ? 'mother' : 'father'} is physically present but we have NO reference photo. ${isMother ? 'She' : 'He'} is ${isMother ? 'FEMALE — always draw a woman, never a man' : 'MALE — always draw a man, never a woman'}. Show ${isMother ? 'her' : 'him'} through BODY LANGUAGE ONLY: hands reaching toward child, arms around child, side view with face cropped/obscured, or kneeling beside child with face just out of frame. BODY ORIENTATION (CRITICAL): The parent's body must ALWAYS face TOWARD the child — leaning in, bending down, reaching out. NEVER show the parent walking away, facing away, or with back to the child. NEVER draw the ${isMother ? 'mother' : 'father'}'s full face.`);
-    if (opts.parentOutfit) {
-      parts.push(`PARENT OUTFIT (LOCKED): ${opts.parentOutfit} — same outfit on EVERY page, no changes.`);
-    }
-    parts.push('');
-  } else {
-    parts.push('=== NO FAMILY MEMBERS IN PANELS ===');
-    parts.push('Do NOT draw the child\'s parents, siblings, grandparents, or any real-life relatives. We do not have their photos and cannot depict them accurately.');
-    parts.push('The child may interact with fictional characters (shopkeepers, aliens, talking animals, magical creatures, villains) but NEVER with family members.');
-    parts.push('If a parent or relative is mentioned in dialogue, show only their EFFECT (a warm light, a hand at the edge of frame, a voice) — never their face or full body.');
-    parts.push('');
-  }
-
-  // ── First-page reference image for outfit/style/text consistency ──
-  if (opts.firstPageRefBase64) {
-    parts.push('=== FIRST PAGE REFERENCE ===');
-    parts.push('REFERENCE PAGE (first page): Match the outfit rendering, color palette, art style, text placement, and font from this reference page exactly.');
-    parts.push('');
-  }
-
-  parts.push('ASPECT RATIO: 2:3 (vertical/portrait page).');
-  parts.push('Wholesome, family-friendly, premium sequential art. Print-ready quality.');
-
-  return parts.join('\n');
+  const safe = (s) => (s ? sanitizePrompt(String(s)).replace(/, wholesome, family-friendly, child-safe, innocent$/, '') : '');
+  const name = safe(identity.childName);
+  const anchor = [
+    identity.characterDescription ? `CHARACTER (must match the reference photo exactly): ${safe(identity.characterDescription)}.` : '',
+    identity.characterOutfit ? `OUTFIT (locked, identical to every other illustration in this book): ${safe(identity.characterOutfit)}.` : '',
+  ].filter(Boolean).join(' ');
+  return `${styleConfig.prefix} children's book illustration of a happy child${name ? ` named ${name}` : ''} in a colorful scene, wholesome, family-friendly, child-safe, bright colors, joyful atmosphere, non-realistic, fully clothed ${styleConfig.suffix}${avoid}${anchor ? `\n${anchor}` : ''}`;
 }
 
 function determineAspectRatio(opts = {}) {
   if (opts.aspectRatio) return opts.aspectRatio;
-  if (opts.comicPageMode) return '2:3';
-  if (!opts.comicMode) return opts.isSpread ? '16:9' : '1:1';
-  if (opts.layoutTemplate === 'fullBleedSplash' || opts.panelType === 'splash') return '3:4';
-  if (opts.panelType === 'establishing' || opts.layoutTemplate === 'cinematicTopStrip') return '16:9';
-  if (opts.panelType === 'closeup') return '3:4';
-  return '4:3';
+  return opts.isSpread ? '16:9' : '1:1';
 }
 
 /**
@@ -664,38 +443,6 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
  */
 function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, characterOutfit, characterDescription, recurringElement, keyObjects, opts = {}) {
   artStyle = canonicalBookArtStyle(artStyle);
-  if (opts.comicPageMode) {
-    return buildComicPagePrompt(
-      sceneDescription,  // In comicPageMode, sceneDescription IS the fullPagePrompt
-      artStyle,
-      childName,
-      {
-        characterDescription,
-        characterAnchor: opts.characterAnchor,
-        characterOutfit,
-        additionalCoverCharacters: opts.additionalCoverCharacters,
-        recurringElement,
-        keyObjects,
-        colorScript: opts.colorScript,
-        firstPageRefBase64: opts.firstPageRefBase64,
-        theme: opts.theme,
-        parentOutfit: opts.parentOutfit,
-      }
-    );
-  }
-  if (opts.comicMode) {
-    return buildComicPanelPrompt(
-      sceneDescription,
-      artStyle,
-      childName,
-      pageText,
-      characterOutfit,
-      characterDescription,
-      recurringElement,
-      keyObjects,
-      opts
-    );
-  }
 
   const styleConfig = ART_STYLE_CONFIG[artStyle] || ART_STYLE_CONFIG.pixar_premium;
   const skipTextEmbed = opts.skipTextEmbed || false;
@@ -757,9 +504,6 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   }
   parts.push('');
 
-  if (opts.firstSpreadRefBase64) {
-    parts.push('OUTFIT & STYLE REFERENCE: The attached "first spread" image shows EXACTLY how this child\'s outfit should look in this book\'s art style. Match the outfit rendering — same garments, same colors, same style. Match the art style, lighting, and color palette.');
-  }
   if (recurringElement) {
     parts.push(`RECURRING OBJECT: ${recurringElement}`);
   }
@@ -1111,28 +855,23 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   if (opts.aspectRatio) {
     generationConfig.imageConfig = { aspectRatio: opts.aspectRatio };
   }
+  // Optional deterministic seed (env-gated, default OFF — support varies by
+  // model; a seed-rejecting 400 below retries once without it).
+  const seedEnabled = opts.seed != null && process.env.BOOK_PIPELINE_V3_RENDER_SEED === '1';
+  if (seedEnabled) {
+    generationConfig.seed = opts.seed;
+  }
 
+  // ONE fixed reference per call: the identity image the caller passed
+  // (cover generation passes the child photo). Previous-spread chaining was
+  // deleted 2026-08-06 — the photocopy-of-a-photocopy pattern was v1/v2's
+  // documented drift source, and the v3 reference pack (model sheet +
+  // approved cover, identical on every spread) is the only book-interior
+  // reference strategy.
   const parts = [
     { text: prompt },
     { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
   ];
-
-  // Add all style reference images (multiple supported)
-  const styleRefs = Array.isArray(opts.prevIllustrationRefs) && opts.prevIllustrationRefs.length > 0
-    ? opts.prevIllustrationRefs
-    : (opts.prevIllustrationBase64 ? [{ base64: opts.prevIllustrationBase64, mimeType: opts.prevIllustrationMime || 'image/jpeg' }] : []);
-  if (styleRefs.length > 0) {
-    parts.push({ text: `STYLE REFERENCE${styleRefs.length > 1 ? 'S' : ''} ONLY (${styleRefs.length} image${styleRefs.length > 1 ? 's' : ''}) — these are previous spreads from the same book. Match ONLY the art style, color palette, lighting mood, and character rendering quality. The NEW illustration must depict an ENTIRELY DIFFERENT scene, location, and moment as described above. IGNORE the setting, objects, background, poses, and layout of these reference images — do NOT reproduce or imitate the composition. IGNORE any text visible in these references. Only the rendering style transfers:` });
-    for (const ref of styleRefs) {
-      parts.push({ inline_data: { mimeType: ref.mimeType || 'image/jpeg', data: ref.base64 } });
-    }
-  }
-
-  // Add first spread as outfit/style reference for subsequent spreads
-  if (opts.firstSpreadRefBase64) {
-    parts.push({ text: 'OUTFIT & STYLE REFERENCE — FIRST SPREAD: This is the first illustration from this book. Match the child\'s outfit rendering, art style, color palette, and lighting exactly. Do NOT include any text in the new illustration.' });
-    parts.push({ inline_data: { mimeType: 'image/jpeg', data: opts.firstSpreadRefBase64 } });
-  }
 
   const body = {
     contents: [{ role: 'user', parts }],
@@ -1140,7 +879,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
   };
 
   const epStart = Date.now();
-  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference${opts.prevIllustrationBase64 ? ' + prev illustration' : ''}...`);
+  console.log(`[illustrationGenerator] Trying public-${keyIdx} with photo reference${seedEnabled ? ` (seed=${opts.seed})` : ''}...`);
   try {
     const resp = await fetchWithTimeout(url, {
       method: 'POST',
@@ -1150,6 +889,10 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
 
     if (!resp.ok) {
       const errBody = await resp.text().catch(() => '');
+      if (seedEnabled && resp.status === 400 && /seed/i.test(errBody)) {
+        console.warn(`[illustrationGenerator] model rejected generationConfig.seed — retrying once without it: ${errBody.slice(0, 120)}`);
+        return callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, { ...opts, seed: null });
+      }
       const isNsfw = resp.status === 400 && (errBody.includes('safety') || errBody.includes('SAFETY') || errBody.includes('blocked'));
       if (isNsfw) {
         const err = new Error(`Gemini image API (public-${keyIdx}) NSFW block: ${errBody.slice(0, 200)}`);
@@ -1309,25 +1052,6 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     fontStyle: opts.fontStyle,
     additionalCoverCharacters: opts.additionalCoverCharacters || null,
     characterAnchor: opts.characterAnchor || null,
-    bookFormat: opts.bookFormat || null,
-    comicMode: opts.comicMode || false,
-    comicPageMode: opts.comicPageMode || false,
-    panelType: opts.panelType || '',
-    shot: opts.shot || '',
-    cameraAngle: opts.cameraAngle || '',
-    actingNotes: opts.actingNotes || '',
-    backgroundComplexity: opts.backgroundComplexity || '',
-    textFreeZone: opts.textFreeZone || '',
-    safeTextZones: opts.safeTextZones || null,
-    balloons: opts.balloons || null,
-    captions: opts.captions || null,
-    sfx: opts.sfx || null,
-    layoutTemplate: opts.layoutTemplate || '',
-    pageLayout: opts.pageLayout || '',
-    colorScript: opts.colorScript || null,
-    aspectRatioHint: opts.aspectRatioHint || '',
-    aspectRatio: opts.aspectRatio || '',
-    firstSpreadRefBase64: opts.firstSpreadRefBase64 || null,
     theme: opts.theme || null,
     parentOutfit: opts.parentOutfit || null,
     shotType: opts.shotType || null,
@@ -1356,37 +1080,27 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     }
   }
 
-  // Download previous illustrations as style references (admin regeneration only)
-  // prevIllustrationUrls (array) takes precedence; falls back to single prevIllustrationUrl
-  const refUrls = Array.isArray(opts.prevIllustrationUrls) && opts.prevIllustrationUrls.length > 0
-    ? opts.prevIllustrationUrls
-    : (opts.prevIllustrationUrl ? [opts.prevIllustrationUrl] : []);
-  const prevIllustrationRefs = []; // [{ base64, mimeType }]
-  for (const refUrl of refUrls) {
-    try {
-      const prev = await downloadPhotoAsBase64(refUrl);
-      prevIllustrationRefs.push({ base64: prev.base64, mimeType: prev.mimeType });
-      console.log(`[illustrationGenerator] Style reference loaded (${Math.round(prev.base64.length * 0.75 / 1024)}KB): ${refUrl.slice(0, 80)}`);
-    } catch (e) {
-      console.warn(`[illustrationGenerator] Could not load style reference: ${e.message}`);
-    }
-  }
-  // Legacy single-ref compat
-  const prevIllustrationBase64 = prevIllustrationRefs[0]?.base64 || null;
-  const prevIllustrationMime = prevIllustrationRefs[0]?.mimeType || 'image/jpeg';
-
-  // Build prompt variants for NSFW fallback
+  // Build prompt variants for NSFW fallback. The generic-safe variant keeps
+  // the character identity anchor — a twice-retried image must never ship
+  // with a random child.
   const promptVariants = [
     { label: 'original', prompt: fullPrompt },
     { label: 'sanitized', prompt: sanitizePrompt(fullPrompt) },
-    { label: 'generic-safe', prompt: buildGenericSafePrompt(artStyle) },
+    {
+      label: 'generic-safe',
+      prompt: buildGenericSafePrompt(artStyle, {
+        childName,
+        characterOutfit: opts.characterOutfit,
+        characterDescription: opts.characterDescription,
+      }),
+    },
   ];
 
   let promptVariantIndex = 0;
 
   // Dynamic retry budget — text-heavy pages get more attempts
   const wordCount = opts.pageText ? opts.pageText.split(/\s+/).length : 0;
-  const maxRetries = (wordCount > 8 && !opts.skipTextEmbed && !opts.comicPageMode)
+  const maxRetries = (wordCount > 8 && !opts.skipTextEmbed)
     ? TEXT_HEAVY_MAX_RETRIES
     : BASE_MAX_RETRIES;
 
@@ -1397,7 +1111,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       let imageBuffer;
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, prevIllustrationBase64, prevIllustrationMime, prevIllustrationRefs, firstSpreadRefBase64: opts.firstSpreadRefBase64 || null });
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
@@ -1460,287 +1174,10 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
   throw new Error('No illustration generated after all attempts');
 }
-
-/**
- * Quick Gemini Flash check: does the generated illustration match the character reference?
- * Returns { consistent: boolean, issues: string[] }
- */
-async function checkCharacterConsistency(generatedImageBase64, referenceImageBase64, characterAnchor, characterOutfit, secondaryCharacterDescription) {
-  if (!generatedImageBase64 || !referenceImageBase64) return { consistent: true, issues: [] };
-
-  const apiKey = getNextApiKey();
-  if (!apiKey) return { consistent: true, issues: [] };
-
-  const hasSecondary = secondaryCharacterDescription && secondaryCharacterDescription.toUpperCase() !== 'NONE';
-  const secondaryCheck = hasSecondary
-    ? `\n5. SECONDARY CHARACTER: If a secondary character (parent/adult) appears in the generated image, check that their hair color/style, skin tone, general appearance, AND OUTFIT match this description: ${secondaryCharacterDescription}. The secondary character must wear the SAME outfit (same garment type, same colors) across all illustrations — flag any outfit change. If the secondary character is NOT present in the generated image, skip this check.`
-    : '';
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const resp = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [
-            { text: `Compare these two images. Image 1 is the REFERENCE (correct appearance). Image 2 is the GENERATED illustration.
-
-Check ONLY these critical dimensions — ignore everything else:
-
-1. ETHNICITY/SKIN: Is the child the same ethnicity with a similar skin tone? Minor lighting-based shade differences are acceptable.
-2. HAIR: Same general style (e.g., pigtails, braids, short) and color? Minor accessory differences (different beads, slightly different ties) are acceptable.
-3. CORE GARMENTS: ${characterOutfit ? `The DEFINED outfit is: ${characterOutfit}. Use this text description as the ground truth for what the child should be wearing — it overrides whatever clothing appears in the reference image (the reference photo may show a different outfit). Check that the generated illustration matches THIS outfit description.` : 'Same main clothing items (top, bottom, shoes) with similar colors?'} Minor detail differences (button count, pocket placement, exact trim pattern) are acceptable.
-4. FACE: Similar facial structure and features?${secondaryCheck}
-
-IMPORTANT: If additional people appear in the generated image who are NOT the main child, focus your consistency check ONLY on the main child. Do not flag issues about other characters unless they were explicitly described in the expected outfit.
-
-DO NOT FLAG any of these — they are expected variations:
-- Items the character is holding (these change per scene)
-- Left/right mirroring (common in AI-generated images)
-- Minor color shade differences due to scene lighting
-- Accessories that are scene-specific (backpack design, cape presence)
-- Whether specific small details like patches or badges are visible
-- Text width or text-related issues (checked separately)
-- Eye open/closed state: if the reference shows closed or squinting eyes but the illustration shows open eyes, this is CORRECT and expected — do NOT flag it as inconsistent
-- Outfit differences between the reference image and the defined outfit text — the outfit TEXT is the authority, not the reference image
-
-${characterAnchor ? `Expected character: ${characterAnchor}` : ''}
-${characterOutfit ? `Expected outfit (AUTHORITATIVE — use this, not the reference image, for outfit checks): ${characterOutfit}` : ''}
-
-Respond with ONLY valid JSON:
-{"consistent": true} or {"consistent": false, "issues": ["skin tone is significantly different", "hair is completely different style"]}
-Only return consistent:false if the character would be unrecognizable or clearly a different person. Minor variations are acceptable.` },
-            { inline_data: { mimeType: 'image/jpeg', data: referenceImageBase64 } },
-            { inline_data: { mimeType: 'image/jpeg', data: typeof generatedImageBase64 === 'string' ? generatedImageBase64 : generatedImageBase64.toString('base64') } },
-          ]}],
-          generationConfig: { maxOutputTokens: 1024, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      }, 60000);
-
-    if (!resp.ok) return { consistent: true, issues: [] };
-    const data = await resp.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      const result = JSON.parse(match[0]);
-      return { consistent: !!result.consistent, issues: result.issues || [] };
-    }
-  } catch (e) {
-    console.warn('[illustrationGenerator] Consistency check failed:', e.message);
-  }
-  return { consistent: true, issues: [] };
-}
-
-/**
- * Count visible human characters in a generated illustration and compare against expected.
- * Returns { passed: boolean, message: string }
- */
-async function checkCharacterCount(imageBase64, expectedCharacters) {
-  if (!imageBase64 || !expectedCharacters) return { passed: true };
-
-  const apiKey = getNextApiKey();
-  if (!apiKey) return { passed: true };
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const resp = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [
-            { text: `How many distinct human characters are visible in this children's book illustration?
-Count each unique person (not reflections, shadows, or background art/paintings/posters on walls).
-Return ONLY valid JSON: {"children": N, "adults": N}` },
-            { inline_data: { mimeType: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
-          ]}],
-          generationConfig: { maxOutputTokens: 256, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      }, 60000);
-
-    if (!resp.ok) return { passed: true };
-    const data = await resp.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      const result = JSON.parse(match[0]);
-      const actualChildren = result.children || 0;
-      const actualAdults = result.adults || 0;
-      const expectedChildren = expectedCharacters.childCount || 0;
-      const expectedAdults = expectedCharacters.adultCount;
-      // adultCount === -1 means skip adult check (partial parent presence — count is unreliable)
-      const skipAdultCheck = expectedAdults === -1;
-      const effectiveExpectedAdults = skipAdultCheck ? actualAdults : (expectedAdults || 0);
-      if (actualChildren !== expectedChildren || (!skipAdultCheck && actualAdults !== effectiveExpectedAdults)) {
-        return {
-          passed: false,
-          message: `Expected ${expectedChildren} child(ren) and ${skipAdultCheck ? 'any' : effectiveExpectedAdults} adult(s), but found ${actualChildren} child(ren) and ${actualAdults} adult(s)`,
-        };
-      }
-      return { passed: true };
-    }
-  } catch (e) {
-    console.warn('[illustrationGenerator] Character count check failed:', e.message);
-  }
-  return { passed: true };
-}
-
-/**
- * Detect if text in the illustration is placed on an opaque box/banner overlay.
- * Returns { passed: boolean, description: string }
- */
-async function checkTextPresentation(imageBase64) {
-  if (!imageBase64) return { passed: true };
-
-  const apiKey = getNextApiKey();
-  if (!apiKey) return { passed: true };
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const resp = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [
-            { text: `Look at the text in this children's book illustration.
-Is the text placed on a solid-color opaque rectangle/box/banner that covers part of the artwork?
-A solid white, cream, or colored box behind the text counts as an overlay.
-Text in a dedicated margin/negative space area is fine.
-Text with a subtle shadow or outline is fine.
-Only flag solid opaque boxes that obscure the illustration.
-Return ONLY valid JSON: {"hasOpaqueOverlay": true/false, "description": "brief description"}` },
-            { inline_data: { mimeType: 'image/jpeg', data: typeof imageBase64 === 'string' ? imageBase64 : imageBase64.toString('base64') } },
-          ]}],
-          generationConfig: { maxOutputTokens: 256, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      }, 60000);
-
-    if (!resp.ok) return { passed: true };
-    const data = await resp.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      const result = JSON.parse(match[0]);
-      if (result.hasOpaqueOverlay) {
-        return { passed: false, description: result.description || 'text on opaque overlay detected' };
-      }
-      return { passed: true };
-    }
-  } catch (e) {
-    console.warn('[illustrationGenerator] Text presentation check failed:', e.message);
-  }
-  return { passed: true };
-}
-
-/**
- * Compare current spread's text font rendering against the first spread reference.
- * Only runs for spreads after the first one (spread index > 0).
- * Returns { passed: boolean, issues: string[] }
- */
-async function checkFontConsistency(currentImageBase64, firstSpreadBase64) {
-  if (!currentImageBase64 || !firstSpreadBase64) return { passed: true };
-
-  const apiKey = getNextApiKey();
-  if (!apiKey) return { passed: true };
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const resp = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [
-            { text: `Compare the text rendering in these two children's book illustrations.
-Image 1 is the REFERENCE (correct style). Image 2 is the one to check.
-Does Image 2 use the same: font family, font size (relative to page), font weight, text color?
-Minor variations are acceptable (AI rendering is imperfect).
-Only flag OBVIOUS differences — clearly different font, dramatically different size, different color.
-Return ONLY valid JSON: {"consistent": true/false, "issues": ["different font family", "larger font size", etc.]}` },
-            { inline_data: { mimeType: 'image/jpeg', data: typeof firstSpreadBase64 === 'string' ? firstSpreadBase64 : firstSpreadBase64.toString('base64') } },
-            { inline_data: { mimeType: 'image/jpeg', data: typeof currentImageBase64 === 'string' ? currentImageBase64 : currentImageBase64.toString('base64') } },
-          ]}],
-          generationConfig: { maxOutputTokens: 512, temperature: 0.1, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      }, 60000);
-
-    if (!resp.ok) return { passed: true };
-    const data = await resp.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-    const cleaned = text.replace(/```json\s*/i, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      const result = JSON.parse(match[0]);
-      if (!result.consistent) {
-        return { passed: false, issues: result.issues || [] };
-      }
-      return { passed: true };
-    }
-  } catch (e) {
-    console.warn('[illustrationGenerator] Font consistency check failed:', e.message);
-  }
-  return { passed: true };
-}
-
-/**
- * Generate an illustration with anchor images (top-scoring spreads) as visual references.
- * Wraps generateIllustration but injects anchor images into the Gemini request
- * so the model can see what "good" looks like.
- *
- * @param {string} sceneDescription
- * @param {string} characterRefUrl
- * @param {string} artStyle
- * @param {Array<{imageBase64: string, label: string}>} anchorImages - Up to 2 anchor images
- * @param {object} opts - Same opts as generateIllustration
- * @returns {Promise<string|null>} URL or null
- */
-async function generateIllustrationWithAnchors(sceneDescription, characterRefUrl, artStyle, anchorImages, opts = {}) {
-  if (!anchorImages || anchorImages.length === 0) {
-    return generateIllustration(sceneDescription, characterRefUrl, artStyle, opts);
-  }
-
-  // Limit to max 2 anchor images (Gemini model has image input limits)
-  const anchors = anchorImages.slice(0, 2);
-
-  // Build anchor prefix for the prompt
-  const anchorPrefix = `STYLE & CHARACTER REFERENCE — ANCHOR IMAGES (${anchors.length} provided):
-Match the style, characters, and font of these reference illustrations exactly.
-These are the highest-quality spreads from this book — use them as your visual standard.
-${anchors.map((a, i) => `Anchor ${i + 1}: ${a.label}`).join('\n')}
-
-`;
-
-  // Inject anchor images as additional prevIllustrationRefs
-  // The existing code in callGeminiImageApi already handles prevIllustrationRefs as inline image parts
-  const existingRefs = Array.isArray(opts.prevIllustrationRefs) ? opts.prevIllustrationRefs : [];
-  const anchorRefs = anchors.map(a => ({
-    base64: a.imageBase64,
-    mimeType: 'image/jpeg',
-  }));
-
-  // Combine: existing refs + anchor refs (anchor refs take priority in the prompt)
-  // But keep total refs reasonable — max 2 anchors + existing
-  const combinedRefs = [...anchorRefs, ...existingRefs].slice(0, 3);
-
-  return generateIllustration(
-    anchorPrefix + sceneDescription,
-    characterRefUrl,
-    artStyle,
-    {
-      ...opts,
-      prevIllustrationRefs: combinedRefs,
-      // Also set single ref for backward compat
-      prevIllustrationBase64: combinedRefs[0]?.base64 || opts.prevIllustrationBase64,
-      prevIllustrationMime: combinedRefs[0]?.mimeType || opts.prevIllustrationMime,
-    }
-  );
-}
-
 module.exports = {
   generateIllustration,
-  generateIllustrationWithAnchors,
   buildCharacterPrompt,
+  buildGenericSafePrompt,
   getNextApiKey,
   ART_STYLE_CONFIG,
   CANONICAL_BOOK_ART_STYLE,
@@ -1748,6 +1185,5 @@ module.exports = {
   PARENT_THEMES,
   fetchWithTimeout,
   downloadPhotoAsBase64,
-  checkCharacterConsistency,
   renderStyleBlock,
 };

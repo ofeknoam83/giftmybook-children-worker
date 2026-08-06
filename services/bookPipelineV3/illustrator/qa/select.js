@@ -292,11 +292,12 @@ async function selectSpreadWinner({
           ].filter(Boolean).join(' | '),
         },
       };
+      const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));
       const rendered = await renderSpreadCandidates({
         spread: repairSpread, direction, bookPack, plate, propPlate, briefText, wardrobeNote, textLayout, mustIncludeFeatures, castLocks,
+        bookId, seedOffset: baseIndex,
         count: CANDIDATES_PER_SPREAD, abortSignal, log,
       });
-      const baseIndex = Math.max(0, ...allCandidates.map((c) => c.candidateIndex));
       for (const [i, img] of rendered.entries()) {
         const candidateIndex = baseIndex + i + 1;
         const path = candidatePath(bookId, spread.spread, candidateIndex, 'png', textLayout);

@@ -393,6 +393,8 @@ async function runNativeIllustrator(input, ctx) {
         textLayout,
         mustIncludeFeatures,
         castLocks,
+        bookId,
+        seedOffset: baseIndex,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
@@ -520,6 +522,8 @@ async function runNativeIllustrator(input, ctx) {
           ].filter(Boolean).join(' | '),
         },
       };
+      const prior = selections.get(flag.spread);
+      const baseIndex = Math.max(0, ...prior.allCandidates.map((c) => c.candidateIndex));
       const freshImgs = await renderSpreadCandidates({
         spread: flaggedSpread,
         direction: direction.directionBySpread.get(flag.spread) || null,
@@ -530,12 +534,12 @@ async function runNativeIllustrator(input, ctx) {
         textLayout,
         mustIncludeFeatures,
         castLocks,
+        bookId,
+        seedOffset: baseIndex,
         count: CANDIDATES_PER_SPREAD,
         abortSignal,
         log,
       });
-      const prior = selections.get(flag.spread);
-      const baseIndex = Math.max(0, ...prior.allCandidates.map((c) => c.candidateIndex));
       const freshCandidates = [];
       for (const [i, img] of freshImgs.entries()) {
         const candidateIndex = baseIndex + i + 1;
