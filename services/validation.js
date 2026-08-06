@@ -57,8 +57,12 @@ const MAX_INTERESTS = 10;
 const MAX_ANSWERED_QUESTIONS = 30;
 const MAX_QUESTION_LENGTH = 200;
 const MAX_ANSWER_LENGTH = 500;
+// Product ceiling: picture books only, so a numeric childAge clamps to
+// [2, 8]. Children under 2 are still supported — they resolve through
+// birth_date/ageMonths (deriveAgeBandFromRequest → PB_INFANT/PB_TODDLER),
+// which bypasses this clamp; MIN_AGE only floors the explicit years field.
 const MIN_AGE = 2;
-const MAX_AGE = 8; // product ceiling — picture books only, ages 1-8
+const MAX_AGE = 8;
 
 /**
  * Patterns that could be used for prompt injection in LLM inputs.
