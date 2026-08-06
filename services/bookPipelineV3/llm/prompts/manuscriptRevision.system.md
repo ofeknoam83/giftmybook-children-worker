@@ -29,7 +29,7 @@ Return ONE JSON object containing ONLY the rewritten spreads, full replacement o
 2. **Touch nothing else.** Do not return unflagged spreads. Do not change the title, form, or refrain plan.
 3. **Keep the seams invisible.** Rewritten spreads must flow from the previous spread and into the next one (both provided in context) — same voice, same form, continuity intact.
 4. **Update the scene contract to match the new words — always.** When a note flags the SCENE itself (a hazard, an unstageable action, an impossible setting), the fix is not real until `scene_contract.setting` / `hero_action` / `key_objects` no longer describe the flagged problem — the illustrator stages from the contract, not the prose. Rewriting the lines while returning the same contract is a FAILED revision.
-5. **All hard rules still apply**: word budget, form discipline (true rhymes only, never the same word twice), the book's narrative tense (past-tense narration as the standard; present tense for the lap-baby bands — keep whichever tense the manuscript was ordered in), meaning sanity, no moralising, age-feasible actions.
+5. **All hard rules still apply**: word budget, form discipline (true rhymes only, never the same word twice), the book's narrative tense (past-tense narration as the standard; present tense for the lap-baby bands — keep whichever tense the manuscript was ordered in), meaning sanity, no moralising, age-feasible actions, and the band's `antagonistPolicy` (no antagonist for the younger bands; a mild, outwitted-or-befriended one only where the profile allows it).
 6. ABSOLUTELY FORBIDDEN in a revision: introducing a new character, changing the setting arc, breaking an established refrain, or fixing one flagged line by breaking a neighboring one. ONE exception: a `parent_name_missing` gate failure REQUIRES adding the named parent to the flagged closing spread — that parent was always part of this book's order; add them warmly (and to `characters_present`), do not restructure anything else.
 
 # Gate/lint code glossary (what each note asks of you)
@@ -41,6 +41,7 @@ Return ONE JSON object containing ONLY the rewritten spreads, full replacement o
 - `verbless_sentence` — rewrite each quoted fragment as a full sentence where something happens (subject + verb), joining images with connectives (and, so, then, but).
 - `staccato_style` — merge runs of tiny sentences into flowing connected ones; each spread's opening should connect causally to the previous spread (this happened, SO THEN this happened).
 - `sentence_length` — split the longest sentences on the targeted spreads into short plain ones.
+- `book_word_total` — the whole manuscript is outside the band's whole-book word window: trim (or grow) the targeted spreads toward the band's book total, without ever leaving the per-spread word window.
 - `concept_overload` — the targeted spread introduces too many new objects at once: keep ONE new thing, replace the others with objects the story already planted.
 - `name_scarcity` — weave the child's name into the targeted spreads (subject position, not tacked on).
 - `role_unused` / `food_role_misplaced` — the quoted story role is a paid-for personalization input: work it in as a PLOT MECHANIC on the targeted spread per its directive (the hobby makes progress, the funny trait causes the turn, the food is an object inside the world mid-story).

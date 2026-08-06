@@ -53,6 +53,17 @@ function applyEmbeddedLayoutBudget(profile, textLayout) {
   wps.max = Math.min(wps.max, EMBEDDED_MAX_WORDS_PER_SPREAD);
   wps.target = Math.min(wps.target, EMBEDDED_TARGET_WORDS_PER_SPREAD);
   wps.min = Math.min(wps.min, wps.max); // keep the window well-formed for low caps
+  // Keep the whole-book window arithmetically reachable under the clamped
+  // per-spread budget (embedded EARLY_READER: 50 wds/spread × 13 = 650 book
+  // cap, so the caption-mode 600-900 window narrows to 600-650 — tight, but
+  // this only feeds the soft book_word_total lint, never a hard gate).
+  const tb = profile.narrativeConstraints.totalBookWords;
+  const spreads = profile.narrativeConstraints.spreadCount;
+  if (tb && spreads) {
+    tb.max = Math.min(tb.max, wps.max * spreads);
+    tb.min = Math.min(tb.min, tb.max);
+    tb.target = Math.min(tb.target, tb.max);
+  }
   return profile;
 }
 

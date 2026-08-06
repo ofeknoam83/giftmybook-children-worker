@@ -28,6 +28,37 @@ describe('ageProfiles', () => {
     expect(isPictureBookBand(null)).toBe(false);
   });
 
+  test('every band stays inside the picture-book length standard (ages 1-8, <1000 words)', () => {
+    for (const band of listAgeBands()) {
+      const nc = getAgeProfile(band).narrativeConstraints;
+      const { wordsPerSpread: wps, totalBookWords: tb, spreadCount } = nc;
+      // whole-book window exists, is coherent, and never exceeds ~1000 words
+      expect(tb).toBeDefined();
+      expect(tb.min).toBeLessThanOrEqual(tb.target);
+      expect(tb.target).toBeLessThanOrEqual(tb.max);
+      expect(tb.max).toBeLessThanOrEqual(1000);
+      // the per-spread window can arithmetically reach the book window
+      expect(wps.min * spreadCount).toBeLessThanOrEqual(tb.max);
+      expect(wps.max * spreadCount).toBeGreaterThanOrEqual(tb.min);
+      // no band covers ages above 8 (96 months)
+      expect(getAgeProfile(band).ageMonthsRange[1]).toBeLessThanOrEqual(96);
+    }
+  });
+
+  test('every band declares an antagonist policy; only EARLY_READER allows one', () => {
+    for (const band of listAgeBands()) {
+      const policy = getAgeProfile(band).narrativeConstraints.antagonistPolicy;
+      expect(typeof policy).toBe('string');
+      expect(policy.length).toBeGreaterThan(0);
+      if (band === 'PB_EARLY_READER') {
+        expect(policy).toMatch(/IS allowed/);
+        expect(policy).toMatch(/outwitted or befriended/);
+      } else {
+        expect(policy).toMatch(/NO antagonist/);
+      }
+    }
+  });
+
   test('returned profile is a deep clone (mutation-safe)', () => {
     const a = getAgeProfile('PB_INFANT');
     a.narrativeConstraints.spreadCount = 999;

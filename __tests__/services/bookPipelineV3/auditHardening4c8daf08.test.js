@@ -124,12 +124,21 @@ describe('wearableGearLint (text-vs-art gear reconciliation)', () => {
 
 describe('applyEmbeddedLayoutBudget (caption word cap)', () => {
   test('clamps the early-reader budget for embedded books', () => {
-    const profile = getAgeProfile('PB_EARLY_READER'); // 40-90, target 60
+    const profile = getAgeProfile('PB_EARLY_READER'); // 40-70, target 55
     applyEmbeddedLayoutBudget(profile, 'embedded');
     const wps = profile.narrativeConstraints.wordsPerSpread;
     expect(wps.max).toBe(EMBEDDED_MAX_WORDS_PER_SPREAD);
     expect(wps.target).toBeLessThanOrEqual(wps.max);
     expect(wps.min).toBeLessThanOrEqual(wps.max);
+  });
+
+  test('embedded clamp narrows the whole-book window to what the spread cap can reach', () => {
+    const profile = getAgeProfile('PB_EARLY_READER'); // book window 600-900
+    applyEmbeddedLayoutBudget(profile, 'embedded');
+    const { totalBookWords: tb, wordsPerSpread: wps, spreadCount } = profile.narrativeConstraints;
+    expect(tb.max).toBe(wps.max * spreadCount); // 50 × 13 = 650
+    expect(tb.min).toBeLessThanOrEqual(tb.max);
+    expect(tb.target).toBeLessThanOrEqual(tb.max);
   });
 
   test('caption layout keeps the band budget untouched', () => {
@@ -140,7 +149,7 @@ describe('applyEmbeddedLayoutBudget (caption word cap)', () => {
   });
 
   test('bands already under the cap are unchanged', () => {
-    const profile = getAgeProfile('PB_TODDLER'); // 12-28
+    const profile = getAgeProfile('PB_TODDLER'); // 5-15
     const before = { ...profile.narrativeConstraints.wordsPerSpread };
     applyEmbeddedLayoutBudget(profile, 'embedded');
     expect(profile.narrativeConstraints.wordsPerSpread).toEqual(before);

@@ -274,6 +274,57 @@ describe('refrain shape handling (object vs legacy string)', () => {
   });
 });
 
+describe('bookWordTotalLint', () => {
+  const { bookWordTotalLint } = require('../../../services/bookPipelineV3/gate/checks/bookLints');
+  const profile = {
+    narrativeConstraints: {
+      wordsPerSpread: { min: 2, max: 10, target: 6 },
+      totalBookWords: { min: 20, max: 30, target: 25 },
+    },
+  };
+  const spread = (i, words) => ({ spread: i, text: Array.from({ length: words }, (_, k) => `w${k}`).join(' ') });
+
+  test('a total inside the band window stays silent', () => {
+    const m = { spreads: [spread(1, 8), spread(2, 8), spread(3, 9)] }; // 25
+    expect(bookWordTotalLint(m, { ageProfile: profile })).toEqual([]);
+  });
+
+  test('an under-length book flags with the thinnest spreads as targets', () => {
+    const m = { spreads: [spread(1, 8), spread(2, 2), spread(3, 5)] }; // 15 < 20
+    const lints = bookWordTotalLint(m, { ageProfile: profile });
+    expect(lints).toHaveLength(1);
+    expect(lints[0].code).toBe('book_word_total');
+    expect(lints[0].message).toContain('grow the thinnest spreads');
+    expect(lints[0].targetSpreads[0]).toBe(2);
+  });
+
+  test('an over-length book flags with the wordiest spreads as targets', () => {
+    const m = { spreads: [spread(1, 10), spread(2, 12), spread(3, 10)] }; // 32 > 30
+    const lints = bookWordTotalLint(m, { ageProfile: profile });
+    expect(lints).toHaveLength(1);
+    expect(lints[0].message).toContain('trim the wordiest spreads');
+    expect(lints[0].targetSpreads[0]).toBe(2);
+  });
+
+  test('the declared window clamps into what the per-spread budget can reach', () => {
+    // declared max 100 is unreachable at 10 words × 3 spreads → effective max 30
+    const wide = {
+      narrativeConstraints: {
+        wordsPerSpread: { min: 2, max: 10, target: 6 },
+        totalBookWords: { min: 20, max: 100, target: 60 },
+      },
+    };
+    const m = { spreads: [spread(1, 9), spread(2, 9), spread(3, 9)] }; // 27 ≤ 30
+    expect(bookWordTotalLint(m, { ageProfile: wide })).toEqual([]);
+  });
+
+  test('profiles without totalBookWords (old pinned checkpoints) stay silent', () => {
+    const old = { narrativeConstraints: { wordsPerSpread: { min: 2, max: 10, target: 6 } } };
+    const m = { spreads: [spread(1, 1)] };
+    expect(bookWordTotalLint(m, { ageProfile: old })).toEqual([]);
+  });
+});
+
 describe('wordLengthLint', () => {
   const { wordLengthLint } = require('../../../services/bookPipelineV3/gate/checks/bookLints');
   const infantProfile = { vocabularyConstraints: { maxWordLengthChars: 7 } };
