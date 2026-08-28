@@ -114,8 +114,12 @@ function validateStoryResponse({ response, request, book, ageBand, map }) {
   // 7-8. Personalization evidence
   errors.push(...validateEvidence({ response, profile, map }));
 
-  // 9. Forbidden terms + leakage
+  // 9. Forbidden terms + leakage. A banned term that is (a word of) the
+  // child's own supplied name is exempt — the name is REQUIRED in the text,
+  // so "Elsa"/"Mario"/"Woody" as the hero is the child, not the franchise.
+  const nameWords = new Set(matchKey(profile.name).split(' '));
   for (const term of BANNED_BRANDS) {
+    if (nameWords.has(matchKey(term))) continue;
     if (containsTerm(fullText, term)) errors.push(`banned brand/IP term in story text: "${term}"`);
   }
   errors.push(...checkLeakage({ response, profile, fullText }));
@@ -202,6 +206,21 @@ function validateEvidence({ response, profile, map }) {
   const repeatLimit = map.detail_repeat_limit || 3;
   for (const [key, uses] of perDetailUses.entries()) {
     if (uses > repeatLimit) errors.push(`detail '${key.split('|')[1]}' used ${uses}x, repeat limit ${repeatLimit}`);
+  }
+
+  // Minima (runtime contract): falling below the map targets is allowed only
+  // for sparse input, no eligible pair, or editorial omission — WITH the
+  // reason recorded. So when a rich profile lands under the minima, every
+  // supplied-but-unused field must appear in omitted_profile_fields.
+  const belowMinima = momentCount < map.targets.min_moments || detailCount < map.targets.min_details;
+  if (belowMinima && details.length > 0) {
+    const usedFields = new Set(sorted.map(ev => ev.source_field));
+    const omittedFields = new Set((response.omitted_profile_fields || []).map(o => o.source_field));
+    const unaccounted = [...new Set(details.map(d => d.field))]
+      .filter(f => !usedFields.has(f) && !omittedFields.has(f));
+    if (unaccounted.length > 0) {
+      errors.push(`below the map minimum (${momentCount}/${map.targets.min_moments} moments, ${detailCount}/${map.targets.min_details} details) without a recorded omission reason for supplied field(s): ${unaccounted.join(', ')} — personalize them via approved slots or justify each in omitted_profile_fields`);
+    }
   }
   return errors;
 }

@@ -58,6 +58,32 @@ function seededShuffle(items, rand) {
 }
 
 /**
+ * Fill the slate from score groups in STRICT descending-score order —
+ * archetype diversity reorders picks only WITHIN an equal-score group, and
+ * a group is exhausted before any lower-scoring book is considered
+ * (per the runtime contract: randomness/diversity break ties only; they
+ * must never promote a weaker-fit plot above a materially stronger one).
+ * @param {Array<Array<{book: object}>>} groups rows grouped by score, descending
+ * @param {number} count
+ * @returns {object[]} picked rows
+ */
+function pickSlate(groups, count) {
+  const picked = [];
+  const usedArchetypes = new Set();
+  for (const group of groups) {
+    const remaining = [...group];
+    while (remaining.length > 0 && picked.length < count) {
+      const idx = remaining.findIndex(row => !usedArchetypes.has(row.book.archetype));
+      const row = remaining.splice(idx >= 0 ? idx : 0, 1)[0];
+      picked.push(row);
+      usedArchetypes.add(row.book.archetype);
+    }
+    if (picked.length >= count) break;
+  }
+  return picked;
+}
+
+/**
  * Score one book against a normalized profile using its authored
  * selection profile + map. Returns 0 with empty matches when the book has
  * no authored selection profile.
@@ -134,32 +160,15 @@ function selectBooks({ profile, themeId, ageBand, sessionId, count = 3 }) {
     ...(fitRanking ? scoreBook(profile, book) : { score: 0, matchedTags: [], contraindicated: [] }),
   }));
 
-  // Group by score, seeded-shuffle within each group, concatenate desc.
+  // Group by score, seeded-shuffle within each group, then fill the slate.
   const byScore = new Map();
   for (const row of scored) {
     if (!byScore.has(row.score)) byScore.set(row.score, []);
     byScore.get(row.score).push(row);
   }
-  const ordered = [];
-  for (const score of [...byScore.keys()].sort((a, b) => b - a)) {
-    const group = byScore.get(score).sort((a, b) => (a.book.id < b.book.id ? -1 : 1));
-    ordered.push(...seededShuffle(group, rand));
-  }
-
-  // Fill the slate preferring distinct archetypes; relax if too few remain.
-  const picked = [];
-  const usedArchetypes = new Set();
-  for (const row of ordered) {
-    if (picked.length >= count) break;
-    if (usedArchetypes.has(row.book.archetype)) continue;
-    picked.push(row);
-    usedArchetypes.add(row.book.archetype);
-  }
-  for (const row of ordered) {
-    if (picked.length >= count) break;
-    if (picked.includes(row)) continue;
-    picked.push(row);
-  }
+  const groups = [...byScore.keys()].sort((a, b) => b - a).map(score =>
+    seededShuffle(byScore.get(score).sort((a, b) => (a.book.id < b.book.id ? -1 : 1)), rand));
+  const picked = pickSlate(groups, count);
 
   const minFitScore = Number(process.env.CATALOG_MIN_FIT_SCORE || 3);
   const details = usableDetails(profile);
@@ -188,4 +197,4 @@ function selectBooks({ profile, themeId, ageBand, sessionId, count = 3 }) {
   };
 }
 
-module.exports = { selectBooks, scoreBook, fnv1a, mulberry32, seededShuffle };
+module.exports = { selectBooks, scoreBook, pickSlate, fnv1a, mulberry32, seededShuffle };

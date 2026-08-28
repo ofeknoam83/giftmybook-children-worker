@@ -362,16 +362,21 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
   if (bookIds.length < 1 || bookIds.length > 3) {
     return res.status(400).json({ success: false, error: 'bookIds must contain 1-3 catalog book ids' });
   }
-  for (const id of bookIds) {
-    if (!catalogEngine.getBook(id)) {
-      return res.status(400).json({ success: false, error: `unknown catalog book id '${id}'` });
-    }
-  }
   let profile;
   try {
     profile = catalogEngine.normalizeProfile(req.body?.profile);
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message });
+  }
+  const profileBand = catalogEngine.ageBandForAge(profile.age);
+  for (const id of bookIds) {
+    const hit = catalogEngine.getBook(id);
+    if (!hit) {
+      return res.status(400).json({ success: false, error: `unknown catalog book id '${id}'` });
+    }
+    if (hit.ageBand !== profileBand) {
+      return res.status(400).json({ success: false, error: `book '${id}' is age band ${hit.ageBand} but the profile (age ${profile.age}) routes to ${profileBand}` });
+    }
   }
 
   res.status(202).json({ success: true, bookId, accepted: bookIds });
@@ -461,8 +466,20 @@ app.post('/generate-book', authenticate, async (req, res) => {
   if (!storyPair && !body.bookDefinitionId) {
     return res.status(400).json({ success: false, error: 'either story {request, response}, bookDefinitionId, or catalogThemeId is required' });
   }
-  if (body.bookDefinitionId && !catalogEngine.getBook(body.bookDefinitionId)) {
-    return res.status(400).json({ success: false, error: `unknown catalog book id '${body.bookDefinitionId}'` });
+  if (body.bookDefinitionId) {
+    const hit = catalogEngine.getBook(body.bookDefinitionId);
+    if (!hit) {
+      return res.status(400).json({ success: false, error: `unknown catalog book id '${body.bookDefinitionId}'` });
+    }
+    // A fresh generation must use the band the profile routes to (a stored
+    // story pair is exempt here — it re-validates against its own pinned
+    // request). The profile normalized above the fallback block.
+    if (!storyPair) {
+      const profileBand = catalogEngine.ageBandForAge(catalogEngine.normalizeProfile(body.profile).age);
+      if (hit.ageBand !== profileBand) {
+        return res.status(400).json({ success: false, error: `book '${body.bookDefinitionId}' is age band ${hit.ageBand} but the profile routes to ${profileBand}` });
+      }
+    }
   }
   if (activeBooks.has(bookId)) {
     return res.status(409).json({ success: false, error: `book ${bookId} is already generating on this instance` });
@@ -1430,6 +1447,14 @@ if (require.main === module) {
     assertLlmConfig({ require: ['OPENAI_API_KEY'] });
   } catch (e) {
     console.error(`[LLM_CONFIG] startup check threw: ${e.message}`);
+  }
+  // Catalog + approved sidecars must validate at boot: an invalid catalog or
+  // sidecar set fails the revision instead of 202-ing books it cannot build.
+  try {
+    catalogEngine.assertCatalogEngine();
+  } catch (e) {
+    console.error(`[startup] CATALOG INVALID — refusing to start: ${e.message}`);
+    process.exit(1);
   }
   app.listen(PORT, () => {
     console.log(`giftmybook-children-worker listening on port ${PORT}`);

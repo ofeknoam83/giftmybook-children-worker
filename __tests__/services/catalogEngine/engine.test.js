@@ -5,7 +5,7 @@
  */
 
 const { normalizeProfile, usableDetails, matchKey, ProfileError } = require('../../../services/catalogEngine/profile');
-const { selectBooks, scoreBook } = require('../../../services/catalogEngine/selection');
+const { selectBooks, scoreBook, pickSlate } = require('../../../services/catalogEngine/selection');
 const { validateStoryResponse, validateEvidence, containsTerm } = require('../../../services/catalogEngine/storyValidation');
 const { buildStoryRequest, buildUserPrompt } = require('../../../services/catalogEngine/writer');
 const { loadAugments, augmentsFor, coverageReport } = require('../../../services/catalogEngine/augments');
@@ -74,6 +74,17 @@ describe('deterministic selection', () => {
     const sel = selectBooks({ profile: puzzler, themeId: 'enchanted_forest', ageBand: '4-5', sessionId: 'sess_alpha_1' });
     expect(sel.candidates[0].bookId).toBe('enchanted_4_5_signpost_mixup');
     expect(sel.candidates[0].matchedTags).toEqual(expect.arrayContaining(['interest:puzzles']));
+  });
+
+  test('archetype diversity NEVER demotes a higher-scoring book (ties only)', () => {
+    const row = (id, archetype) => ({ book: { id, archetype } });
+    // Two top-score books share an archetype: both must be picked before any
+    // lower-score book, whatever its archetype.
+    const picked = pickSlate([[row('a', 'X'), row('b', 'X')], [row('c', 'Y')]], 3);
+    expect(picked.map(r => r.book.id)).toEqual(['a', 'b', 'c']);
+    // Within one equal-score group, an unused archetype is preferred.
+    const tied = pickSlate([[row('x1', 'X'), row('x2', 'X'), row('y1', 'Y')]], 2);
+    expect(tied.map(r => r.book.archetype)).toEqual(['X', 'Y']);
   });
 
   test('sparse (name-only) profile still gets three eligible varied choices', () => {
@@ -190,14 +201,29 @@ describe('evidence legality against an approved map', () => {
     expect(map.slots.length).toBeGreaterThanOrEqual(6);
   });
 
-  test('legal intro + closing callback passes', () => {
+  test('legal intro + closing callback passes (below-minimum justified by omissions)', () => {
     const response = {
       personalization_evidence: [
         ev(),
         ev({ moment_type: 'object_callback', spread: 12, slot_id: 's12_object_close', visual_slot_id: 'spread_12_object_near_child' }),
       ],
+      omitted_profile_fields: [
+        { source_field: 'habit', reason: 'editorial_omission' },
+        { source_field: 'food', reason: 'weak_fit' },
+      ],
     };
     expect(validateEvidence({ response, profile, map })).toEqual([]);
+  });
+
+  test('below the map minima WITHOUT recorded omission reasons fails', () => {
+    const response = {
+      personalization_evidence: [ev()],
+      omitted_profile_fields: [],
+    };
+    const errors = validateEvidence({ response, profile, map });
+    expect(errors.join(' ')).toMatch(/below the map minimum/);
+    expect(errors.join(' ')).toMatch(/habit/);
+    expect(errors.join(' ')).toMatch(/food/);
   });
 
   test('a callback without an earlier introduction fails', () => {
@@ -261,6 +287,35 @@ describe('sidecar loading + writer prompt assembly', () => {
     const mapPrompt = buildUserPrompt({ request: withMaps.request, book: withMaps.book, theme, ageBand: withMaps.ageBand, map: withMaps.map });
     expect(mapPrompt).toContain('PERSONALIZATION MAP (the ONLY approved personalization slots)');
     expect(withMaps.request.versions.personalization_map).toBe('1.0.0');
+  });
+
+  test('a book outside the profile\'s age band is rejected before any prompt', () => {
+    expect(() => buildStoryRequest({ bookId: 'farm_2_3_hello_farm', profile: baseProfile({ age: 5 }), sessionId: 'sess_x_1' }))
+      .toThrow(/age band 1-3.*routes to 4-5/);
+  });
+
+  test('a child whose NAME is a banned brand term (Elsa) can appear in her own story', () => {
+    const { request, book, ageBand, map } = buildStoryRequest({
+      bookId: 'farm_2_3_hello_farm',
+      profile: baseProfile({ name: 'Elsa' }),
+      sessionId: 'sess_elsa_1',
+    });
+    const filler = 'Elsa walks along the sunny path and smiles at the friendly animals nearby';
+    const refrain = 'Hello, farm! Here we are!';
+    const spreads = Array.from({ length: 12 }, (_, i) => {
+      const n = i + 1;
+      return { spread: n, text: [2, 5, 8, 11].includes(n) ? `${filler}. ${refrain}` : `${filler} today.` };
+    });
+    const response = {
+      request_id: request.request_id, book_id: request.book_id, title: request.rendered_title,
+      versions: request.versions, spreads, personalization_evidence: [], omitted_profile_fields: [],
+    };
+    const v = validateStoryResponse({ response, request, book, ageBand, map });
+    expect(v.errors.filter(e => e.includes('banned brand'))).toEqual([]);
+    // An unrelated brand term still fails for the same child.
+    response.spreads[3].text = `${filler} just like Peppa Pig.`;
+    const v2 = validateStoryResponse({ response, request, book, ageBand, map });
+    expect(v2.errors.some(e => e.includes('banned brand'))).toBe(true);
   });
 
   test('exact-age calibration rides the 1-3 band prompt', () => {

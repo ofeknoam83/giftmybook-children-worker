@@ -21,27 +21,42 @@ const { downloadBuffer, getSignedUrl } = require('../../gcsStorage');
 const { buildScenePrompt } = require('./scenes');
 const { checkSpreadRender, repairNote } = require('./spreadQa');
 const { STYLE_VERSION } = require('../versions');
+const { fnv1a } = require('../selection');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RENDER_CONCURRENCY = 4;
 
 /**
+ * Content fingerprint of the story the renders are staged for: same story →
+ * replay; a regenerated manuscript (different text) → fresh renders. Keyed
+ * on the definition id + every spread's text (what the scenes are built
+ * from), NOT on request ids (those change on every run).
+ * @param {object} story validated writer response
+ * @returns {string}
+ */
+function storyFingerprint(story) {
+  const basis = `${story.book_id}|${(story.spreads || []).map(s => s.text).join('|')}`;
+  return fnv1a(basis).toString(36);
+}
+
+/**
  * Deterministic render-cache path for one spread.
  * @param {string} bookId
+ * @param {string} storyHash storyFingerprint of the story being illustrated
  * @param {number} spread
  * @param {string} aspect 'square' | 'wide'
  * @returns {string}
  */
-function renderCachePath(bookId, spread, aspect) {
-  return `children-jobs/${bookId}/ce-renders/${STYLE_VERSION}/spread-${spread}.${aspect}.png`;
+function renderCachePath(bookId, storyHash, spread, aspect) {
+  return `children-jobs/${bookId}/ce-renders/${STYLE_VERSION}/${storyHash}/spread-${spread}.${aspect}.png`;
 }
 
 /**
  * Render (or replay) one spread; returns the layout-ready record.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[]}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, spread, aspect, characterRefUrl, characterDescription, costTracker, forceRerender, log }) {
-  const storageKey = renderCachePath(bookId, spread, aspect);
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, characterDescription, costTracker, forceRerender, log }) {
+  const storageKey = renderCachePath(bookId, storyHash, spread, aspect);
   const advisories = [];
 
   if (!forceRerender) {
@@ -83,17 +98,24 @@ async function renderSpread({ bookId, book, theme, profile, story, spread, aspec
   const qa = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}` });
   if (!qa.pass) {
     log('warn', `Spread ${spread} QA failed (${qa.defects.join('; ')}) — one corrective re-render`);
-    const repairedScene = `${baseScene}\n${repairNote(qa.defects)}`;
-    const repairedUrl = await generateIllustration(repairedScene, characterRefUrl, 'pixar_premium', renderOpts);
-    if (repairedUrl) {
-      url = repairedUrl;
-      buffer = await downloadBuffer(storageKey);
-      const recheck = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}:repair` });
-      if (!recheck.pass) {
-        advisories.push({ stage: 'spreadQa', spread, note: `shipped with residual defects after repair: ${recheck.defects.join('; ')}` });
+    // Best-effort by contract: any repair-path failure keeps the first
+    // render (with an advisory) instead of failing the whole book.
+    try {
+      const repairedScene = `${baseScene}\n${repairNote(qa.defects)}`;
+      const repairedUrl = await generateIllustration(repairedScene, characterRefUrl, 'pixar_premium', renderOpts);
+      if (repairedUrl) {
+        url = repairedUrl;
+        buffer = await downloadBuffer(storageKey);
+        const recheck = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}:repair` });
+        if (!recheck.pass) {
+          advisories.push({ stage: 'spreadQa', spread, note: `shipped with residual defects after repair: ${recheck.defects.join('; ')}` });
+        }
+      } else {
+        advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped first render with defects: ${qa.defects.join('; ')}` });
       }
-    } else {
-      advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped first render with defects: ${qa.defects.join('; ')}` });
+    } catch (repairErr) {
+      log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the first render`);
+      advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped first render with defects: ${qa.defects.join('; ')}` });
     }
   }
   return { spread, buffer, storageKey, url, advisories };
@@ -125,6 +147,7 @@ async function illustrateStory(params) {
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
+  const storyHash = storyFingerprint(story);
   const aspect = textLayout === 'embedded' ? 'wide' : 'square';
   const characterRefUrl = approvedCoverUrl || childPhotoUrl || null;
   const warnings = [];
@@ -138,7 +161,7 @@ async function illustrateStory(params) {
   let done = 0;
   const results = await Promise.all(book.beats.map(beat => limit(async () => {
     const r = await renderSpread({
-      bookId, book, theme, profile, story,
+      bookId, book, theme, profile, story, storyHash,
       spread: beat.spread, aspect, characterRefUrl, characterDescription,
       costTracker, forceRerender, log,
     });
@@ -174,4 +197,4 @@ async function illustrateStory(params) {
   };
 }
 
-module.exports = { illustrateStory, renderCachePath };
+module.exports = { illustrateStory, renderCachePath, storyFingerprint };

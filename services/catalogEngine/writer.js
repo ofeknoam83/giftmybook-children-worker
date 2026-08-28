@@ -50,6 +50,16 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
   if (!hit) throw new StoryGenerationError(`unknown book_id '${bookId}'`, { bookId });
   const { book, themeId, ageBand } = hit;
   const profile = normalizeProfile(rawProfile);
+  // The engine renders a book ONLY in the band the profile routes to — an
+  // age-5 child must never get a 1-3 book's beats and word budgets.
+  const { ageBandForAge } = require('./catalog');
+  const profileBand = ageBandForAge(profile.age);
+  if (profileBand !== ageBand) {
+    throw new StoryGenerationError(
+      `book '${bookId}' is age band ${ageBand} but the profile (age ${profile.age}) routes to ${profileBand}`,
+      { bookId },
+    );
+  }
   const { personalizationMap } = augmentsFor(bookId);
   const map = flags.personalizationMapsEnabled() ? personalizationMap : null;
   const renderedTitle = renderTitle(book, profile.name);

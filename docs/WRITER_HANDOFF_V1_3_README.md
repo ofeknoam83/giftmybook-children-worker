@@ -1,3 +1,11 @@
+> **IMPLEMENTATION STATUS (2026-08-28, this repo):** the launch gate below is
+> CLEARED. All 228 `selection_profile` + `personalization_map` sidecars are
+> authored and validated (`services/catalogEngine/data/augments/approved/`,
+> asserted at boot and by tests), and fit ranking, deep personalization, and
+> the evidence requirement are ON by default (`CATALOG_*=0` envs are
+> kill-switches — see CLAUDE.md). The text below is the vendored handoff,
+> kept verbatim as the source specification.
+
 # GiftMyBook Writer Production Handoff V1.3
 
 **Release date:** 24 August 2026  

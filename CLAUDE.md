@@ -61,8 +61,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   as coverless-test fallback), one render + ONE vision QA check
   (`spreadQa.js`: painted text / missing / duplicated child / broken medium) +
   one corrective re-render, then ship-with-advisory (`qaAdvisories`). Renders
-  cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/spread-N.{aspect}.png`
-  — bump `STYLE_VERSION` (versions.js) to invalidate. Words are PDF type,
+  cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/{storyHash}/spread-N.{aspect}.png`
+  — the story fingerprint (definition id + spread texts) means a regenerated
+  manuscript re-renders while an unchanged story replays; bump
+  `STYLE_VERSION` (versions.js) to invalidate globally. Words are PDF type,
   never pixels (D5): `skipTextEmbed` on every render.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)

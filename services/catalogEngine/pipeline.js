@@ -43,6 +43,22 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
     const { request, response } = candidate;
     const hit = getBook(request?.book_id);
     if (!hit) throw new PipelineError(`stored story references unknown book_id '${request?.book_id}'`, 'invalid_story');
+    // Bind the pair to the CURRENT inputs: same requested definition (when
+    // one is named) and the same child (name + age + pronoun set) — internal
+    // consistency alone would let another child's story be typeset here.
+    if (bookDefinitionId && request.book_id !== bookDefinitionId) {
+      throw new PipelineError(`stored story is for '${request.book_id}' but this dispatch requested '${bookDefinitionId}'`, 'invalid_story');
+    }
+    const { matchKey } = require('./profile');
+    const p = request.profile || {};
+    if (matchKey(p.name || '') !== matchKey(profile.name)
+      || Number(p.age) !== profile.age
+      || p.pronouns?.subject !== profile.pronouns.subject) {
+      throw new PipelineError(
+        `stored story was written for '${p.name}' (age ${p.age}, ${p.pronouns?.subject}) but this dispatch is for '${profile.name}' (age ${profile.age}, ${profile.pronouns.subject}) — regenerate the stories`,
+        'invalid_story',
+      );
+    }
     // Re-run the deterministic checks against the SAME pinned request so a
     // corrupted/edited blob can't reach print. Evidence legality needs the
     // book's approved map; if it was withdrawn since generation, keep the

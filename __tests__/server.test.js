@@ -134,7 +134,7 @@ describe('POST /generate-book validation (catalog engine)', () => {
     const res = await request(app)
       .post('/generate-book')
       .set('x-api-key', 'test-api-key')
-      .send({ bookId: 'test-book-123', bookDefinitionId: 'farm_2_3_hello_farm' });
+      .send({ bookId: 'test-book-123', bookDefinitionId: 'space_4_5_rover_route' });
     expect(res.status).toBe(400);
   });
 
@@ -159,10 +159,19 @@ describe('POST /generate-book validation (catalog engine)', () => {
     const res = await request(app)
       .post('/generate-book')
       .set('x-api-key', 'test-api-key')
-      .send({ bookId: 'test-book-valid', profile, bookDefinitionId: 'farm_2_3_hello_farm' });
+      .send({ bookId: 'test-book-valid', profile, bookDefinitionId: 'space_4_5_rover_route' });
     expect(res.status).toBe(202);
     expect(res.body.success).toBe(true);
     expect(res.body.engine).toBe('catalog-v13');
+  });
+
+  test('rejects a book outside the profile age band before the 202', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-band', profile, bookDefinitionId: 'farm_2_3_hello_farm' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/age band/);
   });
 
   test('catalogThemeId alone is a valid legacy fallback (auto-selects the top candidate)', async () => {
@@ -237,6 +246,15 @@ describe('POST /v13/generate-stories validation', () => {
       .set('x-api-key', 'test-api-key')
       .send({ bookId: 'test-book-123', bookIds: ['nope'], profile });
     expect(res.status).toBe(400);
+  });
+
+  test('rejects candidates outside the profile age band', async () => {
+    const res = await request(app)
+      .post('/v13/generate-stories')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', bookIds: ['farm_2_3_hello_farm'], profile });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/age band/);
   });
 
   test('rejects more than three candidates', async () => {
