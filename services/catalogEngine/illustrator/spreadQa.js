@@ -28,7 +28,10 @@ Answer STRICT JSON only:
  * Run the QA check on one rendered spread.
  * @param {Buffer} imageBuffer
  * @param {{label?: string}} [opts]
- * @returns {Promise<{pass: boolean, defects: string[]}>} pass=true also on QA infra errors (never block on the checker itself)
+ * @returns {Promise<{pass: boolean, defects: string[], qaUnavailable?: string}>}
+ *   pass=true also on QA infra errors (never block on the checker itself),
+ *   but such a pass carries `qaUnavailable` so the spread ships with an
+ *   explicit unchecked-advisory instead of reporting silently clean.
  */
 async function checkSpreadRender(imageBuffer, opts = {}) {
   const label = opts.label || 'spreadQa';
@@ -54,7 +57,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     );
     if (!resp.ok) {
       console.warn(`[${label}] QA HTTP ${resp.status} — passing without QA`);
-      return { pass: true, defects: [] };
+      return { pass: true, defects: [], qaUnavailable: `vision QA HTTP ${resp.status}` };
     }
     const data = await resp.json();
     const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
@@ -68,7 +71,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     return { pass: defects.length === 0, defects };
   } catch (err) {
     console.warn(`[${label}] QA failed to run (passing without QA): ${err.message}`);
-    return { pass: true, defects: [] };
+    return { pass: true, defects: [], qaUnavailable: `vision QA errored: ${err.message}` };
   }
 }
 

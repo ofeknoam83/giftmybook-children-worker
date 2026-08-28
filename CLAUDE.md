@@ -58,7 +58,8 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   `validationErrors`.
 - `illustrator/` — the slim illustrator: the fixed BEAT is the scene
   (`scenes.js`), identity anchors on the parent-approved cover (raw photo only
-  as coverless-test fallback), one render + ONE vision QA check
+  as coverless-test fallback; NO anchor at all fails the run with
+  `missing_identity_reference`), one render + ONE vision QA check
   (`spreadQa.js`: painted text / missing / duplicated child / broken medium) +
   one corrective re-render, then ship-with-advisory (`qaAdvisories`). Renders
   cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/{storyHash}/spread-N.{aspect}.png`

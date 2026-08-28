@@ -96,6 +96,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   let buffer = await downloadBuffer(storageKey);
 
   const qa = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}` });
+  if (qa.qaUnavailable) {
+    // A checker outage must never report silently clean: ship best-effort,
+    // but say so on the completion payload.
+    advisories.push({ stage: 'spreadQa', spread, note: `shipped UNCHECKED — ${qa.qaUnavailable}` });
+  }
   if (!qa.pass) {
     log('warn', `Spread ${spread} QA failed (${qa.defects.join('; ')}) — one corrective re-render`);
     // Best-effort by contract: any repair-path failure keeps the first
@@ -152,8 +157,12 @@ async function illustrateStory(params) {
   const characterRefUrl = approvedCoverUrl || childPhotoUrl || null;
   const warnings = [];
   if (!characterRefUrl) {
-    warnings.push('No approved cover or photo reference — renders have no identity anchor (likeness will drift).');
-    log('warn', warnings[0]);
+    // A full illustration run with NO identity reference would render a
+    // different child on every spread — that is a broken book, not an
+    // advisory. Coverless testing belongs on the story-only endpoint.
+    const err = new Error('no approved cover and no child photo — the illustrations would have no identity anchor; supply approvedCoverUrl (or childPhotoUrls for a coverless test book)');
+    err.failureCode = 'missing_identity_reference';
+    throw err;
   }
 
   const pLimit = require('p-limit');

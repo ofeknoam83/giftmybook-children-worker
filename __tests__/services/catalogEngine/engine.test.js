@@ -387,4 +387,16 @@ describe('slim illustrator scene prompts', () => {
     ];
     expect(visualPropsForSpread(evidence, 3)).toEqual(['toy fox']);
   });
+
+  test('a full illustration run with NO identity reference fails before any render', async () => {
+    const { illustrateStory } = require('../../../services/catalogEngine/illustrator');
+    await expect(illustrateStory({
+      bookId: 'b_anchorless',
+      story: { book_id: 'farm_2_3_hello_farm', spreads: [] },
+      bookDef: getBook('farm_2_3_hello_farm'),
+      profile: normalizeProfile(baseProfile()),
+      approvedCoverUrl: null,
+      childPhotoUrl: null,
+    })).rejects.toMatchObject({ failureCode: 'missing_identity_reference' });
+  });
 });
