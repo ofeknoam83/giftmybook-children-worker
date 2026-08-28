@@ -1,10 +1,15 @@
-> **IMPLEMENTATION STATUS (2026-08-28, this repo):** the launch gate below is
-> CLEARED. All 228 `selection_profile` + `personalization_map` sidecars are
-> authored and validated (`services/catalogEngine/data/augments/approved/`,
-> asserted at boot and by tests), and fit ranking, deep personalization, and
-> the evidence requirement are ON by default (`CATALOG_*=0` envs are
-> kill-switches — see CLAUDE.md). The text below is the vendored handoff,
-> kept verbatim as the source specification.
+> **IMPLEMENTATION STATUS (2026-08-28, this repo):** the sidecar-coverage and
+> structural gates below are CLEARED: all 228 `selection_profile` +
+> `personalization_map` sidecars exist and schema-validate
+> (`services/catalogEngine/data/augments/approved/` — 12 hand-tuned references
+> + 216 generated archetype scaffolds, coverage asserted at boot and by
+> tests), and fit ranking, deep personalization, and the evidence requirement
+> are ON by default (`CATALOG_*=0` envs are kill-switches — see CLAUDE.md).
+> The 48-book editorial regression matrix (05_TESTING) has NOT been executed
+> in this repo — it needs live writer output, so it remains an outstanding
+> editorial gate to run post-deploy via the story-only admin mode
+> (`/v13/generate-stories`). The text below is the vendored handoff, kept
+> verbatim as the source specification.
 
 # GiftMyBook Writer Production Handoff V1.3
 

@@ -17,7 +17,7 @@
  */
 
 const { generateIllustration, downloadPhotoAsBase64 } = require('../../illustrationGenerator');
-const { downloadBuffer, getSignedUrl } = require('../../gcsStorage');
+const { downloadBuffer, uploadBuffer, getSignedUrl } = require('../../gcsStorage');
 const { buildScenePrompt } = require('./scenes');
 const { checkSpreadRender, repairNote } = require('./spreadQa');
 const { STYLE_VERSION } = require('../versions');
@@ -57,17 +57,11 @@ function renderCachePath(bookId, storyHash, spread, aspect) {
  */
 async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, refPhoto, characterDescription, costTracker, forceRerender, log }) {
   const storageKey = renderCachePath(bookId, storyHash, spread, aspect);
+  // The render is uploaded to the cache key BEFORE QA runs, so the image
+  // alone does not prove it was ever checked: only this marker (written
+  // after QA/repair completes) lets a replay skip the check.
+  const qaMarkerKey = `${storageKey}.qa.json`;
   const advisories = [];
-
-  if (!forceRerender) {
-    try {
-      const cached = await downloadBuffer(storageKey);
-      log('info', `Spread ${spread}: replaying cached render (${cached.length} bytes)`);
-      return { spread, buffer: cached, storageKey, url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS), advisories };
-    } catch {
-      // cache miss — render fresh
-    }
-  }
 
   const spreadText = story.spreads.find(s => s.spread === spread)?.text || '';
   const baseScene = buildScenePrompt({
@@ -94,14 +88,42 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     _cachedPhotoMime: refPhoto.mimeType,
   };
 
-  let url = await generateIllustration(baseScene, characterRefUrl, 'pixar_premium', renderOpts);
-  if (!url) {
-    advisories.push({ stage: 'render', spread, note: 'render failed (all prompt variants rejected) — spread has no illustration' });
-    return { spread, buffer: null, storageKey, url: null, advisories };
+  let buffer = null;
+  let url = null;
+  if (!forceRerender) {
+    try {
+      const cached = await downloadBuffer(storageKey);
+      try {
+        const marker = JSON.parse((await downloadBuffer(qaMarkerKey)).toString('utf8'));
+        log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes)`);
+        return {
+          spread, buffer: cached, storageKey,
+          url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
+          advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
+        };
+      } catch {
+        // Render uploaded but its QA never completed (crash between upload
+        // and check) — re-check the cached image instead of approving it.
+        log('warn', `Spread ${spread}: cached render has NO QA marker — re-checking before replay`);
+        buffer = cached;
+        url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
+      }
+    } catch {
+      // cache miss — render fresh
+    }
   }
-  let buffer = await downloadBuffer(storageKey);
+
+  if (!buffer) {
+    url = await generateIllustration(baseScene, characterRefUrl, 'pixar_premium', renderOpts);
+    if (!url) {
+      advisories.push({ stage: 'render', spread, note: 'render failed (all prompt variants rejected) — spread has no illustration' });
+      return { spread, buffer: null, storageKey, url: null, advisories };
+    }
+    buffer = await downloadBuffer(storageKey);
+  }
 
   const qa = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}` });
+  let checkerUnavailable = !!qa.qaUnavailable;
   if (qa.qaUnavailable) {
     // A checker outage must never report silently clean: ship best-effort,
     // but say so on the completion payload.
@@ -118,6 +140,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         url = repairedUrl;
         buffer = await downloadBuffer(storageKey);
         const recheck = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}:repair` });
+        if (recheck.qaUnavailable) {
+          checkerUnavailable = true;
+          advisories.push({ stage: 'spreadQa', spread, note: `repair shipped UNCHECKED — ${recheck.qaUnavailable}` });
+        }
         if (!recheck.pass) {
           advisories.push({ stage: 'spreadQa', spread, note: `shipped with residual defects after repair: ${recheck.defects.join('; ')}` });
         }
@@ -127,6 +153,22 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     } catch (repairErr) {
       log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the first render`);
       advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped first render with defects: ${qa.defects.join('; ')}` });
+    }
+  }
+
+  // Persist the QA-complete marker so future replays skip the check
+  // (best-effort — a failed write only means the replay re-checks). NOT
+  // written when the checker itself was unavailable: the next replay must
+  // re-attempt a real check instead of inheriting "shipped UNCHECKED".
+  if (!checkerUnavailable) {
+    try {
+      await uploadBuffer(
+        Buffer.from(JSON.stringify({ advisories, checkedAt: new Date().toISOString() })),
+        qaMarkerKey,
+        'application/json',
+      );
+    } catch (mErr) {
+      log('warn', `Spread ${spread}: QA marker write failed (${mErr.message}) — a replay will re-check`);
     }
   }
   return { spread, buffer, storageKey, url, advisories };

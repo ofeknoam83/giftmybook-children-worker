@@ -64,7 +64,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   one corrective re-render, then ship-with-advisory (`qaAdvisories`). Renders
   cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/{storyHash}/spread-N.{aspect}.png`
   — the story fingerprint (definition id + spread texts) means a regenerated
-  manuscript re-renders while an unchanged story replays; bump
+  manuscript re-renders while an unchanged story replays; a `.qa.json`
+  marker beside each render records QA completion (a cached render without
+  one is re-checked, never silently approved); bump
   `STYLE_VERSION` (versions.js) to invalidate globally. Words are PDF type,
   never pixels (D5): `skipTextEmbed` on every render.
 
