@@ -164,6 +164,23 @@ describe('POST /generate-book validation (catalog engine)', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.engine).toBe('catalog-v13');
   });
+
+  test('catalogThemeId alone is a valid legacy fallback (auto-selects the top candidate)', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-legacy-1', profile, catalogThemeId: 'farm' });
+    expect(res.status).toBe(202);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('an unknown catalogThemeId fallback still 400s before the 202', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-legacy-2', profile, catalogThemeId: 'volcanoes' });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('GET /v13/themes', () => {

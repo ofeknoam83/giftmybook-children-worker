@@ -354,6 +354,7 @@ app.post('/v13/select-books', authenticate, (req, res) => {
 // independently; a failed candidate never substitutes a different plot.
 app.post('/v13/generate-stories', authenticate, async (req, res) => {
   const { bookId, sessionId, locale, callbackUrl, progressCallbackUrl } = req.body || {};
+  const dispatchId = typeof req.body?.dispatchId === 'string' ? req.body.dispatchId.slice(0, 100) : null;
   const bookIds = Array.isArray(req.body?.bookIds) ? req.body.bookIds : [];
   if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
     return res.status(400).json({ success: false, error: 'invalid bookId' });
@@ -402,6 +403,7 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
           success: stories.length > 0,
           bookId,
           engine: 'catalog-v13',
+          ...(dispatchId ? { dispatchId } : {}),
           stories: stories.map(s => ({
             bookDefinitionId: s.request.book_id,
             request: s.request,
@@ -417,7 +419,7 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
       console.error(`[v13] generate-stories failed for ${bookId}:`, err);
       if (callbackUrl) {
         await postWithRetry(callbackUrl, {
-          success: false, bookId, engine: 'catalog-v13', stories: [], failures: [{ message: err.message }],
+          success: false, bookId, engine: 'catalog-v13', ...(dispatchId ? { dispatchId } : {}), stories: [], failures: [{ message: err.message }],
         });
       }
     }
@@ -438,8 +440,26 @@ app.post('/generate-book', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, error: err.message });
   }
   const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
+  if (!storyPair && !body.bookDefinitionId && body.catalogThemeId) {
+    // Legacy/admin retry fallback: no chosen story or definition — select the
+    // top-fit candidate for the theme deterministically (same seed rules as
+    // /v13/select-books) so old rows can always regenerate.
+    try {
+      const profile = catalogEngine.normalizeProfile(body.profile);
+      const selection = catalogEngine.selectBooks({
+        profile,
+        themeId: body.catalogThemeId,
+        ageBand: catalogEngine.ageBandForAge(profile.age),
+        sessionId: body.sessionId || bookId,
+      });
+      body.bookDefinitionId = selection.candidates[0]?.bookId || null;
+      console.log(`[v13] ${bookId}: no story/definition — auto-selected ${body.bookDefinitionId} from theme '${body.catalogThemeId}'`);
+    } catch (selErr) {
+      return res.status(400).json({ success: false, error: `catalogThemeId fallback failed: ${selErr.message}` });
+    }
+  }
   if (!storyPair && !body.bookDefinitionId) {
-    return res.status(400).json({ success: false, error: 'either story {request, response} or bookDefinitionId is required' });
+    return res.status(400).json({ success: false, error: 'either story {request, response}, bookDefinitionId, or catalogThemeId is required' });
   }
   if (body.bookDefinitionId && !catalogEngine.getBook(body.bookDefinitionId)) {
     return res.status(400).json({ success: false, error: `unknown catalog book id '${body.bookDefinitionId}'` });
