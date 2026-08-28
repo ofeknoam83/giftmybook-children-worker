@@ -160,6 +160,7 @@ describe('story validation (deterministic 10-step)', () => {
 
   test('evidence in name-only mode (no map) fails', () => {
     const f = makeFixture();
+    f.map = null; // simulate a book without an approved map (name-only)
     f.response.personalization_evidence = [{
       source_field: 'food', source_value: 'pizza', moment_type: 'food_celebration',
       spread: 11, slot_id: 's11_food', visual_required: false,
@@ -229,12 +230,24 @@ describe('evidence legality against an approved map', () => {
 });
 
 describe('sidecar loading + writer prompt assembly', () => {
-  test('the 12 reference sidecars load; drafts are never loaded', () => {
+  test('EVERY catalog book has an approved sidecar (full coverage — the launch gate)', () => {
     const augments = loadAugments();
-    expect(augments.size).toBe(12);
+    expect(augments.size).toBe(228);
     const report = coverageReport();
-    expect(report.booksWithMap).toBe(12);
+    expect(report.booksWithMap).toBe(228);
+    expect(report.booksWithSelectionProfile).toBe(228);
     expect(report.totalBooks).toBe(228);
+  });
+
+  test('flags are ON by default and env values act as kill-switches', () => {
+    const flags = require('../../../services/catalogEngine/flags');
+    expect(flags.fitRankingEnabled()).toBe(true);
+    expect(flags.personalizationMapsEnabled()).toBe(true);
+    expect(flags.evidenceRequired()).toBe(true);
+    process.env.CATALOG_FIT_RANKING = '0';
+    process.env.CATALOG_PERSONALIZATION_MAPS = 'false';
+    expect(flags.fitRankingEnabled()).toBe(false);
+    expect(flags.personalizationMapsEnabled()).toBe(false);
   });
 
   test('name-only prompt orders empty evidence; map-mode prompt embeds the map', () => {

@@ -1,0 +1,148 @@
+{
+  "book_id": "pirate_6_7_compass_clue",
+  "authored": "archetype-scaffold-2026-08-28",
+  "selection_profile": {
+    "primary_tags": [
+      "mysteries",
+      "detective stories",
+      "clues",
+      "pirates",
+      "treasure",
+      "boats",
+      "coral",
+      "compass"
+    ],
+    "activity_tags": [
+      "solving mysteries",
+      "exploring",
+      "treasure hunts",
+      "swimming"
+    ],
+    "trait_affinities": [
+      "curious",
+      "observant",
+      "logical",
+      "persistent"
+    ],
+    "contraindications": []
+  },
+  "personalization_map": {
+    "schema_version": "1.3.0",
+    "map_version": "1.0.0",
+    "book_id": "pirate_6_7_compass_clue",
+    "targets": {
+      "min_moments": 4,
+      "ideal_moments": 5,
+      "max_moments": 6,
+      "min_details": 2,
+      "max_details": 4
+    },
+    "detail_repeat_limit": 3,
+    "slots": [
+      {
+        "slot_id": "s01_object_intro",
+        "spread": 1,
+        "allowed_moment_types": [
+          "object_presence"
+        ],
+        "allowed_profile_fields": [
+          "object"
+        ],
+        "priority": "preferred",
+        "max_uses": 1,
+        "instruction": "A small supplied portable object may be carried, held, or tucked under the child's arm on arrival in Coral Compass Isles. Decorative and comforting only — it never becomes a tool, a clue, or part of the fixed plot.",
+        "visual_alignment": {
+          "mode": "required_if_used",
+          "visual_slot_id": "spread_01_object_near_child"
+        }
+      },
+      {
+        "slot_id": "s03_place_compare",
+        "spread": 3,
+        "allowed_moment_types": [
+          "place_reference",
+          "interest_comparison"
+        ],
+        "allowed_profile_fields": [
+          "place",
+          "interests"
+        ],
+        "priority": "optional",
+        "max_uses": 1,
+        "instruction": "One light, age-appropriate comparison or memory may color the child's reaction to the scene here. The fixed setting of Coral Compass Isles never changes and the comparison never adds a clue or answer.",
+        "visual_alignment": {
+          "mode": "none"
+        }
+      },
+      {
+        "slot_id": "s07_trait",
+        "spread": 7,
+        "allowed_moment_types": [
+          "trait_behavior"
+        ],
+        "allowed_profile_fields": [
+          "trait"
+        ],
+        "priority": "preferred",
+        "max_uses": 1,
+        "instruction": "A supplied temperament may show through HOW the child returns to the evidence and chooses what to check next — never named as a label, never granting knowledge, and never changing the fixed solution.",
+        "visual_alignment": {
+          "mode": "none"
+        }
+      },
+      {
+        "slot_id": "s05_habit",
+        "spread": 5,
+        "allowed_moment_types": [
+          "habit_behavior"
+        ],
+        "allowed_profile_fields": [
+          "habit"
+        ],
+        "priority": "preferred",
+        "max_uses": 1,
+        "instruction": "A supplied endearing habit may appear once, briefly and affectionately, while the child follows or tests the first idea. It stays small and never solves, delays, or disrupts the fixed plot.",
+        "visual_alignment": {
+          "mode": "optional"
+        }
+      },
+      {
+        "slot_id": "s08_interest",
+        "spread": 8,
+        "allowed_moment_types": [
+          "interest_reaction",
+          "interest_comparison"
+        ],
+        "allowed_profile_fields": [
+          "interests",
+          "activities"
+        ],
+        "priority": "preferred",
+        "max_uses": 1,
+        "instruction": "The child may notice or react through a supplied interest or activity during spotting the clearer second clue — attention and delight only, never expertise beyond age and never the answer.",
+        "visual_alignment": {
+          "mode": "none"
+        }
+      },
+      {
+        "slot_id": "s12_object_close",
+        "spread": 12,
+        "allowed_moment_types": [
+          "object_callback",
+          "closing_callback"
+        ],
+        "allowed_profile_fields": [
+          "object"
+        ],
+        "priority": "preferred",
+        "max_uses": 1,
+        "requires_prior_detail_use": true,
+        "instruction": "The object introduced on spread 1 may return softly in the goodbye image or sentence as the child leaves Coral Compass Isles. The fixed ending never changes.",
+        "visual_alignment": {
+          "mode": "required_if_used",
+          "visual_slot_id": "spread_12_object_near_child"
+        }
+      }
+    ]
+  }
+}

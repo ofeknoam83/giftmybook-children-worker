@@ -8,9 +8,9 @@
  */
 
 const { assemblePdf, OVERLAY } = require('../layoutEngine');
-const { generateCover } = require('../coverGenerator');
+const { generateCover, generateUpsellCovers } = require('../coverGenerator');
 const { computeCoverPdfMetadata } = require('../coverMetadata');
-const { uploadBuffer, getSignedUrl } = require('../gcsStorage');
+const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../gcsStorage');
 const { getBook } = require('./catalog');
 const { normalizeProfile } = require('./profile');
 const { generateStory } = require('./writer');
@@ -150,6 +150,38 @@ async function runBookPipeline(params) {
     renderKeys: art.entries.map(e => e.spreadIllustrationStorageKey),
   });
 
+  // ── Upsell covers (baked into the interior; non-blocking, 4-min cap) ─────
+  let upsellWithBuffers = [];
+  if (approvedCoverUrl) {
+    try {
+      onProgress('assembly', 0.85, 'Generating next-story covers...');
+      const coverResp = await fetch(approvedCoverUrl);
+      if (!coverResp.ok) throw new Error(`cover fetch HTTP ${coverResp.status}`);
+      const frontCoverBuffer = Buffer.from(await coverResp.arrayBuffer());
+      const gender = profile.pronouns.subject === 'he' ? 'male' : profile.pronouns.subject === 'she' ? 'female' : 'neutral';
+      const upsellPromise = generateUpsellCovers(
+        bookId,
+        { name: profile.name, childName: profile.name, age: profile.age, childAge: profile.age, gender, childGender: gender },
+        frontCoverBuffer,
+        bookTitle,
+        { costTracker, characterDescription: characterDescription || null, theme: getBook(story.request.book_id).themeId },
+      ).catch(e => { log('warn', `Upsell covers failed (non-blocking): ${e.message}`); return []; });
+      const raced = await Promise.race([upsellPromise, new Promise(r => setTimeout(() => r(null), 4 * 60 * 1000))]);
+      const upsellCovers = raced === null ? [] : raced;
+      if (raced === null) log('warn', 'Upsell cover generation timed out after 4 min — continuing without the upsell spread');
+      for (const uc of upsellCovers) {
+        try {
+          upsellWithBuffers.push({ ...uc, coverBuffer: await downloadBuffer(uc.gcsPath) });
+        } catch (e) {
+          log('warn', `Upsell cover buffer download failed (${uc.gcsPath}): ${e.message}`);
+        }
+      }
+      if (upsellWithBuffers.length > 0) log('info', `Upsell covers ready: ${upsellWithBuffers.length}/4`);
+    } catch (upsellErr) {
+      log('warn', `Upsell covers skipped (non-blocking): ${upsellErr.message}`);
+    }
+  }
+
   // ── Interior PDF ─────────────────────────────────────────────────────────
   onProgress('assembly', 0.88, 'Assembling interior PDF...');
   const overlayReport = [];
@@ -162,6 +194,7 @@ async function runBookPipeline(params) {
     bookId,
     minPages: 32,
     overlayReport,
+    upsellCovers: upsellWithBuffers,
   });
   for (const r of overlayReport.filter(x => x.belowContrast)) {
     qaAdvisories.push({ stage: 'layout', spread: r.spread, note: `embedded overlay contrast ${r.contrastRatio}:1 below ${OVERLAY.MIN_CONTRAST}:1` });
@@ -233,6 +266,7 @@ async function runBookPipeline(params) {
     title: bookTitle,
     spreadCount: art.entries.length,
     storyContent,
+    upsellCovers: upsellWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
     qaAdvisories: qaAdvisories.slice(0, 40),
     warnings,
   };

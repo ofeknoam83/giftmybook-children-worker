@@ -1,31 +1,30 @@
 /**
- * Catalog-engine feature flags (V1.3 staged-rollout gates).
+ * Catalog-engine feature switches.
  *
- * All default OFF — the handoff's launch posture: fixed-plot generation with
- * name/pronoun personalization only, until the per-book sidecars (selection
- * profiles + personalization maps) are editorially approved.
+ * Everything is ON by default — the full V1.3 behavior ships out of the box:
+ * fit-weighted plot selection, per-book deep personalization (all 228 books
+ * carry an approved sidecar), and the evidence requirement. Each switch is
+ * a KILL-SWITCH: set the env to `0` (or `false`) on the Cloud Run revision
+ * to disable that behavior without a redeploy.
  *
- * Each flag is independently reversible via Cloud Run env, no redeploy of
- * code required:
- *  - CATALOG_FIT_RANKING=1        — score candidates by profile fit instead of
- *                                   seeded variety-only selection.
- *  - CATALOG_PERSONALIZATION_MAPS=1 — books WITH an approved map generate with
- *                                   deep personalization; books without stay
- *                                   name-only regardless of the flag.
- *  - CATALOG_EVIDENCE_REQUIRED=1  — a deep-personalized response missing
- *                                   personalization_evidence fails validation
- *                                   (always on for map-mode books; this flag
- *                                   additionally hard-fails empty evidence
- *                                   when usable details existed).
+ *  - CATALOG_FIT_RANKING=0        — fall back to seeded variety-only selection
+ *                                   (no profile-fit scoring).
+ *  - CATALOG_PERSONALIZATION_MAPS=0 — every book generates NAME-ONLY
+ *                                   (personalization maps ignored).
+ *  - CATALOG_EVIDENCE_REQUIRED=0  — stop hard-failing responses that ignore
+ *                                   usable details despite approved slots.
+ *
+ * Note: a book WITHOUT an approved map always generates name-only regardless
+ * of these switches — maps are never fabricated at runtime.
  */
 
-function envOn(name) {
+function envOff(name) {
   const v = process.env[name];
-  return v === '1' || v === 'true';
+  return v === '0' || v === 'false';
 }
 
 module.exports = {
-  fitRankingEnabled: () => envOn('CATALOG_FIT_RANKING'),
-  personalizationMapsEnabled: () => envOn('CATALOG_PERSONALIZATION_MAPS'),
-  evidenceRequired: () => envOn('CATALOG_EVIDENCE_REQUIRED'),
+  fitRankingEnabled: () => !envOff('CATALOG_FIT_RANKING'),
+  personalizationMapsEnabled: () => !envOff('CATALOG_PERSONALIZATION_MAPS'),
+  evidenceRequired: () => !envOff('CATALOG_EVIDENCE_REQUIRED'),
 };
