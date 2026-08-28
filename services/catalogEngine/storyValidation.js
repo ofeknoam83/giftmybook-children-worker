@@ -93,9 +93,12 @@ function checkBeatAnchors({ response, book, theme }) {
  * @param {string} params.ageBand catalog band key ('1-3' etc.)
  * @param {object|null} params.map approved personalization map (null = name-only mode)
  * @param {object} [params.theme] catalog theme — enables the deterministic beat anchors
+ * @param {boolean} [params.skipEvidenceChecks] the pinned approved map is
+ *   unavailable (withdrawn or revised since generation) — skip ONLY the
+ *   map-dependent evidence steps 7–8; every text check still runs
  * @returns {{ok: boolean, errors: string[]}}
  */
-function validateStoryResponse({ response, request, book, ageBand, map, theme }) {
+function validateStoryResponse({ response, request, book, ageBand, map, theme, skipEvidenceChecks = false }) {
   const errors = [];
 
   // 1. Schema
@@ -149,8 +152,9 @@ function validateStoryResponse({ response, request, book, ageBand, map, theme })
   // 6. Age bounds
   errors.push(...checkAgeBounds(response.spreads, ageBand, profile.age));
 
-  // 7-8. Personalization evidence
-  errors.push(...validateEvidence({ response, profile, map }));
+  // 7-8. Personalization evidence (skipped only when the pinned map is
+  // unavailable at re-validation time — the caller says so explicitly).
+  if (!skipEvidenceChecks) errors.push(...validateEvidence({ response, profile, map }));
 
   // 9. Forbidden terms + leakage. A banned term that is (a word of) the
   // child's own supplied name is exempt — the name is REQUIRED in the text,

@@ -188,11 +188,15 @@ function themeIdOf(book) {
 }
 
 function keywordTags(book) {
-  const text = `${book.premise} ${book.beats.map(b => b.beat).join(' ')}`.toLowerCase();
+  // Whole-word/phrase match on normalized word boundaries — a plain substring
+  // test invents tags ('star' from "starting", 'pie' from "copies", 'elf'
+  // from "itself"), and exact interest tags are worth 5 selection points.
+  const normalize = (s) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  const text = normalize(`${book.premise} ${book.beats.map(b => b.beat).join(' ')}`);
   const found = [];
   for (const noun of KEYWORD_NOUNS) {
     if (found.length >= 4) break;
-    if (text.includes(noun) && !found.includes(noun)) found.push(noun);
+    if (text.includes(normalize(noun)) && !found.includes(noun)) found.push(noun);
   }
   return found;
 }

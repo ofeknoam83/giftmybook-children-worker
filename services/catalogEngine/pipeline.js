@@ -62,24 +62,27 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
       );
     }
     // Re-run the deterministic checks against the SAME pinned request so a
-    // corrupted/edited blob can't reach print. Evidence legality needs the
-    // book's approved map; if it was withdrawn since generation, keep the
-    // already-accepted story but say so loudly rather than bricking the book.
+    // corrupted/edited blob can't reach print. The validation MODE comes from
+    // the pinned request (versions.personalization_map), never from the
+    // response — stripping the evidence array must not buy a laxer pass. If
+    // the pinned map has been withdrawn or revised since generation, keep the
+    // already-accepted story but skip ONLY the map-dependent evidence steps
+    // (loudly) — every text check still runs.
     const { augmentsFor } = require('./augments');
-    const evCount = (response.personalization_evidence || []).length;
-    const map = augmentsFor(request.book_id).personalizationMap;
-    if (evCount > 0 && !map) {
-      log('warn', `stored story for ${request.book_id} carries ${evCount} evidence record(s) but the approved map is gone — skipping evidence re-validation`);
-      if (!Array.isArray(response.spreads) || response.spreads.length !== 12 || !response.title) {
-        throw new PipelineError('stored story is structurally invalid (needs 12 spreads and a title)', 'invalid_story');
-      }
-    } else {
-      const { ok, errors } = validateStoryResponse({
-        response, request, book: hit.book, ageBand: hit.ageBand, map: evCount > 0 ? map : null, theme: hit.theme,
-      });
-      if (!ok) {
-        throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });
-      }
+    const pinnedMapVersion = request.versions?.personalization_map || 'none';
+    const nameOnly = pinnedMapVersion === 'none';
+    const currentMap = augmentsFor(request.book_id).personalizationMap;
+    const mapUnavailable = !nameOnly && (!currentMap || currentMap.map_version !== pinnedMapVersion);
+    if (mapUnavailable) {
+      log('warn', `stored story for ${request.book_id} was written with map ${pinnedMapVersion} but the approved map is ${currentMap ? `now ${currentMap.map_version}` : 'gone'} — skipping evidence re-validation only`);
+    }
+    const { ok, errors } = validateStoryResponse({
+      response, request, book: hit.book, ageBand: hit.ageBand,
+      map: nameOnly ? null : currentMap, theme: hit.theme,
+      skipEvidenceChecks: mapUnavailable,
+    });
+    if (!ok) {
+      throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });
     }
     log('info', `Using stored story for ${request.book_id} (${storyPair ? 'request' : 'checkpoint'})`);
     return { request, response, generated: false };

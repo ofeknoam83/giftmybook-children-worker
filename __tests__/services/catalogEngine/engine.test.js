@@ -180,6 +180,20 @@ describe('story validation (deterministic 10-step)', () => {
     expect(v.errors.some(e => e.includes('name-only'))).toBe(true);
   });
 
+  test('skipEvidenceChecks skips ONLY the map-dependent steps — text checks still run', () => {
+    // The pipeline sets this when the pinned map has been withdrawn/revised
+    // since generation; every other deterministic check must still gate.
+    const f = makeFixture({ response: { title: "Emma's Amazing Farm Day" } });
+    f.response.personalization_evidence = [{
+      source_field: 'food', source_value: 'pizza', moment_type: 'food_celebration',
+      spread: 11, slot_id: 's_withdrawn', visual_required: false,
+    }];
+    const v = validateStoryResponse({ ...f, map: null, skipEvidenceChecks: true });
+    expect(v.ok).toBe(false);
+    expect(v.errors.join(' ')).toMatch(/title/); // text checks still run
+    expect(v.errors.some(e => e.includes('name-only'))).toBe(false); // evidence step skipped
+  });
+
   test('containsTerm is whole-word and diacritic-insensitive', () => {
     expect(containsTerm('She loves the little pony here', 'pony')).toBe(true);
     expect(containsTerm('The ponytail swings', 'pony')).toBe(false);
@@ -282,6 +296,15 @@ describe('sidecar loading + writer prompt assembly', () => {
     expect(report.booksWithMap).toBe(228);
     expect(report.booksWithSelectionProfile).toBe(228);
     expect(report.totalBooks).toBe(228);
+  });
+
+  test('scaffold keyword tags are whole words, never substring inventions', () => {
+    // Regression: substring matching invented 'star' from "starting", 'pie'
+    // from "copies", and 'elf' from "itself" — 5 selection points each.
+    const tagsOf = (id) => augmentsFor(id).selectionProfile.primary_tags;
+    expect(tagsOf('construction_2_3_cone_parade')).not.toContain('star');
+    expect(tagsOf('construction_2_3_cone_parade')).not.toContain('pie');
+    expect(tagsOf('space_6_7_greenhouse_light')).not.toContain('elf');
   });
 
   test('flags are ON by default and env values act as kill-switches', () => {
