@@ -1,0 +1,55 @@
+{
+  "1-3": {
+    "story_type": "experience_story",
+    "words_per_spread": {
+      "min": 8,
+      "max": 40
+    },
+    "total_words": {
+      "min": 120,
+      "max": 450
+    },
+    "narrative": "discovery, repetition, sound, physical interaction; no problem required",
+    "exact_age_calibration": {
+      "1": "8-25 words per spread; 120-280 total; concrete nouns and actions; strong sound/repetition; one idea per spread; very simple dialogue; no abstract reasoning required",
+      "2": "12-32 words per spread; 160-360 total; concrete discovery and movement; short dialogue; simple anticipation and repetition",
+      "3": "15-40 words per spread; 200-450 total; connected experience story; simple cause/effect; counting, pattern, or tiny objective when supplied by the fixed plot"
+    }
+  },
+  "4-5": {
+    "story_type": "mini_story",
+    "words_per_spread": {
+      "min": 40,
+      "max": 70
+    },
+    "total_words": {
+      "min": 520,
+      "max": 800
+    },
+    "narrative": "one small problem/objective; 2-3 simple reasoning steps; active child"
+  },
+  "6-7": {
+    "story_type": "developed_adventure",
+    "words_per_spread": {
+      "min": 55,
+      "max": 95
+    },
+    "total_words": {
+      "min": 700,
+      "max": 1100
+    },
+    "narrative": "one central problem; 2+ decisions; first attempt may fail; new info changes plan"
+  },
+  "8-10": {
+    "story_type": "full_mini_adventure",
+    "words_per_spread": {
+      "min": 75,
+      "max": 120
+    },
+    "total_words": {
+      "min": 900,
+      "max": 1450
+    },
+    "narrative": "clues/evidence, competing ideas, revision and verification"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "comment": "Case-insensitive whole-word banned brand/IP strings for the deterministic no-IP check. Necessary but not sufficient (human sampling still applies). Keep entries lowercase.",
+  "terms": [
+    "bluey", "peppa", "peppa pig", "paw patrol", "pokemon", "pokémon", "pikachu",
+    "disney", "pixar", "mickey mouse", "minnie mouse", "elsa", "frozen", "moana",
+    "spider-man", "spiderman", "batman", "superman", "marvel", "avengers",
+    "hello kitty", "barbie", "lego", "minecraft", "roblox", "fortnite", "mario",
+    "sonic the hedgehog", "harry potter", "hogwarts", "star wars", "baby yoda",
+    "grogu", "elmo", "sesame street", "cocomelon", "blippi", "thomas the tank engine",
+    "dora the explorer", "teletubbies", "winnie the pooh", "olaf", "lightning mcqueen",
+    "buzz lightyear", "woody", "ninja turtles", "transformers", "my little pony",
+    "sofia the first", "bing bunny", "gruffalo", "wild kratts", "octonauts",
+    "pj masks", "gabby's dollhouse", "encanto", "stitch", "nemo", "dory"
+  ]
+}

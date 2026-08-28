@@ -2,49 +2,23 @@
 process.env.NODE_ENV = 'test';
 process.env.API_KEY = 'test-api-key';
 process.env.OPENAI_API_KEY = 'test-openai-key';
-process.env.REPLICATE_API_TOKEN = 'test-replicate-token';
 process.env.GEMINI_API_KEY = 'test-gemini-key';
 process.env.GCS_BUCKET_NAME = 'test-bucket';
 
 // Mock all external service modules to prevent real API calls
-jest.mock('../services/storyPlanner', () => ({
-  planStory: jest.fn().mockResolvedValue({
+jest.mock('../services/catalogEngine/pipeline', () => ({
+  runBookPipeline: jest.fn().mockResolvedValue({
+    interiorPdfUrl: 'https://storage.example.com/interior.pdf',
+    coverPdfUrl: 'https://storage.example.com/cover.pdf',
+    backCoverImageUrl: null,
+    previewImageUrls: [],
     title: 'Test Story',
-    entries: [
-      { type: 'half_title_page', title: 'Test Story' },
-      { type: 'blank' },
-      { type: 'title_page', title: 'Test Story', subtitle: 'A bedtime story' },
-      { type: 'copyright_page' },
-      { type: 'dedication_page', text: 'For Emma' },
-      ...Array.from({ length: 12 }, (_, i) => ({
-        type: 'spread',
-        spread: i + 1,
-        left: { text: `Text ${i + 1}` },
-        right: { text: null },
-        spread_image_prompt: `Scene ${i + 1}`,
-      })),
-      { type: 'blank' },
-      { type: 'closing_page' },
-      { type: 'blank' },
-    ],
+    spreadCount: 12,
+    storyContent: { title: 'Test Story', entries: [] },
+    qaAdvisories: [],
+    warnings: [],
   }),
-  polishStory: jest.fn().mockImplementation(async (plan) => plan),
-  brainstormStorySeed: jest.fn().mockResolvedValue({
-    favorite_object: 'a toy dinosaur',
-    fear: 'a strange sound',
-    setting: 'a twilight garden',
-    storySeed: 'A child discovers the garden sings at night.',
-    repeated_phrase: 'hush now, little seed',
-    phrase_arc: ['playful', 'guiding', 'calming'],
-    beats: [],
-  }),
-  validateStoryText: jest.fn().mockReturnValue({ valid: true, issues: [] }),
-  combinedCritic: jest.fn().mockResolvedValue({ approved: true }),
-  polishEarlyReader: jest.fn().mockImplementation(async (plan) => plan),
-  masterCritic: jest.fn().mockResolvedValue({ approved: true }),
-  EMOTIONAL_THEMES: new Set(['separation_anxiety', 'new_sibling', 'first_day_school', 'moving_house', 'grief', 'hospital']),
-  getEmotionalTier: jest.fn().mockReturnValue(null),
-  planChapterBook: jest.fn().mockResolvedValue({}),
+  PipelineError: class PipelineError extends Error {},
 }));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
@@ -74,10 +48,6 @@ jest.mock('../services/gcsStorage', () => ({
   saveJson: jest.fn().mockResolvedValue(undefined),
   loadJson: jest.fn().mockRejectedValue(new Error('not found')),
   getBucket: jest.fn(),
-}));
-jest.mock('../services/taskQueue', () => ({
-  enqueueSpreadJob: jest.fn(),
-  enqueueFinalizeJob: jest.fn(),
 }));
 jest.mock('../services/progressReporter', () => ({
   reportProgress: jest.fn(),
@@ -138,51 +108,50 @@ describe('Authentication', () => {
   });
 });
 
-describe('POST /generate-book validation', () => {
+describe('POST /generate-book validation (catalog engine)', () => {
+  const profile = {
+    name: 'Emma', age: 5,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+
   test('rejects empty body', async () => {
     const res = await request(app)
       .post('/generate-book')
       .set('x-api-key', 'test-api-key')
       .send({});
     expect(res.status).toBe(400);
-    expect(res.body.errors).toBeDefined();
-    expect(res.body.errors.length).toBeGreaterThan(0);
-  });
-
-  test('rejects missing childName', async () => {
-    const res = await request(app)
-      .post('/generate-book')
-      .set('x-api-key', 'test-api-key')
-      .send({
-        bookId: 'test-book-123',
-        childPhotoUrls: ['https://example.com/photo.jpg'],
-      });
-    expect(res.status).toBe(400);
-    expect(res.body.errors.some(e => e.includes('childName'))).toBe(true);
-  });
-
-  test('rejects non-HTTPS photo URLs', async () => {
-    const res = await request(app)
-      .post('/generate-book')
-      .set('x-api-key', 'test-api-key')
-      .send({
-        bookId: 'test-book-123',
-        childName: 'Emma',
-        childPhotoUrls: ['http://insecure.com/photo.jpg'],
-      });
-    expect(res.status).toBe(400);
-    expect(res.body.errors.some(e => e.includes('HTTPS'))).toBe(true);
   });
 
   test('rejects bookId with path traversal characters', async () => {
     const res = await request(app)
       .post('/generate-book')
       .set('x-api-key', 'test-api-key')
-      .send({
-        bookId: '../../../etc/passwd',
-        childName: 'Emma',
-        childPhotoUrls: ['https://example.com/photo.jpg'],
-      });
+      .send({ bookId: '../../../etc/passwd', profile, bookDefinitionId: 'farm_2_3_hello_farm' });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects missing profile', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', bookDefinitionId: 'space_4_5_rover_route' });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects request with neither story nor bookDefinitionId', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', profile });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/story|bookDefinitionId/);
+  });
+
+  test('rejects unknown catalog book id', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', profile, bookDefinitionId: 'not_a_real_book' });
     expect(res.status).toBe(400);
   });
 
@@ -190,18 +159,110 @@ describe('POST /generate-book validation', () => {
     const res = await request(app)
       .post('/generate-book')
       .set('x-api-key', 'test-api-key')
-      .send({
-        bookId: 'test-book-valid',
-        childName: 'Emma',
-        childPhotoUrls: ['https://example.com/photo.jpg'],
-        childAge: 5,
-        bookFormat: 'picture_book',
-        artStyle: 'watercolor',
-        theme: 'adventure',
-      });
+      .send({ bookId: 'test-book-valid', profile, bookDefinitionId: 'space_4_5_rover_route' });
     expect(res.status).toBe(202);
     expect(res.body.success).toBe(true);
-    expect(res.body.bookId).toBe('test-book-valid');
+    expect(res.body.engine).toBe('catalog-v13');
+  });
+
+  test('rejects a book outside the profile age band before the 202', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-band', profile, bookDefinitionId: 'farm_2_3_hello_farm' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/age band/);
+  });
+
+  test('catalogThemeId alone is a valid legacy fallback (auto-selects the top candidate)', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-legacy-1', profile, catalogThemeId: 'farm' });
+    expect(res.status).toBe(202);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('an unknown catalogThemeId fallback still 400s before the 202', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-legacy-2', profile, catalogThemeId: 'volcanoes' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /v13/themes', () => {
+  test('returns the 12 catalog themes', async () => {
+    const res = await request(app).get('/v13/themes').set('x-api-key', 'test-api-key');
+    expect(res.status).toBe(200);
+    expect(res.body.themes).toHaveLength(12);
+    expect(res.body.themes.map(t => t.themeId)).toContain('farm');
+  });
+});
+
+describe('POST /v13/select-books', () => {
+  const profile = {
+    name: 'Emma', age: 4,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+
+  test('returns three deterministic candidates', async () => {
+    const body = { themeId: 'space', sessionId: 'sess_test_1', profile };
+    const res1 = await request(app).post('/v13/select-books').set('x-api-key', 'test-api-key').send(body);
+    const res2 = await request(app).post('/v13/select-books').set('x-api-key', 'test-api-key').send(body);
+    expect(res1.status).toBe(200);
+    expect(res1.body.selection.candidates).toHaveLength(3);
+    expect(res1.body.ageBand).toBe('4-5');
+    expect(res1.body.selection.candidates).toEqual(res2.body.selection.candidates);
+  });
+
+  test('rejects unknown theme', async () => {
+    const res = await request(app)
+      .post('/v13/select-books')
+      .set('x-api-key', 'test-api-key')
+      .send({ themeId: 'volcanoes', sessionId: 'sess_test_1', profile });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects invalid profile age', async () => {
+    const res = await request(app)
+      .post('/v13/select-books')
+      .set('x-api-key', 'test-api-key')
+      .send({ themeId: 'space', sessionId: 'sess_test_1', profile: { ...profile, age: 14 } });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /v13/generate-stories validation', () => {
+  const profile = {
+    name: 'Emma', age: 4,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+
+  test('rejects unknown candidate book ids', async () => {
+    const res = await request(app)
+      .post('/v13/generate-stories')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', bookIds: ['nope'], profile });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects candidates outside the profile age band', async () => {
+    const res = await request(app)
+      .post('/v13/generate-stories')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', bookIds: ['farm_2_3_hello_farm'], profile });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/age band/);
+  });
+
+  test('rejects more than three candidates', async () => {
+    const res = await request(app)
+      .post('/v13/generate-stories')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'test-book-123', bookIds: ['a', 'b', 'c', 'd'], profile });
+    expect(res.status).toBe(400);
   });
 });
 

@@ -1,124 +1,163 @@
 # giftmybook-children-worker
 
-Cloud Run microservice that generates personalized children's books with AI-generated illustrations featuring a child's photo-realistic likeness.
+Cloud Run microservice that generates personalized children's books on the
+**Catalog Engine (V1.3)** — a fixed catalog of 228 pre-authored plots rendered
+per child. The AI never invents or selects a plot.
 
 ## Architecture
 
 - **Express server** on port 8080 with API key auth (`x-api-key` header)
 - **CommonJS modules** throughout (no ESM)
-- **Async pipeline**: POST /generate-book returns 202, processes in background, reports progress via callbacks
+- **Flow**: `/v13/select-books` (sync, deterministic, no LLM) →
+  `/v13/generate-stories` (202 + callback, 3 parallel validated stories) →
+  `/generate-book` (202 + callbacks, illustrates the CHOSEN story → PDFs)
 
-## Shared services (`services/shared/`)
+The **2026-08 cutover** deleted the entire generative writer + illustrator
+(`bookPipelineV3` with its judge panels/gates/art director, `storyPlanner`,
+the legacy `prompts/` directory) and all game-asset generation. The handoff
+spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README.md`.
 
-Cross-pipeline code: `shared/llm/openaiClient.js` (unified LLM client), `shared/llm/modelRouter.js` (role routing, used by the storyPlanner brainstorm), `shared/text/sanitize.js`, `shared/illustration/config.js` (used by games, cover, comics, illustrationGenerator), `shared/emotionalTiers.js`. The v1 document contract (constants, bookDocument schema, toLayoutPayload, toLegacyStoryPlan) lives in `services/bookPipelineV3/contract/`.
+## Catalog Engine (`services/catalogEngine/`)
 
-**Deletion status:** `bookPipelineV2`, the v1 pipeline engine, Writer V2 (`services/writer/`), textGenerator, and the chapter-book/graphic-novel generation paths were deleted in W12. The **legacy illustrator** — `services/bookPipeline/` (12-file render subset), `services/illustrator/` (session/quad machinery), and the v3 legacy adapter activity — was deleted in the native-illustrator cutover (2026-07-15). The native illustrator (`services/bookPipelineV3/illustrator/`) is the ONLY illustrator.
+- `data/catalog.json` — the frozen 12-theme / 228-book / 12-beat catalog
+  (age bands `1-3`/`4-5`/`6-7`/`8-10`). **Never edit plots.** Legacy book ids
+  keep `2_3`; route by the catalog's age-band KEY, never by parsing ids.
+- `data/writerEngine.system.md` — the LOCKED Writer Engine V1.3 system prompt.
+  Any edit bumps `WRITER_ENGINE_VERSION` (versions.js).
+- `data/ageEngines.json` — per-band word budgets + exact-age calibration for
+  ages 1/2/3 (`ageBounds.js` holds the machine-checkable numbers; a test keeps
+  the two consistent).
+- `catalog.js` — loader with boot invariant validation (12 themes, 228 unique
+  books, 12 ordered beats each — ported from the handoff's validate_release.py).
+- `profile.js` — deterministic normalization (NFC, control-char rejection,
+  dedupe, length caps). No LLM. Profile strings are data, never instructions.
+- `selection.js` — fit-weighted candidate selection: the handoff's exact
+  scoring formula, archetype diversity, seeded shuffle for TIE-BREAKS ONLY
+  (`fnv1a(sessionId|catalogVersion|selectorVersion)`); insufficient-fit signal.
+  The caller persists the slate BEFORE generation; refresh never reselects.
+- `writer.js` — one pinned request per candidate (engine + age engine + book
+  definition + approved map + profile + rendered title) on
+  `CATALOG_WRITER_MODEL` (default `gpt-5.4`, via `shared/llm/openaiClient`,
+  Gemini fallback disabled). One structural retry with the validation errors
+  fed back at lower temperature; a second failure fails THAT candidate — never
+  a silent plot substitution.
+- `storyValidation.js` — the 10-step deterministic sequence: ajv schema →
+  identity/version echo → 12 ordered spreads → exact title equality → refrain
+  exact text + placement → exact-age word bounds → evidence-vs-map legality →
+  callback-before-introduction + caps → banned brand/IP lexicon
+  (`data/bannedBrands.json`) + unused-detail leakage.
+- `augments.js` — per-book sidecars joined by `book_id`:
+  `data/augments/approved/{book_id}.json` ({selection_profile,
+  personalization_map}) schema-validated at boot; `data/augments/drafts/` is
+  NEVER loaded. No approved map ⇒ the book generates **name-only** — maps are
+  never fabricated at runtime.
+- `pipeline.js` — full-book run: resolve story (request pair → checkpoint →
+  fresh) → illustrate → `assemblePdf` (minPages 32; 12 spreads + front matter)
+  → cover PDF (`coverGenerator`, unchanged) → callback payload. Failure codes:
+  `invalid_story`, `missing_book_definition`; `StoryGenerationError` carries
+  `validationErrors`.
+- `illustrator/` — the slim illustrator: the fixed BEAT is the scene
+  (`scenes.js`), identity anchors on the parent-approved cover (raw photo only
+  as coverless-test fallback; NO anchor at all fails the run with
+  `missing_identity_reference`), one render + ONE vision QA check
+  (`spreadQa.js`: painted text / missing / duplicated child / broken medium) +
+  one corrective re-render, then ship-with-advisory (`qaAdvisories`). Renders
+  cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/{storyHash}/spread-N.{aspect}.png`
+  — the story fingerprint (definition id + spread texts) means a regenerated
+  manuscript re-renders while an unchanged story replays; a `.qa.json`
+  marker beside each render records QA completion (a cached render without
+  one is re-checked, never silently approved); bump
+  `STYLE_VERSION` (versions.js) to invalidate globally. Words are PDF type,
+  never pixels (D5): `skipTextEmbed` on every render.
 
-## Key Services
+## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
-- `storyPlanner.js` — survives for `brainstormStorySeed` only (runs before the v3 pipeline; the seed feeds customDetails). The legacy planners inside it (planStory/planChapterBook/planGraphicNovel/critics) are dead code slated for a slimming pass.
-- `illustrationGenerator.js` — Gemini image API + shared utilities (key pool, fetchWithTimeout, downloadPhotoAsBase64, ART_STYLE_CONFIG). `generateIllustration`'s only production caller is cover generation (`coverGenerator.js`); interior spreads render ONLY via the native v3 illustrator. The comic builders, previous-spread style-reference chaining, `generateIllustrationWithAnchors`, and the dead `check*` QA helpers were deleted 2026-08-06 — along with `illustrationChatSession.js`, `chatSessionManager.js`, and `faceEngine.js` (all zero-importer dead code). The NSFW ladder's `buildGenericSafePrompt` fallback now keeps the character identity anchor (name/outfit/appearance, pre-sanitized).
-- `layoutEngine.js` — pdf-lib assembles V2 entries into Lulu-compliant print-ready PDF
-- `coverGenerator.js` — Generates Lulu wrap-around cover PDF (back + spine + front)
+The full V1.3 behavior ships out of the box — fit ranking, deep
+personalization (all 228 books carry an approved sidecar), and the evidence
+requirement. Set an env to `0` on the Cloud Run revision to disable:
 
-## Book Formats
+- `CATALOG_FIT_RANKING=0` — fall back to seeded variety-only selection.
+- `CATALOG_PERSONALIZATION_MAPS=0` — every book generates name-only.
+- `CATALOG_EVIDENCE_REQUIRED=0` — stop hard-failing responses that ignore
+  usable details despite approved slots.
+- Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
+  `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`).
 
-- **Picture books ONLY** (v3-only cutover): 8.5x8.5", 13 spreads (32 pages total). Early readers, chapter books, and graphic novels are RETIRED — validation rejects them 400 before the 202. Emotional books are picture books at every age. `/finalize-book` keeps a graphic-novel path for finalizing legacy books already in the system.
-- **Text-only mode (admin writing test, 2026-08-06):** request field `textOnly: true` on `/generate-book` runs the FULL writing chain (brief → concepts → drafts → gate → judge panel → polish) and completes with the accepted manuscript as `storyContent` — no identity kit, no cover pre-flight vision calls, no art direction, no renders, no PDFs (`interiorPdfUrl`/`coverPdfUrl` null on the callbacks, `textOnly: true` beside them). Photos/cover are optional in this mode (validation waives `childPhotoUrls`). Text-only runs are STATELESS: they never load, write, or clear checkpoints, so a real book's resumable state is untouched and a later full dispatch regenerates fresh (an imageless storyPlan checkpoint would otherwise replay into a blank-page PDF). Per-dispatch flag — never checkpoint-pinned.
-- **Text layout (admin-selectable, request field `textLayout`):** `'caption'` (default — typeset story text on a white verso page + full-bleed 1:1 art recto) or `'embedded'` (one wide 16:9 illustration spanning both facing pages, caption typeset OVER the art in the art director's quiet zone — integrated, no panel). Art is wordless in BOTH modes (D5 — words are PDF type, never pixels). Mode is checkpoint-pinned, persisted at `doc.v3.textLayout`, and rides per-spread entries as `textLayout`+`textZone`.
-  - **Overlay decision (2026-07-18 hardening):** the caption band (top/bottom 38% of the quiet-zone half) is sampled in 4 side-by-side segments; tone comes from the luminance WEIGHTED by each segment's overlap with the centered text block (`analyzeZoneBand`, pure/exported), and a band whose max segment stdev exceeds 45 is "busy" → the halo escalates to a wider double ring. Placement is gutter-aware (`computeOverlayPlacement`): overlay text never sits within 10% of the fold (matching the renderer's GUTTER rule), and long captions expand toward the page center (size ladder 22→14, capped at 55% of page height) instead of clipping at the bleed.
-  - **Contrast advisories:** every embedded spread's tone-vs-band WCAG-inspired contrast is computed at layout; below 4.5:1 it ships anyway but records a `{stage:'layout'}` qaAdvisory (closed-gate pattern) + a bookWarnings line. `POST /v3/preview/embedded-overlay {bookId, entries?}` renders the ACTUAL overlay PDF pages (same code path as assemblePdf) + per-spread metrics for admin pre-print review.
-  - **Admin flip on an existing book:** `POST /v3/set-text-layout {bookId, textLayout}` re-pins the checkpoint; an illustrated checkpoint drops its stale storyPlan so the re-dispatch re-renders. The render cache is STYLE+ASPECT-KEYED (`candidatePath` — candidates live under `v3-renders/{STYLE_VERSION}/`, embedded ones with a `.wide` suffix), so a flip re-renders only the missing aspect, a flip-back replays the original renders from GCS, and a style-bible bump re-renders every spread once (2026-07-28, book 16758e3c: pre-bump flat-2D candidates replayed forever beside fresh premium-3D ones).
-  - **D5 guardrail (do not drift):** never ask the image model to paint the manuscript's words into pixels — model lettering is unreliable (spelling/kerning), unfixable without a full re-render, non-selectable, and non-localizable. If a future request wants baked-in stylized text (comic "POW!" callouts), scope it as a SEPARATE feature with a locked short-SFX whitelist + heavy QA — never as a substitute for typeset body text. The `ABSOLUTELY NO TEXT` instruction in `buildSpreadRenderPrompt` must not be weakened.
+## Endpoints
+
+- `GET /v13/themes` — catalog theme vocabulary (the app picker's source of truth)
+- `GET /v13/coverage` — sidecar authoring coverage + flag state
+- `POST /v13/select-books` — sync `{sessionId, themeId, profile}` →
+  3 candidates + scores + seed (persist before generating)
+- `POST /v13/generate-stories` — `{bookId, bookIds[1..3], profile, sessionId,
+  callbackUrl}` → 202; callback `{stories:[{bookDefinitionId, request,
+  response, nameOnly, usage}], failures}`. **This is the admin story-only
+  test mode** — no illustration spend.
+- `POST /generate-book` — `{bookId, profile, story:{request,response} |
+  bookDefinitionId, approvedCoverUrl, childPhotoUrls, textLayout,
+  heartfeltNote, bookFrom, bindingType, callbackUrl, progressCallbackUrl,
+  forceNew, forceRerender}` → 202; completion callback mirrors the legacy
+  shape (interiorPdfUrl, coverPdfUrl, previewImageUrls, storyContent,
+  qaAdvisories, warnings, costs) + `pipelineVersionUsed: 'catalog-v13'`,
+  `illustratorVersionUsed: 'catalog-slim'`. `storyContent.catalog` carries
+  bookDefinitionId/themeId/ageBand/versions/evidence/omissions.
+- `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
+  flip + pre-print overlay preview (entries from the request)
+- `/generate-book` also bakes the 4-style upsell spread into the interior
+  (non-blocking, 4-min cap; `upsellCovers` on the completion callback)
+- Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`,
+  `/generate-coloring-book` + coloring endpoints, `/comics/*`,
+  `/manage-checkpoint`, `/upload-*`, `/refresh-url`, health checks.
+- 410 stubs: `/regenerate-illustration`, `/generate-style-variant`,
+  `/get-spread-data`. Game endpoints are deleted (404).
+
+## Kept services (untouched by the cutover)
+
+`coverGenerator.js` (Lulu wrap cover; still the identity/style anchor),
+`layoutEngine.js` (pdf-lib layout; entries contract unchanged),
+`coloringBookGenerator/Layout`, `comics/`, `gcsStorage`, `progressReporter`,
+`costTracker`, `retry`, `workerCommits`, `promptSanitizer`,
+`shared/llm/openaiClient.js`, `shared/text/sanitize.js`,
+`shared/illustration/config.js`. `illustrationGenerator.js` is the shared
+Gemini image client + key pool + photo utils (cover, coloring, comics, and
+the slim illustrator all sit on it) — `opts.gcsPath` pins a deterministic
+upload path for the render cache.
+
+## Sidecar authoring (COMPLETE — all 228 approved)
+
+Every catalog book has an approved `selection_profile` + `personalization_map`
+sidecar in `data/augments/approved/` (full coverage is asserted by a test and
+the boot log; `GET /v13/coverage` reports it). 12 are hand-tuned reference
+files; the other 216 were generated by `scripts/buildSidecars.js` —
+deterministic per-archetype slot scaffolds placed on the beats that actually
+support them (food slots only on explicit celebration beats in
+human-food-plausible themes; never underwater/dream/animal-feed books) with
+theme + archetype + beat-keyword selection tags. Sidecars are versioned files,
+NEVER generated at runtime; to revise one, edit the file (or rerun the script
+after deleting it) and commit. `scripts/draftSidecars.js` remains for
+LLM-drafting alternatives into `drafts/` (never loaded).
+
+## Checkpoints & resume
+
+`children-jobs/{bookId}/checkpoint.json` (`engine: 'catalog-v13'`,
+`completedStage: story|illustration`, the story pair, textLayout). A legacy
+(pre-cutover) checkpoint restarts fresh, loudly. Cleared on success. Render
+resume comes from the STYLE_VERSION-keyed cache, not the checkpoint.
 
 ## Environment Variables
 
-- `API_KEY` — Auth key for incoming requests
-- `GCS_BUCKET_NAME` — Google Cloud Storage bucket
-- `OPENAI_API_KEY` — For GPT-5.4 text generation (WRITER, CRITIC, ADJUDICATOR; also gpt-image-2 illustrations)
-- `DEEPSEEK_API_KEY` — For DeepSeek text generation (PLANNER, DIRECTOR, RHYME_JUDGE by default — see modelRouter)
-- `ANTHROPIC_API_KEY` — Optional. Only needed when a bookPipelineV3 role is overridden to the anthropic family (`BOOK_PIPELINE_V3_<ROLE>_FAMILY=anthropic`); the v3 defaults run on OpenAI/DeepSeek/Gemini. `assertV3Config` fails the book loudly before any LLM spend if a routed family's key is missing. Forwardable per-request via the main app's `apiKeys` payload.
-- `GEMINI_API_KEY` — For Gemini Flash text and vocabulary checks
-- `GEMINI_API_KEY_1` through `GEMINI_API_KEY_10` — Round-robin pool for parallel illustration generation
-- `GOOGLE_AI_STUDIO_KEY` — Fallback Gemini key
-- `GEMINI_PROXY_URL`, `GEMINI_PROXY_API_KEY` — Optional proxy endpoint for illustration fallback
-- `BOOK_PIPELINE_V3_RENDER_SEED` — Set to `1` to send a deterministic per-candidate `generationConfig.seed` on image renders (fnv1a(bookId) + spread×1000 + candidateIndex — candidates stay distinct). Default OFF (byte-identical behavior). Experimental: seed support varies by Gemini image model; a seed-rejecting 400 retries once without it, loudly.
-- `REPLICATE_API_TOKEN` — For Flux character reference generation (legacy)
-- `GCP_PROJECT_ID`, `GCP_LOCATION`, `CLOUD_TASKS_QUEUE` — Cloud Tasks config
-
-### Book pipeline routing (v3-only since W12)
-
-- **Resolver:** [`services/pipelineRouter.js`](services/pipelineRouter.js) — every book routes to `bookPipelineV3`; v1/v2 were deleted. Legacy state maps onto v3 LOUDLY instead of crashing: a retried book with a `'v1'`/`'v2'` checkpoint restarts fresh on v3; the old `BOOK_PIPELINE_V2/V3` kill-switch envs log a warning and are ignored (nothing left to revert to). A missing v3 module throws `PIPELINE_V3_UNAVAILABLE` — with the legacy engines gone the worker cannot generate at all, so failing loudly beats a 202-then-brick.
-- **Request field:** `pipelineVersion` accepts only `'v3'`; anything else is 400 before the 202.
-- **Reporting:** every completion/failure callback carries `pipelineVersionUsed` (always `'v3'` now); the main app persists it into `generationProgress`.
-
-## Model routing (`services/shared/llm/modelRouter.js`)
-
-Roles → providers (`DEFAULT_ROUTING`):
-
-| Role        | Provider | Model              |
-|-------------|----------|--------------------|
-| PLANNER     | deepseek | `deepseek-v4-pro`  |
-| WRITER      | openai   | `gpt-5.4`          |
-| CRITIC      | openai   | `gpt-5.4`          |
-| ADJUDICATOR | openai   | `gpt-5.4`          |
-| DIRECTOR    | deepseek | `deepseek-v4-flash`|
-| RHYME_JUDGE | deepseek | `deepseek-v4-flash`|
-| SUMMARIZER  | gemini   | `gemini-2.5-flash` |
-
-Post-cutover, this router serves only the storyPlanner brainstorm (PLANNER); the v3 pipeline has its own router (`services/bookPipelineV3/llm/modelRouter.js`).
-
-**Per-role override:** set `BOOK_PIPELINE_V2_<ROLE>_FAMILY=openai|deepseek|gemini` (and optionally `BOOK_PIPELINE_V2_<ROLE>_TIER=strong|mid`) at the Cloud Run revision env to flip any role without a redeploy — e.g., `BOOK_PIPELINE_V2_PLANNER_FAMILY=openai` rolls PLANNER back to gpt-5.4. The startup `[LLM_CONFIG]` check requires both `OPENAI_API_KEY` and `DEEPSEEK_API_KEY` to be set; a missing key fails the boot guard and the deploy workflow blocks promotion.
-
-`services/storyPlanner.js` also resolves its primary model via `modelFor('PLANNER')`, so the PLANNER swap takes effect for the brainstorm pass too (not just WriterV2's planning call).
-
-## Book Pipeline V3 (writer + native illustrator — the only pipeline)
-
-`services/bookPipelineV3` implements `docs/PIPELINE_V3_DESIGN.md` (see the module README). Every book runs on it (v3-only routing since W12).
-
-Roles → providers (`services/bookPipelineV3/llm/modelRouter.js`, override via `BOOK_PIPELINE_V3_<ROLE>_FAMILY`/`_TIER`). Defaults use only already-provisioned vendors (product decision 2026-07-13); the anthropic family stays wired for per-role A/B flips (needs `ANTHROPIC_API_KEY`):
-
-| Role | Provider | Model |
-|---|---|---|
-| BRIEF / CONCEPT / WRITER | openai | `gpt-5.4` |
-| EDITOR | deepseek | `deepseek-v4-flash` (mid — 2026-07-15 latency fix; flip back via `BOOK_PIPELINE_V3_EDITOR_TIER=strong`) |
-| JUDGE_A | deepseek | `deepseek-v4-flash` (mid — same latency fix; `BOOK_PIPELINE_V3_JUDGE_A_TIER=strong` restores pro) |
-| JUDGE_B | openai | `gpt-5.4` |
-| JUDGE_C | gemini | `gemini-2.5-pro` |
-
-- **Theme axes (2026-07-29):** requests carry `occasion` (WHY the book exists — `birthday_magic`/`bedtime_wonder`/`mothers_day`/`fathers_day`/`adventure_play`/`learning_discovery`/`creative_arts`/`friendship_fun`) and `storyTheme` (WHERE it lives — the 10-key Story-theme picker: adventure/birthday/bedtime/friendship/holiday/school/nature/space/underwater/fantasy) as DISTINCT fields; `services/shared/themes.js` is the single source of truth (vocabulary, label normalization, creative guides, `resolveThemeAxes`). Legacy single-`theme` payloads classify onto the axes, and the legacy `theme` fallback is no longer a silent `'adventure'` — occasions map via `LEGACY_THEME_FOR_OCCASION` (fixes `bedtime_wonder`/`adventure_play` silently losing their machinery) with a loud warn on unknowns. The creative brief attaches `brief.themes` `{occasion, storyTheme, directive}` deterministically (same pattern as the interests backstop); concept/writer/revision/judges all receive it — the judge panel caps `personalization_depth` at 3 when an ordered theme is ignored — and the art director gets `buildThemeArtNote` (palette/light/motif ONLY; the style bible owns the medium). The storyPlanner brainstorm receives both axes beside its legacy `theme`. Title-page subtitle prefers `storyTheme` (parent-day occasions keep the love subtitle). Same change fixed two dead personalization channels: `heartfeltNote`/`bookFrom` now actually ride the pipeline request (creativeBrief read them but always got null), and the `dads_favorite_moment` anecdote reaches customDetails.
-- Judges must stay **cross-family** (blind panel, median ≥ 4 on all 7 rubric dimensions to pass); a collapsing env override logs `FAMILY COLLAPSE`.
-- **Post-panel polish pass (2026-07-28):** after a PASSING panel, the ≤3 weakest spreads (flagged by 2+ judges, or targeted by soft lints) get one craft rewrite (`manuscriptPolish.system.md`, `manuscriptRevisionActivity` `mode:'polish'`) + a re-gate; a polish that breaks the gate REVERTS to the pre-polish manuscript; a polish error never fails the book. Kill-switch `BOOK_PIPELINE_V3_POLISH_PASS=0`. `writerQa.gate.softLints` now persists on the doc.
-- **Writer QA hardening (2026-07-29, Alexandra's Liv-book review "AI Writer Feedback & Word List"):** the review's deterministic checks now live in the gate. Per-spread: `banned_word` (poetic-register lexicon `gate/lexicons/bannedWords.json` with per-word replacements — hard for INFANT/TODDLER, `banned_word_soft` for PRESCHOOL, exempt EARLY_READER) and `midline_punctuation` (mid-sentence dash/semicolon, same band routing). Book-level HARD checks (`gate/checks/bookChecks.js`, merged into `perSpread` so the surgical gatefix sees them): `opening_beat_name` (child named in spreads 1–2, attributed to spread 1) and `parent_name_missing` (each provided parent's name — or the child's calls_mom/calls_dad call-name — in the last 3 spreads; needs `brief.storyRoles`). New soft book lints: `verbless_sentence` (verb lexicon `gate/lexicons/commonVerbs.json`), `staccato_style`, `sentence_length` (new `vocabularyConstraints.maxAvgSentenceWords`: 8/9/11/12), `concept_overload` (≥3 new key_objects heads on spreads 3+), `name_scarcity`. **Rollback env `BOOK_PIPELINE_V3_QA_HARD=0`**: the four new hard codes demote to notes-only (checks still run, revision notes still flow, nothing hard-blocks) — the safe first-deploy posture while watching the panel-exhaustion rate over the first ~10 books.
-- **Story formats + fixed skeleton (2026-07-31, "AI Writer Guidelines" implementation):** requests carry `storyFormat` (`classic`/`superhero`/`adventure`/`love_story` — buyer-selected register; `services/shared/storyFormats.js` is the vocabulary + directive source, `normalizeStoryFormat` at validation with loud-warn-on-unknown). Smart default resolves in creativeBrief (`resolveStoryFormat`: valid requested → parent-day occasion ⇒ `love_story` → age ≤4 ⇒ `classic` → `adventure`); `brief.storyFormat` `{format, source, directive}` attaches code-side (the `themes`/`storyRoles` pattern) and rides concept/writer/revision/judges — the judge panel judges voice WITHIN the ordered register. The format owns ONLY the spread-1 opener convention, tone, and world flavor; the skeleton and role casting are fixed across all four. The writer's purpose map is now the guidelines' **fixed 13-slot beat skeleton** (opener → intro-plants → normal-day → trigger → world-entry → abstract challenge → first-attempt[tool] → refrain+escalation(2 sentences max) → turning-point[funny trait, spread 9] → victory → homeward-callback → return-to-comfort[homeBase+parents] → closing[food callback]); `ROLE_HOME_SPREADS` aligned to it (`tool:[7]`, `turningPoint:[9]`, `worldObject:[5]`). Concepts compete ONLY inside that frame (conceptRoom FIXED CONSTRAINTS section; `conceptAngles.json` rewritten as voice/texture angles — `quiet_observational` no longer pitches "no quest, no villain", which the skeleton forbids) and emit an optional coined `world_name` (normalizeConcept, ≤40 chars) — STORY TEXT only, never signage (artDirector WRITTEN LABELS rule).
-- **2026-08-02 customer feedback (Noam/Daniel book) — three fixes:** (1) **Past-tense narration** is the standard register for PB_PRESCHOOL/PB_EARLY_READER (`narrativeConstraints.narrativeTense` in the age-profile JSONs; resolver `ageProfiles.narrativeTenseFor`, ops override `BOOK_PIPELINE_V3_NARRATIVE_TENSE=past|present`). The lap-baby bands stay present tense and keep the machine-checked `pastTense` gate (now keyed on the resolved tense, not a band list); past-tense books get the SOFT `tense_drift` book lint (past-marker evidence on <60% of spreads → revision notes). Writer preamble + writer/revision/polish prompts updated. (2) **Onomatopoeia gate** ("tap tap everywhere"): `gate/checks/onomatopoeia.js` + `gate/lexicons/soundWords.json` flag sound-EFFECT usage only — reduplication ("tap tap"), known pairs ("tick tock"), exclamation ("Whoosh!"), shouted caps ("BOOM") — never ordinary verb use ("Maya tapped"). Reduplication/pairs are HARD (`onomatopoeia`, in QA_REVIEW_HARD_CODES so `BOOK_PIPELINE_V3_QA_HARD=0` demotes) for INFANT/TODDLER/PRESCHOOL, soft for EARLY_READER; the `onomatopoeia_overuse` book lint enforces a budget of ONE sound-word moment per book. Writer prompt rule 17 matches. (3) **Family cast facts** (the book rendered the MOTHER and father as two men of invented, contrasting ethnicities): `illustrator/artDirection/familyFacts.js` turns the questionnaire's mom/dad fields into declared facts — gender comes from WHICH field the name arrived in, NEVER from the name string. The art director prompt gets a FAMILY CAST FACTS rule (parents must read unmistakably as their role/gender; skin tones harmonize with the hero as close biological family — never invented contrasting ethnicities, never a re-cast pairing); a deterministic post-pass (`applyFamilyFacts`) prefixes every parent cast lock with the role sentence AND synthesizes locks for parents present in the manuscript without one (single-scene parents used to reach the renderer as bare name strings). Patched/synthesized locks ride every render prompt + the book pass as before.
-- **Gate false-positive fixes (2026-07-28):** the pronoun lock passes when the spread's `characters_present` names a character whose gendered role explains the pronouns ("Daddy lifts his hat" in a she/her book); `pastTense` exempts participial adjectives (copula/intensifier predecessor, attributive position), `-eed` words, and lexical `-ed` words. New `word_length` soft lint wires `vocabularyConstraints.maxWordLengthChars` (the only machine-checkable vocabulary field; the category labels stay prompt-only). `contract/constants.js` was slimmed to its three live exports.
-- The anthropic client (`llm/anthropicClient.js`) never sends `temperature`/`top_p` — `claude-opus-4-8` rejects them (400). Best-of-2 draft diversity comes from prompt variants (works across all families).
-- **No ship-anyway → review queue:** panel exhaustion (after ≤2 revision rounds + second draft + fresh manuscript from the runner-up concept) throws `PipelineError` with `failureCode: 'needs_review'` and a structured payload (`services/bookPipelineV3/reviewQueue/payload.js`: stage, reason `judge_panel_exhausted`, defects, judge scores + history). server.js persists the payload in the book checkpoint and forwards it on the failure callbacks (`needsReview` field). Admin resolution via `POST /v3/review/approve` (ship best manuscript on re-dispatch) or `/v3/review/regen-manuscript`; `pick-candidate`/`regen-spread` 409 until the native illustrator (milestone 2 W10). The endpoints only mutate the checkpoint — the main app re-dispatches `/generate-book`. Smoke-test escape hatch: `BOOK_PIPELINE_V3_SHIP_ON_EXHAUSTION=1`.
-- Filter `[bookPipelineV3]` in Cloud Logging; the run ends with a one-line `cost summary` (per-call ledger in `document.v3.costs`).
-
-### Native V3 illustrator — the ONLY illustrator (cutover 2026-07-15)
-
-- **No versions:** `DEFAULT_ILLUSTRATOR = 'native'` and `'native'` is the only valid value (`services/bookPipelineV3/illustrator/config.js`). A pre-cutover `'legacy'` checkpoint maps LOUDLY onto native (illustration restarts; the manuscript replays); a stale `BOOK_PIPELINE_V3_ILLUSTRATOR=legacy` env warns and is ignored; request `illustratorVersion` accepts only `'native'` (anything else 400s before the 202). Callbacks carry `illustratorVersionUsed: 'native'` beside `pipelineVersionUsed`.
-- **Roles — ALL vision on Gemini (product decision 2026-07-17):** ART_DIRECTOR `gemini-2.5-pro`, QA_VISION `gemini-2.5-flash`, LIKENESS_JUDGE_A `gemini-2.5-flash` + LIKENESS_JUDGE_B `gemini-2.5-pro` (cross-MODEL ENFORCED — `validateLikenessFamilies` logs MODEL COLLAPSE when both judges resolve to one model). OpenAI vision was dropped after its wire format broke mid-production (image_url → Responses API); the openai vision path stays wired (Responses API + loud legacy fallback) for per-role A/B via `BOOK_PIPELINE_V3_LIKENESS_JUDGE_*_FAMILY`. Renderer models default to `gemini-3-pro-image-preview` (2026-07-28 flip — the id DOCUMENTED for the public Generative Language API; the 2026-07-15 guess `gemini-3.1-pro-image` never existed and 404'd). A non-provisioned key falls back LOUDLY to `gemini-3.1-flash-image` (`FALLBACK_IMAGE_MODEL`) — the book then carries `doc.rendererModels` + a `stage:'render'` qaAdvisory, so watch the first post-deploy book; confirm/adjust via `scripts/listImageModels.js` and the `BOOK_PIPELINE_V3_SHEET/SPREAD_RENDERER_MODEL` env overrides. Caches are model-keyed — no manual cache bumps on flips.
-- **Likeness reference = the APPROVED COVER character** (product decision 2026-07-15): the parent approved the cover, so that character is the book's identity ground truth. A0 sheet candidates are judged vs the cover; A3 spread candidates vs the model sheet + cover (same-medium, illustration-vs-illustration). The RAW PHOTO is never a QA reference (photo-vs-illustration judging is unwinnable — age stylization, medium gap); photos feed only the likeness-brief vision analysis, and act as judge fallback for coverless books.
-- **Pipeline:** A0 identity kit (`illustrator/identityKit/` — likeness brief + best-of-3 character sheet judged cross-family vs the photo, GCS-cached by photoHash+styleVersion; runs parallel with the writer; photos feed only vision analysis + judges, NEVER generation — PROHIBITED_CONTENT-safe) → A1 art direction (`artDirection/` — one multimodal call: shot budget deterministically validated/repaired, quiet zones, palette arc, world plates; unstageable contracts BOUNCE to one writer revision round before any pixels) → A2 parallel renders (`render/` — 1:1, 2 candidates/spread from fixed refs [sheet+cover+plate], GCS-resume) → A3 QA cascade (`qa/` — sharp integrity + letterform hard-fail + spread judge + cross-family likeness; one repair wave with named defects; exhaustion → needs_review with ALL candidates) → A4 book pass (`bookPass/` — contact-sheet review, one targeted regen wave). Books lay out in caption mode (typeset verso + full-bleed recto) — **no text in pixels, ever** (D5).
-- **Closed critical gate (2026-07-16):** the spread judge and book pass can BLOCK only for a CLOSED list of critical defect classes (THE PARENT TEST: painted words · duplicated child/stranger · countably wrong anatomy · action entirely absent · wrong setting · style break · [book level] wrong child/outfit vs cover). Everything else is a MINOR defect: recorded as `doc.qaAdvisories` (`[{stage, spread, note}]`, capped 40), shipped on the completion callbacks (`qaAdvisories` + a `bookWarnings` summary) and persisted in the checkpoint — never blocking, fixable post-hoc via `/v3/review/regen-spread`. Deterministic backstop: hard tags (`duplicated_hero`/`extra_character`/`missing_character`) escalate to critical regardless of the model's severity label; so do the style-medium signals (`style_drift`/`photo_blur` tags, or `style <= 2` — the prompt reserves that floor for a broken render medium; 2026-07-28, book 16758e3c shipped flat-2D spreads the judge had tagged but labeled "minor"). Judge scores still rank candidates (`pickWinner`) but no longer gate. Repair waves and book-pass regens chase only critical notes.
-- **Print-audit hardening (2026-07-18, Astro-Maze audit):** (1) the spread judge returns a normalized `hero_box`; it rides the winner (`illustration.heroBox`) into the layout payload, and `chooseOverlayZone` (layoutEngine, pure/exported) relocates an embedded caption whose planned band the hero covers >15% — luminance sampling alone typeset captions across the hero's face. (2) `wrapTextBalanced` kills one-word orphan lines. (3) The judge also receives the spread's caption text (counted-object critical class 7: "three tunnels" text vs four painted) and, for embedded books, the wide-spread fold classes (twin landmarks / focal subject on the fold); photographic blur/DOF is a named style-break. (4) A1 renders a **prop plate** from the art director's LOCKED `continuityLocks.props[].design` (`artDirection/propPlate.js`) that rides every render's reference pack; prop object-identity morphs are book-pass critical class 7 — BOUNDED (2026-07-19, book 37907cf4 needs_review'd on the class's first outing): the plate also rides the book-pass review as the design ground truth, a critical prop flag must NAME a locked prop or `boundPropFlags` downgrades it to an advisory, and book-pass regens carry a `CRITICAL REPAIR` template quoting the flagged prop's locked design. (5) Back-cover generation forbids and QA-rejects book mockups/photo surfaces (`qaBackCoverArtwork`), and cover bleed/wrap bands are blur-softened (`extendWithSoftWrap`) instead of raw pixel streaks. (6) `runManuscriptGate` adds soft book lints (`gate/checks/bookLints.js`: duplicate climax, unintroduced prop, word overuse; 2026-07-28 book 16758e3c additions: unintroduced refrain object, monotone page-turn, repetitive opener, refrain-never-evolves) — never gating, they feed revision notes via `mergeTargets`. The writer prompt carries the matching craft rules (a 13-slot spread purpose map, "plant before you ask", "vary the hooks").
-- **Typography + wardrobe hardening (2026-07-19, Rocket-Ride audit #2):** (1) `wrapTextBalanced` is now a least-squares balanced wrap (Knuth-style DP) — wrapped caption lines come out near-equal instead of full-line-then-stub ("staircase"); caption measure is capped at `OVERLAY.MAX_MEASURE_FRAC` (78% of page width). (2) The spread judge also returns `figures_box` (union of ALL characters); layout dodges the whole cast, not just the hero (a caption typeset across two aliens' faces). (3) Deterministic fold backstop in `qa/select.js`: on embedded renders a hero_box with ≥`FOLD_SWALLOW_FRAC` (60%) of its width inside the fold band `[FOLD_BAND_MIN, FOLD_BAND_MAX]` fails the candidate as `fold_collision` regardless of judge prose. SWALLOWED, not centered (2026-07-20, book d7625d8f): the first cut failed on box CENTER in the band, which no close-up shot can satisfy — one spread per book (the shot budget requires close-ups) deterministically exhausted spread QA into needs_review. Fold-failed spreads also restage with an explicit off-center composition rule (`restageSpread` gets `textLayout`). (4) Cover wardrobe: flag/logo/letter-free outfit rules in the fresh-cover, harmonize, and upsell prompts + `qaCoverWardrobe` (one vision check + one hardened retry — a US-flag patch on the approved cover had propagated onto every interior spread). (5) `continuityLocks.gear` — gear-state rules per setting (helmet ON outdoors) stated in every spread's continuityNotes, checked by the book pass as an advisory. (5b, 2026-07-28) `continuityLocks.cast` — locked designs (hair/skin/outfit) for recurring NAMED supporting characters (Mom/Dad changed appearance+outfits between consecutive spreads in book 16758e3c); the locks ride every render prompt as a SUPPORTING CAST block, and the book pass checks them as critical class 8, bounded by `boundCastFlags` (a critical cast flag must NAME a locked member or it downgrades) with a cast `CRITICAL REPAIR` regen template. (5c) Reflection scenes (`isReflectionScene`, promptFormat.js — deterministic, shared by renderer + judge): a contract calling for the child's reflection swaps the one-instance render rule for on-surface staging, adds a REFLECTIONS staging rule to the art director/restage prompts, and conditionally carves the judge's duplicated-hero class (two free-standing children still critical) — book 16758e3c rendered "sees her reflection" as a second child inside the chest. (5d) Upsell cards: `generateUpsellCoverImage` pins `imageConfig.aspectRatio '3:4'` and `buildUpsellSpread` embeds `fit:'cover'` (off-aspect covers letterboxed into floating cards). (6) Pseudo-alphabet/alien-script bans in render/plate prompts; prop-plate note scopes props to scenes (no decals); character-sheet prompt forbids invented moles.
-- **spreadQa ship-on-exhaustion + fold softening (2026-07-22, book 497c8b68 embedded rerun):** the `BOOK_PASS_SHIP_ON_EXHAUSTION` escape hatch now ALSO covers the `spreadQa` stage (previously bookPass-only). When set, a spread that exhausts its per-spread QA budget (incl. the restage/recovery round) no longer dead-ends the book on `needs_review` at `spreadQa` — `shipExhaustedSpreads` (illustrator/index.js) keeps the LEAST-BAD candidate per spread (`pickLeastBad` in `qa/select.js`: furthest through the cascade → highest likeness → fewest defects), logs a loud per-spread WARNING, records the residuals as `spreadQa` `qaAdvisories`, attaches the needs_review payload to `doc.bookPassReview` (same slot server.js reads, so the completion callback carries `needsReview` + a `bookWarnings` line — book completes-but-flagged, never silently clean), and CONTINUES to the book pass + PDF assembly. Same flag also SOFTENS the embedded foldCollision backstop: while enabled a fold-swallowed candidate becomes a ranking-only advisory (`record.foldAdvisory`, `pickWinner` demotes it below any clean pass) instead of a hard `fail@foldCollision`, so fold-alone can't consume a whole budget. Caption (1:1) layout unaffected (fold backstop never runs there). Default OFF — behavior is byte-identical to before unless the env is set.
-- **Style-drift hardening (2026-07-18, book 6e018c20):** a prose-only world plate drifted flat/desaturated and dragged its spreads into a book-pass style break that the cover-blind spread judge could not see. Now: world plates render WITH the book pack (sheet + approved cover) as rendering-style references (`renderWorldPlates.styleReferences`); the spread judge receives the cover as a STYLE-ONLY reference (critical class 6 covers cover-relative flat/desaturated/line-art drift — identity/outfit still belong to the likeness judges + book pass); and style-break defects get a targeted `CRITICAL REPAIR` template in both the spread repair wave and the book-pass regen (same pattern as the lettering/color-drift templates).
-- **Style-enforcement hardening (2026-07-28, book 16758e3c "Liv" — mixed 2D/3D interiors across 9 revisions):** the sb-N prompt text was fine; enforcement had three holes, now closed. (1) The render-candidate cache is keyed by `STYLE_VERSION` (see the STYLE+ASPECT-KEYED note above) — pre-bump pixels can no longer replay from GCS after a bible bump. (2) The spread judge got a deterministic style-medium rail (`STYLE_BREAK_TAGS` + the `style <= 2` floor — see the closed-gate bullet). (3) Every world/prop plate is medium-checked by QA_VISION (`artDirection/plateStyleQa.js`: one check vs the cover/sheet, one `PLATE_STYLE_REPAIR` re-render on failure, then the plate is DROPPED with an `artDirection` qaAdvisory — a missing plate degrades continuity; a 2D plate seeds a book-wide break; the drifted plate's hallucinated broccoli+cake recurred on exactly the flat spreads). Phase-2 additions (same date): (4) **Cover pre-flight** (`illustrator/coverPreflight.js` `resolveCoverAnchor`, called once at workflow start) — the approved cover is medium-checked BEFORE it anchors anything; a 2D anchor is harmonized immediately (`coverGenerator.harmonizeChosenCoverToInteriorStyle`, now exported), re-checked, uploaded to `children-jobs/{bookId}/cover-3d-harmonized.png` (the marker makes the later cover-PDF harmonize skip), and the whole book anchors on it; failures keep the original with a `spread:'cover'` qaAdvisory, never block. (5) **Prompt hygiene** — `STYLE_BIBLE` LEADS all four image prompts and a `STYLE_PIN` (styleBible.js) closes them; free-text channels (continuity notes, palette, admin notes) are scoped so no phrasing can soften the medium lock. (6) **Renderer-model plumbing** — `candidatePath` and the kit cache key include the configured renderer model (a model flip re-renders; no manual ik-N bump); candidates/sheet keep the model that ACTUALLY rendered them, and a fallback-model book gets `doc.rendererModels` + a loud `stage:'render'` qaAdvisory; `scripts/listImageModels.js` is the ListModels confirmation step for the pro id.
-- **Review resolutions:** `/v3/review/pick-candidate` (bypass QA for an admin-picked candidate), `/v3/review/regen-spread` (force fresh renders with the admin note in the prompt), and `/v3/review/pick-sheet` (identity_kit_exhausted: use an admin-picked sheet candidate — the payload carries `candidateUrls` + per-judge verdicts); other spreads replay from GCS on the re-run. The old `/regenerate-illustration` endpoint is a 410 stub.
-- **Identity-kit tuning:** the sheet is generated from the likeness brief + the parent-approved COVER as reference (never the photo); wave 2 feeds the judges' named defects back into the prompt. Ops knobs: `BOOK_PIPELINE_V3_LIKENESS_PASS_SCORE` (default 4), `BOOK_PIPELINE_V3_SHEET_BEST_OF`/`_SHEET_EXTRA_WAVES` (3/1), `BOOK_PIPELINE_V3_KIT_SHIP_ON_EXHAUSTION=1` (loud escape hatch: ship best-scoring sheet instead of needs_review).
-- **Legacy books:** `/finalize-book` still lays out pre-cutover books (baked-caption wide images split by `layoutEngine.splitSpreadImage`); they cannot be re-rendered per-spread — regenerate in full (restarts on native).
-- **Style bible = premium 3D (sb-1, 2026-07-20):** `illustrator/styleBible.js` derives from the FROZEN `PIXAR_STYLE` config (`shared/illustration/config.js`) — the same 3D CGI language the cover pipeline is locked to (`canonicalBookArtStyle()` ignores the request on purpose). The sb-0 placeholder prompted "NOT 3D render" and shipped 2D interiors stapled to 3D covers (book 36e79635 complaint). The spread judge's style class is 3D-relative: flat 2D/painterly/watercolor drift is the break; cinematic bokeh is part of the style; a live-action photograph look also breaks. Never edit the bible without bumping `STYLE_VERSION` (invalidates every cached identity kit).
-- **Caption overlay treatment (2026-07-20, book 36e79635 readability):** overlay captions use the rounded upright face (`bubblegum`) at a one-notch larger ladder (24→16) — white caption pages keep the serif — and `shouldScrim` (pure/exported) draws a soft 3-layer translucent scrim behind the block whenever the band is busy or the advisory contrast is below `OVERLAY.MIN_CONTRAST`; halo ring opacity raised (0.70/0.85). The overlay report carries `scrim` per spread.
-- **Calibration:** run `node scripts/calibrateIllustratorJudges.js labels.json` — every hard-fail class (lettering / duplicated hero / wrong child) should show ≥0.90 judge–human agreement (see `docs/PHASE_C_VALIDATION.md` for the audit checklist; the staged Phase C gate itself was superseded by the direct cutover).
+- `API_KEY`, `GCS_BUCKET_NAME` — auth + storage
+- `OPENAI_API_KEY` — the writer (gpt-5.4). Required; boot guard + `/healthz`.
+- `GEMINI_API_KEY` (+ `GEMINI_API_KEY_1..10` pool, `GOOGLE_AI_STUDIO_KEY`) —
+  renders + vision QA + coloring/comics
+- `DEEPSEEK_API_KEY` — no longer required (legacy pipelines deleted)
+- Catalog flags above
 
 ## Conventions
 
 - All functions use JSDoc comments
 - Error handling with retries and exponential backoff
-- Cost tracking per generation
-- Progress reporting via webhook callbacks
+- Cost tracking per generation (`CostTracker`)
+- Progress reporting via webhook callbacks (`progressReporter`)
+- Never edit `data/catalog.json` plots; sidecars are additive and versioned
+- Bump `versions.js` identifiers when prompts/formulas change

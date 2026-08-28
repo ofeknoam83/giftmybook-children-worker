@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://giftmybook.com/schemas/writer/v1.3/writer-runtime.schema.json",
+  "title": "GiftMyBook writer runtime V1.3 request and response",
+  "$defs": {
+    "version": {"type": "string", "minLength": 1, "maxLength": 80},
+    "pronouns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "object", "possessive_adjective"],
+      "properties": {
+        "subject": {"type": "string", "minLength": 1, "maxLength": 30},
+        "object": {"type": "string", "minLength": 1, "maxLength": 30},
+        "possessive_adjective": {"type": "string", "minLength": 1, "maxLength": 30}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "age", "pronouns"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 60},
+        "age": {"type": "integer", "minimum": 1, "maximum": 10},
+        "pronouns": {"$ref": "#/$defs/pronouns"},
+        "object": {"type": ["string", "null"], "maxLength": 100},
+        "interests": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+        "activities": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+        "food": {"type": ["string", "null"], "maxLength": 100},
+        "place": {"type": ["string", "null"], "maxLength": 120},
+        "habit": {"type": ["string", "null"], "maxLength": 180},
+        "trait": {"type": ["string", "null"], "maxLength": 80}
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writer_engine", "age_engine", "catalog", "book_definition", "personalization_map", "map_schema", "selector", "prompt_template", "model"],
+      "properties": {
+        "writer_engine": {"$ref": "#/$defs/version"},
+        "age_engine": {"$ref": "#/$defs/version"},
+        "catalog": {"$ref": "#/$defs/version"},
+        "book_definition": {"$ref": "#/$defs/version"},
+        "personalization_map": {"$ref": "#/$defs/version"},
+        "map_schema": {"$ref": "#/$defs/version"},
+        "selector": {"$ref": "#/$defs/version"},
+        "prompt_template": {"$ref": "#/$defs/version"},
+        "model": {"$ref": "#/$defs/version"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "session_id", "book_id", "age_band", "locale", "rendered_title", "profile", "versions"],
+      "properties": {
+        "request_id": {"type": "string", "minLength": 8, "maxLength": 100},
+        "session_id": {"type": "string", "minLength": 8, "maxLength": 100},
+        "book_id": {"type": "string", "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"},
+        "age_band": {"enum": ["1_3", "4_5", "6_7", "8_10"]},
+        "locale": {"type": "string", "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"},
+        "rendered_title": {"type": "string", "minLength": 1, "maxLength": 180},
+        "profile": {"$ref": "#/$defs/profile"},
+        "versions": {"$ref": "#/$defs/versions"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_field", "source_value", "moment_type", "spread", "slot_id", "visual_required"],
+      "properties": {
+        "source_field": {"enum": ["object", "interests", "activities", "food", "place", "habit", "trait"]},
+        "source_value": {"type": "string", "minLength": 1, "maxLength": 180},
+        "moment_type": {"enum": ["object_presence", "object_callback", "habit_behavior", "trait_behavior", "interest_reaction", "interest_comparison", "place_reference", "food_celebration", "closing_callback", "visual_prop"]},
+        "spread": {"type": "integer", "minimum": 1, "maximum": 12},
+        "slot_id": {"type": "string"},
+        "visual_required": {"type": "boolean"},
+        "visual_slot_id": {"type": "string"}
+      },
+      "allOf": [{"if": {"properties": {"visual_required": {"const": true}}}, "then": {"required": ["visual_slot_id"]}}]
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "book_id", "title", "versions", "spreads", "personalization_evidence", "omitted_profile_fields"],
+      "properties": {
+        "request_id": {"type": "string"},
+        "book_id": {"type": "string"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 180},
+        "versions": {"$ref": "#/$defs/versions"},
+        "spreads": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["spread", "text"],
+            "properties": {
+              "spread": {"type": "integer", "minimum": 1, "maximum": 12},
+              "text": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "personalization_evidence": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/evidence"}},
+        "omitted_profile_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_field", "reason"],
+            "properties": {
+              "source_field": {"enum": ["object", "interests", "activities", "food", "place", "habit", "trait"]},
+              "reason": {"enum": ["missing", "no_approved_slot", "weak_fit", "redundant", "unsafe_or_sensitive", "ip_or_brand", "moment_cap", "editorial_omission"]}
+            }
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {"properties": {"type": {"const": "request"}, "payload": {"$ref": "#/$defs/request"}}, "required": ["type", "payload"], "additionalProperties": false},
+    {"properties": {"type": {"const": "response"}, "payload": {"$ref": "#/$defs/response"}}, "required": ["type", "payload"], "additionalProperties": false}
+  ]
+}
