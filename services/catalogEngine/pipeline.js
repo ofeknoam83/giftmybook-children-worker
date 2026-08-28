@@ -51,11 +51,13 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
     }
     const { matchKey } = require('./profile');
     const p = request.profile || {};
+    const pronounsMatch = ['subject', 'object', 'possessive_adjective']
+      .every(k => matchKey(p.pronouns?.[k] || '') === matchKey(profile.pronouns[k]));
     if (matchKey(p.name || '') !== matchKey(profile.name)
       || Number(p.age) !== profile.age
-      || p.pronouns?.subject !== profile.pronouns.subject) {
+      || !pronounsMatch) {
       throw new PipelineError(
-        `stored story was written for '${p.name}' (age ${p.age}, ${p.pronouns?.subject}) but this dispatch is for '${profile.name}' (age ${profile.age}, ${profile.pronouns.subject}) — regenerate the stories`,
+        `stored story was written for '${p.name}' (age ${p.age}, ${p.pronouns?.subject}/${p.pronouns?.object}/${p.pronouns?.possessive_adjective}) but this dispatch is for '${profile.name}' (age ${profile.age}, ${profile.pronouns.subject}/${profile.pronouns.object}/${profile.pronouns.possessive_adjective}) — regenerate the stories`,
         'invalid_story',
       );
     }
@@ -73,7 +75,7 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
       }
     } else {
       const { ok, errors } = validateStoryResponse({
-        response, request, book: hit.book, ageBand: hit.ageBand, map: evCount > 0 ? map : null,
+        response, request, book: hit.book, ageBand: hit.ageBand, map: evCount > 0 ? map : null, theme: hit.theme,
       });
       if (!ok) {
         throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });
@@ -171,7 +173,9 @@ async function runBookPipeline(params) {
   if (approvedCoverUrl) {
     try {
       onProgress('assembly', 0.85, 'Generating next-story covers...');
-      const coverResp = await fetch(approvedCoverUrl);
+      const coverAbort = new AbortController();
+      const coverTimer = setTimeout(() => coverAbort.abort(), 30000);
+      const coverResp = await fetch(approvedCoverUrl, { signal: coverAbort.signal }).finally(() => clearTimeout(coverTimer));
       if (!coverResp.ok) throw new Error(`cover fetch HTTP ${coverResp.status}`);
       const frontCoverBuffer = Buffer.from(await coverResp.arrayBuffer());
       const gender = profile.pronouns.subject === 'he' ? 'male' : profile.pronouns.subject === 'she' ? 'female' : 'neutral';

@@ -48,6 +48,42 @@ function containsTerm(haystack, needle) {
 }
 
 /**
+ * Deterministic BEAT ANCHORS — the machine-checkable slice of "required beat
+ * markers/facts" (full semantic beat adherence stays the optional LLM
+ * evaluator, never the sole gate, per the handoff):
+ *  - a beat that names the theme's companion → the spread must name them;
+ *  - a beat with the catalog's counting marker (ONE, TWO, THREE) → the
+ *    spread must count one→two→three;
+ *  - the theme's fixed world name must appear in the story.
+ * @param {object} params {response, book, theme}
+ * @returns {string[]} errors
+ */
+function checkBeatAnchors({ response, book, theme }) {
+  const errors = [];
+  const fullText = response.spreads.map(s => s.text).join('\n');
+
+  if (theme?.world_name && !containsTerm(fullText, theme.world_name)) {
+    errors.push(`the fixed world name "${theme.world_name}" must appear in the story`);
+  }
+
+  const companionWords = (theme?.companion?.name || '')
+    .split(/\s+/).map(matchKey).filter(w => w.length > 2);
+  for (const beat of book.beats) {
+    const spreadText = response.spreads.find(s => s.spread === beat.spread)?.text || '';
+    if (companionWords.length > 0 && containsTerm(beat.beat, theme.companion.name)) {
+      const named = companionWords.some(w => containsTerm(spreadText, w));
+      if (!named) errors.push(`spread ${beat.spread}: the beat names ${theme.companion.name} — the companion must appear on this spread`);
+    }
+    if (/ONE, TWO, THREE/.test(beat.beat)) {
+      if (!/\b(one|1)\b[\s\S]*?\b(two|2)\b[\s\S]*?\b(three|3)\b/i.test(spreadText)) {
+        errors.push(`spread ${beat.spread}: the beat requires counting ONE, TWO, THREE — the spread must count one, two, three`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
  * Validate the story text + evidence of a response.
  *
  * @param {object} params
@@ -56,9 +92,10 @@ function containsTerm(haystack, needle) {
  * @param {object} params.book catalog book definition
  * @param {string} params.ageBand catalog band key ('1-3' etc.)
  * @param {object|null} params.map approved personalization map (null = name-only mode)
+ * @param {object} [params.theme] catalog theme — enables the deterministic beat anchors
  * @returns {{ok: boolean, errors: string[]}}
  */
-function validateStoryResponse({ response, request, book, ageBand, map }) {
+function validateStoryResponse({ response, request, book, ageBand, map, theme }) {
   const errors = [];
 
   // 1. Schema
@@ -107,6 +144,7 @@ function validateStoryResponse({ response, request, book, ageBand, map }) {
   if (!fullText.includes(profile.name)) {
     errors.push(`the child's name '${profile.name}' (exact spelling) must appear in the story`);
   }
+  if (theme) errors.push(...checkBeatAnchors({ response, book, theme }));
 
   // 6. Age bounds
   errors.push(...checkAgeBounds(response.spreads, ageBand, profile.age));
@@ -246,4 +284,4 @@ function checkLeakage({ response, profile, fullText }) {
   return errors;
 }
 
-module.exports = { validateStoryResponse, validateEvidence, checkLeakage, containsTerm, BANNED_BRANDS };
+module.exports = { validateStoryResponse, validateEvidence, checkBeatAnchors, checkLeakage, containsTerm, BANNED_BRANDS };

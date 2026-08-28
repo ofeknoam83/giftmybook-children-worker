@@ -172,9 +172,14 @@ async function illustrateStory(params) {
 
   results.sort((a, b) => a.spread - b.spread);
   const qaAdvisories = results.flatMap(r => r.advisories);
+  // Residual QA defects ship with advisories, but the ABSENCE of an image is
+  // not advisory-class: a blank spread must fail the run (finished renders
+  // stay cached, so the retry re-pays only for the missing spreads).
   const missing = results.filter(r => !r.buffer).map(r => r.spread);
   if (missing.length > 0) {
-    warnings.push(`Spread(s) ${missing.join(', ')} have no illustration — regenerate via admin before print.`);
+    const err = new Error(`render failed for spread(s) ${missing.join(', ')} — the book cannot complete with blank art; retry re-renders only the missing spreads`);
+    err.failureCode = 'render_failed';
+    throw err;
   }
 
   const entries = results.map(r => ({

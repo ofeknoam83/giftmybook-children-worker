@@ -179,7 +179,7 @@ async function generateStory(params) {
       lastErrors = ['response was not a JSON object'];
       continue;
     }
-    const { ok, errors } = validateStoryResponse({ response, request, book, ageBand, map });
+    const { ok, errors } = validateStoryResponse({ response, request, book, ageBand, map, theme });
     if (ok) {
       const details = usableDetails(request.profile);
       if (flags.evidenceRequired() && map && details.length > 0 && (response.personalization_evidence || []).length === 0) {

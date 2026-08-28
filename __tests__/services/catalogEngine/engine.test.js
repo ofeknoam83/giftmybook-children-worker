@@ -6,7 +6,7 @@
 
 const { normalizeProfile, usableDetails, matchKey, ProfileError } = require('../../../services/catalogEngine/profile');
 const { selectBooks, scoreBook, pickSlate } = require('../../../services/catalogEngine/selection');
-const { validateStoryResponse, validateEvidence, containsTerm } = require('../../../services/catalogEngine/storyValidation');
+const { validateStoryResponse, validateEvidence, checkBeatAnchors, containsTerm } = require('../../../services/catalogEngine/storyValidation');
 const { buildStoryRequest, buildUserPrompt } = require('../../../services/catalogEngine/writer');
 const { loadAugments, augmentsFor, coverageReport } = require('../../../services/catalogEngine/augments');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -183,6 +183,25 @@ describe('story validation (deterministic 10-step)', () => {
   test('containsTerm is whole-word and diacritic-insensitive', () => {
     expect(containsTerm('She loves the little pony here', 'pony')).toBe(true);
     expect(containsTerm('The ponytail swings', 'pony')).toBe(false);
+  });
+});
+
+describe('deterministic beat anchors', () => {
+  const { book, theme } = getBook('farm_2_3_hello_farm');
+
+  test('a story that names the companion, counts, and lives in the world passes', () => {
+    const text = 'Emma and Farmer Bea count one, two, three happy chicks at Sunnybrook Farm today';
+    const response = { spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text })) };
+    expect(checkBeatAnchors({ response, book, theme })).toEqual([]);
+  });
+
+  test('an unrelated plot is caught: missing world, companion, and counting', () => {
+    const text = 'Emma sails her boat across the quiet lake and waves at the clouds above';
+    const response = { spreads: Array.from({ length: 12 }, (_, i) => ({ spread: i + 1, text })) };
+    const errors = checkBeatAnchors({ response, book, theme });
+    expect(errors.some(e => e.includes('Sunnybrook Farm'))).toBe(true);
+    expect(errors.some(e => e.includes('Farmer Bea'))).toBe(true);
+    expect(errors.some(e => e.includes('ONE, TWO, THREE'))).toBe(true);
   });
 });
 
