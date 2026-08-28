@@ -1138,10 +1138,11 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       console.log(`[illustrationGenerator] Accepted illustration on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}`);
 
-      // Upload to GCS
+      // Upload to GCS (opts.gcsPath pins a deterministic path so callers can
+      // cache/resume renders; default keeps the legacy timestamped path)
       if (bookId) {
         const uploadStart = Date.now();
-        const gcsPath = `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
+        const gcsPath = opts.gcsPath || `children-jobs/${bookId}/illustrations/${Date.now()}.png`;
         const gcsUrl = await withRetry(
           () => uploadBuffer(imageBuffer, gcsPath, 'image/png'),
           { maxRetries: 3, baseDelayMs: 1000, label: `upload-illustration-${bookId}` }

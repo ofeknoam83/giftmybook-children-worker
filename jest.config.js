@@ -4,8 +4,7 @@ module.exports = {
   coverageDirectory: 'coverage',
   collectCoverageFrom: [
     'services/**/*.js',
-    'prompts/**/*.js',
-    '!services/taskQueue.js',
+    '!services/catalogEngine/data/**',
   ],
   testMatch: ['**/__tests__/**/*.test.js'],
 };

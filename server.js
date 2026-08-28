@@ -55,163 +55,17 @@ const rateLimit = require('express-rate-limit');
 const pLimit = require('p-limit');
 const { v4: uuidv4 } = require('uuid');
 
-const { brainstormStorySeed } = require('./services/storyPlanner');
-const { EMOTIONAL_THEMES, getEmotionalTier } = require('./services/shared/emotionalTiers');
-// Picture-book rendering is the native v3 illustrator; covers call
-// generateIllustration inside coverGenerator. server.js only needs the
-// utility exports here.
-const { downloadPhotoAsBase64, canonicalBookArtStyle } = require('./services/illustrationGenerator');
+const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 const { assemblePdf, buildEmbeddedPreviewPdf, OVERLAY } = require('./services/layoutEngine');
 const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
 const { computeCoverPdfMetadata } = require('./services/coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
 const { CostTracker } = require('./services/costTracker');
-const { validateGenerateBookRequest, validateGenerateSpreadRequest, validateFinalizeBookRequest, sanitizeForPrompt } = require('./services/validation');
-const { resolveBookPipeline } = require('./services/pipelineRouter');
-const { withRetry } = require('./services/retry');
+const { validateFinalizeBookRequest } = require('./services/validation');
+const catalogEngine = require('./services/catalogEngine');
+const { runBookPipeline } = require('./services/catalogEngine/pipeline');
 
-// Guard against lorem ipsum / placeholder text leaking into illustration prompts
-const LOREM_PATTERNS = /lorem\s+ipsum|dolor\s+sit\s+amet|consectetur\s+adipiscing|labore\s+et\s+dolore/i;
-
-/**
- * Parse bookFrom into individual gifter names.
- * "Mom and Dad" → ["Mom", "Dad"]
- * "Grandma and Grandpa" → ["Grandma", "Grandpa"]
- * "Alex" → ["Alex"]  (single gifter, no rule needed)
- */
-function parseGifters(bookFrom) {
-  if (!bookFrom || typeof bookFrom !== 'string') return [];
-  const cleaned = bookFrom.trim();
-  // Split on " and ", " & ", ", "
-  const parts = cleaned.split(/\s+and\s+|\s*&\s*|,\s*/i).map(s => s.trim()).filter(Boolean);
-  return parts.length > 1 ? parts : [cleaned];
-}
-
-
-// ── Text Similarity Utilities (for OCR verification) ──
-
-/**
- * Calculate Levenshtein-based text similarity between two strings.
- * Returns a value between 0 (completely different) and 1 (identical).
- */
-function calculateTextSimilarity(extracted, expected) {
-  const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-  const a = norm(extracted);
-  const b = norm(expected);
-
-  if (a === b) return 1.0;
-  if (!a || !b) return 0.0;
-
-  const matrix = [];
-  for (let i = 0; i <= a.length; i++) {
-    matrix[i] = [i];
-    for (let j = 1; j <= b.length; j++) {
-      matrix[i][j] = i === 0 ? j : Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-      );
-    }
-  }
-
-  const maxLen = Math.max(a.length, b.length);
-  return 1 - (matrix[a.length][b.length] / maxLen);
-}
-
-/**
- * Identify specific text differences between extracted OCR text and expected text.
- * Returns an array of human-readable issue descriptions.
- */
-function identifyTextDifferences(extracted, expected) {
-  const issues = [];
-  if (!extracted || extracted === 'UNREADABLE') {
-    issues.push('Text is unreadable or missing');
-    return issues;
-  }
-
-  const extractedWords = extracted.toLowerCase().split(/\s+/);
-  const expectedWords = expected.toLowerCase().split(/\s+/);
-
-  for (const word of expectedWords) {
-    if (!extractedWords.some(w => calculateTextSimilarity(w, word) > 0.8)) {
-      issues.push(`Missing or misspelled word: "${word}"`);
-    }
-  }
-
-  for (const word of extractedWords) {
-    if (!expectedWords.some(w => calculateTextSimilarity(w, word) > 0.8)) {
-      issues.push(`Unexpected extra text: "${word}"`);
-    }
-  }
-
-  return issues;
-}
-
-/**
- * Verify embedded text in an illustration using Gemini Vision OCR.
- * Reads text from the image and compares to expected text.
- *
- * @param {string} imageBase64 - Base64-encoded image
- * @param {string} expectedText - The text that should appear in the image
- * @returns {Promise<{passed: boolean, extractedText: string, expectedText: string, similarity: number, issues: string[]}>}
- */
-async function verifyEmbeddedText(imageBase64, expectedText) {
-  const { getNextApiKey, fetchWithTimeout } = require('./services/illustrationGenerator');
-
-  if (!expectedText || !expectedText.trim()) {
-    return { passed: true, extractedText: '', expectedText: '', similarity: 1.0, issues: [] };
-  }
-
-  const apiKey = getNextApiKey();
-  if (!apiKey) {
-    console.log('[verifyEmbeddedText] No API key available — skipping verification');
-    return { passed: true, extractedText: '', expectedText, similarity: 1.0, issues: [] };
-  }
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const body = {
-      contents: [{
-        role: 'user',
-        parts: [
-          { inline_data: { mime_type: 'image/png', data: imageBase64 } },
-          { text: `Read ALL text visible in this children's book illustration. Return ONLY the text you can read, nothing else. If you cannot read any text or the text is garbled, return "UNREADABLE".` },
-        ],
-      }],
-      generationConfig: {
-        maxOutputTokens: 256,
-        temperature: 0.1,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    };
-
-    const resp = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }, 30000);
-
-    if (!resp.ok) {
-      console.log(`[verifyEmbeddedText] OCR API error ${resp.status} — skipping verification`);
-      return { passed: true, extractedText: '', expectedText, similarity: 1.0, issues: [] };
-    }
-
-    const data = await resp.json();
-    const extractedText = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-
-    const similarity = calculateTextSimilarity(extractedText, expectedText);
-    const passed = similarity > 0.85;
-    const issues = !passed ? identifyTextDifferences(extractedText, expectedText) : [];
-
-    console.log(`[verifyEmbeddedText] similarity=${similarity.toFixed(2)}, passed=${passed}, extracted="${extractedText.slice(0, 80)}"`);
-
-    return { passed, extractedText, expectedText, similarity, issues };
-  } catch (err) {
-    console.log(`[verifyEmbeddedText] Verification error: ${err.message} — skipping`);
-    return { passed: true, extractedText: '', expectedText, similarity: 1.0, issues: [] };
-  }
-}
 
 const app = express();
 app.set('trust proxy', 1); // Cloud Run runs behind a load balancer
@@ -413,8 +267,8 @@ app.post('/health', (req, res) => {
 // refuse to promote a revision that would silently degrade to Gemini for
 // every book request. Cheap to call — no LLM round-trip.
 app.get('/healthz', (req, res) => {
-  const { assertLlmConfig } = require('./services/llm');
-  const llm = assertLlmConfig({ require: ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY'] });
+  const { assertLlmConfig } = require('./services/shared/llm/openaiClient');
+  const llm = assertLlmConfig({ require: ['OPENAI_API_KEY'] });
   const status = llm.ok ? 200 : 503;
   res.status(status).json({
     status: llm.ok ? 'ready' : 'degraded',
@@ -444,1321 +298,253 @@ app.post('/generate-style-variant', authenticate, (req, res) => {
   });
 });
 
-// ── POST /generate-book ──
-// Full pipeline: photo cache -> story planning -> text -> illustrations -> PDF assembly
-app.post('/generate-book', authenticate, async (req, res) => {
-  const { valid, errors, sanitized } = validateGenerateBookRequest(req.body);
-  if (!valid) {
-    return res.status(400).json({ success: false, errors });
-  }
+// ── Catalog Engine endpoints (V1.3 fixed-catalog system) ────────────────────
+//
+// The writer never invents or selects a plot. Flow:
+//   /v13/select-books    → deterministic 3-candidate selection (sync, no LLM)
+//   /v13/generate-stories → 3 parallel validated stories (202 + callback)
+//   /generate-book        → illustrate + PDF the CHOSEN story (202 + callbacks)
 
-  const {
-    bookId, childName, childAge, childGender, childAppearance,
-    childInterests, childPhotoUrls, bookFormat, artStyle, theme,
-    occasion, storyTheme,
-    customDetails, callbackUrl, progressCallbackUrl, childId,
-    approvedCoverUrl, childAnecdotes, textOnly,
-  } = sanitized;
-  let { approvedTitle } = sanitized;
-  const heartfeltNote = sanitizeForPrompt(req.body.heartfeltNote || '', 500) || null;
-  const bookFrom = sanitizeForPrompt(req.body.bookFrom || '', 200) || null;
-  const bindingType = req.body.bindingType || '';
-  const emotionalCategory = sanitized.emotionalCategory || null;
-  const emotionalSituation = sanitized.emotionalSituation || null;
-  const emotionalParentGoal = sanitized.emotionalParentGoal || null;
-  const copingResourceHint = sanitized.copingResourceHint || null;
-  const isEmotionalBook = EMOTIONAL_THEMES.has(theme);
-  const countryCode = req.body.countryCode || null; // e.g. 'US', 'GB', 'AU'
-  const apiKeys = req.body.apiKeys;
-  const parentStoryContent = req.body.parentStoryContent || null;
-  const parentCharacterAnchor = req.body.parentCharacterAnchor || null;
+const BOOK_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
-  // Explicit pipeline selection ('v2' | 'v3'), sent by the admin test path.
-  // Resolved against env kill-switches and the checkpoint in pipelineRouter.
-  // W12: v3 is the only pipeline — v1/v2 were deleted. An explicit 'v2'
-  // request now fails loudly instead of silently running a different engine.
-  let requestedPipelineVersion = null;
-  if (req.body.pipelineVersion !== undefined && req.body.pipelineVersion !== null && req.body.pipelineVersion !== '') {
-    const v = String(req.body.pipelineVersion).toLowerCase().trim();
-    if (v !== 'v3') {
-      return res.status(400).json({ success: false, error: `Unsupported pipelineVersion '${req.body.pipelineVersion}' — v3 is the only pipeline (legacy pipelines were deleted)` });
-    }
-    requestedPipelineVersion = v;
-  }
+// GET /v13/themes — the catalog's theme vocabulary (single source of truth
+// for the main app's picker).
+app.get('/v13/themes', authenticate, (req, res) => {
+  res.json({ success: true, catalogVersion: catalogEngine.catalogVersion(), themes: catalogEngine.listThemes() });
+});
 
-  // The native illustrator is the only illustrator (2026-07-15 cutover;
-  // legacy was deleted). Same contract as pipelineVersion: anything but
-  // 'native' 400s before the 202 — there is no other code to run.
-  let requestedIllustratorVersion = null;
-  if (req.body.illustratorVersion !== undefined && req.body.illustratorVersion !== null && req.body.illustratorVersion !== '') {
-    const v = String(req.body.illustratorVersion).toLowerCase().trim();
-    if (v !== 'native') {
-      return res.status(400).json({ success: false, error: `Unsupported illustratorVersion '${req.body.illustratorVersion}' — 'native' is the only illustrator` });
-    }
-    requestedIllustratorVersion = v;
-  }
-
-  // Text layout (2026-07-17, admin-selectable): 'caption' (typeset white
-  // verso + square art recto, default) or 'embedded' (wide art across both
-  // pages, caption typeset OVER the quiet zone). Same contract as
-  // illustratorVersion: anything else 400s before the 202.
-  let requestedTextLayout = null;
-  if (req.body.textLayout !== undefined && req.body.textLayout !== null && req.body.textLayout !== '') {
-    const t = String(req.body.textLayout).toLowerCase().trim();
-    if (t !== 'caption' && t !== 'embedded') {
-      return res.status(400).json({ success: false, error: `Unsupported textLayout '${req.body.textLayout}' — expected 'caption' or 'embedded'` });
-    }
-    requestedTextLayout = t;
-  }
-
-  // When generating from a parent book, always preserve the original title.
-  // Derive parentBookTitle from parentStoryContent.title if not explicitly set,
-  // and lock approvedTitle so the planner never invents a different one.
-  let parentBookTitle = req.body.parentBookTitle || null;
-  if (parentStoryContent && !parentBookTitle && parentStoryContent.title) {
-    parentBookTitle = parentStoryContent.title;
-  }
-  if (parentBookTitle && !approvedTitle) {
-    approvedTitle = parentBookTitle;
-    console.log(`[server] Locked title from parent book: "${approvedTitle}"`);
-  }
-
-  // Merge child anecdotes into customDetails so the planner can use them
-  const anecdoteParts = [];
-  if (childAnecdotes) {
-    if (childAnecdotes.favorite_activities) anecdoteParts.push(`Favorite activities: ${childAnecdotes.favorite_activities}`);
-    if (childAnecdotes.funny_thing) anecdoteParts.push(`Funny thing they do: ${childAnecdotes.funny_thing}`);
-    if (childAnecdotes.favorite_food) anecdoteParts.push(`Favorite food: ${childAnecdotes.favorite_food}`);
-    if (childAnecdotes.favorite_place) anecdoteParts.push(`Favorite place: ${childAnecdotes.favorite_place}`);
-    if (childAnecdotes.other_detail) anecdoteParts.push(`Other detail: ${childAnecdotes.other_detail}`);
-    // Theme-specific fields
-    if (childAnecdotes.calls_mom) anecdoteParts.push(`Child calls mom: ${childAnecdotes.calls_mom}`);
-    if (childAnecdotes.mom_name) anecdoteParts.push(`Mom's name: ${childAnecdotes.mom_name}`);
-    if (childAnecdotes.calls_dad) anecdoteParts.push(`Child calls dad: ${childAnecdotes.calls_dad}`);
-    if (childAnecdotes.dad_name) anecdoteParts.push(`Dad's name: ${childAnecdotes.dad_name}`);
-    if (childAnecdotes.meaningful_moment) anecdoteParts.push(`Meaningful moment: ${childAnecdotes.meaningful_moment}`);
-    if (childAnecdotes.moms_favorite_moment) anecdoteParts.push(`Mom's favorite moment: ${childAnecdotes.moms_favorite_moment}`);
-    if (childAnecdotes.dads_favorite_moment) anecdoteParts.push(`Dad's favorite moment: ${childAnecdotes.dads_favorite_moment}`);
-    if (childAnecdotes.favorite_cake_flavor) anecdoteParts.push(`Favorite cake flavor: ${childAnecdotes.favorite_cake_flavor}`);
-    if (childAnecdotes.favorite_toys) anecdoteParts.push(`Favorite toys: ${childAnecdotes.favorite_toys}`);
-    if (childAnecdotes.birth_date) anecdoteParts.push(`Birth date: ${childAnecdotes.birth_date}`);
-    if (childAnecdotes.anything_else) anecdoteParts.push(`Additional details: ${childAnecdotes.anything_else}`);
-  }
-  const enrichedCustomDetails = anecdoteParts.length > 0
-    ? [customDetails, ...anecdoteParts].filter(Boolean).join('\n')
-    : customDetails;
-
-  let format = bookFormat;
-  const style = canonicalBookArtStyle(artStyle);
-  const costTracker = new CostTracker();
-  // Which pipeline actually generated this book — reported in every callback
-  // so pipeline A/B comparisons stay trustworthy. Null for chapter/GN formats.
-  let pipelineVersionUsed = null;
-  // Which illustrator rendered a v3 book (native|legacy) — reported beside
-  // pipelineVersionUsed so illustrator A/B comparisons stay auditable.
-  let illustratorVersionUsed = null;
-  // Minor QA observations on the SHIPPED images (closed-gate architecture:
-  // judges block only on critical defects; everything else ships as a
-  // recorded advisory). Carried on completion callbacks + the checkpoint.
-  let qaAdvisories = null;
-  // Set when the illustrator shipped a book despite residual book-pass flags
-  // (BOOK_PASS_SHIP_ON_EXHAUSTION). The book completes successfully but rides
-  // this payload so downstream can still flag it for admin review.
-  let shipOnExhaustionReview = null;
-  // Whether the book pass judged the approved cover off-style vs the 3D
-  // interiors — captured here (not read off pipelineResult, which is scoped to
-  // the fresh-generation branch) because the Stage-7 cover build runs for
-  // checkpoint resumes too. Referencing pipelineResult from Stage 7 threw
-  // ReferenceError into the non-blocking catch, silently killing every cover
-  // PDF since 2026-07-22.
-  let coverNeedsReharmonize = false;
-
-
-  // Auto-derive emotional tier from age for emotional books
-  let emotionalTierInfo = null;
-  if (isEmotionalBook) {
-    emotionalTierInfo = getEmotionalTier(childAge || 5);
-    if (!format || format === 'picture_book') {
-      format = emotionalTierInfo.bookFormat.toLowerCase();
-      console.log(`[server] [emotional] Tier ${emotionalTierInfo.tier} derived from age ${childAge} → format=${format}, spreads=${emotionalTierInfo.spreads}`);
-    }
-  }
-
-  const { computeCelebrationAge } = require('./services/celebrationAge');
-  const { resolveEffectiveAge } = require('./services/effectiveAge');
-  const birthDateRaw = childAnecdotes?.birth_date || req.body.childBirthDate || null;
-  const celebrationAge = computeCelebrationAge(
-    { birthDate: birthDateRaw, age: childAge, childAge },
-    new Date(),
-  );
-
-  // PR K — parent-theme picture books (Mother's Day / Father's Day) now also
-  // read age from the birth date when the client provided one. Lap-baby
-  // (under-1.5) books were silently routing to PB_TODDLER because the
-  // client had been sending a stale `childAge` (e.g. 2) for an 8-month-old
-  // whose birth_date was correct. PB_TODDLER bypasses every infant-band PR
-  // (H/I/J.1/J.4) and produces dance/run/twirl/dialogue text the lap-baby
-  // cannot perform. Birth date is the ground-truth signal — when present,
-  // it wins on birthday + parent themes.
-  const { age: effectiveAge, source: _effectiveAgeSource } = resolveEffectiveAge({
-    theme,
-    birthDateRaw,
-    childAge,
-    celebrationAge,
+// GET /v13/coverage — sidecar authoring coverage + flag state (admin/release gate).
+app.get('/v13/coverage', authenticate, (req, res) => {
+  res.json({
+    success: true,
+    coverage: catalogEngine.coverageReport(),
+    flags: {
+      fitRanking: catalogEngine.flags.fitRankingEnabled(),
+      personalizationMaps: catalogEngine.flags.personalizationMapsEnabled(),
+      evidenceRequired: catalogEngine.flags.evidenceRequired(),
+    },
   });
-  if (
-    _effectiveAgeSource === 'celebrationAge' &&
-    (theme === 'mothers_day' || theme === 'fathers_day') &&
-    celebrationAge !== childAge
-  ) {
-    console.log(
-      `[server] [parent-theme age fix] childAge=${childAge} overridden by ` +
-      `birth-date-derived age=${celebrationAge} (birthDate=${birthDateRaw}, theme=${theme}) ` +
-      '(PR K)'
-    );
+});
+
+// POST /v13/select-books — deterministic candidate selection. Synchronous:
+// pure code, no LLM. The caller persists the result BEFORE any generation;
+// refresh must never reselect.
+app.post('/v13/select-books', authenticate, (req, res) => {
+  try {
+    const { themeId, sessionId } = req.body || {};
+    const profile = catalogEngine.normalizeProfile(req.body?.profile);
+    if (!themeId) return res.status(400).json({ success: false, error: 'themeId is required' });
+    const ageBand = req.body?.ageBand || catalogEngine.ageBandForAge(profile.age);
+    const selection = catalogEngine.selectBooks({
+      profile,
+      themeId,
+      ageBand,
+      sessionId: sessionId || 'session_unknown',
+      count: Math.min(Number(req.body?.count) || 3, 3),
+    });
+    res.json({ success: true, themeId, ageBand, profile, selection });
+  } catch (err) {
+    const status = err.statusCode || (err.message.includes('unknown theme') || err.message.includes('age band') ? 400 : 500);
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+// POST /v13/generate-stories — generate stories for up to 3 candidate books
+// in parallel (202 + completion callback). Each candidate succeeds or fails
+// independently; a failed candidate never substitutes a different plot.
+app.post('/v13/generate-stories', authenticate, async (req, res) => {
+  const { bookId, sessionId, locale, callbackUrl, progressCallbackUrl } = req.body || {};
+  const bookIds = Array.isArray(req.body?.bookIds) ? req.body.bookIds : [];
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (bookIds.length < 1 || bookIds.length > 3) {
+    return res.status(400).json({ success: false, error: 'bookIds must contain 1-3 catalog book ids' });
+  }
+  for (const id of bookIds) {
+    if (!catalogEngine.getBook(id)) {
+      return res.status(400).json({ success: false, error: `unknown catalog book id '${id}'` });
+    }
+  }
+  let profile;
+  try {
+    profile = catalogEngine.normalizeProfile(req.body?.profile);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
   }
 
-  const childDetails = {
-    name: childName,
-    age: effectiveAge,
-    celebrationAge,
-    birthDate: birthDateRaw || undefined,
-    gender: childGender,
-    appearance: childAppearance,
-    interests: childInterests,
-    photoUrls: childPhotoUrls,
-  };
+  res.status(202).json({ success: true, bookId, accepted: bookIds });
 
-  console.log(`[server] /generate-book: bookId=${bookId}, child=${childName}, format=${format}, style=${style}, theme=${theme}, occasion=${occasion || 'none'}, storyTheme=${storyTheme || 'none'}`);
-  console.log(
-    `[server] /generate-book personalization: bookId=${bookId} interests=${childInterests.length} ` +
-    `[${childInterests.join(', ')}] answeredQuestions=${(sanitized.answeredQuestions || []).length} ` +
-    `customDetailsChars=${(customDetails || '').length}`
-  );
-
-  // Deduplication guard — reject if this bookId is already being generated
-  if (activeBooks.has(bookId)) {
-    console.warn(`[server] /generate-book: DUPLICATE request for bookId=${bookId} — already in progress, rejecting`);
-    return res.status(409).json({ success: false, error: 'Book generation already in progress', bookId });
-  }
-
-  const bookContext = createBookContext(bookId, { progressCallbackUrl, callbackUrl });
-
-  // Respond 202 immediately, process in background
-  res.status(202).json({ success: true, status: 'processing', bookId });
-
-  let absoluteTimer = null;
-  let heartbeatInterval = null;
-  let hardTimeoutId = null;
-
-  const generationWork = (async () => {
-    const bookWarnings = [];
-    const bookStartTime = Date.now();
-    bookContext.log('info', 'Book generation started', { childName, format, style, theme });
-    absoluteTimer = setTimeout(() => {
-      bookContext.log('error', 'Absolute timeout reached — aborting', { timeoutMin: ABSOLUTE_TIMEOUT_MS / 60000 });
-      console.error(`[server] Book ${bookId} hit absolute timeout (${ABSOLUTE_TIMEOUT_MS / 60000}min) — aborting`);
-      bookContext.abortController.abort();
-    }, ABSOLUTE_TIMEOUT_MS);
-
-    // Send heartbeat every 30s so standalone knows we're alive
-    // If standalone returns abort:true (book was marked failed), stop generating
-    heartbeatInterval = setInterval(async () => {
-      if (progressCallbackUrl) {
-        try {
-          const resp = await reportProgressForce(progressCallbackUrl, {
-            bookId,
-            stage: 'generating',
-            heartbeat: true,
-            logs: bookContext.logs,
-          });
-          if (resp?.abort) {
-            bookContext.log('warn', `Abort signal received from standalone: ${resp.reason || 'unknown'}`);
-            console.warn(`[server] Book ${bookId} received abort signal — stopping generation`);
-            bookContext.abortController.abort();
-          }
-        } catch (_) { /* fire-and-forget */ }
-      }
-    }, 30000);
-
+  (async () => {
+    const started = Date.now();
+    let done = 0;
     try {
-      // If forceNew, wipe all GCS data and checkpoints for a truly fresh start
-      const forceNew = req.body.forceNew === true;
-      let checkpoint = null;
-      if (textOnly) {
-        // Text-only runs are STATELESS: never resume an existing checkpoint
-        // (a real book's illustrated checkpoint must not be replayed as an
-        // imageless completion), never write one, never clear one — the
-        // writing test leaves any real generation state untouched.
-        bookContext.log('info', 'Text-only run — checkpoints ignored (stateless writing test)');
-      } else if (forceNew) {
-        bookContext.log('info', 'Full regeneration requested — clearing checkpoint');
-        // Clear checkpoint immediately so we don't resume from old state.
-        // Old illustrations are cleaned up AFTER new ones are generated (see post-illustration cleanup).
-        try {
-          await deletePrefix(`children-jobs/${bookId}/checkpoint.json`);
-          bookContext.log('info', 'Checkpoint cleared');
-        } catch (e) {
-          bookContext.log('warn', 'Checkpoint clear failed — continuing', { error: (e?.message || String(e)).slice(0, 150) });
-        }
-      } else {
-        // Load checkpoint for resume support
-        checkpoint = await loadCheckpoint(bookId);
-      }
-      if (checkpoint) {
-        bookContext.log('info', 'Checkpoint found — resuming from stage: ' + checkpoint.completedStage);
-        // Seed costTracker with costs accumulated in previous run
-        if (checkpoint.accumulatedCosts) {
-          costTracker.addFromSummary(checkpoint.accumulatedCosts);
-          bookContext.log('info', `[costTracker] Resumed: $${checkpoint.accumulatedCosts.totalCost?.toFixed(4) || '0.0000'} from prior run`);
-        }
-      }
-
-      // Stage 1: Download + cache child photo for illustration calls (always runs — photo not saved in checkpoint)
-      bookContext.log('info', 'Starting photo download');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'photo_cache', progress: 0.05, message: 'Preparing photos...', logs: bookContext.logs });
-      }
-      bookContext.touchActivity();
-
-      const stage1Start = Date.now();
-      const childPhotoUrl = childDetails.photoUrls?.[0];
-      let cachedPhotoBase64 = null;
-      let cachedPhotoMime = 'image/jpeg';
-
-      if (childPhotoUrl) {
-        const cachedPhotoPath = `children-jobs/${bookId}/photo-512.jpg`;
-        try {
-          // Try to load previously cached resized photo first (42KB vs 4.6MB)
-          const cachedBuf = await downloadBuffer(cachedPhotoPath).catch(() => null);
-          if (cachedBuf && cachedBuf.length > 1000) {
-            cachedPhotoBase64 = cachedBuf.toString('base64');
-            bookContext.log('info', 'Child photo loaded from cache', { bytes: cachedBuf.length });
-          } else {
-            // Download original and resize (HEIC fallback via heic-convert when sharp/libvips cannot decode)
-            const { resizeChildPhotoForCache } = require('./services/childPhotoDecode');
-            const photoBuf = await downloadBuffer(childPhotoUrl);
-            const resizedBuf = await resizeChildPhotoForCache(photoBuf, childPhotoUrl);
-            cachedPhotoBase64 = resizedBuf.toString('base64');
-            bookContext.log('info', 'Child photo cached (resized to 512px)', { originalBytes: photoBuf.length, resizedBytes: resizedBuf.length });
-            // Save resized photo to GCS for reuse (fire-and-forget)
-            uploadBuffer(resizedBuf, cachedPhotoPath, 'image/jpeg')
-              .then(() => console.log(`[server] Saved cached photo for ${bookId}`))
-              .catch(() => {});
-          }
-        } catch (photoErr) {
-          bookContext.log('warn', 'Failed to cache child photo', { error: photoErr.message });
-        }
-      }
-      bookContext.touchActivity();
-
-      const resolvedChildPhotoUrl = childPhotoUrl;
-
-      // Use user-confirmed character identifications if available, otherwise auto-detect
-      let detectedSecondaryCharacters = null;
-      if (req.body.confirmedCharacters && Array.isArray(req.body.confirmedCharacters)) {
-        const confirmed = req.body.confirmedCharacters;
-        const secondary = confirmed.filter(c => c.role !== 'main_child' && c.role !== 'exclude');
-        if (secondary.length > 0) {
-          detectedSecondaryCharacters = secondary
-            .map(c => `${c.label || c.role}: ${c.description || 'appearance from uploaded photo'}`)
-            .join('\n');
-        }
-        bookContext.log('info', 'Using user-confirmed character identifications', { count: secondary.length });
-      } else if (cachedPhotoBase64) {
-        try {
-          const { getNextApiKey } = require('./services/illustrationGenerator');
-          const photoAnalysisKey = getNextApiKey() || process.env.GOOGLE_AI_STUDIO_KEY || process.env.GEMINI_API_KEY;
-          const photoAnalysisResp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${photoAnalysisKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [
-                  { text: `Look at this photo. Answer ONE question: Are there multiple people in this photo?
-
-If YES — list each NON-CHILD person with:
-SECONDARY_CHARACTER: [relationship if apparent, e.g. father/adult man/grandmother]: [hair color and style] | [skin tone] | [approximate age/build] | [any notable features like beard, glasses]
-
-If there is only ONE person (the child), respond with exactly: NONE
-
-Be concise. Only describe adults/secondary people, not the main child.` },
-                  { inline_data: { mime_type: cachedPhotoMime || 'image/jpeg', data: cachedPhotoBase64 } },
-                ]}],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.1 },
-              }),
-            }
-          );
-          if (photoAnalysisResp.ok) {
-            const photoData = await photoAnalysisResp.json();
-            const photoText = photoData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (photoText && photoText !== 'NONE' && photoText.includes('SECONDARY_CHARACTER')) {
-              detectedSecondaryCharacters = photoText.replace(/SECONDARY_CHARACTER:\s*/gi, '').trim();
-              bookContext.log('info', 'Secondary characters detected in uploaded photo', { desc: detectedSecondaryCharacters.slice(0, 150) });
-            }
-          }
-        } catch (photoScanErr) {
-          bookContext.log('warn', 'Photo secondary character scan failed', { error: photoScanErr.message });
-        }
-      }
-
-      const stage1Ms = Date.now() - stage1Start;
-      bookContext.log('info', 'Photo cache complete', { ms: stage1Ms, hasPhotoCache: !!cachedPhotoBase64 });
-
-      console.log(`[server] Stage timing: photo_cache=${stage1Ms}ms (book ${bookId})`);
-
-      // ── EARLY parent theme guard: clear photo-detected secondary characters for parent themes ──
-      // The photo scan may detect an adult (mother/father) in the child photo, but for parent-themed
-      // books where the parent is NOT on the chosen cover, we must NOT pass those characters to the
-      // story planner — otherwise it bakes the parent into secondaryCharacterDescription and the
-      // illustration system draws them explicitly. This must happen BEFORE story planning.
-      const { PARENT_THEMES } = require('./services/illustrationGenerator');
-      if (PARENT_THEMES.has(theme) && detectedSecondaryCharacters) {
-        bookContext.log('info', 'Parent theme — clearing photo-detected secondary characters BEFORE story planning (parent must not be drawn explicitly unless on chosen cover)', { was: detectedSecondaryCharacters.slice(0, 100) });
-        detectedSecondaryCharacters = null;
-      }
-
-      // Character reference generation skipped — Gemini illustrations use child photo directly
-      const characterRef = null;
-
-      // ── Brainstorm unique story seed ──
-      bookContext.checkAbort();
-      bookContext.log('info', 'Brainstorming unique story seed');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'story_planning', progress: 0.10, message: 'Brainstorming story idea...', logs: bookContext.logs });
-      }
-      let storySeed;
-      try {
-        storySeed = await brainstormStorySeed(childDetails, enrichedCustomDetails || '', approvedTitle, {
-          apiKeys, costTracker, theme, occasion, storyTheme,
-          emotionalSituation,
-          copingResourceHint,
-          additionalCoverCharacters: detectedSecondaryCharacters || null,
-        });
-        bookContext.log('info', 'Story seed ready', {
-          favorite_object: storySeed.favorite_object,
-          fear: storySeed.fear,
-          setting: (storySeed.setting || '').slice(0, 80),
-          storySeed: (storySeed.storySeed || '').slice(0, 100),
-        });
-      } catch (seedErr) {
-        bookContext.log('warn', `Story seed brainstorm failed — using defaults: ${seedErr.message}`);
-        storySeed = { favorite_object: 'a favorite toy', fear: 'the dark', setting: 'a magical place', storySeed: '' };
-      }
-      bookContext.touchActivity();
-
-      // Build dedication from heartfelt note if available
-      let dedication;
-      if (heartfeltNote) {
-        dedication = bookFrom ? `From ${bookFrom}:\n${heartfeltNote}` : heartfeltNote;
-      } else {
-        dedication = `For ${childDetails.name || 'the child'}`;
-      }
-      const gifterNames = parseGifters(bookFrom);
-      const isMultipleGifters = gifterNames.length > 1;
-      const v2Vars = {
-        name: childDetails.name,
-        age: childDetails.age || 5,
-        favorite_object: storySeed.favorite_object || 'a favorite toy',
-        fear: storySeed.fear || 'the dark',
-        setting: storySeed.setting || 'a magical place',
-        dedication,
-        beats: storySeed.beats || [],
-        repeated_phrase: storySeed.repeated_phrase || '',
-        phrase_arc: storySeed.phrase_arc || [],
-        countryCode: countryCode || null,
-        emotionalSituation: emotionalSituation || null,
-        emotionalParentGoal: emotionalParentGoal || null,
-        copingResourceHint: copingResourceHint || null,
-        emotionalSpreads: emotionalTierInfo ? emotionalTierInfo.spreads : undefined,
-        emotionalTier: emotionalTierInfo ? emotionalTierInfo.tier : undefined,
-        gifterNames,
-        isMultipleGifters,
-        style_mode: storySeed.style_mode || 'playful',
-        techniques: storySeed.techniques || ['rule_of_three', 'humor'],
-      };
-
-      // Append story seed to custom details so the planner has the full creative direction
-      let plannerCustomDetails = enrichedCustomDetails || '';
-      if (storySeed.storySeed) {
-        plannerCustomDetails += `\n\nSTORY SEED (use as creative direction): ${storySeed.storySeed}`;
-      }
-
-      // Stage 2: V2 Story Planning (returns complete story with text + image prompts)
-      let storyPlan;
-      if (checkpoint?.storyPlan && (Array.isArray(checkpoint.storyPlan.entries) || Array.isArray(checkpoint.storyPlan.chapters) || Array.isArray(checkpoint.storyPlan.pages))) {
-        // checkpoint — resume
-        storyPlan = checkpoint.storyPlan;
-        // Caption-mode backfill for checkpoints written BEFORE toLegacyStoryPlan
-        // carried illustrationAspect/captionText (2026-07-16): a native-rendered
-        // book resumed from such a checkpoint would otherwise lay out on the
-        // legacy wide-split path — square art bisected, story text missing.
-        // The manuscript text was always stashed on entry.left.text.
-        // Advisories recorded at illustration time survive the resume.
-        if (Array.isArray(checkpoint.qaAdvisories) && checkpoint.qaAdvisories.length > 0) {
-          qaAdvisories = checkpoint.qaAdvisories;
-        }
-        if (checkpoint.illustratorVersion === 'native' && Array.isArray(storyPlan.entries)) {
-          const { backfillCaptionModeEntries } = require('./services/bookPipelineV3/contract/toLegacyStoryPlan');
-          const backfilled = backfillCaptionModeEntries(storyPlan.entries);
-          if (backfilled > 0) {
-            bookContext.log('warn', `Caption-mode backfill: ${backfilled} native spread entr${backfilled === 1 ? 'y' : 'ies'} from a pre-caption checkpoint marked square + captionText from stashed manuscript text`);
-          }
-        }
-        const itemCount = storyPlan.isGraphicNovel
-          ? (storyPlan.pages || []).length
-          : storyPlan.isChapterBook
-            ? (storyPlan.chapters || []).length
-            : (storyPlan.entries || []).filter(e => e.type === 'spread').length;
-        bookContext.log('info', 'Resumed story plan from checkpoint', { items: itemCount, title: storyPlan.title, isChapterBook: !!storyPlan.isChapterBook, isGraphicNovel: !!storyPlan.isGraphicNovel });
-      } else {
-        // ── Book pipeline — plan/write/illustrate/QA engine (v3 default) ──
-        // Chapter-book and graphic-novel planning branches were deleted in
-        // the W12 cleanup: retired formats are rejected 400 at validation,
-        // so only picture books reach this point.
-        bookContext.checkAbort();
-        // NOTE: the pipeline VERSION is decided by resolveBookPipeline below —
-        // this line must stay version-neutral (a hardcoded "v1" here confused
-        // production log readers for months).
-        bookContext.log('info', 'Starting book pipeline generation', { theme: theme || 'adventure', format });
-
-        if (apiKeys) {
-          for (const [key, val] of Object.entries(apiKeys)) {
-            if (val && !process.env[key]) process.env[key] = val;
-          }
-        }
-
-        // ── Pipeline version routing ──
-        // Precedence: env kill-switches → checkpoint (resumes stay on the
-        // pipeline they started on) → explicit request ('v2'|'v3' from the
-        // admin test path) → default (v2 for picture books per the AA-CW-29
-        // hard cutover, v1 for early readers). See services/pipelineRouter.js.
-        const routed = resolveBookPipeline({
-          format,
-          requestedVersion: requestedPipelineVersion,
-          checkpointVersion: checkpoint?.pipelineVersion || null,
-          log: (msg) => bookContext.log('warn', msg),
-        });
-        pipelineVersionUsed = routed.version;
-        const { generateBook, PipelineError } = require(routed.modulePath);
-        const { toLegacyStoryPlan } = require('./services/bookPipelineV3/contract/toLegacyStoryPlan');
-        bookContext.log('info', `Pipeline routing: format=${format} → ${routed.moduleName} (version=${routed.version}, source=${routed.source}, requested=${requestedPipelineVersion || 'none'})`);
-
-        const stage3Start = Date.now();
-        const pipelineRequest = {
-          ...sanitized,
-          bookId,
-          format,
-          theme,
-          pipelineVersion: routed.version,
-          child: childDetails,
-          // The dedication-only locals used to stop here — creativeBrief read
-          // rawRequest.heartfeltNote/bookFrom but always got null (2026-07-29
-          // audit: a broken personalization channel on every book).
-          heartfeltNote,
-          bookFrom,
-          customDetails: plannerCustomDetails || sanitized.customDetails || {},
-          cover: {
-            title: approvedTitle || sanitized.approvedTitle || 'My Story',
-            imageUrl: approvedCoverUrl || null,
-          },
-          // Admin review resolution (set by /v3/review/* on a needs_review
-          // checkpoint). 'ship_best' lets the workflow ship the best-scoring
-          // manuscript on panel exhaustion instead of failing again.
-          ...(checkpoint?.reviewResolution ? { reviewResolution: checkpoint.reviewResolution } : {}),
-          // Milestone-2 illustrator flag: request override + checkpoint pin,
-          // resolved inside the v3 workflow (checkpoint → request → env → default).
-          ...(requestedIllustratorVersion ? { illustratorVersion: requestedIllustratorVersion } : {}),
-          ...(checkpoint?.illustratorVersion ? { checkpointIllustratorVersion: checkpoint.illustratorVersion } : {}),
-          ...(requestedTextLayout ? { textLayout: requestedTextLayout } : {}),
-          ...(checkpoint?.textLayout ? { checkpointTextLayout: checkpoint.textLayout } : {}),
-          // Admin writing test: the workflow returns right after the accepted
-          // manuscript (gate + judge panel + polish) — no identity kit, no
-          // art direction, no renders.
-          ...(textOnly ? { textOnly: true } : {}),
-        };
-
-        let pipelineResult;
-        try {
-          pipelineResult = await generateBook(pipelineRequest, {
-            bookId,
-            abortSignal: bookContext.abortController.signal,
-            touchActivity: () => bookContext.touchActivity(),
-            onProgress: (event) => {
-              if (!progressCallbackUrl) return;
-              // Stage progress bands. The illustrating band is deliberately
-              // wide (0.30 → 0.85) because it's by far the longest stage
-              // (~4–5 min of a ~5–6 min run). We interpolate within it using
-              // the per-spread `subProgress` the pipeline emits.
-              const stageBands = {
-                input: [0.08, 0.12],
-                planning: [0.12, 0.22],
-                writing: [0.22, 0.26],
-                writerQa: [0.26, 0.30],
-                illustrating: [0.30, 0.85],
-                bookWideQa: [0.85, 0.90],
-                layout: [0.90, 0.95],
-              };
-              const band = stageBands[event.step];
-              let progress;
-              if (band && typeof event.subProgress === 'number') {
-                const t = Math.max(0, Math.min(1, event.subProgress));
-                progress = band[0] + (band[1] - band[0]) * t;
-              } else if (band) {
-                progress = band[0];
-              } else {
-                progress = 0.30;
-              }
-              reportProgress(progressCallbackUrl, {
-                bookId,
-                stage: event.step || 'generating',
-                progress,
-                message: event.message || 'Generating...',
-                logs: bookContext.logs,
-              });
-
-              // When the pipeline attaches a live document snapshot (after
-              // writerQa and after every accepted spread), push an updated
-              // storyContent payload to the admin content tab so text and
-              // per-spread hasImage flags populate incrementally rather
-              // than all at the end of the run.
-              if (event.document) {
-                try {
-                  const { storyPlan: livePlan, entriesWithIllustrations: liveEntries } = toLegacyStoryPlan(event.document);
-                  const liveStoryContent = {
-                    title: livePlan.title,
-                    entries: liveEntries.map(e => ({
-                      type: e.type,
-                      spread: e.spread,
-                      left: e.left,
-                      right: e.right,
-                      spreadText: event.document.spreads.find(s => s.spreadNumber === e.spread)?.manuscript?.text || '',
-                      hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl),
-                    })),
-                    characterDescription: livePlan.characterDescription,
-                    characterOutfit: livePlan.characterOutfit,
-                    pipelineVersion: livePlan._pipelineVersion,
-                    synopsis: livePlan.synopsis || null,
-                    plotSynopsis: livePlan.plotSynopsis || null,
-                    tagline: livePlan.tagline || null,
-                    storyBible: event.document.storyBible,
-                    writerQa: event.document.writerQa,
-                    bookWideQa: event.document.bookWideQa,
-                  };
-                  reportProgressForce(progressCallbackUrl, {
-                    bookId,
-                    stage: event.step || 'generating',
-                    storyContent: liveStoryContent,
-                    logs: bookContext.logs,
-                  }).catch(() => {});
-                } catch (adapterErr) {
-                  console.warn(`[server] incremental storyContent push skipped: ${adapterErr.message}`);
-                }
-              }
-            },
-          });
-        } catch (pipelineErr) {
-          if (pipelineErr instanceof PipelineError) {
-            bookContext.log('error', `bookPipeline failed: ${pipelineErr.failureCode || 'unknown'}`, {
-              stage: pipelineErr.stage,
-              issues: pipelineErr.issues,
-            });
-            // needs_review is a terminal REVIEW state, not a plain failure
-            // (design D6 / cutover plan W2): persist the structured payload
-            // in the checkpoint so the /v3/review/* endpoints can resolve it,
-            // and carry it to the failure callbacks so the main app's review
-            // dashboard gets the full context (defects, judge history).
-            if (pipelineErr.failureCode === 'needs_review' && pipelineErr.needsReview) {
-              await saveCheckpoint(bookId, {
-                completedStage: 'needs_review',
-                pipelineVersion: routed.version,
-                needsReview: pipelineErr.needsReview,
-                request: { theme, format },
-                // Preserve the textLayout pin — the run's effective mode is
-                // checkpoint → request → default; dropping it here made the
-                // review re-dispatch silently fall back to the request value.
-                ...(checkpoint?.textLayout || requestedTextLayout
-                  ? { textLayout: checkpoint?.textLayout || requestedTextLayout }
-                  : {}),
-              });
-            }
-            const wrapped = new Error(`bookPipeline [${pipelineErr.failureCode || 'unknown'}] at ${pipelineErr.stage || 'n/a'}: ${pipelineErr.message}`);
-            wrapped.failureCode = pipelineErr.failureCode || null;
-            wrapped.needsReview = pipelineErr.needsReview || null;
-            throw wrapped;
-          }
-          throw pipelineErr;
-        }
-
-        illustratorVersionUsed = pipelineResult.document?.v3?.illustrator?.version || null;
-        qaAdvisories = Array.isArray(pipelineResult.document?.qaAdvisories) && pipelineResult.document.qaAdvisories.length > 0
-          ? pipelineResult.document.qaAdvisories
-          : null;
-        if (qaAdvisories) {
-          bookWarnings.push(`QA advisories: ${qaAdvisories.length} minor observation(s) on shipped images (spreads ${[...new Set(qaAdvisories.map(a => a.spread))].join(', ')}) — see qaAdvisories`);
-        }
-        coverNeedsReharmonize = pipelineResult.document?.coverNeedsReharmonize === true;
-        shipOnExhaustionReview = pipelineResult.document?.bookPassReview || null;
-        if (shipOnExhaustionReview) {
-          const shipStage = (shipOnExhaustionReview.stages || [shipOnExhaustionReview.stage]).filter(Boolean).join('+') || 'QA';
-          bookWarnings.push(`Shipped on ${shipStage} exhaustion: ${(shipOnExhaustionReview.defects || []).join('; ')} — flagged for admin review (see needsReview).`);
-        }
-        const synthesized = toLegacyStoryPlan(pipelineResult.document);
-        storyPlan = synthesized.storyPlan;
-
-        bookContext.touchActivity();
-        const stage3Ms = Date.now() - stage3Start;
-        bookContext.log('info', 'book pipeline complete', {
-          spreads: pipelineResult.document.spreads.length,
-          writerQaPass: pipelineResult.document.writerQa?.pass,
-          bookWideQaPass: pipelineResult.document.bookWideQa?.pass,
-          ms: stage3Ms,
-        });
-        console.log(`[server] Stage timing: bookPipeline=${stage3Ms}ms (book ${bookId})`);
-
-        if (progressCallbackUrl) {
-          const storyContentForDb = {
-            title: storyPlan.title,
-            entries: storyPlan.entries.map(e => ({
-              type: e.type,
-              spread: e.spread,
-              left: e.left,
-              right: e.right,
-              spreadText: pipelineResult.document.spreads.find(s => s.spreadNumber === e.spread)?.manuscript?.text || '',
-            })),
-            characterDescription: storyPlan.characterDescription,
-            characterOutfit: storyPlan.characterOutfit,
-            pipelineVersion: storyPlan._pipelineVersion,
-            synopsis: storyPlan.synopsis || null,
-            plotSynopsis: storyPlan.plotSynopsis || null,
-            tagline: storyPlan.tagline || null,
-            storyBible: pipelineResult.document.storyBible,
-            writerQa: pipelineResult.document.writerQa,
-            bookWideQa: pipelineResult.document.bookWideQa,
-          };
-          reportProgressForce(progressCallbackUrl, { bookId, stage: 'story_planning', storyContent: storyContentForDb, logs: bookContext.logs }).catch(() => {});
-        }
-
-        // New pipeline has already rendered + QA'd all spreads and uploaded
-        // them to GCS, so we mark the checkpoint as 'illustration' complete.
-        // Text-only runs write NO checkpoint: an imageless storyPlan here
-        // would be replayed by a later full dispatch (the :storyPlan resume
-        // branch skips the whole v3 pipeline) and assemble a blank-page PDF.
-        if (!textOnly) {
-          await saveCheckpoint(bookId, {
-            bookId,
-            completedStage: 'illustration',
-            storyPlan,
-            illustrationResults: storyPlan.entries,
-            pipelineVersion: routed.version,
-            // Pin the illustrator a v3 book rendered on so retries/resumes
-            // finish on it (native|legacy, milestone-2 flag).
-            ...(pipelineResult.document?.v3?.illustrator?.version
-              ? { illustratorVersion: pipelineResult.document.v3.illustrator.version }
-              : {}),
-            ...(pipelineResult.document?.v3?.textLayout
-              ? { textLayout: pipelineResult.document.v3.textLayout }
-              : {}),
-            ...(qaAdvisories ? { qaAdvisories } : {}),
-            timestamp: new Date().toISOString(),
-            accumulatedCosts: costTracker.getSummary(),
-          });
-        }
-      }
-
-      // ── TEXT-ONLY completion (admin writing test) ──
-      // The manuscript is accepted (gate + judge panel + polish); stop here.
-      // No cover prep, no PDF assembly, no uploads — complete with the story
-      // text so the admin Content tab can render it immediately.
-      if (textOnly) {
-        const totalMs = Date.now() - bookStartTime;
-        const costSummary = costTracker.getSummary();
-        const textEntries = Array.isArray(storyPlan.entries) ? storyPlan.entries : [];
-        const textSpreadCount = textEntries.filter(e => e.type === 'spread').length;
-        const bookTitle = storyPlan.title || approvedTitle || 'My Story';
-        const storyContent = {
-          title: bookTitle,
-          entries: textEntries.map(e => ({
-            type: e.type,
-            spread: e.spread,
-            left: e.left,
-            right: e.right,
-            hasImage: false,
-            ...(e.type === 'spread' && e.captionText !== undefined ? { captionText: e.captionText } : {}),
-          })),
-          characterDescription: storyPlan.characterDescription || null,
-          characterOutfit: storyPlan.characterOutfit || null,
-          additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-          synopsis: storyPlan.synopsis || null,
-          plotSynopsis: storyPlan.plotSynopsis || null,
-          tagline: storyPlan.tagline || null,
-          storyBible: storyPlan.storyBible || null,
-          textOnly: true,
-        };
-        bookContext.log('info', 'Text-only book complete', { totalMs, spreads: textSpreadCount, cost: `$${costSummary.totalCost.toFixed(4)}` });
-
-        const textOnlyPayload = {
-          bookId,
-          interiorPdfUrl: null,
-          coverPdfUrl: null,
-          previewImageUrls: [],
-          title: bookTitle,
-          spreadCount: textSpreadCount,
-          storyContent,
-          upsellCovers: [],
-          costs: costSummary,
-          emotionalCategory: emotionalCategory || null,
-          pipelineVersionUsed,
-          textOnly: true,
-          warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
-          logs: bookContext.logs,
-        };
-        if (callbackUrl) {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              await fetch(callbackUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-                body: JSON.stringify({ success: true, backCoverImageUrl: null, ...textOnlyPayload }),
-              });
-              break;
-            } catch (cbErr) {
-              console.error(`[server] Text-only completion callback attempt ${attempt + 1}/3 failed:`, cbErr.message);
-              if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-            }
-          }
-        }
-        if (progressCallbackUrl) {
-          reportComplete(progressCallbackUrl, textOnlyPayload);
-        }
-        // No clearCheckpoint: text-only runs never own checkpoint state, and
-        // clearing here could destroy a real book's resumable checkpoint.
-        console.log(`[server] Book ${bookId} complete (TEXT-ONLY): ${textSpreadCount} spreads, cost: $${costSummary.totalCost.toFixed(4)}`);
-        return;
-      }
-
-      // V2: Text is already in the story plan — no separate text generation needed.
-
-      // Stage 3: Prepare cover + character reference
-      const stage6Start = Date.now();
-      bookContext.checkAbort();
-      bookContext.log('info', approvedCoverUrl ? 'Using pre-approved cover' : 'Starting cover preparation');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.30, message: 'Preparing cover...', logs: bookContext.logs });
-      }
-
-      let characterRefBase64 = cachedPhotoBase64;
-      let characterRefMime = cachedPhotoMime;
-      let preGeneratedCoverBuffer = null;
-      let coverForIllustratorBase64 = null; // 512px cover for Illustrator V2
-
-      if (approvedCoverUrl) {
-        try {
-          const sharp = require('sharp');
-          const coverUrl = approvedCoverUrl;
-          const coverBuf = await withRetry(
-            () => downloadBuffer(coverUrl),
-            { maxRetries: 3, baseDelayMs: 1000, label: `download-cover-ref-${bookId}` }
-          );
-          preGeneratedCoverBuffer = coverBuf;
-
-          // 512px cover for Illustrator V2 (high enough detail for Gemini to see style/outfit/features)
-          const coverForIllustrator = await sharp(coverBuf)
-            .resize(512, 512, { fit: 'cover' })
-            .jpeg({ quality: 80 })
-            .toBuffer();
-          coverForIllustratorBase64 = coverForIllustrator.toString('base64');
-
-          bookContext.log('info', 'Cover downloaded and resized', { originalBytes: coverBuf.length, illustratorBytes: coverForIllustrator.length, ms: Date.now() - stage6Start });
-
-          // Legacy cover vision analysis deleted (native-illustrator cutover) —
-          // the v3 pipeline derives the cast policy internally from the
-          // approved cover.
-        } catch (dlErr) {
-          bookContext.log('warn', 'Failed to download approved cover for reference, using original photo', { error: dlErr.message });
-        }
-      }
-
-      // Legacy secondary-cast merge + scene policy gate deleted
-      // (native-illustrator cutover) — the v3 pipeline owns cast policy.
-
-      // If we still have no characterAnchor but parent provided one, use it
-      if (!storyPlan.characterAnchor && parentCharacterAnchor) {
-        storyPlan.characterAnchor = parentCharacterAnchor;
-        bookContext.log('info', '[generate-book] Using parentCharacterAnchor from parent book');
-      }
-
-      bookContext.log('info', 'Character reference ready', { refBytes: characterRefBase64?.length || 0, coverBytes: coverForIllustratorBase64?.length || 0, ms: Date.now() - stage6Start });
-
-      // Birthday theme: ensure spread 13 illustration prompt shows cake/candles
-      if (theme === 'birthday') {
-        const spreads = storyPlan.entries.filter(e => e.type === 'spread');
-        const lastSpread = spreads[spreads.length - 1];
-        if (lastSpread && lastSpread.spread_image_prompt) {
-          const prompt = lastSpread.spread_image_prompt.toLowerCase();
-          if (!prompt.includes('cake') && !prompt.includes('candle')) {
-            const candleAge = childDetails.celebrationAge ?? childDetails.age ?? childDetails.childAge ?? 5;
-            const candleDesc = `${candleAge} lit candles`;
-            const childNameStr = childDetails.name || childDetails.childName || 'the child';
-            const favoriteObj = storyPlan.recurringElement || v2Vars?.favorite_object || '';
-            const favoriteClause = favoriteObj ? ` The ${favoriteObj} sits on the table nearby.` : '';
-            lastSpread.spread_image_prompt = `${childNameStr} leaning toward a birthday cake with ${candleDesc}, cheeks puffed, about to blow out the candles. Warm golden candlelight illuminates their face from below. Soft confetti and party decorations in the background.${favoriteClause} The room glows with warmth, joy, and celebration. Close-up emotional moment.`;
-            bookContext.log('info', 'Birthday: replaced last spread illustration prompt with locked cake/candles scene');
-          }
-        }
-      }
-
-      // Stage 4: Generate illustrations
-      bookContext.checkAbort();
-      let entriesWithIllustrations;
-      let spreadEntries;
-      let upsellCoversWithBuffers = []; // default empty; PICTURE_BOOK path overwrites below
-
-      // The v3 pipeline (native illustrator) already rendered and QA'd every
-      // spread — the entries carry signed URLs; adopt them directly. The
-      // legacy in-server illustration stage was deleted in the cutover.
-      bookContext.log('info', 'Using illustrations rendered by bookPipelineV3');
-      entriesWithIllustrations = storyPlan.entries.slice();
-      spreadEntries = entriesWithIllustrations.filter(e => e.type === 'spread');
-
-      // Note: old illustrations from previous runs are NOT deleted here.
-      // They have unique timestamp-based filenames and don't collide with new ones.
-      // Deleting them concurrently with PDF assembly caused 404 errors.
-
-      // Stage 5: Assemble PDF
-      const stage7Start = Date.now();
-      bookContext.checkAbort();
-      bookContext.log('info', 'Starting PDF assembly');
-      if (progressCallbackUrl) {
-        reportProgress(progressCallbackUrl, { bookId, stage: 'assembly', progress: 0.90, message: 'Assembling PDF...', logs: bookContext.logs });
-      }
-
-      // Download illustration URLs into buffers for PDF embedding
-      // Use pLimit(2) — GCS TLS connections drop under high concurrency on Cloud Run
-      // Retry up to 3 times with delay on TLS/network errors
-      const downloadLimit = pLimit(2);
-      async function downloadWithRetry(url, label, maxAttempts = 3) {
-        let lastErr;
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          try {
-            const timeout = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error(`Download timed out after 120s: ${label}`)), 120000)
-            );
-            return await Promise.race([downloadBuffer(url), timeout]);
-          } catch (err) {
-            lastErr = err;
-            const isTlsOrNetwork = err.message.includes('TLS') || err.message.includes('socket') || err.message.includes('network') || err.message.includes('ECONNRESET') || err.message.includes('timed out');
-            if (attempt < maxAttempts && isTlsOrNetwork) {
-              const delay = attempt * 2000; // 2s, 4s
-              bookContext.log('warn', `Download attempt ${attempt} failed for ${label}, retrying in ${delay}ms`, { error: err.message.slice(0, 100) });
-              await new Promise(r => setTimeout(r, delay));
-            } else {
-              throw lastErr;
-            }
-          }
-        }
-        throw lastErr;
-      }
-
-      const bookTitle = approvedTitle || storyPlan?.title || 'My Story';
-      let interiorPdf;
-      let entriesWithBuffers = [];
-      let previewImageUrls;
-
-      // Chapter-book / graphic-novel PDF-assembly arms deleted (W12) —
-      // retired formats never reach this stage.
-      {
-        // ── Standard picture-book PDF assembly ──
-        bookContext.log('info', 'Downloading illustration buffers for PDF');
-        entriesWithBuffers = await Promise.all(
-          entriesWithIllustrations.map((entry) => downloadLimit(async () => {
-            const result = { ...entry };
-
-            if (entry.spreadIllustrationUrl) {
-              try {
-                result.spreadIllustrationBuffer = await downloadWithRetry(entry.spreadIllustrationUrl, `spread-${entry.spread || entry.type}`);
-                bookContext.log('info', `Downloaded spread ${entry.spread || entry.type} illustration`);
-              } catch (err) {
-                bookContext.log('error', `Failed to download spread illustration`, { error: err.message, spread: entry.spread });
-              }
-            }
-
-            if (entry.leftIllustrationUrl) {
-              try {
-                result.leftIllustrationBuffer = await downloadWithRetry(entry.leftIllustrationUrl, `left-${entry.spread}`);
-              } catch (err) {
-                bookContext.log('error', `Failed to download left illustration`, { error: err.message });
-              }
-            }
-            if (entry.rightIllustrationUrl) {
-              try {
-                result.rightIllustrationBuffer = await downloadWithRetry(entry.rightIllustrationUrl, `right-${entry.spread}`);
-              } catch (err) {
-                bookContext.log('error', `Failed to download right illustration`, { error: err.message });
-              }
-            }
-
-            if (entry.illustrationUrl) {
-              try {
-                result.illustrationBuffer = await downloadWithRetry(entry.illustrationUrl, entry.type);
-                bookContext.log('info', `Downloaded ${entry.type} illustration`);
-              } catch (err) {
-                bookContext.log('error', `Failed to download ${entry.type} illustration`, { error: err.message });
-              }
-            }
-
-            return result;
-          }))
-        );
-        bookContext.log('info', 'All illustration buffers downloaded');
-
-        // Interior title page is text-only — the cover image is for the cover PDF only.
-        // Do NOT attach the cover image to the title page entry.
-
-        // ── Upsell covers: generate 4 styles BEFORE interior PDF so they can be baked in ──
-        let upsellCovers = [];
-        if (preGeneratedCoverBuffer) {
-          try {
-            bookContext.log('info', 'Generating upsell covers (4 styles)...');
-            const upsellCostTracker = new CostTracker();
-            const parentDescription = ((theme === 'mothers_day' || theme === 'fathers_day') && storyPlan?.coverParentPresent && storyPlan?.additionalCoverCharacters)
-              ? storyPlan.additionalCoverCharacters : null;
-            const upsellPromise = generateUpsellCovers(bookId, childDetails, preGeneratedCoverBuffer, bookTitle, {
-              apiKeys, costTracker: upsellCostTracker,
-              characterDescription: storyPlan?.characterDescription || null,
-              characterAnchor: storyPlan?.characterAnchor || null,
-              theme: theme || null,
-              momDescription: parentDescription,
-            }).catch(e => {
-              console.warn(`[server] Upsell covers background error: ${e.message}`);
-              return [];
-            });
-            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 4 * 60 * 1000));
-            const result = await Promise.race([upsellPromise, timeoutPromise]);
-            costTracker.addFromSummary(upsellCostTracker.getSummary());
-            if (result === null) {
-              bookContext.log('warn', 'Upsell cover generation timed out after 4 min — continuing without upsell spread');
-            } else {
-              upsellCovers = result;
-              bookContext.log('info', `Upsell covers ready: ${upsellCovers.length}/4 (upsell cost: $${upsellCostTracker.getSummary().totalCost.toFixed(4)})`);
-            }
-          } catch (upsellErr) {
-            bookContext.log('warn', `Upsell covers failed (non-blocking): ${upsellErr.message}`);
-          }
-        }
-
-        // Download upsell cover image buffers from GCS and inject as upsell_spread entry
-        if (upsellCovers.length > 0) {
-          const upsellEntries = await Promise.all(
-            upsellCovers.map(async (uc) => {
-              try {
-                const buf = await downloadBuffer(uc.gcsPath);
-                return { ...uc, coverBuffer: buf };
-              } catch (e) {
-                console.warn(`[server] Could not download upsell buffer ${uc.gcsPath}: ${e.message}`);
-                return { ...uc, coverBuffer: null };
-              }
-            })
-          );
-          const validUpsell = upsellEntries.filter(u => u.coverBuffer);
-          if (validUpsell.length > 0) {
-            const upsellEntry = {
-              type: 'upsell_spread',
-              upsellCovers: validUpsell,
-              childName: childDetails.name || childDetails.childName,
+      const { stories, failures } = await catalogEngine.generateStories({
+        bookIds,
+        profile,
+        sessionId: sessionId || bookId,
+        locale,
+        onProgress: ({ bookId: candidateId, status }) => {
+          if (status === 'done' || status === 'failed') done += 1;
+          if (progressCallbackUrl) {
+            reportProgress(progressCallbackUrl, {
               bookId,
-              tagline: `What will ${childDetails.name || childDetails.childName}\'s next story be?`,
-            };
-            const closingIdx = entriesWithBuffers.findIndex(e => e.type === 'closing_page');
-            if (closingIdx >= 0) {
-              entriesWithBuffers.splice(closingIdx, 0, upsellEntry);
-            } else {
-              entriesWithBuffers.push(upsellEntry);
-            }
-            bookContext.log('info', `Upsell spread injected into interior PDF (${validUpsell.length} covers)`);
+              stage: 'stories',
+              progress: 0.1 + (done / bookIds.length) * 0.85,
+              message: `Story ${candidateId}: ${status} (${done}/${bookIds.length})`,
+            }).catch(() => {});
           }
-        }
-
-        upsellCoversWithBuffers = entriesWithBuffers.find(e => e.type === 'upsell_spread')?.upsellCovers || [];
-        // Per-spread embedded-overlay metrics (tone, band luminance, contrast)
-        // — populated by the layout engine only for embedded-mode entries.
-        const overlayReport = [];
-        interiorPdf = await assemblePdf(entriesWithBuffers, format, {
-          title: bookTitle,
-          childName: childDetails.name,
-          dedication,
-          bookFrom,
-          year: new Date().getFullYear(),
+        },
+      });
+      console.log(`[v13] stories for ${bookId}: ${stories.length} ok, ${failures.length} failed in ${Date.now() - started}ms`);
+      if (callbackUrl) {
+        await postWithRetry(callbackUrl, {
+          success: stories.length > 0,
           bookId,
-          upsellCovers: upsellCoversWithBuffers,
-          minPages: emotionalTierInfo ? emotionalTierInfo.minPages : 32,
-          overlayReport,
-        });
-
-        // Layout-time contrast advisories (embedded mode): a spread shipped
-        // with tone-vs-band contrast below the WCAG-inspired floor is recorded
-        // as a qaAdvisory — same closed-gate pattern as the illustration QA
-        // (never blocking; the admin can /v3/review/regen-spread post-hoc).
-        const lowContrast = overlayReport.filter(r => r.belowContrast);
-        if (lowContrast.length > 0) {
-          const layoutAdvisories = lowContrast.map(r => ({
-            stage: 'layout',
-            spread: r.spread,
-            note: `embedded overlay contrast ${r.contrastRatio}:1 below ${OVERLAY.MIN_CONTRAST}:1 (zone ${r.zone}, tone ${r.tone}${r.busy ? ', busy band — strong halo applied' : ''})`,
-          }));
-          qaAdvisories = [...(qaAdvisories || []), ...layoutAdvisories].slice(0, 40);
-          bookWarnings.push(`Embedded overlay contrast below ${OVERLAY.MIN_CONTRAST}:1 on spread(s) ${lowContrast.map(r => r.spread).join(', ')} — see qaAdvisories`);
-          bookContext.log('warn', `Embedded overlay contrast advisories: ${lowContrast.length} spread(s)`, { spreads: lowContrast.map(r => r.spread) });
-        }
-
-        previewImageUrls = entriesWithIllustrations
-          .filter(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl)
-          .map(e => e.spreadIllustrationUrl || e.illustrationUrl || e.leftIllustrationUrl);
-      }
-
-      bookContext.touchActivity();
-      bookContext.log('info', 'Interior PDF assembled', { ms: Date.now() - stage7Start });
-
-      console.log(`[server] Stage timing: pdf=${Date.now() - stage7Start}ms (book ${bookId})`);
-
-      // Stage 6: Upload interior PDF to GCS
-      bookContext.log('info', 'Uploading interior PDF to storage');
-      reportProgressForce(progressCallbackUrl, { bookId, stage: 'upload', progress: 0.92, message: 'Uploading interior PDF...', logs: bookContext.logs }).catch(() => {});
-      const interiorPath = `children-jobs/${bookId}/interior.pdf`;
-      await uploadBuffer(interiorPdf, interiorPath, 'application/pdf');
-      const interiorPdfUrl = await getSignedUrl(interiorPath, 30 * 24 * 60 * 60 * 1000);
-      bookContext.log('info', 'Interior PDF uploaded');
-
-      // Stage 7: Build cover PDF separately (after interior is done)
-      let coverPdfUrl = null;
-      let coverData = null;
-      const coverPath = `children-jobs/${bookId}/cover.pdf`;
-      try {
-        bookContext.log('info', 'Building cover PDF...');
-        reportProgressForce(progressCallbackUrl, { bookId, stage: 'cover', progress: 0.95, message: 'Building cover PDF...', logs: bookContext.logs }).catch(() => {});
-        // Calculate interior page count + back-cover synopsis using the
-        // shared helper so the admin rebuild flow produces identical output.
-        // For regular books the helper needs `entries` to derive pageCount,
-        // so we hand it a synthetic source that mirrors storyPlan but with
-        // entriesWithBuffers (has the authoritative page layout for this run).
-        const coverMetaSource = { ...storyPlan, entries: entriesWithBuffers };
-        const { pageCount, synopsis } = computeCoverPdfMetadata(coverMetaSource, childDetails, {});
-
-        coverData = await generateCover(bookTitle, childDetails, characterRef, format, {
-          apiKeys, costTracker, bookId, preGeneratedCoverBuffer, pageCount, synopsis,
-          heartfeltNote, bookFrom, bindingType,
-          coverSourceUrl: approvedCoverUrl || '',
-          // P2 (2026-07-23 audit): the book pass judged the cover off-style vs
-          // the 3D interiors — force a re-harmonize even if the source is
-          // marked as already-3D.
-          forceCoverReharmonize: coverNeedsReharmonize,
-        });
-        if (coverData?.coverPdfBuffer) {
-          await uploadBuffer(coverData.coverPdfBuffer, coverPath, 'application/pdf');
-          coverPdfUrl = await getSignedUrl(coverPath, 30 * 24 * 60 * 60 * 1000);
-          bookContext.log('info', 'Cover PDF uploaded');
-        }
-      } catch (coverErr) {
-        bookContext.log('error', 'Cover PDF failed (non-blocking)', { error: coverErr.message });
-        // A coverless book must never report as a clean success: without
-        // coverPdfUrl the admin UI shows "Not available" and the Lulu send is
-        // blocked, so surface the failure through the same qaAdvisories /
-        // bookWarnings channel as spread QA residuals (2026-07-28 audit,
-        // book 4c8daf08: a ReferenceError here shipped silently-clean
-        // coverless books for six days).
-        qaAdvisories = [...(qaAdvisories || []), { spread: 'cover', note: `Cover PDF generation failed: ${coverErr.message}`, tag: 'cover_pdf_failed' }].slice(0, 40);
-        bookWarnings.push(`Cover PDF failed: ${coverErr.message} — book has no print cover; rebuild via /rebuild-cover-pdf.`);
-      }
-
-      // P0 (2026-07-23 audit): a residual cover hero anatomy defect (a
-      // three-handed hero) that survived the cover QA + retry budget ships
-      // flagged — the cover bypasses interior spread QA, so surface it through
-      // the same qaAdvisories / bookWarnings channel as spread QA residuals.
-      if (coverData?.coverAnatomyAdvisory) {
-        qaAdvisories = [...(qaAdvisories || []), { spread: 'cover', note: coverData.coverAnatomyAdvisory, tag: 'anatomy' }].slice(0, 40);
-        bookWarnings.push(`Cover anatomy advisory: ${coverData.coverAnatomyAdvisory} — flagged for admin review (see qaAdvisories).`);
-        bookContext.log('warn', 'Cover anatomy advisory', { note: coverData.coverAnatomyAdvisory });
-      }
-
-      const totalMs = Date.now() - bookStartTime;
-      const costSummary = costTracker.getSummary();
-      const itemCount = entriesWithIllustrations.length;
-      bookContext.log('info', 'Book complete', { totalMs, items: itemCount, cost: `$${costSummary.totalCost.toFixed(4)}`, warnings: bookWarnings.length });
-
-      // Build storyContent for DB (chapter/GN arms deleted in W12)
-      let storyContent;
-      {
-        storyContent = {
-          title: bookTitle,
-          entries: entriesWithIllustrations.map(e => ({
-            type: e.type,
-            spread: e.spread,
-            left: e.left,
-            right: e.right,
-            hasImage: !!(e.spreadIllustrationUrl || e.illustrationUrl),
-            // Per-spread layout metadata (2026-07-18): the main app needs
-            // these to drive the embedded-overlay preview and textLayout
-            // flips after the worker checkpoint is cleared on completion.
-            ...(e.type === 'spread' && e.textLayout ? { textLayout: e.textLayout } : {}),
-            ...(e.type === 'spread' && e.textLayout === 'embedded' ? { textZone: e.textZone || null, heroBox: e.heroBox || null, figuresBox: e.figuresBox || null } : {}),
-            ...(e.type === 'spread' && e.captionText !== undefined ? { captionText: e.captionText } : {}),
-            ...(e.type === 'spread' && e.spreadIllustrationUrl ? { spreadIllustrationUrl: e.spreadIllustrationUrl } : {}),
-            ...(e.type === 'spread' && e.spreadIllustrationStorageKey ? { spreadIllustrationStorageKey: e.spreadIllustrationStorageKey } : {}),
+          engine: 'catalog-v13',
+          stories: stories.map(s => ({
+            bookDefinitionId: s.request.book_id,
+            request: s.request,
+            response: s.response,
+            nameOnly: s.nameOnly,
+            attempts: s.attempts,
+            usage: s.usage,
           })),
-          characterDescription: storyPlan.characterDescription || null,
-          characterOutfit: storyPlan.characterOutfit || null,
-          characterAnchor: storyPlan.characterAnchor || null,
-          additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-          synopsis: storyPlan.synopsis || null,
-          plotSynopsis: storyPlan.plotSynopsis || null,
-          tagline: storyPlan.tagline || null,
-          storyBible: storyPlan.storyBible || null,
-        };
-      }
-
-      // Report completion (with retry)
-      if (callbackUrl) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            await fetch(callbackUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify({
-                success: true,
-                bookId,
-                interiorPdfUrl,
-                coverPdfUrl,
-                backCoverImageUrl: coverData?.backCoverImageUrl || null,
-                previewImageUrls,
-                title: bookTitle,
-                spreadCount: spreadEntries.length,
-                storyContent,
-                upsellCovers: upsellCoversWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
-                costs: costSummary,
-                emotionalCategory: emotionalCategory || null,
-                pipelineVersionUsed,
-                ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
-                ...(qaAdvisories ? { qaAdvisories } : {}),
-                ...(shipOnExhaustionReview ? { needsReview: shipOnExhaustionReview } : {}),
-                warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
-                logs: bookContext.logs,
-              }),
-            });
-            break;
-          } catch (cbErr) {
-            console.error(`[server] Completion callback attempt ${attempt + 1}/3 failed:`, cbErr.message);
-            if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-          }
-        }
-      }
-
-      if (progressCallbackUrl) {
-        reportComplete(progressCallbackUrl, {
-          bookId,
-          interiorPdfUrl,
-          coverPdfUrl,
-          previewImageUrls,
-          title: bookTitle,
-          spreadCount: spreadEntries.length,
-          storyContent,
-          upsellCovers: upsellCoversWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
-          costs: costSummary,
-          emotionalCategory: emotionalCategory || null,
-          pipelineVersionUsed,
-          ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
-          ...(qaAdvisories ? { qaAdvisories } : {}),
-          ...(shipOnExhaustionReview ? { needsReview: shipOnExhaustionReview } : {}),
-          warnings: bookWarnings.length > 0 ? bookWarnings : undefined,
-          logs: bookContext.logs,
+          failures,
         });
       }
-
-      // Clear checkpoint on successful completion
-      await clearCheckpoint(bookId);
-
-      console.log(`[server] Book ${bookId} complete: ${itemCount} items, cost: $${costSummary.totalCost.toFixed(4)}`);
     } catch (err) {
-      bookContext.log('error', 'Book generation failed', { error: err.message, totalMs: Date.now() - bookStartTime });
-      console.error(`[server] Book ${bookId} failed:`, err);
-
+      console.error(`[v13] generate-stories failed for ${bookId}:`, err);
       if (callbackUrl) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const errorAbort = new AbortController();
-            const errorTimeout = setTimeout(() => errorAbort.abort(), 10000);
-            await fetch(callbackUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-              body: JSON.stringify({
-                success: false,
-                bookId,
-                error: err.message,
-                pipelineVersionUsed,
-                ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
-                logs: bookContext.logs,
-                ...(err.failureCode ? { failureCode: err.failureCode } : {}),
-                ...(err.needsReview ? { needsReview: err.needsReview } : {}),
-              }),
-              signal: errorAbort.signal,
-            });
-            clearTimeout(errorTimeout);
-            break;
-          } catch (cbErr) {
-            console.error(`[server] Error callback attempt ${attempt + 1}/3 failed:`, cbErr.message);
-            if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-          }
-        }
-      }
-
-      if (progressCallbackUrl) {
-        reportError(progressCallbackUrl, {
-          bookId,
-          error: err.message,
-          pipelineVersionUsed,
-          ...(illustratorVersionUsed ? { illustratorVersionUsed } : {}),
-          logs: bookContext.logs,
-          ...(err.failureCode ? { failureCode: err.failureCode } : {}),
-          ...(err.needsReview ? { needsReview: err.needsReview } : {}),
+        await postWithRetry(callbackUrl, {
+          success: false, bookId, engine: 'catalog-v13', stories: [], failures: [{ message: err.message }],
         });
       }
+    }
+  })();
+});
+
+// POST /generate-book — full pipeline for the CHOSEN story: renders (cached,
+// cover-anchored), interior PDF, cover PDF, callbacks. 202-then-background.
+app.post('/generate-book', authenticate, async (req, res) => {
+  const body = req.body || {};
+  const { bookId, callbackUrl, progressCallbackUrl } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  try {
+    catalogEngine.normalizeProfile(body.profile);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+  const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
+  if (!storyPair && !body.bookDefinitionId) {
+    return res.status(400).json({ success: false, error: 'either story {request, response} or bookDefinitionId is required' });
+  }
+  if (body.bookDefinitionId && !catalogEngine.getBook(body.bookDefinitionId)) {
+    return res.status(400).json({ success: false, error: `unknown catalog book id '${body.bookDefinitionId}'` });
+  }
+  if (activeBooks.has(bookId)) {
+    return res.status(409).json({ success: false, error: `book ${bookId} is already generating on this instance` });
+  }
+
+  res.status(202).json({ success: true, bookId, message: 'accepted', engine: 'catalog-v13' });
+
+  const bookContext = createBookContext(bookId, { progressCallbackUrl });
+  const costTracker = new CostTracker();
+  const startedAt = Date.now();
+  (async () => {
+    try {
+      if (body.forceNew) await clearCheckpoint(bookId);
+      let checkpoint = body.forceNew ? null : await loadCheckpoint(bookId);
+      if (checkpoint && checkpoint.engine !== 'catalog-v13') {
+        bookContext.log('warn', `Legacy checkpoint (stage ${checkpoint.completedStage || '?'}) predates the catalog engine — restarting fresh`);
+        await clearCheckpoint(bookId);
+        checkpoint = null;
+      }
+      reportProgressForce(progressCallbackUrl, { bookId, stage: 'generating', progress: 0.02, message: 'Starting catalog pipeline...', logs: bookContext.logs }).catch(() => {});
+
+      const payload = await runBookPipeline({
+        bookId,
+        bookDefinitionId: body.bookDefinitionId || null,
+        profile: body.profile,
+        sessionId: body.sessionId || bookId,
+        storyPair,
+        checkpoint,
+        saveCheckpoint: cp => saveCheckpoint(bookId, cp),
+        approvedCoverUrl: body.approvedCoverUrl || null,
+        childPhotoUrl: Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls[0] : null,
+        characterDescription: body.characterDescription || null,
+        textLayout: String(body.textLayout).toLowerCase() === 'embedded' ? 'embedded' : 'caption',
+        heartfeltNote: body.heartfeltNote || null,
+        bookFrom: body.bookFrom || null,
+        bindingType: body.bindingType || null,
+        forceRerender: !!body.forceRerender,
+        costTracker,
+        onProgress: (stage, frac, message) => {
+          bookContext.touchActivity();
+          reportProgress(progressCallbackUrl, { bookId, stage, progress: frac, message, logs: bookContext.logs }).catch(() => {});
+        },
+        log: (level, msg) => bookContext.log(level, msg),
+      });
+
+      const completion = {
+        success: true,
+        bookId,
+        ...payload,
+        costs: costTracker.getSummary(),
+        pipelineVersionUsed: 'catalog-v13',
+        illustratorVersionUsed: 'catalog-slim',
+        warnings: payload.warnings.length > 0 ? payload.warnings : undefined,
+        logs: bookContext.logs,
+      };
+      if (callbackUrl) await postWithRetry(callbackUrl, completion);
+      if (progressCallbackUrl) reportComplete(progressCallbackUrl, completion);
+      await clearCheckpoint(bookId);
+      console.log(`[server] Book ${bookId} complete in ${Math.round((Date.now() - startedAt) / 1000)}s, cost $${costTracker.getSummary().totalCost?.toFixed?.(4) ?? '?'}`);
+    } catch (err) {
+      bookContext.log('error', `Book generation failed: ${err.message}`);
+      console.error(`[server] Book ${bookId} failed:`, err);
+      const failure = {
+        success: false,
+        bookId,
+        error: err.message,
+        pipelineVersionUsed: 'catalog-v13',
+        ...(err.failureCode ? { failureCode: err.failureCode } : {}),
+        ...(err.validationErrors?.length ? { validationErrors: err.validationErrors } : {}),
+        logs: bookContext.logs,
+      };
+      if (callbackUrl) await postWithRetry(callbackUrl, failure);
+      if (progressCallbackUrl) reportError(progressCallbackUrl, { ...failure, stage: 'failed', progress: 0 });
     } finally {
-      clearInterval(heartbeatInterval);
-      clearTimeout(absoluteTimer);
-      clearTimeout(hardTimeoutId);
       removeBookContext(bookId);
     }
   })();
-
-  // Hard wall: kill generation after 90 minutes no matter what
-  const hardTimeout = new Promise((_, reject) => {
-    hardTimeoutId = setTimeout(() => reject(new Error('Generation exceeded 90 minute hard limit')), 90 * 60 * 1000);
-  });
-
-  Promise.race([generationWork, hardTimeout]).catch(async (err) => {
-    console.error(`[server] Book ${bookId} hit hard timeout: ${err.message}`);
-    bookContext.log('error', 'Hard timeout reached', { error: err.message });
-    const timeoutPayload = { success: false, bookId, error: err.message, logs: bookContext.logs };
-    if (callbackUrl) {
-      try {
-        await fetch(callbackUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
-          body: JSON.stringify(timeoutPayload),
-        });
-      } catch (cbErr) {
-        console.error(`[server] Failed to report hard timeout: ${cbErr.message}`);
-      }
-    }
-    if (progressCallbackUrl) {
-      reportError(progressCallbackUrl, timeoutPayload).catch(() => {});
-    }
-    bookContext.abortController.abort();
-    clearInterval(heartbeatInterval);
-    clearTimeout(absoluteTimer);
-    removeBookContext(bookId);
-  });
 });
+
+/**
+ * POST a JSON payload with the worker API key and 3 bounded retries — the
+ * shared delivery path for completion/failure callbacks.
+ */
+async function postWithRetry(url, payload) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), 15000);
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
+        body: JSON.stringify(payload),
+        signal: abort.signal,
+      });
+      clearTimeout(timeout);
+      return;
+    } catch (err) {
+      console.error(`[server] callback attempt ${attempt + 1}/3 to ${url} failed: ${err.message}`);
+      if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+    }
+  }
+}
 
 // ── POST /regenerate-illustration — 410 GONE (native-illustrator cutover) ──
 // The legacy per-spread regen painted the caption into a wide image anchored
@@ -1776,319 +562,6 @@ app.post('/regenerate-illustration', authenticate, (req, res) => {
 });
 
 // /generate-spread removed — V2 pipeline generates sequentially, this endpoint was unused.
-
-// ── POST /generate-game-character ─────────────────────────────────────────────
-// Admin-only Children Web Game support. Generates a clean full-body standalone
-// character sprite (PNG with alpha) in the book's art style, for injection
-// into the sandbox game. Single-shot + chromakey; typically <20s.
-app.post('/generate-game-character', authenticate, async (req, res) => {
-  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails } = req.body || {};
-
-  if (!bookId) {
-    return res.status(400).json({ success: false, error: 'bookId is required' });
-  }
-  if (!characterRefUrl && !coverImageUrl && !childPhotoUrl) {
-    return res.status(400).json({
-      success: false,
-      error: 'At least one of characterRefUrl / coverImageUrl / childPhotoUrl is required',
-    });
-  }
-
-  console.log(`[server] /generate-game-character: bookId=${bookId}, style=${style || 'default'}`);
-
-  try {
-    const { generateGameCharacter } = require('./services/gameCharacter');
-    const result = await generateGameCharacter({
-      bookId,
-      characterRefUrl,
-      childPhotoUrl,
-      coverImageUrl,
-      style,
-      childDetails,
-      poses: req.body?.poses,   // optional filter for partial regen
-    });
-
-    res.json({
-      success: true,
-      bookId,
-      gameSpriteUrl: result.gameSpriteUrl,
-      gamePoseAtlasUrl: result.gamePoseAtlasUrl,
-      poses: result.poses,
-      tookMs: result.tookMs,
-    });
-  } catch (err) {
-    console.error(`[server] generate-game-character failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-character-face ─────────────────────────────────────────────
-// Crop the child's stylised reference to a circular 256×256 face disc that the
-// Rive rig uses as a facial overlay (vector body + AI identity face).
-app.post('/generate-character-face', authenticate, async (req, res) => {
-  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  console.log(`[server] /generate-character-face: bookId=${bookId}`);
-  try {
-    const { generateCharacterFace } = require('./services/gameCharacter');
-    const result = await generateCharacterFace({
-      bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails,
-    });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-character-face failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-character-sheet ────────────────────────────────────────────
-// Alias for /generate-game-character — the 2.5D pivot names it "sheet"
-// because the client consumes a 12-pose atlas rather than a single sprite.
-app.post('/generate-character-sheet', authenticate, async (req, res) => {
-  const { bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails } = req.body || {};
-
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!characterRefUrl && !coverImageUrl && !childPhotoUrl) {
-    return res.status(400).json({
-      success: false,
-      error: 'At least one of characterRefUrl / coverImageUrl / childPhotoUrl is required',
-    });
-  }
-
-  console.log(`[server] /generate-character-sheet: bookId=${bookId}, style=${style || 'default'}`);
-  try {
-    const { generateGameCharacter } = require('./services/gameCharacter');
-    const result = await generateGameCharacter({
-      bookId, characterRefUrl, childPhotoUrl, coverImageUrl, style, childDetails,
-    });
-    res.json({
-      success: true,
-      bookId,
-      gameSpriteUrl: result.gameSpriteUrl,
-      gamePoseAtlasUrl: result.gamePoseAtlasUrl,
-      poses: result.poses,
-      tookMs: result.tookMs,
-    });
-  } catch (err) {
-    console.error(`[server] generate-character-sheet failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-hero-props ─────────────────────────────────────────────────
-// Generate book-specific hero-prop sprites (transparent painted PNGs) via
-// Gemini. Accepts an array of { id, name, prompt, itemId?, roomId?,
-// interaction? } and returns a manifest of { url, width, height, interaction }
-// entries the 2.5D client loads.
-app.post('/generate-hero-props', authenticate, async (req, res) => {
-  const { bookId, props, characterRefUrl, coverImageUrl } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!Array.isArray(props) || props.length === 0) {
-    return res.status(400).json({ success: false, error: 'props array is required' });
-  }
-  console.log(`[server] /generate-hero-props: bookId=${bookId}, props=${props.length}`);
-  try {
-    const { generateHeroProps } = require('./services/gameHeroProps');
-    const result = await generateHeroProps({ bookId, props, characterRefUrl, coverImageUrl });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-hero-props failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-npc-sprite ─────────────────────────────────────────────────
-// Generate full-body painted NPC sprites (mom / dad / pet) in the shared
-// 2.5D Don't Starve style. Accepts `descriptors: [{ kind, name?, prompt? }]`
-// and returns `{ npcs: { kind: { url, width, height, name } } }`.
-app.post('/generate-npc-sprite', authenticate, async (req, res) => {
-  const { bookId, descriptors, characterRefUrl, coverImageUrl } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!Array.isArray(descriptors) || descriptors.length === 0) {
-    return res.status(400).json({ success: false, error: 'descriptors array is required' });
-  }
-  console.log(`[server] /generate-npc-sprite: bookId=${bookId}, npcs=${descriptors.map((d) => d.kind || d.name).join(',')}`);
-  try {
-    const { generateNpcSprites } = require('./services/gameNpcSprite');
-    const result = await generateNpcSprites({ bookId, descriptors, characterRefUrl, coverImageUrl });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-npc-sprite failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-stylesheet ────────────────────────────────────────────
-// Generate one coordinated ~80-item sticker sheet for a book's art style, slice
-// into transparent per-item PNGs on GCS. Replaces per-room object generation.
-app.post('/generate-game-stylesheet', authenticate, async (req, res) => {
-  const { bookId, coverImageUrl, characterRefUrl, items, style } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ success: false, error: 'items array is required' });
-  }
-  console.log(`[server] /generate-game-stylesheet: bookId=${bookId}, items=${items.length}`);
-  try {
-    const { generateGameStylesheet } = require('./services/gameObjects');
-    const result = await generateGameStylesheet({
-      bookId, coverImageUrl, characterRefUrl, items, style,
-    });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-stylesheet failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-npcs ──────────────────────────────────────────────────
-// Generate AI-styled NPC sprites (mom / dad / cat) in the book's art style
-// so they don't visually clash with the injected child character.
-app.post('/generate-game-npcs', authenticate, async (req, res) => {
-  const { bookId, characters, characterRefUrl, coverImageUrl, style, briefMoments } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  console.log(`[server] /generate-game-npcs: bookId=${bookId}, characters=${(characters||['mom','cat']).join(',')}`);
-  try {
-    const { generateGameNpcs } = require('./services/gameNpcs');
-    const result = await generateGameNpcs({
-      bookId, characters, characterRefUrl, coverImageUrl, style, briefMoments,
-    });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-npcs failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-world ─────────────────────────────────────────────────
-// Generate a room background + set of object sprites under the book's art style.
-app.post('/generate-game-world', authenticate, async (req, res) => {
-  const { bookId, room, objects, characterRefUrl, coverImageUrl, style } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!room)   return res.status(400).json({ success: false, error: 'room is required' });
-
-  console.log(`[server] /generate-game-world: bookId=${bookId}, room=${room}, objectCount=${(objects||[]).length}`);
-
-  try {
-    const { generateWorldAssets } = require('./services/gameWorldAssets');
-    const result = await generateWorldAssets({
-      bookId, room, objects, characterRefUrl, coverImageUrl, style,
-    });
-    res.json({ success: true, bookId, room, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-world failed for ${bookId}/${room}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-dialogue ──────────────────────────────────────────────
-// Generate a dialogue line map for a given book's narrative using the OpenAI
-// chat completions JSON mode. Cheap (~$0.01/book); callers cache on the DB.
-app.post('/generate-game-dialogue', authenticate, async (req, res) => {
-  const { bookId, narrative, recipeIds, npcKinds } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-
-  console.log(`[server] /generate-game-dialogue: bookId=${bookId}, recipeIds=${(recipeIds||[]).length}, npcKinds=${(npcKinds||[]).join(',')}`);
-
-  try {
-    const { generateGameDialogue } = require('./services/gameDialogue');
-    const result = await generateGameDialogue({ bookId, narrative, recipeIds, npcKinds });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-dialogue failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-voices ────────────────────────────────────────────────
-// Synthesize all dialogue lines to MP3 via Google Cloud TTS and upload to GCS.
-// Returns a manifest { [lineId]: signedUrl }.
-app.post('/generate-game-voices', authenticate, async (req, res) => {
-  const { bookId, dialogues, gender } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!dialogues || typeof dialogues !== 'object') {
-    return res.status(400).json({ success: false, error: 'dialogues map is required' });
-  }
-
-  console.log(`[server] /generate-game-voices: bookId=${bookId}, lines=${Object.keys(dialogues).length}, gender=${gender || 'any'}`);
-
-  try {
-    const { generateGameVoices } = require('./services/gameVoices');
-    const result = await generateGameVoices({ bookId, dialogues, gender });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-voices failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-pose-anims ────────────────────────────────────────────
-// Generates 2×2 animation grids (walk / jump / cheer) and slices them into
-// per-frame PNGs on GCS. Returns manifest of { anims: { name: { frames, fps, loop } } }.
-app.post('/generate-game-pose-anims', authenticate, async (req, res) => {
-  const { bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl, style, childDetails, anims } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-
-  console.log(`[server] /generate-game-pose-anims: bookId=${bookId}, anims=${(anims || ['walk','jump','cheer']).join(',')}`);
-
-  try {
-    const { generateGamePoseAnims } = require('./services/gamePoseAnims');
-    const result = await generateGamePoseAnims({
-      bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl,
-      style, childDetails, anims,
-    });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-pose-anims failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-character-atlas ───────────────────────────────────────
-// Generates a single 4×4 Gemini grid of character parts (head poses, eyes,
-// mouths, body+arms+hair). Returns a manifest with part URLs + anchor points
-// the client uses to assemble a rigged multi-part character.
-app.post('/generate-game-character-atlas', authenticate, async (req, res) => {
-  const { bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl, style, childDetails } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-
-  console.log(`[server] /generate-game-character-atlas: bookId=${bookId}`);
-
-  try {
-    const { generateGameCharacterAtlas } = require('./services/gameCharacterAtlas');
-    const result = await generateGameCharacterAtlas({
-      bookId, characterRefUrl, coverImageUrl, childPhotoUrl, idlePoseUrl,
-      style, childDetails,
-    });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-character-atlas failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /generate-game-object-variants ───────────────────────────────────────
-// Generates per-hero-object AI art variants (stove:off/flames/pot-cooking, etc)
-// as strip-grids, slices them, and returns a manifest of { objectId: { variant: url } }.
-app.post('/generate-game-object-variants', authenticate, async (req, res) => {
-  const { bookId, heroObjects, coverImageUrl, childPhotoUrl, style, theme } = req.body || {};
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-  if (!Array.isArray(heroObjects) || heroObjects.length === 0) {
-    return res.status(400).json({ success: false, error: 'heroObjects array is required' });
-  }
-
-  console.log(`[server] /generate-game-object-variants: bookId=${bookId}, objects=${heroObjects.map((h) => h.id).join(',')}`);
-
-  try {
-    const { generateGameObjectVariants } = require('./services/gameObjectVariants');
-    const result = await generateGameObjectVariants({
-      bookId, heroObjects, coverImageUrl, childPhotoUrl, style, theme,
-    });
-    res.json({ success: true, bookId, ...result });
-  } catch (err) {
-    console.error(`[server] generate-game-object-variants failed for ${bookId}:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 // ── POST /generate-coloring-book ──────────────────────────────────────────────
 // Async endpoint: returns 202 immediately, processes in background, reports via callbackUrl.
@@ -2570,234 +1043,73 @@ app.post('/finalize-book', authenticate, async (req, res) => {
 // ── POST /rebuild-cover-pdf — Rebuild cover PDF only (binding-aware) ──
 //
 // Rebuilds the Lulu wrap-around cover PDF using the exact same pipeline as
-// ── POST /v3/review/* — resolution endpoints for needs_review books ──
-// A V3 book that exhausts a quality budget terminates as `needs_review`
-// with a structured payload persisted in its GCS checkpoint (design D6,
-// cutover plan W2). These endpoints record the admin's resolution in the
-// checkpoint; the caller (main app) then re-dispatches /generate-book,
-// and the workflow honors the resolution on that run. They deliberately
-// do NOT re-trigger generation themselves — the worker never stores the
-// full request payload, the main app does.
-const V3_REVIEW_BOOK_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
-async function loadNeedsReviewCheckpoint(bookId, res) {
-  if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
-    res.status(400).json({ success: false, error: 'invalid bookId' });
-    return null;
-  }
-  const checkpoint = await loadCheckpoint(bookId);
-  if (!checkpoint) {
-    res.status(404).json({ success: false, error: `no checkpoint for book ${bookId}` });
-    return null;
-  }
-  if (!checkpoint.needsReview) {
-    res.status(409).json({ success: false, error: `book ${bookId} is not awaiting review (completedStage=${checkpoint.completedStage || 'n/a'})` });
-    return null;
-  }
-  return checkpoint;
-}
-
-async function resolveNeedsReview(bookId, checkpoint, resolution) {
-  const next = {
-    ...checkpoint,
-    reviewResolution: resolution,
-    resolvedNeedsReview: checkpoint.needsReview,
-  };
-  delete next.needsReview; // needsReview present ⇔ awaiting review
-  await saveCheckpoint(bookId, next);
-}
-
-// Approve as-is: ship the best-scoring manuscript despite panel exhaustion.
-app.post('/v3/review/approve', authenticate, async (req, res) => {
-  try {
-    const { bookId, note } = req.body || {};
-    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
-    if (!checkpoint) return;
-    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
-    const resolution = buildReviewResolution({ action: 'ship_best', note, admin: req.body?.admin || null });
-    await resolveNeedsReview(bookId, checkpoint, resolution);
-    console.log(`[v3-review] ${bookId} approved (ship_best) by ${resolution.admin || 'admin'}`);
-    res.json({ success: true, bookId, action: 'ship_best', next: 'redispatch_generate_book' });
-  } catch (err) {
-    console.error('[v3-review] approve failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Regenerate the manuscript from scratch (fresh writer run on re-dispatch).
-app.post('/v3/review/regen-manuscript', authenticate, async (req, res) => {
-  try {
-    const { bookId, note } = req.body || {};
-    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
-    if (!checkpoint) return;
-    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
-    const resolution = buildReviewResolution({ action: 'regen_manuscript', note, admin: req.body?.admin || null });
-    await resolveNeedsReview(bookId, checkpoint, resolution);
-    console.log(`[v3-review] ${bookId} resolved (regen_manuscript) by ${resolution.admin || 'admin'}`);
-    res.json({ success: true, bookId, action: 'regen_manuscript', next: 'redispatch_generate_book' });
-  } catch (err) {
-    console.error('[v3-review] regen-manuscript failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Spread-level actions (W10, native V3 illustrator): the admin picks one
-// of a failed spread's candidates, or forces a fresh render with a note.
-// Both only record the resolution — the main app re-dispatches, and the
-// native illustrator honors it (pick bypasses QA for that candidate;
-// regen ignores the spread's cached renders and feeds the note into the
-// prompt). Cached candidates for the other spreads replay from GCS, so
-// the re-run only spends on the resolved spread.
-app.post('/v3/review/pick-candidate', authenticate, async (req, res) => {
-  try {
-    const { bookId, spread, candidateUrl, note } = req.body || {};
-    if (!Number.isFinite(Number(spread))) return res.status(400).json({ success: false, error: 'spread (number) is required' });
-    if (!candidateUrl || typeof candidateUrl !== 'string') return res.status(400).json({ success: false, error: 'candidateUrl is required' });
-    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
-    if (!checkpoint) return;
-    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
-    const resolution = buildReviewResolution({
-      action: 'pick_candidate', note, spread: Number(spread), candidateUrl, admin: req.body?.admin || null,
-    });
-    await resolveNeedsReview(bookId, checkpoint, resolution);
-    console.log(`[v3-review] ${bookId} resolved (pick_candidate spread=${spread}) by ${resolution.admin || 'admin'}`);
-    res.json({ success: true, bookId, action: 'pick_candidate', spread: Number(spread), next: 'redispatch_generate_book' });
-  } catch (err) {
-    console.error('[v3-review] pick-candidate failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/v3/review/regen-spread', authenticate, async (req, res) => {
-  try {
-    const { bookId, spread, note } = req.body || {};
-    if (!Number.isFinite(Number(spread))) return res.status(400).json({ success: false, error: 'spread (number) is required' });
-    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
-    if (!checkpoint) return;
-    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
-    const resolution = buildReviewResolution({
-      action: 'regen_spread', note, spread: Number(spread), admin: req.body?.admin || null,
-    });
-    await resolveNeedsReview(bookId, checkpoint, resolution);
-    console.log(`[v3-review] ${bookId} resolved (regen_spread spread=${spread}) by ${resolution.admin || 'admin'}`);
-    res.json({ success: true, bookId, action: 'regen_spread', spread: Number(spread), next: 'redispatch_generate_book' });
-  } catch (err) {
-    console.error('[v3-review] regen-spread failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Identity-kit resolution: after an identity_kit_exhausted needs_review
-// (payload carries candidateUrls of the judged-but-rejected sheets), the
-// admin picks one — human judgment outranks the automated likeness judges.
-// The re-dispatched run uses the picked candidate as the model sheet.
-app.post('/v3/review/pick-sheet', authenticate, async (req, res) => {
-  try {
-    const { bookId, candidateUrl, note } = req.body || {};
-    if (!candidateUrl || typeof candidateUrl !== 'string') return res.status(400).json({ success: false, error: 'candidateUrl is required' });
-    const checkpoint = await loadNeedsReviewCheckpoint(bookId, res);
-    if (!checkpoint) return;
-    const { buildReviewResolution } = require('./services/bookPipelineV3/reviewQueue/payload');
-    const resolution = buildReviewResolution({
-      action: 'pick_sheet', note, candidateUrl, admin: req.body?.admin || null,
-    });
-    await resolveNeedsReview(bookId, checkpoint, resolution);
-    console.log(`[v3-review] ${bookId} resolved (pick_sheet) by ${resolution.admin || 'admin'}`);
-    res.json({ success: true, bookId, action: 'pick_sheet', next: 'redispatch_generate_book' });
-  } catch (err) {
-    console.error('[v3-review] pick-sheet failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ── POST /v3/set-text-layout — flip caption ↔ embedded on an EXISTING book ──
-// Records the admin's text-layout change on the book's checkpoint so the
-// next /generate-book dispatch (the main app re-dispatches, same contract as
-// the /v3/review/* endpoints) runs in the new mode. On an already-illustrated
-// checkpoint the stale storyPlan entries are dropped (they pin the OLD
-// aspect + per-spread fields) — the re-dispatch re-runs the pipeline, but
-// the expensive parts replay from cache: the identity kit from its
-// photoHash-keyed GCS cache and every spread render for the TARGET aspect
-// from the aspect-keyed candidate cache (so flipping back to a mode the book
-// was already rendered in re-renders nothing).
-app.post('/v3/set-text-layout', authenticate, async (req, res) => {
+// ── POST /v13/set-text-layout — flip caption ↔ embedded on an EXISTING book ──
+// Records the layout change on the book's catalog-engine checkpoint so the
+// next /generate-book dispatch renders in the new mode. The story is kept;
+// renders for the TARGET aspect replay from the aspect-keyed cache (flipping
+// back re-renders nothing). Completed books have no checkpoint — the next
+// dispatch simply carries the new textLayout in the request.
+app.post('/v13/set-text-layout', authenticate, async (req, res) => {
   try {
     const { bookId } = req.body || {};
     const t = String(req.body?.textLayout || '').toLowerCase().trim();
-    if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
+    if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
       return res.status(400).json({ success: false, error: 'invalid bookId' });
     }
     if (t !== 'caption' && t !== 'embedded') {
       return res.status(400).json({ success: false, error: `Unsupported textLayout '${req.body?.textLayout}' — expected 'caption' or 'embedded'` });
     }
     const checkpoint = await loadCheckpoint(bookId);
-    if (!checkpoint) {
-      // Completed books clear their checkpoint; drafts never had one. There
-      // is nothing to pin worker-side — the next dispatch carries the new
-      // textLayout in the request, and target-aspect renders replay from GCS.
-      return res.json({ success: true, bookId, textLayout: t, changed: false, checkpoint: false, rerender: 'dispatch', next: 'redispatch_generate_book' });
+    if (!checkpoint || checkpoint.engine !== 'catalog-v13') {
+      return res.json({ success: true, bookId, textLayout: t, changed: false, checkpoint: false, next: 'redispatch_generate_book' });
     }
     const current = checkpoint.textLayout || 'caption';
     if (current === t) {
-      return res.json({ success: true, bookId, textLayout: t, changed: false, checkpoint: true, rerender: null });
+      return res.json({ success: true, bookId, textLayout: t, changed: false, checkpoint: true });
     }
     const next = {
       ...checkpoint,
       textLayout: t,
+      completedStage: 'story',
       textLayoutChange: { from: current, to: t, at: new Date().toISOString() },
     };
-    let rerender = 'resume';
-    if (next.storyPlan || next.illustrationResults) {
-      delete next.storyPlan;
-      delete next.illustrationResults;
-      next.completedStage = 'text_layout_change';
-      rerender = 'illustration';
-    }
+    delete next.renderKeys;
     await saveCheckpoint(bookId, next);
-    console.log(`[v3] ${bookId} textLayout ${current} → ${t} (rerender=${rerender})`);
-    res.json({ success: true, bookId, textLayout: t, changed: true, checkpoint: true, rerender, next: 'redispatch_generate_book' });
+    console.log(`[v13] ${bookId} textLayout ${current} → ${t}`);
+    res.json({ success: true, bookId, textLayout: t, changed: true, checkpoint: true, next: 'redispatch_generate_book' });
   } catch (err) {
-    console.error('[v3] set-text-layout failed:', err.message);
+    console.error('[v13] set-text-layout failed:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ── POST /v3/preview/embedded-overlay — pre-print QA preview (admin) ──
+// ── POST /v13/preview/embedded-overlay — pre-print QA preview (admin) ──
 // Renders the ACTUAL embedded-overlay PDF pages (same layout code path that
-// ships — layoutEmbeddedSpread) for the book's embedded spreads and returns
-// a signed preview URL plus per-spread overlay metrics (tone, band
-// luminance/stdev, WCAG-inspired contrast ratio) so the admin UI can flag
-// low-contrast spreads BEFORE print. Entries come from the request (the main
-// app persists them from the completion callback's storyContent) or, for
-// in-flight books, from the checkpoint.
-app.post('/v3/preview/embedded-overlay', authenticate, async (req, res) => {
+// ships) plus per-spread overlay metrics. Entries come from the request —
+// the main app persists them from the completion callback's storyContent.
+app.post('/v13/preview/embedded-overlay', authenticate, async (req, res) => {
   const { bookId, bookFormat } = req.body || {};
-  if (!bookId || !V3_REVIEW_BOOK_ID.test(String(bookId))) {
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
     return res.status(400).json({ success: false, error: 'invalid bookId' });
   }
   try {
-    let entries = Array.isArray(req.body.entries) ? req.body.entries : null;
-    if (!entries) {
-      const checkpoint = await loadCheckpoint(bookId);
-      const cpEntries = checkpoint?.storyPlan?.entries || checkpoint?.illustrationResults || null;
-      entries = Array.isArray(cpEntries) ? cpEntries : [];
-    }
+    const entries = Array.isArray(req.body.entries) ? req.body.entries : [];
     const embedded = entries.filter((e) => (!e.type || e.type === 'spread')
       && e.textLayout === 'embedded'
-      && (e.captionText !== undefined || e.left?.text !== undefined));
+      && e.captionText !== undefined);
     if (embedded.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'no embedded-mode spread entries found — pass `entries` for completed books (the checkpoint is cleared on completion), or the book is laid out in caption mode',
+        error: 'no embedded-mode spread entries found — pass storyContent.entries, or the book is laid out in caption mode',
       });
     }
     const resolved = [];
     for (const e of embedded) {
-      const src = e.spreadIllustrationStorageKey || e.imageStorageKey || e.spreadIllustrationUrl || e.imageUrl || null;
+      const src = e.spreadIllustrationStorageKey || e.spreadIllustrationUrl || null;
       let buffer = null;
       if (src) {
         try { buffer = await downloadBuffer(src); }
-        catch (err) { console.warn(`[v3-preview] spread ${e.spread}: art download failed (${err.message}) — previewing overlay geometry only`); }
+        catch (err) { console.warn(`[v13-preview] spread ${e.spread}: art download failed (${err.message}) — previewing overlay geometry only`); }
       }
       resolved.push({
         type: 'spread',
@@ -2806,7 +1118,7 @@ app.post('/v3/preview/embedded-overlay', authenticate, async (req, res) => {
         textZone: e.textZone || 'left-top',
         heroBox: e.heroBox || null,
         figuresBox: e.figuresBox || null,
-        captionText: e.captionText !== undefined ? e.captionText : (e.left?.text || ''),
+        captionText: e.captionText || '',
         spreadIllustrationBuffer: buffer,
       });
     }
@@ -2816,18 +1128,10 @@ app.post('/v3/preview/embedded-overlay', authenticate, async (req, res) => {
     const previewPdfUrl = await getSignedUrl(previewPath, 7 * 24 * 60 * 60 * 1000);
     res.json({ success: true, bookId, previewPdfUrl, minContrast: OVERLAY.MIN_CONTRAST, spreads: report });
   } catch (err) {
-    console.error(`[v3-preview] embedded overlay preview failed for ${bookId}:`, err.message);
+    console.error(`[v13-preview] embedded overlay preview failed for ${bookId}:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
-// initial book generation (services/coverGenerator.generateCover), so that
-// flipping the binding type (paperback ↔ hardcover) or re-running after an
-// edit produces bit-for-bit equivalent output.
-//
-// The admin caller is expected to pass the persisted `storyContent` so that
-// pageCount (spine width) and synopsis (back cover) match what the main
-// pipeline would have produced. The `isChapterBook` / `isGraphicNovel`
 // flags let us pick the right branch when storyContent doesn't encode them.
 app.post('/rebuild-cover-pdf', authenticate, async (req, res) => {
   const {
@@ -3024,48 +1328,16 @@ app.post('/manage-checkpoint', authenticate, async (req, res) => {
   }
 });
 
-// ── POST /get-spread-data — Return checkpoint data for one or more spreads ──
-// Used by standalone to get the real scene prompts + character details for regeneration.
-app.post('/get-spread-data', authenticate, async (req, res) => {
-  const { bookId, spreadIndices } = req.body;
-  if (!bookId) return res.status(400).json({ success: false, error: 'bookId is required' });
-
-  try {
-    const { Storage } = require('@google-cloud/storage');
-    const storage = new Storage();
-    const bucket = storage.bucket(process.env.GCS_BUCKET_NAME || 'giftmybook-bucket');
-    const [contents] = await bucket.file(`children-jobs/${bookId}/checkpoint.json`).download();
-    const checkpoint = JSON.parse(contents.toString());
-
-    const storyPlan = checkpoint.storyPlan || {};
-    const entries = (storyPlan.entries || []).filter(e => e.type === 'spread');
-
-    const indices = Array.isArray(spreadIndices) ? spreadIndices : Array.from({ length: entries.length }, (_, i) => i);
-
-    const spreads = indices.map(idx => {
-      const entry = entries[idx];
-      if (!entry) return { idx, error: 'out of range' };
-      return {
-        idx,
-        spreadImagePrompt: entry.spread_image_prompt || '',
-        pageText: (() => { const rawPageText = [entry.left?.text, entry.right?.text].filter(Boolean).join(' '); return rawPageText && !LOREM_PATTERNS.test(rawPageText) ? rawPageText : ''; })(),
-        characterOutfit: storyPlan.characterOutfit || '',
-        characterDescription: storyPlan.characterDescription || '',
-        characterAnchor: storyPlan.characterAnchor || '',
-        recurringElement: storyPlan.recurringElement || '',
-        keyObjects: storyPlan.keyObjects || [],
-        coverArtStyle: storyPlan.coverArtStyle || '',
-        additionalCoverCharacters: storyPlan.additionalCoverCharacters || null,
-      };
-    });
-
-    res.json({ success: true, spreads });
-  } catch (err) {
-    console.error('[get-spread-data] Error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+// ── POST /get-spread-data — 410 GONE (catalog-engine cutover) ──
+// The catalog engine's checkpoints store the story, not per-spread scene
+// prompts; per-spread regeneration is driven by the admin re-dispatching
+// /generate-book with forceRerender.
+app.post('/get-spread-data', authenticate, (req, res) => {
+  res.status(410).json({
+    success: false,
+    error: 'GONE: /get-spread-data was removed in the catalog-engine cutover.',
+  });
 });
-
 // ── POST /refresh-url — Return a fresh signed URL for a GCS object ──
 // Used by standalone when it lacks GCS credentials to re-sign URLs.
 app.post('/refresh-url', authenticate, async (req, res) => {
@@ -3134,8 +1406,8 @@ if (require.main === module) {
   // Single grep-friendly LLM-config line at boot — makes silent fallback
   // visible in Cloud Run logs without waiting for the first book to fail.
   try {
-    const { assertLlmConfig } = require('./services/llm');
-    assertLlmConfig({ require: ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY'] });
+    const { assertLlmConfig } = require('./services/shared/llm/openaiClient');
+    assertLlmConfig({ require: ['OPENAI_API_KEY'] });
   } catch (e) {
     console.error(`[LLM_CONFIG] startup check threw: ${e.message}`);
   }
