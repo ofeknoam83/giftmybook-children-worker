@@ -67,6 +67,13 @@ function assertCatalogEngine() {
   catalog.loadAgeEngines();
   augments.loadAugments();
   const report = augments.coverageReport();
+  // Full sidecar coverage is a HARD deploy invariant, not a log line: a
+  // deleted sidecar would otherwise boot fine and silently ship that book
+  // name-only. (CATALOG_PERSONALIZATION_MAPS=0 is the intentional off-switch.)
+  if (report.booksWithMap !== report.totalBooks || report.booksWithSelectionProfile !== report.totalBooks) {
+    throw new Error(`[catalogEngine] sidecar coverage incomplete: ${report.booksWithMap}/${report.totalBooks} maps, `
+      + `${report.booksWithSelectionProfile}/${report.totalBooks} selection profiles — every catalog book must carry an approved sidecar`);
+  }
   console.log(`[catalogEngine] ready: ${report.totalBooks} books, ${report.booksWithMap} approved map(s), `
     + `fitRanking=${flags.fitRankingEnabled()} maps=${flags.personalizationMapsEnabled()} evidenceRequired=${flags.evidenceRequired()}`);
   return report;

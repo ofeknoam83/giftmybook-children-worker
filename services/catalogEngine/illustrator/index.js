@@ -16,7 +16,7 @@
  * and QA hard-checks readable_text.
  */
 
-const { generateIllustration } = require('../../illustrationGenerator');
+const { generateIllustration, downloadPhotoAsBase64 } = require('../../illustrationGenerator');
 const { downloadBuffer, getSignedUrl } = require('../../gcsStorage');
 const { buildScenePrompt } = require('./scenes');
 const { checkSpreadRender, repairNote } = require('./spreadQa');
@@ -55,7 +55,7 @@ function renderCachePath(bookId, storyHash, spread, aspect) {
  * Render (or replay) one spread; returns the layout-ready record.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[]}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, characterDescription, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, refPhoto, characterDescription, costTracker, forceRerender, log }) {
   const storageKey = renderCachePath(bookId, storyHash, spread, aspect);
   const advisories = [];
 
@@ -86,6 +86,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     bookId,
     costTracker,
     gcsPath: storageKey,
+    // The identity anchor: generateIllustration reads the reference image
+    // from opts (never from its second positional parameter) — the bytes
+    // were resolved ONCE by illustrateStory and ride every render.
+    childPhotoUrl: characterRefUrl,
+    _cachedPhotoBase64: refPhoto.base64,
+    _cachedPhotoMime: refPhoto.mimeType,
   };
 
   let url = await generateIllustration(baseScene, characterRefUrl, 'pixar_premium', renderOpts);
@@ -164,6 +170,17 @@ async function illustrateStory(params) {
     err.failureCode = 'missing_identity_reference';
     throw err;
   }
+  // Resolve the reference bytes ONCE for all 12 renders. An unreachable
+  // reference fails the run for the same reason a missing one does — the
+  // spreads would silently render unanchored.
+  let refPhoto;
+  try {
+    refPhoto = await downloadPhotoAsBase64(characterRefUrl);
+  } catch (dlErr) {
+    const err = new Error(`identity reference could not be downloaded (${dlErr.message}) — refusing to render unanchored spreads`);
+    err.failureCode = 'missing_identity_reference';
+    throw err;
+  }
 
   const pLimit = require('p-limit');
   const limit = pLimit(RENDER_CONCURRENCY);
@@ -171,7 +188,7 @@ async function illustrateStory(params) {
   const results = await Promise.all(book.beats.map(beat => limit(async () => {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
-      spread: beat.spread, aspect, characterRefUrl, characterDescription,
+      spread: beat.spread, aspect, characterRefUrl, refPhoto, characterDescription,
       costTracker, forceRerender, log,
     });
     done += 1;

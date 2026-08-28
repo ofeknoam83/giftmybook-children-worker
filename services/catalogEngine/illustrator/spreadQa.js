@@ -62,6 +62,13 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     const data = await resp.json();
     const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
     const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    // A syntactically valid but incomplete verdict (e.g. {}) must not read
+    // as a clean pass — every check field has to be an explicit boolean.
+    const FIELDS = ['readable_text', 'child_absent', 'multiple_children', 'flat_or_photo_style'];
+    if (!json || typeof json !== 'object' || !FIELDS.every(f => typeof json[f] === 'boolean')) {
+      console.warn(`[${label}] QA returned a malformed verdict — passing without QA`);
+      return { pass: true, defects: [], qaUnavailable: 'vision QA returned a malformed verdict' };
+    }
     const defects = [
       json.readable_text && 'painted text in the illustration',
       json.child_absent && 'child hero missing from the scene',

@@ -298,6 +298,20 @@ describe('sidecar loading + writer prompt assembly', () => {
     expect(report.totalBooks).toBe(228);
   });
 
+  test('boot assertion FAILS on incomplete sidecar coverage (hard deploy invariant)', () => {
+    const engine = require('../../../services/catalogEngine');
+    const augmentsMod = require('../../../services/catalogEngine/augments');
+    const orig = augmentsMod.coverageReport;
+    augmentsMod.coverageReport = () => ({ totalBooks: 228, booksWithMap: 227, booksWithSelectionProfile: 228 });
+    try {
+      expect(() => engine.assertCatalogEngine()).toThrow(/coverage incomplete/);
+    } finally {
+      augmentsMod.coverageReport = orig;
+    }
+    // With the real 228/228 set the assertion passes and reports coverage.
+    expect(engine.assertCatalogEngine().booksWithMap).toBe(228);
+  });
+
   test('scaffold keyword tags are whole words, never substring inventions', () => {
     // Regression: substring matching invented 'star' from "starting", 'pie'
     // from "copies", and 'elf' from "itself" — 5 selection points each.
