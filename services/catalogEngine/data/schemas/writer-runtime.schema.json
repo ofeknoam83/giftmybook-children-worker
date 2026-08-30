@@ -44,7 +44,8 @@
         "map_schema": {"$ref": "#/$defs/version"},
         "selector": {"$ref": "#/$defs/version"},
         "prompt_template": {"$ref": "#/$defs/version"},
-        "model": {"$ref": "#/$defs/version"}
+        "model": {"$ref": "#/$defs/version"},
+        "writer_tuning": {"$ref": "#/$defs/version"}
       }
     },
     "request": {

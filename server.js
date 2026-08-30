@@ -322,6 +322,7 @@ app.get('/v13/coverage', authenticate, (req, res) => {
       fitRanking: catalogEngine.flags.fitRankingEnabled(),
       personalizationMaps: catalogEngine.flags.personalizationMapsEnabled(),
       evidenceRequired: catalogEngine.flags.evidenceRequired(),
+      tuningLayer: catalogEngine.flags.tuningLayerEnabled(),
     },
   });
 });
@@ -368,6 +369,10 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message });
   }
+  const tuningError = catalogEngine.validateTuningInput(req.body?.writerTuning);
+  if (tuningError) {
+    return res.status(400).json({ success: false, error: tuningError });
+  }
   const profileBand = catalogEngine.ageBandForAge(profile.age);
   for (const id of bookIds) {
     const hit = catalogEngine.getBook(id);
@@ -390,6 +395,7 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
         profile,
         sessionId: sessionId || bookId,
         locale,
+        tuning: req.body?.writerTuning || null,
         onProgress: ({ bookId: candidateId, status }) => {
           if (status === 'done' || status === 'failed') done += 1;
           if (progressCallbackUrl) {
@@ -443,6 +449,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
     catalogEngine.normalizeProfile(body.profile);
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message });
+  }
+  const bookTuningError = catalogEngine.validateTuningInput(body.writerTuning);
+  if (bookTuningError) {
+    return res.status(400).json({ success: false, error: bookTuningError });
   }
   const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
   if (!storyPair && !body.bookDefinitionId && body.catalogThemeId) {
@@ -507,6 +517,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         profile: body.profile,
         sessionId: body.sessionId || bookId,
         storyPair,
+        writerTuning: body.writerTuning || null,
         checkpoint,
         saveCheckpoint: cp => saveCheckpoint(bookId, cp),
         approvedCoverUrl: body.approvedCoverUrl || null,

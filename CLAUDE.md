@@ -80,6 +80,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_PERSONALIZATION_MAPS=0` — every book generates name-only.
 - `CATALOG_EVIDENCE_REQUIRED=0` — stop hard-failing responses that ignore
   usable details despite approved slots.
+- `CATALOG_TUNING_LAYER=0` — ignore any `writerTuning` overlay from the main
+  app (stories render on the bare locked engine prompt).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`).
 
@@ -90,9 +92,15 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `POST /v13/select-books` — sync `{sessionId, themeId, profile}` →
   3 candidates + scores + seed (persist before generating)
 - `POST /v13/generate-stories` — `{bookId, bookIds[1..3], profile, sessionId,
-  callbackUrl}` → 202; callback `{stories:[{bookDefinitionId, request,
-  response, nameOnly, usage}], failures}`. **This is the admin story-only
-  test mode** — no illustration spend.
+  callbackUrl, writerTuning?}` → 202; callback `{stories:[{bookDefinitionId,
+  request, response, nameOnly, usage}], failures}`. **This is the admin
+  story-only test mode** — no illustration spend. `writerTuning`
+  (`{versionLabel, hash, text}`, also accepted by `/generate-book` for fresh
+  generations) is the app-owned Style Tuning Layer: appended below the locked
+  engine at prose-polish priority, echoed as `versions.writer_tuning`
+  (`<label>.<hash8>` or `none`), capped at 8KB, killed by
+  `CATALOG_TUNING_LAYER=0`. The engine prompt file stays locked; see
+  `docs/AI_WRITER_FEEDBACK_LOOP_PLAN.md`.
 - `POST /generate-book` — `{bookId, profile, story:{request,response} |
   bookDefinitionId, approvedCoverUrl, childPhotoUrls, textLayout,
   heartfeltNote, bookFrom, bindingType, callbackUrl, progressCallbackUrl,

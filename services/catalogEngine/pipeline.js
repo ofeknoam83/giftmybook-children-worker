@@ -37,7 +37,7 @@ class PipelineError extends Error {
  *  - a fresh generation for the requested book id.
  * @returns {Promise<{request: object, response: object, generated: boolean}>}
  */
-async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, profile, sessionId, log }) {
+async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, profile, sessionId, writerTuning, log }) {
   const candidate = storyPair || checkpointStory;
   if (candidate) {
     const { request, response } = candidate;
@@ -91,7 +91,9 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
     throw new PipelineError('no story and no bookDefinitionId — nothing to render', 'missing_book_definition');
   }
   log('info', `No stored story — generating fresh for ${bookDefinitionId}`);
-  const story = await generateStory({ bookId: bookDefinitionId, profile, sessionId });
+  // A stored pair above keeps its own pinned tuning tag; the overlay applies
+  // only to a FRESH generation.
+  const story = await generateStory({ bookId: bookDefinitionId, profile, sessionId, tuning: writerTuning || null });
   return { request: story.request, response: story.response, generated: true };
 }
 
@@ -104,6 +106,7 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
  * @param {object} params.profile raw profile (normalized here)
  * @param {string} params.sessionId
  * @param {{request: object, response: object}|null} params.storyPair chosen story from the main app
+ * @param {object|null} [params.writerTuning] Style Tuning Layer overlay — applied to a FRESH generation only
  * @param {object|null} params.checkpoint previously saved checkpoint (or null)
  * @param {(cp: object) => Promise<void>} params.saveCheckpoint
  * @param {string|null} params.approvedCoverUrl
@@ -134,7 +137,7 @@ async function runBookPipeline(params) {
     storyPair,
     checkpointStory: checkpoint?.story || null,
     bookDefinitionId: bookDefinitionId || checkpoint?.story?.request?.book_id || null,
-    profile, sessionId, log,
+    profile, sessionId, writerTuning: params.writerTuning || null, log,
   });
   const bookDef = getBook(story.request.book_id);
   const bookTitle = story.response.title;
