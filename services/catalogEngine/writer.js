@@ -28,6 +28,8 @@ const RETRY_TEMPERATURE = 0.4;
 
 // Writer Tuning Layer bounds — the overlay is admin-approved versioned DATA
 // from the main app, appended below the locked engine at the lowest priority.
+// The size cap is measured in UTF-8 BYTES so the documented 8KB request-size
+// guardrail holds for non-ASCII text too.
 const TUNING_TEXT_MAX = 8000;
 const TUNING_LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 const TUNING_HASH_RE = /^[a-fA-F0-9]{8,64}$/;
@@ -52,8 +54,15 @@ function validateTuningInput(raw) {
   if (typeof raw.text !== 'string' || raw.text.trim().length === 0) {
     return 'writerTuning.text must be a non-empty string';
   }
-  if (raw.text.length > TUNING_TEXT_MAX) {
-    return `writerTuning.text exceeds ${TUNING_TEXT_MAX} chars`;
+  // Validate the SANITIZED value: text that survives only as control
+  // characters would pass here, then be stripped to nothing downstream and
+  // silently generate a bare story — every accepted request must actually
+  // carry an overlay.
+  if (raw.text.replace(CONTROL_CHARS_RE, '').trim().length === 0) {
+    return 'writerTuning.text contains no visible characters after control-character stripping';
+  }
+  if (Buffer.byteLength(raw.text, 'utf8') > TUNING_TEXT_MAX) {
+    return `writerTuning.text exceeds ${TUNING_TEXT_MAX} UTF-8 bytes`;
   }
   return null;
 }
@@ -63,6 +72,12 @@ function validateTuningInput(raw) {
  * or null (absent, malformed, or disabled by the CATALOG_TUNING_LAYER
  * kill-switch). Control characters are stripped defensively; the tag that
  * rides versions.writer_tuning is `<label>.<hash8>`.
+ *
+ * The hash is the main app's fingerprint of the VERSIONED DIRECTIVE SET the
+ * overlay was rendered from — not of this request's rendered text, which is
+ * scope-filtered per request. The worker treats it as an opaque version pin
+ * (it holds no rulebook to verify against); the app's version store is the
+ * authority, and its anatomy view detects drift against stored versions.
  * @param {*} raw
  * @returns {{versionLabel: string, hash: string, text: string, tag: string}|null}
  */

@@ -37,6 +37,16 @@ describe('writerTuning input validation', () => {
     expect(validateTuningInput(TUNING)).toBeNull();
   });
 
+  test('text that survives only as control characters is rejected, not silently dropped', () => {
+    expect(validateTuningInput({ ...TUNING, text: '\u0001\u0002 \u0007' })).toMatch(/visible characters/);
+  });
+
+  test('the size cap counts UTF-8 bytes, not UTF-16 code units', () => {
+    // 4100 'é' chars = 8200 UTF-8 bytes but only 4100 code units.
+    expect(validateTuningInput({ ...TUNING, text: 'é'.repeat(4100) })).toMatch(/UTF-8 bytes/);
+    expect(validateTuningInput({ ...TUNING, text: 'é'.repeat(3900) })).toBeNull();
+  });
+
   test('normalizeTuning strips control chars and builds the label.hash8 tag', () => {
     const t = normalizeTuning({ ...TUNING, text: 'keep\nlines but not bells' });
     expect(t.tag).toBe('tune-007.9f31c2ab');
