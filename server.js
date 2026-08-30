@@ -313,8 +313,11 @@ app.get('/v13/themes', authenticate, (req, res) => {
   res.json({ success: true, catalogVersion: catalogEngine.catalogVersion(), themes: catalogEngine.listThemes() });
 });
 
-// GET /v13/coverage — sidecar authoring coverage + flag state (admin/release gate).
+// GET /v13/coverage — sidecar authoring coverage + flag state (admin/release
+// gate), plus the pinned engine versions and live model choices so the main
+// app's Writer Anatomy view can show the writer's real current configuration.
 app.get('/v13/coverage', authenticate, (req, res) => {
+  const { WRITER_MODEL } = require('./services/catalogEngine/writer');
   res.json({
     success: true,
     coverage: catalogEngine.coverageReport(),
@@ -323,6 +326,20 @@ app.get('/v13/coverage', authenticate, (req, res) => {
       personalizationMaps: catalogEngine.flags.personalizationMapsEnabled(),
       evidenceRequired: catalogEngine.flags.evidenceRequired(),
       tuningLayer: catalogEngine.flags.tuningLayerEnabled(),
+    },
+    versions: {
+      writer_engine: catalogEngine.versions.WRITER_ENGINE_VERSION,
+      age_engine: catalogEngine.versions.AGE_ENGINE_VERSION,
+      map_schema: catalogEngine.versions.MAP_SCHEMA_VERSION,
+      book_definition: catalogEngine.versions.BOOK_DEFINITION_VERSION,
+      selector: catalogEngine.versions.SELECTOR_VERSION,
+      prompt_template: catalogEngine.versions.PROMPT_TEMPLATE_VERSION,
+      style: catalogEngine.versions.STYLE_VERSION,
+      catalog: catalogEngine.catalogVersion(),
+    },
+    models: {
+      writer: WRITER_MODEL(),
+      qaVision: process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash',
     },
   });
 });
