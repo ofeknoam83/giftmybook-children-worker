@@ -60,7 +60,7 @@ Each comment compiles into one or more **directives**:
 {
   "id": "dir_014",
   "trait": "musicality",            // one of the 7 judge traits, or "general"
-  "scope": { "type": "global" },     // global | ageBand | themeId | bookDefinitionId
+  "scope": { "ageBands": ["1-3"] },  // multi-axis; empty/omitted axes = unrestricted (§6)
   "polarity": "do",                  // do | avoid
   "rule": "Read every spread aloud mentally; end at least 6 of 12 spreads on a stressed syllable.",
   "example": "…",                    // optional short good/bad example
@@ -160,7 +160,7 @@ Dispatch `/v13/generate-stories` with the chosen `writerTuning`. Stories return 
 
 ### 5.3 Comment → Compile ("Apply comments")
 
-Comments: `{scope: trait|spread|story|general, trait?, spreadNo?, severity, text}` — stored by extending the existing `AdminFeedbackComment` (new nullable columns: `trait`, `spreadNo`, `storyRef`, `tuningVersionId`, `sessionId`; plus the backfill migration and the `req.admin?.email` fix).
+Comments: `{target: trait|spread|story|general, trait?, spreadNo?, severity, text}` — stored by extending the existing `AdminFeedbackComment` (new nullable columns: `trait`, `spreadNo`, `storyRef`, `tuningVersionId`, `sessionId`, `scope Json`, `route`; plus the backfill migration and the `req.admin?.email` fix). Scope assignment and routing are described in §6.2–6.3.
 
 "Apply comments" runs the **Tuning Compiler** (`server/services/writerTuningCompiler.js`, evolving `writerFeedbackAgent.js`): input = current directives + rubric + new comments + the commented story excerpts; output = proposed operations + changelog. Hard constraints in the compiler prompt: directives must be style-level only — never plot, refrain text, title, age-bound, or personalization-legality instructions (those are owned by higher layers and deterministically validated); caps of ~40 active directives and ~8 KB compiled text force `strengthen`/merge consolidation instead of unbounded prompt growth (prompt bloat is itself a way of running in circles).
 
@@ -191,27 +191,74 @@ One click re-runs the **same inputs** (same profile, same pinned book) under the
 5. **Golden/regression replay before lock** — new fixes can't silently undo old wins.
 6. **Human approves every compiled diff** — the LLM proposes, the admin disposes.
 7. **Caps force consolidation** — the prompt can't bloat its way into degradation.
+8. **Honest routing (§6.3)** — comments that a prompt rule can't fix (slot structure, plot, config) are routed to the right artifact instead of being re-attempted as style rules forever.
 
 ---
 
-## 6. Data model (Prisma — all with real migrations)
+## 6. Scoped control — themes, occasions, personalization details
+
+A single global rulebook is not enough control: "calmer endings" may be right for bedtime themes and wrong for adventure ones. Directives therefore carry a **multi-axis scope**, and because the app renders the overlay per request (§3.3), all scope resolution happens app-side at dispatch time — **the worker contract never changes as the scoping model grows richer**.
+
+### 6.1 Scope axes
+
+A directive applies when every non-empty axis matches the request context; empty axes are unrestricted.
+
+| Axis | Request context source | Example directive |
+|---|---|---|
+| `ageBands` | profile age → catalog band | "For 1–3: one clause per sentence; a sound word on every spread." |
+| `themeIds` | the selected book's catalog theme | "Underwater books: water imagery must engage at least three senses." |
+| `occasions` | workbench param / order gift context (app-side concept — never a worker field) | "Birthday books: anticipatory, celebratory cadence." |
+| `detailKinds` | the categories of profile details present (pet, food, color, sibling…) | "When a pet detail is used: weave it through action, never state it as a fact." |
+| `bookDefinitionIds` | the exact catalog book | "book_ocean_04: soften the storm spread — it reads scary for the band." |
+
+Rendering order per request: global → age band → theme → occasion → detail-kind → book (most specific last), inside the same subordinate frame. Scoping is also the **scalability mechanism**: only applicable directives render, so the rulebook can grow across 12 themes × 4 bands without ever approaching the per-request size cap.
+
+### 6.2 How scope gets assigned
+
+The workbench knows the full context of every comment (theme, band, book, occasion, which detail kinds the story used). The compiler proposes a scope from the comment text plus that context ("this refrain feels babyish" on a 6–7 book → suggest `ageBands: ["6-7"]`), and the admin confirms, widens, or narrows it in the diff review — one selector: *this book / this theme / this age band / this occasion / when using [detail kind] / everywhere*. Cross-scope contradictions are legal and intentional: a theme-scoped rule contradicting a global one is recorded as a **scoped exception**, not a conflict; only same-scope contradictions surface as conflicts to resolve.
+
+### 6.3 What the tuning layer may and may not control (honest routing)
+
+Personalization *legality* — which slots exist, on which beats, with which fields — is owned by the approved sidecar maps and deterministically validated; plot facts are owned by the catalog. A prompt rule cannot and must not override either. So the compiler **classifies every comment** and routes it to the artifact that can actually fix it:
+
+| Route | Meaning | Destination |
+|---|---|---|
+| `style` | phrasing, tone, rhythm, how details are woven | scoped directive — this loop, runtime-dynamic |
+| `personalization-structure` | wrong/missing/misplaced slots ("this book shouldn't use food") | **sidecar change proposal**: a structured, reviewable edit to `data/augments/approved/{book_id}.json` — a versioned committed file, honoring the repo's never-generated-at-runtime rule |
+| `plot-structure` | the beat sheet itself is weak | catalog/blueprint backlog — feeds the Story Engine migration; not fixable in V1.3 by design |
+| `config` | word bounds, model choice, retry behavior | config proposal (ageEngines/env), reviewed like code |
+
+Routed proposals land in a **Proposals queue** on the Rulebook tab with full comment provenance, so non-prompt fixes are captured and tracked instead of silently dropped. The loop controls what prompts can control at runtime and *routes* everything else to the right versioned artifact — that honesty is itself an anti-circle mechanism (no more re-commenting a slot problem that a style rule was never going to fix).
+
+### 6.4 Scope-aware testing and measurement
+
+- **Playground probes a scope directly**: pin theme + band + book, set the occasion, toggle which detail kinds the profile includes ("an underwater 1–3 book with a pet detail") — the admin iterates on exactly the slice being tuned.
+- **Regression cases are tagged** on the same axes; the case × trait heatmap filters by them, and a coverage check warns when a scope has directives but no regression case ("you have 'space'-scoped rules but no space case").
+- **Quality map**: judge scores aggregated by theme × band (and over versions) — a standing instrument showing where the writer is weak, which scope to tune next, and whether a version helped the scope it targeted without hurting the others.
+
+## 7. Data model (Prisma — all with real migrations)
 
 - **`WriterTuningVersion`** — §3.2.
 - **`WriterTuningIteration`** — `{id, sessionBookId, iterationNo, tuningVersionId, dispatchId, storiesSnapshot Json, judgeResults Json, createdAt}` — snapshots each iteration's stories + scores before `storyOptions` is overwritten by the next dispatch.
-- **`WriterRegressionCase`** — `{id, name, profile Json, bookDefinitionId, goldenStory Json?, goldenVersionId?, enabled}`.
+- **`WriterRegressionCase`** — `{id, name, profile Json, bookDefinitionId, themeId, ageBand, occasion?, detailKinds[], goldenStory Json?, goldenVersionId?, enabled}` (the scope tags power the coverage check in §6.4).
 - **`WriterRegressionRun`** — `{id, versionId, results Json, startedAt, finishedAt}`.
+- **`WriterTuningProposal`** — the routed non-prompt queue (§6.3): `{id, kind: sidecar|catalog|config, targetId, details Json, provenance commentIds[], status: open|accepted|rejected|done, createdAt}`.
 - **`WriterTuningEvent`** — append-only audit `{id, versionId?, action: created|compiled|edited|locked|activated|deactivated|regression_run, actorEmail, details Json, createdAt}` (pattern: `BookReviewHistory`).
 - **Extend `AdminFeedbackComment`** (nullable: `trait`, `spreadNo`, `storyRef Json`, `tuningVersionId`, `sessionId`) + backfill migration (`CREATE TABLE IF NOT EXISTS`) for it and `WriterImprovementPlan`.
 
-## 7. API surface (`/api/admin/writer-tuning`, adminAuth)
+## 8. API surface (`/api/admin/writer-tuning`, adminAuth)
 
 - Versions: `GET /versions`, `GET /versions/:id`, `POST /versions` (new draft from parent + confirmed compiler ops), `PATCH /versions/:id` (draft-only direct edits), `POST /versions/:id/lock`, `POST /versions/:id/activate` + `POST /deactivate` (super-admin), `GET /active`.
 - Workbench: `POST /sessions` (params → isTestBook + slate), `GET /sessions/:id`, `POST /sessions/:id/generate` `{tuningVersionId, pinBookIds?}`, `GET /sessions/:id/iterations`.
 - Loop: `POST /compile` `{sessionId, commentIds, baseVersionId}` → proposed ops (nothing saved until confirmed), `POST /judge` `{storyRef}` (re-judge on demand).
 - Regression: `GET|POST /regression/cases` ("save iteration story as golden"), `POST /regression/run` `{versionId}`, `GET /regression/runs/:id`.
+- Proposals: `GET /proposals`, `PATCH /proposals/:id` (accept/reject/done) — the routed sidecar/catalog/config queue.
+- Insight: `GET /quality-map` — judge scores aggregated by theme × band × version.
 - Comments: existing `/api/admin/writer-feedback/comments` with the new fields.
 
-## 8. Worker changes (one-time deploy, deliberately small)
+## 9. Worker changes (one-time deploy, deliberately small)
+
+Note: nothing in §6 touches the worker — scope resolution, routing, proposals, and the quality map are all app-side. The worker's entire contract remains the optional `writerTuning` block below.
 
 1. `writer.js`: `generateStory`/`buildStoryRequest` accept optional `tuning {versionLabel, hash, text}`; system prompt becomes `ENGINE_PROMPT + renderTuningBlock(tuning)`; `versions.writer_tuning = label.hash8 | 'none'`.
 2. `writer-runtime.schema.json`: add optional `writer_tuning` to `versions`.
@@ -222,32 +269,33 @@ One click re-runs the **same inputs** (same profile, same pinned book) under the
 
 Everything else (validation, illustrator, PDFs, checkpoints) is untouched.
 
-## 9. UI — one new page: `AdminWriterTuning` (three tabs)
+## 10. UI — one new page: `AdminWriterTuning` (three tabs)
 
-1. **Playground** — setup form (theme, profile, book pin, version selector) → story cards: spreads, **judge scorecard** (7 trait chips, click-to-comment), validation status, comment rail; iteration timeline with side-by-side diff + trait deltas; "Apply comments" diff-review modal.
-2. **Rulebook & Versions** — version list (lineage, Draft/Locked/Active chips), directive table (editable in drafts, with trait/scope/provenance), per-version changelog, lock/activate controls.
-3. **Regression** — case list, goldens, case × trait heatmap per run.
+1. **Playground** — setup form (theme, profile, book pin, occasion, detail-kind toggles, version selector) → story cards: spreads, **judge scorecard** (7 trait chips, click-to-comment), validation status, comment rail with scope selector; iteration timeline with side-by-side diff + trait deltas; "Apply comments" diff-review modal (scope confirmation + conflict resolution + route review).
+2. **Rulebook & Versions** — version list (lineage, Draft/Locked/Active chips), directive table (editable in drafts; filter/pivot by trait, theme, band, detail kind), per-version changelog, **Proposals queue** (§6.3), lock/activate controls.
+3. **Regression & Quality** — case list with scope tags, goldens, case × trait heatmap (filterable by theme/band), coverage warnings, the theme × band **quality map**.
 
 Plus: register in `pages.config.js`; retarget the existing `AIWriterFeedbackPanel` (children context) to file comments into this loop with story context (keep the email path for `code_change`-class findings); link from `AdminChildrenBookDetails`'s slate view.
 
-## 10. Safety & cost guardrails
+## 11. Safety & cost guardrails
 
 - Deterministic validation always gates; judge is advisory; overlay capped and framed as lowest priority; production requires lock + super-admin activation + audit trail; one-click fallback to pure V1.3; worker env kill-switch underneath it all.
 - Playground spend: per-day workbench dispatch budget + per-iteration token usage display (usage already returned per story; the worker route has no rate limit, so the app-side budget is the throttle).
 - Compiler/judge inputs treat comments and story text as **data, never instructions** (same framing the profile already uses).
 
-## 11. Phases
+## 12. Phases
 
 - **Phase 1 — plumbing (worker + store):** worker `writerTuning` contract + echo + kill-switch; Prisma tables + migrations; versions API; injection through `childrenStoryFlow` (playground only); bug fixes (§2). *Deploy both services once.*
-- **Phase 2 — the loop:** Workbench Playground, judge service + scorecard, trait/spread comments, compiler + diff-review, draft versions, lock. *Loop fully usable.*
-- **Phase 3 — confidence:** side-by-side compare + trait deltas, golden/regression sets + heatmap, production activation + audit, panel/BookDetails integration.
+- **Phase 2 — the loop:** Workbench Playground (incl. occasion + detail-kind controls), judge service + scorecard, trait/spread comments with scope assignment, compiler + diff-review + routing, draft versions, lock. *Loop fully usable.*
+- **Phase 3 — confidence & control:** side-by-side compare + trait deltas, golden/regression sets + heatmap + coverage warnings, quality map, Proposals queue, production activation + audit, panel/BookDetails integration.
 
-## 12. Relationship to the Story Engine (blueprint) design
+## 13. Relationship to the Story Engine (blueprint) design
 
 The design doc proposes replacing the catalog with blueprint-driven plan→write→judge. This plan is the **compatible first step**: the judge rubric, the versioned prompt store, the workbench, and the regression harness are exactly the "manually score 20–30 generations, side-by-side A/B in the story-only admin mode" apparatus that migration requires. If/when blueprints land, the tuning loop becomes their evaluation and rollout harness rather than throwaway work.
 
-## 13. Open decisions (defaults chosen, flag if you disagree)
+## 14. Open decisions (defaults chosen, flag if you disagree)
 
 1. **Version echo mechanics** — recommended: explicit optional `writer_tuning` schema key. Zero-schema-change fallback: suffix `writer_engine` as `1.3.0+tune.<label>.<hash8>` (any 1–80-char string validates).
-2. **Directive scoping** — start with `global` + `ageBand`; add `themeId`/`bookDefinitionId` scoping only if band-level proves too coarse.
-3. **Judge on production stories** — Phase 3 option: judge the chosen story on every customer book and surface trait scores in AdminChildrenBookDetails (turns the loop into live QA), at ~1 cheap LLM call per book.
+2. **Occasion as content vs. tone** — occasion-scoped directives shape *tone* only (celebratory cadence, etc.). Making the story *mention* the occasion is content, which belongs to the profile/sidecar layer — that needs a deliberate profile-schema + sidecar evolution, not a tuning rule. Default: tone-only now; content later if wanted.
+3. **Sidecar proposals → PRs** — Phase 3+ option: an accepted `personalization-structure` proposal auto-generates the sidecar file edit as a worker-repo PR (still human-merged, keeping the versioned-file guarantee).
+4. **Judge on production stories** — Phase 3 option: judge the chosen story on every customer book and surface trait scores in AdminChildrenBookDetails (turns the loop into live QA and feeds the quality map real traffic), at ~1 cheap LLM call per book.
