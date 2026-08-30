@@ -13,6 +13,9 @@
  *                                   (personalization maps ignored).
  *  - CATALOG_EVIDENCE_REQUIRED=0  — stop hard-failing responses that ignore
  *                                   usable details despite approved slots.
+ *  - CATALOG_TUNING_LAYER=0       — ignore any writerTuning overlay sent by
+ *                                   the main app (stories render on the bare
+ *                                   locked engine prompt).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -27,4 +30,5 @@ module.exports = {
   fitRankingEnabled: () => !envOff('CATALOG_FIT_RANKING'),
   personalizationMapsEnabled: () => !envOff('CATALOG_PERSONALIZATION_MAPS'),
   evidenceRequired: () => !envOff('CATALOG_EVIDENCE_REQUIRED'),
+  tuningLayerEnabled: () => !envOff('CATALOG_TUNING_LAYER'),
 };

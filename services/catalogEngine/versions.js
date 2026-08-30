@@ -11,6 +11,10 @@
  *  - PROMPT_TEMPLATE_VERSION: any edit to the user-prompt assembly in writer.js
  *  - SELECTOR_VERSION: any change to the fit-score formula or tie-breaking
  *  - CATALOG_VERSION comes from data/catalog.json itself
+ *
+ * versions.writer_tuning is NOT pinned here: it carries the Style Tuning
+ * Layer tag (`<label>.<hash8>`) from the per-request writerTuning overlay the
+ * main app sends, or 'none'. The base engine file stays locked either way.
  */
 
 const WRITER_ENGINE_VERSION = '1.3.0';

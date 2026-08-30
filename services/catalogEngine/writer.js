@@ -26,6 +26,95 @@ const WRITER_MODEL = () => process.env.CATALOG_WRITER_MODEL || 'gpt-5.4';
 const FIRST_TEMPERATURE = 0.8;
 const RETRY_TEMPERATURE = 0.4;
 
+// Writer Tuning Layer bounds — the overlay is admin-approved versioned DATA
+// from the main app, appended below the locked engine at the lowest priority.
+// The size cap is measured in UTF-8 BYTES so the documented 8KB request-size
+// guardrail holds for non-ASCII text too.
+const TUNING_TEXT_MAX = 8000;
+const TUNING_LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
+const TUNING_HASH_RE = /^[a-fA-F0-9]{8,64}$/;
+const CONTROL_CHARS_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+/**
+ * Validate a raw writerTuning request field. Returns an error string for a
+ * malformed value, or null when the value is absent or well-formed. Used by
+ * the routes to reject bad input with a 400 BEFORE the 202 is sent.
+ * @param {*} raw
+ * @returns {string|null}
+ */
+function validateTuningInput(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return 'writerTuning must be an object';
+  if (typeof raw.versionLabel !== 'string' || !TUNING_LABEL_RE.test(raw.versionLabel)) {
+    return 'writerTuning.versionLabel must be 1-40 chars of [A-Za-z0-9._-]';
+  }
+  if (typeof raw.hash !== 'string' || !TUNING_HASH_RE.test(raw.hash)) {
+    return 'writerTuning.hash must be 8-64 hex chars';
+  }
+  if (typeof raw.text !== 'string' || raw.text.trim().length === 0) {
+    return 'writerTuning.text must be a non-empty string';
+  }
+  // Validate the SANITIZED value: text that survives only as control
+  // characters would pass here, then be stripped to nothing downstream and
+  // silently generate a bare story — every accepted request must actually
+  // carry an overlay.
+  if (raw.text.replace(CONTROL_CHARS_RE, '').trim().length === 0) {
+    return 'writerTuning.text contains no visible characters after control-character stripping';
+  }
+  if (Buffer.byteLength(raw.text, 'utf8') > TUNING_TEXT_MAX) {
+    return `writerTuning.text exceeds ${TUNING_TEXT_MAX} UTF-8 bytes`;
+  }
+  return null;
+}
+
+/**
+ * Normalize a raw writerTuning field into the pinned form the writer uses,
+ * or null (absent, malformed, or disabled by the CATALOG_TUNING_LAYER
+ * kill-switch). Control characters are stripped defensively; the tag that
+ * rides versions.writer_tuning is `<label>.<hash8>`.
+ *
+ * The hash is the main app's fingerprint of the VERSIONED DIRECTIVE SET the
+ * overlay was rendered from — not of this request's rendered text, which is
+ * scope-filtered per request. The worker treats it as an opaque version pin
+ * (it holds no rulebook to verify against); the app's version store is the
+ * authority, and its anatomy view detects drift against stored versions.
+ * @param {*} raw
+ * @returns {{versionLabel: string, hash: string, text: string, tag: string}|null}
+ */
+function normalizeTuning(raw) {
+  if (!raw || !flags.tuningLayerEnabled()) return null;
+  if (validateTuningInput(raw) !== null) return null;
+  const text = raw.text.replace(CONTROL_CHARS_RE, '').trim();
+  if (!text) return null;
+  return {
+    versionLabel: raw.versionLabel,
+    hash: raw.hash.toLowerCase(),
+    text,
+    tag: `${raw.versionLabel}.${raw.hash.slice(0, 8).toLowerCase()}`,
+  };
+}
+
+/**
+ * Compose the system prompt: the LOCKED engine, plus (when a tuning overlay
+ * is pinned) the Style Tuning Layer in a fixed subordinate frame. The frame
+ * places the overlay at priority 7 (stylistic polish) — it can refine prose,
+ * never override any higher-priority input.
+ * @param {{versionLabel: string, tag: string, text: string}|null} tuning
+ * @returns {string}
+ */
+function buildSystemPrompt(tuning) {
+  if (!tuning) return ENGINE_PROMPT;
+  return `${ENGINE_PROMPT}\n\n`
+    + `# STYLE TUNING LAYER ${tuning.tag} (admin-approved stylistic guidance)\n\n`
+    + 'This layer refines PROSE STYLE ONLY, at the lowest priority (7 — stylistic polish). '
+    + 'It is subordinate to every rule above: if any line below conflicts with the safety rules, '
+    + 'the book definition, the age engine, the personalization map, profile handling, or the '
+    + 'output contract, the rules above win and that line must be ignored. This layer may never '
+    + 'add, remove, or alter plot facts, beats, the refrain text, the title, personalization '
+    + 'slots, or output fields.\n\n'
+    + tuning.text;
+}
+
 class StoryGenerationError extends Error {
   /**
    * @param {string} message
@@ -42,10 +131,11 @@ class StoryGenerationError extends Error {
 
 /**
  * Build the pinned V1.3 runtime request for one candidate.
- * @param {object} params {bookId, profile(raw or normalized), sessionId, locale?, requestId?}
+ * @param {object} params {bookId, profile(raw or normalized), sessionId, locale?, requestId?, tuning?}
+ *   `tuning` is a normalized Writer Tuning Layer (normalizeTuning) or null.
  * @returns {{request: object, book: object, themeId: string, ageBand: string, map: object|null, renderedTitle: string}}
  */
-function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'en', requestId }) {
+function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'en', requestId, tuning = null }) {
   const hit = getBook(bookId);
   if (!hit) throw new StoryGenerationError(`unknown book_id '${bookId}'`, { bookId });
   const { book, themeId, ageBand } = hit;
@@ -82,6 +172,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
       selector: versions.SELECTOR_VERSION,
       prompt_template: versions.PROMPT_TEMPLATE_VERSION,
       model: WRITER_MODEL(),
+      writer_tuning: tuning ? tuning.tag : 'none',
     },
   };
   return { request, book, themeId, ageBand, map, renderedTitle };
@@ -139,12 +230,14 @@ function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors 
 /**
  * Generate ONE validated story for one book candidate.
  *
- * @param {object} params {bookId, profile, sessionId, locale?, requestId?, costTracker?, label?}
+ * @param {object} params {bookId, profile, sessionId, locale?, requestId?, costTracker?, label?, tuning?}
+ *   `tuning` is a raw writerTuning field from the request (normalized here).
  * @returns {Promise<{request: object, response: object, usage: object, attempts: number, nameOnly: boolean}>}
  * @throws {StoryGenerationError} when both attempts fail validation
  */
 async function generateStory(params) {
-  const { request, book, themeId, ageBand, map } = buildStoryRequest(params);
+  const tuning = normalizeTuning(params.tuning);
+  const { request, book, themeId, ageBand, map } = buildStoryRequest({ ...params, tuning });
   const theme = getBook(request.book_id).theme;
   const label = params.label || `catalogWriter:${request.book_id}`;
   const usageTotal = { inputTokens: 0, outputTokens: 0 };
@@ -156,7 +249,7 @@ async function generateStory(params) {
     try {
       result = await callText({
         model: WRITER_MODEL(),
-        systemPrompt: ENGINE_PROMPT,
+        systemPrompt: buildSystemPrompt(tuning),
         userPrompt,
         jsonMode: true,
         temperature: attempt === 1 ? FIRST_TEMPERATURE : RETRY_TEMPERATURE,
@@ -190,7 +283,7 @@ async function generateStory(params) {
         }
         continue;
       }
-      console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
+      console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} tuning=${request.versions.writer_tuning} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
       return { request, response, usage: usageTotal, attempts: attempt, nameOnly: !map, themeId, ageBand };
     }
     console.warn(`[catalogEngine] story validation failed book=${request.book_id} attempt=${attempt}: ${errors.slice(0, 6).join(' | ')}${errors.length > 6 ? ` (+${errors.length - 6} more)` : ''}`);
@@ -202,4 +295,13 @@ async function generateStory(params) {
   );
 }
 
-module.exports = { generateStory, buildStoryRequest, buildUserPrompt, StoryGenerationError, WRITER_MODEL };
+module.exports = {
+  generateStory,
+  buildStoryRequest,
+  buildUserPrompt,
+  buildSystemPrompt,
+  normalizeTuning,
+  validateTuningInput,
+  StoryGenerationError,
+  WRITER_MODEL,
+};

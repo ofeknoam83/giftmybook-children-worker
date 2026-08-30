@@ -15,7 +15,7 @@ const catalog = require('./catalog');
 const augments = require('./augments');
 const { normalizeProfile, usableDetails, ProfileError } = require('./profile');
 const { selectBooks } = require('./selection');
-const { generateStory, StoryGenerationError } = require('./writer');
+const { generateStory, StoryGenerationError, validateTuningInput } = require('./writer');
 const { validateStoryResponse } = require('./storyValidation');
 const flags = require('./flags');
 const versions = require('./versions');
@@ -30,13 +30,14 @@ const versions = require('./versions');
  * @param {object} params.profile raw child profile
  * @param {string} params.sessionId
  * @param {string} [params.locale]
+ * @param {object} [params.tuning] raw writerTuning overlay (validated/normalized in the writer)
  * @param {(candidate: {bookId: string, status: string}) => void} [params.onProgress]
  * @returns {Promise<{stories: object[], failures: Array<{bookId, message, errors}>}>}
  */
-async function generateStories({ bookIds, profile, sessionId, locale, onProgress }) {
+async function generateStories({ bookIds, profile, sessionId, locale, tuning, onProgress }) {
   const results = await Promise.allSettled(bookIds.map(async bookId => {
     onProgress?.({ bookId, status: 'generating' });
-    const story = await generateStory({ bookId, profile, sessionId, locale });
+    const story = await generateStory({ bookId, profile, sessionId, locale, tuning });
     onProgress?.({ bookId, status: 'done' });
     return story;
   }));
@@ -85,6 +86,7 @@ module.exports = {
   generateStory,
   generateStories,
   validateStoryResponse,
+  validateTuningInput,
   StoryGenerationError,
   ProfileError,
   // profile
