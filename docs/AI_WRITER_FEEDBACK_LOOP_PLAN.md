@@ -1,6 +1,9 @@
 # AI Writer Feedback Loop — Design Plan
 
-**Status:** proposed · **Scope:** `giftmybook-standalone` (app) + `giftmybook-children-worker` (worker)
+**Status:** implemented on this branch (worker contract, tuning store + scoping, judge, compiler,
+workbench + iterations, regression runs, quality map, proposals, AdminWriterTuning UI; remaining:
+retargeting the legacy AIWriterFeedbackPanel, auto-PRs for sidecar proposals)
+**Scope:** `giftmybook-standalone` (app) + `giftmybook-children-worker` (worker)
 **Branch:** `claude/ai-writer-feedback-loop-u51rph`
 
 ## 1. Goal
