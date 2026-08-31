@@ -147,12 +147,21 @@ describe('style polish pass helpers', () => {
   });
 
   test('evidenceUnchanged accepts identical evidence and rejects any drift', () => {
-    const ev = [{ source_field: 'food', source_value: 'pasta', moment_type: 'sensory', spread: 4, slot_id: 's04' }];
+    const ev = [{ source_field: 'food', source_value: 'pasta', moment_type: 'sensory', spread: 4, slot_id: 's04', visual_required: false }];
     expect(evidenceUnchanged(ev, [{ ...ev[0] }])).toBe(true);
     expect(evidenceUnchanged(ev, [])).toBe(false);
     expect(evidenceUnchanged(ev, [{ ...ev[0], source_value: 'pizza' }])).toBe(false);
     expect(evidenceUnchanged(ev, [{ ...ev[0], spread: 5 }])).toBe(false);
     expect(evidenceUnchanged(ev, [{ ...ev[0], slot_id: 's05' }])).toBe(false);
+    // Visual drift counts too: an optional-visual slot validates either way,
+    // so polish flipping a text-only detail into an illustration prop (or
+    // moving its visual slot) must be rejected here.
+    expect(evidenceUnchanged(ev, [{ ...ev[0], visual_required: true, visual_slot_id: 'v04' }])).toBe(false);
+    const vis = [{ ...ev[0], visual_required: true, visual_slot_id: 'v04' }];
+    expect(evidenceUnchanged(vis, [{ ...vis[0] }])).toBe(true);
+    expect(evidenceUnchanged(vis, [{ ...vis[0], visual_slot_id: 'v05' }])).toBe(false);
+    // Absent and explicitly-false visual_required are the same choice.
+    expect(evidenceUnchanged([{ ...ev[0] }], [{ ...ev[0], visual_required: undefined }])).toBe(true);
     expect(evidenceUnchanged([], [])).toBe(true);
   });
 });

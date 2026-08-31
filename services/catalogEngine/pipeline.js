@@ -35,7 +35,9 @@ class PipelineError extends Error {
  *    against its own pinned request — never trusted blindly), or
  *  - checkpoint story from a previous run, or
  *  - a fresh generation for the requested book id.
- * @returns {Promise<{request: object, response: object, generated: boolean}>}
+ * @returns {Promise<{request: object, response: object, generated: boolean,
+ *   repaired?: boolean, polished?: boolean}>} repair/polish flags only on a
+ *   fresh generation — a stored pair's provenance was reported when it was made
  */
 async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, profile, sessionId, writerTuning, log }) {
   const candidate = storyPair || checkpointStory;
@@ -94,7 +96,13 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
   // A stored pair above keeps its own pinned tuning tag; the overlay applies
   // only to a FRESH generation.
   const story = await generateStory({ bookId: bookDefinitionId, profile, sessionId, tuning: writerTuning || null });
-  return { request: story.request, response: story.response, generated: true };
+  return {
+    request: story.request,
+    response: story.response,
+    generated: true,
+    repaired: !!story.repaired,
+    polished: !!story.polished,
+  };
 }
 
 /**
@@ -281,6 +289,8 @@ async function runBookPipeline(params) {
       versions: story.request.versions,
       personalizationEvidence: story.response.personalization_evidence || [],
       omittedProfileFields: story.response.omitted_profile_fields || [],
+      ...(story.repaired ? { repaired: true } : {}),
+      ...(story.polished ? { polished: true } : {}),
     },
   };
 

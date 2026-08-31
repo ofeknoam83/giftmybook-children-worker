@@ -269,7 +269,10 @@ function buildPolishPrompt({ request, response }) {
 
 /**
  * Personalization must survive polish untouched: same evidence entries, in
- * order, same values, anchored to the same spreads/slots.
+ * order, same values, anchored to the same spreads/slots — INCLUDING the
+ * visual fields: on a slot with optional visual alignment, validation
+ * accepts either choice, so without this check polish could silently flip
+ * a text-only detail into an illustration prop (or move its visual slot).
  * @param {object[]} before
  * @param {object[]} after
  * @returns {boolean}
@@ -282,7 +285,9 @@ function evidenceUnchanged(before, after) {
     && e.source_value === b[i].source_value
     && e.spread === b[i].spread
     && e.slot_id === b[i].slot_id
-    && e.moment_type === b[i].moment_type);
+    && e.moment_type === b[i].moment_type
+    && (e.visual_required ?? false) === (b[i].visual_required ?? false)
+    && (e.visual_slot_id ?? null) === (b[i].visual_slot_id ?? null));
 }
 
 /**
