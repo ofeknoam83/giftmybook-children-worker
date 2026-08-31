@@ -29,6 +29,19 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   the two consistent).
 - `catalog.js` — loader with boot invariant validation (12 themes, 228 unique
   books, 12 ordered beats each — ported from the handoff's validate_release.py).
+- `catalogOverlay.js` — **Catalog Studio** (admin plot editing): versioned
+  PROSE patches over the frozen catalog — allowlisted fields only (theme
+  display/world/companion naming; book title_template, premise, refrain
+  text+spreads, beat text). Structure (ids, bands, archetypes, 12/228/12)
+  is rejected. The MERGED catalog must re-pass every boot invariant before
+  activation; blobs persist in GCS by content hash with an `active.json`
+  pointer (restored at boot by `initCatalogOverlay`, fail-safe to base).
+  Every request pins `versions.catalog = <base>+<hash8>`; stored stories
+  re-validate AND illustrate against their PINNED definitions
+  (`getBookForTag`, small LRU) so reshaping a theme never breaks earlier
+  stories. Endpoints: GET `/v13/catalog`, POST
+  `/v13/catalog-overlay/{validate,activate,deactivate}`. Kill-switch
+  `CATALOG_OVERLAY=0`. catalog.json itself stays frozen in git.
 - `profile.js` — deterministic normalization (NFC, control-char rejection,
   dedupe, length caps). No LLM. Profile strings are data, never instructions.
 - `selection.js` — fit-weighted candidate selection: the handoff's exact

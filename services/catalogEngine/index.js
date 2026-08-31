@@ -12,6 +12,7 @@
  */
 
 const catalog = require('./catalog');
+const catalogOverlay = require('./catalogOverlay');
 const augments = require('./augments');
 const { normalizeProfile, usableDetails, ProfileError } = require('./profile');
 const { selectBooks } = require('./selection');
@@ -80,6 +81,41 @@ function assertCatalogEngine() {
   return report;
 }
 
+/**
+ * Boot-time overlay restore: load the active pointer + blob from GCS and
+ * swap the live catalog to base+overlay. Fail-safe by design — ANY failure
+ * (flag off, no pointer, missing blob, shape or invariant errors) logs
+ * loudly and serves the frozen base catalog; overlay problems must never
+ * brick a revision.
+ * @returns {Promise<{active: string|null, tag: string}>}
+ */
+async function initCatalogOverlay() {
+  const baseTag = String(catalog.baseCatalog().version);
+  if (!flags.catalogOverlayEnabled()) {
+    console.log('[catalogEngine] CATALOG_OVERLAY=0 — overlays disabled, serving the base catalog');
+    return { active: null, tag: baseTag };
+  }
+  try {
+    const hash8 = await catalogOverlay.loadActivePointer();
+    if (!hash8) return { active: null, tag: baseTag };
+    const overlay = await catalogOverlay.loadOverlayByHash(hash8);
+    if (!overlay) {
+      console.error(`[catalogEngine] active catalog overlay ${hash8} is missing from GCS — serving the base catalog`);
+      return { active: null, tag: baseTag };
+    }
+    const shapeErrors = catalogOverlay.validateOverlayShape(overlay, catalog.baseCatalog());
+    if (shapeErrors.length > 0) {
+      console.error(`[catalogEngine] active catalog overlay ${hash8} is invalid (${shapeErrors[0]}) — serving the base catalog`);
+      return { active: null, tag: baseTag };
+    }
+    const tag = catalog.applyCatalogOverlay(overlay, hash8);
+    return { active: hash8, tag };
+  } catch (err) {
+    console.error(`[catalogEngine] catalog overlay init failed: ${err.message} — serving the base catalog`);
+    return { active: null, tag: baseTag };
+  }
+}
+
 module.exports = {
   // selection + generation
   selectBooks,
@@ -95,10 +131,19 @@ module.exports = {
   // catalog
   listThemes: catalog.listThemes,
   getBook: catalog.getBook,
+  getBookForTag: catalog.getBookForTag,
   eligibleBooks: catalog.eligibleBooks,
   ageBandForAge: catalog.ageBandForAge,
   renderTitle: catalog.renderTitle,
   catalogVersion: catalog.catalogVersion,
+  // catalog overlay (admin plot editing)
+  mergedCatalog: catalog.loadCatalog,
+  baseCatalog: catalog.baseCatalog,
+  applyCatalogOverlay: catalog.applyCatalogOverlay,
+  resetCatalogOverlay: catalog.resetCatalogOverlay,
+  activeOverlayHash: catalog.activeOverlayHash,
+  catalogOverlay,
+  initCatalogOverlay,
   // sidecars
   coverageReport: augments.coverageReport,
   // ops

@@ -11,7 +11,7 @@ const { assemblePdf, OVERLAY } = require('../layoutEngine');
 const { generateCover, generateUpsellCovers } = require('../coverGenerator');
 const { computeCoverPdfMetadata } = require('../coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../gcsStorage');
-const { getBook } = require('./catalog');
+const { getBook, getBookForTag } = require('./catalog');
 const { normalizeProfile } = require('./profile');
 const { generateStory } = require('./writer');
 const { validateStoryResponse } = require('./storyValidation');
@@ -44,7 +44,16 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
   const candidate = storyPair || checkpointStory;
   if (candidate) {
     const { request, response } = candidate;
-    const hit = getBook(request?.book_id);
+    // Resolve the definition AS PINNED by the story's catalog tag: a story
+    // written under an admin catalog overlay must re-validate (and later
+    // illustrate) against THAT overlay's beats/refrain, not whatever is
+    // active now. A vanished overlay falls back to the current catalog,
+    // loudly — regeneration is the fix if validation then disagrees.
+    let hit = await getBookForTag(request?.book_id, request?.versions?.catalog);
+    if (!hit) {
+      hit = getBook(request?.book_id);
+      if (hit) log('warn', `stored story pinned catalog '${request?.versions?.catalog}' which is no longer resolvable — validating against the current catalog`);
+    }
     if (!hit) throw new PipelineError(`stored story references unknown book_id '${request?.book_id}'`, 'invalid_story');
     // Bind the pair to the CURRENT inputs: same requested definition (when
     // one is named) and the same child (name + age + pronoun set) — internal
@@ -157,7 +166,10 @@ async function runBookPipeline(params) {
     bookDefinitionId: bookDefinitionId || checkpoint?.story?.request?.book_id || null,
     profile, sessionId, writerTuning: params.writerTuning || null, log,
   });
-  const bookDef = getBook(story.request.book_id);
+  // Illustration scenes come from the BEATS — resolve them as pinned by the
+  // story's catalog tag so a reshaped theme never mismatches older text.
+  const bookDef = (await getBookForTag(story.request.book_id, story.request?.versions?.catalog))
+    || getBook(story.request.book_id);
   const bookTitle = story.response.title;
   await saveCheckpoint({
     engine: 'catalog-v13',

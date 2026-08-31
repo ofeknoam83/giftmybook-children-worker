@@ -16,6 +16,9 @@
  *  - CATALOG_TUNING_LAYER=0       — ignore any writerTuning overlay sent by
  *                                   the main app (stories render on the bare
  *                                   locked engine prompt).
+ *  - CATALOG_OVERLAY=0            — ignore any admin catalog overlay (plots
+ *                                   serve from the frozen catalog.json file
+ *                                   only; activation endpoints refuse).
  *  - CATALOG_STYLE_POLISH=0       — skip the style-polish pass (the extra
  *                                   focused call that rewrites prose of an
  *                                   already-validated story to satisfy the
@@ -37,4 +40,5 @@ module.exports = {
   evidenceRequired: () => !envOff('CATALOG_EVIDENCE_REQUIRED'),
   tuningLayerEnabled: () => !envOff('CATALOG_TUNING_LAYER'),
   stylePolishEnabled: () => !envOff('CATALOG_STYLE_POLISH'),
+  catalogOverlayEnabled: () => !envOff('CATALOG_OVERLAY'),
 };
