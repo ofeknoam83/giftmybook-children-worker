@@ -25,7 +25,10 @@ const SELECTOR_VERSION = '1.0.0';
 const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning frame + end-of-prompt style checkpoint + polish pass; 1.1.0: HARD LIMITS caps line + per-book detail pre-selection
 
 /** Illustration style version — bump to invalidate the render cache. */
-const STYLE_VERSION = 'ce-1';
+// ce-2: embedded layout paints the story text INTO the art (Gemini embedText
+// path + text-verify QA) — pre-ce-2 wide renders are text-free and must
+// never replay as embedded spreads.
+const STYLE_VERSION = 'ce-2';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

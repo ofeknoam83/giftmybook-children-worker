@@ -12,8 +12,13 @@
  *  - renders cache under a deterministic STYLE_VERSION-keyed GCS path so a
  *    re-dispatch replays finished spreads instead of re-paying for them.
  *
- * Words are PDF type, never pixels (D5): every render uses skipTextEmbed
- * and QA hard-checks readable_text.
+ * Text policy (per layout — 2026-08-31 change of D5):
+ *  - `caption` layout: words are PDF type, never pixels — renders use
+ *    skipTextEmbed and QA hard-checks readable_text as a defect.
+ *  - `embedded` layout: the story text is painted INTO the art by Gemini
+ *    (the legacy embedText path: prompt typography rules + OCR verify with
+ *    extra retries inside generateIllustration), and spread QA verifies the
+ *    painted text matches the manuscript instead of forbidding it.
  */
 
 const { generateIllustration, downloadPhotoAsBase64 } = require('../../illustrationGenerator');
@@ -62,8 +67,11 @@ function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') 
  * Render (or replay) one spread; returns the layout-ready record.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[]}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, refPhoto, characterDescription, tuning, seed, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, seed, costTracker, forceRerender, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
+  // Embedded layout paints the story text into the art (Gemini + OCR
+  // verify); caption layout stays text-free (words live on caption pages).
+  const embedText = textLayout === 'embedded';
   const storageKey = renderCachePath(bookId, storyHash, spread, aspect, tuningTag);
   // The render is uploaded to the cache key BEFORE QA runs, so the image
   // alone does not prove it was ever checked: only this marker (written
@@ -75,6 +83,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const scene = buildScenePrompt({
     book, theme, spread, spreadText, profile,
     evidence: story.personalization_evidence,
+    embedText,
   });
   // The Art Tuning Layer rides BELOW the whole scene (and above nothing):
   // renderArtTuningBlock frames it as style-only, subordinate to the action,
@@ -83,7 +92,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   const baseScene = tuningBlock ? `${scene}\n${tuningBlock}` : scene;
   const renderOpts = {
     aspectRatio: aspect === 'wide' ? '16:9' : '1:1',
-    skipTextEmbed: true,
+    // Embedded layout runs the renderer's text-embed path: typography rules
+    // in the prompt, plus OCR verification with extra retries for
+    // text-heavy spreads (verifyImageText inside generateIllustration).
+    skipTextEmbed: !embedText,
+    ...(embedText ? { embedText: true, pageText: spreadText } : {}),
     isSpread: true,
     spreadIndex: spread - 1,
     totalSpreads: 12,
@@ -141,7 +154,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     buffer = await downloadBuffer(storageKey);
   }
 
-  const qa = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}` });
+  const qa = await checkSpreadRender(buffer, {
+    label: `spreadQa:${bookId}:s${spread}`,
+    expectedText: embedText ? spreadText : null,
+  });
   let checkerUnavailable = !!qa.qaUnavailable;
   if (qa.qaUnavailable) {
     // A checker outage must never report silently clean: ship best-effort,
@@ -153,12 +169,15 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // Best-effort by contract: any repair-path failure keeps the first
     // render (with an advisory) instead of failing the whole book.
     try {
-      const repairedScene = `${baseScene}\n${repairNote(qa.defects)}`;
+      const repairedScene = `${baseScene}\n${repairNote(qa.defects, embedText ? spreadText : null)}`;
       const repairedUrl = await generateIllustration(repairedScene, characterRefUrl, 'pixar_premium', renderOpts);
       if (repairedUrl) {
         url = repairedUrl;
         buffer = await downloadBuffer(storageKey);
-        const recheck = await checkSpreadRender(buffer, { label: `spreadQa:${bookId}:s${spread}:repair` });
+        const recheck = await checkSpreadRender(buffer, {
+          label: `spreadQa:${bookId}:s${spread}:repair`,
+          expectedText: embedText ? spreadText : null,
+        });
         if (recheck.qaUnavailable) {
           checkerUnavailable = true;
           advisories.push({ stage: 'spreadQa', spread, note: `repair shipped UNCHECKED — ${recheck.qaUnavailable}` });
@@ -286,7 +305,7 @@ async function renderStorySpreads(params) {
   const settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
-      spread: beat.spread, aspect, characterRefUrl, refPhoto, characterDescription,
+      spread: beat.spread, aspect, textLayout, characterRefUrl, refPhoto, characterDescription,
       tuning, seed, costTracker, forceRerender, log,
     });
     done += 1;
@@ -344,7 +363,10 @@ async function illustrateStory(params) {
     illustrationAspect: aspect,
     captionText: story.spreads.find(s => s.spread === r.spread)?.text || '',
     textLayout,
-    ...(textLayout === 'embedded' ? { textZone: null, heroBox: null, figuresBox: null } : {}),
+    // Embedded spreads carry their text IN the pixels (Gemini-painted,
+    // OCR-verified) — the layout engine must embed the art full-bleed and
+    // NEVER typeset the caption over it a second time.
+    ...(textLayout === 'embedded' ? { textZone: null, heroBox: null, figuresBox: null, textEmbeddedInArt: true } : {}),
   }));
 
   return {

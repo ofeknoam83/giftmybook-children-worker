@@ -393,6 +393,15 @@ describe('slim illustrator scene prompts', () => {
     expect(prompt).toContain('Farmer Bea'); // beat names the companion
   });
 
+  test('embedText flips the story-text line to render-into-image (embedded layout)', () => {
+    const { book, theme } = getBook('farm_2_3_hello_farm');
+    const profile = normalizeProfile(baseProfile());
+    const prompt = buildScenePrompt({ book, theme, spread: 3, spreadText: 'Emma meets Farmer Bea.', profile, evidence: [], embedText: true });
+    expect(prompt).toContain('this EXACT text IS rendered into the image');
+    expect(prompt).toContain('Emma meets Farmer Bea.');
+    expect(prompt).not.toContain('NEVER paint these words');
+  });
+
   test('only visual_required evidence reaches pixels', () => {
     const evidence = [
       { spread: 3, visual_required: true, source_value: 'toy fox' },

@@ -316,3 +316,21 @@ describe('caption readability treatment (2026-07-20)', () => {
     expect(dflt.size).toBe(22);
   });
 });
+
+describe('textEmbeddedInArt (ce-2: Gemini-painted story text)', () => {
+  const { buildEmbeddedPreviewPdf } = require('./../../services/layoutEngine');
+
+  test('a flagged entry embeds art only — no overlay planning, no typeset caption', async () => {
+    const { buffer, report } = await buildEmbeddedPreviewPdf([
+      { type: 'spread', spread: 5, textLayout: 'embedded', captionText: 'Hello.', textEmbeddedInArt: true, spreadIllustrationBuffer: null },
+      { type: 'spread', spread: 7, textLayout: 'embedded', captionText: 'World.', spreadIllustrationBuffer: null },
+    ]);
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(report).toHaveLength(2);
+    expect(report[0]).toEqual({ spread: 5, textEmbeddedInArt: true });
+    // The unflagged control entry still runs the full overlay pass.
+    expect(report[1].spread).toBe(7);
+    expect(report[1].zone).toBeDefined();
+    expect(report[1].textEmbeddedInArt).toBeUndefined();
+  });
+});

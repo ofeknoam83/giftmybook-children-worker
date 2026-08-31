@@ -857,6 +857,13 @@ async function layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report = nul
       console.warn(`[LayoutEngine] embedded spread split failed: ${e.message}`);
     }
   }
+  // The art already carries its story text (Gemini-painted, OCR-verified by
+  // the slim illustrator) — typesetting the caption over it again would
+  // double the text. Full-bleed art only; no zone, no scrim, no overlay.
+  if (entry.textEmbeddedInArt) {
+    if (report) report.push({ spread: entry.spread ?? null, textEmbeddedInArt: true });
+    return;
+  }
   // Subject-aware relocation: the QA judge's figures box (union of EVERY
   // character — audit #2 typeset a caption across two aliens' faces) vetoes
   // a planned zone the cast substantially covers; hero box is the fallback

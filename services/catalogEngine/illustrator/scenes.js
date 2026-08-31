@@ -61,12 +61,16 @@ function beatMentionsCompanion(beat, companion) {
  * @param {object} params.book catalog book definition
  * @param {object} params.theme catalog theme ({display_name, world_name, companion})
  * @param {number} params.spread 1-12
- * @param {string} params.spreadText the manuscript text (context only — never painted)
+ * @param {string} params.spreadText the manuscript text (context-only for
+ *   caption layout; rendered INTO the image when embedText is true)
  * @param {object} params.profile normalized child profile
  * @param {object[]} [params.evidence] validated personalization evidence
+ * @param {boolean} [params.embedText] embedded layout: the story text is
+ *   painted into the art by the renderer's TEXT RENDERING RULES block —
+ *   the scene line must agree with those rules, not contradict them
  * @returns {string}
  */
-function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence }) {
+function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, embedText = false }) {
   const beat = book.beats.find(b => b.spread === spread);
   if (!beat) throw new Error(`buildScenePrompt: book ${book.id} has no beat for spread ${spread}`);
 
@@ -78,7 +82,9 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence }
     lines.push(`Companion present: ${theme.companion.name}, a ${theme.companion.type} — friendly and warm, secondary to the child.`);
   }
   if (spreadText) {
-    lines.push(`Story context (for mood/props only — NEVER paint these words): ${spreadText}`);
+    lines.push(embedText
+      ? `Story text for this spread (this EXACT text IS rendered into the image — follow the TEXT RENDERING RULES below): ${spreadText}`
+      : `Story context (for mood/props only — NEVER paint these words): ${spreadText}`);
   }
   const props = visualPropsForSpread(evidence, spread).map(inertPropValue).filter(Boolean);
   if (props.length > 0) {

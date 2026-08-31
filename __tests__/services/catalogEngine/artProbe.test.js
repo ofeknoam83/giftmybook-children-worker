@@ -124,3 +124,36 @@ describe('identity-keyed probe cache', () => {
     expect(seeded).toContain('-s42');
   });
 });
+
+describe('layout-aware text embedding (ce-2)', () => {
+  test('embedded layout runs the renderer text-embed path with the EXACT spread text', async () => {
+    generateIllustration.mockClear();
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+    const [scene, , , opts] = generateIllustration.mock.calls[0];
+    expect(opts.skipTextEmbed).toBe(false);
+    expect(opts.embedText).toBe(true);
+    expect(opts.pageText).toBe('Spread 1 text.');
+    expect(opts.aspectRatio).toBe('16:9');
+    expect(scene).toContain('this EXACT text IS rendered into the image');
+    expect(scene).not.toContain('NEVER paint these words');
+  });
+
+  test('caption layout (default) keeps the text-free contract', async () => {
+    generateIllustration.mockClear();
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    const [scene, , , opts] = generateIllustration.mock.calls[0];
+    expect(opts.skipTextEmbed).toBe(true);
+    expect(opts.embedText).toBeUndefined();
+    expect(opts.pageText).toBeUndefined();
+    expect(opts.aspectRatio).toBe('1:1');
+    expect(scene).toContain('NEVER paint these words');
+  });
+
+  test('illustrateStory marks embedded entries textEmbeddedInArt so layout never double-typesets', async () => {
+    const all = Array.from({ length: 12 }, (_, i) => i + 1);
+    const embedded = await illustrateStory(baseParams({ spreadNos: all, spreads: null, textLayout: 'embedded' }));
+    expect(embedded.entries.every(e => e.textEmbeddedInArt === true)).toBe(true);
+    const caption = await illustrateStory(baseParams({ spreadNos: all, spreads: null }));
+    expect(caption.entries.every(e => e.textEmbeddedInArt === undefined)).toBe(true);
+  });
+});
