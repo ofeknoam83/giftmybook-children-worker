@@ -156,6 +156,25 @@ test('a failed repair reports the REPAIR response\'s errors, not the stale pre-r
   expect(callText).toHaveBeenCalledTimes(3);
 });
 
+test('a repair that touches unimplicated spreads is rejected even when it validates', async () => {
+  const request = pinnedRequest(null);
+  // 40 words: violates the per-spread max (32 at age 2) WITHOUT tripping the
+  // total bound — so ONLY spread 1 is implicated, not the whole story.
+  const broken = validResponse(request);
+  broken.spreads[0].text = 'the small hen walks '.repeat(10).trim();
+  const overreach = validResponse(request, 'golden'); // valid, but EVERY spread differs
+  callText
+    .mockResolvedValueOnce({ json: broken, usage: {} })
+    .mockResolvedValueOnce({ json: broken, usage: {} })
+    .mockResolvedValueOnce({ json: overreach, usage: {} });
+
+  await expect(generateStory({
+    bookId: 'farm_2_3_hello_farm', profile: PROFILE, sessionId: 'sess_polish', requestId: REQUEST_ID,
+  })).rejects.toMatchObject({
+    validationErrors: expect.arrayContaining([expect.stringMatching(/unimplicated spreads must stay verbatim/)]),
+  });
+});
+
 test('a failed polish CALL keeps the draft instead of failing the story', async () => {
   const tuning = normalizeTuning(TUNING);
   const request = pinnedRequest(tuning);

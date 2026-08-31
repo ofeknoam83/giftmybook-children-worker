@@ -11,6 +11,7 @@ const {
   buildRepairPrompt,
   buildStoryRequest,
   buildUserPrompt,
+  checkRepairDelta,
 } = require('../../../services/catalogEngine/writer');
 const { usableDetails } = require('../../../services/catalogEngine/profile');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -114,5 +115,65 @@ describe('targeted repair pass', () => {
     expect(prompt).toContain('- spread 1: 5 words');
     expect(prompt).toContain('Do NOT change: the plot events');
     expect(prompt).toContain('req_1');
+  });
+});
+
+describe('checkRepairDelta (contract minimal-edit boundary)', () => {
+  const spreads = (texts) => texts.map((text, i) => ({ spread: i + 1, text }));
+  const before = {
+    spreads: spreads(['one alpha', 'two beta', 'three gamma']),
+    personalization_evidence: [
+      { source_field: 'food', source_value: 'pasta', moment_type: 'sensory', spread: 2, slot_id: 's2' },
+    ],
+  };
+
+  it('permits only violation-implicated spreads', () => {
+    const after = { ...before, spreads: spreads(['one alpha FIXED', 'two beta', 'three gamma']) };
+    expect(checkRepairDelta({
+      before, after, errors: ['spread 1: 200 words, must be 10-40'], map: null,
+    })).toEqual([]);
+
+    const overreach = { ...before, spreads: spreads(['one alpha FIXED', 'two beta', 'three gamma CHANGED']) };
+    const problems = checkRepairDelta({
+      before, after: overreach, errors: ['spread 1: 200 words, must be 10-40'], map: null,
+    });
+    expect(problems.join(' ')).toMatch(/spread 3.*unimplicated/);
+  });
+
+  it('cap errors implicate evidence-bearing and slot spreads, nothing else', () => {
+    const map = { slots: [{ slot_id: 's2', spread: 2 }] };
+    const legal = {
+      spreads: spreads(['one alpha', 'two beta REWORDED', 'three gamma']),
+      personalization_evidence: [],
+    };
+    expect(checkRepairDelta({
+      before, after: legal, errors: ['moment_count 7 exceeds map max_moments 6'], map,
+    })).toEqual([]);
+
+    const illegal = {
+      spreads: spreads(['one alpha CHANGED', 'two beta', 'three gamma']),
+      personalization_evidence: before.personalization_evidence,
+    };
+    expect(checkRepairDelta({
+      before, after: illegal, errors: ['moment_count 7 exceeds map max_moments 6'], map,
+    }).join(' ')).toMatch(/spread 1.*unimplicated/);
+  });
+
+  it('evidence may not move to unimplicated spreads; total-word errors permit everything', () => {
+    const sneaky = {
+      spreads: before.spreads,
+      personalization_evidence: [
+        ...before.personalization_evidence,
+        { source_field: 'object', source_value: 'bunny', moment_type: 'object_presence', spread: 3, slot_id: 's3' },
+      ],
+    };
+    expect(checkRepairDelta({
+      before, after: sneaky, errors: ['spread 1: 200 words, must be 10-40'], map: null,
+    }).join(' ')).toMatch(/added evidence on unimplicated spread 3/);
+
+    const everything = { ...sneaky, spreads: spreads(['a new one', 'a new two', 'a new three']) };
+    expect(checkRepairDelta({
+      before, after: everything, errors: ['total 900 words, must be 300-450'], map: null,
+    })).toEqual([]);
   });
 });

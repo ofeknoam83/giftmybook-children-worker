@@ -312,6 +312,63 @@ function omissionsUnchanged(before, after) {
 }
 
 /**
+ * Enforce the contract's minimal-edit boundary on an accepted repair: only
+ * spreads a reported violation implicates may change, everything else stays
+ * verbatim — revalidation alone cannot prove that. Implicated means: named
+ * in a spread-numbered error; containing a term/value an error quotes
+ * (banned brands, leakage, repeat limits); carrying an evidence record in
+ * the pre-repair response (removals live there); or a map slot's designated
+ * spread (gate-required additions live there). A total-word-bound error
+ * implicates every spread. Evidence-record changes are held to the same
+ * boundary.
+ * @param {{before: object, after: object, errors: string[], map: object|null}} params
+ * @returns {string[]} boundary violations (empty = minimal delta held)
+ */
+function checkRepairDelta({ before, after, errors, map }) {
+  const problems = [];
+  const permitted = new Set();
+  let allSpreadsPermitted = false;
+  const beforeSpreads = Array.isArray(before.spreads) ? before.spreads : [];
+  const evidenceSpreads = new Set((before.personalization_evidence || []).map(e => e.spread));
+  for (const err of errors || []) {
+    let m;
+    if ((m = /^spread (\d+): /.exec(err))) {
+      permitted.add(Number(m[1]));
+    } else if (/^total \d+ words, must be /.test(err)) {
+      allSpreadsPermitted = true;
+    } else if ((m = /in story text: "(.+)"$/.exec(err)) || (m = /^'(.+?)' \(/.exec(err))) {
+      for (const s of beforeSpreads) if (containsTerm(s.text || '', m[1])) permitted.add(s.spread);
+      for (const sp of evidenceSpreads) permitted.add(sp);
+    } else {
+      for (const sp of evidenceSpreads) permitted.add(sp);
+      for (const slot of map?.slots || []) permitted.add(slot.spread);
+    }
+  }
+  if (allSpreadsPermitted) return problems;
+
+  const afterText = new Map((after.spreads || []).map(s => [s.spread, s.text || '']));
+  for (const s of beforeSpreads) {
+    if ((afterText.get(s.spread) ?? '') !== (s.text || '') && !permitted.has(s.spread)) {
+      problems.push(`repair changed spread ${s.spread}, which no violation implicates — unimplicated spreads must stay verbatim`);
+    }
+  }
+  const evKey = e => `${e.source_field}|${e.source_value}|${e.spread}|${e.slot_id}`;
+  const beforeEv = new Set((before.personalization_evidence || []).map(evKey));
+  const afterEv = new Set((after.personalization_evidence || []).map(evKey));
+  for (const e of before.personalization_evidence || []) {
+    if (!afterEv.has(evKey(e)) && !permitted.has(e.spread)) {
+      problems.push(`repair removed evidence on unimplicated spread ${e.spread}`);
+    }
+  }
+  for (const e of after.personalization_evidence || []) {
+    if (!beforeEv.has(evKey(e)) && !permitted.has(e.spread)) {
+      problems.push(`repair added evidence on unimplicated spread ${e.spread}`);
+    }
+  }
+  return problems;
+}
+
+/**
  * Deterministic evidence-to-text alignment, closing the gap the leakage
  * check leaves on SECOND-PASS responses (repair/polish): checkLeakage stops
  * once a value has any evidence record, and validateEvidence never checks
@@ -630,10 +687,14 @@ async function generateStory(params) {
         const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
           && (repaired.personalization_evidence || []).length === 0);
         // A repair may not whitewash leakage by declaring evidence for text
-        // that still sits on the wrong spread — alignment is re-checked
-        // deterministically on the repaired output.
+        // that still sits on the wrong spread (alignment), and it may not
+        // touch anything the violations don't implicate (minimal delta) —
+        // both re-checked deterministically on the repaired output.
         const alignErrors = check.ok && evidenceOk ? evidenceTextAligned(repaired) : [];
-        if (check.ok && evidenceOk && alignErrors.length === 0) {
+        const deltaErrors = check.ok && evidenceOk && alignErrors.length === 0
+          ? checkRepairDelta({ before: lastResponse, after: repaired, errors: lastErrors, map })
+          : [];
+        if (check.ok && evidenceOk && alignErrors.length === 0 && deltaErrors.length === 0) {
           console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
           const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
           return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
@@ -644,7 +705,7 @@ async function generateStory(params) {
         lastErrors = !check.ok ? check.errors
           : !evidenceOk
             ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
-            : alignErrors;
+            : alignErrors.length > 0 ? alignErrors : deltaErrors;
         console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${lastErrors.slice(0, 4).join(' | ')}`);
       }
     } catch (err) {
@@ -669,6 +730,7 @@ module.exports = {
   evidenceUnchanged,
   omissionsUnchanged,
   evidenceTextAligned,
+  checkRepairDelta,
   selectOfferedDetails,
   isRepairable,
   normalizeTuning,
