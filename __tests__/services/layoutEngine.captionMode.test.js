@@ -104,7 +104,7 @@ describe('assemblePdf caption mode (square entries)', () => {
 });
 
 describe('assemblePdf half-page layout (full-spread art + uniform text panel)', () => {
-  const { computeCaptionBlock, HALF_PANEL_FONT_SIZE } = require('./../../services/layoutEngine');
+  const { computeBookCaptionBlock, BOOK_CAPTION_FONT_SIZE } = require('./../../services/layoutEngine');
 
   test('a half entry produces a painted uniform text panel verso + art recto slot', async () => {
     const doc = await build([
@@ -122,12 +122,25 @@ describe('assemblePdf half-page layout (full-spread art + uniform text panel)', 
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(6);
   });
 
-  test('panel typography is FIXED: same font size for short and long captions', () => {
+  test('book typography is ONE system: caption pages and half panels share the fixed size', () => {
     const stub = { name: 'stub', widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
     const fonts = { bubblegum: stub, playfair: stub, playfairItalic: stub, helv: stub };
-    const short = computeCaptionBlock(fonts, 'A short line.', 500, { sizes: [HALF_PANEL_FONT_SIZE] });
-    const long = computeCaptionBlock(fonts, 'A much longer caption that wraps across several lines of the text panel and would have shrunk under the adaptive ladder. '.repeat(2), 500, { sizes: [HALF_PANEL_FONT_SIZE] });
-    expect(short.size).toBe(HALF_PANEL_FONT_SIZE);
-    expect(long.size).toBe(HALF_PANEL_FONT_SIZE);
+    const geom = { pw: 630, ph: 630 };
+    const short = computeBookCaptionBlock(fonts, 'A short line.', geom);
+    const long = computeBookCaptionBlock(fonts, 'A much longer caption that wraps across several lines of the text panel and would have shrunk under the old adaptive ladder. '.repeat(2), geom);
+    expect(short.size).toBe(BOOK_CAPTION_FONT_SIZE);
+    expect(long.size).toBe(BOOK_CAPTION_FONT_SIZE);
+    // Same serif face on both (caption-page priority, not the overlay face).
+    expect(short.font).toBe(fonts.playfairItalic);
+    expect(long.font).toBe(fonts.playfairItalic);
+  });
+
+  test('the smaller ladder steps are an overflow safety valve only', () => {
+    const stub = { name: 'stub', widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
+    const fonts = { bubblegum: stub, playfair: stub, playfairItalic: stub, helv: stub };
+    // A caption so long it cannot fit the printable height at the standard
+    // size steps down instead of clipping toward the bleed.
+    const huge = computeBookCaptionBlock(fonts, ('word '.repeat(24) + '\n').repeat(30), { pw: 630, ph: 630 });
+    expect(huge.size).toBeLessThan(BOOK_CAPTION_FONT_SIZE);
   });
 });

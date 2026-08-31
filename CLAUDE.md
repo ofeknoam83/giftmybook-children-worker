@@ -203,10 +203,13 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   flip + pre-print overlay preview (entries from the request). Text layouts:
   `caption` (art page + white text page), `half` (FULL-SPREAD wide
   text-free art — the scene pushes the child and all key action into the
-  RIGHT half — assembled as art recto + a UNIFORM solid text panel verso:
-  fixed cream background, brown ink, fixed `HALF_PANEL_FONT_SIZE` on every
-  spread; cached under `wide-plain` so half and embedded wide renders never
-  replay each other), `embedded` (wide Gemini-painted text).
+  RIGHT half — assembled as art recto + a UNIFORM solid text panel verso;
+  cached under `wide-plain` so half and embedded wide renders never
+  replay each other), `embedded` (wide Gemini-painted text). ALL typeset
+  text pages — caption pages and half panels alike — share ONE book-wide
+  typographic standard (`computeBookCaptionBlock`: same serif, brown ink,
+  fixed `BOOK_CAPTION_FONT_SIZE` on every spread; the smaller ladder steps
+  are an overflow safety valve only, never per-caption auto-sizing).
 - `/generate-book` also bakes the 4-style upsell spread into the interior
   (non-blocking, 4-min cap; `upsellCovers` on the completion callback)
 - Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`,

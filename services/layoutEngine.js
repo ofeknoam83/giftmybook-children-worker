@@ -367,23 +367,39 @@ function computeCaptionBlock(fonts, captionText, maxW, opts = {}) {
   return chosen;
 }
 
-// ── Half-page layout (full-spread art + uniform solid text panel) ───────────
+// ── Book text typography (ONE system per book, across ALL layouts) ──────────
 
 /**
- * The half-layout text panel is UNIFORM by design: the SAME background
- * color, the SAME ink, and the SAME font size on every spread of every
- * book — never sampled per spread. Fixed constants, exported for tests.
+ * The book-wide typeset standard: EVERY text page — caption pages AND
+ * half-layout panels — uses the SAME serif face, the SAME brown ink, and
+ * the SAME font size on every spread of every book. The size never adapts
+ * to caption length (long captions wrap); the smaller ladder steps exist
+ * ONLY as an overflow safety valve for a caption that physically cannot
+ * fit the page at the standard size (the writer's word budgets make that
+ * rare). Exported for tests.
  */
-const HALF_PANEL_FONT_SIZE = 20;
+const BOOK_CAPTION_FONT_SIZE = 20;
+const BOOK_CAPTION_SIZE_LADDER = [BOOK_CAPTION_FONT_SIZE, 18, 16];
+
+/**
+ * The one caption block every typeset text page uses — same face, same
+ * standard size, height-guarded against the printable area.
+ */
+function computeBookCaptionBlock(fonts, captionText, { pw, ph }) {
+  return computeCaptionBlock(fonts, captionText, pw - SAFE * 2, {
+    sizes: BOOK_CAPTION_SIZE_LADDER,
+    maxH: ph - SAFE * 2,
+  });
+}
 
 /**
  * The half-layout text page: full-page solid background (C.cardBg cream) +
- * the caption typeset at the FIXED size in the same brown ink and gold-rule
- * vocabulary as the caption pages. Identical styling on every spread.
+ * the caption typeset via the book-wide standard (same face, ink, and size
+ * as the caption pages). Identical styling on every spread.
  */
 function buildHalfTextPage(page, fonts, captionText, { pw, ph }) {
   page.drawRectangle({ x: 0, y: 0, width: pw, height: ph, color: C.cardBg });
-  const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2, { sizes: [HALF_PANEL_FONT_SIZE] });
+  const block = computeBookCaptionBlock(fonts, captionText, { pw, ph });
   if (!block) return;
   const { font, size, lines, lineH, blockH } = block;
   const idealStartY = ph / 2 + blockH / 2;
@@ -396,7 +412,10 @@ function buildHalfTextPage(page, fonts, captionText, { pw, ph }) {
 }
 
 function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
-  const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2);
+  // Book-wide typographic standard: caption pages typeset exactly like the
+  // half-layout panels — same face, same ink, same FIXED size on every
+  // spread (long captions wrap; the ladder is an overflow valve only).
+  const block = computeBookCaptionBlock(fonts, captionText, { pw, ph });
   if (!block) return;
   const { font, size, lines, lineH, blockH } = block;
 
@@ -2409,8 +2428,10 @@ module.exports = {
   buildEmbeddedPreviewPdf,
   FORMATS,
   splitSpreadImage,
-  // Half-page layout: fixed panel typography, exported for the sharp-free suite.
-  HALF_PANEL_FONT_SIZE,
+  // Book-wide caption typography (caption pages + half panels share it),
+  // exported for the sharp-free suite.
+  BOOK_CAPTION_FONT_SIZE,
+  computeBookCaptionBlock,
   buildHalfTextPage,
   pickOverlayTone,
   // Pure embedded-overlay helpers (exported for the sandbox test suite,
