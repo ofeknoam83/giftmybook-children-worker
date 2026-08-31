@@ -19,6 +19,15 @@
 
 const crypto = require('crypto');
 const { saveJson, loadJson } = require('../gcsStorage');
+const { countWords, BAND_BOUNDS, EXACT_AGE_BOUNDS } = require('./ageBounds');
+
+// Overlay documents arrive as parsed JSON from an authenticated admin call,
+// but keys like '__proto__' or 'constructor' would resolve through the
+// prototype chain in plain `obj[key]` / `key in obj` checks — letting a
+// crafted patch pass "existing theme" validation and then write onto
+// Object.prototype in the merge. Every key membership test here MUST be an
+// own-property check.
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
 
 const OVERLAY_PREFIX = 'catalog-overlays';
 const ACTIVE_POINTER = `${OVERLAY_PREFIX}/active.json`;
@@ -85,23 +94,23 @@ function validateOverlayShape(overlay, baseCatalog) {
 
   const bookIndex = new Map();
   for (const [themeId, theme] of Object.entries(baseCatalog.themes || {})) {
-    for (const books of Object.values(theme.age_bands || {})) {
-      for (const b of books) bookIndex.set(b.id, { themeId, book: b });
+    for (const [band, books] of Object.entries(theme.age_bands || {})) {
+      for (const b of books) bookIndex.set(b.id, { themeId, band, book: b });
     }
   }
 
   for (const [themeId, patch] of Object.entries(patches.themes || {})) {
-    if (!baseCatalog.themes?.[themeId]) {
+    if (!hasOwn(baseCatalog.themes, themeId)) {
       errors.push(`unknown theme '${themeId}'`);
       continue;
     }
     for (const [field, value] of Object.entries(patch || {})) {
       if (field === 'companion') {
         for (const [cf, cv] of Object.entries(value || {})) {
-          if (!(cf in COMPANION_FIELDS)) errors.push(`${themeId}.companion.${cf} is not an editable field`);
+          if (!hasOwn(COMPANION_FIELDS, cf)) errors.push(`${themeId}.companion.${cf} is not an editable field`);
           else checkString(cv, COMPANION_FIELDS[cf], `${themeId}.companion.${cf}`, errors);
         }
-      } else if (field in THEME_FIELDS) {
+      } else if (hasOwn(THEME_FIELDS, field)) {
         checkString(value, THEME_FIELDS[field], `${themeId}.${field}`, errors);
       } else {
         errors.push(`${themeId}.${field} is not an editable theme field (structure is frozen)`);
@@ -115,10 +124,16 @@ function validateOverlayShape(overlay, baseCatalog) {
       continue;
     }
     for (const [field, value] of Object.entries(patch || {})) {
-      if (field in BOOK_FIELDS) {
+      if (hasOwn(BOOK_FIELDS, field)) {
         const s = checkString(value, BOOK_FIELDS[field], `${bookId}.${field}`, errors);
-        if (field === 'title_template' && s && !s.includes('{name}')) {
-          errors.push(`${bookId}.title_template must contain {name}`);
+        if (field === 'title_template' && s) {
+          // Exactly one {name}, no other placeholders: repeated tokens can
+          // render past the runtime schema's title length with a long child
+          // name, and unknown tokens would survive renderTitle as literals.
+          const placeholders = s.match(/\{[^{}]*\}/g) || [];
+          if (placeholders.length !== 1 || placeholders[0] !== '{name}') {
+            errors.push(`${bookId}.title_template must contain exactly one {name} and no other placeholders`);
+          }
         }
       } else if (field === 'retired') {
         // Retirement = removed from SELECTION forever, definition kept so
@@ -137,8 +152,23 @@ function validateOverlayShape(overlay, baseCatalog) {
           }
         }
         for (const [rf, rv] of Object.entries(value || {})) {
-          if (rf === 'text') checkString(rv, REFRAIN_TEXT_CAP, `${bookId}.refrain.text`, errors);
-          else if (rf === 'spreads') {
+          if (rf === 'text') {
+            const s = checkString(rv, REFRAIN_TEXT_CAP, `${bookId}.refrain.text`, errors);
+            if (s) {
+              // The refrain must fit inside a single spread for EVERY exact
+              // age the book's band serves — a 26-word refrain on a 1-3 book
+              // can never pass an age-1 spread's 25-word max, so every
+              // generation for that profile would fail. Gate it here.
+              const band = bookIndex.get(bookId).band;
+              const spreadMax = band === '1-3'
+                ? Math.min(...Object.values(EXACT_AGE_BOUNDS).map(b => b.perSpread[1]))
+                : BAND_BOUNDS[band].perSpread[1];
+              const words = countWords(s);
+              if (words > spreadMax) {
+                errors.push(`${bookId}.refrain.text is ${words} words but a band ${band} spread holds at most ${spreadMax} — it could never validate`);
+              }
+            }
+          } else if (rf === 'spreads') {
             const ok = Array.isArray(rv) && rv.length >= 1 && rv.length <= MAX_REFRAIN_SPREADS
               && rv.every(n => Number.isInteger(n) && n >= 1 && n <= 12)
               && new Set(rv).size === rv.length;
@@ -172,8 +202,10 @@ function applyOverlay(baseCatalog, overlay) {
   const merged = JSON.parse(JSON.stringify(baseCatalog));
   const patches = overlay?.patches || {};
   for (const [themeId, patch] of Object.entries(patches.themes || {})) {
+    // Own-property guard (defense in depth behind validateOverlayShape):
+    // '__proto__'/'constructor' keys must never resolve to a target here.
+    if (!hasOwn(merged.themes, themeId)) continue;
     const theme = merged.themes[themeId];
-    if (!theme) continue;
     for (const field of Object.keys(THEME_FIELDS)) {
       if (typeof patch[field] === 'string') theme[field] = patch[field].trim();
     }
@@ -187,7 +219,7 @@ function applyOverlay(baseCatalog, overlay) {
   for (const theme of Object.values(merged.themes)) {
     for (const books of Object.values(theme.age_bands || {})) {
       for (const book of books) {
-        const patch = bookPatches[book.id];
+        const patch = hasOwn(bookPatches, book.id) ? bookPatches[book.id] : null;
         if (!patch) continue;
         for (const field of Object.keys(BOOK_FIELDS)) {
           if (typeof patch[field] === 'string') book[field] = patch[field].trim();

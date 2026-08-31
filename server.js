@@ -603,7 +603,18 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode || null });
   }
-  const bookDef = catalogEngine.getBook(story.request.book_id);
+  // Scenes must come from the story's PINNED definitions (resolveStory just
+  // resolved this same tag, so this only misses if the overlay vanished) —
+  // a probe rendered against currently-active beats would not reproduce
+  // what production prints for this story.
+  const bookDef = await catalogEngine.getBookForTag(story.request.book_id, story.request?.versions?.catalog);
+  if (!bookDef) {
+    return res.status(400).json({
+      success: false,
+      error: `story pins catalog '${story.request?.versions?.catalog}' which is no longer resolvable — regenerate the story`,
+      failureCode: 'missing_book_definition',
+    });
+  }
 
   res.status(202).json({ success: true, bookId, accepted: [...spreads].sort((a, b) => a - b), engine: 'catalog-v13' });
 
@@ -1715,6 +1726,10 @@ if (require.main === module) {
   catalogEngine.initCatalogOverlay()
     .catch(e => console.error(`[startup] catalog overlay init failed: ${e.message} — serving the base catalog`))
     .finally(() => {
+      // Cloud Run runs many warm instances but only the one that served an
+      // activate/deactivate call hot-swaps immediately — the pointer watch
+      // converges every other instance within the poll interval.
+      catalogEngine.startCatalogOverlayWatch();
       app.listen(PORT, () => {
         console.log(`giftmybook-children-worker listening on port ${PORT}`);
       });

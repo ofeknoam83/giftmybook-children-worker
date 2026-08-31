@@ -78,7 +78,7 @@ describe('overlay shape validation (the allowlist is the contract)', () => {
     }, base);
     expect(errors.join(' ')).toMatch(/unknown theme 'not_a_theme'/);
     expect(errors.join(' ')).toMatch(/unknown book 'not_a_book'/);
-    expect(errors.join(' ')).toMatch(/title_template must contain \{name\}/);
+    expect(errors.join(' ')).toMatch(/title_template must contain exactly one \{name\}/);
     expect(errors.join(' ')).toMatch(/premise contains control characters/);
     expect(errors.join(' ')).toMatch(/refrain\.spreads/);
   });
@@ -86,6 +86,52 @@ describe('overlay shape validation (the allowlist is the contract)', () => {
   test('a wrong base_version refuses — overlays bind to one deployed catalog', () => {
     expect(validateOverlayShape({ base_version: '9.9', patches: {} }, base).join(' '))
       .toMatch(/base_version '9.9' does not match/);
+  });
+
+  test('__proto__/constructor theme keys are unknown themes, never prototype writes', () => {
+    // JSON.parse creates OWN '__proto__' keys (an object literal would not),
+    // which is exactly how a hostile patch body arrives through Express.
+    const evil = JSON.parse(`{"base_version":"${base.version}","patches":{"themes":{`
+      + '"__proto__":{"display_name":"polluted"},"constructor":{"display_name":"polluted"}}}}');
+    const errors = validateOverlayShape(evil, base);
+    expect(errors.join(' ')).toMatch(/unknown theme '__proto__'/);
+    expect(errors.join(' ')).toMatch(/unknown theme 'constructor'/);
+    // Defense in depth: even fed straight to the merge, nothing may land on
+    // the prototype chain.
+    applyOverlay(base, evil);
+    expect({}.display_name).toBeUndefined();
+    expect(Object.prototype.display_name).toBeUndefined();
+  });
+
+  test('inherited property names are not editable fields', () => {
+    const errors = validateOverlayShape({
+      base_version: base.version,
+      patches: { themes: { enchanted_forest: { constructor: 'x', hasOwnProperty: 'y' } } },
+    }, base);
+    expect(errors.join(' ')).toMatch(/constructor is not an editable theme field/);
+    expect(errors.join(' ')).toMatch(/hasOwnProperty is not an editable theme field/);
+  });
+
+  test('title_template takes exactly one {name} and no other placeholders', () => {
+    const check = (title) => validateOverlayShape({
+      base_version: base.version,
+      patches: { books: { enchanted_2_3_hello_wood: { title_template: title } } },
+    }, base).join(' ');
+    // Two {name} tokens can render past the runtime title length with a
+    // long child name; unknown tokens would print as literal braces.
+    expect(check('{name} and {name} Again')).toMatch(/exactly one \{name\}/);
+    expect(check('{name} Meets {companion}')).toMatch(/exactly one \{name\}/);
+    expect(check("{name}'s Big Day")).toBe('');
+  });
+
+  test("a refrain that cannot fit the band's tightest spread refuses", () => {
+    // 26 words on a 1-3 book: an age-1 spread holds at most 25 words, so no
+    // story containing this refrain could ever validate for that profile.
+    const errors = validateOverlayShape({
+      base_version: base.version,
+      patches: { books: { enchanted_2_3_hello_wood: { refrain: { text: Array(26).fill('la').join(' ') } } } },
+    }, base);
+    expect(errors.join(' ')).toMatch(/26 words but a band 1-3 spread holds at most 25/);
   });
 });
 
@@ -150,6 +196,23 @@ describe('plot retirement (soft delete — gone from selection, kept for stored 
     expect(() => catalog.applyCatalogOverlay(overlay, 'deadbee1'))
       .toThrow(/only 2 active book\(s\)/);
     expect(catalog.eligibleBooks('enchanted_forest', '1-3').length).toBe(4); // untouched
+  });
+
+  it('a retired book refuses FRESH generation even when addressed by id', () => {
+    const overlay = {
+      base_version: base.version,
+      patches: { books: { enchanted_2_3_hello_wood: { retired: true } } },
+    };
+    catalog.applyCatalogOverlay(overlay, overlayHash(overlay).slice(0, 8));
+    // Eligibility filtering covers selection; this covers the direct paths
+    // (/v13/generate-stories bookIds, fresh /generate-book) that pass ids
+    // straight to the writer. Stored stories never build a fresh request.
+    const { buildStoryRequest } = require('../../../services/catalogEngine/writer');
+    expect(() => buildStoryRequest({
+      bookId: 'enchanted_2_3_hello_wood',
+      profile: { name: 'Emma', age: 2, pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' } },
+      sessionId: 'sess_retired',
+    })).toThrow(/retired/);
   });
 
   it('retired must be boolean; retired: false restores', () => {

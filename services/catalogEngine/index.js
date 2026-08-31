@@ -117,6 +117,63 @@ async function initCatalogOverlay() {
   }
 }
 
+/**
+ * One reconciliation pass: read the GCS active pointer and converge THIS
+ * instance's live catalog to it. Cloud Run runs many warm instances; only
+ * the one that served /v13/catalog-overlay/activate hot-swaps immediately,
+ * so every instance polls the pointer and converges within the interval.
+ * Fail-safe like boot restore: errors propagate to the caller (the watch
+ * logs them) and the current catalog keeps serving.
+ * @returns {Promise<{changed: boolean, tag: string}>}
+ */
+async function syncCatalogOverlayFromPointer() {
+  const currentHash = catalog.activeOverlayHash();
+  const pointerHash = await catalogOverlay.loadActivePointer();
+  if ((pointerHash || null) === (currentHash || null)) {
+    return { changed: false, tag: catalog.catalogVersion() };
+  }
+  if (!pointerHash) {
+    const tag = catalog.resetCatalogOverlay();
+    console.log('[catalogEngine] overlay pointer cleared on another instance — back to the base catalog');
+    return { changed: true, tag };
+  }
+  const overlay = await catalogOverlay.loadOverlayByHash(pointerHash);
+  if (!overlay) throw new Error(`active overlay ${pointerHash} is missing from GCS`);
+  const shapeErrors = catalogOverlay.validateOverlayShape(overlay, catalog.baseCatalog());
+  if (shapeErrors.length > 0) throw new Error(`active overlay ${pointerHash} is invalid: ${shapeErrors[0]}`);
+  const tag = catalog.applyCatalogOverlay(overlay, pointerHash);
+  console.log(`[catalogEngine] converged to overlay ${pointerHash} activated on another instance (tag ${tag})`);
+  return { changed: true, tag };
+}
+
+let _overlayWatch = null;
+/**
+ * Start the periodic pointer watch (CATALOG_OVERLAY_POLL_SECONDS, default
+ * 60; 0 disables). Idempotent; the timer is unref'd so it never holds the
+ * process open. A failed pass logs loudly and the next tick retries.
+ * @returns {NodeJS.Timeout|null}
+ */
+function startCatalogOverlayWatch() {
+  const seconds = Number(process.env.CATALOG_OVERLAY_POLL_SECONDS ?? 60);
+  if (!flags.catalogOverlayEnabled() || !Number.isFinite(seconds) || seconds <= 0) return null;
+  if (_overlayWatch) return _overlayWatch;
+  let inFlight = false;
+  _overlayWatch = setInterval(async () => {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      await syncCatalogOverlayFromPointer();
+    } catch (err) {
+      console.error(`[catalogEngine] overlay pointer sync failed: ${err.message} — keeping the current catalog`);
+    } finally {
+      inFlight = false;
+    }
+  }, seconds * 1000);
+  _overlayWatch.unref?.();
+  console.log(`[catalogEngine] catalog overlay pointer watch every ${seconds}s (multi-instance convergence)`);
+  return _overlayWatch;
+}
+
 module.exports = {
   // selection + generation
   selectBooks,
@@ -146,6 +203,8 @@ module.exports = {
   activeOverlayHash: catalog.activeOverlayHash,
   catalogOverlay,
   initCatalogOverlay,
+  syncCatalogOverlayFromPointer,
+  startCatalogOverlayWatch,
   // sidecars
   coverageReport: augments.coverageReport,
   // ops

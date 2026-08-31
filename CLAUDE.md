@@ -35,18 +35,28 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   text+spreads, beat text). Structure (ids, bands, archetypes, 12/228/12)
   is rejected. The MERGED catalog must re-pass every boot invariant before
   activation; blobs persist in GCS by content hash with an `active.json`
-  pointer (restored at boot by `initCatalogOverlay`, fail-safe to base).
+  pointer (restored at boot by `initCatalogOverlay`, fail-safe to base;
+  every instance also polls the pointer — `startCatalogOverlayWatch`,
+  `CATALOG_OVERLAY_POLL_SECONDS` default 60, 0 disables — so the warm
+  instances that did not serve the activate call converge within the
+  interval). Every key check is an own-property check (`__proto__` /
+  `constructor` patch keys are hostile input, never prototype writes);
+  `title_template` takes exactly one `{name}` and no other placeholder; a
+  patched refrain must fit the band's tightest per-spread word max.
   Every request pins `versions.catalog = <base>+<hash8>`; stored stories
   re-validate AND illustrate against their PINNED definitions
   (`getBookForTag`, small LRU) so reshaping a theme never breaks earlier
-  stories. Endpoints: GET `/v13/catalog`, POST
+  stories — a pinned tag that no longer resolves HARD-FAILS
+  (`missing_book_definition`, in `/v13/render-spreads` too), never a silent
+  fallback to current beats. Endpoints: GET `/v13/catalog`, POST
   `/v13/catalog-overlay/{validate,activate,deactivate}`. Kill-switch
   `CATALOG_OVERLAY=0`. catalog.json itself stays frozen in git. A book
   patch may also set `retired: true` — the plot's SOFT DELETE: it leaves
-  selection/eligibility/band counts immediately (customers can never get it
-  again) while its definition remains so stored stories keep validating and
-  printing; the merged gate refuses to drop any theme/band below 3 active
-  books (one full slate). `retired: false` restores.
+  selection/eligibility/band counts immediately AND `buildStoryRequest`
+  refuses fresh generation by id (customers can never get it again) while
+  its definition remains so stored stories keep validating and printing;
+  the merged gate refuses to drop any theme/band below 3 active books (one
+  full slate). `retired: false` restores.
 - `profile.js` — deterministic normalization (NFC, control-char rejection,
   dedupe, length caps). No LLM. Profile strings are data, never instructions.
 - `selection.js` — fit-weighted candidate selection: the handoff's exact

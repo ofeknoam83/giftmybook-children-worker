@@ -47,14 +47,20 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
     // Resolve the definition AS PINNED by the story's catalog tag: a story
     // written under an admin catalog overlay must re-validate (and later
     // illustrate) against THAT overlay's beats/refrain, not whatever is
-    // active now. A vanished overlay falls back to the current catalog,
-    // loudly — regeneration is the fix if validation then disagrees.
-    let hit = await getBookForTag(request?.book_id, request?.versions?.catalog);
+    // active now. A pinned tag that no longer resolves is a HARD failure —
+    // a beat-only overlay would pass text re-validation against the current
+    // definition and then illustrate different scenes, so falling back
+    // silently prints a book whose art disagrees with its provenance.
+    const hit = await getBookForTag(request?.book_id, request?.versions?.catalog);
     if (!hit) {
-      hit = getBook(request?.book_id);
-      if (hit) log('warn', `stored story pinned catalog '${request?.versions?.catalog}' which is no longer resolvable — validating against the current catalog`);
+      if (getBook(request?.book_id)) {
+        throw new PipelineError(
+          `stored story pinned catalog '${request?.versions?.catalog}' which is no longer resolvable — its exact definitions cannot be re-validated or illustrated; regenerate the story`,
+          'missing_book_definition',
+        );
+      }
+      throw new PipelineError(`stored story references unknown book_id '${request?.book_id}'`, 'invalid_story');
     }
-    if (!hit) throw new PipelineError(`stored story references unknown book_id '${request?.book_id}'`, 'invalid_story');
     // Bind the pair to the CURRENT inputs: same requested definition (when
     // one is named) and the same child (name + age + pronoun set) — internal
     // consistency alone would let another child's story be typeset here.
@@ -169,8 +175,15 @@ async function runBookPipeline(params) {
   });
   // Illustration scenes come from the BEATS — resolve them as pinned by the
   // story's catalog tag so a reshaped theme never mismatches older text.
-  const bookDef = (await getBookForTag(story.request.book_id, story.request?.versions?.catalog))
-    || getBook(story.request.book_id);
+  // resolveStory already resolved this same tag, so a miss here means the
+  // overlay blob vanished mid-run: fail rather than draw unpinned scenes.
+  const bookDef = await getBookForTag(story.request.book_id, story.request?.versions?.catalog);
+  if (!bookDef) {
+    throw new PipelineError(
+      `catalog '${story.request?.versions?.catalog}' became unresolvable before illustration — regenerate the story`,
+      'missing_book_definition',
+    );
+  }
   const bookTitle = story.response.title;
   await saveCheckpoint({
     engine: 'catalog-v13',
