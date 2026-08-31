@@ -183,6 +183,25 @@ describe('layout-aware text embedding (ce-2)', () => {
     expect(scene).toContain('NEVER paint these words');
   });
 
+  test('half layout renders a text-FREE full-spread wide composition on its own cache path', async () => {
+    generateIllustration.mockClear();
+    const { results, aspect } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'half' }));
+    const [scene, , , opts] = generateIllustration.mock.calls[0];
+    expect(aspect).toBe('wide');
+    expect(opts.aspectRatio).toBe('16:9');
+    expect(opts.skipTextEmbed).toBe(true);
+    expect(opts.embedText).toBeUndefined();
+    // The model is told the left half dies under the text panel.
+    expect(scene).toContain('COMPOSITION FOR PRINT (HALF-PAGE LAYOUT)');
+    expect(scene).toContain('RIGHT half');
+    // wide-plain cache: a half render can never replay an embedded book's
+    // Gemini-painted wide render (or vice versa).
+    expect(results[0].storageKey).toContain('.wide-plain.png');
+    const embedded = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'embedded' }));
+    expect(embedded.results[0].storageKey).toContain('.wide.png');
+    expect(embedded.results[0].storageKey).not.toContain('wide-plain');
+  });
+
   test('illustrateStory marks embedded entries textEmbeddedInArt so layout never double-typesets', async () => {
     const all = Array.from({ length: 12 }, (_, i) => i + 1);
     const embedded = await illustrateStory(baseParams({ spreadNos: all, spreads: null, textLayout: 'embedded' }));

@@ -28,7 +28,11 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // ce-2: embedded layout paints the story text INTO the art (Gemini embedText
 // path + text-verify QA) — pre-ce-2 wide renders are text-free and must
 // never replay as embedded spreads.
-const STYLE_VERSION = 'ce-2';
+// ce-3: embedded text placement hardened — ONE block on ONE side (left or
+// right 35%), painted over continuous artwork, never split across both
+// sides or letterboxed onto a blank band; QA gates placement. ce-2 embedded
+// renders may carry band/split text and must never replay.
+const STYLE_VERSION = 'ce-3';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

@@ -103,34 +103,44 @@ describe('assemblePdf caption mode (square entries)', () => {
   });
 });
 
-describe('assemblePdf half-page layout (art + solid-color text panel)', () => {
-  const { halfPanelColor, colorLuminance255 } = require('./../../services/layoutEngine');
+describe('assemblePdf half-page layout (full-spread art + uniform text panel)', () => {
+  const { computeBookCaptionBlock, BOOK_CAPTION_FONT_SIZE } = require('./../../services/layoutEngine');
 
-  test('a half entry produces a painted text panel verso + art recto slot', async () => {
+  test('a half entry produces a painted uniform text panel verso + art recto slot', async () => {
     const doc = await build([
-      spreadEntry({ textLayout: 'half', illustrationAspect: 'square', captionText: 'Amit sails the paper boat.' }),
+      spreadEntry({ textLayout: 'half', illustrationAspect: 'wide', captionText: 'Amit sails the paper boat.' }),
     ]);
     const verso = doc.getPage(VERSO_INDEX);
-    // The panel rectangle + typeset caption ⇒ drawn content even with no art.
+    // The panel rectangle + typeset caption => drawn content even with no art.
     expect(verso.node.Contents()).toBeDefined();
   });
 
-  test('half without captionText falls through to the plain square path', async () => {
+  test('half without captionText falls through without crashing', async () => {
     const doc = await build([
-      spreadEntry({ textLayout: 'half', illustrationAspect: 'square' }),
+      spreadEntry({ textLayout: 'half', illustrationAspect: 'wide' }),
     ]);
-    // Square branch still typesets its (empty) caption page without crashing.
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(6);
   });
 
-  test('halfPanelColor: any art color lightens to the readable panel floor, hue preserved when possible', () => {
-    const navy = halfPanelColor({ r: 0.05, g: 0.1, b: 0.3 });
-    expect(colorLuminance255(navy)).toBeGreaterThanOrEqual(215);
-    const black = halfPanelColor({ r: 0, g: 0, b: 0 });
-    expect(colorLuminance255(black)).toBeGreaterThanOrEqual(215);
-    // A light warm color keeps more of itself than the cream fallback.
-    const peach = halfPanelColor({ r: 0.95, g: 0.8, b: 0.7 });
-    expect(colorLuminance255(peach)).toBeGreaterThanOrEqual(215);
-    expect(peach.r).toBeGreaterThan(peach.b); // warm hue survives the blend
+  test('book typography is ONE system: caption pages and half panels share the fixed size', () => {
+    const stub = { name: 'stub', widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
+    const fonts = { bubblegum: stub, playfair: stub, playfairItalic: stub, helv: stub };
+    const geom = { pw: 630, ph: 630 };
+    const short = computeBookCaptionBlock(fonts, 'A short line.', geom);
+    const long = computeBookCaptionBlock(fonts, 'A much longer caption that wraps across several lines of the text panel and would have shrunk under the old adaptive ladder. '.repeat(2), geom);
+    expect(short.size).toBe(BOOK_CAPTION_FONT_SIZE);
+    expect(long.size).toBe(BOOK_CAPTION_FONT_SIZE);
+    // Same serif face on both (caption-page priority, not the overlay face).
+    expect(short.font).toBe(fonts.playfairItalic);
+    expect(long.font).toBe(fonts.playfairItalic);
+  });
+
+  test('the smaller ladder steps are an overflow safety valve only', () => {
+    const stub = { name: 'stub', widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
+    const fonts = { bubblegum: stub, playfair: stub, playfairItalic: stub, helv: stub };
+    // A caption so long it cannot fit the printable height at the standard
+    // size steps down instead of clipping toward the bleed.
+    const huge = computeBookCaptionBlock(fonts, ('word '.repeat(24) + '\n').repeat(30), { pw: 630, ph: 630 });
+    expect(huge.size).toBeLessThan(BOOK_CAPTION_FONT_SIZE);
   });
 });
