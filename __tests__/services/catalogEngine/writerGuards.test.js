@@ -169,7 +169,7 @@ describe('checkRepairDelta (contract minimal-edit boundary)', () => {
     };
     expect(checkRepairDelta({
       before, after: sneaky, errors: ['spread 1: 200 words, must be 10-40'], map: null,
-    }).join(' ')).toMatch(/added evidence on unimplicated spread 3/);
+    }).join(' ')).toMatch(/added or altered evidence on unimplicated spread 3/);
 
     const everything = { ...sneaky, spreads: spreads(['a new one', 'a new two', 'a new three']) };
     expect(checkRepairDelta({

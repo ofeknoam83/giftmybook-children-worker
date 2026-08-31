@@ -184,7 +184,18 @@ describe('style polish pass helpers', () => {
       spreads,
       personalization_evidence: [{ source_field: 'object', source_value: 'bunny Flopsy', moment_type: 'object_presence', spread: 2, slot_id: 's2' }],
     };
-    expect(evidenceTextAligned(whitewash)[0]).toMatch(/bunny Flopsy.*spread its evidence declares/);
+    expect(evidenceTextAligned(whitewash)[0]).toMatch(/bunny Flopsy.*appears on spread 1 but its evidence declares only/);
+
+    // An extra literal copy on an UNDECLARED spread is an uncounted moment
+    // (leakage skips values with any evidence; caps count records) — reject.
+    const extraCopy = {
+      spreads: [
+        { spread: 1, text: 'Emma hugs her bunny Flopsy tight.' },
+        { spread: 2, text: 'Later, bunny Flopsy naps in the sun.' },
+      ],
+      personalization_evidence: [{ source_field: 'object', source_value: 'bunny Flopsy', moment_type: 'object_presence', spread: 1, slot_id: 's1' }],
+    };
+    expect(evidenceTextAligned(extraCopy)[0]).toMatch(/appears on spread 2 but its evidence declares only spread\(s\) 1/);
 
     // A paraphrased moment (value not literally in the text) is invisible to
     // the leakage matcher and passes; so do sub-4-char values.

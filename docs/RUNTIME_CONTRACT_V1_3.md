@@ -93,6 +93,7 @@ Run in this order:
 - A callback requires a prior evidence record for the same detail with an introduction-capable moment type.
 - Text requiring visual alignment must have `visual_required=true` and emit the matching `visual_slot_id`.
 - Prohibited fields and omitted details must not appear in story text after normalized case/diacritic-insensitive matching. Exact string checks are necessary but not sufficient; include human sampling.
+- Every evidence value found literally in the story text must occur only on spreads its evidence declares — an occurrence on an undeclared spread is a misplaced or uncounted moment and fails validation.
 - Evidence offsets are optional; evidence itself is required in internal production output.
 
 ## Retry and repair

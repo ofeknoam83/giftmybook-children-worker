@@ -59,8 +59,10 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
 - `storyValidation.js` — the 10-step deterministic sequence: ajv schema →
   identity/version echo → 12 ordered spreads → exact title equality → refrain
   exact text + placement → exact-age word bounds → evidence-vs-map legality →
-  callback-before-introduction + caps → banned brand/IP lexicon
-  (`data/bannedBrands.json`) + unused-detail leakage.
+  evidence-to-spread text alignment (a literal evidence value may occur ONLY
+  on spreads its evidence declares — every path, first-pass included, holds
+  the same invariant) → callback-before-introduction + caps → banned
+  brand/IP lexicon (`data/bannedBrands.json`) + unused-detail leakage.
 - `augments.js` — per-book sidecars joined by `book_id`:
   `data/augments/approved/{book_id}.json` ({selection_profile,
   personalization_map}) schema-validated at boot; `data/augments/drafts/` is

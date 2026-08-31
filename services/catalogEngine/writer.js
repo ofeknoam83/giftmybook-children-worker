@@ -16,7 +16,7 @@ const { callText, LlmParseError } = require('../shared/llm/openaiClient');
 const { getBook, loadAgeEngines, renderTitle, toWireBand, catalogVersion } = require('./catalog');
 const { augmentsFor } = require('./augments');
 const { normalizeProfile, usableDetails } = require('./profile');
-const { validateStoryResponse, containsTerm } = require('./storyValidation');
+const { validateStoryResponse, containsTerm, evidenceTextAligned } = require('./storyValidation');
 const flags = require('./flags');
 const versions = require('./versions');
 
@@ -215,6 +215,7 @@ const REPAIRABLE_ERROR_PATTERNS = [
   /^below the map minimum /,
   /^banned brand\/IP term /,
   /appears in the story text but is not declared in personalization_evidence/,
+  /appears on spread \d+ but its evidence declares only/,
   /^personalization_evidence is empty although usable/,
 ];
 
@@ -328,20 +329,38 @@ function checkRepairDelta({ before, after, errors, map }) {
   const problems = [];
   const permitted = new Set();
   let allSpreadsPermitted = false;
+  let omissionsFree = false;
   const beforeSpreads = Array.isArray(before.spreads) ? before.spreads : [];
-  const evidenceSpreads = new Set((before.personalization_evidence || []).map(e => e.spread));
+  const beforeEvidence = before.personalization_evidence || [];
+  const valueSpreads = (value) => {
+    const out = new Set();
+    for (const s of beforeSpreads) if (containsTerm(s.text || '', value)) out.add(s.spread);
+    for (const e of beforeEvidence) if (e.source_value === value) out.add(e.spread);
+    return out;
+  };
   for (const err of errors || []) {
     let m;
     if ((m = /^spread (\d+): /.exec(err))) {
+      // Word-bound violation names its spread.
       permitted.add(Number(m[1]));
     } else if (/^total \d+ words, must be /.test(err)) {
       allSpreadsPermitted = true;
-    } else if ((m = /in story text: "(.+)"$/.exec(err)) || (m = /^'(.+?)' \(/.exec(err))) {
+    } else if ((m = /in story text: "(.+)"$/.exec(err))) {
+      // Banned term: only the spreads that actually contain it.
       for (const s of beforeSpreads) if (containsTerm(s.text || '', m[1])) permitted.add(s.spread);
-      for (const sp of evidenceSpreads) permitted.add(sp);
-    } else {
-      for (const sp of evidenceSpreads) permitted.add(sp);
+    } else if ((m = /^'(.+?)' \(/.exec(err)) || (m = /^detail '(.+?)' used /.exec(err))) {
+      // Leakage/alignment/repeat-limit quote the value: its occurrences plus
+      // ITS OWN evidence spreads, not every evidence spread.
+      for (const sp of valueSpreads(m[1])) permitted.add(sp);
+    } else if (/^personalization_evidence is empty|^below the map minimum /.test(err)) {
+      // The sanctioned fixes are adding moments on slot-designated spreads
+      // or justifying omissions — omission edits are free under these errors.
       for (const slot of map?.slots || []) permitted.add(slot.spread);
+      for (const e of beforeEvidence) permitted.add(e.spread);
+      omissionsFree = true;
+    } else {
+      // Cap/legality errors: removals live on evidence-bearing spreads.
+      for (const e of beforeEvidence) permitted.add(e.spread);
     }
   }
   if (allSpreadsPermitted) return problems;
@@ -352,56 +371,52 @@ function checkRepairDelta({ before, after, errors, map }) {
       problems.push(`repair changed spread ${s.spread}, which no violation implicates — unimplicated spreads must stay verbatim`);
     }
   }
-  const evKey = e => `${e.source_field}|${e.source_value}|${e.spread}|${e.slot_id}`;
-  const beforeEv = new Set((before.personalization_evidence || []).map(evKey));
+
+  // Evidence identity carries EVERY field: semantics or visual-alignment
+  // drift on an unimplicated spread is a change even when both variants
+  // would validate.
+  const evKey = e => `${e.source_field}|${e.source_value}|${e.spread}|${e.slot_id}|${e.moment_type}|${e.visual_required ?? false}|${e.visual_slot_id ?? ''}`;
+  const beforeEv = new Set(beforeEvidence.map(evKey));
   const afterEv = new Set((after.personalization_evidence || []).map(evKey));
-  for (const e of before.personalization_evidence || []) {
-    if (!afterEv.has(evKey(e)) && !permitted.has(e.spread)) {
-      problems.push(`repair removed evidence on unimplicated spread ${e.spread}`);
+  const changedEvidenceFields = new Set();
+  for (const e of beforeEvidence) {
+    if (!afterEv.has(evKey(e))) {
+      changedEvidenceFields.add(e.source_field);
+      if (!permitted.has(e.spread)) problems.push(`repair removed or altered evidence on unimplicated spread ${e.spread}`);
     }
   }
   for (const e of after.personalization_evidence || []) {
-    if (!beforeEv.has(evKey(e)) && !permitted.has(e.spread)) {
-      problems.push(`repair added evidence on unimplicated spread ${e.spread}`);
+    if (!beforeEv.has(evKey(e))) {
+      changedEvidenceFields.add(e.source_field);
+      if (!permitted.has(e.spread)) problems.push(`repair added or altered evidence on unimplicated spread ${e.spread}`);
+    }
+  }
+
+  // The omission audit may change only to describe THIS repair's evidence
+  // edits (or freely under the empty-evidence/below-minimum errors, whose
+  // sanctioned fix IS an omission justification).
+  if (!omissionsFree) {
+    const omKey = o => `${o.source_field}|${o.reason}`;
+    const beforeOm = new Set((before.omitted_profile_fields || []).map(omKey));
+    const afterOm = new Set((after.omitted_profile_fields || []).map(omKey));
+    for (const o of before.omitted_profile_fields || []) {
+      if (!afterOm.has(omKey(o)) && !changedEvidenceFields.has(o.source_field)) {
+        problems.push(`repair rewrote the omission audit for '${o.source_field}' although no evidence for it changed`);
+      }
+    }
+    for (const o of after.omitted_profile_fields || []) {
+      if (!beforeOm.has(omKey(o)) && !changedEvidenceFields.has(o.source_field)) {
+        problems.push(`repair rewrote the omission audit for '${o.source_field}' although no evidence for it changed`);
+      }
     }
   }
   return problems;
 }
 
-/**
- * Deterministic evidence-to-text alignment, closing the gap the leakage
- * check leaves on SECOND-PASS responses (repair/polish): checkLeakage stops
- * once a value has any evidence record, and validateEvidence never checks
- * the value occurs on the declared spread — so a repair could "fix" leakage
- * by adding a legal evidence record while the text stays wrong, and polish
- * could move a detail off its declared spread. Rule: any evidence value the
- * leakage matcher can find in the story text must occur on at least one
- * spread its evidence declares. Values the matcher cannot find anywhere are
- * paraphrased moments — invisible to leakage — and pass; so does anything
- * under leakage's 4-char collision guard.
- * @param {object} response
- * @returns {string[]} errors (empty = aligned)
- */
-function evidenceTextAligned(response) {
-  const errors = [];
-  const spreads = Array.isArray(response.spreads) ? response.spreads : [];
-  const fullText = spreads.map(s => s.text || '').join('\n');
-  const byValue = new Map();
-  for (const ev of response.personalization_evidence || []) {
-    const key = `${ev.source_field}|${String(ev.source_value)}`;
-    if (!byValue.has(key)) byValue.set(key, { value: ev.source_value, field: ev.source_field, declared: new Set() });
-    byValue.get(key).declared.add(ev.spread);
-  }
-  for (const { value, field, declared } of byValue.values()) {
-    if (String(value || '').length < 4) continue;
-    if (!containsTerm(fullText, value)) continue;
-    const onDeclared = spreads.some(s => declared.has(s.spread) && containsTerm(s.text || '', value));
-    if (!onDeclared) {
-      errors.push(`'${value}' (${field}) appears in the story text but not on any spread its evidence declares (${[...declared].join(', ')}) — the moment and its evidence must live on the same spread`);
-    }
-  }
-  return errors;
-}
+// Evidence-to-text alignment now lives in storyValidation (step 8b) so
+// EVERY path — first-pass generation, repair, polish, stored-pair and
+// checkpoint revalidation — holds the same invariant; re-exported below
+// for existing callers.
 
 /**
  * ONE style-polish call on an already-VALIDATED story. Fail-safe by design:
@@ -442,11 +457,7 @@ async function polishStory({ request, response, book, theme, ageBand, map, tunin
       console.warn(`[catalogEngine] polish rejected book=${request.book_id}: omission audit drifted — keeping validated draft`);
       return null;
     }
-    const alignErrors = evidenceTextAligned(polished);
-    if (alignErrors.length > 0) {
-      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: ${alignErrors[0]} — keeping validated draft`);
-      return null;
-    }
+    // Evidence-to-spread alignment is part of validateStoryResponse (8b).
     return polished;
   } catch (err) {
     console.warn(`[catalogEngine] polish call failed book=${request.book_id}: ${err.message} — keeping validated draft`);
@@ -686,15 +697,13 @@ async function generateStory(params) {
         const details = usableDetails(request.profile);
         const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
           && (repaired.personalization_evidence || []).length === 0);
-        // A repair may not whitewash leakage by declaring evidence for text
-        // that still sits on the wrong spread (alignment), and it may not
-        // touch anything the violations don't implicate (minimal delta) —
-        // both re-checked deterministically on the repaired output.
-        const alignErrors = check.ok && evidenceOk ? evidenceTextAligned(repaired) : [];
-        const deltaErrors = check.ok && evidenceOk && alignErrors.length === 0
+        // Alignment (validateStoryResponse 8b) already gates the repaired
+        // output; the minimal-delta boundary is the one extra check — a
+        // repair may not touch anything the violations don't implicate.
+        const deltaErrors = check.ok && evidenceOk
           ? checkRepairDelta({ before: lastResponse, after: repaired, errors: lastErrors, map })
           : [];
-        if (check.ok && evidenceOk && alignErrors.length === 0 && deltaErrors.length === 0) {
+        if (check.ok && evidenceOk && deltaErrors.length === 0) {
           console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
           const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
           return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
@@ -705,7 +714,7 @@ async function generateStory(params) {
         lastErrors = !check.ok ? check.errors
           : !evidenceOk
             ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
-            : alignErrors.length > 0 ? alignErrors : deltaErrors;
+            : deltaErrors;
         console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${lastErrors.slice(0, 4).join(' | ')}`);
       }
     } catch (err) {
