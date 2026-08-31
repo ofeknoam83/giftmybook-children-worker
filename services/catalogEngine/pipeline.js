@@ -324,6 +324,10 @@ async function runBookPipeline(params) {
       textLayout: e.textLayout,
       ...(e.spreadIllustrationUrl ? { spreadIllustrationUrl: e.spreadIllustrationUrl } : {}),
       ...(e.spreadIllustrationStorageKey ? { spreadIllustrationStorageKey: e.spreadIllustrationStorageKey } : {}),
+      // The app replays these entries into /v13/preview/embedded-overlay and
+      // /finalize-book — art with Gemini-painted text must keep saying so,
+      // or a later layout pass would typeset the caption over it again.
+      ...(e.textEmbeddedInArt ? { textEmbeddedInArt: true } : {}),
     })),
     characterDescription: characterDescription || null,
     characterAnchor: characterDescription || null,

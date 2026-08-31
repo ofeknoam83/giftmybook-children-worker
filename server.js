@@ -1501,6 +1501,9 @@ app.post('/v13/preview/embedded-overlay', authenticate, async (req, res) => {
         heroBox: e.heroBox || null,
         figuresBox: e.figuresBox || null,
         captionText: e.captionText || '',
+        // Art with Gemini-painted text must preview WITHOUT the typeset
+        // overlay — same rule the shipping layout follows.
+        textEmbeddedInArt: !!e.textEmbeddedInArt,
         spreadIllustrationBuffer: buffer,
       });
     }

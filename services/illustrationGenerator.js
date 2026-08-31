@@ -1178,6 +1178,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 module.exports = {
   generateIllustration,
   buildCharacterPrompt,
+  // Deterministic OCR-vs-manuscript comparison (word bag + Levenshtein) —
+  // the slim illustrator's spread QA reuses it to verify Gemini-painted text.
+  compareTexts,
   buildGenericSafePrompt,
   getNextApiKey,
   ART_STYLE_CONFIG,

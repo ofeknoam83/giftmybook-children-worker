@@ -112,8 +112,16 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   manuscript re-renders while an unchanged story replays; a `.qa.json`
   marker beside each render records QA completion (a cached render without
   one is re-checked, never silently approved); bump
-  `STYLE_VERSION` (versions.js) to invalidate globally. Words are PDF type,
-  never pixels (D5): `skipTextEmbed` on every render.
+  `STYLE_VERSION` (versions.js) to invalidate globally. Text is
+  LAYOUT-AWARE (`ce-2`, 2026-08-31): `embedded` renders paint the story
+  text INTO the art via Gemini (the renderer's legacy `embedText` path —
+  typography rules + OCR `verifyImageText` with extra retries) and spread
+  QA transcribes + `compareTexts`-verifies it (missing/garbled painted
+  text is the defect); such entries carry `textEmbeddedInArt: true`
+  through storyContent so `layoutEmbeddedSpread` / the overlay preview
+  embed the art full-bleed and NEVER typeset the caption over it again.
+  `caption` renders keep D5 — words are PDF type, never pixels
+  (`skipTextEmbed`; painted text is the defect).
   `illustrator/tuning.js` is the **Art Tuning Layer** (see below): when an
   `illustrationTuning` overlay rides the request, its framed style-only block
   is appended below each spread's scene and the cache path's version segment
