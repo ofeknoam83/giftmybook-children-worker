@@ -12,6 +12,7 @@ const {
   buildPolishPrompt,
   evidenceUnchanged,
   omissionsUnchanged,
+  evidenceTextAligned,
   normalizeTuning,
   validateTuningInput,
 } = require('../../../services/catalogEngine/writer');
@@ -164,6 +165,34 @@ describe('style polish pass helpers', () => {
     // Absent and explicitly-false visual_required are the same choice.
     expect(evidenceUnchanged([{ ...ev[0] }], [{ ...ev[0], visual_required: undefined }])).toBe(true);
     expect(evidenceUnchanged([], [])).toBe(true);
+  });
+
+  test('evidenceTextAligned rejects evidence whose value sits on an undeclared spread', () => {
+    const spreads = [
+      { spread: 1, text: 'Emma hugs her bunny Flopsy tight.' },
+      { spread: 2, text: 'The morning is quiet and bright.' },
+    ];
+    const aligned = {
+      spreads,
+      personalization_evidence: [{ source_field: 'object', source_value: 'bunny Flopsy', moment_type: 'object_presence', spread: 1, slot_id: 's1' }],
+    };
+    expect(evidenceTextAligned(aligned)).toEqual([]);
+
+    // The whitewash: evidence claims spread 2, the value only occurs on 1 —
+    // a repair adding this record must not silence the leakage error.
+    const whitewash = {
+      spreads,
+      personalization_evidence: [{ source_field: 'object', source_value: 'bunny Flopsy', moment_type: 'object_presence', spread: 2, slot_id: 's2' }],
+    };
+    expect(evidenceTextAligned(whitewash)[0]).toMatch(/bunny Flopsy.*spread its evidence declares/);
+
+    // A paraphrased moment (value not literally in the text) is invisible to
+    // the leakage matcher and passes; so do sub-4-char values.
+    const paraphrase = {
+      spreads: [{ spread: 1, text: 'Emma hugs her favorite soft friend tight.' }],
+      personalization_evidence: [{ source_field: 'object', source_value: 'bunny Flopsy', moment_type: 'object_presence', spread: 1, slot_id: 's1' }],
+    };
+    expect(evidenceTextAligned(paraphrase)).toEqual([]);
   });
 
   test('omissionsUnchanged protects the omission audit from silent polish edits', () => {

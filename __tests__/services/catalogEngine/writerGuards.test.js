@@ -58,6 +58,12 @@ describe('selectOfferedDetails (structural max_details compliance)', () => {
     expect(selectOfferedDetails(richProfile, null)).toBe(richProfile);
   });
 
+  it('max_details: 0 is a real cap, not "uncapped" — no optional detail is offered', () => {
+    const zeroCap = { ...map, targets: { ...map.targets, max_details: 0, min_details: 0 } };
+    const offered = selectOfferedDetails(richProfile, zeroCap);
+    expect(usableDetails(offered).length).toBe(0);
+  });
+
   it('on a REAL approved map, the pinned request profile always fits the caps', () => {
     const bookId = 'christmas_2_3_cookie_day';
     const { request } = buildStoryRequest({ bookId, profile: richProfile, sessionId: 'sess_guard_1' });

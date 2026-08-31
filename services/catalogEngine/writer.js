@@ -16,7 +16,7 @@ const { callText, LlmParseError } = require('../shared/llm/openaiClient');
 const { getBook, loadAgeEngines, renderTitle, toWireBand, catalogVersion } = require('./catalog');
 const { augmentsFor } = require('./augments');
 const { normalizeProfile, usableDetails } = require('./profile');
-const { validateStoryResponse } = require('./storyValidation');
+const { validateStoryResponse, containsTerm } = require('./storyValidation');
 const flags = require('./flags');
 const versions = require('./versions');
 
@@ -171,7 +171,11 @@ function selectOfferedDetails(profile, map) {
       slotSupport.set(f, (slotSupport.get(f) || 0) + 1);
     }
   }
-  const maxDetails = Number(map.targets?.max_details) || Infinity;
+  // Preserve an explicit 0 — `|| Infinity` would turn a zero-cap map into
+  // an uncapped one, pinning details the evidence gate then demands but the
+  // validator forbids (generation could never converge).
+  const rawMax = Number(map.targets?.max_details);
+  const maxDetails = Number.isFinite(rawMax) ? rawMax : Infinity;
   const fields = OPTIONAL_DETAIL_FIELDS
     .filter(f => slotSupport.has(f))
     .sort((a, b) => (slotSupport.get(b) - slotSupport.get(a))
@@ -307,6 +311,41 @@ function omissionsUnchanged(before, after) {
 }
 
 /**
+ * Deterministic evidence-to-text alignment, closing the gap the leakage
+ * check leaves on SECOND-PASS responses (repair/polish): checkLeakage stops
+ * once a value has any evidence record, and validateEvidence never checks
+ * the value occurs on the declared spread — so a repair could "fix" leakage
+ * by adding a legal evidence record while the text stays wrong, and polish
+ * could move a detail off its declared spread. Rule: any evidence value the
+ * leakage matcher can find in the story text must occur on at least one
+ * spread its evidence declares. Values the matcher cannot find anywhere are
+ * paraphrased moments — invisible to leakage — and pass; so does anything
+ * under leakage's 4-char collision guard.
+ * @param {object} response
+ * @returns {string[]} errors (empty = aligned)
+ */
+function evidenceTextAligned(response) {
+  const errors = [];
+  const spreads = Array.isArray(response.spreads) ? response.spreads : [];
+  const fullText = spreads.map(s => s.text || '').join('\n');
+  const byValue = new Map();
+  for (const ev of response.personalization_evidence || []) {
+    const key = `${ev.source_field}|${String(ev.source_value)}`;
+    if (!byValue.has(key)) byValue.set(key, { value: ev.source_value, field: ev.source_field, declared: new Set() });
+    byValue.get(key).declared.add(ev.spread);
+  }
+  for (const { value, field, declared } of byValue.values()) {
+    if (String(value || '').length < 4) continue;
+    if (!containsTerm(fullText, value)) continue;
+    const onDeclared = spreads.some(s => declared.has(s.spread) && containsTerm(s.text || '', value));
+    if (!onDeclared) {
+      errors.push(`'${value}' (${field}) appears in the story text but not on any spread its evidence declares (${[...declared].join(', ')}) — the moment and its evidence must live on the same spread`);
+    }
+  }
+  return errors;
+}
+
+/**
  * ONE style-polish call on an already-VALIDATED story. Fail-safe by design:
  * the polished response replaces the draft only when it passes the full
  * 10-step validation again AND its personalization evidence is unchanged —
@@ -343,6 +382,11 @@ async function polishStory({ request, response, book, theme, ageBand, map, tunin
     }
     if (!omissionsUnchanged(response.omitted_profile_fields, polished.omitted_profile_fields)) {
       console.warn(`[catalogEngine] polish rejected book=${request.book_id}: omission audit drifted — keeping validated draft`);
+      return null;
+    }
+    const alignErrors = evidenceTextAligned(polished);
+    if (alignErrors.length > 0) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: ${alignErrors[0]} — keeping validated draft`);
       return null;
     }
     return polished;
@@ -584,7 +628,11 @@ async function generateStory(params) {
         const details = usableDetails(request.profile);
         const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
           && (repaired.personalization_evidence || []).length === 0);
-        if (check.ok && evidenceOk) {
+        // A repair may not whitewash leakage by declaring evidence for text
+        // that still sits on the wrong spread — alignment is re-checked
+        // deterministically on the repaired output.
+        const alignErrors = check.ok && evidenceOk ? evidenceTextAligned(repaired) : [];
+        if (check.ok && evidenceOk && alignErrors.length === 0) {
           console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
           const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
           return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
@@ -592,9 +640,10 @@ async function generateStory(params) {
         // The thrown error and failure callback must name what the REPAIRED
         // response violated — reporting the pre-repair errors would be stale,
         // and an evidence-only failure would otherwise log an empty reason.
-        lastErrors = check.ok
-          ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
-          : check.errors;
+        lastErrors = !check.ok ? check.errors
+          : !evidenceOk
+            ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
+            : alignErrors;
         console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${lastErrors.slice(0, 4).join(' | ')}`);
       }
     } catch (err) {
@@ -618,6 +667,7 @@ module.exports = {
   buildPolishPrompt,
   evidenceUnchanged,
   omissionsUnchanged,
+  evidenceTextAligned,
   selectOfferedDetails,
   isRepairable,
   normalizeTuning,

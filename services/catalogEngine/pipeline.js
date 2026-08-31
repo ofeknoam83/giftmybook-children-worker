@@ -87,7 +87,16 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
       throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });
     }
     log('info', `Using stored story for ${request.book_id} (${storyPair ? 'request' : 'checkpoint'})`);
-    return { request, response, generated: false };
+    // A checkpoint story carries the provenance flags of the generation it
+    // snapshotted — a resume after an illustration/PDF failure must still
+    // report them, since no earlier success callback ever did.
+    return {
+      request,
+      response,
+      generated: false,
+      repaired: !!candidate.repaired,
+      polished: !!candidate.polished,
+    };
   }
   if (!bookDefinitionId) {
     throw new PipelineError('no story and no bookDefinitionId — nothing to render', 'missing_book_definition');
@@ -153,7 +162,12 @@ async function runBookPipeline(params) {
     engine: 'catalog-v13',
     completedStage: 'story',
     textLayout,
-    story: { request: story.request, response: story.response },
+    story: {
+      request: story.request,
+      response: story.response,
+      ...(story.repaired ? { repaired: true } : {}),
+      ...(story.polished ? { polished: true } : {}),
+    },
   });
 
   // ── Illustration ─────────────────────────────────────────────────────────
@@ -178,7 +192,12 @@ async function runBookPipeline(params) {
     engine: 'catalog-v13',
     completedStage: 'illustration',
     textLayout,
-    story: { request: story.request, response: story.response },
+    story: {
+      request: story.request,
+      response: story.response,
+      ...(story.repaired ? { repaired: true } : {}),
+      ...(story.polished ? { polished: true } : {}),
+    },
     renderKeys: art.entries.map(e => e.spreadIllustrationStorageKey),
   });
 
