@@ -96,23 +96,49 @@ function normalizeTuning(raw) {
 
 /**
  * Compose the system prompt: the LOCKED engine, plus (when a tuning overlay
- * is pinned) the Style Tuning Layer in a fixed subordinate frame. The frame
- * places the overlay at priority 7 (stylistic polish) — it can refine prose,
- * never override any higher-priority input.
+ * is pinned) the Style Tuning Layer. The frame is SCOPE-subordinate, not
+ * importance-subordinate: the rules bind the prose hard (a manuscript that
+ * ignores them is rejected) but can never reach outside prose style — plot,
+ * beats, refrain, title, personalization slots, and the output contract
+ * always win on any conflict.
  * @param {{versionLabel: string, tag: string, text: string}|null} tuning
  * @returns {string}
  */
 function buildSystemPrompt(tuning) {
   if (!tuning) return ENGINE_PROMPT;
   return `${ENGINE_PROMPT}\n\n`
-    + `# STYLE TUNING LAYER ${tuning.tag} (admin-approved stylistic guidance)\n\n`
-    + 'This layer refines PROSE STYLE ONLY, at the lowest priority (7 — stylistic polish). '
-    + 'It is subordinate to every rule above: if any line below conflicts with the safety rules, '
-    + 'the book definition, the age engine, the personalization map, profile handling, or the '
-    + 'output contract, the rules above win and that line must be ignored. This layer may never '
-    + 'add, remove, or alter plot facts, beats, the refrain text, the title, personalization '
-    + 'slots, or output fields.\n\n'
+    + `# STYLE TUNING LAYER ${tuning.tag} (binding editorial requirements)\n\n`
+    + 'The publisher\'s editor requires the prose to satisfy every rule below — a manuscript '
+    + 'that ignores them is rejected. Their scope is PROSE STYLE ONLY: no rule below may add, '
+    + 'remove, or alter plot facts, beats, the refrain text, the title, personalization slots, '
+    + 'or output fields, and none can loosen the safety rules, the book definition, the age '
+    + 'engine, the personalization map, profile handling, or the output contract — on any such '
+    + 'conflict the rules above win and the constraint stands. Within those hard boundaries, '
+    + 'apply every rule below to the fullest.\n\n'
     + tuning.text;
+}
+
+/**
+ * The end-of-prompt style checkpoint: the total prompt runs ~25KB and the
+ * tuning layer sits mid-context, the weakest attention position — so the
+ * LAST thing the writer reads before generating re-points at the layer and
+ * restates its NON-NEGOTIABLE lines verbatim (they are few by definition).
+ * @param {{tag: string, text: string}|null} tuning
+ * @returns {string|null} the checkpoint section, or null without an overlay
+ */
+function buildStyleCheckpoint(tuning) {
+  if (!tuning) return null;
+  const critical = tuning.text.split('\n')
+    .filter(l => l.startsWith('- NON-NEGOTIABLE — '))
+    .slice(0, 10);
+  const parts = [
+    '## STYLE CHECKPOINT (read last, apply everywhere)',
+    `Apply the STYLE TUNING LAYER ${tuning.tag} from the system prompt to every spread.${critical.length
+      ? ' These rules were violated in past drafts — verify each one against your manuscript before returning:'
+      : ''}`,
+  ];
+  if (critical.length) parts.push(critical.join('\n'));
+  return parts.join('\n');
 }
 
 // Optional profile fields in offer-priority order (dedicated-slot fields
@@ -220,6 +246,105 @@ function buildRepairPrompt({ request, response, errors }) {
   ].join('\n\n');
 }
 
+/**
+ * The style-polish prompt: the validated draft plus strict echo orders. The
+ * polish call is the one place the tuning rules get near-total instruction
+ * attention — in the generation pass they compete with plot, schema, caps,
+ * and word bounds and lose the tiebreak.
+ * @param {{request: object, response: object}} params
+ * @returns {string}
+ */
+function buildPolishPrompt({ request, response }) {
+  return [
+    '# STYLE POLISH TASK — rewrite the PROSE ONLY to satisfy the STYLE TUNING LAYER',
+    'The draft below already satisfies every hard constraint (plot, beats, refrain, title, word bounds, personalization). Rewrite the spread texts so the prose satisfies EVERY rule in the STYLE TUNING LAYER from the system prompt. Return the COMPLETE corrected JSON object in the same schema.',
+    '## DRAFT',
+    '```json\n' + JSON.stringify(response, null, 1) + '\n```',
+    '## POLISH RULES',
+    'Do NOT change: the plot events or their order, the title, the refrain text or which spreads carry it, the spread numbering or count, personalization_evidence or omitted_profile_fields (echo both VERBATIM — every personalization detail stays on the spread its evidence declares), or request_id/book_id/versions (echo verbatim: '
+      + JSON.stringify({ request_id: request.request_id, book_id: request.book_id, versions: request.versions })
+      + '). Keep every spread inside its word bounds. If a style rule cannot be satisfied without breaking one of these constraints, the constraint stands.',
+  ].join('\n\n');
+}
+
+/**
+ * Personalization must survive polish untouched: same evidence entries, in
+ * order, same values, anchored to the same spreads/slots.
+ * @param {object[]} before
+ * @param {object[]} after
+ * @returns {boolean}
+ */
+function evidenceUnchanged(before, after) {
+  const a = Array.isArray(before) ? before : [];
+  const b = Array.isArray(after) ? after : [];
+  if (a.length !== b.length) return false;
+  return a.every((e, i) => e.source_field === b[i].source_field
+    && e.source_value === b[i].source_value
+    && e.spread === b[i].spread
+    && e.slot_id === b[i].slot_id
+    && e.moment_type === b[i].moment_type);
+}
+
+/**
+ * ONE style-polish call on an already-VALIDATED story. Fail-safe by design:
+ * the polished response replaces the draft only when it passes the full
+ * 10-step validation again AND its personalization evidence is unchanged —
+ * any failure (call error, bad JSON, validation, evidence drift) keeps the
+ * validated draft. A good story is never lost to polish.
+ * Runs only when a tuning overlay is pinned; CATALOG_STYLE_POLISH=0 kills it.
+ * @param {object} params {request, response, book, theme, ageBand, map, tuning, usageTotal, label}
+ * @returns {Promise<object|null>} the polished response, or null to keep the draft
+ */
+async function polishStory({ request, response, book, theme, ageBand, map, tuning, usageTotal, label }) {
+  try {
+    const result = await callText({
+      model: WRITER_MODEL(),
+      systemPrompt: buildSystemPrompt(tuning),
+      userPrompt: buildPolishPrompt({ request, response }),
+      jsonMode: true,
+      temperature: 0.6,
+      maxTokens: 9000,
+      allowGeminiFallback: false,
+      label: `${label}:polish`,
+    });
+    usageTotal.inputTokens += result.usage?.inputTokens || 0;
+    usageTotal.outputTokens += result.usage?.outputTokens || 0;
+    const polished = result.json;
+    if (!polished || typeof polished !== 'object') return null;
+    const check = validateStoryResponse({ response: polished, request, book, ageBand, map, theme });
+    if (!check.ok) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: ${check.errors.slice(0, 4).join(' | ')} — keeping validated draft`);
+      return null;
+    }
+    if (!evidenceUnchanged(response.personalization_evidence, polished.personalization_evidence)) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: personalization evidence drifted — keeping validated draft`);
+      return null;
+    }
+    return polished;
+  } catch (err) {
+    console.warn(`[catalogEngine] polish call failed book=${request.book_id}: ${err.message} — keeping validated draft`);
+    return null;
+  }
+}
+
+/**
+ * Apply the style-polish pass when a tuning overlay is active (and not
+ * kill-switched). Returns the response to ship plus whether polish landed.
+ * @param {object} args see polishStory
+ * @returns {Promise<{response: object, polished: boolean}>}
+ */
+async function maybePolish(args) {
+  if (!args.tuning || !flags.stylePolishEnabled()) {
+    return { response: args.response, polished: false };
+  }
+  const polished = await polishStory(args);
+  if (polished) {
+    console.log(`[catalogEngine] story POLISHED book=${args.request.book_id} tuning=${args.request.versions.writer_tuning}`);
+    return { response: polished, polished: true };
+  }
+  return { response: args.response, polished: false };
+}
+
 class StoryGenerationError extends Error {
   /**
    * @param {string} message
@@ -292,7 +417,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
  * blocks. Bump PROMPT_TEMPLATE_VERSION on any change here.
  * @returns {string}
  */
-function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors = null }) {
+function buildUserPrompt({ request, book, theme, ageBand, map, tuning = null, validationErrors = null }) {
   const ageEngines = loadAgeEngines();
   const engine = ageEngines[ageBand];
   const exactCalibration = ageBand === '1-3'
@@ -333,6 +458,10 @@ function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors 
     + 'omitted_profile_fields (array of {source_field, reason} with reason one of missing|no_approved_slot|weak_fit|redundant|unsafe_or_sensitive|ip_or_brand|moment_cap|editorial_omission). '
     + 'Prose only in "text" — no illustration directions, no stage notes.');
 
+  const checkpoint = buildStyleCheckpoint(tuning);
+  if (checkpoint) parts.push(checkpoint);
+
+  // Retry corrections stay LAST — on a retry they are the most urgent read.
   if (validationErrors && validationErrors.length > 0) {
     parts.push('## PREVIOUS ATTEMPT FAILED VALIDATION — FIX EVERY ITEM BELOW WITHOUT CHANGING THE PLOT');
     parts.push(validationErrors.map(e => `- ${e}`).join('\n'));
@@ -358,7 +487,7 @@ async function generateStory(params) {
   let lastResponse = null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, validationErrors: lastErrors });
+    const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, tuning, validationErrors: lastErrors });
     let result;
     try {
       result = await callText({
@@ -398,7 +527,8 @@ async function generateStory(params) {
         continue;
       }
       console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} tuning=${request.versions.writer_tuning} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
-      return { request, response, usage: usageTotal, attempts: attempt, nameOnly: !map, themeId, ageBand };
+      const final = await maybePolish({ request, response, book, theme, ageBand, map, tuning, usageTotal, label });
+      return { request, response: final.response, usage: usageTotal, attempts: attempt, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
     }
     console.warn(`[catalogEngine] story validation failed book=${request.book_id} attempt=${attempt}: ${errors.slice(0, 6).join(' | ')}${errors.length > 6 ? ` (+${errors.length - 6} more)` : ''}`);
     lastErrors = errors;
@@ -431,7 +561,8 @@ async function generateStory(params) {
           && (repaired.personalization_evidence || []).length === 0);
         if (check.ok && evidenceOk) {
           console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
-          return { request, response: repaired, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand };
+          const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
+          return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
         }
         console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${check.errors.slice(0, 4).join(' | ')}`);
       }
@@ -451,7 +582,10 @@ module.exports = {
   buildStoryRequest,
   buildUserPrompt,
   buildSystemPrompt,
+  buildStyleCheckpoint,
   buildRepairPrompt,
+  buildPolishPrompt,
+  evidenceUnchanged,
   selectOfferedDetails,
   isRepairable,
   normalizeTuning,

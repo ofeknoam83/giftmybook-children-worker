@@ -7,9 +7,14 @@
 const {
   buildStoryRequest,
   buildSystemPrompt,
+  buildStyleCheckpoint,
+  buildUserPrompt,
+  buildPolishPrompt,
+  evidenceUnchanged,
   normalizeTuning,
   validateTuningInput,
 } = require('../../../services/catalogEngine/writer');
+const { getBook } = require('../../../services/catalogEngine/catalog');
 const { validateStoryResponse } = require('../../../services/catalogEngine/storyValidation');
 
 const PRONOUNS = { subject: 'she', object: 'her', possessive_adjective: 'her' };
@@ -72,15 +77,83 @@ describe('system prompt composition', () => {
     expect(bare).not.toContain('STYLE TUNING LAYER');
   });
 
-  test('tuning appends AFTER the engine inside the subordinate frame', () => {
+  test('tuning appends AFTER the engine, scope-subordinate but importance-binding', () => {
     const bare = buildSystemPrompt(null);
     const composed = buildSystemPrompt(normalizeTuning(TUNING));
     expect(composed.startsWith(bare)).toBe(true);
     const overlay = composed.slice(bare.length);
     expect(overlay).toContain('# STYLE TUNING LAYER tune-007.9f31c2ab');
+    expect(overlay).toContain('binding editorial requirements');
+    // The scope carve-out survives: prose only, hard constraints always win…
     expect(overlay).toContain('PROSE STYLE ONLY');
     expect(overlay).toContain('the rules above win');
+    // …but the layer is no longer talked down as ignorable garnish.
+    expect(overlay).not.toContain('lowest priority');
+    expect(overlay).not.toContain('stylistic polish');
     expect(overlay).toContain(TUNING.text);
+  });
+});
+
+describe('style checkpoint (end-of-prompt restatement)', () => {
+  const CRITICAL_TUNING = {
+    ...TUNING,
+    text: '- Prefer concrete sensory detail.\n- NON-NEGOTIABLE — End at least half the spreads on a stressed syllable.\n- IMPORTANT — One adjective per noun.',
+  };
+
+  test('no tuning → no checkpoint section', () => {
+    expect(buildStyleCheckpoint(null)).toBeNull();
+  });
+
+  test('restates NON-NEGOTIABLE lines verbatim; plain overlays still get the pointer', () => {
+    const critical = buildStyleCheckpoint(normalizeTuning(CRITICAL_TUNING));
+    expect(critical).toContain('## STYLE CHECKPOINT');
+    expect(critical).toContain('STYLE TUNING LAYER tune-007.9f31c2ab');
+    expect(critical).toContain('- NON-NEGOTIABLE — End at least half the spreads on a stressed syllable.');
+    expect(critical).not.toContain('One adjective per noun'); // IMPORTANT tier is not restated
+
+    const plain = buildStyleCheckpoint(normalizeTuning(TUNING));
+    expect(plain).toContain('## STYLE CHECKPOINT');
+    expect(plain).not.toContain('violated in past drafts');
+  });
+
+  test('the checkpoint lands at the END of the user prompt, before retry errors only', () => {
+    const tuning = normalizeTuning(CRITICAL_TUNING);
+    const { request, book, ageBand, map } = buildStoryRequest({
+      bookId: 'farm_2_3_hello_farm', profile: baseProfile(), sessionId: 'sess_cp_1', tuning,
+    });
+    const theme = getBook(request.book_id).theme;
+
+    const prompt = buildUserPrompt({ request, book, theme, ageBand, map, tuning });
+    expect(prompt.indexOf('## STYLE CHECKPOINT')).toBeGreaterThan(prompt.indexOf('## OUTPUT'));
+
+    const retry = buildUserPrompt({ request, book, theme, ageBand, map, tuning, validationErrors: ['spread 3: too long'] });
+    expect(retry.indexOf('## STYLE CHECKPOINT')).toBeLessThan(retry.indexOf('## PREVIOUS ATTEMPT FAILED VALIDATION'));
+
+    const bare = buildUserPrompt({ request, book, theme, ageBand, map });
+    expect(bare).not.toContain('STYLE CHECKPOINT');
+  });
+});
+
+describe('style polish pass helpers', () => {
+  test('buildPolishPrompt carries the draft, echo orders, and constraint precedence', () => {
+    const request = { request_id: 'r1', book_id: 'farm_2_3_hello_farm', versions: { writer_tuning: 'tune-007.9f31c2ab' } };
+    const response = { title: 'T', spreads: [{ spread: 1, text: 'Hello.' }], personalization_evidence: [] };
+    const prompt = buildPolishPrompt({ request, response });
+    expect(prompt).toContain('# STYLE POLISH TASK');
+    expect(prompt).toContain('"book_id":"farm_2_3_hello_farm"');
+    expect(prompt).toContain('echo both VERBATIM');
+    expect(prompt).toContain('the constraint stands');
+    expect(prompt).toContain('Hello.');
+  });
+
+  test('evidenceUnchanged accepts identical evidence and rejects any drift', () => {
+    const ev = [{ source_field: 'food', source_value: 'pasta', moment_type: 'sensory', spread: 4, slot_id: 's04' }];
+    expect(evidenceUnchanged(ev, [{ ...ev[0] }])).toBe(true);
+    expect(evidenceUnchanged(ev, [])).toBe(false);
+    expect(evidenceUnchanged(ev, [{ ...ev[0], source_value: 'pizza' }])).toBe(false);
+    expect(evidenceUnchanged(ev, [{ ...ev[0], spread: 5 }])).toBe(false);
+    expect(evidenceUnchanged(ev, [{ ...ev[0], slot_id: 's05' }])).toBe(false);
+    expect(evidenceUnchanged([], [])).toBe(true);
   });
 });
 

@@ -48,7 +48,14 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   banned terms, leakage (`isRepairable`) — with minimal edits on the
   model's own response, fully re-validated; plot-level failures never
   reach repair. A candidate that still fails, fails — never a silent plot
-  substitution.
+  substitution. The tuning overlay is framed SCOPE-subordinate (binding on
+  prose, never on plot/refrain/title/slots/contract), restated at the END
+  of the user prompt (`buildStyleCheckpoint` — NON-NEGOTIABLE lines
+  verbatim), and, when an overlay is pinned, a validated story gets ONE
+  style-polish call (`maybePolish`, kill-switch `CATALOG_STYLE_POLISH=0`)
+  that rewrites prose only and ships only if it re-passes the full
+  validation with identical personalization evidence — a good story is
+  never lost to polish (`polished: true` on the result when it lands).
 - `storyValidation.js` — the 10-step deterministic sequence: ajv schema →
   identity/version echo → 12 ordered spreads → exact title equality → refrain
   exact text + placement → exact-age word bounds → evidence-vs-map legality →
@@ -90,6 +97,7 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   usable details despite approved slots.
 - `CATALOG_TUNING_LAYER=0` — ignore any `writerTuning` overlay from the main
   app (stories render on the bare locked engine prompt).
+- `CATALOG_STYLE_POLISH=0` — skip the style-polish pass on tuned stories.
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`).
 
