@@ -125,6 +125,7 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
  * @param {string} params.sessionId
  * @param {{request: object, response: object}|null} params.storyPair chosen story from the main app
  * @param {object|null} [params.writerTuning] Style Tuning Layer overlay — applied to a FRESH generation only
+ * @param {object|null} [params.illustrationTuning] Art Tuning Layer overlay — applied to every render
  * @param {object|null} params.checkpoint previously saved checkpoint (or null)
  * @param {(cp: object) => Promise<void>} params.saveCheckpoint
  * @param {string|null} params.approvedCoverUrl
@@ -182,6 +183,7 @@ async function runBookPipeline(params) {
     childPhotoUrl,
     characterDescription,
     textLayout,
+    tuning: params.illustrationTuning || null,
     costTracker,
     forceRerender,
     onProgress: (frac, message) => onProgress('illustration', 0.2 + frac * 0.6, message),
@@ -307,6 +309,10 @@ async function runBookPipeline(params) {
       ageBand: bookDef.ageBand,
       archetype: bookDef.book.archetype,
       versions: story.request.versions,
+      // Pinned at RENDER time (the story's versions echo is pinned at story
+      // time and its schema is frozen) — which Art Tuning version painted
+      // this book's spreads, or 'none'.
+      illustrationTuning: art.illustrationTuningUsed,
       personalizationEvidence: story.response.personalization_evidence || [],
       omittedProfileFields: story.response.omitted_profile_fields || [],
       ...(story.repaired ? { repaired: true } : {}),
@@ -321,6 +327,7 @@ async function runBookPipeline(params) {
     previewImageUrls: art.previewImageUrls,
     title: bookTitle,
     spreadCount: art.entries.length,
+    illustrationTuningUsed: art.illustrationTuningUsed,
     storyContent,
     upsellCovers: upsellWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
     qaAdvisories: qaAdvisories.slice(0, 40),
@@ -328,4 +335,4 @@ async function runBookPipeline(params) {
   };
 }
 
-module.exports = { runBookPipeline, PipelineError };
+module.exports = { runBookPipeline, resolveStory, PipelineError };
