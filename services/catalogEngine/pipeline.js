@@ -35,7 +35,10 @@ class PipelineError extends Error {
  *    against its own pinned request — never trusted blindly), or
  *  - checkpoint story from a previous run, or
  *  - a fresh generation for the requested book id.
- * @returns {Promise<{request: object, response: object, generated: boolean}>}
+ * @returns {Promise<{request: object, response: object, generated: boolean,
+ *   repaired: boolean, polished: boolean}>} provenance flags come from the
+ *   fresh generation OR are restored from the stored/checkpoint candidate
+ *   that carried them (absent on old blobs ⇒ false)
  */
 async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, profile, sessionId, writerTuning, log }) {
   const candidate = storyPair || checkpointStory;
@@ -85,7 +88,16 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
       throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });
     }
     log('info', `Using stored story for ${request.book_id} (${storyPair ? 'request' : 'checkpoint'})`);
-    return { request, response, generated: false };
+    // A checkpoint story carries the provenance flags of the generation it
+    // snapshotted — a resume after an illustration/PDF failure must still
+    // report them, since no earlier success callback ever did.
+    return {
+      request,
+      response,
+      generated: false,
+      repaired: !!candidate.repaired,
+      polished: !!candidate.polished,
+    };
   }
   if (!bookDefinitionId) {
     throw new PipelineError('no story and no bookDefinitionId — nothing to render', 'missing_book_definition');
@@ -94,7 +106,13 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
   // A stored pair above keeps its own pinned tuning tag; the overlay applies
   // only to a FRESH generation.
   const story = await generateStory({ bookId: bookDefinitionId, profile, sessionId, tuning: writerTuning || null });
-  return { request: story.request, response: story.response, generated: true };
+  return {
+    request: story.request,
+    response: story.response,
+    generated: true,
+    repaired: !!story.repaired,
+    polished: !!story.polished,
+  };
 }
 
 /**
@@ -146,7 +164,12 @@ async function runBookPipeline(params) {
     engine: 'catalog-v13',
     completedStage: 'story',
     textLayout,
-    story: { request: story.request, response: story.response },
+    story: {
+      request: story.request,
+      response: story.response,
+      ...(story.repaired ? { repaired: true } : {}),
+      ...(story.polished ? { polished: true } : {}),
+    },
   });
 
   // ── Illustration ─────────────────────────────────────────────────────────
@@ -172,7 +195,12 @@ async function runBookPipeline(params) {
     engine: 'catalog-v13',
     completedStage: 'illustration',
     textLayout,
-    story: { request: story.request, response: story.response },
+    story: {
+      request: story.request,
+      response: story.response,
+      ...(story.repaired ? { repaired: true } : {}),
+      ...(story.polished ? { polished: true } : {}),
+    },
     renderKeys: art.entries.map(e => e.spreadIllustrationStorageKey),
   });
 
@@ -287,6 +315,8 @@ async function runBookPipeline(params) {
       illustrationTuning: art.illustrationTuningUsed,
       personalizationEvidence: story.response.personalization_evidence || [],
       omittedProfileFields: story.response.omitted_profile_fields || [],
+      ...(story.repaired ? { repaired: true } : {}),
+      ...(story.polished ? { polished: true } : {}),
     },
   };
 

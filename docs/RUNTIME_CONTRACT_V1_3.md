@@ -93,13 +93,14 @@ Run in this order:
 - A callback requires a prior evidence record for the same detail with an introduction-capable moment type.
 - Text requiring visual alignment must have `visual_required=true` and emit the matching `visual_slot_id`.
 - Prohibited fields and omitted details must not appear in story text after normalized case/diacritic-insensitive matching. Exact string checks are necessary but not sufficient; include human sampling.
+- Every evidence value found literally in the story text must occur only on spreads its evidence declares — an occurrence on an undeclared spread is a misplaced or uncounted moment and fails validation.
 - Evidence offsets are optional; evidence itself is required in internal production output.
 
 ## Retry and repair
 
 On structural failure, retry the same pinned request once with validation errors and temperature reduced. Do not change `book_id`, map, age engine, or profile. If still invalid, fail the candidate and regenerate only that candidate. Never silently substitute a different plot.
 
-Content repair may replace only failed spread text and must be revalidated against the complete 12-spread story. Maximum attempts and provider timeouts are configuration, logged per request.
+Content repair is restricted to the bounded failure classes (word bounds, personalization caps/legality, banned terms, leakage, the empty-evidence gate — never schema, identity, title, refrain, beat, or spread-structure failures). It may edit only the spread text implicated by the listed violations — removing a violating personalization moment edits its own spread; adding a moment required by the empty-evidence gate edits only a slot's designated spread — and `personalization_evidence`/`omitted_profile_fields` may change only to exactly describe those text edits. The repaired output must be revalidated against the complete 12-spread story, including deterministic evidence-to-spread text alignment. Maximum attempts and provider timeouts are configuration, logged per request.
 
 ## Persistence and idempotency
 

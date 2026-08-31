@@ -16,6 +16,11 @@
  *  - CATALOG_TUNING_LAYER=0       — ignore any writerTuning overlay sent by
  *                                   the main app (stories render on the bare
  *                                   locked engine prompt).
+ *  - CATALOG_STYLE_POLISH=0       — skip the style-polish pass (the extra
+ *                                   focused call that rewrites prose of an
+ *                                   already-validated story to satisfy the
+ *                                   tuning rules; only runs when an overlay
+ *                                   is pinned).
  *  - CATALOG_ART_TUNING_LAYER=0   — ignore any illustrationTuning overlay
  *                                   sent by the main app (spreads render on
  *                                   the bare scene + style prompts).
@@ -34,5 +39,6 @@ module.exports = {
   personalizationMapsEnabled: () => !envOff('CATALOG_PERSONALIZATION_MAPS'),
   evidenceRequired: () => !envOff('CATALOG_EVIDENCE_REQUIRED'),
   tuningLayerEnabled: () => !envOff('CATALOG_TUNING_LAYER'),
+  stylePolishEnabled: () => !envOff('CATALOG_STYLE_POLISH'),
   artTuningLayerEnabled: () => !envOff('CATALOG_ART_TUNING_LAYER'),
 };

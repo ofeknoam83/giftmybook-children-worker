@@ -153,8 +153,13 @@ function validateStoryResponse({ response, request, book, ageBand, map, theme, s
   errors.push(...checkAgeBounds(response.spreads, ageBand, profile.age));
 
   // 7-8. Personalization evidence (skipped only when the pinned map is
-  // unavailable at re-validation time — the caller says so explicitly).
-  if (!skipEvidenceChecks) errors.push(...validateEvidence({ response, profile, map }));
+  // unavailable at re-validation time — the caller says so explicitly),
+  // including evidence-to-spread text alignment: every path — generation,
+  // repair, polish, stored-pair revalidation — holds the same invariant.
+  if (!skipEvidenceChecks) {
+    errors.push(...validateEvidence({ response, profile, map }));
+    errors.push(...evidenceTextAligned(response));
+  }
 
   // 9. Forbidden terms + leakage. A banned term that is (a word of) the
   // child's own supplied name is exempt — the name is REQUIRED in the text,
@@ -268,6 +273,38 @@ function validateEvidence({ response, profile, map }) {
 }
 
 /**
+ * Step 8b: evidence-to-text alignment. Any evidence source_value the
+ * leakage matcher can find in the text must occur ONLY on spreads its
+ * evidence declares: an occurrence on an undeclared spread is either a
+ * misplaced moment or an uncounted extra use — invisible to checkLeakage
+ * (which skips values carrying any evidence) and to the caps (which count
+ * evidence records, not occurrences). Values the matcher cannot find at
+ * all are paraphrased moments and pass; sub-4-char values are skipped,
+ * mirroring leakage's collision guard.
+ * @param {object} response
+ * @returns {string[]} errors
+ */
+function evidenceTextAligned(response) {
+  const errors = [];
+  const spreads = Array.isArray(response.spreads) ? response.spreads : [];
+  const byValue = new Map();
+  for (const ev of response.personalization_evidence || []) {
+    const key = `${ev.source_field}|${String(ev.source_value)}`;
+    if (!byValue.has(key)) byValue.set(key, { value: ev.source_value, field: ev.source_field, declared: new Set() });
+    byValue.get(key).declared.add(ev.spread);
+  }
+  for (const { value, field, declared } of byValue.values()) {
+    if (String(value || '').length < 4) continue;
+    for (const s of spreads) {
+      if (containsTerm(s.text || '', value) && !declared.has(s.spread)) {
+        errors.push(`'${value}' (${field}) appears on spread ${s.spread} but its evidence declares only spread(s) ${[...declared].join(', ')} — every literal use needs a declared moment on its own spread`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
  * Step 9b: supplied optional values that were NOT used as evidence must not
  * appear in the story text (normalized whole-word match). Values shorter
  * than 4 characters are skipped — too collision-prone to be meaningful.
@@ -288,4 +325,4 @@ function checkLeakage({ response, profile, fullText }) {
   return errors;
 }
 
-module.exports = { validateStoryResponse, validateEvidence, checkBeatAnchors, checkLeakage, containsTerm, BANNED_BRANDS };
+module.exports = { validateStoryResponse, validateEvidence, evidenceTextAligned, checkBeatAnchors, checkLeakage, containsTerm, BANNED_BRANDS };

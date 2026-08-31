@@ -16,7 +16,7 @@ const { callText, LlmParseError } = require('../shared/llm/openaiClient');
 const { getBook, loadAgeEngines, renderTitle, toWireBand, catalogVersion } = require('./catalog');
 const { augmentsFor } = require('./augments');
 const { normalizeProfile, usableDetails } = require('./profile');
-const { validateStoryResponse } = require('./storyValidation');
+const { validateStoryResponse, containsTerm, evidenceTextAligned } = require('./storyValidation');
 const flags = require('./flags');
 const versions = require('./versions');
 
@@ -96,23 +96,391 @@ function normalizeTuning(raw) {
 
 /**
  * Compose the system prompt: the LOCKED engine, plus (when a tuning overlay
- * is pinned) the Style Tuning Layer in a fixed subordinate frame. The frame
- * places the overlay at priority 7 (stylistic polish) — it can refine prose,
- * never override any higher-priority input.
+ * is pinned) the Style Tuning Layer. The frame is SCOPE-subordinate, not
+ * importance-subordinate: the rules bind the prose hard (a manuscript that
+ * ignores them is rejected) but can never reach outside prose style — plot,
+ * beats, refrain, title, personalization slots, and the output contract
+ * always win on any conflict.
  * @param {{versionLabel: string, tag: string, text: string}|null} tuning
  * @returns {string}
  */
 function buildSystemPrompt(tuning) {
   if (!tuning) return ENGINE_PROMPT;
   return `${ENGINE_PROMPT}\n\n`
-    + `# STYLE TUNING LAYER ${tuning.tag} (admin-approved stylistic guidance)\n\n`
-    + 'This layer refines PROSE STYLE ONLY, at the lowest priority (7 — stylistic polish). '
-    + 'It is subordinate to every rule above: if any line below conflicts with the safety rules, '
-    + 'the book definition, the age engine, the personalization map, profile handling, or the '
-    + 'output contract, the rules above win and that line must be ignored. This layer may never '
-    + 'add, remove, or alter plot facts, beats, the refrain text, the title, personalization '
-    + 'slots, or output fields.\n\n'
+    + `# STYLE TUNING LAYER ${tuning.tag} (binding editorial requirements)\n\n`
+    + 'The publisher\'s editor requires the prose to satisfy every rule below — a manuscript '
+    + 'that ignores them is rejected. Their scope is PROSE STYLE ONLY: no rule below may add, '
+    + 'remove, or alter plot facts, beats, the refrain text, the title, personalization slots, '
+    + 'or output fields, and none can loosen the safety rules, the book definition, the age '
+    + 'engine, the personalization map, profile handling, or the output contract — on any such '
+    + 'conflict the rules above win and the constraint stands. Within those hard boundaries, '
+    + 'apply every rule below to the fullest.\n\n'
     + tuning.text;
+}
+
+/**
+ * The end-of-prompt style checkpoint: the total prompt runs ~25KB and the
+ * tuning layer sits mid-context, the weakest attention position — so the
+ * LAST thing the writer reads before generating re-points at the layer and
+ * restates its NON-NEGOTIABLE lines verbatim (they are few by definition).
+ * @param {{tag: string, text: string}|null} tuning
+ * @returns {string|null} the checkpoint section, or null without an overlay
+ */
+function buildStyleCheckpoint(tuning) {
+  if (!tuning) return null;
+  const critical = tuning.text.split('\n')
+    .filter(l => l.startsWith('- NON-NEGOTIABLE — '))
+    .slice(0, 10);
+  const parts = [
+    '## STYLE CHECKPOINT (read last, apply everywhere)',
+    `Apply the STYLE TUNING LAYER ${tuning.tag} from the system prompt to every spread.${critical.length
+      ? ' These rules were violated in past drafts — verify each one against your manuscript before returning:'
+      : ''}`,
+  ];
+  if (critical.length) parts.push(critical.join('\n'));
+  return parts.join('\n');
+}
+
+// Optional profile fields in offer-priority order (dedicated-slot fields
+// first). Used by the deterministic per-book detail pre-selection.
+const OPTIONAL_DETAIL_FIELDS = ['object', 'habit', 'trait', 'food', 'place', 'interests', 'activities'];
+
+/**
+ * Deterministically pre-select which optional details the writer is OFFERED
+ * for one book, so the map's caps are structurally satisfiable instead of
+ * asking the model to self-ration:
+ *  - a detail whose field has NO legal slot in this book's map is dropped
+ *    (it could never be used, and only tempts illegal placements);
+ *  - the remaining detail VALUES are capped at map.targets.max_details,
+ *    keeping fields with more supporting slots first (ties break on a fixed
+ *    field order, then original array order — fully deterministic).
+ * The trimmed profile IS the pinned request profile, so validation, leakage
+ * checks, and omission accounting all stay coherent. Name-only mode (no
+ * map) is untouched. Aligned with the editorial direction: few details,
+ * used deeply.
+ *
+ * @param {object} profile normalized V1.3 profile
+ * @param {object|null} map approved personalization map (or null)
+ * @returns {object} the offered profile — a new object when a map trims it;
+ *   name-only mode (no map) returns the INPUT unchanged (never mutated)
+ */
+function selectOfferedDetails(profile, map) {
+  if (!map) return profile;
+  const slotSupport = new Map();
+  for (const slot of map.slots || []) {
+    for (const f of slot.allowed_profile_fields || []) {
+      slotSupport.set(f, (slotSupport.get(f) || 0) + 1);
+    }
+  }
+  // Preserve an explicit 0 — `|| Infinity` would turn a zero-cap map into
+  // an uncapped one, pinning details the evidence gate then demands but the
+  // validator forbids (generation could never converge).
+  const rawMax = Number(map.targets?.max_details);
+  const maxDetails = Number.isFinite(rawMax) ? rawMax : Infinity;
+  const fields = OPTIONAL_DETAIL_FIELDS
+    .filter(f => slotSupport.has(f))
+    .sort((a, b) => (slotSupport.get(b) - slotSupport.get(a))
+      || (OPTIONAL_DETAIL_FIELDS.indexOf(a) - OPTIONAL_DETAIL_FIELDS.indexOf(b)));
+
+  const out = { ...profile, object: null, food: null, place: null, habit: null, trait: null, interests: [], activities: [] };
+  let kept = 0;
+  for (const field of fields) {
+    const value = profile[field];
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (kept >= maxDetails) break;
+        out[field] = [...out[field], item];
+        kept++;
+      }
+    } else if (value != null && String(value).trim() !== '' && kept < maxDetails) {
+      out[field] = value;
+      kept++;
+    }
+  }
+  return out;
+}
+
+// Failure classes ONE targeted repair call can fix without touching the
+// plot: word bounds, personalization legality/caps/minima, banned terms,
+// leakage, and the evidence hard-gate. Everything else (schema, echo,
+// title, refrain, beats, spread numbering) means the story itself is wrong
+// and repair must not run.
+const REPAIRABLE_ERROR_PATTERNS = [
+  /^spread \d+: \d+ words, must be /,
+  /^total \d+ words, must be /,
+  /^evidence: /,
+  /^moment_count \d+ exceeds /,
+  /^selected_detail_count \d+ exceeds /,
+  /^detail '.*' used \d+x, repeat limit /,
+  /^below the map minimum /,
+  /^banned brand\/IP term /,
+  /appears in the story text but is not declared in personalization_evidence/,
+  /appears on spread \d+ but its evidence declares only/,
+  /^personalization_evidence is empty although usable/,
+];
+
+/**
+ * Every error must be one a minimal-edit repair can fix.
+ * @param {string[]|null} errors
+ * @returns {boolean}
+ */
+function isRepairable(errors) {
+  return Array.isArray(errors) && errors.length > 0
+    && errors.every(e => REPAIRABLE_ERROR_PATTERNS.some(re => re.test(e)));
+}
+
+/**
+ * The repair prompt: the model's own last response plus the exact
+ * violations, with strict minimal-edit orders. Sanctioned by the runtime
+ * contract's content-repair provision (repair only what failed, re-validate
+ * everything).
+ * @param {{request: object, response: object, errors: string[]}} params
+ * @returns {string}
+ */
+function buildRepairPrompt({ request, response, errors }) {
+  return [
+    '# REPAIR TASK — fix ONLY the listed violations with MINIMAL edits',
+    'Your previous response for this exact request violated the checks listed below. Return the COMPLETE corrected JSON object in the same schema.',
+    '## PREVIOUS RESPONSE',
+    '```json\n' + JSON.stringify(response, null, 1) + '\n```',
+    '## VIOLATIONS TO FIX',
+    errors.map(e => `- ${e}`).join('\n'),
+    '## REPAIR RULES',
+    'Do NOT change: the plot events or their order, the title, the refrain text or which spreads carry it, the spread numbering, or request_id/book_id/versions (echo verbatim: '
+      + JSON.stringify({ request_id: request.request_id, book_id: request.book_id, versions: request.versions })
+      + '). You MAY edit ONLY the spread text implicated by the violations above: reword an offending spread (same meaning, shorter or longer to meet word bounds); REMOVE a violating personalization moment from its own spread; ADD a required moment only on its slot\'s designated spread. Update personalization_evidence and omitted_profile_fields ONLY to exactly describe those edits, so every supplied detail is accounted for. All other spreads stay verbatim. Prose only in "text".',
+  ].join('\n\n');
+}
+
+/**
+ * The style-polish prompt: the validated draft plus strict echo orders. The
+ * polish call is the one place the tuning rules get near-total instruction
+ * attention — in the generation pass they compete with plot, schema, caps,
+ * and word bounds and lose the tiebreak.
+ * @param {{request: object, response: object}} params
+ * @returns {string}
+ */
+function buildPolishPrompt({ request, response }) {
+  return [
+    '# STYLE POLISH TASK — rewrite the PROSE ONLY to satisfy the STYLE TUNING LAYER',
+    'The draft below already satisfies every hard constraint (plot, beats, refrain, title, word bounds, personalization). Rewrite the spread texts so the prose satisfies EVERY rule in the STYLE TUNING LAYER from the system prompt. Return the COMPLETE corrected JSON object in the same schema.',
+    '## DRAFT',
+    '```json\n' + JSON.stringify(response, null, 1) + '\n```',
+    '## POLISH RULES',
+    'Do NOT change: the plot events or their order, the title, the refrain text or which spreads carry it, the spread numbering or count, personalization_evidence or omitted_profile_fields (echo both VERBATIM — every personalization detail stays on the spread its evidence declares), or request_id/book_id/versions (echo verbatim: '
+      + JSON.stringify({ request_id: request.request_id, book_id: request.book_id, versions: request.versions })
+      + '). Keep every spread inside its word bounds. If a style rule cannot be satisfied without breaking one of these constraints, the constraint stands.',
+  ].join('\n\n');
+}
+
+/**
+ * Personalization must survive polish untouched: same evidence entries, in
+ * order, same values, anchored to the same spreads/slots — INCLUDING the
+ * visual fields: on a slot with optional visual alignment, validation
+ * accepts either choice, so without this check polish could silently flip
+ * a text-only detail into an illustration prop (or move its visual slot).
+ * @param {object[]} before
+ * @param {object[]} after
+ * @returns {boolean}
+ */
+function evidenceUnchanged(before, after) {
+  const a = Array.isArray(before) ? before : [];
+  const b = Array.isArray(after) ? after : [];
+  if (a.length !== b.length) return false;
+  return a.every((e, i) => e.source_field === b[i].source_field
+    && e.source_value === b[i].source_value
+    && e.spread === b[i].spread
+    && e.slot_id === b[i].slot_id
+    && e.moment_type === b[i].moment_type
+    && (e.visual_required ?? false) === (b[i].visual_required ?? false)
+    && (e.visual_slot_id ?? null) === (b[i].visual_slot_id ?? null));
+}
+
+/**
+ * The omission audit must survive polish too: above the map minima the
+ * validator does not constrain omitted_profile_fields, so without this
+ * check polish could silently drop or rewrite the omission reasons that
+ * are later persisted in storyContent.
+ * @param {object[]} before
+ * @param {object[]} after
+ * @returns {boolean}
+ */
+function omissionsUnchanged(before, after) {
+  const a = Array.isArray(before) ? before : [];
+  const b = Array.isArray(after) ? after : [];
+  if (a.length !== b.length) return false;
+  return a.every((o, i) => o.source_field === b[i].source_field && o.reason === b[i].reason);
+}
+
+/**
+ * Enforce the contract's minimal-edit boundary on an accepted repair: only
+ * spreads a reported violation implicates may change, everything else stays
+ * verbatim — revalidation alone cannot prove that. Implicated means: named
+ * in a spread-numbered error; containing a term/value an error quotes
+ * (banned brands, leakage, repeat limits); carrying an evidence record in
+ * the pre-repair response (removals live there); or a map slot's designated
+ * spread (gate-required additions live there). A total-word-bound error
+ * implicates every spread. Evidence-record changes are held to the same
+ * boundary.
+ * @param {{before: object, after: object, errors: string[], map: object|null}} params
+ * @returns {string[]} boundary violations (empty = minimal delta held)
+ */
+function checkRepairDelta({ before, after, errors, map }) {
+  const problems = [];
+  const permitted = new Set();
+  let allSpreadsPermitted = false;
+  let omissionsFree = false;
+  const beforeSpreads = Array.isArray(before.spreads) ? before.spreads : [];
+  const beforeEvidence = before.personalization_evidence || [];
+  const valueSpreads = (value) => {
+    const out = new Set();
+    for (const s of beforeSpreads) if (containsTerm(s.text || '', value)) out.add(s.spread);
+    for (const e of beforeEvidence) if (e.source_value === value) out.add(e.spread);
+    return out;
+  };
+  for (const err of errors || []) {
+    let m;
+    if ((m = /^spread (\d+): /.exec(err))) {
+      // Word-bound violation names its spread.
+      permitted.add(Number(m[1]));
+    } else if (/^total \d+ words, must be /.test(err)) {
+      allSpreadsPermitted = true;
+    } else if ((m = /in story text: "(.+)"$/.exec(err))) {
+      // Banned term: only the spreads that actually contain it.
+      for (const s of beforeSpreads) if (containsTerm(s.text || '', m[1])) permitted.add(s.spread);
+    } else if ((m = /^'(.+?)' \(/.exec(err)) || (m = /^detail '(.+?)' used /.exec(err))) {
+      // Leakage/alignment/repeat-limit quote the value: its occurrences plus
+      // ITS OWN evidence spreads, not every evidence spread.
+      for (const sp of valueSpreads(m[1])) permitted.add(sp);
+    } else if (/^personalization_evidence is empty|^below the map minimum /.test(err)) {
+      // The sanctioned fixes are adding moments on slot-designated spreads
+      // or justifying omissions — omission edits are free under these errors.
+      for (const slot of map?.slots || []) permitted.add(slot.spread);
+      for (const e of beforeEvidence) permitted.add(e.spread);
+      omissionsFree = true;
+    } else {
+      // Cap/legality errors: removals live on evidence-bearing spreads.
+      for (const e of beforeEvidence) permitted.add(e.spread);
+    }
+  }
+  if (allSpreadsPermitted) return problems;
+
+  const afterText = new Map((after.spreads || []).map(s => [s.spread, s.text || '']));
+  for (const s of beforeSpreads) {
+    if ((afterText.get(s.spread) ?? '') !== (s.text || '') && !permitted.has(s.spread)) {
+      problems.push(`repair changed spread ${s.spread}, which no violation implicates — unimplicated spreads must stay verbatim`);
+    }
+  }
+
+  // Evidence identity carries EVERY field: semantics or visual-alignment
+  // drift on an unimplicated spread is a change even when both variants
+  // would validate.
+  const evKey = e => `${e.source_field}|${e.source_value}|${e.spread}|${e.slot_id}|${e.moment_type}|${e.visual_required ?? false}|${e.visual_slot_id ?? ''}`;
+  const beforeEv = new Set(beforeEvidence.map(evKey));
+  const afterEv = new Set((after.personalization_evidence || []).map(evKey));
+  const changedEvidenceFields = new Set();
+  for (const e of beforeEvidence) {
+    if (!afterEv.has(evKey(e))) {
+      changedEvidenceFields.add(e.source_field);
+      if (!permitted.has(e.spread)) problems.push(`repair removed or altered evidence on unimplicated spread ${e.spread}`);
+    }
+  }
+  for (const e of after.personalization_evidence || []) {
+    if (!beforeEv.has(evKey(e))) {
+      changedEvidenceFields.add(e.source_field);
+      if (!permitted.has(e.spread)) problems.push(`repair added or altered evidence on unimplicated spread ${e.spread}`);
+    }
+  }
+
+  // The omission audit may change only to describe THIS repair's evidence
+  // edits (or freely under the empty-evidence/below-minimum errors, whose
+  // sanctioned fix IS an omission justification).
+  if (!omissionsFree) {
+    const omKey = o => `${o.source_field}|${o.reason}`;
+    const beforeOm = new Set((before.omitted_profile_fields || []).map(omKey));
+    const afterOm = new Set((after.omitted_profile_fields || []).map(omKey));
+    for (const o of before.omitted_profile_fields || []) {
+      if (!afterOm.has(omKey(o)) && !changedEvidenceFields.has(o.source_field)) {
+        problems.push(`repair rewrote the omission audit for '${o.source_field}' although no evidence for it changed`);
+      }
+    }
+    for (const o of after.omitted_profile_fields || []) {
+      if (!beforeOm.has(omKey(o)) && !changedEvidenceFields.has(o.source_field)) {
+        problems.push(`repair rewrote the omission audit for '${o.source_field}' although no evidence for it changed`);
+      }
+    }
+  }
+  return problems;
+}
+
+// Evidence-to-text alignment now lives in storyValidation (step 8b) so
+// EVERY path — first-pass generation, repair, polish, stored-pair and
+// checkpoint revalidation — holds the same invariant; re-exported below
+// for existing callers.
+
+/**
+ * ONE style-polish call on an already-VALIDATED story. Fail-safe by design:
+ * the polished response replaces the draft only when it passes the full
+ * 10-step validation again AND its personalization evidence is unchanged —
+ * any failure (call error, bad JSON, validation, evidence drift) keeps the
+ * validated draft. A good story is never lost to polish.
+ * Runs only when a tuning overlay is pinned; CATALOG_STYLE_POLISH=0 kills it.
+ * @param {object} params {request, response, book, theme, ageBand, map, tuning, usageTotal, label}
+ * @returns {Promise<object|null>} the polished response, or null to keep the draft
+ */
+async function polishStory({ request, response, book, theme, ageBand, map, tuning, usageTotal, label }) {
+  try {
+    const result = await callText({
+      model: WRITER_MODEL(),
+      systemPrompt: buildSystemPrompt(tuning),
+      userPrompt: buildPolishPrompt({ request, response }),
+      jsonMode: true,
+      temperature: 0.6,
+      maxTokens: 9000,
+      allowGeminiFallback: false,
+      label: `${label}:polish`,
+    });
+    usageTotal.inputTokens += result.usage?.inputTokens || 0;
+    usageTotal.outputTokens += result.usage?.outputTokens || 0;
+    const polished = result.json;
+    if (!polished || typeof polished !== 'object') return null;
+    const check = validateStoryResponse({ response: polished, request, book, ageBand, map, theme });
+    if (!check.ok) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: ${check.errors.slice(0, 4).join(' | ')} — keeping validated draft`);
+      return null;
+    }
+    if (!evidenceUnchanged(response.personalization_evidence, polished.personalization_evidence)) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: personalization evidence drifted — keeping validated draft`);
+      return null;
+    }
+    if (!omissionsUnchanged(response.omitted_profile_fields, polished.omitted_profile_fields)) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: omission audit drifted — keeping validated draft`);
+      return null;
+    }
+    // Evidence-to-spread alignment is part of validateStoryResponse (8b).
+    return polished;
+  } catch (err) {
+    console.warn(`[catalogEngine] polish call failed book=${request.book_id}: ${err.message} — keeping validated draft`);
+    return null;
+  }
+}
+
+/**
+ * Apply the style-polish pass when a tuning overlay is active (and not
+ * kill-switched). Returns the response to ship plus whether polish landed.
+ * @param {object} args see polishStory
+ * @returns {Promise<{response: object, polished: boolean}>}
+ */
+async function maybePolish(args) {
+  if (!args.tuning || !flags.stylePolishEnabled()) {
+    return { response: args.response, polished: false };
+  }
+  const polished = await polishStory(args);
+  if (polished) {
+    console.log(`[catalogEngine] story POLISHED book=${args.request.book_id} tuning=${args.request.versions.writer_tuning}`);
+    return { response: polished, polished: true };
+  }
+  return { response: args.response, polished: false };
 }
 
 class StoryGenerationError extends Error {
@@ -152,6 +520,10 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
   }
   const { personalizationMap } = augmentsFor(bookId);
   const map = flags.personalizationMapsEnabled() ? personalizationMap : null;
+  // Offer the writer only details it can legally use, capped at the map's
+  // max_details — the pinned profile IS the trimmed one, so every
+  // downstream check stays coherent.
+  const offeredProfile = selectOfferedDetails(profile, map);
   const renderedTitle = renderTitle(book, profile.name);
 
   const request = {
@@ -161,7 +533,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
     age_band: toWireBand(ageBand),
     locale,
     rendered_title: renderedTitle,
-    profile,
+    profile: offeredProfile,
     versions: {
       writer_engine: versions.WRITER_ENGINE_VERSION,
       age_engine: versions.AGE_ENGINE_VERSION,
@@ -183,7 +555,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
  * blocks. Bump PROMPT_TEMPLATE_VERSION on any change here.
  * @returns {string}
  */
-function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors = null }) {
+function buildUserPrompt({ request, book, theme, ageBand, map, tuning = null, validationErrors = null }) {
   const ageEngines = loadAgeEngines();
   const engine = ageEngines[ageBand];
   const exactCalibration = ageBand === '1-3'
@@ -203,6 +575,10 @@ function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors 
   if (map) {
     parts.push('## PERSONALIZATION MAP (the ONLY approved personalization slots)');
     parts.push('```json\n' + JSON.stringify(map, null, 1) + '\n```');
+    // The caps as an explicit command line — a numeric field buried in JSON
+    // is obeyed far less reliably than an imperative sentence.
+    const t = map.targets || {};
+    parts.push(`HARD LIMITS: use at most ${t.max_moments ?? 6} personalization moments and at most ${t.max_details ?? 4} distinct details in total; never use a slot beyond its max_uses; never use one detail more than ${map.detail_repeat_limit || 3} times. Every offered profile detail must end up either in personalization_evidence or in omitted_profile_fields.`);
   } else {
     parts.push('## PERSONALIZATION MAP: NONE — NAME-ONLY MODE');
     parts.push('No personalization map is approved for this book. Use ONLY the child\'s name and pronouns. '
@@ -220,6 +596,10 @@ function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors 
     + 'omitted_profile_fields (array of {source_field, reason} with reason one of missing|no_approved_slot|weak_fit|redundant|unsafe_or_sensitive|ip_or_brand|moment_cap|editorial_omission). '
     + 'Prose only in "text" — no illustration directions, no stage notes.');
 
+  const checkpoint = buildStyleCheckpoint(tuning);
+  if (checkpoint) parts.push(checkpoint);
+
+  // Retry corrections stay LAST — on a retry they are the most urgent read.
   if (validationErrors && validationErrors.length > 0) {
     parts.push('## PREVIOUS ATTEMPT FAILED VALIDATION — FIX EVERY ITEM BELOW WITHOUT CHANGING THE PLOT');
     parts.push(validationErrors.map(e => `- ${e}`).join('\n'));
@@ -242,9 +622,10 @@ async function generateStory(params) {
   const label = params.label || `catalogWriter:${request.book_id}`;
   const usageTotal = { inputTokens: 0, outputTokens: 0 };
   let lastErrors = null;
+  let lastResponse = null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, validationErrors: lastErrors });
+    const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, tuning, validationErrors: lastErrors });
     let result;
     try {
       result = await callText({
@@ -272,23 +653,75 @@ async function generateStory(params) {
       lastErrors = ['response was not a JSON object'];
       continue;
     }
+    lastResponse = response;
     const { ok, errors } = validateStoryResponse({ response, request, book, ageBand, map, theme });
     if (ok) {
       const details = usableDetails(request.profile);
       if (flags.evidenceRequired() && map && details.length > 0 && (response.personalization_evidence || []).length === 0) {
-        // Evidence hard-gate: usable details + approved slots but zero moments.
+        // Evidence hard-gate: usable details + approved slots but zero
+        // moments. Repairable — fall through to the repair pass after the
+        // retry instead of hard-failing.
         lastErrors = ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields'];
-        if (attempt === 2) {
-          throw new StoryGenerationError(`story for ${request.book_id} failed evidence requirement`, { bookId: request.book_id, errors: lastErrors });
-        }
         continue;
       }
       console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} tuning=${request.versions.writer_tuning} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
-      return { request, response, usage: usageTotal, attempts: attempt, nameOnly: !map, themeId, ageBand };
+      const final = await maybePolish({ request, response, book, theme, ageBand, map, tuning, usageTotal, label });
+      return { request, response: final.response, usage: usageTotal, attempts: attempt, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
     }
     console.warn(`[catalogEngine] story validation failed book=${request.book_id} attempt=${attempt}: ${errors.slice(0, 6).join(' | ')}${errors.length > 6 ? ` (+${errors.length - 6} more)` : ''}`);
     lastErrors = errors;
   }
+
+  // ── Targeted repair (contract-sanctioned): when every remaining failure
+  // is a bounded, minimal-edit class (word counts, personalization caps and
+  // legality, banned terms, leakage), spend ONE low-temperature call fixing
+  // exactly those violations on the model's own last response, then re-run
+  // the full validation. Plot-level failures never reach this path.
+  if (lastResponse && isRepairable(lastErrors)) {
+    try {
+      const repairResult = await callText({
+        model: WRITER_MODEL(),
+        systemPrompt: buildSystemPrompt(tuning),
+        userPrompt: buildRepairPrompt({ request, response: lastResponse, errors: lastErrors }),
+        jsonMode: true,
+        temperature: 0.3,
+        maxTokens: 9000,
+        allowGeminiFallback: false,
+        label: `${label}:repair`,
+      });
+      usageTotal.inputTokens += repairResult.usage?.inputTokens || 0;
+      usageTotal.outputTokens += repairResult.usage?.outputTokens || 0;
+      const repaired = repairResult.json;
+      if (repaired && typeof repaired === 'object') {
+        const check = validateStoryResponse({ response: repaired, request, book, ageBand, map, theme });
+        const details = usableDetails(request.profile);
+        const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
+          && (repaired.personalization_evidence || []).length === 0);
+        // Alignment (validateStoryResponse 8b) already gates the repaired
+        // output; the minimal-delta boundary is the one extra check — a
+        // repair may not touch anything the violations don't implicate.
+        const deltaErrors = check.ok && evidenceOk
+          ? checkRepairDelta({ before: lastResponse, after: repaired, errors: lastErrors, map })
+          : [];
+        if (check.ok && evidenceOk && deltaErrors.length === 0) {
+          console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
+          const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
+          return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
+        }
+        // The thrown error and failure callback must name what the REPAIRED
+        // response violated — reporting the pre-repair errors would be stale,
+        // and an evidence-only failure would otherwise log an empty reason.
+        lastErrors = !check.ok ? check.errors
+          : !evidenceOk
+            ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
+            : deltaErrors;
+        console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${lastErrors.slice(0, 4).join(' | ')}`);
+      }
+    } catch (err) {
+      console.warn(`[catalogEngine] repair call failed book=${request.book_id}: ${err.message}`);
+    }
+  }
+
   throw new StoryGenerationError(
     `story for ${request.book_id} failed validation after retry`,
     { bookId: request.book_id, errors: lastErrors || [] },
@@ -300,6 +733,15 @@ module.exports = {
   buildStoryRequest,
   buildUserPrompt,
   buildSystemPrompt,
+  buildStyleCheckpoint,
+  buildRepairPrompt,
+  buildPolishPrompt,
+  evidenceUnchanged,
+  omissionsUnchanged,
+  evidenceTextAligned,
+  checkRepairDelta,
+  selectOfferedDetails,
+  isRepairable,
   normalizeTuning,
   validateTuningInput,
   StoryGenerationError,
