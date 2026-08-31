@@ -112,7 +112,58 @@ describe('overlay merge + invariants + identity', () => {
     const h = overlayHash(GOOD_OVERLAY);
     expect(h).toBe(overlayHash(JSON.parse(JSON.stringify(GOOD_OVERLAY))));
     expect(overlayTag(base.version, h)).toBe(`${base.version}+${h.slice(0, 8)}`);
-    expect(overlaySummary(GOOD_OVERLAY)).toEqual({ themes: 1, books: 1, beats: 2 });
+    expect(overlaySummary(GOOD_OVERLAY)).toEqual({ themes: 1, books: 1, beats: 2, retired: 0 });
+  });
+});
+
+describe('plot retirement (soft delete — gone from selection, kept for stored stories)', () => {
+  afterEach(() => catalog.resetCatalogOverlay());
+
+  it('a retired book vanishes from eligibility and theme counts, but still resolves by id', () => {
+    const overlay = {
+      base_version: base.version,
+      patches: { books: { enchanted_2_3_hello_wood: { retired: true } } },
+    };
+    expect(validateOverlayShape(overlay, base)).toEqual([]);
+    const hash8 = overlayHash(overlay).slice(0, 8);
+    catalog.applyCatalogOverlay(overlay, hash8);
+
+    const eligible = catalog.eligibleBooks('enchanted_forest', '1-3').map(b => b.id);
+    expect(eligible).not.toContain('enchanted_2_3_hello_wood');
+    expect(eligible.length).toBe(3); // 4 in the band minus the retired one
+
+    const counts = catalog.listThemes().find(t => t.themeId === 'enchanted_forest').bandCounts;
+    expect(counts['1-3']).toBe(3);
+
+    // The definition survives: stored stories keep validating and printing.
+    expect(catalog.getBook('enchanted_2_3_hello_wood')).not.toBeNull();
+    expect(overlaySummary(overlay).retired).toBe(1);
+  });
+
+  it('retirement may never drop a band below one full selection slate', () => {
+    const band = base.themes.enchanted_forest.age_bands['1-3'].map(b => b.id);
+    const overlay = {
+      base_version: base.version,
+      patches: { books: Object.fromEntries(band.slice(0, 2).map(id => [id, { retired: true }])) },
+    };
+    // 4 books minus 2 = 2 active < 3 → the merged-catalog gate refuses.
+    expect(() => catalog.applyCatalogOverlay(overlay, 'deadbee1'))
+      .toThrow(/only 2 active book\(s\)/);
+    expect(catalog.eligibleBooks('enchanted_forest', '1-3').length).toBe(4); // untouched
+  });
+
+  it('retired must be boolean; retired: false restores', () => {
+    expect(validateOverlayShape({
+      base_version: base.version,
+      patches: { books: { enchanted_2_3_hello_wood: { retired: 'yes' } } },
+    }, base).join(' ')).toMatch(/retired must be true or false/);
+
+    const merged = applyOverlay(base, {
+      base_version: base.version,
+      patches: { books: { enchanted_2_3_hello_wood: { retired: false } } },
+    });
+    const book = merged.themes.enchanted_forest.age_bands['1-3'].find(b => b.id === 'enchanted_2_3_hello_wood');
+    expect(book.retired).toBeUndefined();
   });
 });
 

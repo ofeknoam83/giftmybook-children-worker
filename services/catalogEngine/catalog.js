@@ -19,6 +19,10 @@ const AGE_ENGINES_PATH = path.join(__dirname, 'data', 'ageEngines.json');
 const EXPECTED_BANDS = ['1-3', '4-5', '6-7', '8-10'];
 const EXPECTED_THEMES = 12;
 const EXPECTED_BOOKS = 228;
+// Selection offers a slate of 3 candidates, so retirement (Catalog Studio's
+// soft delete — definition kept, removed from selection) may never leave a
+// theme/band with fewer active books than one full slate.
+const MIN_ACTIVE_PER_BAND = 3;
 
 /** Internal caches (populated on first load). */
 let _catalog = null;
@@ -54,7 +58,11 @@ function validateCatalog(catalog) {
     if (JSON.stringify(bandKeys) !== JSON.stringify([...EXPECTED_BANDS].sort())) {
       errors.push(`${themeId}: wrong age bands [${bandKeys.join(',')}]`);
     }
-    for (const books of Object.values(bands)) {
+    for (const [bandKey, books] of Object.entries(bands)) {
+      const active = books.filter(b => !b.retired).length;
+      if (active < MIN_ACTIVE_PER_BAND) {
+        errors.push(`${themeId}/${bandKey}: only ${active} active book(s) — retirement may not drop a band below ${MIN_ACTIVE_PER_BAND} (one full selection slate)`);
+      }
       for (const book of books) {
         count += 1;
         if (!book.id || seen.has(book.id)) errors.push(`duplicate or missing book id: ${book.id}`);
@@ -257,6 +265,8 @@ function getBook(bookId) {
 
 /**
  * All eligible books for a theme + age band (routing by catalog keys only).
+ * RETIRED books (Catalog Studio soft delete) are excluded — they can never
+ * be selected again, while their definitions remain for stored stories.
  * @param {string} themeId
  * @param {string} ageBand catalog key ('1-3' etc.; wire '1_3' accepted)
  * @returns {object[]} book definitions
@@ -268,7 +278,7 @@ function eligibleBooks(themeId, ageBand) {
   const band = fromWireBand(ageBand);
   const books = theme.age_bands[band];
   if (!books) throw new Error(`eligibleBooks: unknown age band '${ageBand}' for theme '${themeId}'`);
-  return books;
+  return books.filter(b => !b.retired);
 }
 
 /**
@@ -293,7 +303,8 @@ function listThemes() {
     displayName: t.display_name,
     worldName: t.world_name,
     companion: t.companion,
-    bandCounts: Object.fromEntries(Object.entries(t.age_bands).map(([b, books]) => [b, books.length])),
+    // Counts reflect what a customer can actually get (retired excluded).
+    bandCounts: Object.fromEntries(Object.entries(t.age_bands).map(([b, books]) => [b, books.filter(x => !x.retired).length])),
   }));
 }
 

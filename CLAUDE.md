@@ -41,7 +41,12 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   (`getBookForTag`, small LRU) so reshaping a theme never breaks earlier
   stories. Endpoints: GET `/v13/catalog`, POST
   `/v13/catalog-overlay/{validate,activate,deactivate}`. Kill-switch
-  `CATALOG_OVERLAY=0`. catalog.json itself stays frozen in git.
+  `CATALOG_OVERLAY=0`. catalog.json itself stays frozen in git. A book
+  patch may also set `retired: true` — the plot's SOFT DELETE: it leaves
+  selection/eligibility/band counts immediately (customers can never get it
+  again) while its definition remains so stored stories keep validating and
+  printing; the merged gate refuses to drop any theme/band below 3 active
+  books (one full slate). `retired: false` restores.
 - `profile.js` — deterministic normalization (NFC, control-char rejection,
   dedupe, length caps). No LLM. Profile strings are data, never instructions.
 - `selection.js` — fit-weighted candidate selection: the handoff's exact

@@ -120,6 +120,12 @@ function validateOverlayShape(overlay, baseCatalog) {
         if (field === 'title_template' && s && !s.includes('{name}')) {
           errors.push(`${bookId}.title_template must contain {name}`);
         }
+      } else if (field === 'retired') {
+        // Retirement = removed from SELECTION forever, definition kept so
+        // already-sold stories still validate and print. The merged-catalog
+        // gate additionally enforces that every theme/band keeps a full
+        // slate of active books.
+        if (typeof value !== 'boolean') errors.push(`${bookId}.retired must be true or false`);
       } else if (field === 'refrain') {
         const base = bookIndex.get(bookId).book;
         if (!base.refrain && value != null) {
@@ -186,6 +192,10 @@ function applyOverlay(baseCatalog, overlay) {
         for (const field of Object.keys(BOOK_FIELDS)) {
           if (typeof patch[field] === 'string') book[field] = patch[field].trim();
         }
+        if (typeof patch.retired === 'boolean') {
+          if (patch.retired) book.retired = true;
+          else delete book.retired;
+        }
         if (patch.refrain) {
           book.refrain = book.refrain || {};
           if (typeof patch.refrain.text === 'string') book.refrain.text = patch.refrain.text.trim();
@@ -221,6 +231,7 @@ function overlaySummary(overlay) {
     themes: Object.keys(patches.themes || {}).length,
     books: books.length,
     beats: books.reduce((n, [, p]) => n + Object.keys(p?.beats || {}).length, 0),
+    retired: books.filter(([, p]) => p?.retired === true).length,
   };
 }
 
