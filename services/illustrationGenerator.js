@@ -488,9 +488,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
 
   // Strip any hair-accessory mentions from the per-spread scene so only the
   // locked characterDescription defines the child's hair.
-  const cleanScene = stripHairFromScene(sceneDescription);
+  // The ART TUNING block rides the scene string but is ADMIN-APPROVED text:
+  // the hair-accessory scrub (and the bath/water heuristic below) must never
+  // rewrite or trigger off a tuning directive — a continuity rule like
+  // "keep the braided hair and headband identical" has to reach the model
+  // verbatim, or the tuning loop silently loses the admin's comment.
+  const tuningMarkerIdx = sceneDescription.indexOf('\nART TUNING ');
+  const sceneBody = tuningMarkerIdx === -1 ? sceneDescription : sceneDescription.slice(0, tuningMarkerIdx);
+  const tuningSuffix = tuningMarkerIdx === -1 ? '' : sceneDescription.slice(tuningMarkerIdx);
+  const cleanScene = stripHairFromScene(sceneBody) + tuningSuffix;
   const pageTextStr = (pageText && String(pageText)) || '';
-  const bathWaterScene = isModestBathWaterScene(cleanScene, pageTextStr);
+  const bathWaterScene = isModestBathWaterScene(stripHairFromScene(sceneBody), pageTextStr);
 
   // Use full characterDescription (no regex extraction) — Change 14
   const hairstyleDesc = characterDescription || '';

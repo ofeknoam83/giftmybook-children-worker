@@ -96,11 +96,14 @@ describe('normalizeArtTuning', () => {
 describe('renderArtTuningBlock', () => {
   const tuning = normalizeArtTuning(TUNING);
 
-  test('frames the overlay as style-only and subordinate on every spread with content', () => {
+  test('frames the overlay as style+continuity and subordinate on every spread with content', () => {
     const block = renderArtTuningBlock(tuning, 1);
     expect(block).toContain('ART TUNING art-003.9f31c2ab');
     expect(block).toContain('LOWEST priority');
     expect(block).toContain('never override the scene action');
+    // Cross-spread continuity rules (what stays identical across the book)
+    // ride the overlay dynamically — the frame must sanction them.
+    expect(block).toContain('CROSS-SPREAD CONTINUITY');
     expect(block).toContain(TUNING.text);
   });
 

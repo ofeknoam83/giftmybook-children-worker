@@ -236,7 +236,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
  * @param {string|null} params.approvedCoverUrl identity anchor
  * @param {string|null} [params.childPhotoUrl] fallback anchor for coverless test books
  * @param {string|null} [params.characterDescription]
- * @param {string} [params.textLayout] 'caption' (default) | 'embedded'
+ * @param {string} [params.textLayout] 'caption' (default) | 'half' | 'embedded'.
+ *   'half' renders exactly like caption (square, text-free — same cache
+ *   keys); the difference is pure page assembly in the layout engine.
  * @param {number[]|null} [params.spreads] subset of spread numbers (default: all beats)
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
  * @param {boolean} [params.identityKeyed] probe-only: fold the identity anchor

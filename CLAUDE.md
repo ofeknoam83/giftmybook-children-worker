@@ -200,7 +200,11 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   probes can anchor on a cover the way production books do (plan §5.1). No
   wrap PDF, no upsell; `title` is echoed for labeling, never painted (D5).
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
-  flip + pre-print overlay preview (entries from the request)
+  flip + pre-print overlay preview (entries from the request). Text layouts:
+  `caption` (art page + white text page), `half` (art page + SOLID-COLOR
+  text panel sampled from that spread's art, blended toward cream to a
+  215-luminance floor — same square renders/cache as caption, pure
+  layout-engine assembly), `embedded` (wide Gemini-painted text).
 - `/generate-book` also bakes the 4-style upsell spread into the interior
   (non-blocking, 4-min cap; `upsellCovers` on the completion callback)
 - Kept: `/finalize-book` (legacy layout), `/rebuild-cover-pdf`,

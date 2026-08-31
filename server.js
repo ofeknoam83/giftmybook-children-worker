@@ -308,6 +308,16 @@ app.post('/generate-style-variant', authenticate, (req, res) => {
 
 const BOOK_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
+// The text-layout vocabulary: 'caption' (art page + white text page),
+// 'half' (art page + solid-color text panel — same square renders/cache as
+// caption, layout-engine only), 'embedded' (wide art with Gemini-painted
+// text). Unknown values fall back to caption.
+const TEXT_LAYOUTS = ['caption', 'half', 'embedded'];
+const normalizeTextLayout = (v) => {
+  const t = String(v || '').toLowerCase().trim();
+  return TEXT_LAYOUTS.includes(t) ? t : 'caption';
+};
+
 // GET /v13/themes — the catalog's theme vocabulary (single source of truth
 // for the main app's picker).
 app.get('/v13/themes', authenticate, (req, res) => {
@@ -631,7 +641,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         approvedCoverUrl,
         childPhotoUrl,
         characterDescription: body.characterDescription || null,
-        textLayout: String(body.textLayout).toLowerCase() === 'embedded' ? 'embedded' : 'caption',
+        textLayout: normalizeTextLayout(body.textLayout),
         spreads: [...spreads].sort((a, b) => a - b),
         tuning: body.illustrationTuning || null,
         // Probe cache keys carry the identity anchor: a workbench book's
@@ -861,7 +871,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         approvedCoverUrl: body.approvedCoverUrl || null,
         childPhotoUrl: Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls[0] : null,
         characterDescription: body.characterDescription || null,
-        textLayout: String(body.textLayout).toLowerCase() === 'embedded' ? 'embedded' : 'caption',
+        textLayout: normalizeTextLayout(body.textLayout),
         heartfeltNote: body.heartfeltNote || null,
         bookFrom: body.bookFrom || null,
         bindingType: body.bindingType || null,
@@ -1446,8 +1456,8 @@ app.post('/v13/set-text-layout', authenticate, async (req, res) => {
     if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
       return res.status(400).json({ success: false, error: 'invalid bookId' });
     }
-    if (t !== 'caption' && t !== 'embedded') {
-      return res.status(400).json({ success: false, error: `Unsupported textLayout '${req.body?.textLayout}' — expected 'caption' or 'embedded'` });
+    if (!TEXT_LAYOUTS.includes(t)) {
+      return res.status(400).json({ success: false, error: `Unsupported textLayout '${req.body?.textLayout}' — expected 'caption', 'half', or 'embedded'` });
     }
     const checkpoint = await loadCheckpoint(bookId);
     if (!checkpoint || checkpoint.engine !== 'catalog-v13') {

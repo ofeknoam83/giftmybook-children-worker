@@ -42,3 +42,23 @@ describe('buildGenericSafePrompt (NSFW last-resort variant keeps identity)', () 
     expect(p).not.toContain('OUTFIT (locked');
   });
 });
+
+describe('ART TUNING block survives prompt sanitization verbatim', () => {
+  test('hair words in a tuning directive are never scrubbed; scene-body accessories still are', () => {
+    const scene = 'Emma with a ponytail waves from the tractor.'
+      + '\nART TUNING art-004.aabbccdd (admin-approved style refinement — LOWEST priority): refine notes below.'
+      + '\n- Keep the braided hair and headband identical on every spread.';
+    const prompt = buildCharacterPrompt(scene, 'pixar_premium', 'Emma', '', 'red shirt and jeans', 'curly brown hair', null, null, { skipTextEmbed: true });
+    expect(prompt).toContain('braided hair and headband identical');
+    expect(prompt).not.toMatch(/with a ponytail/);
+  });
+
+  test('water words inside the tuning block do not flip bath/water mode', () => {
+    const scene = 'Emma waters the garden with a green can.'
+      + '\nART TUNING art-004.aabbccdd (admin-approved style refinement — LOWEST priority): refine notes below.'
+      + '\n- AVOID: murky swimming pool blues; keep in the pool scenes bright and clear.';
+    const prompt = buildCharacterPrompt(scene, 'pixar_premium', 'Emma', '', 'red shirt and jeans', 'curly brown hair', null, null, { skipTextEmbed: true });
+    expect(prompt).toContain('OUTFIT LOCK');
+    expect(prompt).not.toContain('BATH / WATER OUTFIT');
+  });
+});

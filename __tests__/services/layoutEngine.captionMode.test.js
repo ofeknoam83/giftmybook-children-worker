@@ -102,3 +102,35 @@ describe('assemblePdf caption mode (square entries)', () => {
     expect(two.getPageCount()).toBe(8);
   });
 });
+
+describe('assemblePdf half-page layout (art + solid-color text panel)', () => {
+  const { halfPanelColor, colorLuminance255 } = require('./../../services/layoutEngine');
+
+  test('a half entry produces a painted text panel verso + art recto slot', async () => {
+    const doc = await build([
+      spreadEntry({ textLayout: 'half', illustrationAspect: 'square', captionText: 'Amit sails the paper boat.' }),
+    ]);
+    const verso = doc.getPage(VERSO_INDEX);
+    // The panel rectangle + typeset caption ⇒ drawn content even with no art.
+    expect(verso.node.Contents()).toBeDefined();
+  });
+
+  test('half without captionText falls through to the plain square path', async () => {
+    const doc = await build([
+      spreadEntry({ textLayout: 'half', illustrationAspect: 'square' }),
+    ]);
+    // Square branch still typesets its (empty) caption page without crashing.
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(6);
+  });
+
+  test('halfPanelColor: any art color lightens to the readable panel floor, hue preserved when possible', () => {
+    const navy = halfPanelColor({ r: 0.05, g: 0.1, b: 0.3 });
+    expect(colorLuminance255(navy)).toBeGreaterThanOrEqual(215);
+    const black = halfPanelColor({ r: 0, g: 0, b: 0 });
+    expect(colorLuminance255(black)).toBeGreaterThanOrEqual(215);
+    // A light warm color keeps more of itself than the cream fallback.
+    const peach = halfPanelColor({ r: 0.95, g: 0.8, b: 0.7 });
+    expect(colorLuminance255(peach)).toBeGreaterThanOrEqual(215);
+    expect(peach.r).toBeGreaterThan(peach.b); // warm hue survives the blend
+  });
+});
