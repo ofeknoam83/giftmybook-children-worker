@@ -291,6 +291,22 @@ function evidenceUnchanged(before, after) {
 }
 
 /**
+ * The omission audit must survive polish too: above the map minima the
+ * validator does not constrain omitted_profile_fields, so without this
+ * check polish could silently drop or rewrite the omission reasons that
+ * are later persisted in storyContent.
+ * @param {object[]} before
+ * @param {object[]} after
+ * @returns {boolean}
+ */
+function omissionsUnchanged(before, after) {
+  const a = Array.isArray(before) ? before : [];
+  const b = Array.isArray(after) ? after : [];
+  if (a.length !== b.length) return false;
+  return a.every((o, i) => o.source_field === b[i].source_field && o.reason === b[i].reason);
+}
+
+/**
  * ONE style-polish call on an already-VALIDATED story. Fail-safe by design:
  * the polished response replaces the draft only when it passes the full
  * 10-step validation again AND its personalization evidence is unchanged —
@@ -323,6 +339,10 @@ async function polishStory({ request, response, book, theme, ageBand, map, tunin
     }
     if (!evidenceUnchanged(response.personalization_evidence, polished.personalization_evidence)) {
       console.warn(`[catalogEngine] polish rejected book=${request.book_id}: personalization evidence drifted — keeping validated draft`);
+      return null;
+    }
+    if (!omissionsUnchanged(response.omitted_profile_fields, polished.omitted_profile_fields)) {
+      console.warn(`[catalogEngine] polish rejected book=${request.book_id}: omission audit drifted — keeping validated draft`);
       return null;
     }
     return polished;
@@ -569,7 +589,13 @@ async function generateStory(params) {
           const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
           return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
         }
-        console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${check.errors.slice(0, 4).join(' | ')}`);
+        // The thrown error and failure callback must name what the REPAIRED
+        // response violated — reporting the pre-repair errors would be stale,
+        // and an evidence-only failure would otherwise log an empty reason.
+        lastErrors = check.ok
+          ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
+          : check.errors;
+        console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${lastErrors.slice(0, 4).join(' | ')}`);
       }
     } catch (err) {
       console.warn(`[catalogEngine] repair call failed book=${request.book_id}: ${err.message}`);
@@ -591,6 +617,7 @@ module.exports = {
   buildRepairPrompt,
   buildPolishPrompt,
   evidenceUnchanged,
+  omissionsUnchanged,
   selectOfferedDetails,
   isRepairable,
   normalizeTuning,

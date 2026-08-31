@@ -11,6 +11,7 @@ const {
   buildUserPrompt,
   buildPolishPrompt,
   evidenceUnchanged,
+  omissionsUnchanged,
   normalizeTuning,
   validateTuningInput,
 } = require('../../../services/catalogEngine/writer');
@@ -163,6 +164,14 @@ describe('style polish pass helpers', () => {
     // Absent and explicitly-false visual_required are the same choice.
     expect(evidenceUnchanged([{ ...ev[0] }], [{ ...ev[0], visual_required: undefined }])).toBe(true);
     expect(evidenceUnchanged([], [])).toBe(true);
+  });
+
+  test('omissionsUnchanged protects the omission audit from silent polish edits', () => {
+    const om = [{ source_field: 'food', reason: 'weak_fit' }];
+    expect(omissionsUnchanged(om, [{ ...om[0] }])).toBe(true);
+    expect(omissionsUnchanged(om, [])).toBe(false);
+    expect(omissionsUnchanged(om, [{ ...om[0], reason: 'editorial_omission' }])).toBe(false);
+    expect(omissionsUnchanged([], [])).toBe(true);
   });
 });
 

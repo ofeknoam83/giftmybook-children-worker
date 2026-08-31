@@ -115,6 +115,47 @@ test('no tuning overlay → no polish call; CATALOG_STYLE_POLISH=0 kills it for 
   expect(killed.polished).toBeUndefined();
 });
 
+test('polish that rewrites the omission audit is discarded — the draft ships', async () => {
+  const tuning = normalizeTuning(TUNING);
+  const request = pinnedRequest(tuning);
+  const draft = validResponse(request, 'sunny');
+  // Above the map minima the validator does not constrain omissions, so
+  // only the polish guard protects this audit data.
+  draft.omitted_profile_fields = [{ source_field: 'food', reason: 'missing' }];
+  const polished = validResponse(request, 'golden');
+  polished.omitted_profile_fields = []; // audit silently dropped
+  callText
+    .mockResolvedValueOnce({ json: draft, usage: { inputTokens: 10, outputTokens: 20 } })
+    .mockResolvedValueOnce({ json: polished, usage: { inputTokens: 5, outputTokens: 10 } });
+
+  const result = await generateStory({
+    bookId: 'farm_2_3_hello_farm', profile: PROFILE, sessionId: 'sess_polish', requestId: REQUEST_ID, tuning: TUNING,
+  });
+  expect(result.polished).toBeUndefined();
+  expect(result.response.spreads[0].text).toContain('sunny');
+  expect(result.response.omitted_profile_fields).toEqual([{ source_field: 'food', reason: 'missing' }]);
+});
+
+test('a failed repair reports the REPAIR response\'s errors, not the stale pre-repair ones', async () => {
+  const request = pinnedRequest(null);
+  const longText = 'the little hen walks slowly down the winding path '.repeat(20);
+  const brokenSpread1 = validResponse(request);
+  brokenSpread1.spreads[0].text = longText; // word-bound violation on spread 1 (repairable)
+  const brokenSpread3 = validResponse(request);
+  brokenSpread3.spreads[2].text = `${longText}. Farmer Bea waves at Emma warmly.`; // now spread 3 violates instead
+  callText
+    .mockResolvedValueOnce({ json: brokenSpread1, usage: {} }) // attempt 1
+    .mockResolvedValueOnce({ json: brokenSpread1, usage: {} }) // attempt 2 (retry)
+    .mockResolvedValueOnce({ json: brokenSpread3, usage: {} }); // repair
+
+  await expect(generateStory({
+    bookId: 'farm_2_3_hello_farm', profile: PROFILE, sessionId: 'sess_polish', requestId: REQUEST_ID,
+  })).rejects.toMatchObject({
+    validationErrors: expect.arrayContaining([expect.stringMatching(/^spread 3: /)]),
+  });
+  expect(callText).toHaveBeenCalledTimes(3);
+});
+
 test('a failed polish CALL keeps the draft instead of failing the story', async () => {
   const tuning = normalizeTuning(TUNING);
   const request = pinnedRequest(tuning);
