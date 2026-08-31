@@ -326,6 +326,7 @@ app.get('/v13/coverage', authenticate, (req, res) => {
       personalizationMaps: catalogEngine.flags.personalizationMapsEnabled(),
       evidenceRequired: catalogEngine.flags.evidenceRequired(),
       tuningLayer: catalogEngine.flags.tuningLayerEnabled(),
+      stylePolish: catalogEngine.flags.stylePolishEnabled(),
     },
     versions: {
       writer_engine: catalogEngine.versions.WRITER_ENGINE_VERSION,
@@ -439,6 +440,10 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
             nameOnly: s.nameOnly,
             attempts: s.attempts,
             usage: s.usage,
+            // Provenance flags for the feedback loop: whether the shipped
+            // text went through the targeted repair or style-polish pass.
+            repaired: !!s.repaired,
+            polished: !!s.polished,
           })),
           failures,
         });

@@ -22,7 +22,7 @@ const AGE_ENGINE_VERSION = '1.3.0';
 const MAP_SCHEMA_VERSION = '1.3.0';
 const BOOK_DEFINITION_VERSION = '1.1.0'; // the frozen V1.1 plots, per the handoff
 const SELECTOR_VERSION = '1.0.0';
-const PROMPT_TEMPLATE_VERSION = '1.0.0';
+const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning frame + end-of-prompt style checkpoint + polish pass; 1.1.0: HARD LIMITS caps line + per-book detail pre-selection
 
 /** Illustration style version — bump to invalidate the render cache. */
 const STYLE_VERSION = 'ce-1';

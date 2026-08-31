@@ -16,6 +16,11 @@
  *  - CATALOG_TUNING_LAYER=0       — ignore any writerTuning overlay sent by
  *                                   the main app (stories render on the bare
  *                                   locked engine prompt).
+ *  - CATALOG_STYLE_POLISH=0       — skip the style-polish pass (the extra
+ *                                   focused call that rewrites prose of an
+ *                                   already-validated story to satisfy the
+ *                                   tuning rules; only runs when an overlay
+ *                                   is pinned).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -31,4 +36,5 @@ module.exports = {
   personalizationMapsEnabled: () => !envOff('CATALOG_PERSONALIZATION_MAPS'),
   evidenceRequired: () => !envOff('CATALOG_EVIDENCE_REQUIRED'),
   tuningLayerEnabled: () => !envOff('CATALOG_TUNING_LAYER'),
+  stylePolishEnabled: () => !envOff('CATALOG_STYLE_POLISH'),
 };
