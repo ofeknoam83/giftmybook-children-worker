@@ -117,7 +117,11 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   text INTO the art via Gemini (the renderer's legacy `embedText` path —
   typography rules + OCR `verifyImageText` with extra retries) and spread
   QA transcribes + `compareTexts`-verifies it (missing/garbled painted
-  text is the defect); such entries carry `textEmbeddedInArt: true`
+  text is the defect). Placement is HARDENED (`ce-3`): the painted text is
+  ONE block on ONE side (left or right 35%), over continuous artwork —
+  split-across-both-sides or a blank letterbox band is a QA defect
+  (`text_split_both_sides` / `text_on_band`) with its own repair note.
+  Such entries carry `textEmbeddedInArt: true`
   through storyContent so `layoutEmbeddedSpread` / the overlay preview
   embed the art full-bleed and NEVER typeset the caption over it again.
   `caption` renders keep D5 — words are PDF type, never pixels
