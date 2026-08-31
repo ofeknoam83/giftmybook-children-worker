@@ -115,6 +115,111 @@ function buildSystemPrompt(tuning) {
     + tuning.text;
 }
 
+// Optional profile fields in offer-priority order (dedicated-slot fields
+// first). Used by the deterministic per-book detail pre-selection.
+const OPTIONAL_DETAIL_FIELDS = ['object', 'habit', 'trait', 'food', 'place', 'interests', 'activities'];
+
+/**
+ * Deterministically pre-select which optional details the writer is OFFERED
+ * for one book, so the map's caps are structurally satisfiable instead of
+ * asking the model to self-ration:
+ *  - a detail whose field has NO legal slot in this book's map is dropped
+ *    (it could never be used, and only tempts illegal placements);
+ *  - the remaining detail VALUES are capped at map.targets.max_details,
+ *    keeping fields with more supporting slots first (ties break on a fixed
+ *    field order, then original array order — fully deterministic).
+ * The trimmed profile IS the pinned request profile, so validation, leakage
+ * checks, and omission accounting all stay coherent. Name-only mode (no
+ * map) is untouched. Aligned with the editorial direction: few details,
+ * used deeply.
+ *
+ * @param {object} profile normalized V1.3 profile
+ * @param {object|null} map approved personalization map (or null)
+ * @returns {object} a new profile object (never mutates the input)
+ */
+function selectOfferedDetails(profile, map) {
+  if (!map) return profile;
+  const slotSupport = new Map();
+  for (const slot of map.slots || []) {
+    for (const f of slot.allowed_profile_fields || []) {
+      slotSupport.set(f, (slotSupport.get(f) || 0) + 1);
+    }
+  }
+  const maxDetails = Number(map.targets?.max_details) || Infinity;
+  const fields = OPTIONAL_DETAIL_FIELDS
+    .filter(f => slotSupport.has(f))
+    .sort((a, b) => (slotSupport.get(b) - slotSupport.get(a))
+      || (OPTIONAL_DETAIL_FIELDS.indexOf(a) - OPTIONAL_DETAIL_FIELDS.indexOf(b)));
+
+  const out = { ...profile, object: null, food: null, place: null, habit: null, trait: null, interests: [], activities: [] };
+  let kept = 0;
+  for (const field of fields) {
+    const value = profile[field];
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (kept >= maxDetails) break;
+        out[field] = [...out[field], item];
+        kept++;
+      }
+    } else if (value != null && String(value).trim() !== '' && kept < maxDetails) {
+      out[field] = value;
+      kept++;
+    }
+  }
+  return out;
+}
+
+// Failure classes ONE targeted repair call can fix without touching the
+// plot: word bounds, personalization legality/caps/minima, banned terms,
+// leakage, and the evidence hard-gate. Everything else (schema, echo,
+// title, refrain, beats, spread numbering) means the story itself is wrong
+// and repair must not run.
+const REPAIRABLE_ERROR_PATTERNS = [
+  /^spread \d+: \d+ words, must be /,
+  /^total \d+ words, must be /,
+  /^evidence: /,
+  /^moment_count \d+ exceeds /,
+  /^selected_detail_count \d+ exceeds /,
+  /^detail '.*' used \d+x, repeat limit /,
+  /^below the map minimum /,
+  /^banned brand\/IP term /,
+  /appears in the story text but is not declared in personalization_evidence/,
+  /^personalization_evidence is empty although usable/,
+];
+
+/**
+ * Every error must be one a minimal-edit repair can fix.
+ * @param {string[]|null} errors
+ * @returns {boolean}
+ */
+function isRepairable(errors) {
+  return Array.isArray(errors) && errors.length > 0
+    && errors.every(e => REPAIRABLE_ERROR_PATTERNS.some(re => re.test(e)));
+}
+
+/**
+ * The repair prompt: the model's own last response plus the exact
+ * violations, with strict minimal-edit orders. Sanctioned by the runtime
+ * contract's content-repair provision (repair only what failed, re-validate
+ * everything).
+ * @param {{request: object, response: object, errors: string[]}} params
+ * @returns {string}
+ */
+function buildRepairPrompt({ request, response, errors }) {
+  return [
+    '# REPAIR TASK — fix ONLY the listed violations with MINIMAL edits',
+    'Your previous response for this exact request violated the checks listed below. Return the COMPLETE corrected JSON object in the same schema.',
+    '## PREVIOUS RESPONSE',
+    '```json\n' + JSON.stringify(response, null, 1) + '\n```',
+    '## VIOLATIONS TO FIX',
+    errors.map(e => `- ${e}`).join('\n'),
+    '## REPAIR RULES',
+    'Do NOT change: the plot events or their order, the title, the refrain text or which spreads carry it, the spread numbering, or request_id/book_id/versions (echo verbatim: '
+      + JSON.stringify({ request_id: request.request_id, book_id: request.book_id, versions: request.versions })
+      + '). You MAY: reword only the offending spreads (same meaning, shorter or longer to meet word bounds); remove, move, or replace personalization moments to satisfy the map limits; and update personalization_evidence and omitted_profile_fields so they exactly account for every supplied detail. Prose only in "text".',
+  ].join('\n\n');
+}
+
 class StoryGenerationError extends Error {
   /**
    * @param {string} message
@@ -152,6 +257,10 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
   }
   const { personalizationMap } = augmentsFor(bookId);
   const map = flags.personalizationMapsEnabled() ? personalizationMap : null;
+  // Offer the writer only details it can legally use, capped at the map's
+  // max_details — the pinned profile IS the trimmed one, so every
+  // downstream check stays coherent.
+  const offeredProfile = selectOfferedDetails(profile, map);
   const renderedTitle = renderTitle(book, profile.name);
 
   const request = {
@@ -161,7 +270,7 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
     age_band: toWireBand(ageBand),
     locale,
     rendered_title: renderedTitle,
-    profile,
+    profile: offeredProfile,
     versions: {
       writer_engine: versions.WRITER_ENGINE_VERSION,
       age_engine: versions.AGE_ENGINE_VERSION,
@@ -203,6 +312,10 @@ function buildUserPrompt({ request, book, theme, ageBand, map, validationErrors 
   if (map) {
     parts.push('## PERSONALIZATION MAP (the ONLY approved personalization slots)');
     parts.push('```json\n' + JSON.stringify(map, null, 1) + '\n```');
+    // The caps as an explicit command line — a numeric field buried in JSON
+    // is obeyed far less reliably than an imperative sentence.
+    const t = map.targets || {};
+    parts.push(`HARD LIMITS: use at most ${t.max_moments ?? 6} personalization moments and at most ${t.max_details ?? 4} distinct details in total; never use a slot beyond its max_uses; never use one detail more than ${map.detail_repeat_limit || 3} times. Every offered profile detail must end up either in personalization_evidence or in omitted_profile_fields.`);
   } else {
     parts.push('## PERSONALIZATION MAP: NONE — NAME-ONLY MODE');
     parts.push('No personalization map is approved for this book. Use ONLY the child\'s name and pronouns. '
@@ -242,6 +355,7 @@ async function generateStory(params) {
   const label = params.label || `catalogWriter:${request.book_id}`;
   const usageTotal = { inputTokens: 0, outputTokens: 0 };
   let lastErrors = null;
+  let lastResponse = null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, validationErrors: lastErrors });
@@ -272,15 +386,15 @@ async function generateStory(params) {
       lastErrors = ['response was not a JSON object'];
       continue;
     }
+    lastResponse = response;
     const { ok, errors } = validateStoryResponse({ response, request, book, ageBand, map, theme });
     if (ok) {
       const details = usableDetails(request.profile);
       if (flags.evidenceRequired() && map && details.length > 0 && (response.personalization_evidence || []).length === 0) {
-        // Evidence hard-gate: usable details + approved slots but zero moments.
+        // Evidence hard-gate: usable details + approved slots but zero
+        // moments. Repairable — fall through to the repair pass after the
+        // retry instead of hard-failing.
         lastErrors = ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields'];
-        if (attempt === 2) {
-          throw new StoryGenerationError(`story for ${request.book_id} failed evidence requirement`, { bookId: request.book_id, errors: lastErrors });
-        }
         continue;
       }
       console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} tuning=${request.versions.writer_tuning} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
@@ -289,6 +403,43 @@ async function generateStory(params) {
     console.warn(`[catalogEngine] story validation failed book=${request.book_id} attempt=${attempt}: ${errors.slice(0, 6).join(' | ')}${errors.length > 6 ? ` (+${errors.length - 6} more)` : ''}`);
     lastErrors = errors;
   }
+
+  // ── Targeted repair (contract-sanctioned): when every remaining failure
+  // is a bounded, minimal-edit class (word counts, personalization caps and
+  // legality, banned terms, leakage), spend ONE low-temperature call fixing
+  // exactly those violations on the model's own last response, then re-run
+  // the full validation. Plot-level failures never reach this path.
+  if (lastResponse && isRepairable(lastErrors)) {
+    try {
+      const repairResult = await callText({
+        model: WRITER_MODEL(),
+        systemPrompt: buildSystemPrompt(tuning),
+        userPrompt: buildRepairPrompt({ request, response: lastResponse, errors: lastErrors }),
+        jsonMode: true,
+        temperature: 0.3,
+        maxTokens: 9000,
+        allowGeminiFallback: false,
+        label: `${label}:repair`,
+      });
+      usageTotal.inputTokens += repairResult.usage?.inputTokens || 0;
+      usageTotal.outputTokens += repairResult.usage?.outputTokens || 0;
+      const repaired = repairResult.json;
+      if (repaired && typeof repaired === 'object') {
+        const check = validateStoryResponse({ response: repaired, request, book, ageBand, map, theme });
+        const details = usableDetails(request.profile);
+        const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
+          && (repaired.personalization_evidence || []).length === 0);
+        if (check.ok && evidenceOk) {
+          console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
+          return { request, response: repaired, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand };
+        }
+        console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${check.errors.slice(0, 4).join(' | ')}`);
+      }
+    } catch (err) {
+      console.warn(`[catalogEngine] repair call failed book=${request.book_id}: ${err.message}`);
+    }
+  }
+
   throw new StoryGenerationError(
     `story for ${request.book_id} failed validation after retry`,
     { bookId: request.book_id, errors: lastErrors || [] },
@@ -300,6 +451,9 @@ module.exports = {
   buildStoryRequest,
   buildUserPrompt,
   buildSystemPrompt,
+  buildRepairPrompt,
+  selectOfferedDetails,
+  isRepairable,
   normalizeTuning,
   validateTuningInput,
   StoryGenerationError,
