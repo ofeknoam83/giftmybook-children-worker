@@ -24,6 +24,9 @@
  *                                   already-validated story to satisfy the
  *                                   tuning rules; only runs when an overlay
  *                                   is pinned).
+ *  - CATALOG_ART_TUNING_LAYER=0   — ignore any illustrationTuning overlay
+ *                                   sent by the main app (spreads render on
+ *                                   the bare scene + style prompts).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -41,4 +44,5 @@ module.exports = {
   tuningLayerEnabled: () => !envOff('CATALOG_TUNING_LAYER'),
   stylePolishEnabled: () => !envOff('CATALOG_STYLE_POLISH'),
   catalogOverlayEnabled: () => !envOff('CATALOG_OVERLAY'),
+  artTuningLayerEnabled: () => !envOff('CATALOG_ART_TUNING_LAYER'),
 };

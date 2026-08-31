@@ -18,7 +18,11 @@ jest.mock('../services/catalogEngine/pipeline', () => ({
     qaAdvisories: [],
     warnings: [],
   }),
+  resolveStory: jest.fn(),
   PipelineError: class PipelineError extends Error {},
+}));
+jest.mock('../services/catalogEngine/illustrator', () => ({
+  renderStorySpreads: jest.fn(),
 }));
 jest.mock('../services/illustrationGenerator', () => ({
   generateIllustration: jest.fn().mockResolvedValue('https://example.com/illustration.png'),
@@ -50,10 +54,13 @@ jest.mock('../services/gcsStorage', () => ({
   getBucket: jest.fn(),
 }));
 jest.mock('../services/progressReporter', () => ({
-  reportProgress: jest.fn(),
-  reportProgressForce: jest.fn(),
-  reportComplete: jest.fn(),
-  reportError: jest.fn(),
+  // The real reporters return promises (callers chain .catch on them) — a
+  // bare jest.fn() returning undefined makes every background pipeline block
+  // die on `.catch` before reaching the code under test.
+  reportProgress: jest.fn().mockResolvedValue(undefined),
+  reportProgressForce: jest.fn().mockResolvedValue(undefined),
+  reportComplete: jest.fn().mockResolvedValue(undefined),
+  reportError: jest.fn().mockResolvedValue(undefined),
   clearThrottle: jest.fn(),
 }));
 jest.mock('../services/comics/castVisualBible', () => ({
@@ -372,5 +379,149 @@ describe('POST /comics/generate-refsheet validation', () => {
       });
 
     expect(res.status).toBe(502);
+  });
+});
+
+describe('POST /v13/render-spreads (illustration probe)', () => {
+  const { resolveStory } = require('../services/catalogEngine/pipeline');
+  const { renderStorySpreads } = require('../services/catalogEngine/illustrator');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+  const storyPair = {
+    request: { book_id: 'farm_2_3_hello_farm', profile },
+    response: { title: 'Hello Farm', spreads: [{ spread: 1, text: 'One.' }, { spread: 3, text: 'Three.' }] },
+  };
+  const validBody = () => ({
+    bookId: 'probe-book-1',
+    story: storyPair,
+    spreads: [3, 1],
+    profile,
+    childPhotoUrls: ['https://photos.example/child.png'],
+    callbackUrl: 'https://app.example/api/children/render-probe-callback',
+    dispatchId: 'art_d_test',
+  });
+  const post = body => request(app)
+    .post('/v13/render-spreads')
+    .set('x-api-key', 'test-api-key')
+    .send(body);
+
+  let realFetch;
+  beforeEach(() => {
+    realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
+    resolveStory.mockReset().mockImplementation(async ({ storyPair: pair }) => ({
+      request: pair.request, response: pair.response, generated: false,
+    }));
+    renderStorySpreads.mockReset().mockResolvedValue({
+      results: [
+        { spread: 1, buffer: Buffer.from('x'), storageKey: 'k1', url: 'https://x/1.png', advisories: [] },
+        { spread: 3, buffer: null, storageKey: 'k3', url: null, advisories: [{ stage: 'render', spread: 3, note: 'render errored: boom' }] },
+      ],
+      aspect: 'square',
+      storyHash: 'h1',
+      tuningTag: 'art-001.aabbccdd',
+    });
+  });
+  afterEach(() => { global.fetch = realFetch; });
+  const settle = () => new Promise(r => setTimeout(r, 25));
+
+  test('every validation happens BEFORE the 202', async () => {
+    expect((await post({ ...validBody(), callbackUrl: undefined })).status).toBe(400);
+    expect((await post({ ...validBody(), spreads: [] })).status).toBe(400);
+    expect((await post({ ...validBody(), spreads: [1, 1] })).status).toBe(400);
+    expect((await post({ ...validBody(), spreads: [0, 13] })).status).toBe(400);
+    expect((await post({ ...validBody(), story: undefined })).status).toBe(400);
+    expect((await post({ ...validBody(), seed: 'not-an-int' })).status).toBe(400);
+    const badTuning = await post({ ...validBody(), illustrationTuning: { versionLabel: 'bad label!', hash: 'aabbccdd', text: 'x' } });
+    expect(badTuning.status).toBe(400);
+    expect(badTuning.body.error).toMatch(/versionLabel/);
+    const noAnchor = await post({ ...validBody(), childPhotoUrls: undefined });
+    expect(noAnchor.status).toBe(400);
+    expect(noAnchor.body.failureCode).toBe('missing_identity_reference');
+    expect(renderStorySpreads).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('a story pair that fails re-validation is rejected before the 202', async () => {
+    resolveStory.mockRejectedValue(Object.assign(new Error('stored story failed re-validation'), { failureCode: 'invalid_story' }));
+    const res = await post(validBody());
+    expect(res.status).toBe(400);
+    expect(res.body.failureCode).toBe('invalid_story');
+    expect(renderStorySpreads).not.toHaveBeenCalled();
+  });
+
+  test('202 → renders through the identity-keyed probe path → per-spread callback with dispatchId echo', async () => {
+    const res = await post({ ...validBody(), probeNonce: 'n1', seed: 42 });
+    expect(res.status).toBe(202);
+    expect(res.body.accepted).toEqual([1, 3]);
+    await settle();
+    expect(renderStorySpreads).toHaveBeenCalledWith(expect.objectContaining({
+      bookId: 'probe-book-1',
+      spreads: [1, 3],
+      identityKeyed: true,
+      seed: 42,
+      probeNonce: 'n1',
+    }));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://app.example/api/children/render-probe-callback');
+    const payload = JSON.parse(opts.body);
+    expect(payload.dispatchId).toBe('art_d_test');
+    expect(payload.illustrationTuningUsed).toBe('art-001.aabbccdd');
+    expect(payload.renders).toEqual([
+      expect.objectContaining({ spread: 1, url: 'https://x/1.png', qa: expect.objectContaining({ pass: true }) }),
+    ]);
+    expect(payload.failures).toEqual([
+      expect.objectContaining({ spread: 3, message: expect.stringContaining('render errored: boom') }),
+    ]);
+    expect(payload.success).toBe(true);
+  });
+
+  test('a probe that blows up entirely still reports by callback, never silently', async () => {
+    renderStorySpreads.mockRejectedValue(Object.assign(new Error('identity reference could not be downloaded'), { failureCode: 'missing_identity_reference' }));
+    const res = await post(validBody());
+    expect(res.status).toBe(202);
+    await settle();
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload.success).toBe(false);
+    expect(payload.dispatchId).toBe('art_d_test');
+    expect(payload.failures[0].failureCode).toBe('missing_identity_reference');
+  });
+});
+
+describe('POST /generate-book illustrationTuning passthrough', () => {
+  const { runBookPipeline } = require('../services/catalogEngine/pipeline');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+  const tuning = { versionLabel: 'art-001', hash: 'aabbccdd', text: 'warm rim light' };
+
+  test('malformed illustrationTuning is rejected before the 202', async () => {
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        bookId: 'gb-tuning-bad', profile, bookDefinitionId: 'farm_2_3_hello_farm',
+        illustrationTuning: { versionLabel: 'art-001', hash: 'nothex', text: 'x' },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/hash/);
+  });
+
+  test('a well-formed overlay reaches runBookPipeline verbatim', async () => {
+    runBookPipeline.mockClear();
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'gb-tuning-ok', profile, bookDefinitionId: 'farm_2_3_hello_farm', illustrationTuning: tuning });
+    expect(res.status).toBe(202);
+    await new Promise(r => setTimeout(r, 25));
+    expect(runBookPipeline).toHaveBeenCalledWith(expect.objectContaining({
+      bookId: 'gb-tuning-ok',
+      illustrationTuning: tuning,
+    }));
   });
 });

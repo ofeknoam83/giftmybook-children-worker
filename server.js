@@ -64,7 +64,8 @@ const { reportProgress, reportProgressForce, reportComplete, reportError, clearT
 const { CostTracker } = require('./services/costTracker');
 const { validateFinalizeBookRequest } = require('./services/validation');
 const catalogEngine = require('./services/catalogEngine');
-const { runBookPipeline } = require('./services/catalogEngine/pipeline');
+const { runBookPipeline, resolveStory } = require('./services/catalogEngine/pipeline');
+const { renderStorySpreads } = require('./services/catalogEngine/illustrator');
 
 
 const app = express();
@@ -328,6 +329,7 @@ app.get('/v13/coverage', authenticate, (req, res) => {
       tuningLayer: catalogEngine.flags.tuningLayerEnabled(),
       stylePolish: catalogEngine.flags.stylePolishEnabled(),
       catalogOverlay: catalogEngine.flags.catalogOverlayEnabled(),
+      artTuningLayer: catalogEngine.flags.artTuningLayerEnabled(),
     },
     versions: {
       writer_engine: catalogEngine.versions.WRITER_ENGINE_VERSION,
@@ -541,6 +543,138 @@ app.post('/v13/generate-stories', authenticate, async (req, res) => {
   })();
 });
 
+// POST /v13/render-spreads — the illustration-workbench PROBE: render a
+// SUBSET of an existing validated story's spreads through the exact
+// production render path (cache → render → QA → repair → marker), with no
+// PDFs, cover, upsell, or checkpoint. This is the admin render-test mode —
+// the story is reused, never regenerated (zero writer spend), and image
+// spend is len(spreads) renders instead of 12. Like /v13/generate-stories,
+// every validation happens BEFORE the 202 and results arrive by callback
+// only (docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md §7.1).
+app.post('/v13/render-spreads', authenticate, async (req, res) => {
+  const body = req.body || {};
+  const { bookId, callbackUrl, dispatchId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (!callbackUrl) {
+    return res.status(400).json({ success: false, error: 'callbackUrl is required — probe results are delivered by callback only' });
+  }
+  const spreads = Array.isArray(body.spreads) ? body.spreads : null;
+  if (!spreads || spreads.length < 1 || spreads.length > 12
+    || !spreads.every(n => Number.isInteger(n) && n >= 1 && n <= 12)
+    || new Set(spreads).size !== spreads.length) {
+    return res.status(400).json({ success: false, error: 'spreads must be 1-12 unique integers between 1 and 12' });
+  }
+  let profile;
+  try {
+    profile = catalogEngine.normalizeProfile(body.profile);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+  const artTuningError = catalogEngine.validateArtTuningInput(body.illustrationTuning);
+  if (artTuningError) {
+    return res.status(400).json({ success: false, error: artTuningError });
+  }
+  if (body.seed !== undefined && body.seed !== null && !Number.isInteger(body.seed)) {
+    return res.status(400).json({ success: false, error: 'seed must be an integer' });
+  }
+  const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
+  if (!storyPair) {
+    return res.status(400).json({ success: false, error: 'story {request, response} is required — the probe renders an existing validated story, never a fresh one' });
+  }
+  const approvedCoverUrl = body.approvedCoverUrl || null;
+  const childPhotoUrl = Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls[0] : null;
+  if (!approvedCoverUrl && !childPhotoUrl) {
+    return res.status(400).json({ success: false, error: 'no approvedCoverUrl and no childPhotoUrls — the renders would have no identity anchor', failureCode: 'missing_identity_reference' });
+  }
+  // Bind + re-validate the pair exactly like /generate-book's pipeline does:
+  // a probe must never render an invalid or foreign story.
+  let story;
+  try {
+    story = await resolveStory({
+      storyPair,
+      checkpointStory: null,
+      bookDefinitionId: null,
+      profile,
+      sessionId: body.sessionId || bookId,
+      log: (level, msg) => console.log(`[renderSpreads:${bookId}] ${msg}`),
+    });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode || null });
+  }
+  const bookDef = catalogEngine.getBook(story.request.book_id);
+
+  res.status(202).json({ success: true, bookId, accepted: [...spreads].sort((a, b) => a - b), engine: 'catalog-v13' });
+
+  const costTracker = new CostTracker();
+  (async () => {
+    const started = Date.now();
+    let payload;
+    try {
+      const art = await renderStorySpreads({
+        bookId,
+        story: story.response,
+        bookDef,
+        profile,
+        approvedCoverUrl,
+        childPhotoUrl,
+        characterDescription: body.characterDescription || null,
+        textLayout: String(body.textLayout).toLowerCase() === 'embedded' ? 'embedded' : 'caption',
+        spreads: [...spreads].sort((a, b) => a - b),
+        tuning: body.illustrationTuning || null,
+        // Probe cache keys carry the identity anchor: a workbench book's
+        // anchor is admin-mutable, and a swapped anchor must never replay
+        // the prior child's cached renders.
+        identityKeyed: true,
+        seed: Number.isInteger(body.seed) ? body.seed : null,
+        probeNonce: body.probeNonce || null,
+        costTracker,
+        forceRerender: !!body.forceRerender,
+        log: (level, msg) => console.log(`[renderSpreads:${bookId}] ${msg}`),
+      });
+      const renders = art.results.filter(r => r.buffer).map(r => ({
+        spread: r.spread,
+        url: r.url,
+        storageKey: r.storageKey,
+        qa: {
+          pass: r.advisories.filter(a => a.stage === 'spreadQa').length === 0,
+          advisories: r.advisories,
+        },
+      }));
+      const failures = art.results.filter(r => !r.buffer).map(r => ({
+        spread: r.spread,
+        message: r.advisories.map(a => a.note).join('; ') || 'render failed',
+      }));
+      payload = {
+        success: renders.length > 0,
+        bookId,
+        engine: 'catalog-v13',
+        ...(dispatchId ? { dispatchId } : {}),
+        renders,
+        failures,
+        illustrationTuningUsed: art.tuningTag,
+        aspect: art.aspect,
+        costs: costTracker.getSummary(),
+      };
+      console.log(`[v13] render-spreads for ${bookId}: ${renders.length} ok, ${failures.length} failed, tuning=${art.tuningTag} in ${Date.now() - started}ms`);
+    } catch (err) {
+      console.error(`[v13] render-spreads failed for ${bookId}:`, err);
+      payload = {
+        success: false,
+        bookId,
+        engine: 'catalog-v13',
+        ...(dispatchId ? { dispatchId } : {}),
+        renders: [],
+        failures: [{ message: err.message, failureCode: err.failureCode || null }],
+        illustrationTuningUsed: 'none',
+        costs: costTracker.getSummary(),
+      };
+    }
+    await postWithRetry(callbackUrl, payload);
+  })();
+});
+
 // POST /generate-book — full pipeline for the CHOSEN story: renders (cached,
 // cover-anchored), interior PDF, cover PDF, callbacks. 202-then-background.
 app.post('/generate-book', authenticate, async (req, res) => {
@@ -557,6 +691,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
   const bookTuningError = catalogEngine.validateTuningInput(body.writerTuning);
   if (bookTuningError) {
     return res.status(400).json({ success: false, error: bookTuningError });
+  }
+  const bookArtTuningError = catalogEngine.validateArtTuningInput(body.illustrationTuning);
+  if (bookArtTuningError) {
+    return res.status(400).json({ success: false, error: bookArtTuningError });
   }
   const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
   if (!storyPair && !body.bookDefinitionId && body.catalogThemeId) {
@@ -622,6 +760,7 @@ app.post('/generate-book', authenticate, async (req, res) => {
         sessionId: body.sessionId || bookId,
         storyPair,
         writerTuning: body.writerTuning || null,
+        illustrationTuning: body.illustrationTuning || null,
         checkpoint,
         saveCheckpoint: cp => saveCheckpoint(bookId, cp),
         approvedCoverUrl: body.approvedCoverUrl || null,

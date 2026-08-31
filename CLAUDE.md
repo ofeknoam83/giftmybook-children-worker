@@ -99,6 +99,11 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   one is re-checked, never silently approved); bump
   `STYLE_VERSION` (versions.js) to invalidate globally. Words are PDF type,
   never pixels (D5): `skipTextEmbed` on every render.
+  `illustrator/tuning.js` is the **Art Tuning Layer** (see below): when an
+  `illustrationTuning` overlay rides the request, its framed style-only block
+  is appended below each spread's scene and the cache path's version segment
+  becomes `{STYLE_VERSION}+{label.hash8}` — tuned and untuned renders can
+  never replay each other, and `none` keeps the legacy path byte-identical.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -113,6 +118,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_TUNING_LAYER=0` — ignore any `writerTuning` overlay from the main
   app (stories render on the bare locked engine prompt).
 - `CATALOG_STYLE_POLISH=0` — skip the style-polish pass on tuned stories.
+- `CATALOG_ART_TUNING_LAYER=0` — ignore any `illustrationTuning` overlay from
+  the main app (spreads render on the bare scene + style prompts).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`).
 
@@ -140,6 +147,25 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   qaAdvisories, warnings, costs) + `pipelineVersionUsed: 'catalog-v13'`,
   `illustratorVersionUsed: 'catalog-slim'`. `storyContent.catalog` carries
   bookDefinitionId/themeId/ageBand/versions/evidence/omissions.
+- `POST /v13/render-spreads` — the **admin render-test (probe) mode** for the
+  illustration feedback loop: `{bookId, story:{request,response}, spreads[1..12
+  subset], profile, approvedCoverUrl|childPhotoUrls, textLayout,
+  illustrationTuning?, dispatchId?, seed?, probeNonce?, forceRerender?,
+  callbackUrl}` → 202; callback `{renders:[{spread, url, storageKey,
+  qa:{pass, advisories}}], failures:[{spread, message}],
+  illustrationTuningUsed, costs}` (+dispatchId echo). Renders a SUBSET of an
+  existing validated story's spreads through the exact production path — zero
+  writer spend, no PDFs/cover/upsell; per-spread render errors land in
+  `failures`, never fail the probe. Probe cache keys fold in the identity
+  anchor (URL path + characterDescription) and any `seed` (applying the seed
+  stays gated by `BOOK_PIPELINE_V3_RENDER_SEED`), so an anchor swap or seed
+  change never replays stale renders. `illustrationTuning` (`{versionLabel,
+  hash, text?, spreads?}`, also accepted by `/generate-book`) is the app-owned
+  Art Tuning Layer: appended below each scene at lowest priority, echoed as
+  `illustrationTuningUsed` + `storyContent.catalog.illustrationTuning`
+  (`<label>.<hash8>` or `none`), capped at 2000B global / 400B per spread /
+  3000B total, killed by `CATALOG_ART_TUNING_LAYER=0`. See
+  `docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md`.
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
   flip + pre-print overlay preview (entries from the request)
 - `/generate-book` also bakes the 4-style upsell spread into the interior

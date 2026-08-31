@@ -17,6 +17,7 @@ const augments = require('./augments');
 const { normalizeProfile, usableDetails, ProfileError } = require('./profile');
 const { selectBooks } = require('./selection');
 const { generateStory, StoryGenerationError, validateTuningInput } = require('./writer');
+const { validateArtTuningInput } = require('./illustrator/tuning');
 const { validateStoryResponse } = require('./storyValidation');
 const flags = require('./flags');
 const versions = require('./versions');
@@ -123,6 +124,7 @@ module.exports = {
   generateStories,
   validateStoryResponse,
   validateTuningInput,
+  validateArtTuningInput,
   StoryGenerationError,
   ProfileError,
   // profile
