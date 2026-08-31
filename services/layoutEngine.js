@@ -367,6 +367,59 @@ function computeCaptionBlock(fonts, captionText, maxW, opts = {}) {
   return chosen;
 }
 
+// ── Half-page layout (art + solid-color text panel) ─────────────────────────
+
+/** Text panels must stay light enough for the brown caption ink — parity
+ * with the white/cream caption pages (0–255 luminance floor). */
+const HALF_PANEL_MIN_LUMINANCE = 215;
+const HALF_PANEL_MIN_CREAM_MIX = 0.45;
+const HALF_PANEL_CREAM = { r: 0.969, g: 0.949, b: 0.918 }; // C.cardBg
+
+/** Relative luminance (0–255) of a 0–1 rgb color — same scale as the
+ * overlay band statistics. */
+function colorLuminance255({ r, g, b }) {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) * 255;
+}
+
+/**
+ * Average color of the spread art (1×1 resample). Falls back to the cream
+ * card background when the art is missing or unreadable — the panel must
+ * never block a book.
+ * @param {Buffer} artBuf
+ * @returns {Promise<{r: number, g: number, b: number}>} 0–1 rgb
+ */
+async function spreadAverageColor(artBuf) {
+  try {
+    const { data } = await sharp(artBuf).resize(1, 1, { fit: 'cover' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    return { r: data[0] / 255, g: data[1] / 255, b: data[2] / 255 };
+  } catch (e) {
+    console.warn(`[LayoutEngine] half-panel color sample failed (using cream): ${e.message}`);
+    return { ...HALF_PANEL_CREAM };
+  }
+}
+
+/**
+ * The half-layout text panel's background: the art-derived color blended
+ * toward cream — always at least HALF_PANEL_MIN_CREAM_MIX so it reads as a
+ * designed panel, and further until the luminance floor holds so the brown
+ * caption ink stays as readable as on the caption pages. Pure — exported
+ * for tests (the sharp sampling path never runs in the sandbox suite).
+ * @param {{r: number, g: number, b: number}} color 0–1 rgb from the art
+ * @returns {{r: number, g: number, b: number}}
+ */
+function halfPanelColor(color) {
+  const mixTo = (amount) => ({
+    r: color.r + (HALF_PANEL_CREAM.r - color.r) * amount,
+    g: color.g + (HALF_PANEL_CREAM.g - color.g) * amount,
+    b: color.b + (HALF_PANEL_CREAM.b - color.b) * amount,
+  });
+  for (let mix = HALF_PANEL_MIN_CREAM_MIX; mix < 1; mix += 0.05) {
+    const c = mixTo(mix);
+    if (colorLuminance255(c) >= HALF_PANEL_MIN_LUMINANCE) return c;
+  }
+  return { ...HALF_PANEL_CREAM };
+}
+
 function buildSpreadCaptionPage(page, fonts, captionText, { pw, ph }) {
   const block = computeCaptionBlock(fonts, captionText, pw - SAFE * 2);
   if (!block) return;
@@ -1257,6 +1310,36 @@ async function assemblePdf(storyEntries, bookFormat, opts = {}) {
       // halo strength decided from the band's segment statistics. The words
       // are PDF type, never pixels — D5 stays intact.
       await layoutEmbeddedSpread(pdfDoc, fonts, entry, { pw, ph, report: opts.overlayReport || null });
+      continue;
+    }
+
+    if (entry.textLayout === 'half' && entry.captionText !== undefined) {
+      // Half-page layout (2026-08-31): the open spread reads as HALF art,
+      // HALF solid color — the square illustration full-bleed on the recto,
+      // and the verso a SOLID-COLOR text panel sampled from THIS spread's
+      // art (blended toward cream until the caption ink stays readable).
+      // Words are PDF type, never pixels; the renders and cache are
+      // identical to caption mode, so flipping caption ↔ half re-lays out
+      // the same cached art for free.
+      const panelPage = pdfDoc.addPage([pw, ph]);
+      const imagePage = pdfDoc.addPage([pw, ph]);
+      let panel = { ...HALF_PANEL_CREAM };
+      if (entry.spreadIllustrationBuffer) {
+        panel = halfPanelColor(await spreadAverageColor(entry.spreadIllustrationBuffer));
+      }
+      panelPage.drawRectangle({ x: 0, y: 0, width: pw, height: ph, color: rgb(panel.r, panel.g, panel.b) });
+      try {
+        buildSpreadCaptionPage(panelPage, fonts, entry.captionText || '', { pw, ph });
+      } catch (e) {
+        console.warn(`[LayoutEngine] half-layout text panel failed: ${e.message}`);
+      }
+      if (entry.spreadIllustrationBuffer) {
+        try {
+          await embedFullBleed(pdfDoc, imagePage, entry.spreadIllustrationBuffer);
+        } catch (e) {
+          console.warn(`[LayoutEngine] half-layout art embed failed: ${e.message}`);
+        }
+      }
       continue;
     }
 
@@ -2355,6 +2438,9 @@ module.exports = {
   buildEmbeddedPreviewPdf,
   FORMATS,
   splitSpreadImage,
+  // Half-page layout: pure panel-color math, exported for the sharp-free suite.
+  halfPanelColor,
+  colorLuminance255,
   pickOverlayTone,
   // Pure embedded-overlay helpers (exported for the sandbox test suite,
   // which cannot run sharp — mirrors the pickOverlayTone export).

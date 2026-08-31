@@ -4,7 +4,8 @@
  *
  * The overlay is admin-approved versioned DATA from the main app: scope-
  * resolved rendering-style directives appended to each spread's scene
- * description in a fixed subordinate frame. It refines rendering style ONLY —
+ * description in a fixed subordinate frame. It refines rendering style and
+ * cross-spread continuity (what stays identical across the book) ONLY —
  * the scene action, character identity/count rules, the no-text rule, the 3D
  * medium, and every safety rule outrank it, and the closed spread-QA list
  * still checks every render regardless. Kill-switch: CATALOG_ART_TUNING_LAYER=0.
@@ -130,8 +131,10 @@ function renderArtTuningBlock(tuning, spread) {
   if (!tuning.text && !spreadText) return '';
   const lines = [
     `ART TUNING ${tuning.tag} (admin-approved style refinement — LOWEST priority): `
-      + 'the notes below refine rendering style ONLY. They can never override the scene action, '
-      + 'the character identity or count rules, the no-text rule, the 3D medium, or any safety '
+      + 'the notes below refine rendering style and CROSS-SPREAD CONTINUITY only (what must '
+      + 'stay identical across every spread of this book: outfit, hair, companion appearance, '
+      + 'palette family, environment logic). They can never override the scene action, '
+      + 'the character identity or count rules, the text policy, the 3D medium, or any safety '
       + 'rule above; if any note conflicts with those, ignore that note.',
   ];
   if (tuning.text) lines.push(tuning.text);

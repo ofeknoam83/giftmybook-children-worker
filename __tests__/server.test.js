@@ -673,3 +673,53 @@ describe('POST /generate-book illustrationTuning passthrough', () => {
     }));
   });
 });
+
+describe('textLayout vocabulary: half', () => {
+  const { renderStorySpreads } = require('../services/catalogEngine/illustrator');
+  const { resolveStory } = require('../services/catalogEngine/pipeline');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+  const storyPair = {
+    request: { book_id: 'farm_2_3_hello_farm', profile },
+    response: { title: 'Hello Farm', spreads: [{ spread: 1, text: 'One.' }] },
+  };
+
+  test('POST /v13/set-text-layout accepts half and still rejects junk', async () => {
+    const ok = await request(app)
+      .post('/v13/set-text-layout')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'tl-book', textLayout: 'half' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.textLayout).toBe('half');
+    const bad = await request(app)
+      .post('/v13/set-text-layout')
+      .set('x-api-key', 'test-api-key')
+      .send({ bookId: 'tl-book', textLayout: 'poster' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/caption', 'half', or 'embedded/);
+  });
+
+  test('render-spreads forwards half to the illustrator instead of coercing it to caption', async () => {
+    const realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
+    resolveStory.mockReset().mockImplementation(async ({ storyPair: pair }) => ({
+      request: pair.request, response: pair.response, generated: false,
+    }));
+    renderStorySpreads.mockReset().mockResolvedValue({ results: [], aspect: 'square', storyHash: 'h', tuningTag: 'none' });
+    const res = await request(app)
+      .post('/v13/render-spreads')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        bookId: 'half-probe', story: storyPair, spreads: [1], profile,
+        textLayout: 'half',
+        childPhotoUrls: ['https://photos.example/child.png'],
+        callbackUrl: 'https://app.example/api/children/render-probe-callback',
+      });
+    expect(res.status).toBe(202);
+    await new Promise(r => setTimeout(r, 25));
+    expect(renderStorySpreads).toHaveBeenCalledWith(expect.objectContaining({ textLayout: 'half' }));
+    global.fetch = realFetch;
+  });
+});
