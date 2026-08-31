@@ -898,6 +898,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
         pipelineVersionUsed: 'catalog-v13',
         ...(err.failureCode ? { failureCode: err.failureCode } : {}),
         ...(err.validationErrors?.length ? { validationErrors: err.validationErrors } : {}),
+        // Per-spread render diagnostics (render_failed): which spreads failed
+        // and why, attempt by attempt — same shape as the probe callback's
+        // failures[].
+        ...(err.renderFailures?.length ? { renderFailures: err.renderFailures } : {}),
         logs: bookContext.logs,
       };
       if (callbackUrl) await postWithRetry(callbackUrl, failure);

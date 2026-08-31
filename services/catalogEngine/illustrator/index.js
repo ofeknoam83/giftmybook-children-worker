@@ -362,10 +362,18 @@ async function illustrateStory(params) {
   // Residual QA defects ship with advisories, but the ABSENCE of an image is
   // not advisory-class: a blank spread must fail the run (finished renders
   // stay cached, so the retry re-pays only for the missing spreads).
-  const missing = results.filter(r => !r.buffer).map(r => r.spread);
-  if (missing.length > 0) {
+  const failed = results.filter(r => !r.buffer);
+  if (failed.length > 0) {
+    const missing = failed.map(r => r.spread);
     const err = new Error(`render failed for spread(s) ${missing.join(', ')} — the book cannot complete with blank art; retry re-renders only the missing spreads`);
     err.failureCode = 'render_failed';
+    // The throw discards qaAdvisories, so the per-spread diagnostics must
+    // ride the error for the /generate-book failure callback to serialize.
+    err.renderFailures = failed.map(r => ({
+      spread: r.spread,
+      message: r.advisories.map(a => a.note).join('; ') || 'render failed',
+      ...(r.advisories.find(a => a.detail) ? { detail: r.advisories.find(a => a.detail).detail } : {}),
+    }));
     throw err;
   }
 

@@ -458,6 +458,12 @@ function noImageError(message, data) {
       ...(safety.length > 0 ? { safety } : {}),
       ...(textPart ? { modelText: textPart.text.trim().slice(0, 280) } : {}),
     };
+    // A safety-flagged no-image response must ride the same prompt-variant
+    // ladder as an explicit NSFW block — retrying the identical prompt
+    // cannot succeed, but the sanitized/generic-safe variants can.
+    if (/SAFETY|PROHIBITED/i.test(String(cand?.finishReason || '')) || data?.promptFeedback?.blockReason) {
+      err.isNsfw = true;
+    }
   } catch { /* diagnostics are best-effort — the error itself must survive */ }
   return err;
 }

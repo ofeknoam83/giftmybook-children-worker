@@ -422,7 +422,13 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     renderStorySpreads.mockReset().mockResolvedValue({
       results: [
         { spread: 1, buffer: Buffer.from('x'), storageKey: 'k1', url: 'https://x/1.png', advisories: [] },
-        { spread: 3, buffer: null, storageKey: 'k3', url: null, advisories: [{ stage: 'render', spread: 3, note: 'render errored: boom' }] },
+        {
+          spread: 3, buffer: null, storageKey: 'k3', url: null,
+          advisories: [{
+            stage: 'render', spread: 3, note: 'render errored: boom',
+            detail: { attempts: [{ attempt: 1, variant: 'original', error: 'No image in Gemini response (public-2)', finishReason: 'IMAGE_SAFETY' }] },
+          }],
+        },
       ],
       aspect: 'square',
       storyHash: 'h1',
@@ -480,6 +486,11 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     ]);
     expect(payload.failures).toEqual([
       expect.objectContaining({ spread: 3, message: expect.stringContaining('render errored: boom') }),
+    ]);
+    // The externally consumed diagnostics contract: advisory detail rides
+    // the callback failure verbatim.
+    expect(payload.failures[0].detail.attempts).toEqual([
+      expect.objectContaining({ attempt: 1, variant: 'original', finishReason: 'IMAGE_SAFETY' }),
     ]);
     expect(payload.success).toBe(true);
   });
@@ -587,6 +598,44 @@ describe('POST /v13/generate-cover-image (probe-anchor cover)', () => {
     const res = await post(validBody());
     expect(res.status).toBe(200);
     expect(res.body.coverAnatomyAdvisory).toMatch(/three hands/);
+  });
+});
+
+describe('POST /generate-book render_failed diagnostics on the failure callback', () => {
+  const { runBookPipeline } = require('../services/catalogEngine/pipeline');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+
+  test('err.renderFailures from the illustrator is serialized for the caller', async () => {
+    let realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
+    runBookPipeline.mockRejectedValueOnce(Object.assign(
+      new Error('render failed for spread(s) 1 — the book cannot complete with blank art; retry re-renders only the missing spreads'),
+      {
+        failureCode: 'render_failed',
+        renderFailures: [{
+          spread: 1,
+          message: 'render errored: No image in Gemini response (public-2)',
+          detail: { attempts: [{ attempt: 1, variant: 'original', error: 'No image in Gemini response (public-2)', finishReason: 'IMAGE_SAFETY' }] },
+        }],
+      },
+    ));
+    const res = await request(app)
+      .post('/generate-book')
+      .set('x-api-key', 'test-api-key')
+      .send({
+        bookId: 'gb-render-failed', profile, bookDefinitionId: 'farm_2_3_hello_farm',
+        callbackUrl: 'https://app.example/api/children/callback',
+      });
+    expect(res.status).toBe(202);
+    await new Promise(r => setTimeout(r, 25));
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload.success).toBe(false);
+    expect(payload.failureCode).toBe('render_failed');
+    expect(payload.renderFailures[0].detail.attempts[0]).toMatchObject({ finishReason: 'IMAGE_SAFETY' });
+    global.fetch = realFetch;
   });
 });
 
