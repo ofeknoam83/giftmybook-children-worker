@@ -656,6 +656,10 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
       const failures = art.results.filter(r => !r.buffer).map(r => ({
         spread: r.spread,
         message: r.advisories.map(a => a.note).join('; ') || 'render failed',
+        // Per-attempt render diagnostics (variant ladder, NSFW blocks,
+        // Gemini finish/block reasons, the model's refusal text) so the
+        // admin sees WHY a spread failed, not just that it did.
+        ...(r.advisories.find(a => a.detail) ? { detail: r.advisories.find(a => a.detail).detail } : {}),
       }));
       payload = {
         success: renders.length > 0,
@@ -894,6 +898,10 @@ app.post('/generate-book', authenticate, async (req, res) => {
         pipelineVersionUsed: 'catalog-v13',
         ...(err.failureCode ? { failureCode: err.failureCode } : {}),
         ...(err.validationErrors?.length ? { validationErrors: err.validationErrors } : {}),
+        // Per-spread render diagnostics (render_failed): which spreads failed
+        // and why, attempt by attempt — same shape as the probe callback's
+        // failures[].
+        ...(err.renderFailures?.length ? { renderFailures: err.renderFailures } : {}),
         logs: bookContext.logs,
       };
       if (callbackUrl) await postWithRetry(callbackUrl, failure);

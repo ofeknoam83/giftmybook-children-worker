@@ -90,7 +90,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // identity/count, no-text, and medium rules that precede it.
   const tuningBlock = renderArtTuningBlock(tuning, spread);
   const baseScene = tuningBlock ? `${scene}\n${tuningBlock}` : scene;
+  // Per-attempt diagnostics sink (filled by generateIllustration): when the
+  // render fails, the advisory carries WHY — variant ladder, NSFW blocks,
+  // Gemini finish/block reasons, the model's own refusal text.
+  const attemptLog = [];
   const renderOpts = {
+    attemptLog,
     aspectRatio: aspect === 'wide' ? '16:9' : '1:1',
     // Embedded layout runs the renderer's text-embed path: typography rules
     // in the prompt, plus OCR verification with extra retries for
@@ -148,7 +153,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   if (!buffer) {
     url = await generateIllustration(baseScene, characterRefUrl, 'pixar_premium', renderOpts);
     if (!url) {
-      advisories.push({ stage: 'render', spread, note: 'render failed (all prompt variants rejected) — spread has no illustration' });
+      advisories.push({
+        stage: 'render', spread,
+        note: 'render failed (all prompt variants rejected) — spread has no illustration',
+        ...(attemptLog.length > 0 ? { detail: { attempts: attemptLog } } : {}),
+      });
       return { spread, buffer: null, storageKey, url: null, advisories };
     }
     buffer = await downloadBuffer(storageKey);
@@ -317,12 +326,18 @@ async function renderStorySpreads(params) {
     const spread = wanted[i].spread;
     const note = `render errored: ${s.reason?.message || String(s.reason)}`;
     log('error', `Spread ${spread} ${note}`);
+    // The per-attempt diagnostics the renderer attached to the failure —
+    // "failed after 5 attempts" alone is not actionable for the admin.
+    const detail = {
+      ...(Array.isArray(s.reason?.attempts) && s.reason.attempts.length > 0 ? { attempts: s.reason.attempts } : {}),
+      ...(s.reason?.failureCode ? { failureCode: s.reason.failureCode } : {}),
+    };
     return {
       spread,
       buffer: null,
       storageKey: renderCachePath(bookId, storyHash, spread, aspect, tuning ? tuning.tag : 'none'),
       url: null,
-      advisories: [{ stage: 'render', spread, note }],
+      advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
     };
   });
 
@@ -347,10 +362,18 @@ async function illustrateStory(params) {
   // Residual QA defects ship with advisories, but the ABSENCE of an image is
   // not advisory-class: a blank spread must fail the run (finished renders
   // stay cached, so the retry re-pays only for the missing spreads).
-  const missing = results.filter(r => !r.buffer).map(r => r.spread);
-  if (missing.length > 0) {
+  const failed = results.filter(r => !r.buffer);
+  if (failed.length > 0) {
+    const missing = failed.map(r => r.spread);
     const err = new Error(`render failed for spread(s) ${missing.join(', ')} — the book cannot complete with blank art; retry re-renders only the missing spreads`);
     err.failureCode = 'render_failed';
+    // The throw discards qaAdvisories, so the per-spread diagnostics must
+    // ride the error for the /generate-book failure callback to serialize.
+    err.renderFailures = failed.map(r => ({
+      spread: r.spread,
+      message: r.advisories.map(a => a.note).join('; ') || 'render failed',
+      ...(r.advisories.find(a => a.detail) ? { detail: r.advisories.find(a => a.detail).detail } : {}),
+    }));
     throw err;
   }
 

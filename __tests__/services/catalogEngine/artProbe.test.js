@@ -125,6 +125,40 @@ describe('identity-keyed probe cache', () => {
   });
 });
 
+describe('render-failure diagnostics reach the failure advisory', () => {
+  test('a thrown render carries its per-attempt log onto advisory.detail', async () => {
+    generateIllustration.mockImplementation(async (scene, ref, style, opts) => {
+      if (Array.isArray(opts.attemptLog)) {
+        opts.attemptLog.push({ attempt: 1, variant: 'public', error: 'No image in Gemini response (public-2)', finishReason: 'IMAGE_SAFETY', modelText: 'refusal explanation' });
+      }
+      const err = new Error('Illustration generation failed after 5 attempts: No image in Gemini response (public-2)');
+      err.attempts = opts.attemptLog;
+      throw err;
+    });
+    const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    expect(results[0].buffer).toBeNull();
+    const advisory = results[0].advisories[0];
+    expect(advisory.note).toContain('render errored');
+    expect(advisory.detail.attempts).toHaveLength(1);
+    expect(advisory.detail.attempts[0]).toMatchObject({ finishReason: 'IMAGE_SAFETY', modelText: 'refusal explanation' });
+  });
+
+  test('the NSFW-exhausted null return keeps its attempt log too', async () => {
+    generateIllustration.mockImplementation(async (scene, ref, style, opts) => {
+      if (Array.isArray(opts.attemptLog)) {
+        opts.attemptLog.push({ attempt: 1, variant: 'public', error: 'NSFW block', nsfw: true });
+        opts.attemptLog.push({ attempt: 2, variant: 'generic-safe', error: 'NSFW block', nsfw: true });
+      }
+      return null;
+    });
+    const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    expect(results[0].buffer).toBeNull();
+    const advisory = results[0].advisories[0];
+    expect(advisory.note).toContain('all prompt variants rejected');
+    expect(advisory.detail.attempts.map(a => a.nsfw)).toEqual([true, true]);
+  });
+});
+
 describe('layout-aware text embedding (ce-2)', () => {
   test('embedded layout runs the renderer text-embed path with the EXACT spread text', async () => {
     generateIllustration.mockClear();
