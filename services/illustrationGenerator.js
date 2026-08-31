@@ -434,6 +434,35 @@ async function verifyImageText(imageBuffer, expectedText, abortSignal, costTrack
 }
 
 /**
+ * Build a diagnosable "no image" error from a Gemini response: the model's
+ * finishReason / prompt blockReason, elevated safety ratings, and any TEXT
+ * part (Gemini usually explains a refusal in prose) ride the error as
+ * `geminiDetail` so a failed render can tell the admin WHY, not just that
+ * five attempts produced nothing.
+ * @param {string} message
+ * @param {object} data raw Gemini generateContent response body
+ * @returns {Error}
+ */
+function noImageError(message, data) {
+  const err = new Error(message);
+  try {
+    const cand = data?.candidates?.[0];
+    const textPart = (cand?.content?.parts || []).find(p => typeof p.text === 'string' && p.text.trim());
+    const safety = (cand?.safetyRatings || data?.promptFeedback?.safetyRatings || [])
+      .filter(r => r?.probability && r.probability !== 'NEGLIGIBLE')
+      .map(r => `${r.category}: ${r.probability}`)
+      .slice(0, 4);
+    err.geminiDetail = {
+      ...(cand?.finishReason ? { finishReason: cand.finishReason } : {}),
+      ...(data?.promptFeedback?.blockReason ? { blockReason: data.promptFeedback.blockReason } : {}),
+      ...(safety.length > 0 ? { safety } : {}),
+      ...(textPart ? { modelText: textPart.text.trim().slice(0, 280) } : {}),
+    };
+  } catch { /* diagnostics are best-effort — the error itself must survive */ }
+  return err;
+}
+
+/**
  * Build a structured illustration prompt with character identity anchoring.
  *
  * @param {string} sceneDescription - Scene to illustrate
@@ -904,7 +933,7 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
 
     const data = await resp.json();
     const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    if (!imagePart) throw new Error(`No image in Gemini response (public-${keyIdx})`);
+    if (!imagePart) throw noImageError(`No image in Gemini response (public-${keyIdx})`, data);
 
     const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
     const elapsedMs = Date.now() - epStart;
@@ -1001,7 +1030,7 @@ async function callGeminiImageApiNoPhoto(prompt, deadlineMs, abortSignal, opts =
 
       const data = await resp.json();
       const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-      if (!imagePart) throw new Error(`No image in Gemini response (${ep.label})`);
+      if (!imagePart) throw noImageError(`No image in Gemini response (${ep.label})`, data);
 
       const imgBuf = Buffer.from(imagePart.inlineData.data, 'base64');
       console.log(`[illustrationGenerator] \u2705 ${ep.label} succeeded (${Date.now() - epStart}ms, ${imgBuf.length} bytes)`);
@@ -1104,6 +1133,12 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     ? TEXT_HEAVY_MAX_RETRIES
     : BASE_MAX_RETRIES;
 
+  // Caller-owned diagnostics sink: every attempt's outcome is recorded so a
+  // failed render can explain itself (the probe endpoint surfaces this to
+  // the admin). Optional — callers that don't pass an array lose nothing.
+  const attemptLog = Array.isArray(opts.attemptLog) ? opts.attemptLog : null;
+  const logAttempt = (rec) => { if (attemptLog) attemptLog.push(rec); };
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const variant = promptVariants[promptVariantIndex];
     try {
@@ -1131,6 +1166,7 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
         const textCheck = await verifyImageText(imageBuffer, opts.pageText, opts.abortSignal, costTracker);
         if (!textCheck.valid) {
           console.warn(`[illustrationGenerator] Text verification failed on attempt ${attempt} for book ${bookId || 'unknown'}: ${textCheck.issues.join('; ')} — regenerating`);
+          logAttempt({ attempt, variant: variant.label, error: `embedded-text verification failed: ${textCheck.issues.join('; ')}`.slice(0, 240) });
           continue;
         }
         console.log(`[illustrationGenerator] Text verification passed on attempt ${attempt}`);
@@ -1156,6 +1192,13 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
       console.log(`[illustrationGenerator] Total illustration time: ${Date.now() - totalStart}ms`);
       return null;
     } catch (genErr) {
+      logAttempt({
+        attempt,
+        variant: variant.label,
+        error: String(genErr.message || genErr).slice(0, 240),
+        ...(genErr.isNsfw ? { nsfw: true } : {}),
+        ...(genErr.geminiDetail || {}),
+      });
       if (genErr.isNsfw) {
         console.warn(`[illustrationGenerator] NSFW detected on attempt ${attempt} (${variant.label}) for book ${bookId || 'unknown'}: ${genErr.message}`);
         promptVariantIndex++;
@@ -1168,12 +1211,16 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       console.error(`[illustrationGenerator] Attempt ${attempt} failed: ${genErr.message} (${Date.now() - totalStart}ms)`);
       if (attempt === maxRetries) {
-        throw new Error(`Illustration generation failed after ${maxRetries} attempts: ${genErr.message}`);
+        const err = new Error(`Illustration generation failed after ${maxRetries} attempts: ${genErr.message}`);
+        if (attemptLog) err.attempts = attemptLog;
+        throw err;
       }
     }
   }
 
-  throw new Error('No illustration generated after all attempts');
+  const exhausted = new Error('No illustration generated after all attempts');
+  if (attemptLog) exhausted.attempts = attemptLog;
+  throw exhausted;
 }
 module.exports = {
   generateIllustration,
