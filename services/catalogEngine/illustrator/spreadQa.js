@@ -10,6 +10,13 @@
  * render must contain the story text painted into the art — the same vision
  * call transcribes it and compareTexts verifies it against the manuscript
  * (missing or garbled painted text is the defect, not its presence).
+ *
+ * Embedded typography is gated too (ce-4): the painted block must read as
+ * typeset text — straight, level, left-aligned lines with even spacing
+ * (`text_lines_misaligned`), in ONE font/size/color (`text_style_inconsistent`).
+ * Cross-spread sameness is enforced upstream by pinning the identical
+ * TEXT_RULES spec on every stateless render; QA checks each render against
+ * that same fixed spec, so spreads that each pass also match each other.
  */
 
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
@@ -50,6 +57,14 @@ painted directly over the artwork. Text split into blocks on BOTH the left
 and right sides, or text sitting on a blank/solid/lightened band or strip
 (letterboxing) instead of over continuous artwork, is a placement defect.
 
+The painted text must also look professionally TYPESET: every line straight,
+level, and horizontal; all lines left-aligned to one shared straight left
+margin; even line spacing throughout. Tilted, arched, or wavy lines, a
+drifting left edge, or visibly uneven line gaps are an alignment defect.
+The whole block must use ONE single font family, ONE size, and ONE fill
+color — mixed typefaces, mixed sizes/weights, or mixed colors within the
+text are a typography defect.
+
 STORY TEXT THAT MUST APPEAR IN THE IMAGE:
 "${expectedText}"
 
@@ -59,6 +74,8 @@ Answer STRICT JSON only:
   "visible_text": "…",           // the exact text you can read in the image, verbatim ("" if none)
   "text_split_both_sides": true|false, // text appears in separate blocks on BOTH the left and right sides of the image
   "text_on_band": true|false,    // text sits on a blank, solid, or lightened band/strip/panel (letterbox) instead of being painted over the artwork
+  "text_lines_misaligned": true|false, // any text line is tilted, arched, or wavy; the lines do not share one straight left margin; or the line spacing is visibly uneven
+  "text_style_inconsistent": true|false, // the painted text mixes more than one font family, size, weight, or fill color
   "child_absent": true|false,    // no child hero visible at all
   "multiple_children": true|false, // two or more distinct child heroes (ignore background adults/animals; a reflection or photo-within-scene of the same child is fine)
   "flat_or_photo_style": true|false // flat 2D / painterly / watercolor / line art, OR a live-action photograph look
@@ -114,7 +131,7 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     // (`visible_text` is a best-effort string, not a gate: a verdict without
     // it still counts, it just can't be accuracy-checked.)
     const FIELDS = ['readable_text', 'child_absent', 'multiple_children', 'flat_or_photo_style'];
-    if (expectedText) FIELDS.push('text_split_both_sides', 'text_on_band');
+    if (expectedText) FIELDS.push('text_split_both_sides', 'text_on_band', 'text_lines_misaligned', 'text_style_inconsistent');
     if (!json || typeof json !== 'object' || !FIELDS.every(f => typeof json[f] === 'boolean')) {
       console.warn(`[${label}] QA returned a malformed verdict — passing without QA`);
       return { pass: true, defects: [], qaUnavailable: 'vision QA returned a malformed verdict' };
@@ -127,7 +144,8 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
     if (expectedText) {
       // Embedded layout: the painted text is REQUIRED, must match, and must
       // sit as ONE block on ONE side, over the artwork — never split across
-      // both sides or letterboxed onto a blank band.
+      // both sides or letterboxed onto a blank band — typeset as straight
+      // aligned lines in one font, one size, one color (ce-4).
       if (!json.readable_text) {
         defects.push('embedded story text missing from the image');
       } else {
@@ -137,6 +155,8 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
         }
         if (json.text_split_both_sides) defects.push('embedded story text split across both sides of the image');
         if (json.text_on_band) defects.push('embedded story text sits on a blank band instead of over the artwork');
+        if (json.text_lines_misaligned) defects.push('embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)');
+        if (json.text_style_inconsistent) defects.push('embedded story text mixes fonts, sizes, or colors');
       }
     } else if (json.readable_text) {
       defects.push('painted text in the illustration');
@@ -167,6 +187,12 @@ function repairNote(defects, expectedText = null) {
     }
     if (d.includes('blank band')) {
       notes.push('Paint the story text directly OVER the artwork on a calm area of the scene — NO blank, solid, or lightened band/strip/panel behind it; the illustration must fill the entire canvas edge to edge. Fix ONLY the text placement; keep the scene otherwise identical.');
+    }
+    if (d.includes('lines misaligned')) {
+      notes.push('Re-render the text as professionally TYPESET lines: every line perfectly straight, level, and horizontal (never tilted, arched, or wavy), all lines LEFT-ALIGNED to one shared straight left margin, with identical line spacing throughout. Fix ONLY the text; keep the scene otherwise identical.');
+    }
+    if (d.includes('mixes fonts')) {
+      notes.push('Render ALL the text in ONE single font family, ONE size, ONE weight, and ONE fill color — the book\'s fixed plain serif spec — with zero per-line or per-word variation. Fix ONLY the text; keep the scene otherwise identical.');
     }
     if (d.includes('missing from the scene')) notes.push('The child hero MUST be clearly visible and central to the action.');
     if (d.includes('duplicated')) notes.push('Exactly ONE instance of the child hero — no twins, no second child.');

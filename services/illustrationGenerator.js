@@ -812,24 +812,27 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
     const tr = textRulesForEmbed;
     parts.push('TEXT RENDERING RULES:');
     parts.push('- This illustration MUST include the story text rendered directly INTO the image');
-    parts.push('- Use an elegant, classic serif font style similar to Lora — refined, delicate serifs');
+    // The book-wide typographic lock: each spread renders in a STATELESS call,
+    // so the ONLY way every page comes out in the same font, size, and color
+    // is pinning the identical spec (TEXT_RULES) on every render.
+    parts.push(`- FONT (FIXED FOR THE WHOLE BOOK): ${tr.fontStyle}`);
     parts.push(
-      '- FONT SIZE: The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED'
+      '- FONT SIZE (FIXED FOR THE WHOLE BOOK): The text must NOT be large or dominant. NOT a title, NOT a headline. Think subtitles on a movie screen — clearly readable but small and unobtrusive. The illustration is the star. Text that looks like a poster headline will be REJECTED. The SAME point size on every spread of this book.'
       + (tr.maxWordsPerLine > 6 ? ' For ages 3–8 with longer read-aloud lines, use a **slightly smaller** point size than a typical toddler spread — still crisp at arm’s length.' : ''),
     );
+    parts.push(`- TEXT COLOR (FIXED FOR THE WHOLE BOOK): ${tr.fontColor}`);
+    parts.push(`- TEXT ALIGNMENT (CRITICAL): ${tr.textAlignment}`);
     parts.push('- Text must be CRISP and SHARP with clean edges — NOT blurry, fuzzy, or soft');
-    parts.push('- White or light text with a subtle dark drop shadow or thin outline for readability');
     parts.push('- TEXT PLACEMENT (CRITICAL): Render the text as EXACTLY ONE block, entirely within ONE side of the image — the left 35% OR the right 35%. Pick a single side; NEVER split the text into blocks on both sides, NEVER center it, and NEVER let any word enter the middle 30% of the image (15% on each side of center — the print gutter).');
     parts.push('- TEXT INTEGRATION (CRITICAL): Paint the text directly OVER the artwork, on a naturally calm area of the scene (sky, water, wall, foliage). Do NOT reserve a blank, solid, or lightened band/strip/panel for the text — no letterboxing at the top, bottom, or side. The illustration must continue behind the text, edge to edge; a horizontal text band across the image will be REJECTED.');
     parts.push(`- EDGE PADDING (CRITICAL): Leave at least 10% padding from left and right edges, and at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP edge so text won\'t be cut in print.`);
     parts.push(`- BOTTOM PADDING (CRITICAL): Leave at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% padding from the BOTTOM edge — the bottom of this image gets cropped during print layout, so text near the bottom WILL be cut off. Keep all text well above the bottom ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% of the image.`);
     parts.push('- Main characters and key action should not be hidden behind the text');
-    // Fix 2B: Font matching for admin regen
-    parts.push('- MATCH the font style from other pages in this book — same family, same size, same color, same weight. Do not introduce a new font.');
+    parts.push(`- TYPOGRAPHY CONSISTENCY (CRITICAL): ${tr.typographyConsistency}`);
     parts.push('');
     parts.push(`TEXT TO RENDER ON THIS PAGE (include exactly as written):`);
     parts.push(pageText.trim());
-    parts.push(`\nREMINDER: ONE text block on ONE side only — completely within the left 35% or right 35% of the image, NEVER split across both sides, NEVER in the middle 30% (the center gutter zone), and ALWAYS painted over continuous artwork (no blank or solid text band). Leave at least 10% padding from left/right edges, at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP, and at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the BOTTOM (bottom gets cropped in print).`);
+    parts.push(`\nREMINDER: ONE text block on ONE side only — completely within the left 35% or right 35% of the image, NEVER split across both sides, NEVER in the middle 30% (the center gutter zone), and ALWAYS painted over continuous artwork (no blank or solid text band). Every line straight, level, and LEFT-ALIGNED to one shared margin with even line spacing; ONE font, ONE size, ONE color — the book's fixed spec. Leave at least 10% padding from left/right edges, at least ${tr.topPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the TOP, and at least ${tr.bottomPaddingPercent ?? tr.cornerVerticalPaddingPercent}% from the BOTTOM (bottom gets cropped in print).`);
   } else {
     parts.push('NO TEXT IN THIS IMAGE. Do NOT render, write, or include ANY text, words, letters, numbers, or captions anywhere in this illustration.');
   }
@@ -853,6 +856,7 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push(`9. HAIR MATCH: child's hair looks exactly as described in LOCKED APPEARANCE above. \u2713`);
   if (embedStoryText && textRulesForEmbed) {
     parts.push(`10. TEXT RENDERED: story text is included exactly as provided, as ONE block on ONE side only \u2014 entirely within the left 35% or right 35% (not split across both sides, not in the center 30% gutter zone) \u2014 painted over continuous artwork (no blank band), with at least 10% padding from left/right, at least ${textRulesForEmbed.topPaddingPercent ?? textRulesForEmbed.cornerVerticalPaddingPercent}% from the top edge, and at least ${textRulesForEmbed.bottomPaddingPercent ?? textRulesForEmbed.cornerVerticalPaddingPercent}% from the bottom edge. \u2713`);
+    parts.push('10b. TEXT TYPOGRAPHY: every line straight, level, and left-aligned to one shared margin with even line spacing; the whole block in ONE font, ONE size, ONE color \u2014 the book\u2019s fixed serif spec, identical on every spread. \u2713');
   } else {
     parts.push(`10. NO TEXT: absolutely zero text, letters, words, or numbers anywhere in the image. \u2713`);
   }
