@@ -328,6 +328,7 @@ app.get('/v13/coverage', authenticate, (req, res) => {
       evidenceRequired: catalogEngine.flags.evidenceRequired(),
       tuningLayer: catalogEngine.flags.tuningLayerEnabled(),
       stylePolish: catalogEngine.flags.stylePolishEnabled(),
+      catalogOverlay: catalogEngine.flags.catalogOverlayEnabled(),
       artTuningLayer: catalogEngine.flags.artTuningLayerEnabled(),
     },
     versions: {
@@ -345,6 +346,87 @@ app.get('/v13/coverage', authenticate, (req, res) => {
       qaVision: process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash',
     },
   });
+});
+
+// ── Catalog Overlay (admin plot editing — Catalog Studio) ───────────────────
+// The base catalog.json stays frozen in git; overlays are validated prose
+// patches persisted in GCS and activated explicitly from the main app.
+
+// GET /v13/catalog — the merged catalog + the frozen base (for diffing) +
+// the active overlay state. Admin editor's source of truth.
+app.get('/v13/catalog', authenticate, (req, res) => {
+  res.json({
+    success: true,
+    tag: catalogEngine.catalogVersion(),
+    activeOverlay: catalogEngine.activeOverlayHash(),
+    overlayEnabled: catalogEngine.flags.catalogOverlayEnabled(),
+    catalog: catalogEngine.mergedCatalog(),
+    base: catalogEngine.baseCatalog(),
+  });
+});
+
+// POST /v13/catalog-overlay/validate — dry-run: allowlist shape + full boot
+// invariants on the merged result. Never touches the live catalog.
+app.post('/v13/catalog-overlay/validate', authenticate, (req, res) => {
+  try {
+    const overlay = req.body?.overlay;
+    const base = catalogEngine.baseCatalog();
+    const errors = catalogEngine.catalogOverlay.validateOverlayShape(overlay, base);
+    if (errors.length === 0) {
+      const merged = catalogEngine.catalogOverlay.applyOverlay(base, overlay);
+      errors.push(...require('./services/catalogEngine/catalog').validateCatalog(merged));
+    }
+    const hash8 = catalogEngine.catalogOverlay.overlayHash(overlay).slice(0, 8);
+    res.json({
+      success: true,
+      ok: errors.length === 0,
+      errors,
+      tag: catalogEngine.catalogOverlay.overlayTag(String(base.version), hash8),
+      summary: catalogEngine.catalogOverlay.overlaySummary(overlay),
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// POST /v13/catalog-overlay/activate — validate, persist blob + pointer to
+// GCS (survives restarts), hot-swap the live catalog. Explicit admin action.
+app.post('/v13/catalog-overlay/activate', authenticate, async (req, res) => {
+  try {
+    if (!catalogEngine.flags.catalogOverlayEnabled()) {
+      return res.status(409).json({ success: false, error: 'CATALOG_OVERLAY=0 — overlays are disabled on this revision' });
+    }
+    const overlay = req.body?.overlay;
+    const base = catalogEngine.baseCatalog();
+    const errors = catalogEngine.catalogOverlay.validateOverlayShape(overlay, base);
+    if (errors.length === 0) {
+      const merged = catalogEngine.catalogOverlay.applyOverlay(base, overlay);
+      errors.push(...require('./services/catalogEngine/catalog').validateCatalog(merged));
+    }
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, errors });
+    }
+    const hash8 = await catalogEngine.catalogOverlay.saveOverlayBlob(overlay);
+    await catalogEngine.catalogOverlay.setActivePointer(hash8);
+    const tag = catalogEngine.applyCatalogOverlay(overlay, hash8);
+    console.log(`[v13] catalog overlay ${hash8} activated (tag ${tag})`);
+    res.json({ success: true, tag, activeOverlay: hash8 });
+  } catch (err) {
+    console.error('[v13] catalog overlay activation failed:', err.message);
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// POST /v13/catalog-overlay/deactivate — back to the frozen base catalog.
+app.post('/v13/catalog-overlay/deactivate', authenticate, async (req, res) => {
+  try {
+    await catalogEngine.catalogOverlay.setActivePointer(null);
+    const tag = catalogEngine.resetCatalogOverlay();
+    console.log('[v13] catalog overlay deactivated');
+    res.json({ success: true, tag, activeOverlay: null });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // POST /v13/select-books — deterministic candidate selection. Synchronous:
@@ -521,7 +603,18 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message, failureCode: err.failureCode || null });
   }
-  const bookDef = catalogEngine.getBook(story.request.book_id);
+  // Scenes must come from the story's PINNED definitions (resolveStory just
+  // resolved this same tag, so this only misses if the overlay vanished) —
+  // a probe rendered against currently-active beats would not reproduce
+  // what production prints for this story.
+  const bookDef = await catalogEngine.getBookForTag(story.request.book_id, story.request?.versions?.catalog);
+  if (!bookDef) {
+    return res.status(400).json({
+      success: false,
+      error: `story pins catalog '${story.request?.versions?.catalog}' which is no longer resolvable — regenerate the story`,
+      failureCode: 'missing_book_definition',
+    });
+  }
 
   res.status(202).json({ success: true, bookId, accepted: [...spreads].sort((a, b) => a - b), engine: 'catalog-v13' });
 
@@ -1628,9 +1721,19 @@ if (require.main === module) {
     console.error(`[startup] CATALOG INVALID — refusing to start: ${e.message}`);
     process.exit(1);
   }
-  app.listen(PORT, () => {
-    console.log(`giftmybook-children-worker listening on port ${PORT}`);
-  });
+  // Restore the active catalog overlay (if any) BEFORE serving: fail-safe —
+  // any overlay problem logs loudly and the base catalog serves instead.
+  catalogEngine.initCatalogOverlay()
+    .catch(e => console.error(`[startup] catalog overlay init failed: ${e.message} — serving the base catalog`))
+    .finally(() => {
+      // Cloud Run runs many warm instances but only the one that served an
+      // activate/deactivate call hot-swaps immediately — the pointer watch
+      // converges every other instance within the poll interval.
+      catalogEngine.startCatalogOverlayWatch();
+      app.listen(PORT, () => {
+        console.log(`giftmybook-children-worker listening on port ${PORT}`);
+      });
+    });
 }
 
 module.exports = app;

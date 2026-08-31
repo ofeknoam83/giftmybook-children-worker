@@ -507,6 +507,12 @@ function buildStoryRequest({ bookId, profile: rawProfile, sessionId, locale = 'e
   const hit = getBook(bookId);
   if (!hit) throw new StoryGenerationError(`unknown book_id '${bookId}'`, { bookId });
   const { book, themeId, ageBand } = hit;
+  // Retirement (Catalog Studio soft delete) means no NEW stories, ever —
+  // eligibility filtering alone still lets a caller pass the id directly.
+  // Stored stories bypass this path and keep printing under their pinned tag.
+  if (book.retired) {
+    throw new StoryGenerationError(`book '${bookId}' is retired — new stories can no longer be generated for it`, { bookId });
+  }
   const profile = normalizeProfile(rawProfile);
   // The engine renders a book ONLY in the band the profile routes to — an
   // age-5 child must never get a 1-3 book's beats and word budgets.
