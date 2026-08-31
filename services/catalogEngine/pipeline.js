@@ -13,7 +13,7 @@ const { computeCoverPdfMetadata } = require('../coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer } = require('../gcsStorage');
 const { getBook } = require('./catalog');
 const { normalizeProfile } = require('./profile');
-const { generateStory } = require('./writer');
+const { generateStory, evidenceTextAligned } = require('./writer');
 const { validateStoryResponse } = require('./storyValidation');
 const { illustrateStory } = require('./illustrator');
 
@@ -36,8 +36,9 @@ class PipelineError extends Error {
  *  - checkpoint story from a previous run, or
  *  - a fresh generation for the requested book id.
  * @returns {Promise<{request: object, response: object, generated: boolean,
- *   repaired?: boolean, polished?: boolean}>} repair/polish flags only on a
- *   fresh generation — a stored pair's provenance was reported when it was made
+ *   repaired: boolean, polished: boolean}>} provenance flags come from the
+ *   fresh generation OR are restored from the stored/checkpoint candidate
+ *   that carried them (absent on old blobs ⇒ false)
  */
 async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, profile, sessionId, writerTuning, log }) {
   const candidate = storyPair || checkpointStory;
@@ -85,6 +86,16 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
     });
     if (!ok) {
       throw new PipelineError(`stored story failed re-validation: ${errors.slice(0, 4).join('; ')}`, 'invalid_story', { errors });
+    }
+    // The second-pass alignment invariant holds for stored pairs too: an
+    // edited blob declaring evidence for text that sits on another spread
+    // must not reach print (skipped with the other evidence checks when the
+    // pinned map is gone — alignment is meaningless without the map's mode).
+    if (!mapUnavailable) {
+      const alignErrors = evidenceTextAligned(response);
+      if (alignErrors.length > 0) {
+        throw new PipelineError(`stored story failed re-validation: ${alignErrors.slice(0, 4).join('; ')}`, 'invalid_story', { errors: alignErrors });
+      }
     }
     log('info', `Using stored story for ${request.book_id} (${storyPair ? 'request' : 'checkpoint'})`);
     // A checkpoint story carries the provenance flags of the generation it

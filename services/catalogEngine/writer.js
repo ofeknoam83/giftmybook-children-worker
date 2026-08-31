@@ -161,7 +161,8 @@ const OPTIONAL_DETAIL_FIELDS = ['object', 'habit', 'trait', 'food', 'place', 'in
  *
  * @param {object} profile normalized V1.3 profile
  * @param {object|null} map approved personalization map (or null)
- * @returns {object} a new profile object (never mutates the input)
+ * @returns {object} the offered profile — a new object when a map trims it;
+ *   name-only mode (no map) returns the INPUT unchanged (never mutated)
  */
 function selectOfferedDetails(profile, map) {
   if (!map) return profile;
@@ -246,7 +247,7 @@ function buildRepairPrompt({ request, response, errors }) {
     '## REPAIR RULES',
     'Do NOT change: the plot events or their order, the title, the refrain text or which spreads carry it, the spread numbering, or request_id/book_id/versions (echo verbatim: '
       + JSON.stringify({ request_id: request.request_id, book_id: request.book_id, versions: request.versions })
-      + '). You MAY: reword only the offending spreads (same meaning, shorter or longer to meet word bounds); remove, move, or replace personalization moments to satisfy the map limits; and update personalization_evidence and omitted_profile_fields so they exactly account for every supplied detail. Prose only in "text".',
+      + '). You MAY edit ONLY the spread text implicated by the violations above: reword an offending spread (same meaning, shorter or longer to meet word bounds); REMOVE a violating personalization moment from its own spread; ADD a required moment only on its slot\'s designated spread. Update personalization_evidence and omitted_profile_fields ONLY to exactly describe those edits, so every supplied detail is accounted for. All other spreads stay verbatim. Prose only in "text".',
   ].join('\n\n');
 }
 
