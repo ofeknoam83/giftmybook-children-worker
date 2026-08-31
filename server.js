@@ -57,7 +57,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const { downloadPhotoAsBase64 } = require('./services/illustrationGenerator');
 const { assemblePdf, buildEmbeddedPreviewPdf, OVERLAY } = require('./services/layoutEngine');
-const { generateCover, generateUpsellCovers } = require('./services/coverGenerator');
+const { generateCover, generateFrontCoverImage, generateUpsellCovers } = require('./services/coverGenerator');
 const { computeCoverPdfMetadata } = require('./services/coverMetadata');
 const { uploadBuffer, getSignedUrl, downloadBuffer, deletePrefix } = require('./services/gcsStorage');
 const { reportProgress, reportProgressForce, reportComplete, reportError, clearThrottle } = require('./services/progressReporter');
@@ -684,6 +684,86 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
     }
     await postWithRetry(callbackUrl, payload);
   })();
+});
+
+// POST /v13/generate-cover-image — admin probe-anchor cover for the
+// illustration feedback loop (docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md
+// §5.1): render ONLY the front-cover key art from a child photo through the
+// exact production cover path (coverScene → one render → wardrobe QA + one
+// hardened retry → anatomy QA + one hardened retry, ship-and-flag), so Art
+// Bench probes can anchor on a cover the way production books do. Synchronous
+// like /rebuild-cover-pdf — one render + bounded QA, no PDFs, no upsell.
+// `title` is accepted for labeling/log parity but never painted into the
+// image (D5: words are PDF type, never pixels — the wrap PDF typesets it).
+app.post('/v13/generate-cover-image', authenticate, async (req, res) => {
+  const body = req.body || {};
+  const { bookId } = body;
+  if (!bookId || !BOOK_ID_RE.test(String(bookId))) {
+    return res.status(400).json({ success: false, error: 'invalid bookId' });
+  }
+  if (body.title !== undefined && body.title !== null && typeof body.title !== 'string') {
+    return res.status(400).json({ success: false, error: 'title must be a string' });
+  }
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : null;
+  // Same posture as profile.js cleanString: the name lands in an image
+  // prompt, so control characters are hostile input, never data.
+  const rawName = body.childName;
+  if (typeof rawName !== 'string' || /[\u0000-\u001f\u007f]/.test(rawName)) {
+    return res.status(400).json({ success: false, error: 'childName is required (plain string, no control characters)' });
+  }
+  const childName = rawName.normalize('NFC').replace(/\s+/g, ' ').trim();
+  if (!childName || childName.length > 60) {
+    return res.status(400).json({ success: false, error: 'childName is required (1-60 characters)' });
+  }
+  const parsedAge = Number(body.childAge);
+  const childAge = Number.isInteger(parsedAge) && parsedAge >= 1 && parsedAge <= 10 ? parsedAge : undefined;
+  const childPhotoUrl = (typeof body.childPhotoUrl === 'string' && body.childPhotoUrl)
+    ? body.childPhotoUrl
+    : (Array.isArray(body.childPhotoUrls) ? body.childPhotoUrls.find(u => typeof u === 'string' && u) : null);
+  if (!childPhotoUrl || !/^https?:\/\//i.test(childPhotoUrl)) {
+    return res.status(400).json({
+      success: false,
+      error: 'childPhotoUrl (or childPhotoUrls[]) with an http(s) URL is required',
+      failureCode: 'missing_identity_reference',
+    });
+  }
+  const fmt = String(body.bookFormat || 'PICTURE_BOOK').toLowerCase();
+  const isHardcover = String(body.bindingType || '').toUpperCase().includes('HARDCOVER');
+  const costTracker = new CostTracker();
+  const started = Date.now();
+  try {
+    const front = await generateFrontCoverImage(
+      { childName, childAge },
+      childPhotoUrl,
+      {
+        artStyle: body.artStyle,
+        isGraphicNovel: fmt === 'graphic_novel',
+        isSquareTrim: fmt === 'picture_book' || fmt === 'early_reader',
+        isHardcover,
+        costTracker,
+        bookId,
+        childPhotoUrl,
+      },
+    );
+    if (!front.frontCoverBuffer) {
+      return res.status(502).json({ success: false, error: 'cover render produced no image', costs: costTracker.getSummary() });
+    }
+    const gcsPath = `children-covers/${bookId}/anchor-cover-${Date.now()}.png`;
+    const coverUrl = await uploadBuffer(front.frontCoverBuffer, gcsPath, 'image/png');
+    console.log(`[v13] generate-cover-image for ${bookId} ("${title || ''}") done in ${Date.now() - started}ms → ${gcsPath}`);
+    return res.json({
+      success: true,
+      bookId,
+      coverUrl,
+      gcsPath,
+      title,
+      coverAnatomyAdvisory: front.coverAnatomyAdvisory,
+      costs: costTracker.getSummary(),
+    });
+  } catch (err) {
+    console.error(`[v13] generate-cover-image failed for ${bookId}:`, err.message);
+    return res.status(500).json({ success: false, error: err.message, costs: costTracker.getSummary() });
+  }
 });
 
 // POST /generate-book — full pipeline for the CHOSEN story: renders (cached,

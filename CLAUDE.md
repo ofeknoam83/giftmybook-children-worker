@@ -181,6 +181,16 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   (`<label>.<hash8>` or `none`), capped at 2000B global / 400B per spread /
   3000B total, killed by `CATALOG_ART_TUNING_LAYER=0`. See
   `docs/AI_ILLUSTRATION_FEEDBACK_LOOP_PLAN.md`.
+- `POST /v13/generate-cover-image` — **admin probe-anchor cover** (sync, like
+  `/rebuild-cover-pdf`): `{bookId, title?, childName, childAge?,
+  childPhotoUrl|childPhotoUrls, artStyle?, bookFormat?, bindingType?}` →
+  `{coverUrl, gcsPath, title, coverAnatomyAdvisory, costs}`. Renders ONLY the
+  front-cover key art from a child photo through the exact production cover
+  path (`coverGenerator.generateFrontCoverImage` — the same coverScene +
+  wardrobe/anatomy QA + retries `generateCover` runs), uploads to
+  `children-covers/{bookId}/anchor-cover-{ts}.png`, so Art Bench render
+  probes can anchor on a cover the way production books do (plan §5.1). No
+  wrap PDF, no upsell; `title` is echoed for labeling, never painted (D5).
 - `POST /v13/set-text-layout`, `POST /v13/preview/embedded-overlay` — layout
   flip + pre-print overlay preview (entries from the request)
 - `/generate-book` also bakes the 4-style upsell spread into the interior
