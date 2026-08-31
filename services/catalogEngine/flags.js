@@ -16,6 +16,9 @@
  *  - CATALOG_TUNING_LAYER=0       — ignore any writerTuning overlay sent by
  *                                   the main app (stories render on the bare
  *                                   locked engine prompt).
+ *  - CATALOG_ART_TUNING_LAYER=0   — ignore any illustrationTuning overlay
+ *                                   sent by the main app (spreads render on
+ *                                   the bare scene + style prompts).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -31,4 +34,5 @@ module.exports = {
   personalizationMapsEnabled: () => !envOff('CATALOG_PERSONALIZATION_MAPS'),
   evidenceRequired: () => !envOff('CATALOG_EVIDENCE_REQUIRED'),
   tuningLayerEnabled: () => !envOff('CATALOG_TUNING_LAYER'),
+  artTuningLayerEnabled: () => !envOff('CATALOG_ART_TUNING_LAYER'),
 };

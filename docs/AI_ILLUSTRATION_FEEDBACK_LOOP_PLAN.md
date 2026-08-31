@@ -1,8 +1,13 @@
 # AI Illustration Feedback Loop — Design Plan
 
-**Status:** proposed (nothing on this branch is implemented yet). Revised after re-tracing the
-SHIPPED writer-loop implementation end to end (store, workbench, compiler, routes, callbacks,
-Prisma models, UI) — the mirrored mechanics below cite the real code, not the writer plan doc.
+**Status:** implemented on this branch (worker: Art Tuning Layer + tag-keyed render cache +
+`/v13/render-spreads` probe endpoint + coverage extension; app: tuningDirectives factory +
+illustrationTuning store, proxyVision + judge, compiler, workbench + regression, migration,
+callbacks, `/api/admin/illustration-tuning` routes, `AdminIllustrationTuning` UI + `RenderAnatomy`
++ the Art Bench deep link from writer story cards; remaining: one-click cover generation for
+anchors, `AdminChildrenBookDetails` spread integration, judge-on-production). The plan was
+revised against the SHIPPED writer-loop implementation before building — the mirrored mechanics
+below cite the real code.
 **Scope:** `giftmybook-standalone` (app) + `giftmybook-children-worker` (worker)
 **Branch:** `claude/illustrations-feedback-loop-2th4ns`
 **Sibling:** `docs/AI_WRITER_FEEDBACK_LOOP_PLAN.md` (shipped) — this plan deliberately mirrors its
