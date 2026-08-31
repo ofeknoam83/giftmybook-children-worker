@@ -31,9 +31,10 @@ const verdict = (json) => ({
   json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(json) }] } }] }),
 });
 const cleanBooleans = { child_absent: false, multiple_children: false, flat_or_photo_style: false };
-// Embedded verdicts also carry the ce-3 placement checks.
+// Embedded verdicts also carry the ce-3 placement + ce-4 typography checks.
 const cleanPlacement = { text_split_both_sides: false, text_on_band: false };
-const cleanEmbedded = { ...cleanBooleans, ...cleanPlacement };
+const cleanTypography = { text_lines_misaligned: false, text_style_inconsistent: false };
+const cleanEmbedded = { ...cleanBooleans, ...cleanPlacement, ...cleanTypography };
 const sentPrompt = () => JSON.parse(fetchWithTimeout.mock.calls[0][1].body).contents[0].parts[0].text;
 
 beforeEach(() => fetchWithTimeout.mockReset());
@@ -103,7 +104,7 @@ describe('embedded layout (expectedText set)', () => {
   test('other defects still stack beside the text check', async () => {
     fetchWithTimeout.mockResolvedValue(verdict({
       child_absent: true, multiple_children: false, flat_or_photo_style: false,
-      ...cleanPlacement, readable_text: false, visible_text: '',
+      ...cleanPlacement, ...cleanTypography, readable_text: false, visible_text: '',
     }));
     const qa = await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
     expect(qa.defects).toEqual([
@@ -163,6 +164,52 @@ describe('embedded text placement (ce-3: one block, one side, over artwork)', ()
   });
 });
 
+describe('embedded text typography (ce-4: aligned lines, one font/size/color book-wide)', () => {
+  test('the QA prompt states the typography contract', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanEmbedded, readable_text: true, visible_text: STORY_TEXT }));
+    await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
+    const prompt = sentPrompt();
+    expect(prompt).toContain('left-aligned');
+    expect(prompt).toContain('ONE single font family, ONE size, and ONE fill');
+    expect(prompt).toContain('text_lines_misaligned');
+    expect(prompt).toContain('text_style_inconsistent');
+  });
+
+  test('misaligned text lines are a defect', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({
+      ...cleanEmbedded, readable_text: true, visible_text: STORY_TEXT, text_lines_misaligned: true,
+    }));
+    const qa = await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
+    expect(qa.pass).toBe(false);
+    expect(qa.defects).toEqual(['embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)']);
+  });
+
+  test('mixed fonts, sizes, or colors within the block are a defect', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({
+      ...cleanEmbedded, readable_text: true, visible_text: STORY_TEXT, text_style_inconsistent: true,
+    }));
+    const qa = await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
+    expect(qa.pass).toBe(false);
+    expect(qa.defects).toEqual(['embedded story text mixes fonts, sizes, or colors']);
+  });
+
+  test('an embedded verdict missing the typography booleans is malformed (qaUnavailable), never a silent pass', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({
+      ...cleanBooleans, ...cleanPlacement, readable_text: true, visible_text: STORY_TEXT,
+    }));
+    const qa = await checkSpreadRender(IMG, { expectedText: STORY_TEXT });
+    expect(qa.pass).toBe(true);
+    expect(qa.qaUnavailable).toContain('malformed');
+  });
+
+  test('caption verdicts do not require the typography booleans', async () => {
+    fetchWithTimeout.mockResolvedValue(verdict({ ...cleanBooleans, readable_text: false }));
+    const qa = await checkSpreadRender(IMG);
+    expect(qa.pass).toBe(true);
+    expect(qa.qaUnavailable).toBeUndefined();
+  });
+});
+
 describe('repairNote', () => {
   test('caption painted-text defect keeps the no-text repair', () => {
     const note = repairNote(['painted text in the illustration']);
@@ -185,6 +232,16 @@ describe('repairNote', () => {
     const band = repairNote(['embedded story text sits on a blank band instead of over the artwork'], STORY_TEXT);
     expect(band).toContain('NO blank, solid, or lightened band');
     expect(band).not.toContain('ABSOLUTELY NO text');
+  });
+
+  test('typography defects repair the type only, carrying the aligned-lines / one-font rules', () => {
+    const misaligned = repairNote(['embedded story text lines misaligned (tilted, wavy, no shared left margin, or uneven spacing)'], STORY_TEXT);
+    expect(misaligned).toContain('LEFT-ALIGNED to one shared straight left margin');
+    expect(misaligned).toContain('keep the scene otherwise identical');
+    expect(misaligned).not.toContain('ABSOLUTELY NO text');
+    const mixed = repairNote(['embedded story text mixes fonts, sizes, or colors'], STORY_TEXT);
+    expect(mixed).toContain('ONE single font family, ONE size, ONE weight, and ONE fill color');
+    expect(mixed).not.toContain('ABSOLUTELY NO text');
   });
 
   test('the child-absent repair is not confused with the text-missing defect', () => {

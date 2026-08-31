@@ -121,7 +121,14 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   ONE block on ONE side (left or right 35%), over continuous artwork —
   split-across-both-sides or a blank letterbox band is a QA defect
   (`text_split_both_sides` / `text_on_band`) with its own repair note.
-  Such entries carry `textEmbeddedInArt: true`
+  Typography is LOCKED (`ce-4`): text lines
+  must be straight, level, LEFT-ALIGNED to one shared margin with even
+  spacing, and the whole book uses ONE font, ONE size, ONE color — the
+  pinned `TEXT_RULES` spec (fontStyle/fontSize/fontColor/textAlignment/
+  typographyConsistency in `shared/illustration/config.js`) rides every
+  stateless render, per-scene color retinting is gone, and QA gates
+  `text_lines_misaligned` / `text_style_inconsistent` with their own
+  repair notes. Such entries carry `textEmbeddedInArt: true`
   through storyContent so `layoutEmbeddedSpread` / the overlay preview
   embed the art full-bleed and NEVER typeset the caption over it again.
   `caption` renders keep D5 — words are PDF type, never pixels

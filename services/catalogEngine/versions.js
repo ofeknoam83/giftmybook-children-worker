@@ -32,7 +32,13 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // right 35%), painted over continuous artwork, never split across both
 // sides or letterboxed onto a blank band; QA gates placement. ce-2 embedded
 // renders may carry band/split text and must never replay.
-const STYLE_VERSION = 'ce-3';
+// ce-4: embedded typography locked — straight, level, LEFT-ALIGNED text
+// lines with even spacing, and ONE book-wide font/size/color (the pinned
+// TEXT_RULES spec rides every stateless render; per-scene color retinting
+// removed); QA gates alignment (text_lines_misaligned) and intra-block
+// consistency (text_style_inconsistent). ce-3 embedded renders may carry
+// wavy lines or per-spread type drift and must never replay.
+const STYLE_VERSION = 'ce-4';
 
 module.exports = {
   WRITER_ENGINE_VERSION,
