@@ -67,12 +67,12 @@ function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') 
  * Render (or replay) one spread; returns the layout-ready record.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[]}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, seed, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, seed, costTracker, forceRerender, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
-  // verify); caption layout stays text-free (words live on caption pages).
+  // verify); caption and half layouts stay text-free (words are PDF type).
   const embedText = textLayout === 'embedded';
-  const storageKey = renderCachePath(bookId, storyHash, spread, aspect, tuningTag);
+  const storageKey = renderCachePath(bookId, storyHash, spread, cacheAspect || aspect, tuningTag);
   // The render is uploaded to the cache key BEFORE QA runs, so the image
   // alone does not prove it was ever checked: only this marker (written
   // after QA/repair completes) lets a replay skip the check.
@@ -89,7 +89,14 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   // renderArtTuningBlock frames it as style-only, subordinate to the action,
   // identity/count, no-text, and medium rules that precede it.
   const tuningBlock = renderArtTuningBlock(tuning, spread);
-  const baseScene = tuningBlock ? `${scene}\n${tuningBlock}` : scene;
+  // Half layout: the art is a FULL-SPREAD wide composition, but in print
+  // the LEFT page is covered by the solid text panel — the model must keep
+  // everything that matters in the surviving right half.
+  const halfHint = textLayout === 'half'
+    ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
+    : '';
+  const sceneWithLayout = halfHint ? `${scene}${halfHint}` : scene;
+  const baseScene = tuningBlock ? `${sceneWithLayout}\n${tuningBlock}` : sceneWithLayout;
   // Per-attempt diagnostics sink (filled by generateIllustration): when the
   // render fails, the advisory carries WHY — variant ladder, NSFW blocks,
   // Gemini finish/block reasons, the model's own refusal text.
@@ -237,8 +244,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
  * @param {string|null} [params.childPhotoUrl] fallback anchor for coverless test books
  * @param {string|null} [params.characterDescription]
  * @param {string} [params.textLayout] 'caption' (default) | 'half' | 'embedded'.
- *   'half' renders exactly like caption (square, text-free — same cache
- *   keys); the difference is pure page assembly in the layout engine.
+ *   'half' renders a text-FREE full-spread WIDE composition (subject pushed
+ *   into the right half — the left half is covered by the solid text panel
+ *   at page assembly), cached under 'wide-plain' so it never replays an
+ *   embedded book's text-painted wide render.
  * @param {number[]|null} [params.spreads] subset of spread numbers (default: all beats)
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
  * @param {boolean} [params.identityKeyed] probe-only: fold the identity anchor
@@ -264,7 +273,12 @@ async function renderStorySpreads(params) {
   const { book, theme } = bookDef;
   const { identityKeyed = false, seed = null } = params;
   const tuning = normalizeArtTuning(params.tuning || null);
-  const aspect = textLayout === 'embedded' ? 'wide' : 'square';
+  // 'embedded' and 'half' both render FULL-SPREAD wide compositions; only
+  // caption renders square. Half renders are text-FREE wide art, so their
+  // cache files live under 'wide-plain' — an embedded book's Gemini-painted
+  // wide render must never replay into a half book (or vice versa).
+  const aspect = textLayout === 'embedded' || textLayout === 'half' ? 'wide' : 'square';
+  const cacheAspect = textLayout === 'half' ? 'wide-plain' : aspect;
   const characterRefUrl = approvedCoverUrl || childPhotoUrl || null;
   if (!characterRefUrl) {
     // A render run with NO identity reference would render a different child
@@ -316,7 +330,7 @@ async function renderStorySpreads(params) {
   const settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
-      spread: beat.spread, aspect, textLayout, characterRefUrl, refPhoto, characterDescription,
+      spread: beat.spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
       tuning, seed, costTracker, forceRerender, log,
     });
     done += 1;
@@ -337,7 +351,7 @@ async function renderStorySpreads(params) {
     return {
       spread,
       buffer: null,
-      storageKey: renderCachePath(bookId, storyHash, spread, aspect, tuning ? tuning.tag : 'none'),
+      storageKey: renderCachePath(bookId, storyHash, spread, cacheAspect, tuning ? tuning.tag : 'none'),
       url: null,
       advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
     };

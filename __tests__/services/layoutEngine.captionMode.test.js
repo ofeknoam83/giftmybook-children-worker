@@ -103,34 +103,31 @@ describe('assemblePdf caption mode (square entries)', () => {
   });
 });
 
-describe('assemblePdf half-page layout (art + solid-color text panel)', () => {
-  const { halfPanelColor, colorLuminance255 } = require('./../../services/layoutEngine');
+describe('assemblePdf half-page layout (full-spread art + uniform text panel)', () => {
+  const { computeCaptionBlock, HALF_PANEL_FONT_SIZE } = require('./../../services/layoutEngine');
 
-  test('a half entry produces a painted text panel verso + art recto slot', async () => {
+  test('a half entry produces a painted uniform text panel verso + art recto slot', async () => {
     const doc = await build([
-      spreadEntry({ textLayout: 'half', illustrationAspect: 'square', captionText: 'Amit sails the paper boat.' }),
+      spreadEntry({ textLayout: 'half', illustrationAspect: 'wide', captionText: 'Amit sails the paper boat.' }),
     ]);
     const verso = doc.getPage(VERSO_INDEX);
-    // The panel rectangle + typeset caption ⇒ drawn content even with no art.
+    // The panel rectangle + typeset caption => drawn content even with no art.
     expect(verso.node.Contents()).toBeDefined();
   });
 
-  test('half without captionText falls through to the plain square path', async () => {
+  test('half without captionText falls through without crashing', async () => {
     const doc = await build([
-      spreadEntry({ textLayout: 'half', illustrationAspect: 'square' }),
+      spreadEntry({ textLayout: 'half', illustrationAspect: 'wide' }),
     ]);
-    // Square branch still typesets its (empty) caption page without crashing.
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(6);
   });
 
-  test('halfPanelColor: any art color lightens to the readable panel floor, hue preserved when possible', () => {
-    const navy = halfPanelColor({ r: 0.05, g: 0.1, b: 0.3 });
-    expect(colorLuminance255(navy)).toBeGreaterThanOrEqual(215);
-    const black = halfPanelColor({ r: 0, g: 0, b: 0 });
-    expect(colorLuminance255(black)).toBeGreaterThanOrEqual(215);
-    // A light warm color keeps more of itself than the cream fallback.
-    const peach = halfPanelColor({ r: 0.95, g: 0.8, b: 0.7 });
-    expect(colorLuminance255(peach)).toBeGreaterThanOrEqual(215);
-    expect(peach.r).toBeGreaterThan(peach.b); // warm hue survives the blend
+  test('panel typography is FIXED: same font size for short and long captions', () => {
+    const stub = { name: 'stub', widthOfTextAtSize: (t, s) => t.length * s * 0.5 };
+    const fonts = { bubblegum: stub, playfair: stub, playfairItalic: stub, helv: stub };
+    const short = computeCaptionBlock(fonts, 'A short line.', 500, { sizes: [HALF_PANEL_FONT_SIZE] });
+    const long = computeCaptionBlock(fonts, 'A much longer caption that wraps across several lines of the text panel and would have shrunk under the adaptive ladder. '.repeat(2), 500, { sizes: [HALF_PANEL_FONT_SIZE] });
+    expect(short.size).toBe(HALF_PANEL_FONT_SIZE);
+    expect(long.size).toBe(HALF_PANEL_FONT_SIZE);
   });
 });
