@@ -747,6 +747,178 @@ ${layoutBlock}`;
 }
 
 /**
+ * Generate ONLY the front-cover key-art image — the exact production path
+ * {@link generateCover} runs before wrap-PDF assembly: coverScene prompt →
+ * one render → wardrobe QA + one hardened retry → anatomy QA + one hardened
+ * retry (ship-and-flag, never block). No PDF, no back cover, no spine.
+ *
+ * Extracted so the admin Art Bench probe flow can generate an identity-anchor
+ * cover from a child photo without running the full book pipeline; the image
+ * is title-free by design (D5: words are PDF type, never pixels — the title
+ * is typeset over the image at wrap-PDF time).
+ *
+ * @param {object} childDetails - { childName|name, childAge|age, childAppearance|appearance }
+ * @param {string} characterRefUrl - identity reference (photo or prior cover) URL
+ * @param {object} opts
+ * @param {string} [opts.artStyle] - canonicalized via canonicalBookArtStyle
+ * @param {boolean} [opts.isGraphicNovel=false]
+ * @param {boolean} [opts.isSquareTrim=true] - picture_book/early_reader trim (1:1 aspect hint)
+ * @param {boolean} [opts.isHardcover=false] - drives the Lulu safe-zone instruction
+ * @param {object} [opts.costTracker]
+ * @param {string} [opts.bookId]
+ * @param {string} [opts.childPhotoUrl] - the reference actually sent to Gemini
+ * @param {string} [opts._cachedPhotoBase64]
+ * @param {string} [opts._cachedPhotoMime]
+ * @returns {Promise<{frontCoverImageUrl: string|null, frontCoverBuffer: Buffer|null, coverAnatomyAdvisory: string|null}>}
+ */
+async function generateFrontCoverImage(childDetails, characterRefUrl, opts = {}) {
+  const isGraphicNovel = opts.isGraphicNovel === true;
+  const isSquareTrim = opts.isSquareTrim !== false;
+  const isHardcover = opts.isHardcover === true;
+  let frontCoverImageUrl = null;
+  let frontCoverBuffer = null;
+  let coverAnatomyAdvisory = null;
+
+  const artStyle = canonicalBookArtStyle(opts.artStyle);
+  const aspectHint = isSquareTrim
+    ? 'Square image, 1:1 aspect ratio.'
+    : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
+  const childAge = childDetails.childAge || childDetails.age || 5;
+  const childName = childDetails.childName || childDetails.name;
+  const safeZoneInstruction = buildCoverSafeZoneInstruction(isHardcover);
+  // IMPORTANT: the cover is the style anchor for every interior spread.
+  // Gemini weighs the reference image more than any interior prompt, so the
+  // scene string below deliberately avoids phrases that prime the model
+  // toward 2D painterly output ("children's book illustration", "whimsical
+  // painting", "storybook cover"). Instead it frames the cover as a 3D CGI
+  // Pixar feature-film key art shot. The concrete 3D rendering techniques
+  // come from ART_STYLE_CONFIG[pixar_premium] inside generateIllustration.
+  const coverScene = isGraphicNovel
+    ? `A dramatic graphic novel cover illustration in a cinematic ${artStyle} style. `
+      + `The main character is a ${childAge}-year-old child named ${childName}. `
+      + `The scene should feel dynamic and action-oriented — suggesting an epic adventure. `
+      + `The child should be prominently featured in a heroic or dramatic pose. `
+      + `Background should be thematic with bold, graphic elements and dramatic lighting. `
+      + `Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide. `
+      + `Style: graphic novel / comic book cover aesthetic with strong composition.\n\n`
+      + safeZoneInstruction
+    : `A cinematic 3D Pixar feature-film key art cover — a single high-resolution frame that could be the opening poster of a modern Pixar movie. `
+      + `The main character is a ${childAge}-year-old child named ${childName}, rendered as a believable 3D CGI character (real three-dimensional geometry, photoreal subsurface skin scattering, strand-by-strand hair, physically based materials — NOT a flat painting, NOT a watercolor, NOT a soft storybook illustration). `
+      + `The scene should feel inviting, wondrous, and cinematic — promising a real adventure from the very first frame. `
+      + `The child is the clear focal point, confident and emotionally expressive, with a strong silhouette and Pixar-quality facial acting. `
+      + `Background is a thematic 3D environment with ray-traced volumetric lighting, real depth, and genuine optical bokeh — fully modeled, not painted. `
+      + `WARDROBE RULE: the child's clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos (e.g. NASA), no national flags. Use plain fabric or generic letter-free emblems (a star patch, a simple rocket motif). The cover anchors every interior spread, and tiny repainted clothing text garbles into misspellings in print. `
+      // P0 negative anatomy anchor (2026-07-23 audit: a three-handed hero
+      // shipped on the front cover). The cover anchors every spread, so a
+      // limb-count defect here is the worst place to have one.
+      + `ANATOMY RULE: the child has EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. `
+      + aspectHint + '\n\n'
+      + safeZoneInstruction;
+
+  try {
+    const imageUrl = await generateIllustration(
+      coverScene, characterRefUrl, artStyle, {
+        costTracker: opts.costTracker,
+        bookId: opts.bookId,
+        childAppearance: childDetails.appearance || childDetails.childAppearance,
+        childName: childDetails.name || childDetails.childName,
+        childPhotoUrl: opts.childPhotoUrl,
+        _cachedPhotoBase64: opts._cachedPhotoBase64,
+        _cachedPhotoMime: opts._cachedPhotoMime,
+      },
+    );
+    frontCoverImageUrl = imageUrl;
+    if (imageUrl) {
+      frontCoverBuffer = await downloadBuffer(imageUrl);
+    }
+  } catch (err) {
+    console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
+  }
+
+  // Wardrobe QA (2026-07-19 audit: a US-flag patch survived the prompt
+  // rule and, as the outfit ground truth, propagated onto every interior
+  // spread). One vision check + one hardened retry; if the retry still
+  // fails, keep the first cover and warn — never block cover delivery.
+  if (frontCoverBuffer) {
+    const wq = await qaCoverWardrobe(frontCoverBuffer);
+    if (!wq.pass) {
+      console.warn(`[CoverGenerator] front cover wardrobe QA failed (${wq.reason}) — one hardened retry`);
+      try {
+        const retryScene = `${coverScene}\n\nCRITICAL WARDROBE REPAIR: the previous render put ${wq.reason} on the child's clothing. The outfit must carry NO flags, NO logos, NO letters — plain fabric or a generic star/rocket emblem only.`;
+        const retryUrl = await generateIllustration(
+          retryScene, characterRefUrl, artStyle, {
+            costTracker: opts.costTracker,
+            bookId: opts.bookId,
+            childAppearance: childDetails.appearance || childDetails.childAppearance,
+            childName: childDetails.name || childDetails.childName,
+            childPhotoUrl: opts.childPhotoUrl,
+            _cachedPhotoBase64: opts._cachedPhotoBase64,
+            _cachedPhotoMime: opts._cachedPhotoMime,
+          },
+        );
+        if (retryUrl) {
+          const retryBuffer = await downloadBuffer(retryUrl);
+          const wq2 = await qaCoverWardrobe(retryBuffer);
+          if (wq2.pass) {
+            frontCoverImageUrl = retryUrl;
+            frontCoverBuffer = retryBuffer;
+            console.log('[CoverGenerator] wardrobe retry cover accepted');
+          } else {
+            console.warn(`[CoverGenerator] wardrobe retry still fails (${wq2.reason}) — keeping first cover`);
+          }
+        }
+      } catch (retryErr) {
+        console.warn(`[CoverGenerator] wardrobe retry failed (keeping first cover): ${retryErr.message}`);
+      }
+    }
+  }
+
+  // P0 anatomy QA + one hardened retry (2026-07-23 audit: three-handed hero
+  // on the front cover). Same shape as wardrobe QA: one vision check, one
+  // regenerated repair attempt; if the retry still fails, keep the first
+  // cover and record the residual advisory (ship-and-flag, never block).
+  if (frontCoverBuffer) {
+    const aq = await qaCoverAnatomy(frontCoverBuffer);
+    if (!aq.pass) {
+      console.warn(`[CoverGenerator] front cover anatomy QA failed (${aq.reason}) — one hardened retry`);
+      try {
+        const retryScene = `${coverScene}\n\nCRITICAL ANATOMY REPAIR: the previous render gave the child ${aq.reason}. The child must have EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no third arm, no extra or duplicated hand, no stray hand, no fused fingers.`;
+        const retryUrl = await generateIllustration(
+          retryScene, characterRefUrl, artStyle, {
+            costTracker: opts.costTracker,
+            bookId: opts.bookId,
+            childAppearance: childDetails.appearance || childDetails.childAppearance,
+            childName: childDetails.name || childDetails.childName,
+            childPhotoUrl: opts.childPhotoUrl,
+            _cachedPhotoBase64: opts._cachedPhotoBase64,
+            _cachedPhotoMime: opts._cachedPhotoMime,
+          },
+        );
+        if (retryUrl) {
+          const retryBuffer = await downloadBuffer(retryUrl);
+          const aq2 = await qaCoverAnatomy(retryBuffer);
+          if (aq2.pass) {
+            frontCoverImageUrl = retryUrl;
+            frontCoverBuffer = retryBuffer;
+            console.log('[CoverGenerator] anatomy retry cover accepted');
+          } else {
+            coverAnatomyAdvisory = `cover hero anatomy: ${aq2.reason} (shipped after 1 retry)`;
+            console.warn(`[CoverGenerator] anatomy retry still fails (${aq2.reason}) — shipping first cover and flagging`);
+          }
+        } else {
+          coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (retry produced no image)`;
+        }
+      } catch (retryErr) {
+        coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (retry errored)`;
+        console.warn(`[CoverGenerator] anatomy retry failed (keeping first cover): ${retryErr.message}`);
+      }
+    }
+  }
+
+  return { frontCoverImageUrl, frontCoverBuffer, coverAnatomyAdvisory };
+}
+
+/**
  * Generate a Lulu-compliant wrap-around cover PDF.
  *
  * Layout (left → right): bleed | back cover | spine | front cover | bleed
@@ -859,141 +1031,20 @@ async function generateCover(title, childDetails, characterRefUrl, bookFormat, o
       skipCoverStyleHarmonize,
     });
   } else {
-    const artStyle = canonicalBookArtStyle(opts.artStyle);
-    const aspectHint = isSquareTrim
-      ? 'Square image, 1:1 aspect ratio.'
-      : 'Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide.';
-    const childAge = childDetails.childAge || childDetails.age || 5;
-    const childName = childDetails.childName || childDetails.name;
-    const safeZoneInstruction = buildCoverSafeZoneInstruction(isHardcover);
-    // IMPORTANT: the cover is the style anchor for every interior spread.
-    // Gemini weighs the reference image more than any interior prompt, so the
-    // scene string below deliberately avoids phrases that prime the model
-    // toward 2D painterly output ("children's book illustration", "whimsical
-    // painting", "storybook cover"). Instead it frames the cover as a 3D CGI
-    // Pixar feature-film key art shot. The concrete 3D rendering techniques
-    // come from ART_STYLE_CONFIG[pixar_premium] inside generateIllustration.
-    const coverScene = isGraphicNovel
-      ? `A dramatic graphic novel cover illustration in a cinematic ${artStyle} style. `
-        + `The main character is a ${childAge}-year-old child named ${childName}. `
-        + `The scene should feel dynamic and action-oriented — suggesting an epic adventure. `
-        + `The child should be prominently featured in a heroic or dramatic pose. `
-        + `Background should be thematic with bold, graphic elements and dramatic lighting. `
-        + `Portrait image, 2:3 aspect ratio (width:height). The image must be taller than it is wide. `
-        + `Style: graphic novel / comic book cover aesthetic with strong composition.\n\n`
-        + safeZoneInstruction
-      : `A cinematic 3D Pixar feature-film key art cover — a single high-resolution frame that could be the opening poster of a modern Pixar movie. `
-        + `The main character is a ${childAge}-year-old child named ${childName}, rendered as a believable 3D CGI character (real three-dimensional geometry, photoreal subsurface skin scattering, strand-by-strand hair, physically based materials — NOT a flat painting, NOT a watercolor, NOT a soft storybook illustration). `
-        + `The scene should feel inviting, wondrous, and cinematic — promising a real adventure from the very first frame. `
-        + `The child is the clear focal point, confident and emotionally expressive, with a strong silhouette and Pixar-quality facial acting. `
-        + `Background is a thematic 3D environment with ray-traced volumetric lighting, real depth, and genuine optical bokeh — fully modeled, not painted. `
-        + `WARDROBE RULE: the child's clothing must be completely letter-free — no name tags, no letter badges, no printed words on garments, no real-world brand logos (e.g. NASA), no national flags. Use plain fabric or generic letter-free emblems (a star patch, a simple rocket motif). The cover anchors every interior spread, and tiny repainted clothing text garbles into misspellings in print. `
-        // P0 negative anatomy anchor (2026-07-23 audit: a three-handed hero
-        // shipped on the front cover). The cover anchors every spread, so a
-        // limb-count defect here is the worst place to have one.
-        + `ANATOMY RULE: the child has EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no extra, duplicated, or floating limbs, no third arm or third hand, no stray hand without an arm. `
-        + aspectHint + '\n\n'
-        + safeZoneInstruction;
-
-    try {
-      const imageUrl = await generateIllustration(
-        coverScene, characterRefUrl, artStyle, {
-          costTracker: opts.costTracker,
-          bookId: opts.bookId,
-          childAppearance: childDetails.appearance || childDetails.childAppearance,
-          childName: childDetails.name || childDetails.childName,
-          childPhotoUrl: opts.childPhotoUrl,
-          _cachedPhotoBase64: opts._cachedPhotoBase64,
-          _cachedPhotoMime: opts._cachedPhotoMime,
-        },
-      );
-      frontCoverImageUrl = imageUrl;
-      if (imageUrl) {
-        frontCoverBuffer = await downloadBuffer(imageUrl);
-      }
-    } catch (err) {
-      console.error('[CoverGenerator] Failed to generate cover illustration:', err.message);
-    }
-
-    // Wardrobe QA (2026-07-19 audit: a US-flag patch survived the prompt
-    // rule and, as the outfit ground truth, propagated onto every interior
-    // spread). One vision check + one hardened retry; if the retry still
-    // fails, keep the first cover and warn — never block cover delivery.
-    if (frontCoverBuffer) {
-      const wq = await qaCoverWardrobe(frontCoverBuffer);
-      if (!wq.pass) {
-        console.warn(`[CoverGenerator] front cover wardrobe QA failed (${wq.reason}) — one hardened retry`);
-        try {
-          const retryScene = `${coverScene}\n\nCRITICAL WARDROBE REPAIR: the previous render put ${wq.reason} on the child's clothing. The outfit must carry NO flags, NO logos, NO letters — plain fabric or a generic star/rocket emblem only.`;
-          const retryUrl = await generateIllustration(
-            retryScene, characterRefUrl, artStyle, {
-              costTracker: opts.costTracker,
-              bookId: opts.bookId,
-              childAppearance: childDetails.appearance || childDetails.childAppearance,
-              childName: childDetails.name || childDetails.childName,
-              childPhotoUrl: opts.childPhotoUrl,
-              _cachedPhotoBase64: opts._cachedPhotoBase64,
-              _cachedPhotoMime: opts._cachedPhotoMime,
-            },
-          );
-          if (retryUrl) {
-            const retryBuffer = await downloadBuffer(retryUrl);
-            const wq2 = await qaCoverWardrobe(retryBuffer);
-            if (wq2.pass) {
-              frontCoverImageUrl = retryUrl;
-              frontCoverBuffer = retryBuffer;
-              console.log('[CoverGenerator] wardrobe retry cover accepted');
-            } else {
-              console.warn(`[CoverGenerator] wardrobe retry still fails (${wq2.reason}) — keeping first cover`);
-            }
-          }
-        } catch (retryErr) {
-          console.warn(`[CoverGenerator] wardrobe retry failed (keeping first cover): ${retryErr.message}`);
-        }
-      }
-    }
-
-    // P0 anatomy QA + one hardened retry (2026-07-23 audit: three-handed hero
-    // on the front cover). Same shape as wardrobe QA: one vision check, one
-    // regenerated repair attempt; if the retry still fails, keep the first
-    // cover and record the residual advisory (ship-and-flag, never block).
-    if (frontCoverBuffer) {
-      const aq = await qaCoverAnatomy(frontCoverBuffer);
-      if (!aq.pass) {
-        console.warn(`[CoverGenerator] front cover anatomy QA failed (${aq.reason}) — one hardened retry`);
-        try {
-          const retryScene = `${coverScene}\n\nCRITICAL ANATOMY REPAIR: the previous render gave the child ${aq.reason}. The child must have EXACTLY two arms and two hands, with exactly five clearly separated fingers per hand — no third arm, no extra or duplicated hand, no stray hand, no fused fingers.`;
-          const retryUrl = await generateIllustration(
-            retryScene, characterRefUrl, artStyle, {
-              costTracker: opts.costTracker,
-              bookId: opts.bookId,
-              childAppearance: childDetails.appearance || childDetails.childAppearance,
-              childName: childDetails.name || childDetails.childName,
-              childPhotoUrl: opts.childPhotoUrl,
-              _cachedPhotoBase64: opts._cachedPhotoBase64,
-              _cachedPhotoMime: opts._cachedPhotoMime,
-            },
-          );
-          if (retryUrl) {
-            const retryBuffer = await downloadBuffer(retryUrl);
-            const aq2 = await qaCoverAnatomy(retryBuffer);
-            if (aq2.pass) {
-              frontCoverImageUrl = retryUrl;
-              frontCoverBuffer = retryBuffer;
-              console.log('[CoverGenerator] anatomy retry cover accepted');
-            } else {
-              coverAnatomyAdvisory = `cover hero anatomy: ${aq2.reason} (shipped after 1 retry)`;
-              console.warn(`[CoverGenerator] anatomy retry still fails (${aq2.reason}) — shipping first cover and flagging`);
-            }
-          } else {
-            coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (retry produced no image)`;
-          }
-        } catch (retryErr) {
-          coverAnatomyAdvisory = `cover hero anatomy: ${aq.reason} (retry errored)`;
-          console.warn(`[CoverGenerator] anatomy retry failed (keeping first cover): ${retryErr.message}`);
-        }
-      }
-    }
+    const front = await generateFrontCoverImage(childDetails, characterRefUrl, {
+      artStyle: opts.artStyle,
+      isGraphicNovel,
+      isSquareTrim,
+      isHardcover,
+      costTracker: opts.costTracker,
+      bookId: opts.bookId,
+      childPhotoUrl: opts.childPhotoUrl,
+      _cachedPhotoBase64: opts._cachedPhotoBase64,
+      _cachedPhotoMime: opts._cachedPhotoMime,
+    });
+    frontCoverImageUrl = front.frontCoverImageUrl;
+    frontCoverBuffer = front.frontCoverBuffer;
+    coverAnatomyAdvisory = front.coverAnatomyAdvisory;
   }
 
   // P0 anatomy QA for a pre-generated / parent-chosen cover (no regeneration —
@@ -1496,6 +1547,9 @@ async function generateUpsellCovers(bookId, childDetails, frontCoverBuffer, appr
 
 module.exports = {
   generateCover,
+  // Front-cover key art only (no wrap PDF) — the admin probe-anchor path
+  // (`POST /v13/generate-cover-image`) and generateCover both run this.
+  generateFrontCoverImage,
   generateUpsellCovers,
   buildUpsellCoverPrompt,
   UPSELL_STYLES,

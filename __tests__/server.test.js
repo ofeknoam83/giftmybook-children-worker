@@ -42,6 +42,11 @@ jest.mock('../services/layoutEngine', () => ({
 }));
 jest.mock('../services/coverGenerator', () => ({
   generateCover: jest.fn().mockResolvedValue({ coverPdfBuffer: Buffer.from('fake-cover'), frontCoverImageUrl: 'https://example.com/cover.png' }),
+  generateFrontCoverImage: jest.fn().mockResolvedValue({
+    frontCoverImageUrl: 'https://example.com/front.png',
+    frontCoverBuffer: Buffer.from('fake-front-cover'),
+    coverAnatomyAdvisory: null,
+  }),
 }));
 jest.mock('../services/gcsStorage', () => ({
   uploadBuffer: jest.fn().mockResolvedValue('https://storage.example.com/file'),
@@ -488,6 +493,100 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(payload.success).toBe(false);
     expect(payload.dispatchId).toBe('art_d_test');
     expect(payload.failures[0].failureCode).toBe('missing_identity_reference');
+  });
+});
+
+describe('POST /v13/generate-cover-image (probe-anchor cover)', () => {
+  const { generateFrontCoverImage } = require('../services/coverGenerator');
+  const { uploadBuffer } = require('../services/gcsStorage');
+  const validBody = () => ({
+    bookId: 'anchor-book-1',
+    title: 'Hello Farm',
+    childName: 'Emma',
+    childAge: 2,
+    childPhotoUrl: 'https://photos.example/child.png',
+  });
+  const post = body => request(app)
+    .post('/v13/generate-cover-image')
+    .set('x-api-key', 'test-api-key')
+    .send(body);
+
+  beforeEach(() => {
+    generateFrontCoverImage.mockClear().mockResolvedValue({
+      frontCoverImageUrl: 'https://example.com/front.png',
+      frontCoverBuffer: Buffer.from('fake-front-cover'),
+      coverAnatomyAdvisory: null,
+    });
+    uploadBuffer.mockClear().mockResolvedValue('https://storage.example.com/anchor-cover.png');
+  });
+
+  test('validates before any render spend', async () => {
+    expect((await post({ ...validBody(), bookId: 'bad id!' })).status).toBe(400);
+    expect((await post({ ...validBody(), childName: undefined })).status).toBe(400);
+    expect((await post({ ...validBody(), childName: '   ' })).status).toBe(400);
+    expect((await post({ ...validBody(), childName: 'Em\u0000ma' })).status).toBe(400);
+    expect((await post({ ...validBody(), childName: 'x'.repeat(61) })).status).toBe(400);
+    expect((await post({ ...validBody(), title: 42 })).status).toBe(400);
+    const noPhoto = await post({ ...validBody(), childPhotoUrl: undefined });
+    expect(noPhoto.status).toBe(400);
+    expect(noPhoto.body.failureCode).toBe('missing_identity_reference');
+    const badScheme = await post({ ...validBody(), childPhotoUrl: 'gs://bucket/child.png' });
+    expect(badScheme.status).toBe(400);
+    expect(generateFrontCoverImage).not.toHaveBeenCalled();
+  });
+
+  test('renders through the production front-cover path and uploads to children-covers/', async () => {
+    const res = await post(validBody());
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.coverUrl).toBe('https://storage.example.com/anchor-cover.png');
+    expect(res.body.gcsPath).toMatch(/^children-covers\/anchor-book-1\/anchor-cover-\d+\.png$/);
+    expect(res.body.title).toBe('Hello Farm');
+    expect(res.body.coverAnatomyAdvisory).toBeNull();
+    expect(res.body.costs).toBeDefined();
+    const [childDetails, refUrl, opts] = generateFrontCoverImage.mock.calls[0];
+    expect(childDetails).toEqual({ childName: 'Emma', childAge: 2 });
+    expect(refUrl).toBe('https://photos.example/child.png');
+    expect(opts).toMatchObject({
+      bookId: 'anchor-book-1',
+      childPhotoUrl: 'https://photos.example/child.png',
+      isSquareTrim: true,
+      isGraphicNovel: false,
+      isHardcover: false,
+    });
+    expect(uploadBuffer).toHaveBeenCalledWith(expect.any(Buffer), res.body.gcsPath, 'image/png');
+  });
+
+  test('accepts childPhotoUrls[] and hardcover binding', async () => {
+    const res = await post({
+      ...validBody(),
+      childPhotoUrl: undefined,
+      childPhotoUrls: ['https://photos.example/alt.png'],
+      bindingType: 'HARDCOVER_CASEWRAP',
+    });
+    expect(res.status).toBe(200);
+    const [, refUrl, opts] = generateFrontCoverImage.mock.calls[0];
+    expect(refUrl).toBe('https://photos.example/alt.png');
+    expect(opts.isHardcover).toBe(true);
+  });
+
+  test('a render that produced no image is a 502, never a silent success', async () => {
+    generateFrontCoverImage.mockResolvedValue({ frontCoverImageUrl: null, frontCoverBuffer: null, coverAnatomyAdvisory: null });
+    const res = await post(validBody());
+    expect(res.status).toBe(502);
+    expect(res.body.success).toBe(false);
+    expect(uploadBuffer).not.toHaveBeenCalled();
+  });
+
+  test('a residual anatomy advisory ships on the response, ship-and-flag', async () => {
+    generateFrontCoverImage.mockResolvedValue({
+      frontCoverImageUrl: 'https://example.com/front.png',
+      frontCoverBuffer: Buffer.from('fake-front-cover'),
+      coverAnatomyAdvisory: 'cover hero anatomy: three hands (shipped after 1 retry)',
+    });
+    const res = await post(validBody());
+    expect(res.status).toBe(200);
+    expect(res.body.coverAnatomyAdvisory).toMatch(/three hands/);
   });
 });
 
