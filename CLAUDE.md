@@ -137,11 +137,16 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `POST /v13/render-spreads` — the **admin render-test (probe) mode** for the
   illustration feedback loop: `{bookId, story:{request,response}, spreads[1..12
   subset], profile, approvedCoverUrl|childPhotoUrls, textLayout,
-  illustrationTuning?, dispatchId?, probeNonce?, forceRerender?, callbackUrl}`
-  → 202; callback `{renders:[{spread, url, storageKey, qa}], failures,
+  illustrationTuning?, dispatchId?, seed?, probeNonce?, forceRerender?,
+  callbackUrl}` → 202; callback `{renders:[{spread, url, storageKey,
+  qa:{pass, advisories}}], failures:[{spread, message}],
   illustrationTuningUsed, costs}` (+dispatchId echo). Renders a SUBSET of an
   existing validated story's spreads through the exact production path — zero
-  writer spend, no PDFs/cover/upsell. `illustrationTuning` (`{versionLabel,
+  writer spend, no PDFs/cover/upsell; per-spread render errors land in
+  `failures`, never fail the probe. Probe cache keys fold in the identity
+  anchor (URL path + characterDescription) and any `seed` (applying the seed
+  stays gated by `BOOK_PIPELINE_V3_RENDER_SEED`), so an anchor swap or seed
+  change never replays stale renders. `illustrationTuning` (`{versionLabel,
   hash, text?, spreads?}`, also accepted by `/generate-book`) is the app-owned
   Art Tuning Layer: appended below each scene at lowest priority, echoed as
   `illustrationTuningUsed` + `storyContent.catalog.illustrationTuning`

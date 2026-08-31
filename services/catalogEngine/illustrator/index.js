@@ -62,7 +62,7 @@ function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') 
  * Render (or replay) one spread; returns the layout-ready record.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[]}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, refPhoto, characterDescription, tuning, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, characterRefUrl, refPhoto, characterDescription, tuning, seed, costTracker, forceRerender, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   const storageKey = renderCachePath(bookId, storyHash, spread, aspect, tuningTag);
   // The render is uploaded to the cache key BEFORE QA runs, so the image
@@ -99,6 +99,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     childPhotoUrl: characterRefUrl,
     _cachedPhotoBase64: refPhoto.base64,
     _cachedPhotoMime: refPhoto.mimeType,
+    // Workbench probes may pin a seed for tighter A/B; applying it stays
+    // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
+    // retry-without on seed-rejecting models). The seed also rides the
+    // cache key upstream, so differently-seeded probes never replay each
+    // other.
+    ...(seed != null ? { seed } : {}),
   };
 
   let buffer = null;
@@ -205,6 +211,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
  * @param {string} [params.textLayout] 'caption' (default) | 'embedded'
  * @param {number[]|null} [params.spreads] subset of spread numbers (default: all beats)
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
+ * @param {boolean} [params.identityKeyed] probe-only: fold the identity anchor
+ *   (URL path + characterDescription) into the cache key so an anchor change
+ *   never replays another child's renders
+ * @param {number|null} [params.seed] probe-only render seed (cache-keyed; applying
+ *   it is env-gated in the renderer)
  * @param {string|null} [params.probeNonce] workbench-only cache-key salt (variance probes re-render instead of replaying)
  * @param {object} [params.costTracker]
  * @param {boolean} [params.forceRerender]
@@ -221,10 +232,8 @@ async function renderStorySpreads(params) {
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
   const { book, theme } = bookDef;
+  const { identityKeyed = false, seed = null } = params;
   const tuning = normalizeArtTuning(params.tuning || null);
-  const baseHash = storyFingerprint(story);
-  const nonce = probeNonce ? String(probeNonce).replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) : '';
-  const storyHash = nonce ? `${baseHash}-${nonce}` : baseHash;
   const aspect = textLayout === 'embedded' ? 'wide' : 'square';
   const characterRefUrl = approvedCoverUrl || childPhotoUrl || null;
   if (!characterRefUrl) {
@@ -247,22 +256,56 @@ async function renderStorySpreads(params) {
     throw err;
   }
 
+  const baseHash = storyFingerprint(story);
+  let keyHash = baseHash;
+  if (identityKeyed) {
+    // Probe cache keys carry an IDENTITY fingerprint: a workbench book's
+    // anchor is admin-mutable, so the same bookId/story/tag after an anchor
+    // (or characterDescription) change must never replay the prior child's
+    // cached image. Keyed on the anchor's PATH — a signed URL's rotating
+    // query string must not bust the cache for the same object. The
+    // full-book path stays un-salted so existing production caches replay
+    // byte-identically.
+    const identityBasis = `${String(characterRefUrl).split('?')[0]}|${characterDescription || ''}`;
+    keyHash = `${baseHash}-i${fnv1a(identityBasis).toString(36)}`;
+  }
+  if (seed != null) keyHash = `${keyHash}-s${seed}`;
+  const nonce = probeNonce ? String(probeNonce).replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) : '';
+  const storyHash = nonce ? `${keyHash}-${nonce}` : keyHash;
+
   const wanted = Array.isArray(spreads) && spreads.length > 0
     ? book.beats.filter(b => spreads.includes(b.spread))
     : book.beats;
   const pLimit = require('p-limit');
   const limit = pLimit(RENDER_CONCURRENCY);
   let done = 0;
-  const results = await Promise.all(wanted.map(beat => limit(async () => {
+  // allSettled, not all: one thrown spread must cost only THAT spread — the
+  // probe contract reports per-spread failures, and the other renders were
+  // already paid for (they stay cached either way). The full-book caller
+  // still fails the run on any missing buffer below.
+  const settled = await Promise.allSettled(wanted.map(beat => limit(async () => {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
       spread: beat.spread, aspect, characterRefUrl, refPhoto, characterDescription,
-      tuning, costTracker, forceRerender, log,
+      tuning, seed, costTracker, forceRerender, log,
     });
     done += 1;
     onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
     return r;
   })));
+  const results = settled.map((s, i) => {
+    if (s.status === 'fulfilled') return s.value;
+    const spread = wanted[i].spread;
+    const note = `render errored: ${s.reason?.message || String(s.reason)}`;
+    log('error', `Spread ${spread} ${note}`);
+    return {
+      spread,
+      buffer: null,
+      storageKey: renderCachePath(bookId, storyHash, spread, aspect, tuning ? tuning.tag : 'none'),
+      url: null,
+      advisories: [{ stage: 'render', spread, note }],
+    };
+  });
 
   results.sort((a, b) => a.spread - b.spread);
   return { results, aspect, storyHash, tuningTag: tuning ? tuning.tag : 'none' };

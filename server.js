@@ -494,6 +494,9 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
   if (artTuningError) {
     return res.status(400).json({ success: false, error: artTuningError });
   }
+  if (body.seed !== undefined && body.seed !== null && !Number.isInteger(body.seed)) {
+    return res.status(400).json({ success: false, error: 'seed must be an integer' });
+  }
   const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
   if (!storyPair) {
     return res.status(400).json({ success: false, error: 'story {request, response} is required — the probe renders an existing validated story, never a fresh one' });
@@ -538,6 +541,11 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         textLayout: String(body.textLayout).toLowerCase() === 'embedded' ? 'embedded' : 'caption',
         spreads: [...spreads].sort((a, b) => a - b),
         tuning: body.illustrationTuning || null,
+        // Probe cache keys carry the identity anchor: a workbench book's
+        // anchor is admin-mutable, and a swapped anchor must never replay
+        // the prior child's cached renders.
+        identityKeyed: true,
+        seed: Number.isInteger(body.seed) ? body.seed : null,
         probeNonce: body.probeNonce || null,
         costTracker,
         forceRerender: !!body.forceRerender,

@@ -462,8 +462,10 @@ to feed the map real traffic.
 approvedCoverUrl | childPhotoUrls, characterDescription?, textLayout?, illustrationTuning?,
 dispatchId?, probeNonce?, forceRerender?, callbackUrl}` → 202 `{success, bookId, accepted:
 spreads}`; callback (via `postWithRetry`, `dispatchId` echoed when supplied — exactly the
-`/v13/generate-stories` shape) carries `{renders: [{spread, url, storageKey, qa: {pass, defects},
-advisories}], illustrationTuningUsed, failures: [{spread, message}], costs}`.
+`/v13/generate-stories` shape) carries `{renders: [{spread, url, storageKey, qa: {pass,
+advisories}}], illustrationTuningUsed, failures: [{spread, message}], costs}` — `qa.pass` is
+derived (no spreadQa-stage advisory on the render) and `qa.advisories` carries the full advisory
+records, defect notes included; this is the shape the sibling app's capture/judge/UI consume.
 
 - Like `/v13/generate-stories`, EVERY validation happens before the 202: the spreads list, the
   story pair (resolved + re-validated exactly like `pipeline.js:resolveStory` — pinned-request
@@ -636,8 +638,12 @@ into the loop ("comment on this spread" → art comment with book context).
 1. **Cover in scope?** Default NO: the cover is the identity/style anchor for every interior — a
    cover directive cascades into all interiors through the reference image, which deserves its own
    loop (anchored on what?) later. The Art Bench still *generates* covers, as anchors only.
-2. **Seeding in probes** — default ON for workbench probes (best-effort: seed-rejecting models fall
-   back, run labeled unseeded), OFF in production. Tightens A/B without pretending determinism.
+2. **Seeding in probes** — as built: `/v13/render-spreads` accepts an optional integer `seed`,
+   threaded into every render (and into the cache key, so differently-seeded probes never replay
+   each other), but APPLYING it stays gated by the renderer's existing
+   `BOOK_PIPELINE_V3_RENDER_SEED` env (default OFF; seed-rejecting models are retried without).
+   Enable the env on the worker revision to make probe seeding real; production dispatches never
+   send a seed either way. Tightens A/B without pretending determinism.
 3. **Per-spread wire map** — default YES (§4.2). Fallback if we want a smaller contract: global
    text only, spread-scoped lines rendered as `On spread N only: …` prose (weaker: bleeds tokens
    into all spreads).
