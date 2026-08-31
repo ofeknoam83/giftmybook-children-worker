@@ -1,6 +1,8 @@
 # AI Illustration Feedback Loop — Design Plan
 
-**Status:** proposed (nothing on this branch is implemented yet)
+**Status:** proposed (nothing on this branch is implemented yet). Revised after re-tracing the
+SHIPPED writer-loop implementation end to end (store, workbench, compiler, routes, callbacks,
+Prisma models, UI) — the mirrored mechanics below cite the real code, not the writer plan doc.
 **Scope:** `giftmybook-standalone` (app) + `giftmybook-children-worker` (worker)
 **Branch:** `claude/illustrations-feedback-loop-2th4ns`
 **Sibling:** `docs/AI_WRITER_FEEDBACK_LOOP_PLAN.md` (shipped) — this plan deliberately mirrors its
@@ -94,15 +96,60 @@ The new judge is advisory decision-support for admins; it never gates a render.
 - Seeds: `generationConfig.seed` support exists but is env-gated OFF and model-dependent
   (`illustrationGenerator.js:858-894`).
 
-### App (`giftmybook-standalone`)
+### App (`giftmybook-standalone`) — how one writer round ACTUALLY flows
 
-- The whole writer-loop chassis is live and reusable: versioned tuning store with
-  draft → lock → activate and scope resolution (`server/services/writerTuning.js`), workbench
-  sessions wrapping `isTestBook` ChildrenBooks with iterations captured by dispatchId
-  (`writerTuningWorkbench.js`), LLM compiler with conflict detection + routing
-  (`writerTuningCompiler.js`), judge (`storyJudge.js`), regression runs with jsonb-atomic result
-  append + stall reconciliation, quality map, audit events, daily spend budget, and the
-  `AdminWriterTuning` UI. **This plan adds an art dimension to that chassis rather than cloning it.**
+The whole writer-loop chassis is live; the art loop mirrors its exact mechanics, so they are worth
+tracing precisely. **This plan adds an art dimension to that chassis rather than cloning it.**
+
+One workbench round (`writerTuningWorkbench.js:generateIteration`):
+`POST /sessions/:id/generate` → per-day budget check (count of today's iterations, UTC midnight,
+vs `WRITER_TUNING_DAILY_ROUNDS`, default 100) → ensure the slate → resolve the overlay for THIS
+context (`renderOverlay(version, contextForBook(book, ids))`) → **reserve the iteration row BEFORE
+the worker call** (iterationNo, dispatchId, tuningTag, and a `params` snapshot: scope context +
+full profile + the version's rubric + requestedBy — so a fast callback always finds its owner and
+a mid-generation draft edit can't change what the round is judged by) → dispatch through
+`childrenStoryFlow.dispatchStoryGeneration` with `{isAdmin: true, force: true, dispatchId,
+writerTuning, overrideBookIds}` → **a dispatch failure deletes the reservation**. The worker
+validates EVERYTHING before its 202 (ids, profile, age-band routing, `validateTuningInput`) and
+echoes `dispatchId` on the callback (`postWithRetry`). The standard `/api/children/story-callback`
+applies slot-ownership rules (`applyStoryCallback`: only the run whose dispatchId still owns
+`storyOptions` may land), then fire-and-forgets `captureIteration`, which fills
+stories/failures by dispatchId and judges under the rubric snapshot — never throwing, never
+touching customer flow.
+
+Other load-bearing contracts the art loop must reproduce:
+
+- **Tri-state tuning semantics** in `dispatchStoryGeneration`: `writerTuning` *undefined* = look up
+  the ACTIVE production version's overlay; *null* = bare engine (workbench baseline); *an object* =
+  send as-is (workbench version under test). The workbench never implicitly inherits production.
+- **Compiler output contract** (`writerTuningCompiler.js:normalizeCompileOutput`): ops are
+  `add | strengthen | supersede | conflict`; `routes[]` classifies EVERY comment; ops naming a
+  non-existent target directive are DROPPED and counted (`droppedOps`), never silently ignored;
+  comments no surviving op or proposal cites land in `unhandledCommentIds` and stay PENDING (no
+  default-to-style); an admin-declared comment scope is AUTHORITATIVE over the model's proposal;
+  `proposedDirectives` is precomputed via the pure `applyOps` so the UI diff shows the exact
+  resulting rulebook. Nothing persists at compile time.
+- **Confirm is ONE transaction** (`POST /versions`): the new draft, flipping the source comments to
+  `status:'included'` + `tuningVersionId`, and creating the routed proposals commit together — a
+  partial failure can neither orphan a version nor duplicate proposals on retry.
+- **Judge suggestions**: the judge emits a `suggestion` only for traits scoring ≤ 3; *accept* files
+  a real `AdminFeedbackComment` attributed to the accepting admin (severity derived from the
+  score, `storyRef.suggestedBy:'judge'`), *dismiss* just records the decision; either way a
+  `suggestionState` is stamped into the iteration's judge JSON so the suggestion never re-prompts
+  (`resolveSuggestion`). The judge proposes; only the admin's accept enters the loop.
+- **Regression runs** use a DEDICATED callback (`/api/children/tuning-regression-callback?runId=&caseId=`,
+  worker-auth), a raw-SQL jsonb-atomic append guarded by per-case containment (worker callback
+  RETRIES cannot double-append a case), auto-close when `entries` reaches `expected`, a rubric
+  snapshot taken at run START, and 30-minute stall reconciliation applied on read
+  (`reconcileStaleRegressionRuns`) because the dispatch loop is in-process.
+- **Anatomy endpoints**: `GET /anatomy` (worker `/v13/coverage` cached 60s + app config + active/
+  draft version summaries), `POST /story-anatomy` (rendered inline by the lazy `StoryAnatomy`
+  component on every story card), `POST /overlay-preview` (`explainOverlay`: exact overlay text +
+  per-directive matched/excluded-by-axis reasons).
+- **UI**: ONE page, four tabs (`Playground`, `Rulebook & Versions`, `Regression & Quality`,
+  `Writer Anatomy`), registered in `pages.config.js` and `AdminFloatingNav`; story cards carry
+  inner story/judge/comments tabs, the scorecard rail with per-trait deltas vs the previous
+  round, click-to-comment with a scope selector, and the `CompileReview` diff modal.
 - `AdminFeedbackComment` already carries `trait`, `spreadNo`, `storyRef`, `scope`, `route`,
   `sessionBookId` — exactly what art comments need too (plus an `area` discriminator, §8).
 - `dispatchTestBookGeneration(book, {textOnly:false})` can run a full-book test render, but at full
@@ -223,9 +270,15 @@ Mechanics:
   `ILLUSTRATION_JUDGE_MODEL` (default `gemini-2.5-pro`). Two passes per iteration: per-spread
   (traits 1–4, 6–8, each render judged with the anchor + beat + spread text) and one book-level
   pass (trait 5, all probe renders in one multi-image call).
-- Output per render: `{trait, score 1–5, justification, suggestion?}` — same shape, normalization,
-  stinginess calibration, and accept/edit/dismiss suggestion flow as `storyJudge.js` (reuse
-  `resolveSuggestion` with `area:'art'`).
+- Output per render: `{trait, score 1–5, justification, suggestion?}` — same shape, defensive
+  normalization (exactly the rubric's traits, scores clamped), and stinginess calibration as
+  `storyJudge.js`; per-render failures return `{error}` instead of throwing (advisory — never
+  fails a round). Suggestions only on traits scoring ≤ 3; *accept* files an
+  `AdminFeedbackComment` (`area:'art'`, trait, spreadNo, severity from the score, a render ref
+  with `suggestedBy:'judge'`) attributed to the accepting admin, *dismiss* records the decision,
+  and either way `suggestionState` is stamped into the art iteration's judge JSON so it never
+  re-prompts — via an art `resolveSuggestion` mirroring the workbench one (the writer's is
+  story-shaped and reads `iteration.stories`; this one reads the iteration's renders).
 - **Advisory, never a gate.** The worker's closed QA list remains the only shipping gate; the
   judge's QA-overlapping traits exist so admins see *degree*, not just pass/fail.
 - Anti-Goodhart: vision LLMs are known-weak exactly where this loop cares most (fine identity
@@ -250,23 +303,45 @@ An art session hangs off the SAME workbench session (and `isTestBook` book) the 
 
 ### 5.2 Render + judge
 
-Dispatch `/v13/render-spreads` (§7.1). Renders land via callback → snapshot into an
-`IllustrationTuningIteration` (matched by dispatchId, same capture pattern as
-`captureIteration`) → judge scores each render. UI shows image cards: render, per-trait chips,
-worker QA verdict/advisories (free signal, same as `failures[].errors` in the writer loop), zoom +
-anchor overlay toggle for likeness checking.
+A probe round reproduces `generateIteration`'s reservation discipline exactly: budget check
+(§11) → **reserve the `IllustrationTuningIteration` row BEFORE the worker call** (iterationNo,
+dispatchId, tuningTag, `params` snapshot: the pinned story pair, spreads, anchor URL + kind,
+textLayout, scope context, the version's rubric, requestedBy) → dispatch `/v13/render-spreads`
+(§7.1) with the dispatchId → **delete the reservation if the dispatch itself fails**.
+
+One deliberate divergence from the writer round: probes do NOT go through
+`childrenStoryFlow.dispatchStoryGeneration`. That path exists to guard mutable book state
+(`storyOptions` slot claims, spend budget column, choice invalidation) — a probe touches none of
+it, so its ownership is simply the reserved iteration row. The callback is therefore a DEDICATED
+route (`/api/children/render-probe-callback`, worker-auth — the regression-callback pattern, not
+the story-callback one): it verifies the echoed dispatchId against the reserved row, writes
+`renders`/`failures` idempotently (worker callback retries must not double-apply), returns 200
+fast, then judges fire-and-forget under the rubric snapshot — logged, never thrown, exactly
+`captureIteration`'s posture.
+
+UI shows image cards: render, per-trait chips, worker QA verdict/advisories (free signal, same as
+`failures[].errors` in the writer loop), zoom + anchor overlay toggle for likeness checking.
 
 ### 5.3 Comment → Compile ("Apply comments")
 
 Comments: `{target: trait|spread|book|general, trait?, spreadNo?, severity, text}` — stored in
 `AdminFeedbackComment` with `area:'art'`. "Apply comments" runs the **Art Tuning Compiler**
-(`illustrationTuningCompiler.js`, the writer compiler's prompt swapped): input = current directives
-+ rubric + new comments + thumbnails of the commented renders; output = proposed operations +
-changelog + per-comment route (§6.3). Hard constraints in the compiler prompt: directives must be
+(`illustrationTuningCompiler.js`, the writer compiler's prompt swapped). Input mirrors the real
+compile route's excerpt-gathering: where the writer route pulls the commented spread's text ±1,
+the art route pulls each comment's render context — the beat + spread text, the QA verdict, the
+judge's justifications, and the commented render itself as an image part (through the same
+`proxyVision` helper the judge uses). Hard constraints in the compiler prompt: directives must be
 rendering-style-level only — never scene actions, character count, text policy, medium identity,
-layout, or QA thresholds (each of those routes elsewhere). Caps (~30 active directives / the §4.2
-byte caps) force consolidation. **Admin reviews the diff, resolves conflicts, confirms → new draft
-version** — identical flow and UI to the writer loop.
+layout, or QA thresholds (each of those routes elsewhere).
+
+The output honors `normalizeCompileOutput`'s exact contract: ops `add | strengthen | supersede |
+conflict`; `routes[]` classifying EVERY comment against the art routes (§6.3); ops naming
+non-existent target directives dropped and counted; comments nothing cites landing in
+`unhandledCommentIds` and staying PENDING; admin-declared comment scope authoritative over the
+model's; `proposedDirectives` precomputed via the pure `applyOps`. Caps (~30 active directives /
+the §4.2 byte caps) force consolidation. **Admin reviews the diff, resolves conflicts, confirms →
+new draft version** — and the confirm is the same single transaction as the writer's
+`POST /versions`: draft + comment inclusion + routed proposals commit together.
 
 ### 5.4 Re-render + compare
 
@@ -287,15 +362,25 @@ side-by-side per spread with per-trait judge deltas and the driving comments inl
 - **Regression run:** all enabled cases rendered under a candidate version → judged → case × trait
   heatmap with golden thumbnails beside candidates. Because cases pin story pairs, regression spends
   ZERO writer tokens and exactly `Σ spreads` renders — the run screen shows the render count and
-  requires confirmation. Reuses the writer loop's run/append/stall-reconcile machinery.
+  requires confirmation. Mechanics are the writer run's, verbatim: sequential background dispatch
+  to a dedicated callback (`?runId=&caseId=`, worker-auth), a rubric snapshot taken at run START,
+  jsonb-atomic entry append with the per-case containment guard (worker callback retries cannot
+  double-append), auto-close when `entries` reaches `expected`, and 30-minute stall reconciliation
+  on read — generalized so both loops share the run/append/reconcile helpers rather than forking
+  them. Entries carry render URLs + QA verdicts + judge scores.
 
 ### 5.6 Lock, activate, roll back
 
 Identical to the writer loop: lock = immutable; activate = separate, super-admin, audited, pointer
 in `pipeline_config` row `illustration_tuning_state`; deactivate = pure `STYLE_VERSION` behavior —
-one-click rollback with no deploy. A **pre-lock full-book confirmation** (the existing
-`dispatchTestBookGeneration` full render, 12 spreads + PDFs) is offered — the probe iterates
-cheaply, but a version should see one whole book before production. On activation, the cache-key
+one-click rollback with no deploy. Lock/activate/deactivate mirror the writer routes exactly
+(activate/deactivate gated on `accessLevel === 'super_admin'` at the route, audited via the shared
+event log). A **pre-lock full-book confirmation** (the existing `dispatchTestBookGeneration` full
+render, 12 spreads + PDFs) is offered — the probe iterates cheaply, but a version should see one
+whole book before production. That confirmation passes the CANDIDATE version's overlay explicitly,
+using the writer dispatch's tri-state semantics (`illustrationTuning` object = as-is, `null` =
+bare, *undefined* = production lookup) — a pre-lock test must never silently render under the
+production pointer. On activation, the cache-key
 tag means new customer renders are all-or-nothing under the new tag: an in-flight book that
 checkpointed mid-render before activation resumes its remaining spreads under the NEW tag (the
 completion callback reports the tag that actually rendered; a mid-book activation is rare and
@@ -370,14 +455,16 @@ to feed the map real traffic.
 
 `{bookId, story: {request, response}, spreads: [1..12 subset, 1–12 entries], profile,
 approvedCoverUrl | childPhotoUrls, characterDescription?, textLayout?, illustrationTuning?,
-probeNonce?, forceRerender?, callbackUrl}` → 202; callback
-`{renders: [{spread, url, storageKey, qa: {pass, defects}, advisories}], illustrationTuningUsed,
-failures, costs}`.
+dispatchId?, probeNonce?, forceRerender?, callbackUrl}` → 202 `{success, bookId, accepted:
+spreads}`; callback (via `postWithRetry`, `dispatchId` echoed when supplied — exactly the
+`/v13/generate-stories` shape) carries `{renders: [{spread, url, storageKey, qa: {pass, defects},
+advisories}], illustrationTuningUsed, failures: [{spread, message}], costs}`.
 
-- Resolves + re-validates the story pair exactly like `pipeline.js:resolveStory` (pinned-request
-  re-validation, profile identity binding) — a probe must never render an invalid or foreign story.
-- Requires an identity anchor under the same rules as `illustrateStory` (cover, or photo fallback;
-  none → `missing_identity_reference` 400).
+- Like `/v13/generate-stories`, EVERY validation happens before the 202: the spreads list, the
+  story pair (resolved + re-validated exactly like `pipeline.js:resolveStory` — pinned-request
+  re-validation, profile identity binding; a probe must never render an invalid or foreign story),
+  the identity anchor (same rules as `illustrateStory`: cover, or photo fallback; none →
+  `missing_identity_reference` 400), and `validateArtTuningInput`.
 - Calls the SAME `renderSpread` per spread (cache → render → QA → repair → marker) with the same
   concurrency limit — the loop tunes production's actual path or it tunes nothing. `probeNonce`
   (workbench-only) salts the cache key for variance probes.
@@ -404,28 +491,39 @@ adds `storyContent.catalog.illustrationTuning`.
 3. `server.js`: `/generate-book` + `/v13/render-spreads` accept/validate/pass `illustrationTuning`
    (400 on malformed, before the 202 — same contract as `writerTuning`).
 4. `flags.js`: `artTuningLayerEnabled()` ← `CATALOG_ART_TUNING_LAYER` (default ON).
-5. `versions.js`: no bump — `PIXAR_STYLE`, `scenes.js`, and `spreadQa.js` are untouched; the tag
+5. `GET /v13/coverage`: extend the payload (it already reports flag state) with `STYLE_VERSION`,
+   the art-tuning flag, and the render/QA models — Illustrator Anatomy reads it exactly the way
+   Writer Anatomy reads coverage today (app-side, 60s-cached `workerInfo()`).
+6. `versions.js`: no bump — `PIXAR_STYLE`, `scenes.js`, and `spreadQa.js` are untouched; the tag
    rides the cache key and callbacks, not `versions`. Document in CLAUDE.md.
-6. Tests: overlay append + frame wording, caps, kill-switch, cache-path tag (none = legacy path),
-   marker tag, probe endpoint validation (invalid story pair, missing anchor, bad spreads list),
-   `/generate-book` passthrough, per-spread map targeting.
+7. Tests: overlay append + frame wording, caps, kill-switch, cache-path tag (none = legacy path),
+   marker tag, probe endpoint validation (invalid story pair, missing anchor, bad spreads list,
+   dispatchId echo), `/generate-book` passthrough, per-spread map targeting.
 
 Everything else (writer, validation, layout, cover, checkpoints) is untouched.
 
 ## 8. App data model (Prisma — real migrations, mirroring the writer tables)
 
-- **`IllustrationTuningVersion`** — same columns as `WriterTuningVersion` (directives, judgeRubric,
-  hash, status, lineage, changelog, attribution).
-- **`IllustrationTuningIteration`** — `{id, sessionBookId, iterationNo, tuningVersionId, tuningTag,
-  dispatchId, params Json (storyPair snapshot, spreads, anchorUrl + anchorKind, textLayout,
-  themeId/ageBand/bookDefinitionId, rubric snapshot, probeKind: probe|variance|fullbook),
-  renders Json, judge Json, createdAt}`.
+- **`IllustrationTuningVersion`** — column-for-column `WriterTuningVersion` (unique auto
+  `versionLabel` `art-NNN` via the writer's `nextVersionLabel` pattern, directives, judgeRubric,
+  `hash` = sha256 of the directive set, status draft|locked|archived, parentVersionId lineage,
+  changelog as an appended entry array, notes, lockedBy/lockedAt).
+- **`IllustrationTuningIteration`** — mirrors `WriterTuningIteration` (`@@unique([sessionBookId,
+  iterationNo])`, `notes`, `failures Json`): `{id, sessionBookId, iterationNo, tuningVersionId,
+  tuningTag, dispatchId, params Json (storyPair snapshot, spreads, anchorUrl + anchorKind,
+  textLayout, scope context, rubric snapshot, requestedBy, probeKind: probe|variance|fullbook),
+  renders Json, failures Json, judge Json, notes, createdAt}`.
 - **`IllustrationRegressionCase` / `IllustrationRegressionRun`** — §5.5 (runs reuse the jsonb
-  append + stall-reconcile helpers, generalized).
+  append + stall-reconcile helpers, generalized; `results` keeps the writer shape
+  `{expected, rubric, entries[]}`).
 - **`AdminFeedbackComment`**: add `area String? // 'story' | 'art'` (+ index); art comments reuse
-  `trait`/`spreadNo`/`storyRef`/`scope`/`route`/`sessionBookId` as-is.
+  `trait`/`spreadNo`/`scope`/`route`/`sessionBookId` as-is and put the render context in the
+  existing `storyRef Json` (`{iterationNo, spread, bookDefinitionId, suggestedBy?}` — it is a
+  generic artifact ref, no new column needed).
 - **`WriterTuningProposal`**: add `area`; new `kind` values `scene-template | style-bible |
-  qa-check | identity-anchor | layout`.
+  qa-check | identity-anchor | layout`. Note the kind allowlist is enforced in TWO places today —
+  the `POST /versions` confirm route and the compiler's `normalizeCompileOutput` — both lists
+  extend, ideally hoisted to one shared constant.
 - **`WriterTuningEvent`**: reuse with `area` in `details` (append-only audit is shared).
 - Activation pointer: `pipeline_config` row **`illustration_tuning_state`**.
 - Persist the render-time tag on `ChildrenBook.engineVersions` from the completion callback.
@@ -436,24 +534,47 @@ Everything else (writer, validation, layout, cover, checkpoints) is untouched.
   (normalize/applies/render/explain) over an axis list instead of duplicating them; art-specific
   wire rendering (`toWorkerField` producing `{versionLabel, hash, text, spreads}`),
   `overlayForBook`, `artAnatomy` (per finished book: tag → resolved directives, drift warning).
-- `illustrationTuningWorkbench.js` — art sessions on the shared workbench session, probe dispatch
-  (via a new `dispatchRenderProbe` in `childrenGeneration.js` calling `/v13/render-spreads`),
-  `captureArtIteration` on the probe callback (new route
-  `/api/children/render-probe-callback?iterationId=`), variance probes, regression, art quality map.
+- `illustrationTuningWorkbench.js` — art rounds on the shared workbench session: budget check →
+  reserve-iteration-before-dispatch → `dispatchRenderProbe` (new, in `childrenGeneration.js`,
+  calling `/v13/render-spreads` with the reserved dispatchId; tri-state `illustrationTuning`
+  semantics) → delete-reservation-on-dispatch-failure; `captureArtIteration` on the dedicated
+  worker-auth callback route `/api/children/render-probe-callback` (dispatchId-verified,
+  idempotent, judge fire-and-forget — §5.2); variance probes, regression, art quality map.
 - `illustrationJudge.js` + `proxyVision` in `geminiProxy.js` — §5.
 - `illustrationTuningCompiler.js` — §5.3.
 - Production injection: `buildWorkerPayloadWithTuning` also resolves the art overlay (for every
   dispatch — renders always happen) and attaches `illustrationTuning`; failure = no overlay, never
   a blocked dispatch.
-- Routes mirror the writer surface: versions CRUD/lock/activate/deactivate/active, art-bench
-  session setup (anchor upload / cover generation / story pick), `POST /iterations` (probe),
-  variance, compile, judge-on-demand, regression cases/runs, proposals (shared), quality map,
-  anatomy, overlay-preview (exact text per context, per-directive matched/excluded reasons).
+- Routes mirror the writer surface endpoint-for-endpoint (`routes/admin/writerTuning.js` is the
+  template, including its status codes and the route-level super-admin checks):
+  - Versions: `GET /versions` (+ state + default rubric), `POST /versions` (the single-transaction
+    confirm: draft + comment inclusion + routed proposals), `GET /versions/:id` (+ its comments +
+    events), `PATCH /versions/:id` (draft-only; 409 on locked), `POST /versions/:id/lock`,
+    `POST /versions/:id/activate` + `POST /deactivate` (super-admin), `GET /state`.
+  - Art bench (on the SHARED workbench session): `POST /sessions/:id/art/anchor` (photo upload /
+    sample pick / one-click cover generation), `POST /sessions/:id/art/generate` (probe round:
+    story pick, spreads, tuningVersionId, probeKind), `GET /sessions/:id` extended with
+    `artIterations`, `POST /sessions/:id/art/judge` (re-judge on demand),
+    `POST /sessions/:id/art/suggestions` (accept/dismiss, §5).
+  - `POST /compile` — art comments + render context → proposed ops; nothing persisted (§5.3).
+  - Regression: `GET|POST|PATCH /regression/cases` (incl. `{fromArtIteration}` golden save),
+    `POST /regression/run` (202), `GET /regression/runs` + `GET /regression/runs/:id`
+    (stall-reconciled on read).
+  - Insight: `GET /quality-map`; anatomy: `GET /anatomy` (worker coverage via the cached
+    `workerInfo()` pattern), `POST /render-anatomy` (one finished book's renders: tag → resolved
+    directives + drift warning), `POST /overlay-preview` (`explainArtOverlay`: global + per-spread
+    placement with matched/excluded-by-axis reasons).
+  - Proposals stay on the shared queue (`/api/admin/writer-tuning/proposals`), filtered by `area`.
 
-## 10. UI — extend `AdminWriterTuning` with the art dimension
+## 10. UI — a sibling page: `AdminIllustrationTuning`
 
-New tabs on the existing page (shared sessions make one page the honest shape; split later if it
-sprawls):
+`AdminWriterTuning` is already a four-tab, ~1,500-line page; doubling it to eight tabs would bury
+both loops. Instead: a separate `AdminIllustrationTuning` page with the SAME four-tab anatomy the
+writer page shipped (registered in `pages.config.js` and `AdminFloatingNav`, next to "Writer
+Tuning"), sharing the workbench sessions underneath. The bridge is a deep link: every story card
+in the writer Playground gains a **"Send to Art Bench"** action carrying
+`(sessionBookId, iterationNo, storyIndex)` — the art page opens with that story pinned. The four
+tabs:
 
 1. **Art Bench** — anchor setup, story pick, spread pick, version selector → render cards (image,
    QA verdict, judge chips with click-to-comment, anchor-overlay toggle), iteration timeline with
@@ -469,9 +590,11 @@ sprawls):
    (*dynamic via comments* / *runtime env* / *versioned data via proposals* / *locked (deploy)*)
    with live values (flags, models, `STYLE_VERSION`, active tag) and an overlay preview.
 
-Plus: the shared StoryAnatomy panel on finished books gains the art layer (which directives applied
-to this book's renders, from the persisted tag); `AdminChildrenBookDetails` links spreads into the
-loop ("comment on this spread" → art comment with book context).
+Plus: a **`RenderAnatomy`** component mirroring `StoryAnatomy.jsx` exactly (lazy fetch of
+`POST /render-anatomy` on first expand) rendered on art-bench render cards and on
+`AdminChildrenBookDetails` spreads — which directives applied to this book's renders, from the
+persisted tag, with the same draft-drift warning; and `AdminChildrenBookDetails` links spreads
+into the loop ("comment on this spread" → art comment with book context).
 
 ## 11. Safety & cost guardrails
 
@@ -483,9 +606,14 @@ loop ("comment on this spread" → art comment with book context).
 - The overlay text passes through the same NSFW sanitize path every scene already does; a directive
   can therefore never smuggle prohibited content past it.
 - Spend: probes are K renders not 12; per-day render budget
-  (`ILLUSTRATION_TUNING_DAILY_RENDERS`, counted in renders, not rounds) enforced app-side; every
-  probe/regression screen shows its render count before dispatch; CostTracker rides the probe
-  endpoint; variance probes and full-book confirmations count against the same budget.
+  (`ILLUSTRATION_TUNING_DAILY_RENDERS`, counted in renders, not rounds — a render costs what a
+  whole writer round costs) enforced the same way the writer's daily-rounds guard is: checked in
+  the workbench generate BEFORE the reservation, summing `params.spreads.length` (× samples for
+  variance probes) over today's art iterations from UTC midnight. Every probe/regression screen
+  shows its render count before dispatch; CostTracker rides the probe endpoint (unlike
+  `/v13/generate-stories`, which deliberately has neither cost tracking nor a rate limit — cheap
+  text; renders are not); variance probes and full-book confirmations count against the same
+  budget.
 
 ## 12. Phases
 
