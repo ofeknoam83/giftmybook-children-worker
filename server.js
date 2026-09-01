@@ -699,6 +699,8 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         renders: [],
         failures: [{ message: err.message, failureCode: err.failureCode || null }],
         illustrationTuningUsed: 'none',
+        // Same stable shape as the success payload: the gate never ran here.
+        worldQa: null,
         costs: costTracker.getSummary(),
       };
     }

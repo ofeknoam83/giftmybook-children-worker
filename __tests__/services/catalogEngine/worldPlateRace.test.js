@@ -24,6 +24,13 @@ const geminiPlateResponse = {
   ok: true,
   json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { data: LOCAL_PLATE.toString('base64') } }] } }] }),
 };
+const plateQaVerdict = v => ({
+  ok: true,
+  json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(v) }] } }] }),
+});
+const CLEAN_PLATE_VERDICT = { people_or_characters: false, subject_creatures: false, readable_text: false };
+/** Calls to the image-generation model only (the plate QA hits the vision model). */
+const genCalls = fetchMock => fetchMock.mock.calls.filter(c => c[0].includes('test-image-model'));
 
 /** Fresh module state per test — the plate/in-flight memos are module-level. */
 function freshWorldPlate() {
@@ -41,7 +48,11 @@ function freshWorldPlate() {
   const illustrationGenerator = require('../../../services/illustrationGenerator');
   const gcs = require('../../../services/gcsStorage');
   const { getWorldPlate } = require('../../../services/catalogEngine/illustrator/worldPlate');
-  illustrationGenerator.fetchWithTimeout.mockResolvedValue(geminiPlateResponse);
+  // Default transport: the image model returns the local plate; the plate
+  // content check returns a clean verdict.
+  illustrationGenerator.fetchWithTimeout.mockImplementation(async url => (
+    url.includes('test-image-model') ? geminiPlateResponse : plateQaVerdict(CLEAN_PLATE_VERDICT)
+  ));
   return { getWorldPlate, gcs, illustrationGenerator };
 }
 
@@ -75,7 +86,7 @@ test('an upload failure with no known winner keeps the local plate but never cac
   // upload succeeds, so THIS plate is the one that persists and caches).
   gcs.uploadBufferIfAbsent.mockResolvedValue({ created: true });
   await getWorldPlate({ theme: THEME, log: () => {} });
-  expect(illustrationGenerator.fetchWithTimeout).toHaveBeenCalledTimes(2);
+  expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(2);
 });
 
 test('a persisted plate IS cached — the third resolve makes no further IO', async () => {
@@ -84,6 +95,35 @@ test('a persisted plate IS cached — the third resolve makes no further IO', as
   gcs.uploadBufferIfAbsent.mockResolvedValue({ created: true });
   await getWorldPlate({ theme: THEME, log: () => {} });
   await getWorldPlate({ theme: THEME, log: () => {} });
-  expect(illustrationGenerator.fetchWithTimeout).toHaveBeenCalledTimes(1);
+  expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(1);
   expect(gcs.downloadBuffer).toHaveBeenCalledTimes(1);
+});
+
+test('a contaminated plate is retried once, then rejected — never uploaded or cached', async () => {
+  const { getWorldPlate, gcs, illustrationGenerator } = freshWorldPlate();
+  gcs.downloadBuffer.mockRejectedValue(new Error('cache miss'));
+  gcs.uploadBufferIfAbsent.mockResolvedValue({ created: true });
+  illustrationGenerator.fetchWithTimeout.mockImplementation(async url => (
+    url.includes('test-image-model')
+      ? geminiPlateResponse
+      : plateQaVerdict({ ...CLEAN_PLATE_VERDICT, people_or_characters: true })
+  ));
+  await expect(getWorldPlate({ theme: THEME, log: () => {} })).resolves.toBeNull();
+  expect(gcs.uploadBufferIfAbsent).not.toHaveBeenCalled();
+  expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(2); // one corrective retry
+});
+
+test('a plate that passes the content check on the retry is accepted and persisted', async () => {
+  const { getWorldPlate, gcs, illustrationGenerator } = freshWorldPlate();
+  gcs.downloadBuffer.mockRejectedValue(new Error('cache miss'));
+  gcs.uploadBufferIfAbsent.mockResolvedValue({ created: true });
+  let qaCall = 0;
+  illustrationGenerator.fetchWithTimeout.mockImplementation(async (url) => {
+    if (url.includes('test-image-model')) return geminiPlateResponse;
+    qaCall += 1;
+    return plateQaVerdict(qaCall === 1 ? { ...CLEAN_PLATE_VERDICT, readable_text: true } : CLEAN_PLATE_VERDICT);
+  });
+  const plate = await getWorldPlate({ theme: THEME, log: () => {} });
+  expect(plate.base64).toBe(LOCAL_PLATE.toString('base64'));
+  expect(gcs.uploadBufferIfAbsent).toHaveBeenCalledTimes(1);
 });

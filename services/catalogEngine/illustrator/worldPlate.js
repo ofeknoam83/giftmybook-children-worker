@@ -26,6 +26,7 @@
  */
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../illustrationGenerator');
+const { checkWorldPlate } = require('./spreadQa');
 const { PIXAR_STYLE } = require('../../shared/illustration/config');
 const { downloadBuffer, uploadBufferIfAbsent } = require('../../gcsStorage');
 const { renderWorldCardBlock } = require('../worldCards');
@@ -181,8 +182,28 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
         return plate;
       }
       log('info', `world plate for theme '${themeId}' not cached — generating (${path})`);
-      const buffer = await renderPlateImage(prompt);
+      let buffer = await renderPlateImage(prompt);
       if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
+      // Enforce the environment-only invariant BEFORE the plate can be
+      // uploaded or cached: a person, character, creature subject, or
+      // readable text in the plate would contaminate every spread anchored
+      // on it. One corrective retry; a still-contaminated plate resolves
+      // null (plate-less renders). A validation INFRA failure accepts the
+      // plate unchecked — fail-open, same as spread QA.
+      let verdict = await checkWorldPlate(buffer, { label: `worldPlateQa:${themeId}` });
+      if (!verdict.pass) {
+        log('warn', `world plate for '${themeId}' failed the content check (${verdict.defects.join('; ')}) — one corrective retry`);
+        buffer = await renderPlateImage(`${prompt}\nPREVIOUS ATTEMPT REJECTED — it contained: ${verdict.defects.join('; ')}. Absolutely NO people, NO characters, NO creatures as subjects, and NO readable text of any kind.`);
+        if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
+        verdict = await checkWorldPlate(buffer, { label: `worldPlateQa:${themeId}:retry` });
+        if (!verdict.pass) {
+          log('warn', `world plate for '${themeId}' still fails the content check (${verdict.defects.join('; ')}) — rendering without a plate`);
+          return null;
+        }
+      }
+      if (verdict.qaUnavailable) {
+        log('warn', `world plate for '${themeId}' shipped UNCHECKED — ${verdict.qaUnavailable}`);
+      }
       // Create-if-absent: concurrent cold instances race to create the same
       // deterministic object, and exactly one write wins — every loser
       // ADOPTS the winning bytes, so all instances anchor on ONE plate

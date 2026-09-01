@@ -255,6 +255,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       }
     } catch (repairErr) {
       log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the first render`);
+      // The repair may have died AFTER uploading new pixels — restore the
+      // shipped first render to the cache key so the URL, cache, and PDF
+      // stay one image (a failed restore is caught by the marker hash).
+      await uploadBuffer(buffer, storageKey, 'image/png').catch(() => {});
       advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped first render with defects: ${qa.defects.join('; ')}` });
     }
   }
@@ -325,53 +329,73 @@ function planWorldRepairs(results, flagged, budget) {
  * @param {Array} params.results renderSpread results (mutated in place:
  *   advisories appended; flagged fresh entries replaced by their re-render)
  * @param {(spread: number, worldNote: string) => Promise<object>} params.rerender
+ * @param {(frac: number, message: string) => void} [params.onProgress]
  * @param {(level: string, msg: string) => void} params.log
  * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
  *   null when the gate did not run (kill-switch, or <2 renders to compare)
  */
-async function runWorldConsistencyGate({ results, rerender, log }) {
+async function runWorldConsistencyGate({ results, rerender, onProgress = () => {}, log }) {
   if (!flags.worldQaEnabled()) return null;
   const rendered = results.filter(r => r.buffer);
   if (rendered.length < 2) return null; // consistency needs a comparison
-  const verdict = await checkWorldConsistency(
-    rendered.map(r => ({ spread: r.spread, buffer: r.buffer })),
-    { label: 'worldQa' },
-  );
-  if (!verdict) return null;
-  if (verdict.qaUnavailable) {
-    log('warn', `world gate UNCHECKED — ${verdict.qaUnavailable}`);
-    return { pass: true, checked: rendered.length, unavailable: verdict.qaUnavailable };
-  }
-  if (verdict.pass) return { pass: true, checked: rendered.length };
+  // The gate + its repairs can legitimately run for many minutes with no
+  // per-spread progress events, and the server's per-book watchdog aborts
+  // books idle >20min — a 30s heartbeat keeps a healthy gate alive (the
+  // same pattern the deleted workflow engine used).
+  const heartbeat = setInterval(() => onProgress(1, 'World consistency gate in progress...'), 30000);
+  try {
+    onProgress(1, `Checking world consistency across ${rendered.length} spreads...`);
+    const verdict = await checkWorldConsistency(
+      rendered.map(r => ({ spread: r.spread, buffer: r.buffer })),
+      { label: 'worldQa' },
+    );
+    if (!verdict) return null;
+    if (verdict.qaUnavailable) {
+      log('warn', `world gate UNCHECKED — ${verdict.qaUnavailable}`);
+      return { pass: true, checked: rendered.length, unavailable: verdict.qaUnavailable };
+    }
+    if (verdict.pass) return { pass: true, checked: rendered.length };
 
-  const plan = planWorldRepairs(results, verdict.flagged, WORLD_QA_MAX_RERENDERS());
-  const rerendered = [];
-  for (const f of plan) {
-    const idx = results.findIndex(r => r.spread === f.spread && r.buffer);
-    if (idx === -1) continue;
-    const entry = results[idx];
-    entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world consistency: ${f.note}` });
-    if (f.skipReason) {
-      entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `shipped without world re-render (${f.skipReason})` });
-      continue;
-    }
-    log('warn', `Spread ${f.spread} broke world consistency (${f.note}) — one corrective re-render`);
-    try {
-      const repaired = await rerender(f.spread, worldRepairNote(f.note));
-      if (repaired.buffer) {
-        // Keep the audit trail: the gate finding + the fresh render's own
-        // advisories ride together on the replacing entry.
-        results[idx] = { ...repaired, advisories: [...entry.advisories, ...repaired.advisories] };
-        rerendered.push(f.spread);
-      } else {
-        entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: 'world re-render failed; shipped the flagged render' });
+    const plan = planWorldRepairs(results, verdict.flagged, WORLD_QA_MAX_RERENDERS());
+    const rerendered = [];
+    for (const f of plan) {
+      const idx = results.findIndex(r => r.spread === f.spread && r.buffer);
+      if (idx === -1) continue;
+      const entry = results[idx];
+      entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world consistency: ${f.note}` });
+      if (f.skipReason) {
+        entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `shipped without world re-render (${f.skipReason})` });
+        continue;
       }
-    } catch (err) {
-      log('warn', `Spread ${f.spread} world re-render errored (${err.message}) — shipping the flagged render`);
-      entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world re-render errored (${err.message}); shipped the flagged render` });
+      log('warn', `Spread ${f.spread} broke world consistency (${f.note}) — one corrective re-render`);
+      onProgress(1, `World repair: re-rendering spread ${f.spread}...`);
+      try {
+        const repaired = await rerender(f.spread, worldRepairNote(f.note));
+        if (repaired.buffer) {
+          // Keep the audit trail: the gate finding + the fresh render's own
+          // advisories ride together on the replacing entry.
+          results[idx] = { ...repaired, advisories: [...entry.advisories, ...repaired.advisories] };
+          rerendered.push(f.spread);
+        } else {
+          entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: 'world re-render failed; shipped the flagged render' });
+        }
+      } catch (err) {
+        // The re-render may have died AFTER uploading new pixels to the
+        // shipped entry's storageKey — restore the shipped bytes so the
+        // callback URL, the cache, and the PDF stay one image (the stale
+        // marker was already dropped; a failed restore just re-checks on
+        // the next replay).
+        log('warn', `Spread ${f.spread} world re-render errored (${err.message}) — shipping the flagged render`);
+        await uploadBuffer(entry.buffer, entry.storageKey, 'image/png').catch((restoreErr) => {
+          log('warn', `Spread ${f.spread}: could not restore the shipped render to its cache key (${restoreErr.message})`);
+        });
+        entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world re-render errored (${err.message}); shipped the flagged render` });
+      }
     }
+    return { pass: false, checked: rendered.length, flagged: verdict.flagged, rerendered };
+  } finally {
+    clearInterval(heartbeat);
   }
-  return { pass: false, checked: rendered.length, flagged: verdict.flagged, rerendered };
 }
 
 /**
@@ -526,6 +550,7 @@ async function renderStorySpreads(params) {
       spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
       tuning, worldPlate, worldNote: note, seed, costTracker, forceRerender: true, log,
     }),
+    onProgress,
     log,
   });
 
