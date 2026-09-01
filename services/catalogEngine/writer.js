@@ -4,8 +4,10 @@
  * The model is a renderer, never an author: the system prompt is the locked
  * Writer Engine V1.3 and the user prompt pins one book definition, one age
  * engine, one approved map (or explicit NAME-ONLY orders), and the child
- * profile. One structural retry with the validation errors fed back and a
- * lower temperature; a second failure fails THIS candidate only — never a
+ * profile. Structural retries feed the validation errors back at a lower
+ * temperature (CATALOG_WRITER_MAX_ATTEMPTS, default 3 attempts total), then
+ * bounded failures get targeted repair passes (CATALOG_WRITER_MAX_REPAIRS,
+ * default 2); exhausting both budgets fails THIS candidate only — never a
  * silent plot substitution.
  */
 
@@ -25,6 +27,25 @@ const ENGINE_PROMPT = fs.readFileSync(path.join(__dirname, 'data', 'writerEngine
 const WRITER_MODEL = () => process.env.CATALOG_WRITER_MODEL || 'gpt-5.4';
 const FIRST_TEMPERATURE = 0.8;
 const RETRY_TEMPERATURE = 0.4;
+
+// Attempt budgets — the writer takes a FEW shots before failing a candidate.
+// Both are per-revision tunables, clamped so a typo can never unleash an
+// unbounded token spend. Attempts are full generations (the first plus
+// corrective retries with the validation errors fed back); repairs are the
+// targeted minimal-edit passes that run only on bounded failure classes.
+const WRITER_MAX_ATTEMPTS = () => {
+  const n = Number(process.env.CATALOG_WRITER_MAX_ATTEMPTS);
+  return Number.isInteger(n) && n >= 1 && n <= 6 ? n : 3;
+};
+const WRITER_MAX_REPAIRS = () => {
+  const n = Number(process.env.CATALOG_WRITER_MAX_REPAIRS);
+  return Number.isInteger(n) && n >= 0 && n <= 6 ? n : 2;
+};
+
+// The evidence hard-gate message — raised by generation and repair alike, and
+// deliberately shaped to match a REPAIRABLE_ERROR_PATTERNS entry so the
+// repair loop may fix it.
+const EVIDENCE_GATE_ERROR = 'personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields';
 
 // Writer Tuning Layer bounds — the overlay is admin-approved versioned DATA
 // from the main app, appended below the locked engine at the lowest priority.
@@ -619,7 +640,7 @@ function buildUserPrompt({ request, book, theme, ageBand, map, tuning = null, va
  * @param {object} params {bookId, profile, sessionId, locale?, requestId?, costTracker?, label?, tuning?}
  *   `tuning` is a raw writerTuning field from the request (normalized here).
  * @returns {Promise<{request: object, response: object, usage: object, attempts: number, nameOnly: boolean}>}
- * @throws {StoryGenerationError} when both attempts fail validation
+ * @throws {StoryGenerationError} when every generation attempt and repair pass fails validation
  */
 async function generateStory(params) {
   const tuning = normalizeTuning(params.tuning);
@@ -627,10 +648,11 @@ async function generateStory(params) {
   const theme = getBook(request.book_id).theme;
   const label = params.label || `catalogWriter:${request.book_id}`;
   const usageTotal = { inputTokens: 0, outputTokens: 0 };
+  const maxAttempts = WRITER_MAX_ATTEMPTS();
   let lastErrors = null;
   let lastResponse = null;
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const userPrompt = buildUserPrompt({ request, book, theme, ageBand, map, tuning, validationErrors: lastErrors });
     let result;
     try {
@@ -645,9 +667,15 @@ async function generateStory(params) {
         label: `${label}:attempt${attempt}`,
       });
     } catch (err) {
-      if (err instanceof LlmParseError && attempt === 1) {
+      if (err instanceof LlmParseError && attempt < maxAttempts) {
         lastErrors = ['response was not valid JSON — return exactly one JSON object'];
         continue;
+      }
+      if (err instanceof LlmParseError && lastResponse) {
+        // The final attempt returned unparseable output, but an earlier draft
+        // and the errors that describe it still pair up — leave both in place
+        // so the repair pass can try to save that draft.
+        break;
       }
       throw new StoryGenerationError(`LLM call failed for ${request.book_id}: ${err.message}`, { bookId: request.book_id, cause: err });
     }
@@ -656,6 +684,7 @@ async function generateStory(params) {
 
     const response = result.json;
     if (!response || typeof response !== 'object') {
+      if (attempt === maxAttempts && lastResponse) break; // as above: keep the draft/errors pairing for repair
       lastErrors = ['response was not a JSON object'];
       continue;
     }
@@ -666,8 +695,8 @@ async function generateStory(params) {
       if (flags.evidenceRequired() && map && details.length > 0 && (response.personalization_evidence || []).length === 0) {
         // Evidence hard-gate: usable details + approved slots but zero
         // moments. Repairable — fall through to the repair pass after the
-        // retry instead of hard-failing.
-        lastErrors = ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields'];
+        // retries instead of hard-failing.
+        lastErrors = [EVIDENCE_GATE_ERROR];
         continue;
       }
       console.log(`[catalogEngine] story OK book=${request.book_id} attempt=${attempt} tuning=${request.versions.writer_tuning} moments=${(response.personalization_evidence || []).length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
@@ -680,10 +709,18 @@ async function generateStory(params) {
 
   // ── Targeted repair (contract-sanctioned): when every remaining failure
   // is a bounded, minimal-edit class (word counts, personalization caps and
-  // legality, banned terms, leakage), spend ONE low-temperature call fixing
-  // exactly those violations on the model's own last response, then re-run
-  // the full validation. Plot-level failures never reach this path.
-  if (lastResponse && isRepairable(lastErrors)) {
+  // legality, banned terms, leakage), spend up to WRITER_MAX_REPAIRS()
+  // low-temperature calls fixing exactly those violations on the model's own
+  // last response, re-running the full validation each time. A repaired
+  // draft that holds the minimal-edit boundary but still carries bounded
+  // violations becomes the base for the next pass; one that breaks a
+  // non-repairable check or the boundary is DISCARDED and the next pass
+  // retries from the kept base. Plot-level failures never reach this path.
+  const maxRepairs = WRITER_MAX_REPAIRS();
+  let repairsUsed = 0;
+  let lastRepairFailure = null;
+  while (repairsUsed < maxRepairs && lastResponse && isRepairable(lastErrors)) {
+    repairsUsed++;
     try {
       const repairResult = await callText({
         model: WRITER_MODEL(),
@@ -693,44 +730,54 @@ async function generateStory(params) {
         temperature: 0.3,
         maxTokens: 9000,
         allowGeminiFallback: false,
-        label: `${label}:repair`,
+        label: `${label}:repair${repairsUsed}`,
       });
       usageTotal.inputTokens += repairResult.usage?.inputTokens || 0;
       usageTotal.outputTokens += repairResult.usage?.outputTokens || 0;
       const repaired = repairResult.json;
-      if (repaired && typeof repaired === 'object') {
-        const check = validateStoryResponse({ response: repaired, request, book, ageBand, map, theme });
-        const details = usableDetails(request.profile);
-        const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
-          && (repaired.personalization_evidence || []).length === 0);
-        // Alignment (validateStoryResponse 8b) already gates the repaired
-        // output; the minimal-delta boundary is the one extra check — a
-        // repair may not touch anything the violations don't implicate.
-        const deltaErrors = check.ok && evidenceOk
-          ? checkRepairDelta({ before: lastResponse, after: repaired, errors: lastErrors, map })
-          : [];
-        if (check.ok && evidenceOk && deltaErrors.length === 0) {
-          console.log(`[catalogEngine] story REPAIRED book=${request.book_id} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
-          const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
-          return { request, response: final.response, usage: usageTotal, attempts: 3, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
-        }
-        // The thrown error and failure callback must name what the REPAIRED
-        // response violated — reporting the pre-repair errors would be stale,
-        // and an evidence-only failure would otherwise log an empty reason.
-        lastErrors = !check.ok ? check.errors
-          : !evidenceOk
-            ? ['personalization_evidence is empty although usable optional details and approved slots exist — personalize within the map, or justify each omission in omitted_profile_fields']
-            : deltaErrors;
-        console.warn(`[catalogEngine] repair did not converge book=${request.book_id}: ${lastErrors.slice(0, 4).join(' | ')}`);
+      if (!repaired || typeof repaired !== 'object') {
+        console.warn(`[catalogEngine] repair ${repairsUsed}/${maxRepairs} returned no JSON object book=${request.book_id} — retrying from the kept draft`);
+        continue;
       }
+      const check = validateStoryResponse({ response: repaired, request, book, ageBand, map, theme });
+      const details = usableDetails(request.profile);
+      const evidenceOk = !(flags.evidenceRequired() && map && details.length > 0
+        && (repaired.personalization_evidence || []).length === 0);
+      // Alignment (validateStoryResponse 8b) already gates the repaired
+      // output; the minimal-delta boundary is the one extra check — a repair
+      // may not touch anything the violations don't implicate. It gates
+      // EVERY pass (an invalid draft included), so a boundary-breaking edit
+      // can never ride into the shipped story via a later pass whose delta
+      // is measured against an already-drifted base.
+      const deltaErrors = checkRepairDelta({ before: lastResponse, after: repaired, errors: lastErrors, map });
+      if (check.ok && evidenceOk && deltaErrors.length === 0) {
+        console.log(`[catalogEngine] story REPAIRED book=${request.book_id} repair=${repairsUsed}/${maxRepairs} tuning=${request.versions.writer_tuning} fixed=${lastErrors.length} tokens_in=${usageTotal.inputTokens} tokens_out=${usageTotal.outputTokens}`);
+        const final = await maybePolish({ request, response: repaired, book, theme, ageBand, map, tuning, usageTotal, label });
+        return { request, response: final.response, usage: usageTotal, attempts: maxAttempts + repairsUsed, repaired: true, nameOnly: !map, themeId, ageBand, ...(final.polished ? { polished: true } : {}) };
+      }
+      // The thrown error and failure callback must name what the LATEST
+      // repair response violated — reporting the stale pre-repair errors
+      // would misdescribe it, and an evidence-only failure would otherwise
+      // log an empty reason.
+      const failureErrors = !check.ok ? check.errors
+        : !evidenceOk ? [EVIDENCE_GATE_ERROR]
+          : deltaErrors;
+      lastRepairFailure = failureErrors;
+      if (deltaErrors.length === 0 && isRepairable(failureErrors)) {
+        // Valid progress: adopt the repaired draft so the next pass fixes
+        // only what remains.
+        lastResponse = repaired;
+        lastErrors = failureErrors;
+      }
+      console.warn(`[catalogEngine] repair ${repairsUsed}/${maxRepairs} did not converge book=${request.book_id}: ${failureErrors.slice(0, 4).join(' | ')}`);
     } catch (err) {
-      console.warn(`[catalogEngine] repair call failed book=${request.book_id}: ${err.message}`);
+      console.warn(`[catalogEngine] repair call ${repairsUsed}/${maxRepairs} failed book=${request.book_id}: ${err.message}`);
     }
   }
 
   throw new StoryGenerationError(
-    `story for ${request.book_id} failed validation after retry`,
-    { bookId: request.book_id, errors: lastErrors || [] },
+    `story for ${request.book_id} failed validation after ${maxAttempts} attempts and ${repairsUsed} repair pass${repairsUsed === 1 ? '' : 'es'}`,
+    { bookId: request.book_id, errors: lastRepairFailure || lastErrors || [] },
   );
 }
 
@@ -752,4 +799,6 @@ module.exports = {
   validateTuningInput,
   StoryGenerationError,
   WRITER_MODEL,
+  WRITER_MAX_ATTEMPTS,
+  WRITER_MAX_REPAIRS,
 };

@@ -57,6 +57,8 @@ function pinnedRequest(tuning) {
 afterEach(() => {
   callText.mockReset();
   delete process.env.CATALOG_STYLE_POLISH;
+  delete process.env.CATALOG_WRITER_MAX_ATTEMPTS;
+  delete process.env.CATALOG_WRITER_MAX_REPAIRS;
 });
 
 test('a validated tuned story is polished and the polished prose ships', async () => {
@@ -137,6 +139,10 @@ test('polish that rewrites the omission audit is discarded — the draft ships',
 });
 
 test('a failed repair reports the REPAIR response\'s errors, not the stale pre-repair ones', async () => {
+  // Pin the pre-budget flow (2 attempts + 1 repair) — this test is about
+  // failure REPORTING, not the retry budgets (writerRetries.test.js).
+  process.env.CATALOG_WRITER_MAX_ATTEMPTS = '2';
+  process.env.CATALOG_WRITER_MAX_REPAIRS = '1';
   const request = pinnedRequest(null);
   const longText = 'the little hen walks slowly down the winding path '.repeat(20);
   const brokenSpread1 = validResponse(request);
@@ -157,6 +163,10 @@ test('a failed repair reports the REPAIR response\'s errors, not the stale pre-r
 });
 
 test('a repair that touches unimplicated spreads is rejected even when it validates', async () => {
+  // Pin the pre-budget flow (2 attempts + 1 repair) — the boundary verdict
+  // is the subject here, not the retry budgets (writerRetries.test.js).
+  process.env.CATALOG_WRITER_MAX_ATTEMPTS = '2';
+  process.env.CATALOG_WRITER_MAX_REPAIRS = '1';
   const request = pinnedRequest(null);
   // 40 words: violates the per-spread max (32 at age 2) WITHOUT tripping the
   // total bound — so ONLY spread 1 is implicated, not the whole story.
