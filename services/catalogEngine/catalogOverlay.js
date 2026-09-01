@@ -157,7 +157,7 @@ function validateOverlayShape(overlay, baseCatalog) {
             if (s) {
               // The refrain must fit inside a single spread for EVERY exact
               // age the book's band serves — a 26-word refrain on a 1-3 book
-              // can never pass an age-1 spread's 25-word max, so every
+              // can never pass an age-1 spread's 20-word max, so every
               // generation for that profile would fail. Gate it here.
               const band = bookIndex.get(bookId).band;
               const spreadMax = band === '1-3'

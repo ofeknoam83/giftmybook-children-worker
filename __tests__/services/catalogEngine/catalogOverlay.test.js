@@ -125,13 +125,13 @@ describe('overlay shape validation (the allowlist is the contract)', () => {
   });
 
   test("a refrain that cannot fit the band's tightest spread refuses", () => {
-    // 26 words on a 1-3 book: an age-1 spread holds at most 25 words, so no
+    // 26 words on a 1-3 book: an age-1 spread holds at most 20 words, so no
     // story containing this refrain could ever validate for that profile.
     const errors = validateOverlayShape({
       base_version: base.version,
       patches: { books: { enchanted_2_3_hello_wood: { refrain: { text: Array(26).fill('la').join(' ') } } } },
     }, base);
-    expect(errors.join(' ')).toMatch(/26 words but a band 1-3 spread holds at most 25/);
+    expect(errors.join(' ')).toMatch(/26 words but a band 1-3 spread holds at most 20/);
   });
 });
 

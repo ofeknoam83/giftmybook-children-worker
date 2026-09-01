@@ -8,6 +8,9 @@
  *
  * Bump rules:
  *  - WRITER_ENGINE_VERSION: any edit to data/writerEngine.system.md
+ *  - AGE_ENGINE_VERSION: any edit to data/ageEngines.json — ALSO add a
+ *    matching bounds table to ageBounds.js BOUNDS_BY_ENGINE and keep the
+ *    old tables (stored stories re-validate under their pinned version)
  *  - PROMPT_TEMPLATE_VERSION: any edit to the user-prompt assembly in writer.js
  *  - SELECTOR_VERSION: any change to the fit-score formula or tie-breaking
  *  - CATALOG_VERSION comes from data/catalog.json itself
@@ -18,7 +21,7 @@
  */
 
 const WRITER_ENGINE_VERSION = '1.3.0';
-const AGE_ENGINE_VERSION = '1.3.0';
+const AGE_ENGINE_VERSION = '1.4.0'; // 1.4.0: tightened word budgets (1-3: 8-30/spread, 4-5: 30-40, 6-7: 40-50, 8-10: 50-60; totals = 12 spreads)
 const MAP_SCHEMA_VERSION = '1.3.0';
 const BOOK_DEFINITION_VERSION = '1.1.0'; // the frozen V1.1 plots, per the handoff
 const SELECTOR_VERSION = '1.0.0';
