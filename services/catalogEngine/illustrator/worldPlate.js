@@ -48,6 +48,31 @@ const PLATE_CACHE_MAX = 16;
 const _plates = new Map();
 const _inFlight = new Map();
 
+// Negative cache: a plate that could not be resolved (contaminated twice,
+// or generation/transport failure) is not retried on every book — each
+// failed key sits out a cooldown before the next attempt, so a recurrently
+// failing theme costs one attempt per cooldown window instead of two
+// generations + two QA calls per book. Bounded like the plate cache.
+const PLATE_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+const PLATE_FAILURE_MAX = 32;
+const _failures = new Map();
+
+/** @param {string} key @returns {boolean} still inside the failure cooldown */
+function inFailureCooldown(key) {
+  const at = _failures.get(key);
+  if (at === undefined) return false;
+  if (Date.now() - at < PLATE_FAILURE_COOLDOWN_MS) return true;
+  _failures.delete(key);
+  return false;
+}
+
+/** Record a failed resolution (evicting oldest past the cap). */
+function recordFailure(key) {
+  _failures.delete(key);
+  _failures.set(key, Date.now());
+  while (_failures.size > PLATE_FAILURE_MAX) _failures.delete(_failures.keys().next().value);
+}
+
 /** LRU get: refresh recency on hit. @param {string} key */
 function plateCacheGet(key) {
   if (!_plates.has(key)) return null;
@@ -170,6 +195,7 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
   const key = `${themeId}:${promptHash}`;
   const hit = plateCacheGet(key);
   if (hit) return hit;
+  if (inFailureCooldown(key)) return null; // recently failed — sit out the cooldown
   if (_inFlight.has(key)) return _inFlight.get(key);
 
   const resolve = (async () => {
@@ -198,6 +224,7 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
         verdict = await checkWorldPlate(buffer, { label: `worldPlateQa:${themeId}:retry` });
         if (!verdict.pass) {
           log('warn', `world plate for '${themeId}' still fails the content check (${verdict.defects.join('; ')}) — rendering without a plate`);
+          recordFailure(key);
           return null;
         }
       }
@@ -237,6 +264,7 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
       return plate;
     } catch (err) {
       log('warn', `world plate unavailable for theme '${themeId}' (${err.message}) — rendering without it`);
+      recordFailure(key);
       return null;
     } finally {
       _inFlight.delete(key);

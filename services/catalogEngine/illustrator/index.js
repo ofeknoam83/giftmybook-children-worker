@@ -478,6 +478,14 @@ async function renderStorySpreads(params) {
 
   const baseHash = storyFingerprint(story);
   let keyHash = baseHash;
+  // Pin the cache to the story's CATALOG definition version: scenes are
+  // built from the pinned beats/world/companion (getBookForTag), so the
+  // same manuscript under a different Catalog Studio overlay produces
+  // different prompts and must never replay the other overlay's pixels.
+  // (A validated response always echoes request.versions — storyValidation
+  // step 2 — so this is absent only for legacy stories.)
+  const catalogTag = story?.versions?.catalog;
+  if (catalogTag) keyHash = `${keyHash}-c${fnv1a(String(catalogTag)).toString(36)}`;
   if (worldPlate) {
     // The plate is a render input: a regenerated plate (or a plate-less
     // run after a plated one) must never replay the other's cached pixels.

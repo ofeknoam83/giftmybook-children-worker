@@ -125,6 +125,19 @@ describe('identity-keyed probe cache', () => {
     expect(seeded).not.toBe(unseeded);
     expect(seeded).toContain('-s42');
   });
+
+  test('stories pinned to different catalog overlays never share cache keys', async () => {
+    // Scenes come from the PINNED definitions, so the same manuscript under
+    // a different overlay (patched beats/world naming) renders different
+    // prompts — the overlay tag must salt the key.
+    const withTag = tag => ({ story: { ...story([1]), versions: { catalog: tag } } });
+    const a = await keyFor(withTag('1.1.0+aaaaaaaa'));
+    const b = await keyFor(withTag('1.1.0+bbbbbbbb'));
+    const aAgain = await keyFor(withTag('1.1.0+aaaaaaaa'));
+    expect(b).not.toBe(a);
+    expect(aAgain).toBe(a);
+    expect(a).toContain('-c');
+  });
 });
 
 describe('render-failure diagnostics reach the failure advisory', () => {

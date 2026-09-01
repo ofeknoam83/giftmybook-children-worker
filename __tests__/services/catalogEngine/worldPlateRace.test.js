@@ -113,6 +113,22 @@ test('a contaminated plate is retried once, then rejected — never uploaded or 
   expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(2); // one corrective retry
 });
 
+test('a failed plate resolution is negative-cached — the next book inside the cooldown skips the retry storm', async () => {
+  const { getWorldPlate, gcs, illustrationGenerator } = freshWorldPlate();
+  gcs.downloadBuffer.mockRejectedValue(new Error('cache miss'));
+  gcs.uploadBufferIfAbsent.mockResolvedValue({ created: true });
+  illustrationGenerator.fetchWithTimeout.mockImplementation(async url => (
+    url.includes('test-image-model')
+      ? geminiPlateResponse
+      : plateQaVerdict({ ...CLEAN_PLATE_VERDICT, people_or_characters: true })
+  ));
+  await expect(getWorldPlate({ theme: THEME, log: () => {} })).resolves.toBeNull();
+  const gensAfterFirst = genCalls(illustrationGenerator.fetchWithTimeout).length;
+  await expect(getWorldPlate({ theme: THEME, log: () => {} })).resolves.toBeNull();
+  // No new generation or QA spend inside the cooldown window.
+  expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(gensAfterFirst);
+});
+
 test('a plate that passes the content check on the retry is accepted and persisted', async () => {
   const { getWorldPlate, gcs, illustrationGenerator } = freshWorldPlate();
   gcs.downloadBuffer.mockRejectedValue(new Error('cache miss'));
