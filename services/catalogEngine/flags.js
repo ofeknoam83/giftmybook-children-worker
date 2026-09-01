@@ -27,6 +27,12 @@
  *  - CATALOG_ART_TUNING_LAYER=0   — ignore any illustrationTuning overlay
  *                                   sent by the main app (spreads render on
  *                                   the bare scene + style prompts).
+ *  - CATALOG_WORLD_PLATE=0        — skip the per-theme world reference plate
+ *                                   (renders anchor on the cover alone; the
+ *                                   world-law card still rides the prompts).
+ *  - CATALOG_WORLD_QA=0           — skip the book-level world-consistency
+ *                                   QA pass and its corrective re-renders
+ *                                   (per-spread QA still runs).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -45,4 +51,6 @@ module.exports = {
   stylePolishEnabled: () => !envOff('CATALOG_STYLE_POLISH'),
   catalogOverlayEnabled: () => !envOff('CATALOG_OVERLAY'),
   artTuningLayerEnabled: () => !envOff('CATALOG_ART_TUNING_LAYER'),
+  worldPlateEnabled: () => !envOff('CATALOG_WORLD_PLATE'),
+  worldQaEnabled: () => !envOff('CATALOG_WORLD_QA'),
 };

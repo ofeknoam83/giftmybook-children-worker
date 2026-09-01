@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "note": "Per-theme world-law cards: the fixed physical/visual invariants of each theme's world, appended verbatim to EVERY spread's scene prompt (scenes.js) and to the world plate prompt (worldPlate.js). Editing a card changes pixels — bump STYLE_VERSION (versions.js). Keyed by catalog theme_id; worldCards.js validates full coverage at boot.",
+  "cards": {
+    "farm": [
+      "Palette & light: warm golden daylight; greens, wheat yellows, and barn red; soft natural shadows.",
+      "Era & setting: a timeless storybook working farm — wooden fences, weathered barns, hand tools; no modern electronics or screens.",
+      "Physical laws: ordinary real-world physics on every spread; animals are naturalistic and friendly, never cartoon-rubbery; tractors and tools follow real mechanics.",
+      "Continuity: the same farm geography, buildings, and mild sunny weather across all scenes unless the beat states otherwise."
+    ],
+    "dinosaur": [
+      "Palette & light: lush warm greens and ambers; soft sunlight through prehistoric haze; distant volcanic ridges.",
+      "Era & setting: a friendly prehistoric valley of ferns, rivers, and rock — absolutely no human buildings, vehicles, or modern objects.",
+      "Physical laws: ordinary real-world physics; dinosaurs keep consistent, recognizable species anatomy and one stylized-friendly proportion system on every spread.",
+      "Continuity: the same valley landscape, plant life, and daylight character across all scenes."
+    ],
+    "space": [
+      "Palette & light: cool star-field blues and violets outside, warm clean interior lighting inside the station; crisp highlights on tech surfaces.",
+      "Era & setting: one coherent friendly-futuristic design family — doors, panels, suits, and helmets all match the same station technology on every spread.",
+      "Physical laws: space is a black, star-speckled vacuum — no flames, air, or sound effects outside; gentle low-gravity drift only where the action calls for it, applied the same way every time.",
+      "Continuity: the same station architecture and the same star field character across all scenes."
+    ],
+    "under_the_sea": [
+      "Palette & light: sunlit turquoise water with coral pinks and aquas; light falls in soft refracted shafts from above.",
+      "Physical laws: everything obeys underwater physics on every spread — hair and fabrics float and sway gently, bubbles always rise upward, nothing burns, nothing stays dry.",
+      "Setting: one coherent reef geography of coral, sand, and sea plants; sea creatures keep consistent naturalistic species looks.",
+      "Continuity: the same water clarity, depth feeling, and reef landmarks across all scenes."
+    ],
+    "jungle": [
+      "Palette & light: layered dense greens with dappled sunlight through the canopy; vivid flower and bird accents; a soft humid glow.",
+      "Era & setting: wild rainforest only — no buildings or machines beyond simple wood-and-rope elements the beats call for.",
+      "Physical laws: ordinary real-world physics; vines and branches bear weight believably; animals stay naturalistic and friendly.",
+      "Continuity: the same forest density, light quality, and river/clearing geography across all scenes."
+    ],
+    "safari": [
+      "Palette & light: golden dry-season grassland, acacia silhouettes, wide warm sky; late-afternoon amber light.",
+      "Era & setting: open savanna wilderness — no fences, roads, or vehicles unless a beat states them.",
+      "Physical laws: ordinary real-world physics; wildlife keeps correct relative scale and naturalistic friendly behavior on every spread.",
+      "Continuity: the same horizon line character, grass color, and landmark trees across all scenes."
+    ],
+    "enchanted_forest": [
+      "Palette & light: dusk teals and mossy greens warmed by firefly-gold glows; ancient mossy trees at consistent gentle scale.",
+      "Magical laws: magic in this world is ONLY soft bioluminescent glow and slow gentle floating — glowing plants and sprite-light behave as real light sources that illuminate their surroundings the same way on every spread; never explosive, never beams or bolts.",
+      "Physical laws: everything not explicitly magical obeys ordinary physics.",
+      "Continuity: the same twilight sky, glow color family, and forest landmarks across all scenes."
+    ],
+    "pirate": [
+      "Palette & light: bright nautical blues and sandy golds; sun-sparkled sea; materials are weathered wood, rope, canvas, and brass.",
+      "Era & setting: age-of-sail only — no engines, electronics, or modern objects anywhere.",
+      "Physical laws: ordinary real-world physics; rigging, sails, and rowboats behave like real rope, cloth, and wood on every spread.",
+      "Continuity: the same ship design, island geography, and sea state character across all scenes."
+    ],
+    "construction": [
+      "Palette & light: sunny cheerful site under a blue sky; safety-yellow and orange machines; clean warm daylight.",
+      "Era & setting: one consistent machine design family — every digger, crane, and truck matches the same friendly-rounded engineering style on every spread.",
+      "Physical laws: ordinary real-world physics and real mechanical logic — hydraulics, treads, buckets, and loads move and lift plausibly; hard hats and vests stay consistent.",
+      "Continuity: the same site layout and build-in-progress across all scenes, progressing only as the beats do."
+    ],
+    "dream": [
+      "Palette & light: moonlit indigo and lavender with warm starlight-gold accents; a quiet night sky is always present.",
+      "Magical laws: dream magic is ONLY calm glow and slow drifting — cloud ground gently bears weight, floating is a soft unhurried drift, never sudden or fast; the same dream rules apply identically on every spread.",
+      "Setting: softly rounded cloud terrain and starlight; nothing sharp, loud, or mechanical.",
+      "Continuity: the same night-sky character and cloud-world geography across all scenes."
+    ],
+    "christmas": [
+      "Palette & light: snowy twilight — cool blue snow against warm golden window-glow and string lights.",
+      "Era & setting: a storybook alpine village of cozy wooden cottages; no modern cars or electronics.",
+      "Physical laws: real snow physics on every spread — footprints, soft drifts, gentle falling flakes; any magic is limited to a gentle sparkle, never spectacle.",
+      "Continuity: the same village layout, snowfall character, and warm-vs-cool light balance across all scenes."
+    ],
+    "thanksgiving": [
+      "Palette & light: golden autumn — russet, amber, and maple-red; warm late-afternoon light.",
+      "Era & setting: a cozy timeless harvest world of rustic wood, orchards, and hearth glow; no modern technology.",
+      "Physical laws: ordinary real-world physics; leaves drift naturally on the wind; food, candles, and hearths glow warm and behave realistically.",
+      "Continuity: the same autumn color depth, orchard geography, and hall interior across all scenes."
+    ]
+  }
+}

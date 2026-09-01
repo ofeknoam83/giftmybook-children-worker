@@ -679,6 +679,10 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         renders,
         failures,
         illustrationTuningUsed: art.tuningTag,
+        // Book-level world-consistency verdict for the probe's spreads (null
+        // when the gate did not run — kill-switch, or a single-spread probe
+        // with nothing to compare); per-spread findings ride qa.advisories.
+        ...(art.worldQa ? { worldQa: art.worldQa } : {}),
         aspect: art.aspect,
         costs: costTracker.getSummary(),
       };

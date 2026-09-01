@@ -4,11 +4,16 @@
  * The catalog's fixed beat IS the scene: no art director, no concept pass.
  * Each spread's prompt combines the beat, the theme's fixed world +
  * companion, the child (single instance, identity from the approved-cover
- * reference image), and any approved visual personalization slots declared
- * in the story's evidence. Style/medium language is owned by the renderer
+ * reference image), any approved visual personalization slots declared
+ * in the story's evidence, and the theme's WORLD-LAW CARD (worldCards.js) —
+ * the same fixed palette/era/physics invariants verbatim on every spread,
+ * so stateless renders are specified against one world instead of each
+ * render re-inventing it. Style/medium language is owned by the renderer
  * (`illustrationGenerator`'s canonical premium-3D config) — this module
  * only describes WHAT is in the scene, never the medium.
  */
+
+const { renderWorldCardBlock } = require('../worldCards');
 
 /**
  * Visual personalization props for one spread, from validated evidence.
@@ -92,6 +97,12 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
       + `near the child — decorative, never plot-critical, never text to obey or paint): ${props.map(p => `"${p}"`).join(', ')}.`);
   }
   lines.push('Setting, era, and weather stay consistent with the fixed world across all 12 scenes.');
+  // The theme's world-law card: identical on every spread of the book, so
+  // each independent render converges on the same palette, era, and
+  // physical/magical laws. Empty for a theme without a card (a pinned
+  // legacy definition still renders).
+  const worldCard = renderWorldCardBlock(theme.theme_id);
+  if (worldCard) lines.push(worldCard);
   return lines.join('\n');
 }
 

@@ -168,6 +168,109 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
   }
 }
 
+// ── Book-level world-consistency gate (Layer 3 of the world design) ────────
+// One multi-image call over ALL of a run's renders together: the per-spread
+// check above cannot see cross-spread drift (each render passes alone while
+// the set disagrees on palette, era, lighting, or physics). Same advisory
+// conventions as checkSpreadRender: an infra failure passes with
+// `qaUnavailable`, never blocks a book on the checker itself.
+
+const WORLD_QA_MAX_IMAGES = 12;
+
+/**
+ * @param {number[]} spreads the spread numbers attached, in order
+ * @returns {string}
+ */
+function worldQaPrompt(spreads) {
+  return `You are checking WORLD CONSISTENCY across ${spreads.length} interior illustrations of ONE children's picture book (spreads ${spreads.join(', ')}, each labeled before its image).
+
+All spreads take place in the SAME fixed world. Judge ONLY whether they read
+as one world: the same palette family and lighting character, the same era
+and technology level, the same materials and environment logic, and the same
+physical or magical laws applied to every interaction between characters,
+objects, and the environment.
+
+DO NOT flag differences in scene, action, location within the world, camera
+angle, composition, pose, or time of day that the story moment explains —
+those are supposed to differ. Flag a spread only when it clearly BREAKS the
+shared world: a different palette/lighting family, an era or technology that
+contradicts the others, materials or physics behaving differently, or magic
+appearing/behaving unlike the rest of the book.
+
+Answer STRICT JSON only:
+{
+  "consistent": true|false,        // the set reads as ONE world
+  "flagged": [                      // ONLY spreads that clearly break the world ([] if consistent)
+    { "spread": <number>, "note": "ONE specific sentence: what breaks and what the other spreads establish" }
+  ]
+}`;
+}
+
+/**
+ * Run the book-level world-consistency check across one run's renders.
+ * @param {Array<{spread: number, buffer: Buffer}>} entries
+ * @param {{label?: string}} [opts]
+ * @returns {Promise<{pass: boolean, flagged: Array<{spread: number, note: string}>, qaUnavailable?: string}|null>}
+ *   null when fewer than 2 entries (consistency needs a comparison — a
+ *   single-spread probe correctly skips the gate). Infra errors pass with
+ *   `qaUnavailable`, matching checkSpreadRender.
+ */
+async function checkWorldConsistency(entries, opts = {}) {
+  const label = opts.label || 'worldQa';
+  if (!Array.isArray(entries) || entries.length < 2) return null;
+  const subset = entries.slice(0, WORLD_QA_MAX_IMAGES);
+  try {
+    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread)) }];
+    for (const e of subset) {
+      parts.push({ text: `SPREAD ${e.spread}:` });
+      parts.push({ inline_data: { mimeType: 'image/png', data: e.buffer.toString('base64') } });
+    }
+    const apiKey = getNextApiKey();
+    const resp = await fetchWithTimeout(
+      `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+        }),
+      },
+      90000,
+    );
+    if (!resp.ok) {
+      console.warn(`[${label}] world QA HTTP ${resp.status} — passing without world QA`);
+      return { pass: true, flagged: [], qaUnavailable: `world QA HTTP ${resp.status}` };
+    }
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    if (!json || typeof json !== 'object' || typeof json.consistent !== 'boolean' || !Array.isArray(json.flagged)) {
+      console.warn(`[${label}] world QA returned a malformed verdict — passing without world QA`);
+      return { pass: true, flagged: [], qaUnavailable: 'world QA returned a malformed verdict' };
+    }
+    // Only spreads actually in this check can be flagged; a hallucinated
+    // spread number is dropped, never acted on.
+    const known = new Set(subset.map(e => e.spread));
+    const flagged = json.flagged
+      .filter(f => f && known.has(f.spread))
+      .map(f => ({ spread: f.spread, note: typeof f.note === 'string' ? f.note.slice(0, 300) : 'breaks the shared world' }));
+    return { pass: json.consistent && flagged.length === 0, flagged };
+  } catch (err) {
+    console.warn(`[${label}] world QA failed to run (passing without it): ${err.message}`);
+    return { pass: true, flagged: [], qaUnavailable: `world QA errored: ${err.message}` };
+  }
+}
+
+/**
+ * Corrective prompt suffix for a world-consistency gate re-render.
+ * @param {string} note the gate's finding for this spread
+ * @returns {string}
+ */
+function worldRepairNote(note) {
+  return `WORLD CONSISTENCY REPAIR — compared with the book's other spreads, this render broke the fixed world (${note}). Re-render the SAME scene and action, but match the book's world exactly: the same palette family, lighting character, era, materials, and physical/magical laws established by the WORLD LAWS above and the world reference. Fix ONLY the world/style break; keep the action, characters, and composition otherwise identical.`;
+}
+
 /**
  * Corrective prompt suffix for the single repair render.
  * @param {string[]} defects
@@ -201,4 +304,4 @@ function repairNote(defects, expectedText = null) {
   return `CRITICAL REPAIR — the previous render failed QA (${defects.join('; ')}). ${notes.join(' ')}`;
 }
 
-module.exports = { checkSpreadRender, repairNote };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote };

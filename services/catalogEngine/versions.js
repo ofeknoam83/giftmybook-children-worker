@@ -38,7 +38,13 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // removed); QA gates alignment (text_lines_misaligned) and intra-block
 // consistency (text_style_inconsistent). ce-3 embedded renders may carry
 // wavy lines or per-spread type drift and must never replay.
-const STYLE_VERSION = 'ce-4';
+// ce-5: world consistency — every scene prompt carries the theme's fixed
+// WORLD-LAW card (worldCards.json: palette, era, physical/magical laws) and
+// renders anchor on a fixed per-theme world plate (worldPlate.js, a second
+// reference image identical on every spread; its hash also rides the cache
+// key). Editing worldCards.json changes pixels — bump this version again.
+// ce-4 renders were specified against no world card and must never replay.
+const STYLE_VERSION = 'ce-5';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

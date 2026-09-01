@@ -138,6 +138,28 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   is appended below each spread's scene and the cache path's version segment
   becomes `{STYLE_VERSION}+{label.hash8}` — tuned and untuned renders can
   never replay each other, and `none` keeps the legacy path byte-identical.
+  World consistency (`ce-5`) attacks stateless-render drift with FIXED
+  inputs, never chaining (previous-spread chaining was deleted 2026-08-06 as
+  the photocopy drift source): (1) every scene prompt carries the theme's
+  **world-law card** (`data/worldCards.json` + `worldCards.js` — palette,
+  era, physical/magical laws; boot-validated full coverage; editing a card
+  changes pixels ⇒ bump STYLE_VERSION); (2) every render attaches the
+  theme's **world plate** (`illustrator/worldPlate.js`) — a fixed
+  environment-only reference image beside the identity anchor, lazily
+  generated once per theme, GCS-cached at
+  `catalog-assets/world-plates/{STYLE_VERSION}/{themeId}.png`, its content
+  hash folded into the render cache key (fail-open: a plate failure renders
+  plate-less, never fails a run); (3) after the run, the **world gate**
+  (`checkWorldConsistency` in `spreadQa.js` + `runWorldConsistencyGate`) —
+  ONE multi-image check across the run's renders (skipped under 2), then
+  one corrective re-render per flagged FRESH spread through the full
+  per-spread path, capped at `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3).
+  Replayed cached renders are comparison references only, NEVER re-rendered
+  (their storageKey is shared with earlier captured probe rounds); every
+  finding ships as a `stage: 'worldQa'` advisory, and the book-level
+  verdict rides completion/probe callbacks as `worldQa`. The gate runs
+  identically for a full book and a probe subset — a subset is checked for
+  internal consistency, mirroring the app-side judge.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -154,8 +176,13 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_STYLE_POLISH=0` — skip the style-polish pass on tuned stories.
 - `CATALOG_ART_TUNING_LAYER=0` — ignore any `illustrationTuning` overlay from
   the main app (spreads render on the bare scene + style prompts).
+- `CATALOG_WORLD_PLATE=0` — skip the per-theme world reference plate
+  (renders anchor on the cover alone; world-law cards still ride prompts).
+- `CATALOG_WORLD_QA=0` — skip the book-level world-consistency gate and its
+  corrective re-renders (per-spread QA still runs).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
-  `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`).
+  `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`),
+  `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3).
 
 ## Endpoints
 

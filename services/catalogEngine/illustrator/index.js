@@ -24,10 +24,12 @@
 const { generateIllustration, downloadPhotoAsBase64 } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl } = require('../../gcsStorage');
 const { buildScenePrompt } = require('./scenes');
-const { checkSpreadRender, repairNote } = require('./spreadQa');
+const { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
+const { getWorldPlate } = require('./worldPlate');
 const { STYLE_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
+const flags = require('../flags');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RENDER_CONCURRENCY = 4;
@@ -64,10 +66,13 @@ function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') 
 }
 
 /**
- * Render (or replay) one spread; returns the layout-ready record.
- * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[]}>}
+ * Render (or replay) one spread; returns the layout-ready record. `fresh`
+ * marks pixels created by THIS call (base render or repair) — a cache
+ * replay is not fresh, and only fresh renders are eligible for the world
+ * gate's corrective re-render.
+ * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, seed, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, worldPlate, worldNote, seed, costTracker, forceRerender, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -96,7 +101,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     ? '\nCOMPOSITION FOR PRINT (HALF-PAGE LAYOUT): this artwork prints as a full spread whose LEFT half is covered by a solid text panel. Place the child and ALL key story action fully in the RIGHT half of the image; keep the LEFT half continuous calm background (water, sky, foliage, scenery) with no faces, no companion, and no critical story elements there.'
     : '';
   const sceneWithLayout = halfHint ? `${scene}${halfHint}` : scene;
-  const baseScene = tuningBlock ? `${sceneWithLayout}\n${tuningBlock}` : sceneWithLayout;
+  // worldNote: the world-consistency gate's corrective suffix on its one
+  // targeted re-render (always with forceRerender, so the cache never
+  // conflates a gate-repaired render with a base one at a stale key).
+  const sceneWithWorldNote = worldNote ? `${sceneWithLayout}\n${worldNote}` : sceneWithLayout;
+  const baseScene = tuningBlock ? `${sceneWithWorldNote}\n${tuningBlock}` : sceneWithWorldNote;
   // Per-attempt diagnostics sink (filled by generateIllustration): when the
   // render fails, the advisory carries WHY — variant ladder, NSFW blocks,
   // Gemini finish/block reasons, the model's own refusal text.
@@ -124,6 +133,9 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     childPhotoUrl: characterRefUrl,
     _cachedPhotoBase64: refPhoto.base64,
     _cachedPhotoMime: refPhoto.mimeType,
+    // The fixed per-theme world plate (or null): a second reference image
+    // identical on every spread, so stateless renders converge on one world.
+    ...(worldPlate ? { worldPlate: { base64: worldPlate.base64, mimeType: worldPlate.mimeType } } : {}),
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the
@@ -134,6 +146,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
 
   let buffer = null;
   let url = null;
+  // fresh = this call created new pixels for this spread (base render or
+  // repair). The world-consistency gate may only re-render FRESH spreads: a
+  // replayed cached render's storageKey is shared with earlier captured
+  // rounds, and overwriting it would silently change what they display.
+  let fresh = false;
   if (!forceRerender) {
     try {
       const cached = await downloadBuffer(storageKey);
@@ -144,6 +161,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           spread, buffer: cached, storageKey,
           url: await getSignedUrl(storageKey, SIGNED_URL_TTL_MS),
           advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
+          fresh: false,
         };
       } catch {
         // Render uploaded but its QA never completed (crash between upload
@@ -165,9 +183,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
         note: 'render failed (all prompt variants rejected) — spread has no illustration',
         ...(attemptLog.length > 0 ? { detail: { attempts: attemptLog } } : {}),
       });
-      return { spread, buffer: null, storageKey, url: null, advisories };
+      return { spread, buffer: null, storageKey, url: null, advisories, fresh: false };
     }
     buffer = await downloadBuffer(storageKey);
+    fresh = true;
   }
 
   const qa = await checkSpreadRender(buffer, {
@@ -190,6 +209,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       if (repairedUrl) {
         url = repairedUrl;
         buffer = await downloadBuffer(storageKey);
+        fresh = true;
         const recheck = await checkSpreadRender(buffer, {
           label: `spreadQa:${bookId}:s${spread}:repair`,
           expectedText: embedText ? spreadText : null,
@@ -225,7 +245,97 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       log('warn', `Spread ${spread}: QA marker write failed (${mErr.message}) — a replay will re-check`);
     }
   }
-  return { spread, buffer, storageKey, url, advisories };
+  return { spread, buffer, storageKey, url, advisories, fresh };
+}
+
+/** Corrective world-gate re-renders allowed per run (cost bound). */
+const WORLD_QA_MAX_RERENDERS = () => {
+  const n = Number(process.env.CATALOG_WORLD_QA_MAX_RERENDERS);
+  return Number.isInteger(n) && n >= 0 ? n : 3;
+};
+
+/**
+ * Which flagged spreads the world gate may re-render: FRESH renders only
+ * (a replayed cached render's storageKey is shared with earlier captured
+ * rounds — overwriting it would silently change what they display), oldest
+ * flagged first, capped by the re-render budget. Pure — exported for tests.
+ * @param {Array<{spread: number, buffer: Buffer|null, fresh?: boolean}>} results
+ * @param {Array<{spread: number, note: string}>} flagged
+ * @param {number} budget
+ * @returns {Array<{spread: number, note: string, skipReason: string|null}>}
+ *   every flagged spread, with skipReason null when eligible to re-render
+ */
+function planWorldRepairs(results, flagged, budget) {
+  let remaining = budget;
+  return flagged.map((f) => {
+    const entry = results.find(r => r.spread === f.spread && r.buffer);
+    if (!entry) return { ...f, skipReason: 'no render' };
+    if (!entry.fresh) return { ...f, skipReason: 'replayed cached render — earlier rounds reference it' };
+    if (remaining <= 0) return { ...f, skipReason: `re-render budget exhausted (${budget})` };
+    remaining -= 1;
+    return { ...f, skipReason: null };
+  });
+}
+
+/**
+ * The book-level world-consistency gate: ONE multi-image check across the
+ * run's renders, then one corrective re-render per flagged FRESH spread
+ * (bounded). Runs identically for a full book and a probe subset — a subset
+ * is checked for internal consistency, exactly like the app-side judge.
+ * Ship-with-advisory: the gate never fails a run, and its re-renders go
+ * back through the full per-spread path (render → QA → repair → marker).
+ *
+ * @param {object} params
+ * @param {Array} params.results renderSpread results (mutated in place:
+ *   advisories appended; flagged fresh entries replaced by their re-render)
+ * @param {(spread: number, worldNote: string) => Promise<object>} params.rerender
+ * @param {(level: string, msg: string) => void} params.log
+ * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
+ *   null when the gate did not run (kill-switch, or <2 renders to compare)
+ */
+async function runWorldConsistencyGate({ results, rerender, log }) {
+  if (!flags.worldQaEnabled()) return null;
+  const rendered = results.filter(r => r.buffer);
+  if (rendered.length < 2) return null; // consistency needs a comparison
+  const verdict = await checkWorldConsistency(
+    rendered.map(r => ({ spread: r.spread, buffer: r.buffer })),
+    { label: 'worldQa' },
+  );
+  if (!verdict) return null;
+  if (verdict.qaUnavailable) {
+    log('warn', `world gate UNCHECKED — ${verdict.qaUnavailable}`);
+    return { pass: true, checked: rendered.length, unavailable: verdict.qaUnavailable };
+  }
+  if (verdict.pass) return { pass: true, checked: rendered.length };
+
+  const plan = planWorldRepairs(results, verdict.flagged, WORLD_QA_MAX_RERENDERS());
+  const rerendered = [];
+  for (const f of plan) {
+    const idx = results.findIndex(r => r.spread === f.spread && r.buffer);
+    if (idx === -1) continue;
+    const entry = results[idx];
+    entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world consistency: ${f.note}` });
+    if (f.skipReason) {
+      entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `shipped without world re-render (${f.skipReason})` });
+      continue;
+    }
+    log('warn', `Spread ${f.spread} broke world consistency (${f.note}) — one corrective re-render`);
+    try {
+      const repaired = await rerender(f.spread, worldRepairNote(f.note));
+      if (repaired.buffer) {
+        // Keep the audit trail: the gate finding + the fresh render's own
+        // advisories ride together on the replacing entry.
+        results[idx] = { ...repaired, advisories: [...entry.advisories, ...repaired.advisories] };
+        rerendered.push(f.spread);
+      } else {
+        entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: 'world re-render failed; shipped the flagged render' });
+      }
+    } catch (err) {
+      log('warn', `Spread ${f.spread} world re-render errored (${err.message}) — shipping the flagged render`);
+      entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `world re-render errored (${err.message}); shipped the flagged render` });
+    }
+  }
+  return { pass: false, checked: rendered.length, flagged: verdict.flagged, rerendered };
 }
 
 /**
@@ -260,7 +370,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
  * @param {boolean} [params.forceRerender]
  * @param {(frac: number, message: string) => void} [params.onProgress]
  * @param {(level: string, msg: string) => void} [params.log]
- * @returns {Promise<{results: Array<{spread, buffer, storageKey, url, advisories}>, aspect: string, storyHash: string, tuningTag: string}>}
+ * @returns {Promise<{results: Array<{spread, buffer, storageKey, url, advisories, fresh}>, aspect: string, storyHash: string, tuningTag: string, worldQa: object|null}>}
  */
 async function renderStorySpreads(params) {
   const {
@@ -300,8 +410,19 @@ async function renderStorySpreads(params) {
     throw err;
   }
 
+  // The fixed per-theme world plate: resolved ONCE (like the anchor bytes)
+  // and identical on every spread of the call — full book and probe subset
+  // alike. Fail-open: null (kill-switch, or plate generation failed) means
+  // plate-less renders, never a failed run.
+  const worldPlate = await getWorldPlate({ theme, costTracker, log });
+
   const baseHash = storyFingerprint(story);
   let keyHash = baseHash;
+  if (worldPlate) {
+    // The plate is a render input: a regenerated plate (or a plate-less
+    // run after a plated one) must never replay the other's cached pixels.
+    keyHash = `${keyHash}-w${worldPlate.hash}`;
+  }
   if (identityKeyed) {
     // Probe cache keys carry an IDENTITY fingerprint: a workbench book's
     // anchor is admin-mutable, so the same bookId/story/tag after an anchor
@@ -331,7 +452,7 @@ async function renderStorySpreads(params) {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
       spread: beat.spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-      tuning, seed, costTracker, forceRerender, log,
+      tuning, worldPlate, seed, costTracker, forceRerender, log,
     });
     done += 1;
     onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
@@ -354,11 +475,25 @@ async function renderStorySpreads(params) {
       storageKey: renderCachePath(bookId, storyHash, spread, cacheAspect, tuning ? tuning.tag : 'none'),
       url: null,
       advisories: [{ stage: 'render', spread, note, ...(Object.keys(detail).length > 0 ? { detail } : {}) }],
+      fresh: false,
     };
   });
 
   results.sort((a, b) => a.spread - b.spread);
-  return { results, aspect, storyHash, tuningTag: tuning ? tuning.tag : 'none' };
+
+  // Book-level world-consistency gate: check the set together, re-render
+  // flagged FRESH spreads once (through the same full per-spread path).
+  const worldQa = await runWorldConsistencyGate({
+    results,
+    rerender: (spread, note) => renderSpread({
+      bookId, book, theme, profile, story, storyHash,
+      spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
+      tuning, worldPlate, worldNote: note, seed, costTracker, forceRerender: true, log,
+    }),
+    log,
+  });
+
+  return { results, aspect, storyHash, tuningTag: tuning ? tuning.tag : 'none', worldQa };
 }
 
 /**
@@ -366,12 +501,12 @@ async function renderStorySpreads(params) {
  *
  * @param {object} params renderStorySpreads params (minus `spreads`/`probeNonce` — a
  *   full book always renders every beat on the un-salted cache key)
- * @returns {Promise<{entries: object[], previewImageUrls: string[], qaAdvisories: object[], warnings: string[], illustrationTuningUsed: string}>}
+ * @returns {Promise<{entries: object[], previewImageUrls: string[], qaAdvisories: object[], warnings: string[], illustrationTuningUsed: string, worldQa: object|null}>}
  */
 async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
-  const { results, aspect, tuningTag } = await renderStorySpreads({
+  const { results, aspect, tuningTag, worldQa } = await renderStorySpreads({
     ...params, spreads: null, probeNonce: null,
   });
   const qaAdvisories = results.flatMap(r => r.advisories);
@@ -414,7 +549,8 @@ async function illustrateStory(params) {
     qaAdvisories,
     warnings,
     illustrationTuningUsed: tuningTag,
+    worldQa: worldQa || null,
   };
 }
 
-module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint };
+module.exports = { illustrateStory, renderStorySpreads, renderCachePath, storyFingerprint, planWorldRepairs };

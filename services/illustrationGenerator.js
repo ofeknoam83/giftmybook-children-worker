@@ -910,16 +910,26 @@ async function callGeminiImageApi(prompt, photoBase64, photoMime, abortSignal, o
     generationConfig.seed = opts.seed;
   }
 
-  // ONE fixed reference per call: the identity image the caller passed
-  // (cover generation passes the child photo). Previous-spread chaining was
-  // deleted 2026-08-06 — the photocopy-of-a-photocopy pattern was v1/v2's
-  // documented drift source, and the v3 reference pack (model sheet +
-  // approved cover, identical on every spread) is the only book-interior
-  // reference strategy.
-  const parts = [
-    { text: prompt },
-    { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
-  ];
+  // FIXED references only: the identity image the caller passed (cover
+  // generation passes the child photo), plus optionally the caller's fixed
+  // world plate. Previous-spread chaining was deleted 2026-08-06 — the
+  // photocopy-of-a-photocopy pattern was v1/v2's documented drift source,
+  // and the reference-pack strategy (identity anchor + world plate,
+  // IDENTICAL on every spread) is the only book-interior reference
+  // strategy: a fixed reference cannot accumulate drift.
+  // Without a plate the parts stay byte-identical to the legacy shape.
+  const parts = opts.worldPlate
+    ? [
+      { text: prompt },
+      { text: 'REFERENCE IMAGE 1 — IDENTITY ANCHOR (the exact child character to draw):' },
+      { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
+      { text: 'REFERENCE IMAGE 2 — WORLD STYLE PLATE (this book\'s fixed world): match its palette, lighting, era, materials, and environment logic exactly. Do NOT copy its composition, and NEVER treat it as the scene to draw — it contains no characters and this illustration\'s action comes from the prompt only.' },
+      { inline_data: { mimeType: opts.worldPlate.mimeType || 'image/png', data: opts.worldPlate.base64 } },
+    ]
+    : [
+      { text: prompt },
+      { inline_data: { mimeType: photoMime || 'image/jpeg', data: photoBase64 } },
+    ];
 
   const body = {
     contents: [{ role: 'user', parts }],
@@ -1165,7 +1175,9 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
 
       let imageBuffer;
       if (photoBase64) {
-        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null });
+        // opts.worldPlate ({base64, mimeType}): the caller's fixed world
+        // reference plate, attached as a second labeled reference image.
+        imageBuffer = await callGeminiImageApi(variant.prompt, photoBase64, photoMime, opts.abortSignal, { aspectRatio, seed: opts.seed ?? null, worldPlate: opts.worldPlate || null });
       } else {
         const elapsed = Date.now() - totalStart;
         const remaining = opts.deadlineMs ? opts.deadlineMs - elapsed : undefined;
@@ -1249,6 +1261,7 @@ module.exports = {
   compareTexts,
   buildGenericSafePrompt,
   getNextApiKey,
+  GEMINI_MODEL,
   ART_STYLE_CONFIG,
   CANONICAL_BOOK_ART_STYLE,
   canonicalBookArtStyle,
