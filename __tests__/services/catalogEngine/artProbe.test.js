@@ -15,6 +15,8 @@ jest.mock('../../../services/illustrationGenerator', () => ({
 jest.mock('../../../services/gcsStorage', () => ({
   downloadBuffer: jest.fn(),
   uploadBuffer: jest.fn().mockResolvedValue(undefined),
+  uploadBufferIfAbsent: jest.fn().mockResolvedValue({ created: true }),
+  deletePrefix: jest.fn().mockResolvedValue(undefined),
   getSignedUrl: jest.fn().mockResolvedValue('https://signed.example/render.png'),
 }));
 
@@ -123,6 +125,19 @@ describe('identity-keyed probe cache', () => {
     expect(seeded).not.toBe(unseeded);
     expect(seeded).toContain('-s42');
   });
+
+  test('stories pinned to different catalog overlays never share cache keys', async () => {
+    // Scenes come from the PINNED definitions, so the same manuscript under
+    // a different overlay (patched beats/world naming) renders different
+    // prompts — the overlay tag must salt the key.
+    const withTag = tag => ({ story: { ...story([1]), versions: { catalog: tag } } });
+    const a = await keyFor(withTag('1.1.0+aaaaaaaa'));
+    const b = await keyFor(withTag('1.1.0+bbbbbbbb'));
+    const aAgain = await keyFor(withTag('1.1.0+aaaaaaaa'));
+    expect(b).not.toBe(a);
+    expect(aAgain).toBe(a);
+    expect(a).toContain('-c');
+  });
 });
 
 describe('render-failure diagnostics reach the failure advisory', () => {
@@ -183,6 +198,16 @@ describe('layout-aware text embedding (ce-2)', () => {
     expect(scene).toContain('NEVER paint these words');
   });
 
+  test('the world-law card rides every render — the generic-safe fallback suffix included', async () => {
+    generateIllustration.mockClear();
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    const [scene, , , opts] = generateIllustration.mock.calls[0];
+    // In the scene itself, and handed to the renderer so its scene-discarding
+    // NSFW fallback variant keeps the world laws too.
+    expect(scene).toContain('WORLD LAWS');
+    expect(opts.safeFallbackSuffix).toContain('WORLD LAWS');
+  });
+
   test('half layout renders a text-FREE full-spread wide composition on its own cache path', async () => {
     generateIllustration.mockClear();
     const { results, aspect } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'half' }));
@@ -208,5 +233,44 @@ describe('layout-aware text embedding (ce-2)', () => {
     expect(embedded.entries.every(e => e.textEmbeddedInArt === true)).toBe(true);
     const caption = await illustrateStory(baseParams({ spreadNos: all, spreads: null }));
     expect(caption.entries.every(e => e.textEmbeddedInArt === undefined)).toBe(true);
+  });
+});
+
+describe('QA marker integrity (renderHash)', () => {
+  const { fnv1a } = require('../../../services/catalogEngine/selection');
+  const markerFor = (bytes, advisories = []) => Buffer.from(JSON.stringify({
+    advisories, tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36),
+  }));
+
+  test('a marker whose renderHash matches the cached bytes replays without rendering or re-checking', async () => {
+    const png = Buffer.from('png-bytes');
+    downloadBuffer.mockImplementation(async (key) => {
+      if (key.endsWith('.qa.json')) return markerFor(png, [{ stage: 'spreadQa', spread: 1, note: 'prior advisory' }]);
+      return png;
+    });
+    generateIllustration.mockClear();
+    const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    expect(generateIllustration).not.toHaveBeenCalled();
+    expect(results[0].fresh).toBe(false);
+    expect(results[0].advisories).toEqual([{ stage: 'spreadQa', spread: 1, note: 'prior advisory' }]);
+  });
+
+  test('a marker for OTHER pixels is never trusted — the cached render is re-checked instead', async () => {
+    // The failed-overwrite window: GCS holds new pixels beside a marker
+    // written for the old ones. The replay must drop the stale verdict and
+    // re-run QA on what is actually cached.
+    const png = Buffer.from('png-bytes');
+    downloadBuffer.mockImplementation(async (key) => {
+      if (key.endsWith('.qa.json')) return markerFor(Buffer.from('DIFFERENT-bytes'), [{ stage: 'spreadQa', spread: 1, note: 'stale verdict' }]);
+      return png;
+    });
+    generateIllustration.mockClear();
+    const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    // Pixels are reused (no re-render) but the stale advisories are dropped
+    // and QA re-runs — offline here, so it ships with the unchecked advisory.
+    expect(generateIllustration).not.toHaveBeenCalled();
+    expect(results[0].buffer).toEqual(png);
+    expect(results[0].advisories.some(a => a.note?.includes('UNCHECKED'))).toBe(true);
+    expect(results[0].advisories.some(a => a.note === 'stale verdict')).toBe(false);
   });
 });

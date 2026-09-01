@@ -679,6 +679,12 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         renders,
         failures,
         illustrationTuningUsed: art.tuningTag,
+        // Book-level world-consistency verdict for the probe's spreads —
+        // ALWAYS present: null when the gate did not run (kill-switch, or a
+        // single-spread probe with nothing to compare), so every probe
+        // callback has one stable shape; per-spread findings ride
+        // qa.advisories.
+        worldQa: art.worldQa || null,
         aspect: art.aspect,
         costs: costTracker.getSummary(),
       };
@@ -693,6 +699,8 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         renders: [],
         failures: [{ message: err.message, failureCode: err.failureCode || null }],
         illustrationTuningUsed: 'none',
+        // Same stable shape as the success payload: the gate never ran here.
+        worldQa: null,
         costs: costTracker.getSummary(),
       };
     }

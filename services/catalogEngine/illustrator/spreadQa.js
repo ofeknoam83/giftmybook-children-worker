@@ -19,6 +19,7 @@
  * that same fixed spec, so spreads that each pass also match each other.
  */
 
+const sharp = require('sharp');
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
 
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
@@ -168,6 +169,246 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
   }
 }
 
+// ── Book-level world-consistency gate (Layer 3 of the world design) ────────
+// One multi-image call over ALL of a run's renders together: the per-spread
+// check above cannot see cross-spread drift (each render passes alone while
+// the set disagrees on palette, era, lighting, or physics). Same advisory
+// conventions as checkSpreadRender: an infra failure passes with
+// `qaUnavailable`, never blocks a book on the checker itself.
+
+const WORLD_QA_MAX_IMAGES = 12;
+// World judging reads low-frequency features (palette, lighting, era,
+// materials), so the gate sends downscaled JPEG thumbnails: twelve
+// full-size base64 PNGs can blow the API's inline-request limit and fail
+// the gate open exactly on the biggest books.
+const WORLD_QA_THUMB_WIDTH = 768;
+
+/**
+ * Downscale one render for the multi-image gate call. Falls back to the
+ * original bytes if the resize fails — the gate itself stays fail-open.
+ * @param {Buffer} buffer
+ * @returns {Promise<{data: string, mimeType: string}>}
+ */
+async function qaThumbnail(buffer) {
+  try {
+    const thumb = await sharp(buffer)
+      .resize({ width: WORLD_QA_THUMB_WIDTH, withoutEnlargement: true })
+      .jpeg({ quality: 72 })
+      .toBuffer();
+    return { data: thumb.toString('base64'), mimeType: 'image/jpeg' };
+  } catch {
+    return { data: buffer.toString('base64'), mimeType: 'image/png' };
+  }
+}
+
+/**
+ * @param {number[]} spreads the spread numbers attached, in order
+ * @returns {string}
+ */
+function worldQaPrompt(spreads) {
+  return `You are checking WORLD CONSISTENCY across ${spreads.length} interior illustrations of ONE children's picture book (spreads ${spreads.join(', ')}, each labeled before its image).
+
+All spreads take place in the SAME fixed world. Judge ONLY whether they read
+as one world: the same palette family and lighting character, the same era
+and technology level, the same materials and environment logic, and the same
+physical or magical laws applied to every interaction between characters,
+objects, and the environment.
+
+DO NOT flag differences in scene, action, location within the world, camera
+angle, composition, pose, or time of day that the story moment explains —
+those are supposed to differ. Flag a spread only when it clearly BREAKS the
+shared world: a different palette/lighting family, an era or technology that
+contradicts the others, materials or physics behaving differently, or magic
+appearing/behaving unlike the rest of the book.
+
+Answer STRICT JSON only:
+{
+  "consistent": true|false,        // the set reads as ONE world
+  "flagged": [                      // ONLY spreads that clearly break the world ([] if consistent)
+    {
+      "spread": <number>,
+      "defect": "palette_lighting"|"era_technology"|"materials_physics"|"magic_behavior"|"other",
+      "note": "ONE specific sentence: what breaks and what the other spreads establish"
+    }
+  ]
+}`;
+}
+
+/** Closed vocabulary of world-break classes the gate can act on. */
+const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_physics', 'magic_behavior', 'other']);
+
+/**
+ * Run the book-level world-consistency check across one run's renders.
+ * @param {Array<{spread: number, buffer: Buffer}>} entries
+ * @param {{label?: string}} [opts]
+ * @returns {Promise<{pass: boolean, flagged: Array<{spread: number, note: string}>, qaUnavailable?: string}|null>}
+ *   null when fewer than 2 entries (consistency needs a comparison — a
+ *   single-spread probe correctly skips the gate). Infra errors pass with
+ *   `qaUnavailable`, matching checkSpreadRender.
+ */
+async function checkWorldConsistency(entries, opts = {}) {
+  const label = opts.label || 'worldQa';
+  if (!Array.isArray(entries) || entries.length < 2) return null;
+  const subset = entries.slice(0, WORLD_QA_MAX_IMAGES);
+  try {
+    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread)) }];
+    for (const e of subset) {
+      const thumb = await qaThumbnail(e.buffer);
+      parts.push({ text: `SPREAD ${e.spread}:` });
+      parts.push({ inline_data: { mimeType: thumb.mimeType, data: thumb.data } });
+    }
+    const apiKey = getNextApiKey();
+    const resp = await fetchWithTimeout(
+      `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+        }),
+      },
+      90000,
+    );
+    if (!resp.ok) {
+      console.warn(`[${label}] world QA HTTP ${resp.status} — passing without world QA`);
+      return { pass: true, flagged: [], qaUnavailable: `world QA HTTP ${resp.status}` };
+    }
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    if (!json || typeof json !== 'object' || typeof json.consistent !== 'boolean' || !Array.isArray(json.flagged)) {
+      console.warn(`[${label}] world QA returned a malformed verdict — passing without world QA`);
+      return { pass: true, flagged: [], qaUnavailable: 'world QA returned a malformed verdict' };
+    }
+    // Only spreads actually in this check can be flagged; a hallucinated
+    // spread number is dropped, never acted on, and duplicates collapse to
+    // the first entry — one correction per flagged spread, never a budget
+    // spent re-rendering the same spread twice. The defect is validated
+    // against the CLOSED vocabulary (out-of-set values become 'other'):
+    // only the enum drives the repair prompt, while `note` stays free-form
+    // DIAGNOSTIC data (advisories/callbacks) that never reaches a prompt.
+    const known = new Set(subset.map(e => e.spread));
+    const seen = new Set();
+    const flagged = json.flagged
+      .filter((f) => {
+        if (!f || !known.has(f.spread) || seen.has(f.spread)) return false;
+        seen.add(f.spread);
+        return true;
+      })
+      .map(f => ({
+        spread: f.spread,
+        defect: WORLD_DEFECTS.has(f.defect) ? f.defect : 'other',
+        note: typeof f.note === 'string' ? f.note.slice(0, 300) : 'breaks the shared world',
+      }));
+    return { pass: json.consistent && flagged.length === 0, flagged };
+  } catch (err) {
+    console.warn(`[${label}] world QA failed to run (passing without it): ${err.message}`);
+    return { pass: true, flagged: [], qaUnavailable: `world QA errored: ${err.message}` };
+  }
+}
+
+/**
+ * FIXED corrective instructions per world-defect class. The generation
+ * prompt only ever carries one of these pinned sentences — the vision
+ * model's free-form `note` (which can echo painted profile/manuscript
+ * text from the analyzed image) stays diagnostics-only and never reaches
+ * a prompt: delimiters do not make instructions inert, a closed enum does.
+ */
+const WORLD_REPAIR_INSTRUCTIONS = {
+  palette_lighting: 'Match the book\'s established palette family and lighting character exactly — the same hues, warmth, and light quality as the other spreads.',
+  era_technology: 'Match the book\'s established era and technology level exactly — no objects, materials, or structures from a different period than the other spreads.',
+  materials_physics: 'Match the book\'s established materials and physical laws exactly — surfaces, weights, and every interaction behave as they do on the other spreads.',
+  magic_behavior: 'Match the book\'s established magical behavior exactly — magic appears and behaves only as it does on the other spreads.',
+  other: 'Match the fixed world established by the other spreads exactly.',
+};
+
+/**
+ * Corrective prompt suffix for a world-consistency gate re-render, built
+ * ONLY from the closed defect vocabulary (unknown values map to 'other').
+ * @param {string} defect one of WORLD_DEFECTS
+ * @returns {string}
+ */
+function worldRepairNote(defect) {
+  const fix = WORLD_REPAIR_INSTRUCTIONS[defect] || WORLD_REPAIR_INSTRUCTIONS.other;
+  return `WORLD CONSISTENCY REPAIR — compared with the book's other spreads, this render broke the fixed world. ${fix} Re-render the SAME scene and action, obeying the WORLD LAWS above and the world reference. Fix ONLY the world/style break; keep the action, characters, and composition otherwise identical.`;
+}
+
+// ── World-plate content validation (Layer 2's invariant, enforced) ─────────
+// The plate is a book-wide reference: a person, character, creature subject,
+// or readable text that slips into it despite the prompt would contaminate
+// EVERY spread anchored on it, so a generated plate must pass this check
+// before it is uploaded or cached.
+
+const PLATE_QA_PROMPT = `You are checking a WORLD REFERENCE PLATE for a children's picture book — pure environment key art used only as a palette/lighting/era style reference.
+
+It must contain NO people or human figures, NO characters of any kind, NO
+animals or creatures as subjects (tiny incidental background wildlife far
+from focus is acceptable), and NO readable text, letters, numbers, or
+signage anywhere.
+
+Answer STRICT JSON only:
+{
+  "people_or_characters": true|false, // any person, human figure, or character present
+  "subject_creatures": true|false,    // an animal or creature as a clear subject of the image
+  "readable_text": true|false         // any readable words, letters, or numbers painted in the image
+}`;
+
+/**
+ * Validate one generated world plate against the environment-only invariant.
+ * Same conventions as checkSpreadRender: an infra failure passes with
+ * `qaUnavailable` (the plate is still better than no plate); only a
+ * confirmed violation rejects.
+ * @param {Buffer} imageBuffer
+ * @param {{label?: string}} [opts]
+ * @returns {Promise<{pass: boolean, defects: string[], qaUnavailable?: string}>}
+ */
+async function checkWorldPlate(imageBuffer, opts = {}) {
+  const label = opts.label || 'worldPlateQa';
+  try {
+    const apiKey = getNextApiKey();
+    const resp = await fetchWithTimeout(
+      `${GEMINI_API}/${QA_MODEL()}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: PLATE_QA_PROMPT },
+              { inline_data: { mimeType: 'image/png', data: imageBuffer.toString('base64') } },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 256, responseMimeType: 'application/json' },
+        }),
+      },
+      60000,
+    );
+    if (!resp.ok) {
+      console.warn(`[${label}] plate QA HTTP ${resp.status} — accepting plate unchecked`);
+      return { pass: true, defects: [], qaUnavailable: `plate QA HTTP ${resp.status}` };
+    }
+    const data = await resp.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    const json = JSON.parse(text.replace(/^```(?:json)?|```$/g, '').trim());
+    const FIELDS = ['people_or_characters', 'subject_creatures', 'readable_text'];
+    if (!json || typeof json !== 'object' || !FIELDS.every(f => typeof json[f] === 'boolean')) {
+      console.warn(`[${label}] plate QA returned a malformed verdict — accepting plate unchecked`);
+      return { pass: true, defects: [], qaUnavailable: 'plate QA returned a malformed verdict' };
+    }
+    const defects = [
+      json.people_or_characters && 'people or characters in the plate',
+      json.subject_creatures && 'a creature as the plate subject',
+      json.readable_text && 'readable text in the plate',
+    ].filter(Boolean);
+    return { pass: defects.length === 0, defects };
+  } catch (err) {
+    console.warn(`[${label}] plate QA failed to run (accepting plate unchecked): ${err.message}`);
+    return { pass: true, defects: [], qaUnavailable: `plate QA errored: ${err.message}` };
+  }
+}
+
 /**
  * Corrective prompt suffix for the single repair render.
  * @param {string[]} defects
@@ -201,4 +442,4 @@ function repairNote(defects, expectedText = null) {
   return `CRITICAL REPAIR — the previous render failed QA (${defects.join('; ')}). ${notes.join(' ')}`;
 }
 
-module.exports = { checkSpreadRender, repairNote };
+module.exports = { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote, checkWorldPlate };

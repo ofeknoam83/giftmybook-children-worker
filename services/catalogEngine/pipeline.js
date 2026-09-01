@@ -357,6 +357,11 @@ async function runBookPipeline(params) {
     title: bookTitle,
     spreadCount: art.entries.length,
     illustrationTuningUsed: art.illustrationTuningUsed,
+    // Book-level world-consistency verdict — ALWAYS present: null when the
+    // gate did not run (kill-switch, <2 renders), so callback consumers get
+    // one stable shape. Per-spread world findings already ride qaAdvisories
+    // (stage 'worldQa').
+    worldQa: art.worldQa || null,
     storyContent,
     upsellCovers: upsellWithBuffers.map(uc => ({ index: uc.index, coverUrl: uc.coverUrl, gcsPath: uc.gcsPath, style: uc.style, label: uc.label })),
     qaAdvisories: qaAdvisories.slice(0, 40),
