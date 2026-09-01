@@ -384,6 +384,40 @@ describe('per-spread force re-render (rerenderSpreads)', () => {
   });
 });
 
+describe('continuity kill-switch is cache-keyed (carried-prop and prop-less renders never replay each other)', () => {
+  const objectStory = () => ({
+    ...story([1]),
+    personalization_evidence: [
+      { spread: 1, visual_required: true, moment_type: 'object_presence', source_field: 'object', source_value: 'toy fox' },
+    ],
+  });
+  const keyFor = async (over) => {
+    const { results } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], ...over }));
+    return results[0].storageKey;
+  };
+
+  beforeEach(() => { process.env.CATALOG_WORLD_PLATE = '0'; });
+  afterEach(() => {
+    delete process.env.CATALOG_WORLD_PLATE;
+    delete process.env.CATALOG_PROP_CONTINUITY;
+  });
+
+  test('a disabled revision re-keys ONLY stories carrying visual object evidence', async () => {
+    const enabledKey = await keyFor({ story: objectStory() });
+    expect(enabledKey).not.toContain('-p0'); // default keys stay byte-identical
+    process.env.CATALOG_PROP_CONTINUITY = '0';
+    const disabledKey = await keyFor({ story: objectStory() });
+    expect(disabledKey).toContain('-p0');
+    expect(disabledKey).not.toBe(enabledKey);
+    // No eligible evidence → identical prompts in both modes → one shared key.
+    const plainDisabled = await keyFor({});
+    delete process.env.CATALOG_PROP_CONTINUITY;
+    const plainEnabled = await keyFor({});
+    expect(plainDisabled).toBe(plainEnabled);
+    expect(plainDisabled).not.toContain('-p0');
+  });
+});
+
 describe('bench final book: identityKeyed + seed replay the approved probe renders', () => {
   const { fnv1a } = require('../../../services/catalogEngine/selection');
   const markerFor = bytes => Buffer.from(JSON.stringify({

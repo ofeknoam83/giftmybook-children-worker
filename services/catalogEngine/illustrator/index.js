@@ -25,7 +25,7 @@
 
 const { generateIllustration, downloadPhotoAsBase64 } = require('../../illustrationGenerator');
 const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
-const { buildScenePrompt } = require('./scenes');
+const { buildScenePrompt, hasCarryThroughProps } = require('./scenes');
 const { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { getWorldPlate } = require('./worldPlate');
@@ -529,6 +529,16 @@ async function renderStorySpreads(params) {
   // step 2 — so this is absent only for legacy stories.)
   const catalogTag = story?.versions?.catalog;
   if (catalogTag) keyHash = `${keyHash}-c${fnv1a(String(catalogTag)).toString(36)}`;
+  // The prop-continuity kill-switch changes scene prompts for stories
+  // carrying visual object evidence (the CONTINUITY PROP carry-through
+  // line), so a disabled revision must never replay renders painted with
+  // the carried object — nor a re-enabled one replay prop-less renders.
+  // Folded ONLY when the switch is OFF and the story is actually eligible:
+  // the default-enabled key stays byte-identical, and evidence-less
+  // stories render identical prompts in both modes so they share one key.
+  if (!flags.propContinuityEnabled() && hasCarryThroughProps(story.personalization_evidence)) {
+    keyHash = `${keyHash}-p0`;
+  }
   if (worldPlate) {
     // The plate is a render input: a regenerated plate (or a plate-less
     // run after a plated one) must never replay the other's cached pixels.

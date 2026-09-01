@@ -31,26 +31,47 @@ function visualPropsForSpread(evidence, spread) {
 }
 
 /**
- * Carry-through continuity props for one spread. The child's own supplied
- * OBJECT (their comfort object) is a physical item the child keeps with
- * them for the whole journey: once its evidence introduces it visually
- * (object_presence, visual_required), it must not vanish from the pixels
+ * Whether one evidence record is a carry-through prop: the child's own
+ * supplied OBJECT (their comfort object), introduced visually
+ * (object_presence, visual_required). ONLY object evidence persists: food,
+ * place, and interest moments stay pinned to their declared spreads (a
+ * birthday cake must never ride the whole book).
+ * @param {object} ev personalization_evidence record
+ * @returns {boolean}
+ */
+function isCarryThroughEvidence(ev) {
+  return !!ev
+    && ev.visual_required === true
+    && ev.moment_type === 'object_presence'
+    && ev.source_field === 'object';
+}
+
+/**
+ * Whether a story carries ANY carry-through prop — the continuity
+ * kill-switch changes this story's scene prompts, so the render cache key
+ * must fold the switch's state for exactly these stories (renderStorySpreads).
+ * @param {object[]} evidence personalization_evidence records
+ * @returns {boolean}
+ */
+function hasCarryThroughProps(evidence) {
+  return (evidence || []).some(isCarryThroughEvidence);
+}
+
+/**
+ * Carry-through continuity props for one spread: a comfort object is a
+ * physical item the child keeps with them for the whole journey, so once
+ * its evidence introduces it visually it must not vanish from the pixels
  * on the very next spread — the TEXT mentions it only where evidence
  * declares (storyValidation's rule), but the child visibly carries it
- * through every later scene. ONLY object evidence persists: food, place,
- * and interest moments stay pinned to their declared spreads (a birthday
- * cake must never ride the whole book). Kill-switch is applied by the
- * caller (buildScenePrompt); this helper is pure.
+ * through every later scene. Kill-switch is applied by the caller
+ * (buildScenePrompt); this helper is pure.
  * @param {object[]} evidence personalization_evidence records
  * @param {number} spread
  * @returns {string[]} prop descriptions
  */
 function continuityPropsForSpread(evidence, spread) {
   return (evidence || [])
-    .filter(ev => ev.visual_required === true
-      && ev.moment_type === 'object_presence'
-      && ev.source_field === 'object'
-      && spread > ev.spread)
+    .filter(ev => isCarryThroughEvidence(ev) && spread > ev.spread)
     .map(ev => ev.source_value);
 }
 
@@ -143,4 +164,4 @@ function buildScenePrompt({ book, theme, spread, spreadText, profile, evidence, 
   return lines.join('\n');
 }
 
-module.exports = { buildScenePrompt, visualPropsForSpread, continuityPropsForSpread, beatMentionsCompanion };
+module.exports = { buildScenePrompt, visualPropsForSpread, continuityPropsForSpread, hasCarryThroughProps, beatMentionsCompanion };

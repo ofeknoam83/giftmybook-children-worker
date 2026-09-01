@@ -203,7 +203,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_WORLD_QA=0` — skip the book-level world-consistency gate and its
   corrective re-renders (per-spread QA still runs).
 - `CATALOG_PROP_CONTINUITY=0` — stop carrying the child's comfort object
-  through spreads after its evidence spread.
+  through spreads after its evidence spread (cache-keyed: eligible stories
+  fold `-p0` into the render key when disabled, so carried-prop and
+  prop-less renders never replay each other).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
