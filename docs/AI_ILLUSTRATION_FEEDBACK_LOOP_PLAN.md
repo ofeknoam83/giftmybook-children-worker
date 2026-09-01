@@ -391,6 +391,25 @@ checkpointed mid-render before activation resumes its remaining spreads under th
 completion callback reports the tag that actually rendered; a mid-book activation is rare and
 visible, not silent).
 
+### 5.7 Final book from the bench (implemented 2026-09)
+
+The Art Bench can turn an approved round into the **final Lulu pair**
+(interior PDF + cover PDF) with one `POST /generate-book` dispatch carrying
+the round's exact inputs: the story pair, `approvedCoverUrl` (the bench
+anchor cover), `characterDescription`, `textLayout`, the round's
+`illustrationTuning`, **plus the probe-compat cache knobs `identityKeyed:
+true` and the round's `seed`** (and `forceNew: true` to ignore stale
+checkpoints). With those matching, every spread the bench already rendered
+REPLAYS byte-identical from the probe cache — the book the admin approved is
+the book that prints — and only never-probed spreads render fresh, through
+the same per-spread QA and world gate (with the replayed approved renders as
+the references the fresh ones must match). The completion callback returns
+`interiorPdfUrl` + `coverPdfUrl` (the same wrap `generateCover` builds for
+production, from the anchor cover) plus previews/advisories/costs. Rounds
+salted with a `probeNonce` (variance probes) are deliberately not reusable —
+dispatch the final book from a nonce-less round. The upsell spread bakes in
+exactly as production does.
+
 ### Why this can't run in circles
 
 All eight writer-loop mechanisms carry over (cumulative deduplicated rulebook, surfaced conflicts,

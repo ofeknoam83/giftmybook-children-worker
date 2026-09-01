@@ -576,6 +576,19 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
     || new Set(spreads).size !== spreads.length) {
     return res.status(400).json({ success: false, error: 'spreads must be 1-12 unique integers between 1 and 12' });
   }
+  // Per-spread force re-render ("make this one spread match the rest"):
+  // the listed spreads render fresh while the others replay from cache as
+  // world-gate references. Must be a subset of `spreads`.
+  let rerenderSpreads = null;
+  if (body.rerenderSpreads !== undefined && body.rerenderSpreads !== null) {
+    const rr = body.rerenderSpreads;
+    if (!Array.isArray(rr)
+      || !rr.every(n => Number.isInteger(n) && spreads.includes(n))
+      || new Set(rr).size !== rr.length) {
+      return res.status(400).json({ success: false, error: 'rerenderSpreads must be unique integers drawn from spreads' });
+    }
+    rerenderSpreads = rr.length > 0 ? [...rr].sort((a, b) => a - b) : null;
+  }
   let profile;
   try {
     profile = catalogEngine.normalizeProfile(body.profile);
@@ -643,6 +656,7 @@ app.post('/v13/render-spreads', authenticate, async (req, res) => {
         characterDescription: body.characterDescription || null,
         textLayout: normalizeTextLayout(body.textLayout),
         spreads: [...spreads].sort((a, b) => a - b),
+        rerenderSpreads,
         tuning: body.illustrationTuning || null,
         // Probe cache keys carry the identity anchor: a workbench book's
         // anchor is admin-mutable, and a swapped anchor must never replay
@@ -809,6 +823,15 @@ app.post('/generate-book', authenticate, async (req, res) => {
   if (bookArtTuningError) {
     return res.status(400).json({ success: false, error: bookArtTuningError });
   }
+  // Probe-compat cache keying (the Art Bench "create final book" dispatch):
+  // when the bench sends the SAME identityKeyed/seed it probed with — plus
+  // the same anchor URL, characterDescription, tuning, and textLayout — the
+  // final book REPLAYS the exact approved probe renders from cache instead
+  // of re-rendering twelve new (possibly different) images. Absent both,
+  // customer books keep the legacy un-salted keys byte-identical.
+  if (body.seed !== undefined && body.seed !== null && !Number.isInteger(body.seed)) {
+    return res.status(400).json({ success: false, error: 'seed must be an integer' });
+  }
   const storyPair = body.story && body.story.request && body.story.response ? body.story : null;
   if (!storyPair && !body.bookDefinitionId && body.catalogThemeId) {
     // Legacy/admin retry fallback: no chosen story or definition — select the
@@ -884,6 +907,8 @@ app.post('/generate-book', authenticate, async (req, res) => {
         bookFrom: body.bookFrom || null,
         bindingType: body.bindingType || null,
         forceRerender: !!body.forceRerender,
+        identityKeyed: !!body.identityKeyed,
+        seed: Number.isInteger(body.seed) ? body.seed : null,
         costTracker,
         onProgress: (stage, frac, message) => {
           bookContext.touchActivity();

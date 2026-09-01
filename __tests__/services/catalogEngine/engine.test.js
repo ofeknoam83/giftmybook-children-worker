@@ -433,6 +433,68 @@ describe('slim illustrator scene prompts', () => {
     expect(visualPropsForSpread(evidence, 3)).toEqual(['toy fox']);
   });
 
+  test('the comfort object carries through every spread AFTER its introduction (ce-6)', () => {
+    const { book, theme } = getBook('farm_2_3_hello_farm');
+    const profile = normalizeProfile(baseProfile());
+    const evidence = [{
+      spread: 2, visual_required: true, moment_type: 'object_presence',
+      source_field: 'object', source_value: 'toy fox',
+    }];
+    // Before the introduction: nothing to carry yet.
+    expect(buildScenePrompt({ book, theme, spread: 1, spreadText: 't', profile, evidence }))
+      .not.toContain('CONTINUITY PROP');
+    // On the evidence spread: the regular PERSONAL PROPS line, no carry line.
+    const intro = buildScenePrompt({ book, theme, spread: 2, spreadText: 't', profile, evidence });
+    expect(intro).toContain('PERSONAL PROPS');
+    expect(intro).not.toContain('CONTINUITY PROP');
+    // Every later spread: the framed carry-through line with the inert value.
+    const later = buildScenePrompt({ book, theme, spread: 9, spreadText: 't', profile, evidence });
+    expect(later).toContain('CONTINUITY PROP');
+    expect(later).toContain('"toy fox"');
+    expect(later).toContain('never a tool, a clue, or part of the plot');
+  });
+
+  test('only visual object evidence persists — food stays pinned; the kill-switch restores pinning', () => {
+    const { book, theme } = getBook('farm_2_3_hello_farm');
+    const profile = normalizeProfile(baseProfile());
+    const foodEv = [{
+      spread: 2, visual_required: true, moment_type: 'food_celebration',
+      source_field: 'food', source_value: 'birthday cake',
+    }];
+    expect(buildScenePrompt({ book, theme, spread: 9, spreadText: 't', profile, evidence: foodEv }))
+      .not.toContain('CONTINUITY PROP');
+    const textOnlyObj = [{
+      spread: 2, visual_required: false, moment_type: 'object_presence',
+      source_field: 'object', source_value: 'toy fox',
+    }];
+    expect(buildScenePrompt({ book, theme, spread: 9, spreadText: 't', profile, evidence: textOnlyObj }))
+      .not.toContain('CONTINUITY PROP');
+    const objEv = [{
+      spread: 2, visual_required: true, moment_type: 'object_presence',
+      source_field: 'object', source_value: 'toy fox',
+    }];
+    process.env.CATALOG_PROP_CONTINUITY = '0';
+    try {
+      expect(buildScenePrompt({ book, theme, spread: 9, spreadText: 't', profile, evidence: objEv }))
+        .not.toContain('CONTINUITY PROP');
+    } finally {
+      delete process.env.CATALOG_PROP_CONTINUITY;
+    }
+  });
+
+  test('a spread-12 visual callback does not name the carried object twice', () => {
+    const { book, theme } = getBook('farm_2_3_hello_farm');
+    const profile = normalizeProfile(baseProfile());
+    const evidence = [
+      { spread: 1, visual_required: true, moment_type: 'object_presence', source_field: 'object', source_value: 'toy fox' },
+      { spread: 12, visual_required: true, moment_type: 'object_callback', source_field: 'object', source_value: 'toy fox' },
+    ];
+    const last = buildScenePrompt({ book, theme, spread: 12, spreadText: 't', profile, evidence });
+    expect(last).toContain('PERSONAL PROPS');
+    expect(last).not.toContain('CONTINUITY PROP');
+    expect(last.match(/"toy fox"/g)).toHaveLength(1);
+  });
+
   test('a full illustration run with NO identity reference fails before any render', async () => {
     const { illustrateStory } = require('../../../services/catalogEngine/illustrator');
     await expect(illustrateStory({

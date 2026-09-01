@@ -463,6 +463,28 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(renderStorySpreads).not.toHaveBeenCalled();
   });
 
+  test('rerenderSpreads must be a unique subset of spreads; a valid subset rides the probe call', async () => {
+    // spreads is [3, 1] — 2 is not in it; duplicates and non-arrays reject.
+    expect((await post({ ...validBody(), rerenderSpreads: [2] })).status).toBe(400);
+    expect((await post({ ...validBody(), rerenderSpreads: [1, 1] })).status).toBe(400);
+    expect((await post({ ...validBody(), rerenderSpreads: 'nope' })).status).toBe(400);
+    expect(renderStorySpreads).not.toHaveBeenCalled();
+    const res = await post({ ...validBody(), rerenderSpreads: [1, 3] });
+    expect(res.status).toBe(202);
+    await settle();
+    expect(renderStorySpreads).toHaveBeenCalledWith(expect.objectContaining({ rerenderSpreads: [1, 3] }));
+  });
+
+  test('an absent or empty rerenderSpreads means no per-spread force', async () => {
+    expect((await post(validBody())).status).toBe(202);
+    expect((await post({ ...validBody(), rerenderSpreads: [] })).status).toBe(202);
+    await settle();
+    expect(renderStorySpreads).toHaveBeenCalledTimes(2);
+    for (const call of renderStorySpreads.mock.calls) {
+      expect(call[0].rerenderSpreads).toBeNull();
+    }
+  });
+
   test('202 → renders through the identity-keyed probe path → per-spread callback with dispatchId echo', async () => {
     const res = await post({ ...validBody(), probeNonce: 'n1', seed: 42 });
     expect(res.status).toBe(202);
@@ -707,6 +729,31 @@ describe('POST /generate-book illustrationTuning passthrough', () => {
       bookId: 'gb-tuning-ok',
       illustrationTuning: tuning,
     }));
+  });
+});
+
+describe('POST /generate-book probe-compat cache knobs (bench "create final book")', () => {
+  const { runBookPipeline } = require('../services/catalogEngine/pipeline');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+  const send = body => request(app).post('/generate-book').set('x-api-key', 'test-api-key').send(body);
+
+  test('a non-integer seed is rejected before the 202', async () => {
+    const res = await send({ bookId: 'gb-seed-bad', profile, bookDefinitionId: 'farm_2_3_hello_farm', seed: 'not-an-int' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/seed/);
+  });
+
+  test('identityKeyed + seed reach the pipeline; absent they default off (legacy un-salted keys)', async () => {
+    runBookPipeline.mockClear();
+    expect((await send({ bookId: 'gb-final-1', profile, bookDefinitionId: 'farm_2_3_hello_farm', identityKeyed: true, seed: 42 })).status).toBe(202);
+    expect((await send({ bookId: 'gb-final-2', profile, bookDefinitionId: 'farm_2_3_hello_farm' })).status).toBe(202);
+    await new Promise(r => setTimeout(r, 25));
+    const byBook = id => runBookPipeline.mock.calls.find(c => c[0].bookId === id)[0];
+    expect(byBook('gb-final-1')).toMatchObject({ identityKeyed: true, seed: 42 });
+    expect(byBook('gb-final-2')).toMatchObject({ identityKeyed: false, seed: null });
   });
 });
 

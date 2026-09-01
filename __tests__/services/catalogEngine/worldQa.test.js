@@ -76,6 +76,43 @@ describe('checkWorldConsistency', () => {
     expect(verdict.pass).toBe(false); // the model said the set disagrees — surfaced, nothing re-rendered
   });
 
+  test('the gate judges character rendering on every layout; text treatment only when embedded', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({ consistent: true, flagged: [] }));
+    await checkWorldConsistency(entries(1, 2));
+    const promptOf = call => JSON.parse(call[1].body).contents[0].parts[0].text;
+    const plain = promptOf(fetchWithTimeout.mock.calls[0]);
+    expect(plain).toContain('CHARACTER RENDERING');
+    expect(plain).toContain('same apparent age');
+    expect(plain).toContain('"character_rendering"');
+    expect(plain).not.toContain('TEXT TREATMENT');
+    expect(plain).not.toContain('"text_treatment"');
+
+    await checkWorldConsistency(entries(1, 2), { embeddedText: true });
+    const embedded = promptOf(fetchWithTimeout.mock.calls[1]);
+    expect(embedded).toContain('CHARACTER RENDERING');
+    expect(embedded).toContain('TEXT TREATMENT');
+    expect(embedded).toContain('"text_treatment"');
+    expect(embedded).toContain('over continuous artwork');
+  });
+
+  test('a character_rendering flag survives on every layout; text_treatment only where the gate asked', async () => {
+    const flaggedVerdict = geminiJson({
+      consistent: false,
+      flagged: [
+        { spread: 1, defect: 'character_rendering', note: 'child looks several years older than on the other spreads' },
+        { spread: 2, defect: 'text_treatment', note: 'text sits on a solid cream panel; the others paint it over artwork' },
+      ],
+    });
+    fetchWithTimeout.mockResolvedValue(flaggedVerdict);
+    // Embedded: both classes are in vocabulary.
+    const embedded = await checkWorldConsistency(entries(1, 2), { embeddedText: true });
+    expect(embedded.flagged.map(f => f.defect)).toEqual(['character_rendering', 'text_treatment']);
+    // Text-free layouts: an unasked-for text_treatment collapses to 'other'
+    // (only the enum the gate was asked about may drive a repair prompt).
+    const plain = await checkWorldConsistency(entries(1, 2));
+    expect(plain.flagged.map(f => f.defect)).toEqual(['character_rendering', 'other']);
+  });
+
   test('HTTP failure and malformed verdicts pass with qaUnavailable — never block', async () => {
     fetchWithTimeout.mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
     let verdict = await checkWorldConsistency(entries(1, 2));
@@ -100,9 +137,13 @@ describe('worldRepairNote', () => {
     expect(worldRepairNote('era_technology')).toContain('era and technology level');
     expect(worldRepairNote('materials_physics')).toContain('materials and physical laws');
     expect(worldRepairNote('magic_behavior')).toContain('magical behavior');
+    expect(worldRepairNote('character_rendering')).toContain('same apparent age');
+    expect(worldRepairNote('character_rendering')).toContain('reference character');
+    expect(worldRepairNote('text_treatment')).toContain('OVER continuous artwork');
+    expect(worldRepairNote('text_treatment')).toContain('no blank, solid, or lightened band');
     const note = worldRepairNote('palette_lighting');
     expect(note).toContain('SAME scene and action');
-    expect(note).toContain('Fix ONLY the world/style break');
+    expect(note).toContain('Fix ONLY the flagged consistency break');
   });
 
   test('the prompt is built ONLY from the closed vocabulary — free-form text never rides', () => {

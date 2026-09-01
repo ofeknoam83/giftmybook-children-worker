@@ -47,7 +47,12 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // reference image identical on every spread; its hash also rides the cache
 // key). Editing worldCards.json changes pixels — bump this version again.
 // ce-4 renders were specified against no world card and must never replay.
-const STYLE_VERSION = 'ce-5';
+// ce-6: continuity props — the child's comfort object (visual_required
+// object_presence evidence) persists visually on every spread AFTER its
+// introduction (scenes.js CONTINUITY PROP line; kill-switch
+// CATALOG_PROP_CONTINUITY). Scene prompts changed for every story carrying
+// object evidence — ce-5 renders must never replay as ce-6.
+const STYLE_VERSION = 'ce-6';
 
 module.exports = {
   WRITER_ENGINE_VERSION,
