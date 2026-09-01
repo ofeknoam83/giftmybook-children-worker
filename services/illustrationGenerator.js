@@ -1146,11 +1146,14 @@ async function generateIllustration(sceneDescription, characterRefUrl, artStyle,
     { label: 'sanitized', prompt: sanitizePrompt(fullPrompt) },
     {
       label: 'generic-safe',
+      // opts.safeFallbackSuffix: caller-owned block that must survive even
+      // this scene-discarding last resort (the catalog illustrator passes
+      // the theme's world-law card — Layer 1 promises it on EVERY render).
       prompt: buildGenericSafePrompt(artStyle, {
         childName,
         characterOutfit: opts.characterOutfit,
         characterDescription: opts.characterDescription,
-      }),
+      }) + (opts.safeFallbackSuffix ? `\n${opts.safeFallbackSuffix}` : ''),
     },
   ];
 

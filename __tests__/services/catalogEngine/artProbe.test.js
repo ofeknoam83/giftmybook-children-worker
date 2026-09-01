@@ -185,6 +185,16 @@ describe('layout-aware text embedding (ce-2)', () => {
     expect(scene).toContain('NEVER paint these words');
   });
 
+  test('the world-law card rides every render — the generic-safe fallback suffix included', async () => {
+    generateIllustration.mockClear();
+    await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+    const [scene, , , opts] = generateIllustration.mock.calls[0];
+    // In the scene itself, and handed to the renderer so its scene-discarding
+    // NSFW fallback variant keeps the world laws too.
+    expect(scene).toContain('WORLD LAWS');
+    expect(opts.safeFallbackSuffix).toContain('WORLD LAWS');
+  });
+
   test('half layout renders a text-FREE full-spread wide composition on its own cache path', async () => {
     generateIllustration.mockClear();
     const { results, aspect } = await renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1], textLayout: 'half' }));

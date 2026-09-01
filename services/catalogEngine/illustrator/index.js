@@ -27,6 +27,7 @@ const { buildScenePrompt } = require('./scenes');
 const { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { getWorldPlate } = require('./worldPlate');
+const { renderWorldCardBlock } = require('../worldCards');
 const { STYLE_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
 const flags = require('../flags');
@@ -147,6 +148,10 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // The fixed per-theme world plate (or null): a second reference image
     // identical on every spread, so stateless renders converge on one world.
     ...(worldPlate ? { worldPlate: { base64: worldPlate.base64, mimeType: worldPlate.mimeType } } : {}),
+    // The world-law card must survive the renderer's generic-safe NSFW
+    // fallback too — that variant discards the scene (card included), and
+    // Layer 1 promises the card on EVERY render.
+    safeFallbackSuffix: renderWorldCardBlock(theme.theme_id) || null,
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the

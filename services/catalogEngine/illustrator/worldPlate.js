@@ -186,21 +186,33 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
       // Create-if-absent: concurrent cold instances race to create the same
       // deterministic object, and exactly one write wins — every loser
       // ADOPTS the winning bytes, so all instances anchor on ONE plate
-      // (nondeterministic generation would otherwise fork the world). A
-      // non-race upload failure is best-effort: this run keeps its local
-      // plate un-persisted and the next instance regenerates.
+      // (nondeterministic generation would otherwise fork the world).
       let plateBuffer = buffer;
+      let persisted = true;
       try {
         const { created } = await uploadBufferIfAbsent(buffer, path, 'image/png');
         if (!created) {
+          // A KNOWN winner exists. Once that is known, local bytes are never
+          // acceptable: failing to fetch the winner renders this run
+          // plate-less (and caches nothing) rather than forking the world.
           log('info', `world plate for '${themeId}' was created concurrently — adopting the winning object`);
-          plateBuffer = await downloadBuffer(path);
+          try {
+            plateBuffer = await downloadBuffer(path);
+          } catch (winErr) {
+            log('warn', `world plate for '${themeId}': lost the creation race and could not fetch the winning plate (${winErr.message}) — rendering without a plate`);
+            return null;
+          }
         }
       } catch (err) {
-        log('warn', `world plate upload failed for '${themeId}' (${err.message}) — plate used un-persisted`);
+        // Upload failed BEFORE learning whether another object won — no
+        // known winner to diverge from, so this run keeps its local plate
+        // best-effort but does NOT cache it: the next run re-resolves
+        // against GCS instead of pinning possibly-divergent bytes.
+        persisted = false;
+        log('warn', `world plate upload failed for '${themeId}' (${err.message}) — plate used un-persisted, not cached`);
       }
       const plate = toPlate(plateBuffer);
-      plateCacheSet(key, plate);
+      if (persisted) plateCacheSet(key, plate);
       return plate;
     } catch (err) {
       log('warn', `world plate unavailable for theme '${themeId}' (${err.message}) — rendering without it`);
