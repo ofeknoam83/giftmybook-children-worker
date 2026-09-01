@@ -155,6 +155,28 @@ describe('story validation (deterministic 10-step)', () => {
     expect(v.errors.some(e => e.includes('spread 1') && e.includes('exact age 2'))).toBe(true);
   });
 
+  test('a stored pair pinned to age engine 1.3.0 re-validates under ITS bounds', () => {
+    // Pad every spread by 10 words: refrain spreads land on 28 words and the
+    // total on 304 — legal for age 2 under 1.3.0 (12-32/spread, 160-360
+    // total) but over the 1.4.0 maxima (25/spread, 300 total). The pinned
+    // pair must keep validating; the same story under a current-version
+    // request must fail.
+    const pad = Array(10).fill('gently').join(' ');
+    const f = makeFixture();
+    for (const s of f.response.spreads) s.text = `${s.text} ${pad}`;
+    const current = validateStoryResponse({ ...f });
+    expect(current.errors.some(e => e.includes('must be 12-25'))).toBe(true);
+
+    const legacy = {
+      ...f,
+      request: { ...f.request, versions: { ...f.request.versions, age_engine: '1.3.0' } },
+      response: { ...f.response, versions: { ...f.response.versions, age_engine: '1.3.0' } },
+    };
+    const v = validateStoryResponse({ ...legacy });
+    expect(v.errors).toEqual([]);
+    expect(v.ok).toBe(true);
+  });
+
   test('an unused supplied detail leaking into text fails', () => {
     const f = makeFixture({ profile: { food: 'pizza' } });
     f.response.spreads[3].text = `${FILLER} and some pizza.`;

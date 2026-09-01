@@ -8,6 +8,9 @@
  *
  * Bump rules:
  *  - WRITER_ENGINE_VERSION: any edit to data/writerEngine.system.md
+ *  - AGE_ENGINE_VERSION: any edit to data/ageEngines.json — ALSO add a
+ *    matching bounds table to ageBounds.js BOUNDS_BY_ENGINE and keep the
+ *    old tables (stored stories re-validate under their pinned version)
  *  - PROMPT_TEMPLATE_VERSION: any edit to the user-prompt assembly in writer.js
  *  - SELECTOR_VERSION: any change to the fit-score formula or tie-breaking
  *  - CATALOG_VERSION comes from data/catalog.json itself

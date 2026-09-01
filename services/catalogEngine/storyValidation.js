@@ -149,8 +149,11 @@ function validateStoryResponse({ response, request, book, ageBand, map, theme, s
   }
   if (theme) errors.push(...checkBeatAnchors({ response, book, theme }));
 
-  // 6. Age bounds
-  errors.push(...checkAgeBounds(response.spreads, ageBand, profile.age));
+  // 6. Age bounds — resolved by the request's PINNED engine version, so a
+  // stored pair generated under an older age engine keeps re-validating
+  // against the bounds it was written to (fresh requests pin the current
+  // version). The version echo in step 2 keeps the response honest.
+  errors.push(...checkAgeBounds(response.spreads, ageBand, profile.age, request.versions?.age_engine));
 
   // 7-8. Personalization evidence (skipped only when the pinned map is
   // unavailable at re-validation time — the caller says so explicitly),
