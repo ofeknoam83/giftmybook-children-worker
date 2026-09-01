@@ -4,9 +4,11 @@
  *
  * One establishing key art per theme (environment only — no child, no
  * companion, no characters, no text), generated once through the shared
- * Gemini image client, cached in GCS under STYLE_VERSION, and attached to
- * EVERY spread render as a second reference image beside the identity
- * anchor. Because the plate is identical on every spread, each stateless
+ * Gemini image client, cached in GCS under STYLE_VERSION + the plate
+ * prompt's hash (the prompt folds in overlay-patchable world naming and
+ * the world-law card, so a Catalog Studio activation resolves a new plate
+ * instead of replaying the old world's), and attached to EVERY spread
+ * render as a second reference image beside the identity anchor. Because the plate is identical on every spread, each stateless
  * render converges toward the same world instead of toward the previous
  * render — deliberately NOT the deleted previous-spread chaining
  * (illustrationGenerator's photocopy-of-a-photocopy drift source): the
@@ -25,7 +27,7 @@
 
 const { getNextApiKey, GEMINI_MODEL, fetchWithTimeout, renderStyleBlock } = require('../../illustrationGenerator');
 const { PIXAR_STYLE } = require('../../shared/illustration/config');
-const { downloadBuffer, uploadBuffer } = require('../../gcsStorage');
+const { downloadBuffer, uploadBufferIfAbsent } = require('../../gcsStorage');
 const { renderWorldCardBlock } = require('../worldCards');
 const { STYLE_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
@@ -34,20 +36,24 @@ const flags = require('../flags');
 const PLATE_TIMEOUT_MS = 180000;
 const PLATE_ATTEMPTS = 2;
 
-// In-process caches: plates are per-theme per-STYLE_VERSION (12 themes max),
-// so a warm instance resolves each plate's bytes once. The in-flight map
-// dedupes concurrent first-use generation across parallel renders.
+// In-process caches, keyed by themeId + plate-prompt hash, so a warm
+// instance resolves each plate's bytes once. The in-flight map dedupes
+// concurrent first-use generation across parallel renders.
 const _plates = new Map();
 const _inFlight = new Map();
 
 /**
- * Deterministic GCS path for one theme's plate. STYLE_VERSION-keyed: a
- * style bump (which also covers worldCards.json edits) regenerates plates.
+ * Deterministic GCS path for one theme's plate. Keyed by STYLE_VERSION
+ * (a style bump regenerates plates) AND the plate-prompt hash: the prompt
+ * folds in the theme's display/world naming (Catalog Studio overlays can
+ * patch those) and the world-law card, so an overlay activation or card
+ * edit resolves a NEW plate object instead of replaying the old world's.
  * @param {string} themeId
+ * @param {string} promptHash fnv1a-base36 of the plate prompt
  * @returns {string}
  */
-function platePath(themeId) {
-  return `catalog-assets/world-plates/${STYLE_VERSION}/${themeId}.png`;
+function platePath(themeId, promptHash) {
+  return `catalog-assets/world-plates/${STYLE_VERSION}/${themeId}-${promptHash}.png`;
 }
 
 /**
@@ -125,37 +131,63 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
   if (!flags.worldPlateEnabled()) return null;
   const themeId = theme?.theme_id;
   if (!themeId || !theme.world_name) return null;
-  if (_plates.has(themeId)) return _plates.get(themeId);
-  if (_inFlight.has(themeId)) return _inFlight.get(themeId);
+  // EVERYTHING below is fail-open — even prompt/key construction: a plate
+  // problem of any shape renders plate-less, never fails the run.
+  let prompt;
+  let promptHash;
+  try {
+    prompt = buildPlatePrompt(theme);
+    promptHash = fnv1a(prompt).toString(36);
+  } catch (err) {
+    log('warn', `world plate unavailable for theme '${themeId}' (${err.message}) — rendering without it`);
+    return null;
+  }
+  // The cache identity is the PROMPT, not just the theme id: pinned/overlay
+  // catalog definitions can carry different world naming for the same id,
+  // and each must anchor on the plate rendered from ITS world.
+  const key = `${themeId}:${promptHash}`;
+  if (_plates.has(key)) return _plates.get(key);
+  if (_inFlight.has(key)) return _inFlight.get(key);
 
   const resolve = (async () => {
-    const path = platePath(themeId);
+    const path = platePath(themeId, promptHash);
     try {
       const cached = await downloadBuffer(path).catch(() => null);
       if (cached) {
         const plate = toPlate(cached);
-        _plates.set(themeId, plate);
+        _plates.set(key, plate);
         return plate;
       }
       log('info', `world plate for theme '${themeId}' not cached — generating (${path})`);
-      const buffer = await renderPlateImage(buildPlatePrompt(theme));
+      const buffer = await renderPlateImage(prompt);
       if (costTracker) costTracker.addImageGeneration(GEMINI_MODEL, 1);
-      // Best-effort persist: a failed upload only means the next instance
-      // regenerates; this run still anchors on the plate it just made.
-      await uploadBuffer(buffer, path, 'image/png').catch((err) => {
+      // Create-if-absent: concurrent cold instances race to create the same
+      // deterministic object, and exactly one write wins — every loser
+      // ADOPTS the winning bytes, so all instances anchor on ONE plate
+      // (nondeterministic generation would otherwise fork the world). A
+      // non-race upload failure is best-effort: this run keeps its local
+      // plate un-persisted and the next instance regenerates.
+      let plateBuffer = buffer;
+      try {
+        const { created } = await uploadBufferIfAbsent(buffer, path, 'image/png');
+        if (!created) {
+          log('info', `world plate for '${themeId}' was created concurrently — adopting the winning object`);
+          plateBuffer = await downloadBuffer(path);
+        }
+      } catch (err) {
         log('warn', `world plate upload failed for '${themeId}' (${err.message}) — plate used un-persisted`);
-      });
-      const plate = toPlate(buffer);
-      _plates.set(themeId, plate);
+      }
+      const plate = toPlate(plateBuffer);
+      _plates.set(key, plate);
       return plate;
     } catch (err) {
       log('warn', `world plate unavailable for theme '${themeId}' (${err.message}) — rendering without it`);
       return null;
     } finally {
-      _inFlight.delete(themeId);
+      _inFlight.delete(key);
     }
   })();
-  _inFlight.set(themeId, resolve);
+  _inFlight.set(key, resolve);
   return resolve;
 }
 

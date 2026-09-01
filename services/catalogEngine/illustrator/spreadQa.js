@@ -250,10 +250,17 @@ async function checkWorldConsistency(entries, opts = {}) {
       return { pass: true, flagged: [], qaUnavailable: 'world QA returned a malformed verdict' };
     }
     // Only spreads actually in this check can be flagged; a hallucinated
-    // spread number is dropped, never acted on.
+    // spread number is dropped, never acted on, and duplicates collapse to
+    // the first entry — one correction per flagged spread, never a budget
+    // spent re-rendering the same spread twice.
     const known = new Set(subset.map(e => e.spread));
+    const seen = new Set();
     const flagged = json.flagged
-      .filter(f => f && known.has(f.spread))
+      .filter((f) => {
+        if (!f || !known.has(f.spread) || seen.has(f.spread)) return false;
+        seen.add(f.spread);
+        return true;
+      })
       .map(f => ({ spread: f.spread, note: typeof f.note === 'string' ? f.note.slice(0, 300) : 'breaks the shared world' }));
     return { pass: json.consistent && flagged.length === 0, flagged };
   } catch (err) {

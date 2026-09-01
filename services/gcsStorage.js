@@ -29,6 +29,28 @@ async function uploadBuffer(buffer, destination, contentType = 'application/octe
 }
 
 /**
+ * Create a GCS object ONLY if it does not exist yet (ifGenerationMatch: 0),
+ * so concurrent instances racing to create the same deterministic object
+ * cannot overwrite each other — exactly one write wins.
+ * @param {Buffer} buffer
+ * @param {string} destination - GCS object path
+ * @param {string} contentType
+ * @returns {Promise<{created: boolean}>} created=false when the object
+ *   already existed (this write lost the race) — the caller should adopt
+ *   the winning object's bytes instead of its own.
+ */
+async function uploadBufferIfAbsent(buffer, destination, contentType = 'application/octet-stream') {
+  const file = getBucket().file(destination);
+  try {
+    await file.save(buffer, { contentType, resumable: false, preconditionOpts: { ifGenerationMatch: 0 } });
+    return { created: true };
+  } catch (err) {
+    if (err.code === 412) return { created: false }; // precondition failed: object exists
+    throw err;
+  }
+}
+
+/**
  * Download a URL and upload it to GCS.
  * @param {string} url - Source URL
  * @param {string} destination - GCS path
@@ -137,6 +159,7 @@ async function loadJson(source) {
 
 module.exports = {
   uploadBuffer,
+  uploadBufferIfAbsent,
   uploadFromUrl,
   downloadBuffer,
   getSignedUrl,

@@ -267,7 +267,10 @@ const WORLD_QA_MAX_RERENDERS = () => {
  */
 function planWorldRepairs(results, flagged, budget) {
   let remaining = budget;
-  return flagged.map((f) => {
+  // The model's flagged order is arbitrary — spend the budget lowest spread
+  // first so the plan is deterministic and matches the documented contract.
+  const ordered = [...flagged].sort((a, b) => a.spread - b.spread);
+  return ordered.map((f) => {
     const entry = results.find(r => r.spread === f.spread && r.buffer);
     if (!entry) return { ...f, skipReason: 'no render' };
     if (!entry.fresh) return { ...f, skipReason: 'replayed cached render — earlier rounds reference it' };
@@ -428,11 +431,11 @@ async function renderStorySpreads(params) {
     // anchor is admin-mutable, so the same bookId/story/tag after an anchor
     // (or characterDescription) change must never replay the prior child's
     // cached image. Keyed on the anchor's PATH — a signed URL's rotating
-    // query string must not bust the cache for the same object. The
-    // full-book path stays un-salted so existing production caches replay
-    // byte-identically.
+    // query string must not bust the cache for the same object. APPENDED to
+    // keyHash (never rebuilt from baseHash) so the plate fingerprint above
+    // survives on probes; the full-book path stays identity-un-salted.
     const identityBasis = `${String(characterRefUrl).split('?')[0]}|${characterDescription || ''}`;
-    keyHash = `${baseHash}-i${fnv1a(identityBasis).toString(36)}`;
+    keyHash = `${keyHash}-i${fnv1a(identityBasis).toString(36)}`;
   }
   if (seed != null) keyHash = `${keyHash}-s${seed}`;
   const nonce = probeNonce ? String(probeNonce).replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) : '';

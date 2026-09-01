@@ -40,6 +40,18 @@ describe('checkWorldConsistency', () => {
     expect(parts.some(p => p.text === 'SPREAD 2:')).toBe(true);
   });
 
+  test('duplicate flags for one spread collapse to the first — one correction per spread', async () => {
+    fetchWithTimeout.mockResolvedValue(geminiJson({
+      consistent: false,
+      flagged: [
+        { spread: 2, note: 'first finding' },
+        { spread: 2, note: 'second finding for the same spread' },
+      ],
+    }));
+    const verdict = await checkWorldConsistency(entries(1, 2));
+    expect(verdict.flagged).toEqual([{ spread: 2, note: 'first finding' }]);
+  });
+
   test('flagged spreads are reported; hallucinated spread numbers are dropped', async () => {
     fetchWithTimeout.mockResolvedValue(geminiJson({
       consistent: false,

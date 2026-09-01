@@ -147,9 +147,12 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   theme's **world plate** (`illustrator/worldPlate.js`) — a fixed
   environment-only reference image beside the identity anchor, lazily
   generated once per theme, GCS-cached at
-  `catalog-assets/world-plates/{STYLE_VERSION}/{themeId}.png`, its content
-  hash folded into the render cache key (fail-open: a plate failure renders
-  plate-less, never fails a run); (3) after the run, the **world gate**
+  `catalog-assets/world-plates/{STYLE_VERSION}/{themeId}-{promptHash}.png`
+  (the prompt hash folds in overlay-patchable world naming + the card, so
+  a Catalog Studio activation resolves a new plate; creation uses
+  ifGenerationMatch so racing instances adopt ONE winning plate), its
+  content hash folded into the render cache key (fail-open: a plate
+  failure renders plate-less, never fails a run); (3) after the run, the **world gate**
   (`checkWorldConsistency` in `spreadQa.js` + `runWorldConsistencyGate`) —
   ONE multi-image check across the run's renders (skipped under 2), then
   one corrective re-render per flagged FRESH spread through the full

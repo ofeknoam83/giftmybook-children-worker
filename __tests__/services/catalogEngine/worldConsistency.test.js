@@ -59,8 +59,8 @@ describe('world-law cards (Layer 1)', () => {
 });
 
 describe('world plate (Layer 2)', () => {
-  test('plate path is STYLE_VERSION-keyed per theme', () => {
-    expect(platePath('farm')).toBe(`catalog-assets/world-plates/${STYLE_VERSION}/farm.png`);
+  test('plate path is keyed by STYLE_VERSION and the plate-prompt hash', () => {
+    expect(platePath('farm', 'abc123')).toBe(`catalog-assets/world-plates/${STYLE_VERSION}/farm-abc123.png`);
   });
 
   test('plate prompt is environment-only, text-free, and carries the world card', () => {
@@ -111,5 +111,48 @@ describe('world gate repair planning (Layer 3)', () => {
     expect(plan.find(p => p.spread === 4).skipReason).toMatch(/budget exhausted/);
     // Every flagged spread stays in the plan (it still gets its advisory).
     expect(plan).toHaveLength(2);
+  });
+
+  test('the budget is spent lowest spread first regardless of the model flag order', () => {
+    const plan = planWorldRepairs(results, [
+      { spread: 4, note: 'w' }, { spread: 1, note: 'x' },
+    ], 1);
+    expect(plan.map(p => p.spread)).toEqual([1, 4]);
+    expect(plan.find(p => p.spread === 1).skipReason).toBeNull();
+    expect(plan.find(p => p.spread === 4).skipReason).toMatch(/budget exhausted/);
+  });
+});
+
+describe('probe cache key composition (identityKeyed + world plate)', () => {
+  test('identityKeyed probes keep the world-plate fingerprint in the render cache key', async () => {
+    // Regression: the identity fingerprint must APPEND to the plate-folded
+    // key, never rebuild from the bare story hash — otherwise a probe could
+    // replay pixels rendered with a different (or missing) world plate.
+    process.env.CATALOG_WORLD_PLATE = '0'; // deterministic: no plate IO
+    try {
+      jest.resetModules();
+      // Spy BEFORE the illustrator module destructures the export.
+      const illustrationGenerator = require('../../../services/illustrationGenerator');
+      jest.spyOn(illustrationGenerator, 'downloadPhotoAsBase64').mockResolvedValue({ base64: 'aGk=', mimeType: 'image/png' });
+      const { renderStorySpreads, storyFingerprint } = require('../../../services/catalogEngine/illustrator');
+      const story = { book_id: 'farm_2_3_hello_farm', spreads: [] };
+      const { storyHash } = await renderStorySpreads({
+        bookId: 'b_key',
+        story,
+        bookDef: { book: { beats: [] }, theme: { theme_id: 'farm', world_name: 'Sunnybrook Farm' } },
+        profile: { name: 'Emma', age: 2 },
+        approvedCoverUrl: 'https://example.com/cover.png?sig=1',
+        identityKeyed: true,
+        log: () => {},
+      });
+      // With no plate the key is base + identity; the identity segment must
+      // extend the running key (base prefix intact), so a plate fold — when
+      // present — survives in exactly the same composition.
+      expect(storyHash.startsWith(`${storyFingerprint(story)}-i`)).toBe(true);
+    } finally {
+      delete process.env.CATALOG_WORLD_PLATE;
+      jest.restoreAllMocks();
+      jest.resetModules();
+    }
   });
 });
