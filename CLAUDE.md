@@ -70,13 +70,17 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   book's map can legally use, capped at `targets.max_details`
   (`selectOfferedDetails` — deterministic; makes the caps structurally
   satisfiable), and the map prompt carries an explicit HARD LIMITS line.
-  One structural retry with the validation errors fed back at lower
-  temperature; after that, ONE targeted repair call (contract-sanctioned)
-  fixes bounded failures only — word bounds, evidence caps/legality,
-  banned terms, leakage (`isRepairable`) — with minimal edits on the
-  model's own response, fully re-validated; plot-level failures never
-  reach repair. A candidate that still fails, fails — never a silent plot
-  substitution. The tuning overlay is framed SCOPE-subordinate (binding on
+  Structural retries with the validation errors fed back at lower
+  temperature (`CATALOG_WRITER_MAX_ATTEMPTS`, default 3 attempts total);
+  after that, targeted repair passes (`CATALOG_WRITER_MAX_REPAIRS`, default
+  2, contract-sanctioned) fix bounded failures only — word bounds, evidence
+  caps/legality, banned terms, leakage (`isRepairable`) — with minimal
+  edits on the model's own response, fully re-validated each pass (a pass
+  that still carries bounded violations inside the minimal-edit boundary
+  becomes the next pass's base; one that breaks the boundary or a
+  non-repairable check is discarded); plot-level failures never reach
+  repair. A candidate that exhausts both budgets fails — never a silent
+  plot substitution. The tuning overlay is framed SCOPE-subordinate (binding on
   prose, never on plot/refrain/title/slots/contract), restated at the END
   of the user prompt (`buildStyleCheckpoint` — NON-NEGOTIABLE lines
   verbatim), and, when an overlay is pinned, a validated story gets ONE
@@ -184,6 +188,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `CATALOG_WORLD_QA=0` — skip the book-level world-consistency gate and its
   corrective re-renders (per-spread QA still runs).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
+  `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
+  `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`),
   `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3).
 
