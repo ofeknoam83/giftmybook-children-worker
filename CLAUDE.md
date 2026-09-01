@@ -140,10 +140,27 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   `caption` renders keep D5 — words are PDF type, never pixels
   (`skipTextEmbed`; painted text is the defect).
   `illustrator/tuning.js` is the **Art Tuning Layer** (see below): when an
-  `illustrationTuning` overlay rides the request, its framed style-only block
-  is appended below each spread's scene and the cache path's version segment
+  `illustrationTuning` overlay rides the request, its framed block —
+  BINDING on rendering style + cross-spread continuity, yielding only to
+  the action/identity/count/text/medium/safety rules (`ce-7`; previously a
+  "LOWEST priority" frame the model ignored) — is re-attached by
+  `buildCharacterPrompt` as the FULL prompt's LAST block (mid-prompt it
+  drowned under the lock/checklist blocks), rides the generic-safe NSFW
+  fallback via `safeFallbackSuffix`, and the cache path's version segment
   becomes `{STYLE_VERSION}+{label.hash8}` — tuned and untuned renders can
   never replay each other, and `none` keeps the legacy path byte-identical.
+  Every render also pins a per-anchor **OUTFIT LOCK** (`ce-7`,
+  `illustrator/outfitLock.js`): one vision read of the identity anchor's
+  clothing (garment-by-garment colors + accessories), elected once per
+  anchor path in GCS (`catalog-assets/outfit-locks/{anchorHash}.json`,
+  create-if-absent single-winner like the world plate, fail-open null) and
+  passed as `characterOutfit` on every stateless render — arming the
+  renderer's per-garment OUTFIT LOCK/COLOR VERIFICATION machinery that was
+  otherwise dormant (nothing supplied `characterOutfit`); the spec's
+  content hash folds into the render cache key (`-o{hash}`), kill-switch
+  `CATALOG_OUTFIT_LOCK=0`. Cross-spread outfit sameness comes from this
+  pinned spec + the anchor image + the world gate's `character_rendering`
+  check — never from aspirational "keep it identical" prompt lines.
   World consistency (`ce-5`) attacks stateless-render drift with FIXED
   inputs, never chaining (previous-spread chaining was deleted 2026-08-06 as
   the photocopy drift source): (1) every scene prompt carries the theme's
@@ -206,6 +223,9 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   through spreads after its evidence spread (cache-keyed: eligible stories
   fold `-p0` into the render key when disabled, so carried-prop and
   prop-less renders never replay each other).
+- `CATALOG_OUTFIT_LOCK=0` — stop deriving the per-anchor outfit spec
+  (renders fall back to "match the reference photo"; locked and lock-less
+  renders stay cache-separated by the `-o{hash}` fold).
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
@@ -264,7 +284,8 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   stays gated by `BOOK_PIPELINE_V3_RENDER_SEED`), so an anchor swap or seed
   change never replays stale renders. `illustrationTuning` (`{versionLabel,
   hash, text?, spreads?}`, also accepted by `/generate-book`) is the app-owned
-  Art Tuning Layer: appended below each scene at lowest priority, echoed as
+  Art Tuning Layer: the full prompt's final binding-within-scope block
+  (`ce-7` — see the illustrator section), echoed as
   `illustrationTuningUsed` + `storyContent.catalog.illustrationTuning`
   (`<label>.<hash8>` or `none`), capped at 2000B global / 400B per spread /
   3000B total, killed by `CATALOG_ART_TUNING_LAYER=0`. See

@@ -61,4 +61,22 @@ describe('ART TUNING block survives prompt sanitization verbatim', () => {
     expect(prompt).toContain('OUTFIT LOCK');
     expect(prompt).not.toContain('BATH / WATER OUTFIT');
   });
+
+  test('the tuning block is the FULL prompt\'s last block (ce-7), never buried mid-prompt', () => {
+    const scene = 'Emma waves from the tractor.'
+      + '\nART TUNING art-004.aabbccdd (admin-approved rendering direction — BINDING within its scope): warm rim light on every spread.';
+    const prompt = buildCharacterPrompt(scene, 'pixar_premium', 'Emma', '', 'red shirt and jeans', 'curly brown hair', null, null, { skipTextEmbed: true });
+    const tuningIdx = prompt.indexOf('ART TUNING art-004.aabbccdd');
+    expect(tuningIdx).toBeGreaterThan(prompt.indexOf('FINAL STYLE REMINDER'));
+    expect(tuningIdx).toBeGreaterThan(prompt.indexOf('SCENE TO ILLUSTRATE'));
+    expect(tuningIdx).toBeGreaterThan(prompt.indexOf('MANDATORY PRE-GENERATE CHECKLIST'));
+    // The scene itself no longer carries the block — it moved, not doubled.
+    expect(prompt.lastIndexOf('ART TUNING art-004.aabbccdd')).toBe(tuningIdx);
+  });
+
+  test('without a tuning marker the prompt still ends on the style reminder', () => {
+    const prompt = buildCharacterPrompt('Emma waves from the tractor.', 'pixar_premium', 'Emma', '', 'red shirt and jeans', 'curly brown hair', null, null, { skipTextEmbed: true });
+    expect(prompt).not.toContain('ART TUNING');
+    expect(prompt.trimEnd().endsWith(prompt.match(/FINAL STYLE REMINDER[^\n]*/)[0])).toBe(true);
+  });
 });

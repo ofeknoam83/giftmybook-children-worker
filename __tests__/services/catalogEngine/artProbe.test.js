@@ -60,6 +60,14 @@ beforeEach(() => {
     return Buffer.from('png-bytes');
   });
   generateIllustration.mockImplementation(async () => 'https://x/render.png');
+  // The outfit lock derives via its own fetch — keep it out of every test
+  // that queues fetch verdicts or asserts key composition; the dedicated
+  // outfit describe re-enables it explicitly.
+  process.env.CATALOG_OUTFIT_LOCK = '0';
+});
+
+afterAll(() => {
+  delete process.env.CATALOG_OUTFIT_LOCK;
 });
 
 test('one thrown spread render costs ONLY that spread — the others keep their results', async () => {
@@ -469,6 +477,65 @@ describe('bench final book: identityKeyed + seed replay the approved probe rende
       expect(e.spreadIllustrationStorageKey).not.toContain('-i');
       expect(e.spreadIllustrationStorageKey).not.toContain('-s');
     }
+  });
+});
+
+describe('outfit lock arms the renderer and rides the cache key', () => {
+  const outfitJson = spec => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ outfit: spec }) }] } }] }),
+  });
+
+  beforeEach(() => {
+    delete process.env.CATALOG_OUTFIT_LOCK; // re-enable (default ON)
+    process.env.CATALOG_WORLD_PLATE = '0'; // deterministic keys
+  });
+  afterEach(() => {
+    delete process.env.CATALOG_WORLD_PLATE;
+    fetchWithTimeout.mockRejectedValue(new Error('offline test'));
+  });
+
+  test('the derived spec reaches every render as characterOutfit and folds -o into the key', async () => {
+    const spec = 'red t-shirt with a white cat graphic, blue jeans, white sneakers';
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      const prompt = body.contents[0].parts[0].text || '';
+      if (prompt.includes('OUTFIT LOCK')) return outfitJson(spec);
+      throw new Error('offline test'); // QA stays offline — irrelevant here
+    });
+    generateIllustration.mockClear();
+    const { results } = await renderStorySpreads(baseParams({
+      childPhotoUrl: 'https://photos.example/outfit-child-A.png?sig=1',
+    }));
+    expect(results[0].storageKey).toContain('-o');
+    for (const call of generateIllustration.mock.calls) {
+      expect(call[3].characterOutfit).toBe(spec);
+    }
+  });
+
+  test('a derivation failure fails open — lock-less renders on the un-folded key', async () => {
+    // fetch stays offline for everything (the afterEach default).
+    fetchWithTimeout.mockRejectedValue(new Error('offline test'));
+    generateIllustration.mockClear();
+    const { results } = await renderStorySpreads(baseParams({
+      spreadNos: [1], spreads: [1],
+      childPhotoUrl: 'https://photos.example/outfit-child-B.png?sig=1',
+    }));
+    expect(results[0].buffer).not.toBeNull();
+    expect(results[0].storageKey).not.toContain('-o');
+    expect(generateIllustration.mock.calls[0][3].characterOutfit).toBeUndefined();
+  });
+
+  test('CATALOG_OUTFIT_LOCK=0 disables derivation entirely', async () => {
+    process.env.CATALOG_OUTFIT_LOCK = '0';
+    fetchWithTimeout.mockImplementation(async () => {
+      throw new Error('no call expected for the outfit');
+    });
+    const { results } = await renderStorySpreads(baseParams({
+      spreadNos: [1], spreads: [1],
+      childPhotoUrl: 'https://photos.example/outfit-child-C.png?sig=1',
+    }));
+    expect(results[0].storageKey).not.toContain('-o');
   });
 });
 

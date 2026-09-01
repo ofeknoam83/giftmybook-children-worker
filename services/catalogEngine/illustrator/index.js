@@ -29,6 +29,7 @@ const { buildScenePrompt, hasCarryThroughProps } = require('./scenes');
 const { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
 const { getWorldPlate } = require('./worldPlate');
+const { getOutfitLock } = require('./outfitLock');
 const { renderWorldCardBlock } = require('../worldCards');
 const { STYLE_VERSION } = require('../versions');
 const { fnv1a } = require('../selection');
@@ -96,7 +97,7 @@ const SPREAD_QA_MAX_REPAIRS = () => {
  * gate's corrective re-render.
  * @returns {Promise<{spread: number, buffer: Buffer|null, storageKey: string, url: string|null, advisories: object[], fresh: boolean}>}
  */
-async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, worldPlate, worldNote, seed, costTracker, forceRerender, log }) {
+async function renderSpread({ bookId, book, theme, profile, story, storyHash, spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription, tuning, worldPlate, outfitLock, worldNote, seed, costTracker, forceRerender, log }) {
   const tuningTag = tuning ? tuning.tag : 'none';
   // Embedded layout paints the story text into the art (Gemini + OCR
   // verify); caption and half layouts stay text-free (words are PDF type).
@@ -114,9 +115,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     evidence: story.personalization_evidence,
     embedText,
   });
-  // The Art Tuning Layer rides BELOW the whole scene (and above nothing):
-  // renderArtTuningBlock frames it as style-only, subordinate to the action,
-  // identity/count, no-text, and medium rules that precede it.
+  // The Art Tuning Layer rides the scene string tagged with its 'ART
+  // TUNING' marker; the renderer's prompt builder re-attaches it as the
+  // FULL prompt's last block (buildCharacterPrompt), where its frame
+  // (renderArtTuningBlock) binds it on rendering style and continuity
+  // while yielding to the action, identity/count, text, medium, and
+  // safety rules.
   const tuningBlock = renderArtTuningBlock(tuning, spread);
   // Half layout: the art is a FULL-SPREAD wide composition, but in print
   // the LEFT page is covered by the solid text panel — the model must keep
@@ -148,6 +152,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     childName: profile.name,
     childAge: profile.age,
     characterDescription: characterDescription || null,
+    // The per-anchor outfit lock (outfitLock.js): the SAME concrete
+    // garment-by-garment spec on every stateless render arms the
+    // renderer's OUTFIT LOCK machinery (per-garment color verification,
+    // no additions/removals) — "identical across spreads" only works as a
+    // pinned spec, never as an aspiration. Its hash rides the cache key.
+    ...(outfitLock ? { characterOutfit: outfitLock.outfit } : {}),
     bookId,
     costTracker,
     gcsPath: storageKey,
@@ -160,12 +170,14 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // The fixed per-theme world plate (or null): a second reference image
     // identical on every spread, so stateless renders converge on one world.
     ...(worldPlate ? { worldPlate: { base64: worldPlate.base64, mimeType: worldPlate.mimeType } } : {}),
-    // The world-law card AND any gate repair note must survive the
-    // renderer's generic-safe NSFW fallback — that variant discards the
-    // scene, and a "repair" render that lost its corrective instruction
-    // would ship as repaired without ever being told what to fix. Both are
-    // fixed text (the card is versioned data; the note maps a closed enum).
-    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), worldNote].filter(Boolean).join('\n') || null,
+    // The world-law card, any gate repair note, AND the Art Tuning block
+    // must survive the renderer's generic-safe NSFW fallback — that
+    // variant discards the scene, and a render that lost its corrective
+    // instruction (or the admin's approved style direction) would ship as
+    // if it had been given them. All are fixed text: the card is versioned
+    // data, the note maps a closed enum, the tuning is admin-approved and
+    // sanitized (tuning.js).
+    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), worldNote, tuningBlock].filter(Boolean).join('\n') || null,
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the
@@ -519,6 +531,14 @@ async function renderStorySpreads(params) {
   // plate-less renders, never a failed run.
   const worldPlate = await getWorldPlate({ theme, costTracker, log });
 
+  // The per-anchor OUTFIT LOCK: one vision read of the identity anchor's
+  // clothing, elected once per anchor (GCS single-winner) and pinned
+  // verbatim on every stateless render as `characterOutfit` — arming the
+  // renderer's per-garment lock machinery that was otherwise dormant.
+  // Fail-open like the plate: null means lock-less renders, never a
+  // failed run.
+  const outfitLock = await getOutfitLock({ anchorUrl: characterRefUrl, refPhoto, log });
+
   const baseHash = storyFingerprint(story);
   let keyHash = baseHash;
   // Pin the cache to the story's CATALOG definition version: scenes are
@@ -543,6 +563,12 @@ async function renderStorySpreads(params) {
     // The plate is a render input: a regenerated plate (or a plate-less
     // run after a plated one) must never replay the other's cached pixels.
     keyHash = `${keyHash}-w${worldPlate.hash}`;
+  }
+  if (outfitLock) {
+    // The outfit spec is a render input too: a locked render must never
+    // replay a lock-less one (or one locked to different words) — the
+    // spec is model-derived text, so its content hash is the identity.
+    keyHash = `${keyHash}-o${outfitLock.hash}`;
   }
   if (identityKeyed) {
     // Probe cache keys carry an IDENTITY fingerprint: a workbench book's
@@ -577,7 +603,7 @@ async function renderStorySpreads(params) {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
       spread: beat.spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-      tuning, worldPlate, seed, costTracker,
+      tuning, worldPlate, outfitLock, seed, costTracker,
       forceRerender: forceRerender || forceSet.has(beat.spread),
       log,
     });
@@ -616,7 +642,7 @@ async function renderStorySpreads(params) {
     rerender: (spread, note) => renderSpread({
       bookId, book, theme, profile, story, storyHash,
       spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-      tuning, worldPlate, worldNote: note, seed, costTracker, forceRerender: true, log,
+      tuning, worldPlate, outfitLock, worldNote: note, seed, costTracker, forceRerender: true, log,
     }),
     onProgress,
     log,

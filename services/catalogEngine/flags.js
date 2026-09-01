@@ -37,6 +37,10 @@
  *                                   object through spreads after its
  *                                   evidence spread (props appear only on
  *                                   their declared spreads again).
+ *  - CATALOG_OUTFIT_LOCK=0        — stop deriving the per-anchor outfit
+ *                                   spec and arming the renderer's outfit
+ *                                   lock (renders fall back to "match the
+ *                                   reference photo").
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -58,4 +62,5 @@ module.exports = {
   worldPlateEnabled: () => !envOff('CATALOG_WORLD_PLATE'),
   worldQaEnabled: () => !envOff('CATALOG_WORLD_QA'),
   propContinuityEnabled: () => !envOff('CATALOG_PROP_CONTINUITY'),
+  outfitLockEnabled: () => !envOff('CATALOG_OUTFIT_LOCK'),
 };
