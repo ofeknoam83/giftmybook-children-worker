@@ -18,7 +18,7 @@
  */
 
 const WRITER_ENGINE_VERSION = '1.3.0';
-const AGE_ENGINE_VERSION = '1.3.0';
+const AGE_ENGINE_VERSION = '1.4.0'; // 1.4.0: tightened word budgets (1-3: 8-30/spread, 4-5: 30-40, 6-7: 40-50, 8-10: 50-60; totals = 12 spreads)
 const MAP_SCHEMA_VERSION = '1.3.0';
 const BOOK_DEFINITION_VERSION = '1.1.0'; // the frozen V1.1 plots, per the handoff
 const SELECTOR_VERSION = '1.0.0';

@@ -8,17 +8,17 @@
  */
 
 const BAND_BOUNDS = {
-  '1-3': { perSpread: [8, 40], total: [120, 450] },
-  '4-5': { perSpread: [40, 70], total: [520, 800] },
-  '6-7': { perSpread: [55, 95], total: [700, 1100] },
-  '8-10': { perSpread: [75, 120], total: [900, 1450] },
+  '1-3': { perSpread: [8, 30], total: [96, 360] },
+  '4-5': { perSpread: [30, 40], total: [360, 480] },
+  '6-7': { perSpread: [40, 50], total: [480, 600] },
+  '8-10': { perSpread: [50, 60], total: [600, 720] },
 };
 
 /** Exact-age calibration inside the 1–3 band (from ageEngines.json). */
 const EXACT_AGE_BOUNDS = {
-  1: { perSpread: [8, 25], total: [120, 280] },
-  2: { perSpread: [12, 32], total: [160, 360] },
-  3: { perSpread: [15, 40], total: [200, 450] },
+  1: { perSpread: [8, 20], total: [96, 240] },
+  2: { perSpread: [12, 25], total: [144, 300] },
+  3: { perSpread: [15, 30], total: [180, 360] },
 };
 
 /**

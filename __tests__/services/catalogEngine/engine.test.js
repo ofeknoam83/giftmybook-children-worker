@@ -97,7 +97,7 @@ describe('deterministic selection', () => {
 
 describe('story validation (deterministic 10-step)', () => {
   // farm_2_3_hello_farm: refrain "Hello, farm! Here we are!" on 2,5,8,11;
-  // age 2 bounds: 12-32 words/spread, 160-360 total.
+  // age 2 bounds: 12-25 words/spread, 144-300 total.
   const FILLER = 'Emma walks along the sunny path and smiles at the friendly animals nearby'; // 13 words
   const REFRAIN = 'Hello, farm! Here we are!';
 

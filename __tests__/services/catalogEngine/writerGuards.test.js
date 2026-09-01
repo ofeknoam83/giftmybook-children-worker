@@ -88,7 +88,7 @@ describe('selectOfferedDetails (structural max_details compliance)', () => {
 describe('targeted repair pass', () => {
   it('classifies bounded failures as repairable', () => {
     expect(isRepairable([
-      'spread 7: 124 words, must be 75-120 for age band 8-10',
+      'spread 7: 64 words, must be 50-60 for age band 8-10',
       'selected_detail_count 5 exceeds map max_details 4',
       "evidence: slot s07_trait does not allow profile field 'activities'",
       'banned brand/IP term in story text: "Lego"',
@@ -99,7 +99,7 @@ describe('targeted repair pass', () => {
     expect(isRepairable(["title must exactly equal the rendered title 'X'"])).toBe(false);
     expect(isRepairable(['spreads must be numbered 1-12 in order (got 1,2)'])).toBe(false);
     expect(isRepairable([
-      'spread 7: 124 words, must be 75-120 for age band 8-10',
+      'spread 7: 64 words, must be 50-60 for age band 8-10',
       "versions.writer_engine must echo '1.3.0'",
     ])).toBe(false);
     expect(isRepairable([])).toBe(false);
@@ -109,7 +109,7 @@ describe('targeted repair pass', () => {
   it('the repair prompt pins the previous response, the violations, and the do-not-change orders', () => {
     const request = { request_id: 'req_1', book_id: 'b1', versions: { writer_engine: '1.3.0' } };
     const response = { title: 'T', spreads: [{ spread: 1, text: 'hello' }] };
-    const prompt = buildRepairPrompt({ request, response, errors: ['spread 1: 5 words, must be 12-32 for age band 1-3 (exact age 2)'] });
+    const prompt = buildRepairPrompt({ request, response, errors: ['spread 1: 5 words, must be 12-25 for age band 1-3 (exact age 2)'] });
     expect(prompt).toContain('REPAIR TASK');
     expect(prompt).toContain('"title": "T"');
     expect(prompt).toContain('- spread 1: 5 words');
