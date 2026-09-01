@@ -76,17 +76,15 @@ test('losing the race adopts the winning bytes, not the locally generated plate'
   expect(plate.base64).toBe(WINNER.toString('base64'));
 });
 
-test('an upload failure with no known winner keeps the local plate but never caches it', async () => {
+test('an upload failure resolves plate-less — a never-elected local plate must not fork the fixed reference', async () => {
   const { getWorldPlate, gcs, illustrationGenerator } = freshWorldPlate();
   gcs.downloadBuffer.mockRejectedValue(new Error('cache miss'));
-  gcs.uploadBufferIfAbsent.mockRejectedValueOnce(new Error('network down'));
-  const first = await getWorldPlate({ theme: THEME, log: () => {} });
-  expect(first.base64).toBe(LOCAL_PLATE.toString('base64'));
-  // Not cached: a second resolve goes back to GCS + generation (here the
-  // upload succeeds, so THIS plate is the one that persists and caches).
-  gcs.uploadBufferIfAbsent.mockResolvedValue({ created: true });
-  await getWorldPlate({ theme: THEME, log: () => {} });
-  expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(2);
+  gcs.uploadBufferIfAbsent.mockRejectedValue(new Error('network down'));
+  await expect(getWorldPlate({ theme: THEME, log: () => {} })).resolves.toBeNull();
+  // And the failure is cooled down — the next resolve makes no new attempt.
+  const gensAfterFirst = genCalls(illustrationGenerator.fetchWithTimeout).length;
+  await expect(getWorldPlate({ theme: THEME, log: () => {} })).resolves.toBeNull();
+  expect(genCalls(illustrationGenerator.fetchWithTimeout)).toHaveLength(gensAfterFirst);
 });
 
 test('a persisted plate IS cached — the third resolve makes no further IO', async () => {

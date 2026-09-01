@@ -148,10 +148,12 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // The fixed per-theme world plate (or null): a second reference image
     // identical on every spread, so stateless renders converge on one world.
     ...(worldPlate ? { worldPlate: { base64: worldPlate.base64, mimeType: worldPlate.mimeType } } : {}),
-    // The world-law card must survive the renderer's generic-safe NSFW
-    // fallback too — that variant discards the scene (card included), and
-    // Layer 1 promises the card on EVERY render.
-    safeFallbackSuffix: renderWorldCardBlock(theme.theme_id) || null,
+    // The world-law card AND any gate repair note must survive the
+    // renderer's generic-safe NSFW fallback — that variant discards the
+    // scene, and a "repair" render that lost its corrective instruction
+    // would ship as repaired without ever being told what to fix. Both are
+    // fixed text (the card is versioned data; the note maps a closed enum).
+    safeFallbackSuffix: [renderWorldCardBlock(theme.theme_id), worldNote].filter(Boolean).join('\n') || null,
     // Workbench probes may pin a seed for tighter A/B; applying it stays
     // env-gated inside the renderer (BOOK_PIPELINE_V3_RENDER_SEED, with a
     // retry-without on seed-rejecting models). The seed also rides the
@@ -367,10 +369,12 @@ async function runWorldConsistencyGate({ results, rerender, onProgress = () => {
         entry.advisories.push({ stage: 'worldQa', spread: f.spread, note: `shipped without world re-render (${f.skipReason})` });
         continue;
       }
-      log('warn', `Spread ${f.spread} broke world consistency (${f.note}) — one corrective re-render`);
+      log('warn', `Spread ${f.spread} broke world consistency (${f.defect}: ${f.note}) — one corrective re-render`);
       onProgress(1, `World repair: re-rendering spread ${f.spread}...`);
       try {
-        const repaired = await rerender(f.spread, worldRepairNote(f.note));
+        // The repair prompt is built ONLY from the closed defect enum —
+        // f.note is free-form diagnostics and never reaches a prompt.
+        const repaired = await rerender(f.spread, worldRepairNote(f.defect));
         if (repaired.buffer) {
           // Keep the audit trail: the gate finding + the fresh render's own
           // advisories ride together on the replacing entry.
