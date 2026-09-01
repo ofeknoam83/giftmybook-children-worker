@@ -151,6 +151,13 @@ async function resolveStory({ storyPair, checkpointStory, bookDefinitionId, prof
  * @param {string|null} params.bookFrom
  * @param {string|null} params.bindingType
  * @param {boolean} params.forceRerender
+ * @param {boolean} [params.identityKeyed] probe-compat render cache keying —
+ *   the Art Bench "create final book" dispatch sends the same identityKeyed
+ *   (and seed) it probed with so the approved probe renders REPLAY into the
+ *   final book instead of re-rendering; customer books omit both and keep
+ *   the legacy un-salted keys
+ * @param {number|null} [params.seed] probe-compat render seed (cache-keyed;
+ *   applying it stays env-gated in the renderer)
  * @param {object} params.costTracker
  * @param {(stage: string, frac: number, message: string) => void} params.onProgress
  * @param {(level: string, msg: string) => void} params.log
@@ -209,6 +216,8 @@ async function runBookPipeline(params) {
     characterDescription,
     textLayout,
     tuning: params.illustrationTuning || null,
+    identityKeyed: !!params.identityKeyed,
+    seed: Number.isInteger(params.seed) ? params.seed : null,
     costTracker,
     forceRerender,
     onProgress: (frac, message) => onProgress('illustration', 0.2 + frac * 0.6, message),

@@ -384,6 +384,60 @@ describe('per-spread force re-render (rerenderSpreads)', () => {
   });
 });
 
+describe('bench final book: identityKeyed + seed replay the approved probe renders', () => {
+  const { fnv1a } = require('../../../services/catalogEngine/selection');
+  const markerFor = bytes => Buffer.from(JSON.stringify({
+    advisories: [], tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36),
+  }));
+
+  // The world plate folds a content hash into cache keys and keeps
+  // module-level cooldown state — disable it so both calls compose the
+  // same key deterministically.
+  beforeEach(() => { process.env.CATALOG_WORLD_PLATE = '0'; });
+  afterEach(() => {
+    delete process.env.CATALOG_WORLD_PLATE;
+    fetchWithTimeout.mockRejectedValue(new Error('offline test'));
+  });
+
+  test('illustrateStory under the probe cache knobs replays probe-keyed renders without a single re-render', async () => {
+    const all = Array.from({ length: 12 }, (_, i) => i + 1);
+    const fullStory = story(all);
+    const knobs = { identityKeyed: true, seed: 42, characterDescription: 'curly hair' };
+
+    // Capture the key the PROBE writes for spread 1 under these knobs.
+    const probe = await renderStorySpreads(baseParams({ story: fullStory, spreads: [1], ...knobs }));
+    const probeKey = probe.results[0].storageKey;
+    expect(probeKey).toContain('-i');
+    expect(probeKey).toContain('-s42');
+
+    // The final-book dispatch: every render key already holds QA-vouched
+    // pixels (the bench's approved renders) — the full book must replay
+    // them all instead of re-rendering a single spread.
+    const png = Buffer.from('png-bytes');
+    downloadBuffer.mockImplementation(async key => (key.endsWith('.qa.json') ? markerFor(png) : png));
+    generateIllustration.mockClear();
+    const book = await illustrateStory(baseParams({ story: fullStory, spreads: null, ...knobs }));
+    expect(generateIllustration).not.toHaveBeenCalled();
+    expect(book.entries).toHaveLength(12);
+    expect(book.entries.find(e => e.spread === 1).spreadIllustrationStorageKey).toBe(probeKey);
+    for (const e of book.entries) {
+      expect(e.spreadIllustrationStorageKey).toContain('-i');
+      expect(e.spreadIllustrationStorageKey).toContain('-s42');
+    }
+  });
+
+  test('without the knobs the full-book path stays on legacy keys — no accidental probe replay', async () => {
+    const all = Array.from({ length: 12 }, (_, i) => i + 1);
+    const png = Buffer.from('png-bytes');
+    downloadBuffer.mockImplementation(async key => (key.endsWith('.qa.json') ? markerFor(png) : png));
+    const book = await illustrateStory(baseParams({ story: story(all), spreads: null }));
+    for (const e of book.entries) {
+      expect(e.spreadIllustrationStorageKey).not.toContain('-i');
+      expect(e.spreadIllustrationStorageKey).not.toContain('-s');
+    }
+  });
+});
+
 describe('QA marker integrity (renderHash)', () => {
   const { fnv1a } = require('../../../services/catalogEngine/selection');
   const markerFor = (bytes, advisories = []) => Buffer.from(JSON.stringify({

@@ -460,11 +460,14 @@ async function runWorldConsistencyGate({ results, rerender, embeddedText = false
  *   rest" operation; like forceRerender it overwrites the shared cache key
  *   by design.
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
- * @param {boolean} [params.identityKeyed] probe-only: fold the identity anchor
- *   (URL path + characterDescription) into the cache key so an anchor change
- *   never replays another child's renders
- * @param {number|null} [params.seed] probe-only render seed (cache-keyed; applying
- *   it is env-gated in the renderer)
+ * @param {boolean} [params.identityKeyed] fold the identity anchor (URL path
+ *   + characterDescription) into the cache key so an anchor change never
+ *   replays another child's renders. Always set by the probe route; a bench
+ *   "create final book" dispatch sends it too (with the same anchor/seed/
+ *   tuning) so the approved probe renders replay into the final book.
+ *   Customer books omit it — their keys stay legacy un-salted.
+ * @param {number|null} [params.seed] probe-compat render seed (cache-keyed;
+ *   applying it is env-gated in the renderer)
  * @param {string|null} [params.probeNonce] workbench-only cache-key salt (variance probes re-render instead of replaying)
  * @param {object} [params.costTracker]
  * @param {boolean} [params.forceRerender]
@@ -538,7 +541,8 @@ async function renderStorySpreads(params) {
     // cached image. Keyed on the anchor's PATH — a signed URL's rotating
     // query string must not bust the cache for the same object. APPENDED to
     // keyHash (never rebuilt from baseHash) so the plate fingerprint above
-    // survives on probes; the full-book path stays identity-un-salted.
+    // survives on probes; customer full-book dispatches stay
+    // identity-un-salted (only a bench final book sends identityKeyed).
     const identityBasis = `${String(characterRefUrl).split('?')[0]}|${characterDescription || ''}`;
     keyHash = `${keyHash}-i${fnv1a(identityBasis).toString(36)}`;
   }
@@ -615,8 +619,9 @@ async function renderStorySpreads(params) {
  * Illustrate a validated story: 12 renders → layout entries.
  *
  * @param {object} params renderStorySpreads params (minus `spreads`/
- *   `rerenderSpreads`/`probeNonce` — a full book always renders every beat
- *   on the un-salted cache key)
+ *   `rerenderSpreads`/`probeNonce` — a full book always renders every beat,
+ *   and the probe-only subset/force/nonce salts never apply; identityKeyed
+ *   and seed DO pass through so a bench final book replays probe renders)
  * @returns {Promise<{entries: object[], previewImageUrls: string[], qaAdvisories: object[], warnings: string[], illustrationTuningUsed: string, worldQa: object|null}>}
  */
 async function illustrateStory(params) {

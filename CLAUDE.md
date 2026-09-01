@@ -230,11 +230,19 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
 - `POST /generate-book` — `{bookId, profile, story:{request,response} |
   bookDefinitionId, approvedCoverUrl, childPhotoUrls, textLayout,
   heartfeltNote, bookFrom, bindingType, callbackUrl, progressCallbackUrl,
-  forceNew, forceRerender}` → 202; completion callback mirrors the legacy
-  shape (interiorPdfUrl, coverPdfUrl, previewImageUrls, storyContent,
-  qaAdvisories, warnings, costs) + `pipelineVersionUsed: 'catalog-v13'`,
-  `illustratorVersionUsed: 'catalog-slim'`. `storyContent.catalog` carries
+  forceNew, forceRerender, identityKeyed?, seed?}` → 202; completion callback
+  mirrors the legacy shape (interiorPdfUrl, coverPdfUrl, previewImageUrls,
+  storyContent, qaAdvisories, warnings, costs) + `pipelineVersionUsed:
+  'catalog-v13'`, `illustratorVersionUsed: 'catalog-slim'`.
+  `storyContent.catalog` carries
   bookDefinitionId/themeId/ageBand/versions/evidence/omissions.
+  `identityKeyed`/`seed` are the probe-compat cache knobs for the Art
+  Bench's **"create final book"** dispatch: sent with the SAME anchor URL,
+  characterDescription, illustrationTuning, and textLayout the bench probed
+  with, the final Lulu pair (interior + cover PDF) is assembled from the
+  exact approved probe renders (cache replay; never-probed spreads render
+  fresh through the same QA + world gate). Customer books omit both and
+  keep the legacy un-salted cache keys.
 - `POST /v13/render-spreads` — the **admin render-test (probe) mode** for the
   illustration feedback loop: `{bookId, story:{request,response}, spreads[1..12
   subset], profile, approvedCoverUrl|childPhotoUrls, textLayout,

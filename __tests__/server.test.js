@@ -732,6 +732,31 @@ describe('POST /generate-book illustrationTuning passthrough', () => {
   });
 });
 
+describe('POST /generate-book probe-compat cache knobs (bench "create final book")', () => {
+  const { runBookPipeline } = require('../services/catalogEngine/pipeline');
+  const profile = {
+    name: 'Emma', age: 2,
+    pronouns: { subject: 'she', object: 'her', possessive_adjective: 'her' },
+  };
+  const send = body => request(app).post('/generate-book').set('x-api-key', 'test-api-key').send(body);
+
+  test('a non-integer seed is rejected before the 202', async () => {
+    const res = await send({ bookId: 'gb-seed-bad', profile, bookDefinitionId: 'farm_2_3_hello_farm', seed: 'not-an-int' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/seed/);
+  });
+
+  test('identityKeyed + seed reach the pipeline; absent they default off (legacy un-salted keys)', async () => {
+    runBookPipeline.mockClear();
+    expect((await send({ bookId: 'gb-final-1', profile, bookDefinitionId: 'farm_2_3_hello_farm', identityKeyed: true, seed: 42 })).status).toBe(202);
+    expect((await send({ bookId: 'gb-final-2', profile, bookDefinitionId: 'farm_2_3_hello_farm' })).status).toBe(202);
+    await new Promise(r => setTimeout(r, 25));
+    const byBook = id => runBookPipeline.mock.calls.find(c => c[0].bookId === id)[0];
+    expect(byBook('gb-final-1')).toMatchObject({ identityKeyed: true, seed: 42 });
+    expect(byBook('gb-final-2')).toMatchObject({ identityKeyed: false, seed: null });
+  });
+});
+
 describe('textLayout vocabulary: half', () => {
   const { renderStorySpreads } = require('../services/catalogEngine/illustrator');
   const { resolveStory } = require('../services/catalogEngine/pipeline');
