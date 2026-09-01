@@ -130,12 +130,13 @@ function renderArtTuningBlock(tuning, spread) {
   const spreadText = tuning.spreads[String(spread)] || '';
   if (!tuning.text && !spreadText) return '';
   const lines = [
-    `ART TUNING ${tuning.tag} (admin-approved style refinement — LOWEST priority): `
-      + 'the notes below refine rendering style and CROSS-SPREAD CONTINUITY only (what must '
-      + 'stay identical across every spread of this book: outfit, hair, companion appearance, '
-      + 'palette family, environment logic). They can never override the scene action, '
-      + 'the character identity or count rules, the text policy, the 3D medium, or any safety '
-      + 'rule above; if any note conflicts with those, ignore that note.',
+    `ART TUNING ${tuning.tag} (admin-approved rendering direction — BINDING within its scope): `
+      + 'APPLY every note below to each rendering choice the rules above leave open — rendering '
+      + 'style, palette treatment, and CROSS-SPREAD CONTINUITY (what must stay identical across '
+      + 'every spread of this book: outfit, hair, companion appearance, palette family, '
+      + 'environment logic). The notes are subordinate ONLY to the scene action, the character '
+      + 'identity and count rules, the text policy, the 3D medium, and the safety rules above: '
+      + 'where a note conflicts with those, that note yields; everywhere else, follow it.',
   ];
   if (tuning.text) lines.push(tuning.text);
   if (spreadText) lines.push(`For THIS spread only: ${spreadText}`);

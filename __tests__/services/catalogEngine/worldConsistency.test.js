@@ -129,6 +129,7 @@ describe('probe cache key composition (identityKeyed + world plate)', () => {
     // key, never rebuild from the bare story hash — otherwise a probe could
     // replay pixels rendered with a different (or missing) world plate.
     process.env.CATALOG_WORLD_PLATE = '0'; // deterministic: no plate IO
+    process.env.CATALOG_OUTFIT_LOCK = '0'; // deterministic: no outfit IO
     try {
       jest.resetModules();
       // Spy BEFORE the illustrator module destructures the export.
@@ -151,6 +152,7 @@ describe('probe cache key composition (identityKeyed + world plate)', () => {
       expect(storyHash.startsWith(`${storyFingerprint(story)}-i`)).toBe(true);
     } finally {
       delete process.env.CATALOG_WORLD_PLATE;
+      delete process.env.CATALOG_OUTFIT_LOCK;
       jest.restoreAllMocks();
       jest.resetModules();
     }

@@ -96,11 +96,16 @@ describe('normalizeArtTuning', () => {
 describe('renderArtTuningBlock', () => {
   const tuning = normalizeArtTuning(TUNING);
 
-  test('frames the overlay as style+continuity and subordinate on every spread with content', () => {
+  test('frames the overlay as BINDING within its scope, subordinate to the hard rules', () => {
     const block = renderArtTuningBlock(tuning, 1);
     expect(block).toContain('ART TUNING art-003.9f31c2ab');
-    expect(block).toContain('LOWEST priority');
-    expect(block).toContain('never override the scene action');
+    // ce-7 reframe: "LOWEST priority … ignore that note" invited the model
+    // to drop admin directives — the frame now BINDS on style/continuity
+    // while still yielding to action/identity/count/text/medium/safety.
+    expect(block).toContain('BINDING within its scope');
+    expect(block).not.toContain('LOWEST priority');
+    expect(block).toContain('subordinate ONLY to the scene action');
+    expect(block).toContain('everywhere else, follow it');
     // Cross-spread continuity rules (what stays identical across the book)
     // ride the overlay dynamically — the frame must sanction them.
     expect(block).toContain('CROSS-SPREAD CONTINUITY');

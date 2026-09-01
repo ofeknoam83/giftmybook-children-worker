@@ -52,7 +52,14 @@ const PROMPT_TEMPLATE_VERSION = '1.2.0'; // 1.2.0: scope-subordinate tuning fram
 // introduction (scenes.js CONTINUITY PROP line; kill-switch
 // CATALOG_PROP_CONTINUITY). Scene prompts changed for every story carrying
 // object evidence — ce-5 renders must never replay as ce-6.
-const STYLE_VERSION = 'ce-6';
+// ce-7: outfit lock + binding tuning placement — every render now pins a
+// per-anchor OUTFIT LOCK spec derived from the identity reference
+// (outfitLock.js; its content hash also rides the cache key, kill-switch
+// CATALOG_OUTFIT_LOCK), and the Art Tuning block moved from mid-prompt to
+// the FULL prompt's final block with a binding-within-scope frame
+// (tuning.js + buildCharacterPrompt). Both change prompt assembly — ce-6
+// renders must never replay as ce-7.
+const STYLE_VERSION = 'ce-7';
 
 module.exports = {
   WRITER_ENGINE_VERSION,

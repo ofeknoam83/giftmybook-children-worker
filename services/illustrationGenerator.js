@@ -492,11 +492,14 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   // the hair-accessory scrub (and the bath/water heuristic below) must never
   // rewrite or trigger off a tuning directive — a continuity rule like
   // "keep the braided hair and headband identical" has to reach the model
-  // verbatim, or the tuning loop silently loses the admin's comment.
+  // verbatim, or the tuning loop silently loses the admin's comment. The
+  // suffix is held back here and re-attached as the prompt's LAST block
+  // (see the end of this builder): mid-prompt, an admin directive drowns
+  // under the dozens of lock/checklist blocks that follow the scene.
   const tuningMarkerIdx = sceneDescription.indexOf('\nART TUNING ');
   const sceneBody = tuningMarkerIdx === -1 ? sceneDescription : sceneDescription.slice(0, tuningMarkerIdx);
   const tuningSuffix = tuningMarkerIdx === -1 ? '' : sceneDescription.slice(tuningMarkerIdx);
-  const cleanScene = stripHairFromScene(sceneBody) + tuningSuffix;
+  const cleanScene = stripHairFromScene(sceneBody);
   const pageTextStr = (pageText && String(pageText)) || '';
   const bathWaterScene = isModestBathWaterScene(stripHairFromScene(sceneBody), pageTextStr);
 
@@ -869,6 +872,17 @@ function buildCharacterPrompt(sceneDescription, artStyle, childName, pageText, c
   parts.push('If any check fails, adjust the scene before generating.');
   parts.push('');
   parts.push(`FINAL STYLE REMINDER: This MUST be rendered as ${renderStyleBlock(styleConfig)}`);
+
+  // The Art Tuning Layer is the prompt's LAST word: image models weight
+  // endings, and an admin style directive buried mid-prompt is effectively
+  // ignored. Scope subordination lives in the block's own frame (the
+  // catalog engine's tuning.js): it binds on rendering style and
+  // continuity, and yields to the action/identity/count/text/medium/safety
+  // rules above.
+  if (tuningSuffix) {
+    parts.push('');
+    parts.push(tuningSuffix.trim());
+  }
 
   return parts.join('\n');
 }
