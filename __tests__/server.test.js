@@ -495,6 +495,42 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(payload.success).toBe(true);
   });
 
+  test('a non-2xx callback answer is a FAILED delivery attempt — retried, never treated as delivered', async () => {
+    // fetch resolves on 403/500; treating that as delivered silently loses
+    // the callback and leaves the admin round spinning forever.
+    global.fetch
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({ ok: true });
+    const res = await post(validBody());
+    expect(res.status).toBe(202);
+    // First attempt → 500 → one 2s backoff → second attempt succeeds.
+    await new Promise(r => setTimeout(r, 2400));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const retryPayload = JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(retryPayload.dispatchId).toBe('art_d_test');
+  });
+
+  test('three consecutive non-2xx answers exhaust the retries and log the permanent loss', async () => {
+    // The permanent-loss path: every attempt is rejected, delivery gives up
+    // after the bounded retries, and the loud LOST line is the only trace —
+    // fake timers drain the 2s+4s backoffs without real waiting.
+    global.fetch.mockResolvedValue({ ok: false, status: 500 });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.useFakeTimers();
+    try {
+      const res = await post(validBody());
+      expect(res.status).toBe(202);
+      await jest.advanceTimersByTimeAsync(2000); // attempt 1 fails → first backoff
+      await jest.advanceTimersByTimeAsync(4000); // attempt 2 fails → second backoff
+      await jest.advanceTimersByTimeAsync(0);    // attempt 3 fails → give up
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('LOST after 3 attempts'));
+    } finally {
+      jest.useRealTimers();
+      errSpy.mockRestore();
+    }
+  });
+
   test('a probe that blows up entirely still reports by callback, never silently', async () => {
     renderStorySpreads.mockRejectedValue(Object.assign(new Error('identity reference could not be downloaded'), { failureCode: 'missing_identity_reference' }));
     const res = await post(validBody());
