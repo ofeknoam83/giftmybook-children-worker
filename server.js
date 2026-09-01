@@ -932,26 +932,32 @@ app.post('/generate-book', authenticate, async (req, res) => {
 
 /**
  * POST a JSON payload with the worker API key and 3 bounded retries — the
- * shared delivery path for completion/failure callbacks.
+ * shared delivery path for completion/failure callbacks. A non-2xx answer
+ * counts as a FAILED attempt: fetch resolves on 403/500, and treating those
+ * as delivered silently loses the callback (the app-side round then hangs
+ * until its stall reconcile) whenever the app hiccups on capture.
  */
 async function postWithRetry(url, payload) {
   for (let attempt = 0; attempt < 3; attempt++) {
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 15000);
     try {
-      const abort = new AbortController();
-      const timeout = setTimeout(() => abort.abort(), 15000);
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.API_KEY || '' },
         body: JSON.stringify(payload),
         signal: abort.signal,
       });
-      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`callback endpoint answered ${res.status}`);
       return;
     } catch (err) {
       console.error(`[server] callback attempt ${attempt + 1}/3 to ${url} failed: ${err.message}`);
       if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+    } finally {
+      clearTimeout(timeout);
     }
   }
+  console.error(`[server] callback to ${url} LOST after 3 attempts — the caller must reconcile this run as stalled`);
 }
 
 // ── POST /regenerate-illustration — 410 GONE (native-illustrator cutover) ──

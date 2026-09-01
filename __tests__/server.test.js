@@ -495,6 +495,21 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(payload.success).toBe(true);
   });
 
+  test('a non-2xx callback answer is a FAILED delivery attempt — retried, never treated as delivered', async () => {
+    // fetch resolves on 403/500; treating that as delivered silently loses
+    // the callback and leaves the admin round spinning forever.
+    global.fetch
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({ ok: true });
+    const res = await post(validBody());
+    expect(res.status).toBe(202);
+    // First attempt → 500 → one 2s backoff → second attempt succeeds.
+    await new Promise(r => setTimeout(r, 2400));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const retryPayload = JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(retryPayload.dispatchId).toBe('art_d_test');
+  });
+
   test('a probe that blows up entirely still reports by callback, never silently', async () => {
     renderStorySpreads.mockRejectedValue(Object.assign(new Error('identity reference could not be downloaded'), { failureCode: 'missing_identity_reference' }));
     const res = await post(validBody());
