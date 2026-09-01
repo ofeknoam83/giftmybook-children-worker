@@ -6,9 +6,11 @@
  *  - identity anchors on the parent-APPROVED COVER character (the reference
  *    image on every render); the raw photo is only a fallback for coverless
  *    admin test books;
- *  - one render per spread + ONE vision QA check + ONE corrective re-render,
- *    then ship-with-advisory (closed critical list: painted text, missing or
- *    duplicated child, broken medium);
+ *  - one render per spread + ONE vision QA check + a bounded corrective
+ *    re-render loop (CATALOG_SPREAD_QA_MAX_REPAIRS, default 2 — each pass
+ *    steered by the LATEST check's defects), then ship-with-advisory
+ *    (closed critical list: painted text, missing or duplicated child,
+ *    broken medium);
  *  - renders cache under a deterministic STYLE_VERSION-keyed GCS path so a
  *    re-dispatch replays finished spreads instead of re-paying for them.
  *
@@ -76,6 +78,16 @@ function renderCachePath(bookId, storyHash, spread, aspect, tuningTag = 'none') 
   const styleKey = tuningTag && tuningTag !== 'none' ? `${STYLE_VERSION}+${tuningTag}` : STYLE_VERSION;
   return `children-jobs/${bookId}/ce-renders/${styleKey}/${storyHash}/spread-${spread}.${aspect}.png`;
 }
+
+/**
+ * Corrective per-spread QA re-renders allowed per spread (cost bound). Each
+ * extra render happens only for a spread that keeps failing QA; 0 disables
+ * repairs entirely (failing renders ship straight to advisory).
+ */
+const SPREAD_QA_MAX_REPAIRS = () => {
+  const n = Number(process.env.CATALOG_SPREAD_QA_MAX_REPAIRS);
+  return Number.isInteger(n) && n >= 0 && n <= 4 ? n : 2;
+};
 
 /**
  * Render (or replay) one spread; returns the layout-ready record. `fresh`
@@ -220,7 +232,7 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     fresh = true;
   }
 
-  const qa = await checkSpreadRender(buffer, {
+  let qa = await checkSpreadRender(buffer, {
     label: `spreadQa:${bookId}:s${spread}`,
     expectedText: embedText ? spreadText : null,
   });
@@ -230,39 +242,54 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
     // but say so on the completion payload.
     advisories.push({ stage: 'spreadQa', spread, note: `shipped UNCHECKED — ${qa.qaUnavailable}` });
   }
-  if (!qa.pass) {
-    log('warn', `Spread ${spread} QA failed (${qa.defects.join('; ')}) — one corrective re-render`);
-    // Best-effort by contract: any repair-path failure keeps the first
-    // render (with an advisory) instead of failing the whole book.
+  // Bounded corrective re-render loop: each pass is steered by the LATEST
+  // check's defects (a repair that traded one defect for another is fixed
+  // for what it actually shows, not for the first render's findings) and
+  // fully re-checked. Best-effort by contract: any repair-path failure
+  // ships the last rendered image (with an advisory) instead of failing
+  // the whole book.
+  const repairBudget = SPREAD_QA_MAX_REPAIRS();
+  let repairAborted = false;
+  for (let attempt = 1; !qa.pass && attempt <= repairBudget && !repairAborted; attempt += 1) {
+    log('warn', `Spread ${spread} QA failed (${qa.defects.join('; ')}) — corrective re-render ${attempt}/${repairBudget}`);
     try {
       const repairedScene = `${baseScene}\n${repairNote(qa.defects, embedText ? spreadText : null)}`;
       const repairedUrl = await generateIllustration(repairedScene, characterRefUrl, 'pixar_premium', renderOpts);
-      if (repairedUrl) {
-        url = repairedUrl;
-        buffer = await downloadBuffer(storageKey);
-        fresh = true;
-        const recheck = await checkSpreadRender(buffer, {
-          label: `spreadQa:${bookId}:s${spread}:repair`,
-          expectedText: embedText ? spreadText : null,
-        });
-        if (recheck.qaUnavailable) {
-          checkerUnavailable = true;
-          advisories.push({ stage: 'spreadQa', spread, note: `repair shipped UNCHECKED — ${recheck.qaUnavailable}` });
-        }
-        if (!recheck.pass) {
-          advisories.push({ stage: 'spreadQa', spread, note: `shipped with residual defects after repair: ${recheck.defects.join('; ')}` });
-        }
-      } else {
-        advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped first render with defects: ${qa.defects.join('; ')}` });
+      if (!repairedUrl) {
+        advisories.push({ stage: 'spreadQa', spread, note: `repair render failed; shipped render with defects: ${qa.defects.join('; ')}` });
+        repairAborted = true;
+        break;
+      }
+      url = repairedUrl;
+      buffer = await downloadBuffer(storageKey);
+      fresh = true;
+      qa = await checkSpreadRender(buffer, {
+        label: `spreadQa:${bookId}:s${spread}:repair${attempt}`,
+        expectedText: embedText ? spreadText : null,
+      });
+      if (qa.qaUnavailable) {
+        // Repairing blind would spend renders with no verdict to steer them.
+        checkerUnavailable = true;
+        advisories.push({ stage: 'spreadQa', spread, note: `repair shipped UNCHECKED — ${qa.qaUnavailable}` });
+        repairAborted = true;
       }
     } catch (repairErr) {
-      log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the first render`);
+      log('warn', `Spread ${spread} repair errored (${repairErr.message}) — shipping the previous render`);
       // The repair may have died AFTER uploading new pixels — restore the
-      // shipped first render to the cache key so the URL, cache, and PDF
-      // stay one image (a failed restore is caught by the marker hash).
+      // shipped render to the cache key so the URL, cache, and PDF stay
+      // one image (a failed restore is caught by the marker hash).
       await uploadBuffer(buffer, storageKey, 'image/png').catch(() => {});
-      advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped first render with defects: ${qa.defects.join('; ')}` });
+      advisories.push({ stage: 'spreadQa', spread, note: `repair render errored (${repairErr.message}); shipped render with defects: ${qa.defects.join('; ')}` });
+      repairAborted = true;
     }
+  }
+  if (!qa.pass && !qa.qaUnavailable && !repairAborted) {
+    advisories.push({
+      stage: 'spreadQa', spread,
+      note: repairBudget > 0
+        ? `shipped with residual defects after ${repairBudget} repair render(s): ${qa.defects.join('; ')}`
+        : `shipped with defects (repairs disabled): ${qa.defects.join('; ')}`,
+    });
   }
 
   // Persist the QA-complete marker so future replays skip the check
@@ -331,12 +358,14 @@ function planWorldRepairs(results, flagged, budget) {
  * @param {Array} params.results renderSpread results (mutated in place:
  *   advisories appended; flagged fresh entries replaced by their re-render)
  * @param {(spread: number, worldNote: string) => Promise<object>} params.rerender
+ * @param {boolean} [params.embeddedText] embedded layout: the gate also
+ *   judges TEXT TREATMENT consistency (band vs over-artwork, typography)
  * @param {(frac: number, message: string) => void} [params.onProgress]
  * @param {(level: string, msg: string) => void} params.log
  * @returns {Promise<{pass: boolean, checked: number, flagged?: Array, rerendered?: number[], unavailable?: string}|null>}
  *   null when the gate did not run (kill-switch, or <2 renders to compare)
  */
-async function runWorldConsistencyGate({ results, rerender, onProgress = () => {}, log }) {
+async function runWorldConsistencyGate({ results, rerender, embeddedText = false, onProgress = () => {}, log }) {
   if (!flags.worldQaEnabled()) return null;
   const rendered = results.filter(r => r.buffer);
   if (rendered.length < 2) return null; // consistency needs a comparison
@@ -349,7 +378,7 @@ async function runWorldConsistencyGate({ results, rerender, onProgress = () => {
     onProgress(1, `Checking world consistency across ${rendered.length} spreads...`);
     const verdict = await checkWorldConsistency(
       rendered.map(r => ({ spread: r.spread, buffer: r.buffer })),
-      { label: 'worldQa' },
+      { label: 'worldQa', embeddedText },
     );
     if (!verdict) return null;
     if (verdict.qaUnavailable) {
@@ -423,6 +452,13 @@ async function runWorldConsistencyGate({ results, rerender, onProgress = () => {
  *   at page assembly), cached under 'wide-plain' so it never replays an
  *   embedded book's text-painted wide render.
  * @param {number[]|null} [params.spreads] subset of spread numbers (default: all beats)
+ * @param {number[]|null} [params.rerenderSpreads] probe-only: spreads (a
+ *   subset of `spreads`) forced to render FRESH while the rest replay from
+ *   cache — the world gate then compares the fresh render against the
+ *   replayed references and may correct it (fresh renders are the only ones
+ *   it is allowed to re-render). This is the "make one spread match the
+ *   rest" operation; like forceRerender it overwrites the shared cache key
+ *   by design.
  * @param {object|null} [params.tuning] raw illustrationTuning overlay (normalized here; kill-switch applied)
  * @param {boolean} [params.identityKeyed] probe-only: fold the identity anchor
  *   (URL path + characterDescription) into the cache key so an anchor change
@@ -440,7 +476,7 @@ async function renderStorySpreads(params) {
   const {
     bookId, story, bookDef, profile,
     approvedCoverUrl, childPhotoUrl, characterDescription,
-    textLayout = 'caption', spreads = null, probeNonce = null,
+    textLayout = 'caption', spreads = null, rerenderSpreads = null, probeNonce = null,
     costTracker, forceRerender = false,
     onProgress = () => {}, log = (l, m) => console.log(`[illustrator:${bookId}] ${m}`),
   } = params;
@@ -513,6 +549,9 @@ async function renderStorySpreads(params) {
   const wanted = Array.isArray(spreads) && spreads.length > 0
     ? book.beats.filter(b => spreads.includes(b.spread))
     : book.beats;
+  // Per-spread force: listed spreads render fresh (their stale marker is
+  // dropped inside renderSpread), everything else replays as usual.
+  const forceSet = new Set(Array.isArray(rerenderSpreads) ? rerenderSpreads : []);
   const pLimit = require('p-limit');
   const limit = pLimit(RENDER_CONCURRENCY);
   let done = 0;
@@ -524,7 +563,9 @@ async function renderStorySpreads(params) {
     const r = await renderSpread({
       bookId, book, theme, profile, story, storyHash,
       spread: beat.spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
-      tuning, worldPlate, seed, costTracker, forceRerender, log,
+      tuning, worldPlate, seed, costTracker,
+      forceRerender: forceRerender || forceSet.has(beat.spread),
+      log,
     });
     done += 1;
     onProgress(done / wanted.length, `Illustrated spread ${beat.spread} (${done}/${wanted.length})`);
@@ -557,6 +598,7 @@ async function renderStorySpreads(params) {
   // flagged FRESH spreads once (through the same full per-spread path).
   const worldQa = await runWorldConsistencyGate({
     results,
+    embeddedText: textLayout === 'embedded',
     rerender: (spread, note) => renderSpread({
       bookId, book, theme, profile, story, storyHash,
       spread, aspect, cacheAspect, textLayout, characterRefUrl, refPhoto, characterDescription,
@@ -572,15 +614,16 @@ async function renderStorySpreads(params) {
 /**
  * Illustrate a validated story: 12 renders → layout entries.
  *
- * @param {object} params renderStorySpreads params (minus `spreads`/`probeNonce` — a
- *   full book always renders every beat on the un-salted cache key)
+ * @param {object} params renderStorySpreads params (minus `spreads`/
+ *   `rerenderSpreads`/`probeNonce` — a full book always renders every beat
+ *   on the un-salted cache key)
  * @returns {Promise<{entries: object[], previewImageUrls: string[], qaAdvisories: object[], warnings: string[], illustrationTuningUsed: string, worldQa: object|null}>}
  */
 async function illustrateStory(params) {
   const { story, textLayout = 'caption' } = params;
   const warnings = [];
   const { results, aspect, tuningTag, worldQa } = await renderStorySpreads({
-    ...params, spreads: null, probeNonce: null,
+    ...params, spreads: null, rerenderSpreads: null, probeNonce: null,
   });
   const qaAdvisories = results.flatMap(r => r.advisories);
   // Residual QA defects ship with advisories, but the ABSENCE of an image is

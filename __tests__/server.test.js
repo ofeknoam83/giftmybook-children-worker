@@ -463,6 +463,28 @@ describe('POST /v13/render-spreads (illustration probe)', () => {
     expect(renderStorySpreads).not.toHaveBeenCalled();
   });
 
+  test('rerenderSpreads must be a unique subset of spreads; a valid subset rides the probe call', async () => {
+    // spreads is [3, 1] — 2 is not in it; duplicates and non-arrays reject.
+    expect((await post({ ...validBody(), rerenderSpreads: [2] })).status).toBe(400);
+    expect((await post({ ...validBody(), rerenderSpreads: [1, 1] })).status).toBe(400);
+    expect((await post({ ...validBody(), rerenderSpreads: 'nope' })).status).toBe(400);
+    expect(renderStorySpreads).not.toHaveBeenCalled();
+    const res = await post({ ...validBody(), rerenderSpreads: [1, 3] });
+    expect(res.status).toBe(202);
+    await settle();
+    expect(renderStorySpreads).toHaveBeenCalledWith(expect.objectContaining({ rerenderSpreads: [1, 3] }));
+  });
+
+  test('an absent or empty rerenderSpreads means no per-spread force', async () => {
+    expect((await post(validBody())).status).toBe(202);
+    expect((await post({ ...validBody(), rerenderSpreads: [] })).status).toBe(202);
+    await settle();
+    expect(renderStorySpreads).toHaveBeenCalledTimes(2);
+    for (const call of renderStorySpreads.mock.calls) {
+      expect(call[0].rerenderSpreads).toBeNull();
+    }
+  });
+
   test('202 → renders through the identity-keyed probe path → per-spread callback with dispatchId echo', async () => {
     const res = await post({ ...validBody(), probeNonce: 'n1', seed: 42 });
     expect(res.status).toBe(202);

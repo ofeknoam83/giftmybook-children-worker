@@ -110,7 +110,9 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   as coverless-test fallback; NO anchor at all fails the run with
   `missing_identity_reference`), one render + ONE vision QA check
   (`spreadQa.js`: painted text / missing / duplicated child / broken medium) +
-  one corrective re-render, then ship-with-advisory (`qaAdvisories`). Renders
+  a bounded corrective re-render loop (`CATALOG_SPREAD_QA_MAX_REPAIRS`,
+  default 2, clamped 0-4 — each pass steered by the LATEST check's
+  defects), then ship-with-advisory (`qaAdvisories`). Renders
   cache at `children-jobs/{bookId}/ce-renders/{STYLE_VERSION}/{storyHash}/spread-N.{aspect}.png`
   — the story fingerprint (definition id + spread texts) means a regenerated
   manuscript re-renders while an unchanged story replays; a `.qa.json`
@@ -161,12 +163,25 @@ spec lives in `docs/RUNTIME_CONTRACT_V1_3.md` + `docs/WRITER_HANDOFF_V1_3_README
   ONE multi-image check across the run's renders (skipped under 2), then
   one corrective re-render per flagged FRESH spread through the full
   per-spread path, capped at `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3).
+  The gate judges the closed set-break vocabulary: the four world classes
+  (`palette_lighting`/`era_technology`/`materials_physics`/`magic_behavior`)
+  plus `character_rendering` (the child reads as a different age,
+  proportions, stylization, outfit, or hair than the other spreads) and —
+  embedded layout only — `text_treatment` (text on a band/panel or in a
+  different typography while the others paint it over continuous artwork);
+  only that enum ever drives a repair prompt.
   Replayed cached renders are comparison references only, NEVER re-rendered
   (their storageKey is shared with earlier captured probe rounds); every
   finding ships as a `stage: 'worldQa'` advisory, and the book-level
   verdict rides completion/probe callbacks as `worldQa`. The gate runs
   identically for a full book and a probe subset — a subset is checked for
   internal consistency, mirroring the app-side judge.
+  Personalization props are CARRY-THROUGH (`ce-6`): visual `object`
+  evidence (the child's comfort object) rides every scene prompt AFTER its
+  evidence spread as a framed CONTINUITY PROP line (small, decorative,
+  never plot-critical) so the carried item never vanishes mid-book; only
+  `object_presence` persists — food/place/interest moments stay pinned to
+  their declared spreads. Kill-switch `CATALOG_PROP_CONTINUITY=0`.
 
 ## Feature switches (everything ON by default; envs are KILL-SWITCHES)
 
@@ -187,11 +202,14 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   (renders anchor on the cover alone; world-law cards still ride prompts).
 - `CATALOG_WORLD_QA=0` — skip the book-level world-consistency gate and its
   corrective re-renders (per-spread QA still runs).
+- `CATALOG_PROP_CONTINUITY=0` — stop carrying the child's comfort object
+  through spreads after its evidence spread.
 - Tuning: `CATALOG_MIN_FIT_SCORE` (default 3), `CATALOG_WRITER_MODEL`,
   `CATALOG_WRITER_MAX_ATTEMPTS` (default 3, clamped 1-6),
   `CATALOG_WRITER_MAX_REPAIRS` (default 2, clamped 0-6),
   `CATALOG_QA_VISION_MODEL` (default `gemini-2.5-flash`),
-  `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3).
+  `CATALOG_WORLD_QA_MAX_RERENDERS` (default 3),
+  `CATALOG_SPREAD_QA_MAX_REPAIRS` (default 2, clamped 0-4).
 
 ## Endpoints
 
@@ -221,12 +239,17 @@ requirement. Set an env to `0` on the Cloud Run revision to disable:
   illustration feedback loop: `{bookId, story:{request,response}, spreads[1..12
   subset], profile, approvedCoverUrl|childPhotoUrls, textLayout,
   illustrationTuning?, dispatchId?, seed?, probeNonce?, forceRerender?,
-  callbackUrl}` → 202; callback `{renders:[{spread, url, storageKey,
-  qa:{pass, advisories}}], failures:[{spread, message}],
+  rerenderSpreads?, callbackUrl}` → 202; callback `{renders:[{spread, url,
+  storageKey, qa:{pass, advisories}}], failures:[{spread, message}],
   illustrationTuningUsed, costs}` (+dispatchId echo). Renders a SUBSET of an
   existing validated story's spreads through the exact production path — zero
   writer spend, no PDFs/cover/upsell; per-spread render errors land in
-  `failures`, never fail the probe. Probe cache keys fold in the identity
+  `failures`, never fail the probe. `rerenderSpreads` (a unique subset of
+  `spreads`) is the per-spread force: the listed spreads render FRESH while
+  the rest replay from cache as world-gate references, so the gate can
+  correct the fresh render against the set it must match — the
+  "make this one spread match the rest" operation (`forceRerender` stays
+  the all-or-nothing variant). Probe cache keys fold in the identity
   anchor (URL path + characterDescription) and any `seed` (applying the seed
   stays gated by `BOOK_PIPELINE_V3_RENDER_SEED`), so an anchor swap or seed
   change never replays stale renders. `illustrationTuning` (`{versionLabel,

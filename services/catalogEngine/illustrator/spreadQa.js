@@ -172,9 +172,14 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
 // ── Book-level world-consistency gate (Layer 3 of the world design) ────────
 // One multi-image call over ALL of a run's renders together: the per-spread
 // check above cannot see cross-spread drift (each render passes alone while
-// the set disagrees on palette, era, lighting, or physics). Same advisory
-// conventions as checkSpreadRender: an infra failure passes with
-// `qaUnavailable`, never blocks a book on the checker itself.
+// the set disagrees on palette, era, lighting, or physics — or renders the
+// child at a visibly different age/stylization, or letterboxes its text
+// while the others paint it over the artwork). Beside the world itself the
+// gate judges CHARACTER RENDERING consistency and — embedded layout only —
+// TEXT TREATMENT consistency, because those are exactly the set-level
+// breaks a per-spread check scores 5/5 on. Same advisory conventions as
+// checkSpreadRender: an infra failure passes with `qaUnavailable`, never
+// blocks a book on the checker itself.
 
 const WORLD_QA_MAX_IMAGES = 12;
 // World judging reads low-frequency features (palette, lighting, era,
@@ -203,44 +208,66 @@ async function qaThumbnail(buffer) {
 
 /**
  * @param {number[]} spreads the spread numbers attached, in order
+ * @param {boolean} [embeddedText] embedded layout: also judge how each
+ *   spread integrates its painted story text (band vs over-artwork, one
+ *   typography) — meaningless for text-free caption/half renders
  * @returns {string}
  */
-function worldQaPrompt(spreads) {
-  return `You are checking WORLD CONSISTENCY across ${spreads.length} interior illustrations of ONE children's picture book (spreads ${spreads.join(', ')}, each labeled before its image).
+function worldQaPrompt(spreads, embeddedText = false) {
+  const textDim = embeddedText
+    ? `\n3. TEXT TREATMENT — every spread integrates its painted story text the
+same way: painted directly over continuous artwork (never sitting on a
+blank, solid, or lightened band, strip, or panel), in one consistent
+typography (the same font, size, and color family across the set).`
+    : '';
+  const textBreak = embeddedText
+    ? ', or story text sitting on a blank band/strip/panel (or in a clearly different typography) while the other spreads paint it over continuous artwork'
+    : '';
+  const textEnum = embeddedText ? '|"text_treatment"' : '';
+  return `You are checking CROSS-SPREAD CONSISTENCY across ${spreads.length} interior illustrations of ONE children's picture book (spreads ${spreads.join(', ')}, each labeled before its image).
 
-All spreads take place in the SAME fixed world. Judge ONLY whether they read
-as one world: the same palette family and lighting character, the same era
-and technology level, the same materials and environment logic, and the same
+All spreads belong to the SAME fixed book. Judge ONLY whether they read as
+one consistent book on these dimensions:
+1. WORLD — the same palette family and lighting character, the same era and
+technology level, the same materials and environment logic, and the same
 physical or magical laws applied to every interaction between characters,
 objects, and the environment.
+2. CHARACTER RENDERING — the ONE child hero reads as the SAME rendering of
+the SAME child on every spread: the same apparent age, the same face and
+body proportions, the same stylization level, the same outfit, and the same
+hair.${textDim}
 
 DO NOT flag differences in scene, action, location within the world, camera
 angle, composition, pose, or time of day that the story moment explains —
 those are supposed to differ. Flag a spread only when it clearly BREAKS the
-shared world: a different palette/lighting family, an era or technology that
-contradicts the others, materials or physics behaving differently, or magic
-appearing/behaving unlike the rest of the book.
+set: a different palette/lighting family, an era or technology that
+contradicts the others, materials or physics behaving differently, magic
+appearing/behaving unlike the rest of the book, the child rendered as a
+visibly different age, with different proportions or stylization, or in a
+different outfit or hair than the other spreads${textBreak}.
 
 Answer STRICT JSON only:
 {
-  "consistent": true|false,        // the set reads as ONE world
-  "flagged": [                      // ONLY spreads that clearly break the world ([] if consistent)
+  "consistent": true|false,        // the set reads as ONE consistent book
+  "flagged": [                      // ONLY spreads that clearly break the set ([] if consistent)
     {
       "spread": <number>,
-      "defect": "palette_lighting"|"era_technology"|"materials_physics"|"magic_behavior"|"other",
+      "defect": "palette_lighting"|"era_technology"|"materials_physics"|"magic_behavior"|"character_rendering"${textEnum}|"other",
       "note": "ONE specific sentence: what breaks and what the other spreads establish"
     }
   ]
 }`;
 }
 
-/** Closed vocabulary of world-break classes the gate can act on. */
-const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_physics', 'magic_behavior', 'other']);
+/** Closed vocabulary of set-break classes the gate can act on. */
+const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_physics', 'magic_behavior', 'character_rendering', 'text_treatment', 'other']);
 
 /**
  * Run the book-level world-consistency check across one run's renders.
  * @param {Array<{spread: number, buffer: Buffer}>} entries
- * @param {{label?: string}} [opts]
+ * @param {{label?: string, embeddedText?: boolean}} [opts]
+ *   `embeddedText` = the renders carry Gemini-painted story text, so the
+ *   gate also judges TEXT TREATMENT consistency across the set.
  * @returns {Promise<{pass: boolean, flagged: Array<{spread: number, note: string}>, qaUnavailable?: string}|null>}
  *   null when fewer than 2 entries (consistency needs a comparison — a
  *   single-spread probe correctly skips the gate). Infra errors pass with
@@ -248,10 +275,11 @@ const WORLD_DEFECTS = new Set(['palette_lighting', 'era_technology', 'materials_
  */
 async function checkWorldConsistency(entries, opts = {}) {
   const label = opts.label || 'worldQa';
+  const embeddedText = !!opts.embeddedText;
   if (!Array.isArray(entries) || entries.length < 2) return null;
   const subset = entries.slice(0, WORLD_QA_MAX_IMAGES);
   try {
-    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread)) }];
+    const parts = [{ text: worldQaPrompt(subset.map(e => e.spread), embeddedText) }];
     for (const e of subset) {
       const thumb = await qaThumbnail(e.buffer);
       parts.push({ text: `SPREAD ${e.spread}:` });
@@ -288,6 +316,12 @@ async function checkWorldConsistency(entries, opts = {}) {
     // against the CLOSED vocabulary (out-of-set values become 'other'):
     // only the enum drives the repair prompt, while `note` stays free-form
     // DIAGNOSTIC data (advisories/callbacks) that never reaches a prompt.
+    // `text_treatment` is only in vocabulary when the gate was ASKED about
+    // painted text — for text-free caption/half renders it collapses to
+    // 'other' like any hallucinated value.
+    const vocabulary = embeddedText
+      ? WORLD_DEFECTS
+      : new Set([...WORLD_DEFECTS].filter(d => d !== 'text_treatment'));
     const known = new Set(subset.map(e => e.spread));
     const seen = new Set();
     const flagged = json.flagged
@@ -298,7 +332,7 @@ async function checkWorldConsistency(entries, opts = {}) {
       })
       .map(f => ({
         spread: f.spread,
-        defect: WORLD_DEFECTS.has(f.defect) ? f.defect : 'other',
+        defect: vocabulary.has(f.defect) ? f.defect : 'other',
         note: typeof f.note === 'string' ? f.note.slice(0, 300) : 'breaks the shared world',
       }));
     return { pass: json.consistent && flagged.length === 0, flagged };
@@ -320,6 +354,8 @@ const WORLD_REPAIR_INSTRUCTIONS = {
   era_technology: 'Match the book\'s established era and technology level exactly — no objects, materials, or structures from a different period than the other spreads.',
   materials_physics: 'Match the book\'s established materials and physical laws exactly — surfaces, weights, and every interaction behave as they do on the other spreads.',
   magic_behavior: 'Match the book\'s established magical behavior exactly — magic appears and behaves only as it does on the other spreads.',
+  character_rendering: 'Render the child EXACTLY as the reference character and the book\'s other spreads: the same apparent age, the same face and body proportions, the same stylization level, the same outfit, and the same hair.',
+  text_treatment: 'Paint the story text directly OVER continuous artwork — no blank, solid, or lightened band, strip, or panel anywhere; the illustration must fill the entire canvas edge to edge — as ONE block on ONE side, in the book\'s one fixed font, size, and color, exactly as the other spreads do.',
   other: 'Match the fixed world established by the other spreads exactly.',
 };
 
@@ -331,7 +367,7 @@ const WORLD_REPAIR_INSTRUCTIONS = {
  */
 function worldRepairNote(defect) {
   const fix = WORLD_REPAIR_INSTRUCTIONS[defect] || WORLD_REPAIR_INSTRUCTIONS.other;
-  return `WORLD CONSISTENCY REPAIR — compared with the book's other spreads, this render broke the fixed world. ${fix} Re-render the SAME scene and action, obeying the WORLD LAWS above and the world reference. Fix ONLY the world/style break; keep the action, characters, and composition otherwise identical.`;
+  return `WORLD CONSISTENCY REPAIR — compared with the book's other spreads, this render broke the set's established consistency. ${fix} Re-render the SAME scene and action, obeying the WORLD LAWS above and the world reference. Fix ONLY the flagged consistency break; keep the scene otherwise identical.`;
 }
 
 // ── World-plate content validation (Layer 2's invariant, enforced) ─────────

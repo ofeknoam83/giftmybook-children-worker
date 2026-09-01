@@ -20,7 +20,7 @@ jest.mock('../../../services/gcsStorage', () => ({
   getSignedUrl: jest.fn().mockResolvedValue('https://signed.example/render.png'),
 }));
 
-const { generateIllustration } = require('../../../services/illustrationGenerator');
+const { generateIllustration, fetchWithTimeout } = require('../../../services/illustrationGenerator');
 const { downloadBuffer } = require('../../../services/gcsStorage');
 const { renderStorySpreads, illustrateStory } = require('../../../services/catalogEngine/illustrator');
 const { getBook } = require('../../../services/catalogEngine/catalog');
@@ -233,6 +233,154 @@ describe('layout-aware text embedding (ce-2)', () => {
     expect(embedded.entries.every(e => e.textEmbeddedInArt === true)).toBe(true);
     const caption = await illustrateStory(baseParams({ spreadNos: all, spreads: null }));
     expect(caption.entries.every(e => e.textEmbeddedInArt === undefined)).toBe(true);
+  });
+});
+
+describe('bounded spread-QA repair loop (CATALOG_SPREAD_QA_MAX_REPAIRS)', () => {
+  const qaVerdict = (over = {}) => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false, ...over,
+            }),
+          }],
+        },
+      }],
+    }),
+  });
+  const probeOne = () => renderStorySpreads(baseParams({ spreadNos: [1], spreads: [1] }));
+
+  afterEach(() => {
+    delete process.env.CATALOG_SPREAD_QA_MAX_REPAIRS;
+    fetchWithTimeout.mockRejectedValue(new Error('offline test'));
+  });
+
+  test('each repair pass is steered by the LATEST check\'s defects, up to the default budget of 2', async () => {
+    // Check 1: painted text → repair 1. Check 2: child missing (a DIFFERENT
+    // defect) → repair 2 must carry the child fix, not the stale text fix.
+    // Check 3: clean → no residual advisory.
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaVerdict({ readable_text: true }))
+      .mockResolvedValueOnce(qaVerdict({ child_absent: true }))
+      .mockResolvedValueOnce(qaVerdict());
+    generateIllustration.mockClear();
+    const { results } = await probeOne();
+    expect(generateIllustration).toHaveBeenCalledTimes(3); // base + 2 repairs
+    expect(generateIllustration.mock.calls[1][0]).toContain('ABSOLUTELY NO text');
+    expect(generateIllustration.mock.calls[2][0]).toContain('clearly visible and central');
+    expect(generateIllustration.mock.calls[2][0]).not.toContain('ABSOLUTELY NO text');
+    expect(results[0].advisories).toEqual([]);
+    expect(results[0].fresh).toBe(true);
+  });
+
+  test('a spread still failing when the budget runs out ships with the residual advisory', async () => {
+    process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '1';
+    fetchWithTimeout
+      .mockResolvedValueOnce(qaVerdict({ readable_text: true }))
+      .mockResolvedValueOnce(qaVerdict({ readable_text: true }));
+    generateIllustration.mockClear();
+    const { results } = await probeOne();
+    expect(generateIllustration).toHaveBeenCalledTimes(2); // base + 1 repair
+    expect(results[0].advisories).toEqual([
+      expect.objectContaining({ stage: 'spreadQa', note: expect.stringContaining('residual defects after 1 repair render(s)') }),
+    ]);
+  });
+
+  test('CATALOG_SPREAD_QA_MAX_REPAIRS=0 disables repairs — the failing render ships straight to advisory', async () => {
+    process.env.CATALOG_SPREAD_QA_MAX_REPAIRS = '0';
+    fetchWithTimeout.mockResolvedValueOnce(qaVerdict({ readable_text: true }));
+    generateIllustration.mockClear();
+    const { results } = await probeOne();
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(results[0].advisories).toEqual([
+      expect.objectContaining({ note: expect.stringContaining('repairs disabled') }),
+    ]);
+  });
+
+  test('a repair render that returns null aborts the loop and ships the last render (no double advisory)', async () => {
+    fetchWithTimeout.mockResolvedValueOnce(qaVerdict({ readable_text: true }));
+    generateIllustration.mockClear();
+    generateIllustration
+      .mockImplementationOnce(async () => 'https://x/render.png')
+      .mockImplementationOnce(async () => null);
+    const { results } = await probeOne();
+    expect(generateIllustration).toHaveBeenCalledTimes(2);
+    expect(results[0].buffer).not.toBeNull();
+    expect(results[0].advisories).toEqual([
+      expect.objectContaining({ note: expect.stringContaining('repair render failed') }),
+    ]);
+  });
+});
+
+describe('per-spread force re-render (rerenderSpreads)', () => {
+  const { fnv1a } = require('../../../services/catalogEngine/selection');
+  const markerFor = bytes => Buffer.from(JSON.stringify({
+    advisories: [], tuningTag: 'none', renderHash: fnv1a(bytes.toString('base64')).toString(36),
+  }));
+  const cleanSpreadVerdict = JSON.stringify({
+    readable_text: false, child_absent: false, multiple_children: false, flat_or_photo_style: false,
+  });
+  const geminiText = text => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
+  });
+
+  afterEach(() => fetchWithTimeout.mockRejectedValue(new Error('offline test')));
+
+  const seedCachedRenders = () => {
+    // Every render key holds QA-vouched pixels — without a force, everything
+    // would replay.
+    const png = Buffer.from('png-bytes');
+    downloadBuffer.mockImplementation(async (key) => {
+      if (key.endsWith('.qa.json')) return markerFor(png);
+      return png;
+    });
+  };
+
+  test('listed spreads render fresh while the rest replay as world-gate references', async () => {
+    seedCachedRenders();
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) return geminiText(JSON.stringify({ consistent: true, flagged: [] }));
+      return geminiText(cleanSpreadVerdict);
+    });
+    generateIllustration.mockClear();
+    const { results } = await renderStorySpreads(baseParams({ rerenderSpreads: [1] }));
+    expect(generateIllustration).toHaveBeenCalledTimes(1);
+    expect(generateIllustration.mock.calls[0][0]).toContain('Scene 1 of 12');
+    expect(results.find(r => r.spread === 1).fresh).toBe(true);
+    expect(results.find(r => r.spread === 3).fresh).toBe(false);
+  });
+
+  test('the world gate may correct the forced spread against the replayed references', async () => {
+    seedCachedRenders();
+    let gateCalls = 0;
+    fetchWithTimeout.mockImplementation(async (url, opts) => {
+      const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+      if (prompt.includes('CROSS-SPREAD CONSISTENCY')) {
+        gateCalls += 1;
+        return geminiText(JSON.stringify({
+          consistent: false,
+          flagged: [{ spread: 1, defect: 'character_rendering', note: 'child reads older than on the other spreads' }],
+        }));
+      }
+      return geminiText(cleanSpreadVerdict);
+    });
+    generateIllustration.mockClear();
+    const { results, worldQa } = await renderStorySpreads(baseParams({ rerenderSpreads: [1] }));
+    // Base fresh render + the gate's corrective re-render — spread 3 replays
+    // untouched (its storageKey is shared with earlier rounds).
+    expect(gateCalls).toBe(1);
+    expect(generateIllustration).toHaveBeenCalledTimes(2);
+    expect(generateIllustration.mock.calls[1][0]).toContain('same apparent age');
+    expect(generateIllustration.mock.calls.every(c => c[0].includes('Scene 1 of 12'))).toBe(true);
+    expect(worldQa.rerendered).toEqual([1]);
+    const s1 = results.find(r => r.spread === 1);
+    expect(s1.fresh).toBe(true);
+    expect(s1.advisories.some(a => a.stage === 'worldQa' && a.note.includes('child reads older'))).toBe(true);
   });
 });
 

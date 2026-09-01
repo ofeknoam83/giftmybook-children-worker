@@ -33,6 +33,10 @@
  *  - CATALOG_WORLD_QA=0           — skip the book-level world-consistency
  *                                   QA pass and its corrective re-renders
  *                                   (per-spread QA still runs).
+ *  - CATALOG_PROP_CONTINUITY=0    — stop carrying the child's comfort
+ *                                   object through spreads after its
+ *                                   evidence spread (props appear only on
+ *                                   their declared spreads again).
  *
  * Note: a book WITHOUT an approved map always generates name-only regardless
  * of these switches — maps are never fabricated at runtime.
@@ -53,4 +57,5 @@ module.exports = {
   artTuningLayerEnabled: () => !envOff('CATALOG_ART_TUNING_LAYER'),
   worldPlateEnabled: () => !envOff('CATALOG_WORLD_PLATE'),
   worldQaEnabled: () => !envOff('CATALOG_WORLD_QA'),
+  propContinuityEnabled: () => !envOff('CATALOG_PROP_CONTINUITY'),
 };

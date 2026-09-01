@@ -1,5 +1,12 @@
 # Art Bench consistency fixes — plan
 
+> **Status: implemented** (this branch) — Fixes 1–4 below are live: the
+> widened set-level gate (`character_rendering` + embedded-only
+> `text_treatment`), `rerenderSpreads` on `/v13/render-spreads`, the
+> `CATALOG_SPREAD_QA_MAX_REPAIRS` repair loop, and carry-through continuity
+> props with the `ce-6` STYLE_VERSION bump. Fix 0 (remediation of the round
+> that triggered this) and the app-side wiring remain operational follow-ups.
+
 **Trigger** (AdminIllustrationTuning, round `art-010.dd6f2800`,
 `jungle_6_7_footprint_trail`, spreads 1–5, embedded layout): spread 1 shipped
 visibly out of set — the child reads older / differently stylized, the palette
