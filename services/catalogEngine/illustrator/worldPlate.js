@@ -38,9 +38,30 @@ const PLATE_ATTEMPTS = 2;
 
 // In-process caches, keyed by themeId + plate-prompt hash, so a warm
 // instance resolves each plate's bytes once. The in-flight map dedupes
-// concurrent first-use generation across parallel renders.
+// concurrent first-use generation across parallel renders. The plate cache
+// is a BOUNDED LRU: each entry holds a multi-megabyte base64 image, and the
+// key churns with overlay activations and pinned older stories — unbounded,
+// a long-lived instance would accumulate plates until OOM. 16 comfortably
+// covers the 12 live themes plus pinned/overlay variants in flight.
+const PLATE_CACHE_MAX = 16;
 const _plates = new Map();
 const _inFlight = new Map();
+
+/** LRU get: refresh recency on hit. @param {string} key */
+function plateCacheGet(key) {
+  if (!_plates.has(key)) return null;
+  const plate = _plates.get(key);
+  _plates.delete(key);
+  _plates.set(key, plate);
+  return plate;
+}
+
+/** LRU set: insert as most-recent, evict oldest past the cap. */
+function plateCacheSet(key, plate) {
+  _plates.delete(key);
+  _plates.set(key, plate);
+  while (_plates.size > PLATE_CACHE_MAX) _plates.delete(_plates.keys().next().value);
+}
 
 /**
  * Deterministic GCS path for one theme's plate. Keyed by STYLE_VERSION
@@ -146,7 +167,8 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
   // catalog definitions can carry different world naming for the same id,
   // and each must anchor on the plate rendered from ITS world.
   const key = `${themeId}:${promptHash}`;
-  if (_plates.has(key)) return _plates.get(key);
+  const hit = plateCacheGet(key);
+  if (hit) return hit;
   if (_inFlight.has(key)) return _inFlight.get(key);
 
   const resolve = (async () => {
@@ -155,7 +177,7 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
       const cached = await downloadBuffer(path).catch(() => null);
       if (cached) {
         const plate = toPlate(cached);
-        _plates.set(key, plate);
+        plateCacheSet(key, plate);
         return plate;
       }
       log('info', `world plate for theme '${themeId}' not cached — generating (${path})`);
@@ -178,7 +200,7 @@ async function getWorldPlate({ theme, costTracker, log = () => {} }) {
         log('warn', `world plate upload failed for '${themeId}' (${err.message}) — plate used un-persisted`);
       }
       const plate = toPlate(plateBuffer);
-      _plates.set(key, plate);
+      plateCacheSet(key, plate);
       return plate;
     } catch (err) {
       log('warn', `world plate unavailable for theme '${themeId}' (${err.message}) — rendering without it`);

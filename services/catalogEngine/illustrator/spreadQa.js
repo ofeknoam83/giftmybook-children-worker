@@ -19,6 +19,7 @@
  * that same fixed spec, so spreads that each pass also match each other.
  */
 
+const sharp = require('sharp');
 const { fetchWithTimeout, getNextApiKey, compareTexts } = require('../../illustrationGenerator');
 
 const QA_MODEL = () => process.env.CATALOG_QA_VISION_MODEL || 'gemini-2.5-flash';
@@ -176,6 +177,29 @@ async function checkSpreadRender(imageBuffer, opts = {}) {
 // `qaUnavailable`, never blocks a book on the checker itself.
 
 const WORLD_QA_MAX_IMAGES = 12;
+// World judging reads low-frequency features (palette, lighting, era,
+// materials), so the gate sends downscaled JPEG thumbnails: twelve
+// full-size base64 PNGs can blow the API's inline-request limit and fail
+// the gate open exactly on the biggest books.
+const WORLD_QA_THUMB_WIDTH = 768;
+
+/**
+ * Downscale one render for the multi-image gate call. Falls back to the
+ * original bytes if the resize fails — the gate itself stays fail-open.
+ * @param {Buffer} buffer
+ * @returns {Promise<{data: string, mimeType: string}>}
+ */
+async function qaThumbnail(buffer) {
+  try {
+    const thumb = await sharp(buffer)
+      .resize({ width: WORLD_QA_THUMB_WIDTH, withoutEnlargement: true })
+      .jpeg({ quality: 72 })
+      .toBuffer();
+    return { data: thumb.toString('base64'), mimeType: 'image/jpeg' };
+  } catch {
+    return { data: buffer.toString('base64'), mimeType: 'image/png' };
+  }
+}
 
 /**
  * @param {number[]} spreads the spread numbers attached, in order
@@ -222,8 +246,9 @@ async function checkWorldConsistency(entries, opts = {}) {
   try {
     const parts = [{ text: worldQaPrompt(subset.map(e => e.spread)) }];
     for (const e of subset) {
+      const thumb = await qaThumbnail(e.buffer);
       parts.push({ text: `SPREAD ${e.spread}:` });
-      parts.push({ inline_data: { mimeType: 'image/png', data: e.buffer.toString('base64') } });
+      parts.push({ inline_data: { mimeType: thumb.mimeType, data: thumb.data } });
     }
     const apiKey = getNextApiKey();
     const resp = await fetchWithTimeout(

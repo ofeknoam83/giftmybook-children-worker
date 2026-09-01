@@ -22,7 +22,7 @@
  */
 
 const { generateIllustration, downloadPhotoAsBase64 } = require('../../illustrationGenerator');
-const { downloadBuffer, uploadBuffer, getSignedUrl } = require('../../gcsStorage');
+const { downloadBuffer, uploadBuffer, getSignedUrl, deletePrefix } = require('../../gcsStorage');
 const { buildScenePrompt } = require('./scenes');
 const { checkSpreadRender, repairNote, checkWorldConsistency, worldRepairNote } = require('./spreadQa');
 const { normalizeArtTuning, renderArtTuningBlock } = require('./tuning');
@@ -33,6 +33,17 @@ const flags = require('../flags');
 
 const SIGNED_URL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RENDER_CONCURRENCY = 4;
+
+/**
+ * Fingerprint of one rendered image's bytes — written into its `.qa.json`
+ * marker so a replay can prove the marker vouches for THESE pixels (a
+ * failed overwrite must never pair new bytes with an old verdict).
+ * @param {Buffer} buffer
+ * @returns {string}
+ */
+function renderContentHash(buffer) {
+  return fnv1a(buffer.toString('base64')).toString(36);
+}
 
 /**
  * Content fingerprint of the story the renders are staged for: same story →
@@ -156,6 +167,13 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
       const cached = await downloadBuffer(storageKey);
       try {
         const marker = JSON.parse((await downloadBuffer(qaMarkerKey)).toString('utf8'));
+        // The marker vouches for SPECIFIC pixels: a forced overwrite that
+        // failed before its marker write leaves new bytes beside the old
+        // marker, so a replay only trusts a marker whose renderHash matches
+        // the cached image — anything else re-checks.
+        if (marker.renderHash !== renderContentHash(cached)) {
+          throw new Error('marker does not match the cached render');
+        }
         log('info', `Spread ${spread}: replaying cached QA-checked render (${cached.length} bytes)`);
         return {
           spread, buffer: cached, storageKey,
@@ -163,16 +181,22 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
           advisories: Array.isArray(marker.advisories) ? marker.advisories : [],
           fresh: false,
         };
-      } catch {
-        // Render uploaded but its QA never completed (crash between upload
-        // and check) — re-check the cached image instead of approving it.
-        log('warn', `Spread ${spread}: cached render has NO QA marker — re-checking before replay`);
+      } catch (markerErr) {
+        // No marker (crash between upload and check) or a marker for other
+        // pixels — re-check the cached image instead of approving it.
+        log('warn', `Spread ${spread}: cached render not QA-vouched (${markerErr.message}) — re-checking before replay`);
         buffer = cached;
         url = await getSignedUrl(storageKey, SIGNED_URL_TTL_MS);
       }
     } catch {
       // cache miss — render fresh
     }
+  } else {
+    // A forced re-render overwrites a possibly-marked key: drop the stale
+    // marker FIRST so a failure anywhere before the new marker write leaves
+    // unmarked pixels (re-checked on replay), never new pixels vouched for
+    // by the old marker. Best-effort — the hash check above is the backstop.
+    await deletePrefix(qaMarkerKey).catch(() => {});
   }
 
   if (!buffer) {
@@ -237,7 +261,11 @@ async function renderSpread({ bookId, book, theme, profile, story, storyHash, sp
   if (!checkerUnavailable) {
     try {
       await uploadBuffer(
-        Buffer.from(JSON.stringify({ advisories, tuningTag, checkedAt: new Date().toISOString() })),
+        // renderHash pins the marker to the exact bytes that were checked:
+        // if a repair uploaded new pixels but this in-memory buffer is the
+        // first render (post-repair download failed), the hashes differ
+        // and the next replay re-checks instead of trusting this marker.
+        Buffer.from(JSON.stringify({ advisories, tuningTag, renderHash: renderContentHash(buffer), checkedAt: new Date().toISOString() })),
         qaMarkerKey,
         'application/json',
       );
